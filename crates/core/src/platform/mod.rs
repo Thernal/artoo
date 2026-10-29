@@ -88,6 +88,14 @@ pub fn computer_name() -> String {
         .unwrap_or_else(|| "this computer".to_owned())
 }
 
+/// A string nothing else this machine makes has: the time in nanoseconds and the process.
+pub fn uid() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    format!("{nanos:x}-{:x}", std::process::id())
+}
+
 /// Whether this run must leave the user's data folder and the network alone: a test's. A crate's own
 /// tests see `cfg!(test)`; another crate's tests turn on `sandbox` through their dev-dependencies, as
 /// `cfg!(test)` is false in a crate they only call (#165).

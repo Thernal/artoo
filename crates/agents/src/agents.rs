@@ -82,12 +82,7 @@ pub fn now() -> i64 {
 }
 
 /// A string no other answer or batch has.
-pub fn uid() -> String {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
-    format!("{nanos:x}-{:x}", std::process::id())
-}
+pub use crate::platform::uid;
 
 /// A problem an agent's chat hit and drafted a report of (`report_problem`, #118): the reviewer
 /// checks it in the app and sends it, or not.

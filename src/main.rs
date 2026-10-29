@@ -3,7 +3,6 @@
 // A GUI app on Windows: no console window behind it.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
-mod report;
 mod ui;
 
 use artoo_agents::{agents, codex, mcp, notes, review, watch};
@@ -13,6 +12,7 @@ use artoo_core::{
     textedit, themes, worddiff,
 };
 use artoo_hosts::{avatars, connect, ide, merge, mr, pictures};
+use artoo_reports as report;
 use artoo_updates as updates;
 use std::path::PathBuf;
 

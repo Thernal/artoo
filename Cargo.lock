@@ -207,6 +207,7 @@ dependencies = [
  "artoo-agents",
  "artoo-core",
  "artoo-hosts",
+ "artoo-reports",
  "artoo-updates",
  "base64",
  "chrono",
@@ -312,6 +313,19 @@ dependencies = [
  "serde_json",
  "sha1_smol",
  "tempfile",
+]
+
+[[package]]
+name = "artoo-reports"
+version = "1.3.0"
+dependencies = [
+ "anyhow",
+ "artoo-core",
+ "base64",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha1_smol",
 ]
 
 [[package]]

@@ -5,6 +5,7 @@
 //! (the app holds no key), or GitHub's new-issue page of the project, filled in.
 
 use anyhow::{Result, anyhow, bail};
+use artoo_core::{applog, platform};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -227,7 +228,7 @@ pub fn install_id() -> String {
         }
     }
     let mut hash = sha1_smol::Sha1::new();
-    hash.update(crate::agents::uid().as_bytes());
+    hash.update(crate::platform::uid().as_bytes());
     hash.update(format!("{:?}", std::env::home_dir()).as_bytes());
     let id = hash.digest().to_string()[..20].to_owned();
     if let Some(dir) = file.parent() {

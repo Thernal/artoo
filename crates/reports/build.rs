@@ -15,6 +15,6 @@ fn main() {
         commit.unwrap_or_else(|| "unknown".to_owned())
     );
     println!("cargo:rerun-if-env-changed=ARTOO_COMMIT");
-    println!("cargo:rerun-if-changed=.git/HEAD");
-    println!("cargo:rerun-if-changed=.git/refs/heads");
+    println!("cargo:rerun-if-changed=../../.git/HEAD");
+    println!("cargo:rerun-if-changed=../../.git/refs/heads");
 }
