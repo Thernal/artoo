@@ -1,14 +1,18 @@
 //! GitLab and GitHub (#165): merge requests and pull requests, the ways to connect a host, merging, people's
-//! and comments' pictures. One crate while they reach into one another; stage 3's `Host` trait splits it.
+//! and comments' pictures. GitLab's side (`gitlab`) and GitHub's (`github`) implement the hosts' contract
+//! (`hosts`), neither reaching into the other; what both use has its own module (`tokens`, `fixture`, `json`).
 
 pub mod avatars;
 pub mod connect;
-pub mod github;
+pub mod fixture;
+mod github;
+mod gitlab;
 mod hosts;
 pub mod ide;
+mod json;
 pub mod merge;
-pub mod mr;
 pub mod pictures;
+pub mod tokens;
 
 use artoo_core::{emoji, git, links, platform, search, storage};
 

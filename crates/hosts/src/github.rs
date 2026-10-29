@@ -1,6 +1,5 @@
-//! Pull requests of a GitHub repository (github.com or GitHub Enterprise), in the shapes `crate::mr`
-//! gives the app for GitLab merge requests: `mr` hands every call on a GitHub remote to this
-//! module. Through `curl` as there, with GitHub's REST API and its GraphQL API where REST has no
+//! Pull requests of a GitHub repository (github.com or GitHub Enterprise), in the hosts' contract's
+//! shapes, as `crate::gitlab` gives GitLab's merge requests: GitHub's side of `crate::hosts`. Through `curl` as there, with GitHub's REST API and its GraphQL API where REST has no
 //! answer (review threads and their resolving, the pending review, force pushes).
 //!
 //! GitHub's model differs in three places, and the app says so where it shows: a reviewer's
@@ -8,10 +7,10 @@
 //! be taken back, only replaced by a later review; and only comments on lines resolve.
 
 use crate::git::{LineKind, WebRemote};
-use crate::mr::{
+use anyhow::{Result, anyhow, bail};
+use artoo_hosts_api::{
     Approvals, Award, Details, Draft, Label, Mr, Note, Pipeline, Place, Push, Thread, Todo, Verdict,
 };
-use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -80,7 +79,7 @@ pub fn token_source(remote: &WebRemote, run: bool) -> Option<(String, &'static s
             ));
         }
     }
-    if let Some(t) = crate::mr::saved_token(&format!("https://{}", host(remote))).and_then(clean) {
+    if let Some(t) = crate::tokens::saved(&format!("https://{}", host(remote))).and_then(clean) {
         return Some((t, "Settings"));
     }
     crate::connect::borrowed_token(remote, run)
@@ -97,7 +96,7 @@ pub fn token_page(remote: &WebRemote) -> String {
 
 /// `ARTOO_MR_FIXTURE=<dir>` reads GitHub's answers from `<dir>/github/`.
 fn fixture() -> Option<std::path::PathBuf> {
-    crate::mr::fixture().map(|d| d.join("github"))
+    crate::fixture::fixture().map(|d| d.join("github"))
 }
 
 fn read_fixture(name: &str) -> Option<Result<Value>> {
@@ -267,7 +266,7 @@ fn send_with(
 
 /// Seconds since the epoch of GitHub's `2026-10-08T12:34:56Z`.
 fn epoch(value: &Value) -> i64 {
-    crate::mr::epoch(value.as_str().unwrap_or_default())
+    crate::json::epoch(value.as_str().unwrap_or_default())
 }
 
 fn s(value: &Value) -> String {
@@ -321,12 +320,12 @@ pub fn list(remote: &WebRemote) -> Result<Vec<Mr>> {
 /// last page and says how many there are (#169).
 pub fn list_past(
     remote: &WebRemote,
-    state: crate::mr::MrState,
-    whose: &crate::mr::Whose,
+    state: artoo_hosts_api::MrState,
+    whose: &artoo_hosts_api::Whose,
     at: Option<&str>,
-) -> Result<crate::mr::PastPage> {
-    use crate::mr::{PastPage, Whose};
-    let per = crate::mr::PAST_PAGE;
+) -> Result<artoo_hosts_api::PastPage> {
+    use artoo_hosts_api::{PastPage, Whose};
+    let per = artoo_hosts_api::PAST_PAGE;
     let qualifier = match whose {
         Whose::All => None,
         Whose::Author(login) => Some(format!("author:{login}")),
@@ -361,7 +360,7 @@ pub fn list_past(
         None => {
             let (owner, name) = owner_name(remote)?;
             let is = match state {
-                crate::mr::MrState::Merged => "is:merged",
+                artoo_hosts_api::MrState::Merged => "is:merged",
                 _ => "is:closed is:unmerged",
             };
             let q = format!("repo:{owner}/{name} is:pr {is} {qualifier} sort:updated-desc");
@@ -427,11 +426,11 @@ fn rest_shape(n: &Value) -> Value {
 /// What the search would find in `pulls-closed.json`: a reviewer is one asked for a review.
 fn search_fixture(
     all: &Value,
-    state: crate::mr::MrState,
-    whose: &crate::mr::Whose,
+    state: artoo_hosts_api::MrState,
+    whose: &artoo_hosts_api::Whose,
     at: Option<&str>,
 ) -> Value {
-    use crate::mr::Whose;
+    use artoo_hosts_api::Whose;
     let theirs: Vec<Value> = all
         .as_array()
         .into_iter()
@@ -446,7 +445,7 @@ fn search_fixture(
         })
         .cloned()
         .collect();
-    let per = crate::mr::PAST_PAGE;
+    let per = artoo_hosts_api::PAST_PAGE;
     let from: usize = at.and_then(|a| a.parse().ok()).unwrap_or(0);
     let nodes: Vec<Value> = theirs
         .iter()
@@ -530,7 +529,7 @@ pub fn react(
     issue: bool,
     name: &str,
 ) -> Result<u64> {
-    if crate::mr::record(format!("award {number} {comment} {name}"))? {
+    if crate::fixture::record(format!("award {number} {comment} {name}"))? {
         return Ok(comment * 1000 + 1);
     }
     let content =
@@ -553,7 +552,7 @@ pub fn unreact(
     name: &str,
     reaction: u64,
 ) -> Result<()> {
-    if crate::mr::record(format!("unaward {number} {comment} {name}"))? {
+    if crate::fixture::record(format!("unaward {number} {comment} {name}"))? {
         return Ok(());
     }
     let kind = if issue { "issues" } else { "pulls" };
@@ -602,7 +601,7 @@ pub fn parse_details(p: &Value) -> Details {
             .flatten()
             .map(|l| Label {
                 name: s(&l["name"]),
-                color: crate::mr::hex_color(&s(&l["color"])),
+                color: crate::json::hex_color(&s(&l["color"])),
             })
             .collect(),
         milestone: p["milestone"].is_object().then(|| {
@@ -662,9 +661,9 @@ fn parse_pull(p: &Value) -> Option<Mr> {
         description: s(&p["body"]),
         // GitHub's closed covers merged: `merged_at` tells them apart.
         state: match (s(&p["state"]).as_str(), p["merged_at"].is_string()) {
-            (_, true) => crate::mr::MrState::Merged,
-            ("closed", false) => crate::mr::MrState::Closed,
-            _ => crate::mr::MrState::Opened,
+            (_, true) => artoo_hosts_api::MrState::Merged,
+            ("closed", false) => artoo_hosts_api::MrState::Closed,
+            _ => artoo_hosts_api::MrState::Opened,
         },
         merged_with: p["merge_commit_sha"]
             .as_str()
@@ -1053,7 +1052,7 @@ pub fn post_discussion(
         LineKind::Removed => (first.old_line.unwrap_or(0), "LEFT"),
         _ => (first.new_line.unwrap_or(0), "RIGHT"),
     });
-    if crate::mr::record(format!(
+    if crate::fixture::record(format!(
         "{number} {}{} {}{line} {side} {body}",
         if draft { "draft " } else { "" },
         place.path,
@@ -1106,7 +1105,7 @@ fn thread_ids(thread: &str) -> (&str, &str) {
 }
 
 pub fn reply(remote: &WebRemote, number: u64, thread: &str, body: &str) -> Result<()> {
-    if crate::mr::record(format!("reply {number} {thread} {body}"))? {
+    if crate::fixture::record(format!("reply {number} {thread} {body}"))? {
         return Ok(());
     }
     match thread_ids(thread) {
@@ -1131,7 +1130,7 @@ pub fn edit_note(
     note: u64,
     body: &str,
 ) -> Result<()> {
-    if crate::mr::record(format!("edit {number} {note} {body}"))? {
+    if crate::fixture::record(format!("edit {number} {note} {body}"))? {
         return Ok(());
     }
     let endpoint = match thread_ids(thread) {
@@ -1144,7 +1143,7 @@ pub fn edit_note(
 
 /// Deletes one's own comment `note` of thread `thread` (#76).
 pub fn delete_note(remote: &WebRemote, number: u64, thread: &str, note: u64) -> Result<()> {
-    if crate::mr::record(format!("delete-note {number} {note}"))? {
+    if crate::fixture::record(format!("delete-note {number} {note}"))? {
         return Ok(());
     }
     let endpoint = match thread_ids(thread) {
@@ -1156,7 +1155,7 @@ pub fn delete_note(remote: &WebRemote, number: u64, thread: &str, note: u64) -> 
 }
 
 pub fn resolve(remote: &WebRemote, number: u64, thread: &str, resolved: bool) -> Result<()> {
-    if crate::mr::record(format!("resolve {number} {thread} {resolved}"))? {
+    if crate::fixture::record(format!("resolve {number} {thread} {resolved}"))? {
         return Ok(());
     }
     let (id, _) = thread_ids(thread);
@@ -1174,7 +1173,7 @@ pub fn resolve(remote: &WebRemote, number: u64, thread: &str, resolved: bool) ->
 
 /// A comment on the pull request as a whole.
 pub fn comment(remote: &WebRemote, number: u64, body: &str) -> Result<()> {
-    if crate::mr::record(format!("note {number} {body}"))? {
+    if crate::fixture::record(format!("note {number} {body}"))? {
         return Ok(());
     }
     rest(
@@ -1204,7 +1203,7 @@ pub fn submit(
         ("", Verdict::RequestChanges) => "Changes requested.".to_owned(),
         (text, _) => text.to_owned(),
     };
-    if crate::mr::record(format!("submit {number} {event} {body}"))? {
+    if crate::fixture::record(format!("submit {number} {event} {body}"))? {
         return Ok(());
     }
     let (_, review) = pending_review(remote, number)?;
@@ -1295,7 +1294,7 @@ pub fn merge(remote: &WebRemote, number: u64, m: &crate::merge::Merge) -> Result
         Some((title, body)) => (title.trim().to_owned(), body.trim().to_owned()),
         None => (m.message.trim().to_owned(), String::new()),
     };
-    if crate::mr::record(format!(
+    if crate::fixture::record(format!(
         "merge {number} {} {} delete={} auto={} {title}",
         m.sha,
         m.method.key(),
@@ -1345,7 +1344,7 @@ pub fn merge(remote: &WebRemote, number: u64, m: &crate::merge::Merge) -> Result
 
 /// Pull request `number` (node `node`) no longer merges when its checks pass.
 pub fn cancel_auto_merge(remote: &WebRemote, number: u64, node: &str) -> Result<()> {
-    if crate::mr::record(format!("cancel-auto-merge {number}"))? {
+    if crate::fixture::record(format!("cancel-auto-merge {number}"))? {
         return Ok(());
     }
     graphql(
@@ -1357,7 +1356,7 @@ pub fn cancel_auto_merge(remote: &WebRemote, number: u64, node: &str) -> Result<
 }
 
 pub fn delete_draft(remote: &WebRemote, number: u64, id: u64) -> Result<()> {
-    if crate::mr::record(format!("delete-draft {number} {id}"))? {
+    if crate::fixture::record(format!("delete-draft {number} {id}"))? {
         return Ok(());
     }
     rest(remote, "DELETE", &format!("pulls/comments/{id}"), None)?;
@@ -1371,9 +1370,9 @@ pub fn create(
     target: &str,
     title: &str,
     description: &str,
-    options: &crate::mr::NewOptions,
+    options: &artoo_hosts_api::NewOptions,
 ) -> Result<Mr> {
-    let crate::mr::NewOptions {
+    let artoo_hosts_api::NewOptions {
         draft,
         reviewers,
         labels,
@@ -1381,7 +1380,7 @@ pub fn create(
         ..
     } = options;
     let draft = *draft;
-    if crate::mr::record(format!(
+    if crate::fixture::record(format!(
         "create {source} {target} {draft} r={} l={} m={} {title}",
         reviewers.join(","),
         labels.join(","),
@@ -1449,11 +1448,11 @@ pub fn labels(remote: &WebRemote) -> Result<Vec<Label>> {
         Some(v) => v?,
         None => get(remote, "labels?per_page=100")?,
     };
-    Ok(crate::mr::parse_labels(&value))
+    Ok(crate::json::parse_labels(&value))
 }
 
 /// The repository's open milestones, by number.
-pub fn milestones(remote: &WebRemote) -> Result<Vec<crate::mr::Milestone>> {
+pub fn milestones(remote: &WebRemote) -> Result<Vec<artoo_hosts_api::Milestone>> {
     let value = match read_fixture("milestones.json") {
         Some(v) => v?,
         None => get(remote, "milestones?state=open&per_page=100")?,
@@ -1464,7 +1463,7 @@ pub fn milestones(remote: &WebRemote) -> Result<Vec<crate::mr::Milestone>> {
         .flatten()
         .filter_map(|m| {
             let due = s(&m["due_on"]);
-            Some(crate::mr::Milestone {
+            Some(artoo_hosts_api::Milestone {
                 id: m["number"].as_u64()?,
                 title: s(&m["title"]),
                 due: due.get(..10).map(str::to_owned),
@@ -1535,7 +1534,7 @@ pub fn parse_notifications(value: &Value, base: &str) -> Vec<Todo> {
 
 /// Marks a notification read.
 pub fn mark_todo_done(remote: &WebRemote, id: u64) -> Result<()> {
-    if crate::mr::record(format!("todo-done {id}"))? {
+    if crate::fixture::record(format!("todo-done {id}"))? {
         return Ok(());
     }
     rest(
@@ -1577,7 +1576,8 @@ mod tests {
 
     #[test]
     fn ones_merged_pull_requests_are_searched_for() {
-        use crate::mr::{MrState, TEST_FIXTURE, Whose};
+        use crate::fixture::TEST_FIXTURE;
+        use artoo_hosts_api::{MrState, Whose};
         let dir = tempfile::TempDir::new().unwrap();
         std::fs::create_dir_all(dir.path().join("github")).unwrap();
         let pull = |number: u64, login: &str, merged: bool| {

@@ -22,7 +22,7 @@ const LIMIT: Duration = Duration::from_secs(10);
 pub const DAYS: u32 = 30;
 const RENEW_BEFORE: i64 = 5;
 
-/// Tokens found in git this run, by host (`https://host`), with where: `mr::token_source` gives
+/// Tokens found in git this run, by host (`https://host`), with where: `Host::token_source` gives
 /// them while git is the way picked for the host.
 fn found() -> &'static Mutex<HashMap<String, (String, &'static str)>> {
     static FOUND: OnceLock<Mutex<HashMap<String, (String, &'static str)>>> = OnceLock::new();
@@ -854,7 +854,7 @@ pub fn borrow(root: &Path, url: &str, remote: &WebRemote) {
     }
 }
 
-/// The token of a borrowed way picked for the host, as `mr::token_source` gives it: from what was
+/// The token of a borrowed way picked for the host, as `Host::token_source` gives it: from what was
 /// read this run, or — `run` — read now (the CLI; git's credential helper, from the working
 /// directory), off the window's thread.
 pub fn borrowed_token(remote: &WebRemote, run: bool) -> Option<(String, &'static str)> {

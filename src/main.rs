@@ -11,7 +11,9 @@ use artoo_core::{
     markdown, mddiff, platform, rank, search, storage, structural, symbols, textedit, themes,
     worddiff,
 };
-use artoo_hosts::{avatars, connect, ide, merge, mr, pictures};
+use artoo_hosts::{avatars, connect, ide, merge, pictures, tokens};
+/// The hosts' models (a request, a thread, a draft…), by the name the views knew them by before #165.
+use artoo_hosts_api as mr;
 use artoo_reports as report;
 use artoo_ui_kit::file_icons;
 use artoo_updates as updates;

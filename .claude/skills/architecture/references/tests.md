@@ -5,7 +5,7 @@
 ## Rule
 
 1. **A fake replaces the transport, never the contract.** A host's tests run its real mapping: the fixtures
-   (`mr::TEST_FIXTURE`, `connect::TEST_FIXTURE`) stand in for curl's answers, so a fake that returned finished
+   (`fixture::TEST_FIXTURE`, `connect::TEST_FIXTURE`) stand in for curl's answers, so a fake that returned finished
    `Request`s would test nothing of what breaks.
 2. **A consumer's test stubs the contract by hand.** A test in agents that needs a host writes a small
    `struct Stub; impl Host for Stub` in its test module — no mocking crate — and provides it like the real one

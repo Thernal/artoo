@@ -1,8 +1,8 @@
 //! The hosts' contract implemented (#165 stage 3): GitLab for any remote but GitHub's. GitLab answers from
-//! `mr.rs`, GitHub from `github.rs`; neither asks which host it is.
+//! `gitlab.rs`, GitHub from `github.rs`; neither asks which host it is.
 
 use crate::git::WebRemote;
-use crate::{github, mr};
+use crate::{github, gitlab, tokens};
 use anyhow::Result;
 use anyhow::bail;
 use artoo_hosts_api::*;
@@ -49,101 +49,101 @@ impl Host for GitHub {
 
 impl Account for GitLab {
     fn host(&self) -> String {
-        mr::host(&self.remote)
+        gitlab::host(&self.remote)
     }
 
     fn api_host(&self) -> String {
-        mr::api_host(&self.remote)
+        gitlab::api_host(&self.remote)
     }
 
     fn token_source(&self) -> Option<(String, &'static str)> {
-        mr::token_source(&self.remote)
+        gitlab::token_source(&self.remote)
     }
 
     fn token(&self) -> Option<String> {
-        mr::token(&self.remote)
+        gitlab::token(&self.remote)
     }
 
     fn token_now(&self) -> Option<String> {
-        mr::token_now(&self.remote)
+        gitlab::token_now(&self.remote)
     }
 
     fn save_token(&self, token: &str) -> Result<()> {
-        mr::save_token(&self.remote, token)
+        gitlab::save_token(&self.remote, token)
     }
 
     fn forget_token(&self) {
-        mr::forget_token(&self.remote)
+        gitlab::forget_token(&self.remote)
     }
 
     fn token_page(&self) -> String {
-        mr::token_page(&self.remote)
+        gitlab::token_page(&self.remote)
     }
 
     fn me(&self) -> Result<String> {
-        mr::me(&self.remote)
+        gitlab::me(&self.remote)
     }
 
     fn whois_with(&self, token: &str) -> Result<(String, String)> {
-        mr::whois_with(&self.remote, token)
+        gitlab::whois_with(&self.remote, token)
     }
 
     fn token_info(&self) -> Option<String> {
-        mr::token_info(&self.remote)
+        gitlab::token_info(&self.remote)
     }
 
     fn token_check_with(&self, token: &str) -> Option<(Vec<String>, Option<String>)> {
-        mr::token_check_with(&self.remote, token)
+        gitlab::token_check_with(&self.remote, token)
     }
 
     fn revoke_token(&self) -> Result<()> {
-        mr::revoke_token(&self.remote)
+        gitlab::revoke_token(&self.remote)
     }
 
     fn available(&self) -> bool {
-        mr::available(&self.remote)
+        gitlab::available(&self.remote)
     }
 
     fn username(&self) -> Result<String> {
-        mr::username(&self.remote)
+        gitlab::username(&self.remote)
     }
 }
 
 impl Requests for GitLab {
     fn list(&self) -> Result<Vec<Mr>> {
-        mr::list(&self.remote)
+        gitlab::list(&self.remote)
     }
 
     fn list_past(&self, state: MrState, whose: &Whose, at: Option<&str>) -> Result<PastPage> {
-        mr::list_past(&self.remote, state, whose, at)
+        gitlab::list_past(&self.remote, state, whose, at)
     }
 
     fn one(&self, iid: u64) -> Result<Mr> {
-        mr::one(&self.remote, iid)
+        gitlab::one(&self.remote, iid)
     }
 
     fn details(&self, iid: u64) -> Result<Details> {
-        mr::details(&self.remote, iid)
+        gitlab::details(&self.remote, iid)
     }
 
     fn labels(&self) -> Result<Vec<Label>> {
-        mr::labels(&self.remote)
+        gitlab::labels(&self.remote)
     }
 
     fn milestones(&self) -> Result<Vec<Milestone>> {
-        mr::milestones(&self.remote)
+        gitlab::milestones(&self.remote)
     }
 
     fn members(&self) -> Result<Vec<(String, String)>> {
-        mr::members(&self.remote)
+        gitlab::members(&self.remote)
     }
 
     fn project_template(&self) -> Result<Option<String>> {
-        mr::project_template(&self.remote)
+        gitlab::project_template(&self.remote)
     }
 
     fn unreached(&self) -> Result<Vec<String>> {
-        mr::unreached(&self.remote)
+        gitlab::unreached(&self.remote)
     }
 
     fn create(
@@ -154,41 +154,41 @@ impl Requests for GitLab {
         description: &str,
         options: &NewOptions,
     ) -> Result<Mr> {
-        mr::create(&self.remote, source, target, title, description, options)
+        gitlab::create(&self.remote, source, target, title, description, options)
     }
 
     fn pipeline(&self, iid: u64) -> Result<Option<Pipeline>> {
-        mr::pipeline(&self.remote, iid)
+        gitlab::pipeline(&self.remote, iid)
     }
 
     fn versions(&self, iid: u64) -> Result<Vec<Push>> {
-        mr::versions(&self.remote, iid)
+        gitlab::versions(&self.remote, iid)
     }
 
     fn todos(&self) -> Result<Vec<Todo>> {
-        mr::todos(&self.remote)
+        gitlab::todos(&self.remote)
     }
 
     fn mark_todo_done(&self, id: u64) -> Result<()> {
-        mr::mark_todo_done(&self.remote, id)
+        gitlab::mark_todo_done(&self.remote, id)
     }
 }
 
 impl Discussions for GitLab {
     fn threads(&self, iid: u64) -> Result<Vec<Thread>> {
-        mr::threads(&self.remote, iid)
+        gitlab::threads(&self.remote, iid)
     }
 
     fn awards(&self, iid: u64, notes: &[(u64, bool)]) -> Result<HashMap<u64, Vec<Award>>> {
-        mr::awards(&self.remote, iid, notes)
+        gitlab::awards(&self.remote, iid, notes)
     }
 
     fn award(&self, iid: u64, note: u64, _issue: bool, name: &str) -> Result<u64> {
-        mr::award(&self.remote, iid, note, name)
+        gitlab::award(&self.remote, iid, note, name)
     }
 
     fn unaward(&self, iid: u64, note: u64, _issue: bool, name: &str, award: u64) -> Result<()> {
-        mr::unaward(&self.remote, iid, note, name, award)
+        gitlab::unaward(&self.remote, iid, note, name, award)
     }
 
     fn post_discussion(
@@ -199,53 +199,53 @@ impl Discussions for GitLab {
         body: &str,
         draft: bool,
     ) -> Result<Option<u64>> {
-        mr::post_discussion(&self.remote, iid, head, place, body, draft)
+        gitlab::post_discussion(&self.remote, iid, head, place, body, draft)
     }
 
     fn resolve(&self, iid: u64, discussion: &str, resolved: bool) -> Result<()> {
-        mr::resolve(&self.remote, iid, discussion, resolved)
+        gitlab::resolve(&self.remote, iid, discussion, resolved)
     }
 
     fn reply(&self, iid: u64, discussion: &str, body: &str) -> Result<()> {
-        mr::reply(&self.remote, iid, discussion, body)
+        gitlab::reply(&self.remote, iid, discussion, body)
     }
 
     fn edit_note(&self, iid: u64, discussion: &str, note: u64, body: &str) -> Result<()> {
-        mr::edit_note(&self.remote, iid, discussion, note, body)
+        gitlab::edit_note(&self.remote, iid, discussion, note, body)
     }
 
     fn delete_note(&self, iid: u64, discussion: &str, note: u64) -> Result<()> {
-        mr::delete_note(&self.remote, iid, discussion, note)
+        gitlab::delete_note(&self.remote, iid, discussion, note)
     }
 
     fn drafts(&self, iid: u64) -> Result<Vec<Draft>> {
-        mr::drafts(&self.remote, iid)
+        gitlab::drafts(&self.remote, iid)
     }
 
     fn publish_draft(&self, iid: u64, id: u64) -> Result<()> {
-        mr::publish_draft(&self.remote, iid, id)
+        gitlab::publish_draft(&self.remote, iid, id)
     }
 
     fn delete_draft(&self, iid: u64, id: u64) -> Result<()> {
-        mr::delete_draft(&self.remote, iid, id)
+        gitlab::delete_draft(&self.remote, iid, id)
     }
 }
 
 impl Reviews for GitLab {
     fn approvals(&self, iid: u64) -> Result<Approvals> {
-        mr::approvals(&self.remote, iid)
+        gitlab::approvals(&self.remote, iid)
     }
 
     fn approve(&self, iid: u64, head: &str) -> Result<()> {
-        mr::approve(&self.remote, iid, head)
+        gitlab::approve(&self.remote, iid, head)
     }
 
     fn unapprove(&self, iid: u64) -> Result<()> {
-        mr::unapprove(&self.remote, iid)
+        gitlab::unapprove(&self.remote, iid)
     }
 
     fn comment(&self, iid: u64, body: &str) -> Result<()> {
-        mr::comment(&self.remote, iid, body)
+        gitlab::comment(&self.remote, iid, body)
     }
 
     fn submit(
@@ -257,25 +257,25 @@ impl Reviews for GitLab {
         verdict: Verdict,
         approved: bool,
     ) -> Result<()> {
-        mr::submit(&self.remote, iid, head, drafts, summary, verdict, approved)
+        gitlab::submit(&self.remote, iid, head, drafts, summary, verdict, approved)
     }
 }
 
 impl Merging for GitLab {
     fn merge_state(&self, iid: u64) -> Result<MergeState> {
-        mr::merge_state(&self.remote, iid)
+        gitlab::merge_state(&self.remote, iid)
     }
 
     fn merge(&self, iid: u64, m: &Merge) -> Result<()> {
-        mr::merge(&self.remote, iid, m)
+        gitlab::merge(&self.remote, iid, m)
     }
 
     fn cancel_auto_merge(&self, iid: u64, _node: &str) -> Result<()> {
-        mr::cancel_auto_merge(&self.remote, iid)
+        gitlab::cancel_auto_merge(&self.remote, iid)
     }
 
     fn rebase(&self, iid: u64) -> Result<()> {
-        mr::rebase(&self.remote, iid)
+        gitlab::rebase(&self.remote, iid)
     }
 }
 
@@ -301,11 +301,11 @@ impl Account for GitHub {
     }
 
     fn save_token(&self, token: &str) -> Result<()> {
-        mr::save_token(&self.remote, token)
+        tokens::save(&self.api_host(), token)
     }
 
     fn forget_token(&self) {
-        mr::forget_token(&self.remote)
+        tokens::forget(&self.api_host())
     }
 
     fn token_page(&self) -> String {
@@ -333,7 +333,7 @@ impl Account for GitHub {
     }
 
     fn available(&self) -> bool {
-        mr::fixture().is_some() || self.token_now().is_some()
+        crate::fixture::fixture().is_some() || self.token_now().is_some()
     }
 
     fn username(&self) -> Result<String> {
@@ -532,7 +532,7 @@ mod tests {
                 "head": {"ref": "docs", "sha": "abc"}, "base": {"ref": "main"}}]"#,
         )
         .unwrap();
-        mr::TEST_FIXTURE.with(|f| *f.borrow_mut() = Some(dir.path().to_owned()));
+        crate::fixture::TEST_FIXTURE.with(|f| *f.borrow_mut() = Some(dir.path().to_owned()));
         let gitlab = WebRemote {
             base: "https://git.example.com/g/p".into(),
             github: false,
@@ -558,6 +558,6 @@ mod tests {
         let discussions: &dyn Discussions = &*host;
         assert!(discussions.publish_draft(412, 9001).is_ok());
         assert!(hosts.of(&github).publish_draft(412, 9001).is_err());
-        mr::TEST_FIXTURE.with(|f| *f.borrow_mut() = None);
+        crate::fixture::TEST_FIXTURE.with(|f| *f.borrow_mut() = None);
     }
 }

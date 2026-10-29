@@ -335,7 +335,7 @@ impl Workspace {
         let host = web_host.api_host();
         self.connecting.error = None;
         let made = self.made_in_use().is_some();
-        let saved = crate::mr::saved_token(&host).is_some();
+        let saved = crate::tokens::saved(&host).is_some();
         let key = way.via.key();
         let said = match &way.via {
             Via::Git(from) => format!("with the token {from} keeps"),

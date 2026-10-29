@@ -1,6 +1,6 @@
 //! Coding agents and Artoo (#165): the chats it knows, the MCP server an agent runs (`mcp`), `agent-watch`, the
-//! comments sent to a chat and their answers, notes, Codex. It reads requests through the hosts (`mr`) until
-//! stage 3's `Host` trait.
+//! comments sent to a chat and their answers, notes, Codex. It reads requests through the hosts' contract
+//! (`artoo_hosts_api`), the hosts it is handed.
 
 pub mod agents;
 pub mod codex;

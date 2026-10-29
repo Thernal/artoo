@@ -4,7 +4,7 @@
 //! address), and read from there from then on — after a restart too. An upload never changes
 //! (GitLab's `/uploads/`, GitHub's attachments) and is kept as it is; another image (a badge) is
 //! drawn as kept and asked again once a day. A GitLab upload written in a comment of the project
-//! is asked through the API with the host's token (`crate::mr::upload`): a private project's
+//! is asked through the API with the host's token (`crate::gitlab::upload`): a private project's
 //! uploads need sign-in, and the token goes to that project's host only, never to an address a
 //! comment names. One that could not be had is not asked for again for a week (`<name>.none`);
 //! images not written for 60 days are swept.
@@ -231,7 +231,7 @@ fn fetch(url: &str, stem: &Path, upload: Option<(String, String)>) -> Option<Pat
     // address itself, as for a public project.
     let by_api = upload
         .and_then(|(project, path)| Some((WebRemote::parse(&project).filter(|r| !r.github)?, path)))
-        .is_some_and(|(remote, path)| crate::mr::upload(&remote, &path, &part));
+        .is_some_and(|(remote, path)| crate::gitlab::upload(&remote, &path, &part));
     if !by_api {
         let status = std::process::Command::new("curl")
             .args([

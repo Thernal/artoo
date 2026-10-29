@@ -20,6 +20,6 @@ sandbox = ["artoo-core/sandbox"]
 
 [dev-dependencies]
 artoo-core = { path = "../core", features = ["sandbox"] }
-# The real hosts over their fixtures (`mr::TEST_FIXTURE`).
+# The real hosts over their fixtures (`fixture::TEST_FIXTURE`).
 artoo-hosts = { path = "../hosts", features = ["sandbox"] }
 tempfile.workspace = true

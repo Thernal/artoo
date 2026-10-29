@@ -18,7 +18,7 @@ serde_json.workspace = true
 sha1_smol.workspace = true
 
 [features]
-# Tests of a crate that calls this one: a test's fixture (`mr::TEST_FIXTURE`, `connect::TEST_FIXTURE`), and the
+# Tests of a crate that calls this one: a test's fixture (`fixture::TEST_FIXTURE`, `connect::TEST_FIXTURE`), and the
 # core's guard.
 sandbox = ["artoo-core/sandbox"]
 

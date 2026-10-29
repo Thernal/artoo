@@ -4,10 +4,12 @@
 //! a GitHub remote never reaches here. What both hosts use — the saved tokens, the fixture — is here too
 //! until the next step gives it its own module.
 
+use crate::fixture::{fixture, record};
 use crate::git::{DiffLine, LineKind, WebRemote};
+use crate::json::{epoch, hex_color, parse_labels};
 use anyhow::{Result, anyhow, bail};
 use artoo_hosts_api::MergeState;
-pub use artoo_hosts_api::{
+use artoo_hosts_api::{
     Approvals, Award, Details, Draft, Label, Milestone, Mr, MrState, NewOptions, Note, PAST_PAGE,
     PastPage, Pipeline, Place, Push, Thread, Todo, Verdict, Whose,
 };
@@ -48,11 +50,9 @@ fn source(remote: &WebRemote, run: bool) -> Option<(String, &'static str)> {
     if let Some(t) = std::env::var("GITLAB_TOKEN").ok().and_then(clean) {
         return Some((t, "the GITLAB_TOKEN variable"));
     }
-    let home = tokens_home()?;
+    let home = crate::tokens::home()?;
     if let Ok((host, _)) = api(remote)
-        && let Some(t) = std::fs::read_to_string(token_file(&home, &host))
-            .ok()
-            .and_then(clean)
+        && let Some(t) = crate::tokens::saved(&host).and_then(clean)
     {
         return Some((t, "Settings"));
     }
@@ -80,51 +80,16 @@ pub fn token_now(remote: &WebRemote) -> Option<String> {
     source(remote, false).map(|(t, _)| t)
 }
 
-/// The token this app saved for `host` (`https://host`), as written.
-pub fn saved_token(host: &str) -> Option<String> {
-    std::fs::read_to_string(token_file(&tokens_home()?, host)).ok()
-}
-
-/// The home folder tokens are kept under; with the connect checks' fixture, its `home/`, so a
-/// check or a test never writes the developer's own (#156).
-fn tokens_home() -> Option<std::path::PathBuf> {
-    match crate::connect::fixture() {
-        Some(dir) => Some(dir.join("home")),
-        None => std::env::home_dir(),
-    }
-}
-
-fn token_file(home: &std::path::Path, host: &str) -> std::path::PathBuf {
-    let safe: String = host
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    home.join(".config/artoo/tokens").join(safe)
-}
-
 /// Keeps `token` for the host of `remote`, readable by the owner only.
 pub fn save_token(remote: &WebRemote, token: &str) -> Result<()> {
-    let home = tokens_home().ok_or_else(|| anyhow!("no home directory"))?;
     let (host, _) = api(remote)?;
-    let file = token_file(&home, &host);
-    if let Some(dir) = file.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    std::fs::write(&file, format!("{}\n", token.trim()))?;
-    crate::platform::owner_only(&file)?;
-    Ok(())
+    crate::tokens::save(&host, token)
 }
 
 /// Removes the token this app saved for the host of `remote` (a wrong one, after a failed test).
 pub fn forget_token(remote: &WebRemote) {
-    if let (Some(home), Ok((host, _))) = (tokens_home(), api(remote)) {
-        let _ = std::fs::remove_file(token_file(&home, &host));
+    if let Ok((host, _)) = api(remote) {
+        crate::tokens::forget(&host);
     }
 }
 
@@ -220,28 +185,6 @@ pub fn revoke_token(remote: &WebRemote) -> Result<()> {
 /// thread: a CLI's token only as read this run).
 pub fn available(remote: &WebRemote) -> bool {
     fixture().is_some() || token_now(remote).is_some()
-}
-
-/// Whether the checks' fixture stands in for GitLab.
-pub fn fixture_on() -> bool {
-    fixture().is_some()
-}
-
-/// `ARTOO_MR_FIXTURE=<dir>` reads `mrs.json` and `discussions-<iid>.json` from a directory
-/// instead of the network (for UI checks); a test sets its own (`TEST_FIXTURE`).
-pub(crate) fn fixture() -> Option<std::path::PathBuf> {
-    #[cfg(any(test, feature = "sandbox"))]
-    if let Some(dir) = TEST_FIXTURE.with(|f| f.borrow().clone()) {
-        return Some(dir);
-    }
-    std::env::var_os("ARTOO_MR_FIXTURE").map(Into::into)
-}
-
-#[cfg(any(test, feature = "sandbox"))]
-thread_local! {
-    /// A test's fixture, on its thread only: tests run side by side in one process.
-    pub static TEST_FIXTURE: std::cell::RefCell<Option<std::path::PathBuf>> =
-        const { std::cell::RefCell::new(None) };
 }
 
 /// Every open request: page after page, until one comes short (#114).
@@ -496,14 +439,6 @@ pub fn members(remote: &WebRemote) -> Result<Vec<(String, String)>> {
         .collect())
 }
 
-/// `#rrggbb` (or `rrggbb`) as 0xRRGGBB.
-pub fn hex_color(text: &str) -> Option<u32> {
-    let hex = text.trim().trim_start_matches('#');
-    (hex.len() == 6)
-        .then(|| u32::from_str_radix(hex, 16).ok())
-        .flatten()
-}
-
 /// Request `iid`'s description, labels in their colours, milestone and assignees.
 pub fn details(remote: &WebRemote, iid: u64) -> Result<Details> {
     let value = match fixture() {
@@ -565,19 +500,6 @@ pub fn labels(remote: &WebRemote) -> Result<Vec<Label>> {
         None => get(remote, "labels?per_page=100")?,
     };
     Ok(parse_labels(&value))
-}
-
-pub fn parse_labels(value: &Value) -> Vec<Label> {
-    value
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|l| Label {
-            name: text(l, "name"),
-            color: hex_color(&text(l, "color")),
-        })
-        .filter(|l| !l.name.is_empty())
-        .collect()
 }
 
 /// The project's open milestones, for a new request.
@@ -876,7 +798,7 @@ fn send(
     match sent {
         Err(e) if e.to_string() == REFUSED && from.contains("CLI") => {
             crate::connect::drop_cli(&api_host(remote));
-            match crate::mr::token(remote).filter(|fresh| *fresh != token) {
+            match self::token(remote).filter(|fresh| *fresh != token) {
                 Some(fresh) => send_with(remote, &fresh, url, method, form, json),
                 None => Err(e),
             }
@@ -1127,32 +1049,6 @@ fn fixture_draft(dir: &std::path::Path, iid: u64, place: &Place<'_>, body: &str)
     }));
     std::fs::write(file, serde_json::to_string_pretty(&drafts)?)?;
     Ok(id)
-}
-
-/// A line of the audit trail that UI checks read back: what the app would have sent. A fixture
-/// with `slow.txt` answers after that many milliseconds, and one with `refuse.txt` refuses with its
-/// text, as a host can (#139).
-pub(crate) fn record(line: String) -> Result<bool> {
-    let Some(dir) = fixture() else {
-        return Ok(false);
-    };
-    if let Some(ms) = std::fs::read_to_string(dir.join("slow.txt"))
-        .ok()
-        .and_then(|t| t.trim().parse().ok())
-    {
-        std::thread::sleep(std::time::Duration::from_millis(ms));
-    }
-    if let Ok(why) = std::fs::read_to_string(dir.join("refuse.txt")) {
-        anyhow::bail!("{}", why.trim());
-    }
-    // Appended in one write: changes sent at once each get their line.
-    use std::io::Write;
-    std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join("posted.txt"))?
-        .write_all(format!("{line}\n").as_bytes())?;
-    Ok(true)
 }
 
 /// Opens a merge request from `source` into `target`. The branch must already be on the remote.
@@ -1890,48 +1786,10 @@ pub fn parse_threads(value: &Value) -> Vec<Thread> {
         .collect()
 }
 
-/// `2026-10-08T12:34:56.789Z` (or with an offset) as seconds since the epoch; 0 if unreadable.
-pub fn epoch(stamp: &str) -> i64 {
-    let (date, time) = stamp.split_once('T').unwrap_or((stamp, "00:00:00"));
-    let mut d = date.split('-').filter_map(|p| p.parse::<i64>().ok());
-    let (Some(y), Some(m), Some(day)) = (d.next(), d.next(), d.next()) else {
-        return 0;
-    };
-    let clock: String = time
-        .chars()
-        .take_while(|c| c.is_ascii_digit() || *c == ':')
-        .collect();
-    let mut t = clock.split(':').filter_map(|p| p.parse::<i64>().ok());
-    let (h, mi, s) = (
-        t.next().unwrap_or(0),
-        t.next().unwrap_or(0),
-        t.next().unwrap_or(0),
-    );
-    // Howard Hinnant's civil-to-days.
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y.rem_euclid(400);
-    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-    // An offset such as +03:00 after the clock.
-    let offset = time
-        .rfind(['+', '-'])
-        .filter(|i| *i > 0)
-        .and_then(|i| {
-            let sign = if time.as_bytes()[i] == b'+' { 1 } else { -1 };
-            let mut p = time[i + 1..]
-                .split(':')
-                .filter_map(|x| x.parse::<i64>().ok());
-            Some(sign * (p.next()? * 3600 + p.next().unwrap_or(0) * 60))
-        })
-        .unwrap_or(0);
-    days * 86400 + h * 3600 + mi * 60 + s - offset
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixture::TEST_FIXTURE;
     use serde_json::json;
 
     #[test]
@@ -1982,28 +1840,6 @@ mod tests {
     }
 
     #[test]
-    fn labels_keep_their_colours_and_skip_the_nameless() {
-        let labels = parse_labels(&json!([
-            { "name": "auth", "color": "#428BCA" },
-            { "name": "", "color": "#000000" },
-            { "name": "refactor", "color": "" }
-        ]));
-        assert_eq!(
-            labels,
-            [
-                Label {
-                    name: "auth".to_owned(),
-                    color: Some(0x428bca)
-                },
-                Label {
-                    name: "refactor".to_owned(),
-                    color: None
-                }
-            ]
-        );
-    }
-
-    #[test]
     fn a_pipeline_is_read_from_a_list_or_an_object() {
         let list = json!([{"id": 9, "status": "failed", "web_url": "https://g/p/9", "updated_at": "2026-10-08T00:00:00Z"}, {"id": 8, "status": "success"}]);
         let p = parse_pipeline(&list).expect("a pipeline");
@@ -2046,19 +1882,6 @@ mod tests {
     }
 
     #[test]
-    fn a_token_file_name_is_one_safe_segment() {
-        let home = std::path::Path::new("/h");
-        assert_eq!(
-            token_file(home, "git.example.com:8443"),
-            std::path::Path::new("/h/.config/artoo/tokens/git.example.com_8443")
-        );
-        assert_eq!(
-            token_file(home, "../x"),
-            std::path::Path::new("/h/.config/artoo/tokens/.._x")
-        );
-    }
-
-    #[test]
     fn versions_come_oldest_first() {
         let value = json!([
             {"id": 12, "head_commit_sha": "bbb", "base_commit_sha": "000", "created_at": "2026-10-08T01:00:00Z"},
@@ -2092,14 +1915,6 @@ mod tests {
         assert_eq!(d.assignees, ["Juniper Hale"]);
         assert_eq!(d.reviewers, ["ember"]);
         assert_eq!(parse_details(&json!({}), &Value::Null), Details::default());
-    }
-
-    #[test]
-    fn timestamps_become_epoch_seconds() {
-        assert_eq!(epoch("1970-01-02T00:00:00Z"), 86400);
-        assert_eq!(epoch("2026-10-08T00:00:00.123Z"), 1_791_417_600);
-        assert_eq!(epoch("2026-10-08T03:00:00+03:00"), 1_791_417_600);
-        assert_eq!(epoch("nonsense"), 0);
     }
 
     #[test]

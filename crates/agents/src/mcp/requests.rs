@@ -777,7 +777,7 @@ mod tests {
         let push = json!([{"head_commit_sha": head.to_string(),
             "base_commit_sha": base.to_string(), "created_at": "2026-10-01T10:00:00Z"}]);
         std::fs::write(host.join("versions-7.json"), push.to_string()).unwrap();
-        artoo_hosts::mr::TEST_FIXTURE.with(|f| *f.borrow_mut() = Some(host.clone()));
+        artoo_hosts::fixture::TEST_FIXTURE.with(|f| *f.borrow_mut() = Some(host.clone()));
         let hosts = artoo_hosts::hosts();
         let bus = Bus::at(dir.path().join("agents"));
         let here = clone.as_path();
@@ -829,7 +829,7 @@ mod tests {
         assert!(read.contains("## Pending comments (2)"), "{read}");
         assert!(read.contains("- 9002 · a.rs:15 · by "), "{read}");
         assert!(!read.contains("by the reviewer"), "{read}");
-        artoo_hosts::mr::TEST_FIXTURE.with(|f| *f.borrow_mut() = None);
+        artoo_hosts::fixture::TEST_FIXTURE.with(|f| *f.borrow_mut() = None);
     }
 
     #[test]
@@ -845,7 +845,7 @@ mod tests {
         std::fs::write(host.join("mrs.json"), open.to_string()).unwrap();
         let merged = json!([{"iid": 5, "title": "Older", "state": "merged"}]);
         std::fs::write(host.join("mrs-merged.json"), merged.to_string()).unwrap();
-        artoo_hosts::mr::TEST_FIXTURE.with(|f| *f.borrow_mut() = Some(host.clone()));
+        artoo_hosts::fixture::TEST_FIXTURE.with(|f| *f.borrow_mut() = Some(host.clone()));
         let hosts = artoo_hosts::hosts();
         let bus = Bus::at(dir.path().join("agents"));
         let here = dir.path().join("clone");
@@ -889,7 +889,7 @@ mod tests {
         assert!(gather(json!({"requests": [{"iid": 99}]})).is_err());
         assert!(gather(json!({})).is_err());
         assert_eq!(bus.events().len(), 1);
-        artoo_hosts::mr::TEST_FIXTURE.with(|f| *f.borrow_mut() = None);
+        artoo_hosts::fixture::TEST_FIXTURE.with(|f| *f.borrow_mut() = None);
     }
 
     #[test]
@@ -991,7 +991,7 @@ mod tests {
             "target_branch": "main", "sha": pushed.to_string(),
             "author": {"name": "Ann", "username": "ann"}}]);
         std::fs::write(host.join("mrs.json"), open.to_string()).unwrap();
-        artoo_hosts::mr::TEST_FIXTURE.with(|f| *f.borrow_mut() = Some(host.clone()));
+        artoo_hosts::fixture::TEST_FIXTURE.with(|f| *f.borrow_mut() = Some(host.clone()));
         let twice =
             draft(json!({"source": "feature", "target": "main", "title": "t"})).unwrap_err();
         assert!(
