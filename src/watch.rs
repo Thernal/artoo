@@ -1,4 +1,4 @@
-//! `GitLance agent-watch`: run by an agent in its chat, in the background. It says the chat is
+//! `Artoo agent-watch`: run by an agent in its chat, in the background. It says the chat is
 //! listening (`crate::agents`), and when the reviewer sends comments to this chat it prints one line
 //! and exits — an agent wakes when its background command does; the chat stays known, working.
 //! It also exits, and the chat is forgotten, when the agent's process is gone.
@@ -25,12 +25,12 @@ fn alive(pid: u32) -> bool {
 
 pub fn run() {
     let Some(bus) = Bus::new() else {
-        eprintln!("gitlance agent-watch: no home folder");
+        eprintln!("artoo agent-watch: no home folder");
         std::process::exit(1);
     };
     let Some((agent, session, pid, config)) = agents::whoami() else {
         eprintln!(
-            "gitlance agent-watch: run it from an agent's chat (Claude Code); its session id is not in the environment"
+            "artoo agent-watch: run it from an agent's chat (Claude Code); its session id is not in the environment"
         );
         std::process::exit(1);
     };
@@ -40,7 +40,7 @@ pub fn run() {
         .ok()
         .and_then(|cwd| crate::git::Repo::open(&cwd).ok())
     else {
-        eprintln!("gitlance agent-watch: not in a git repository");
+        eprintln!("artoo agent-watch: not in a git repository");
         std::process::exit(1);
     };
     let (root, project) = (repo.root(), repo.main_root());
@@ -70,7 +70,7 @@ pub fn run() {
             chat.branch = branch;
         }
         if bus.listen(&chat).is_err() {
-            eprintln!("gitlance agent-watch: cannot write to GitLance's data folder");
+            eprintln!("artoo agent-watch: cannot write to Artoo's data folder");
             std::process::exit(1);
         }
         let comments = bus.comments(&project);
@@ -94,7 +94,7 @@ pub fn run() {
             // The chat stays known while it works on them: its beat goes stale and the app says
             // it is working (#77); it listens again when the agent starts this again.
             println!(
-                "GitLance: the reviewer sent {} review comment(s) to this chat. Call the gitlance list_comments tool, change the code for each, answer each with address_comment, then start `agent-watch` again in the background.",
+                "Artoo: the reviewer sent {} review comment(s) to this chat. Call the artoo list_comments tool, change the code for each, answer each with address_comment, then start `agent-watch` again in the background.",
                 waiting.len()
             );
             return;

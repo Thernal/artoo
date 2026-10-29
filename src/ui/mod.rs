@@ -1,4 +1,4 @@
-//! The GitLance window: branches, versions and commits on the left, the diff on the right.
+//! The Artoo window: branches, versions and commits on the left, the diff on the right.
 
 mod agent;
 mod agent_events;
@@ -104,7 +104,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 actions!(
-    gitlance,
+    artoo,
     [
         Open,
         SaveTheme,
@@ -495,7 +495,7 @@ pub fn run(path: Option<PathBuf>) {
         .with_assets(icons::Icons)
         .run(move |cx: &mut App| {
             keymap::install(default_bindings(), cx);
-            // Before any window: who GitLance is to the system's notifications (#26).
+            // Before any window: who Artoo is to the system's notifications (#26).
             system_notes::install(cx);
             theme::load();
             motion::set(Settings::load().animations, cx);
@@ -514,7 +514,7 @@ pub fn run(path: Option<PathBuf>) {
                 }
             })
             .detach();
-            // A newer GitLance (#135): asked at launch and every 6 hours while Settings says so —
+            // A newer Artoo (#135): asked at launch and every 6 hours while Settings says so —
             // looked at each minute, so turning it on asks soon. A snapshot asks only its fixture.
             cx.spawn(async move |cx| {
                 loop {
@@ -530,7 +530,7 @@ pub fn run(path: Option<PathBuf>) {
                 }
             })
             .detach();
-            if !cfg!(feature = "snapshot") || std::env::var_os("GITLANCE_SNAPSHOT").is_none() {
+            if !cfg!(feature = "snapshot") || std::env::var_os("ARTOO_SNAPSHOT").is_none() {
                 crate::platform::set_icon();
             }
             cx.on_action(|_: &Quit, cx| cx.quit());
@@ -538,7 +538,7 @@ pub fn run(path: Option<PathBuf>) {
 
             // A snapshot renders offscreen: no window shown, no focus taken.
             let offscreen =
-                cfg!(feature = "snapshot") && std::env::var_os("GITLANCE_SNAPSHOT").is_some();
+                cfg!(feature = "snapshot") && std::env::var_os("ARTOO_SNAPSHOT").is_some();
             let options = window_options(offscreen, cx);
             let window = cx
                 .open_window(options, |window, cx| {
@@ -555,7 +555,7 @@ pub fn run(path: Option<PathBuf>) {
         });
 }
 
-/// A window of GitLance: its size, title bar and smallest size.
+/// A window of Artoo: its size, title bar and smallest size.
 fn window_options(offscreen: bool, cx: &mut App) -> WindowOptions {
     let (width, height) = window_size();
     let bounds = gpui::Bounds::centered(None, size(px(width), px(height)), cx);
@@ -564,12 +564,12 @@ fn window_options(offscreen: bool, cx: &mut App) -> WindowOptions {
         focus: !offscreen,
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         titlebar: Some(TitlebarOptions {
-            title: Some("GitLance".into()),
+            title: Some("Artoo".into()),
             appears_transparent: crate::platform::TRANSPARENT_TITLEBAR,
             traffic_light_position: Some(Point::new(px(12.), px(12.))),
         }),
         window_min_size: Some(size(px(900.), px(500.))),
-        app_id: Some("gitlance".into()),
+        app_id: Some("artoo".into()),
         ..Default::default()
     }
 }
@@ -585,11 +585,11 @@ fn open_new_window(path: PathBuf, cx: &mut App) {
     }
 }
 
-/// The window's size: 1480 × 920, or `GITLANCE_SNAPSHOT_SIZE=WxH` in a snapshot (to check the
+/// The window's size: 1480 × 920, or `ARTOO_SNAPSHOT_SIZE=WxH` in a snapshot (to check the
 /// layout of a small window).
 fn window_size() -> (f32, f32) {
     #[cfg(feature = "snapshot")]
-    if let Some((w, h)) = std::env::var("GITLANCE_SNAPSHOT_SIZE")
+    if let Some((w, h)) = std::env::var("ARTOO_SNAPSHOT_SIZE")
         .ok()
         .and_then(|v| v.split_once('x').map(|(w, h)| (w.to_owned(), h.to_owned())))
         .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
@@ -602,12 +602,12 @@ fn window_size() -> (f32, f32) {
 /// The menu bar; View items carry a check mark for the options in effect.
 fn menus(options: &ViewOptions) -> Vec<Menu> {
     vec![
-        Menu::new("GitLance").items([
+        Menu::new("Artoo").items([
             MenuItem::action("Check for Updates…", CheckForUpdates),
             MenuItem::separator(),
             MenuItem::action("Settings…", OpenSettings),
             MenuItem::separator(),
-            MenuItem::action("Quit GitLance", Quit),
+            MenuItem::action("Quit Artoo", Quit),
         ]),
         Menu::new("File").items([
             MenuItem::action("New Tab", NewTab),
@@ -669,7 +669,7 @@ fn menus(options: &ViewOptions) -> Vec<Menu> {
             MenuItem::action("One File at a Time", ToggleOneFile).checked(options.one_file),
         ]),
         Menu::new("Help").items([
-            MenuItem::action("Set Up GitLance…", SetUp),
+            MenuItem::action("Set Up Artoo…", SetUp),
             MenuItem::action("Keyboard Shortcuts", ShowShortcuts),
             MenuItem::action("Report a Problem…", ReportProblem),
         ]),
@@ -687,18 +687,18 @@ pub(crate) enum Opt {
     FoldReviewed,
 }
 
-/// Waits for loading (`GITLANCE_SNAPSHOT_DELAY_MS`, 2500 by default), selects a commit by SHA
-/// prefix (`GITLANCE_SNAPSHOT_COMMIT`) and a file by path (`GITLANCE_SNAPSHOT_FILE`), turns on view options
-/// (`GITLANCE_SNAPSHOT_VIEW=unified,structural,wrap,all-lines,whitespace`, not saved), optionally
-/// compares the first and last versions (`GITLANCE_SNAPSHOT_VERSIONS=1`), then writes the frame to
-/// `GITLANCE_SNAPSHOT` and quits.
+/// Waits for loading (`ARTOO_SNAPSHOT_DELAY_MS`, 2500 by default), selects a commit by SHA
+/// prefix (`ARTOO_SNAPSHOT_COMMIT`) and a file by path (`ARTOO_SNAPSHOT_FILE`), turns on view options
+/// (`ARTOO_SNAPSHOT_VIEW=unified,structural,wrap,all-lines,whitespace`, not saved), optionally
+/// compares the first and last versions (`ARTOO_SNAPSHOT_VERSIONS=1`), then writes the frame to
+/// `ARTOO_SNAPSHOT` and quits.
 #[cfg(feature = "snapshot")]
 fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
     use std::time::Duration;
-    let Some(out) = std::env::var_os("GITLANCE_SNAPSHOT").map(PathBuf::from) else {
+    let Some(out) = std::env::var_os("ARTOO_SNAPSHOT").map(PathBuf::from) else {
         return;
     };
-    let versions = std::env::var_os("GITLANCE_SNAPSHOT_VERSIONS").is_some();
+    let versions = std::env::var_os("ARTOO_SNAPSHOT_VERSIONS").is_some();
     let Ok(shell) = window.entity(cx) else {
         return;
     };
@@ -706,12 +706,12 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
     cx.spawn(async move |cx| {
         let executor = cx.background_executor().clone();
         let wait = |ms| executor.timer(Duration::from_millis(ms));
-        let delay = std::env::var("GITLANCE_SNAPSHOT_DELAY_MS")
+        let delay = std::env::var("ARTOO_SNAPSHOT_DELAY_MS")
             .ok()
             .and_then(|d| d.parse().ok())
             .unwrap_or(2500);
         wait(delay).await;
-        if let Ok(path) = std::env::var("GITLANCE_SNAPSHOT_TABS") {
+        if let Ok(path) = std::env::var("ARTOO_SNAPSHOT_TABS") {
             // A second repository in a tab of its own.
             window
                 .update(cx, |shell, window, cx| {
@@ -720,7 +720,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                 .ok();
             wait(2500).await;
         }
-        if let Ok(prefix) = std::env::var("GITLANCE_SNAPSHOT_COMMIT") {
+        if let Ok(prefix) = std::env::var("ARTOO_SNAPSHOT_COMMIT") {
             ws.update(cx, |this, cx| {
                 let found = this
                     .commits
@@ -732,7 +732,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             });
             wait(1500).await;
         }
-        if let Ok(path) = std::env::var("GITLANCE_SNAPSHOT_FILE") {
+        if let Ok(path) = std::env::var("ARTOO_SNAPSHOT_FILE") {
             ws.update(cx, |this, cx| {
                 let found = this
                     .diff
@@ -744,7 +744,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             });
             wait(1500).await;
         }
-        if let Ok(view) = std::env::var("GITLANCE_SNAPSHOT_VIEW") {
+        if let Ok(view) = std::env::var("ARTOO_SNAPSHOT_VIEW") {
             ws.update(cx, |this, cx| {
                 // Themes (#12), not kept: `theme:paper`, `code-theme:darcula`, `theme-edit:night`.
                 let mut tried = theme::choice();
@@ -997,7 +997,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             this.settings_section = settings::Section::Repository;
                             continue;
                         }
-                        // A newer release's card (#135), from GITLANCE_RELEASES_FIXTURE.
+                        // A newer release's card (#135), from ARTOO_RELEASES_FIXTURE.
                         "update" | "update-commits" => {
                             crate::updates::check();
                             this.open_update_card(cx);
@@ -1179,7 +1179,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             });
             wait(1500).await;
         }
-        if let Ok(text) = std::env::var("GITLANCE_SNAPSHOT_FIND") {
+        if let Ok(text) = std::env::var("ARTOO_SNAPSHOT_FIND") {
             ws.update(cx, |this, cx| {
                 this.start_dfind(cx);
                 this.set_dfind(text, cx);
@@ -1187,7 +1187,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             });
             wait(800).await;
         }
-        if let Ok(text) = std::env::var("GITLANCE_SNAPSHOT_SEARCH") {
+        if let Ok(text) = std::env::var("ARTOO_SNAPSHOT_SEARCH") {
             ws.update(cx, |this, cx| {
                 this.find.text = Some(text);
                 this.refilter();
@@ -1204,15 +1204,15 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             });
             wait(1500).await;
         }
-        if std::env::var("GITLANCE_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("interdiff")) {
+        if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("interdiff")) {
             ws.update(cx, |this, cx| this.select_interdiff(0, cx));
             wait(1500).await;
         }
-        if std::env::var("GITLANCE_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("worktree")) {
+        if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("worktree")) {
             ws.update(cx, |this, cx| this.select_working_tree(cx));
             wait(2500).await;
         }
-        if let Ok(spec) = std::env::var("GITLANCE_SNAPSHOT_COMPARE") {
+        if let Ok(spec) = std::env::var("ARTOO_SNAPSHOT_COMPARE") {
             ws.update(cx, |this, cx| {
                 let repo = this.root.as_ref().and_then(|r| Repo::open(r).ok());
                 let mut sides = spec
@@ -1226,7 +1226,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             });
             wait(1500).await;
         }
-        if let Ok(query) = std::env::var("GITLANCE_SNAPSHOT_PALETTE") {
+        if let Ok(query) = std::env::var("ARTOO_SNAPSHOT_PALETTE") {
             ws.update(cx, |this, cx| {
                 // `faces:` the interface's faces (#24).
                 let kind = if query.starts_with("compare:") {
@@ -1246,11 +1246,11 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             wait(500).await;
         }
         // Opening another repository while this one is open: the card asks, or Settings decides.
-        if let Ok(path) = std::env::var("GITLANCE_SNAPSHOT_OPEN") {
+        if let Ok(path) = std::env::var("ARTOO_SNAPSHOT_OPEN") {
             ws.update(cx, |this, cx| this.request_open(path.into(), None, cx));
             wait(500).await;
         }
-        if let Ok(iid) = std::env::var("GITLANCE_SNAPSHOT_MR") {
+        if let Ok(iid) = std::env::var("ARTOO_SNAPSHOT_MR") {
             ws.update(cx, |this, cx| {
                 if let Ok(iid) = iid.parse() {
                     this.select_request(iid, cx);
@@ -1259,12 +1259,12 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             wait(2000).await;
         }
         // Merge's card, or its list of what is in the way, before the keys (#164).
-        if std::env::var("GITLANCE_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("merge")) {
+        if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("merge")) {
             ws.update(cx, |this, cx| this.open_merge(cx));
             wait(500).await;
         }
         // Code's tabs: the project's pins, a file kept and one previewed, before the keys (#20).
-        if std::env::var("GITLANCE_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("code-tabs")) {
+        if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("code-tabs")) {
             ws.update(cx, |this, cx| {
                 this.open_code_file("README.md".into(), false, cx);
                 this.open_code_file("src/main.rs".into(), true, cx);
@@ -1272,19 +1272,19 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             wait(1500).await;
         }
         // What is beside a folder of Code's path, its list open under `src/ui` (#132).
-        if std::env::var("GITLANCE_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("code-beside")) {
+        if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("code-beside")) {
             ws.update(cx, |this, cx| {
                 this.open_code_file("src/ui/bar.rs".into(), true, cx);
                 this.open_beside("src/ui".into(), cx);
             });
             wait(1500).await;
         }
-        if let Ok(keys) = std::env::var("GITLANCE_SNAPSHOT_KEYS") {
+        if let Ok(keys) = std::env::var("ARTOO_SNAPSHOT_KEYS") {
             // Keystrokes sent to the window itself (not the keyboard), e.g. `right right cmd-t`.
             // `wait` gives a diff a second to load before the next key.
             // Showing motion (#56): a frame right after each key, as a shown window draws one,
             // and none of the usual pause after the last.
-            let motion = std::env::var_os("GITLANCE_SNAPSHOT_MOTION").is_some();
+            let motion = std::env::var_os("ARTOO_SNAPSHOT_MOTION").is_some();
             if motion {
                 // What the keys move must be on screen before them.
                 cx.update_window(window.into(), |_, window, cx| window.draw(cx).clear(cx))
@@ -1311,22 +1311,22 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             }
         }
         // The newest toast's button pressed: where an agent's news leads (#150).
-        if std::env::var("GITLANCE_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("toast-act")) {
+        if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("toast-act")) {
             ws.update(cx, |this, cx| this.press_toast(cx));
             wait(2500).await;
         }
         // Changes sent on the request open, to see them waiting or refused (#139).
-        if std::env::var("GITLANCE_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("changes")) {
+        if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("changes")) {
             ws.update(cx, |this, cx| this.snapshot_changes(cx));
             wait(1500).await;
         }
-        // Make the token pressed on the connect panel's offer, with GITLANCE_SSH_FIXTURE (#142).
-        if std::env::var("GITLANCE_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("ssh-make")) {
+        // Make the token pressed on the connect panel's offer, with ARTOO_SSH_FIXTURE (#142).
+        if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("ssh-make")) {
             ws.update(cx, |this, cx| this.make_ssh_token("api", cx));
             wait(1500).await;
         }
         // Settings → Merge requests after the keys, the SSH key picked there (#156).
-        if std::env::var("GITLANCE_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("ways-settings")) {
+        if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("ways-settings")) {
             ws.update(cx, |this, cx| {
                 this.open_requests_settings(cx);
                 this.connecting.pick = Some("ssh".to_owned());
@@ -1334,12 +1334,12 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             wait(1500).await;
         }
         // Answer on the first of an agent's notes on the file the keys reached (#151).
-        if std::env::var("GITLANCE_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("note-answer")) {
+        if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("note-answer")) {
             ws.update(cx, |this, cx| this.snapshot_answer_note(cx));
             wait(800).await;
         }
         // Open in's ▾ under its button, on the page the keys reached (#78).
-        if std::env::var("GITLANCE_SNAPSHOT_MENU").as_deref() == Ok("open-in") {
+        if std::env::var("ARTOO_SNAPSHOT_MENU").as_deref() == Ok("open-in") {
             ws.update(cx, |this, cx| {
                 let at = gpui::point(gpui::px(this.win_width), gpui::px(84.));
                 this.open_in_menu(at, cx)
@@ -1347,14 +1347,14 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             wait(600).await;
         }
         // The interface's face menu, on Settings → Appearance (#24).
-        if std::env::var("GITLANCE_SNAPSHOT_MENU").as_deref() == Ok("faces") {
+        if std::env::var("ARTOO_SNAPSHOT_MENU").as_deref() == Ok("faces") {
             ws.update(cx, |this, cx| {
                 this.open_faces(false, gpui::point(gpui::px(760.), gpui::px(200.)), cx)
             });
             wait(600).await;
         }
         // The pointer resting at `x,y` (window points) long enough for a tooltip or a card (#53).
-        if let Ok(at) = std::env::var("GITLANCE_SNAPSHOT_HOVER")
+        if let Ok(at) = std::env::var("ARTOO_SNAPSHOT_HOVER")
             && let Some((x, y)) = at.split_once(',')
             && let (Ok(x), Ok(y)) = (x.trim().parse::<f32>(), y.trim().parse::<f32>())
         {
@@ -1383,7 +1383,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             wait(300).await;
         }
         // The first discussion's first note hovered: its reaction bar, or ☺+ open (#9).
-        if let Ok(view) = std::env::var("GITLANCE_SNAPSHOT_VIEW")
+        if let Ok(view) = std::env::var("ARTOO_SNAPSHOT_VIEW")
             && (view.contains("hover-note") || view.contains("reaction-grid"))
         {
             ws.update(cx, |this, cx| {
@@ -1405,9 +1405,9 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         }
         // A hidden window gets no display-link frames: draw one by hand. Images start decoding
         // in the background at a draw, so a first draw, a pause, then the one that is saved.
-        // `GITLANCE_SNAPSHOT_MOTION=<ms>` keeps motion on (#56) and saves the frame that many
+        // `ARTOO_SNAPSHOT_MOTION=<ms>` keeps motion on (#56) and saves the frame that many
         // milliseconds after that first draw, midway through what the keys set moving.
-        let midway = std::env::var("GITLANCE_SNAPSHOT_MOTION")
+        let midway = std::env::var("ARTOO_SNAPSHOT_MOTION")
             .ok()
             .and_then(|ms| ms.parse().ok());
         if midway.is_none() {
@@ -1801,7 +1801,7 @@ pub struct Workspace {
     options: ViewOptions,
     settings: Settings,
     settings_open: bool,
-    /// Set up GitLance, while it is open (#143).
+    /// Set up Artoo, while it is open (#143).
     setup: Option<setup::Setup>,
     find: find::Find,
     watch: watch::Watch,
@@ -1886,7 +1886,7 @@ pub struct Workspace {
     /// The card naming a project or a chat (`labeling.rs`), and the name being typed.
     label_edit: Option<labeling::LabelEdit>,
     label_name: String,
-    /// The card of a newer GitLance (#135), and a check asked for by hand running.
+    /// The card of a newer Artoo (#135), and a check asked for by hand running.
     update_card: Option<updates::UpdateCard>,
     update_checking: bool,
     /// The card before a request is merged (#164).
@@ -1931,7 +1931,7 @@ impl Workspace {
         share_settings(&settings);
         // The keyboard card greets the very first launch, once (never a check's snapshot).
         let greet = !settings.keys_seen
-            && std::env::var_os("GITLANCE_SNAPSHOT").is_none()
+            && std::env::var_os("ARTOO_SNAPSHOT").is_none()
             && !shortcuts::SHOWN.swap(true, std::sync::atomic::Ordering::Relaxed);
         if greet {
             settings.keys_seen = true;
@@ -3430,7 +3430,7 @@ impl Workspace {
         self.open_report(cx);
     }
 
-    /// Help → Set Up GitLance…, ⌘K (#143): every part again.
+    /// Help → Set Up Artoo…, ⌘K (#143): every part again.
     fn set_up(&mut self, _: &SetUp, _: &mut Window, cx: &mut Context<Self>) {
         self.open_setup(setup::Part::ALL.to_vec(), cx);
     }
@@ -3440,7 +3440,7 @@ impl Workspace {
         self.open_merge(cx);
     }
 
-    /// GitLance → Check for Updates…, ⌘K (#135).
+    /// Artoo → Check for Updates…, ⌘K (#135).
     fn check_for_updates(&mut self, _: &CheckForUpdates, _: &mut Window, cx: &mut Context<Self>) {
         self.check_updates_now(cx);
     }

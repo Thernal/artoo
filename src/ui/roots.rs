@@ -30,11 +30,11 @@ impl Workspace {
     }
 }
 
-/// A root's list's width: the layout's, or a snapshot's `GITLANCE_SNAPSHOT_LIST` to see its rows
+/// A root's list's width: the layout's, or a snapshot's `ARTOO_SNAPSHOT_LIST` to see its rows
 /// narrow (#79).
 pub(super) fn list_width(width: f32) -> f32 {
     #[cfg(feature = "snapshot")]
-    if let Some(w) = std::env::var("GITLANCE_SNAPSHOT_LIST")
+    if let Some(w) = std::env::var("ARTOO_SNAPSHOT_LIST")
         .ok()
         .and_then(|w| w.parse().ok())
     {

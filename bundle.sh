@@ -1,23 +1,23 @@
 #!/bin/sh
-# Builds GitLance (release) and wraps it in target/GitLance.app with its icon.
-#   ./bundle.sh           builds target/GitLance.app
+# Builds Artoo (release) and wraps it in target/Artoo.app with its icon.
+#   ./bundle.sh           builds target/Artoo.app
 #   ./bundle.sh --open    builds it and opens it
-#   GITLANCE_BIN=<file>   wraps that binary instead of building one (CI: a universal binary)
+#   ARTOO_BIN=<file>   wraps that binary instead of building one (CI: a universal binary)
 set -eu
 cd "$(dirname "$0")"
-bin=${GITLANCE_BIN:-}
+bin=${ARTOO_BIN:-}
 if [ -z "$bin" ]; then
     if ! command -v cargo >/dev/null 2>&1 && [ -f "$HOME/.cargo/env" ]; then
         . "$HOME/.cargo/env"
     fi
     cargo build --release
-    bin=target/release/gitlance
+    bin=target/release/artoo
 fi
-app=target/GitLance.app
+app=target/Artoo.app
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-cp "$bin" "$app/Contents/MacOS/GitLance"
-cp assets/GitLance.icns "$app/Contents/Resources/GitLance.icns"
+cp "$bin" "$app/Contents/MacOS/Artoo"
+cp assets/Artoo.icns "$app/Contents/Resources/Artoo.icns"
 # What the bundled third-party assets ask to travel with them: IntelliJ's icons (Apache 2.0,
 # its licence and notice) and GitLab's emoji list (MIT).
 mkdir -p "$app/Contents/Resources/Licenses"
@@ -29,11 +29,11 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleName</key><string>GitLance</string>
-<key>CFBundleDisplayName</key><string>GitLance</string>
-<key>CFBundleIdentifier</key><string>dev.gitlance.app</string>
-<key>CFBundleExecutable</key><string>GitLance</string>
-<key>CFBundleIconFile</key><string>GitLance</string>
+<key>CFBundleName</key><string>Artoo</string>
+<key>CFBundleDisplayName</key><string>Artoo</string>
+<key>CFBundleIdentifier</key><string>dev.artoo.app</string>
+<key>CFBundleExecutable</key><string>Artoo</string>
+<key>CFBundleIconFile</key><string>Artoo</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>$version</string>
 <key>LSMinimumSystemVersion</key><string>12.0</string>

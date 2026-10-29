@@ -1,8 +1,8 @@
-//! A newer GitLance, said in the window (#135; the check is `crate::updates`): a card over the window
+//! A newer Artoo, said in the window (#135; the check is `crate::updates`): a card over the window
 //! the first time a check finds a version — what is new in it and in every release in between, each
 //! one's commits folded under it, Download (its page), Skip this version, Later —, then a mark in the
 //! title bar that opens it again. The releases scroll between the card's head and its buttons, a fade
-//! at their foot while more is below; ↑ ↓ (j k), space, ⇧space, Home and End scroll them. GitLance →
+//! at their foot while more is below; ↑ ↓ (j k), space, ⇧space, Home and End scroll them. Artoo →
 //! Check for Updates…, ⌘K and Settings → General ask at once. Nothing is downloaded or installed.
 
 use super::{ISLAND_RADIUS, ROW_RADIUS, Workspace, format, icons, keys, markdown, px, theme};
@@ -83,7 +83,7 @@ impl Workspace {
         cx.notify();
     }
 
-    /// GitLance → Check for Updates…, ⌘K, Settings' Check now: asks GitHub now and opens the card,
+    /// Artoo → Check for Updates…, ⌘K, Settings' Check now: asks GitHub now and opens the card,
     /// a skipped version too, or says this one is the newest.
     pub(super) fn check_updates_now(&mut self, cx: &mut Context<Self>) {
         if self.update_checking {
@@ -104,7 +104,7 @@ impl Workspace {
                         this.error = Some(format!("Could not ask GitHub for releases: {e}").into())
                     }
                     (None, true) => this.toast_info(
-                        format!("GitLance {} is the newest", updates::current()).into(),
+                        format!("Artoo {} is the newest", updates::current()).into(),
                         cx,
                     ),
                 }
@@ -122,7 +122,7 @@ impl Workspace {
     ) -> Option<impl IntoElement + use<>> {
         let release = updates::newest()?;
         let tip: SharedString = format!(
-            "GitLance {} is out — what is new, and the download",
+            "Artoo {} is out — what is new, and the download",
             release.version
         )
         .into();
@@ -336,7 +336,7 @@ impl Workspace {
                                     div()
                                         .text_size(px(15.))
                                         .font_weight(FontWeight::SEMIBOLD)
-                                        .child(format!("GitLance {} is out", newest.version)),
+                                        .child(format!("Artoo {} is out", newest.version)),
                                 )
                                 .child(
                                     div()

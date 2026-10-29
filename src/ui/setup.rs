@@ -1,9 +1,9 @@
-//! Set up GitLance (#143 B): on the first start, a page of tabs — Agents, Keys, Look — whose title,
+//! Set up Artoo (#143 B): on the first start, a page of tabs — Agents, Keys, Look — whose title,
 //! tabs and foot stay put while only the column between them scrolls. Each part is its Settings
 //! section at its shortest, drawn by the same code (`key_presets`, `window_cards`, `panes_chips`,
 //! `font_rows`, the connect panel's `way_row`): what is set here is set there. Later and Done bring
 //! back what was under it — the welcome, with no repository open. A part is offered once
-//! (`setup.txt`); a release that adds one offers that part alone; Help → Set Up GitLance… opens
+//! (`setup.txt`); a release that adds one offers that part alone; Help → Set Up Artoo… opens
 //! every part again.
 
 use super::discussion::{self, Kind};
@@ -60,7 +60,7 @@ const GROUPS: [(&str, &[&str]); 4] = [
 pub struct Setup {
     pub parts: Vec<Part>,
     pub at: usize,
-    /// Each Claude Code profile (`~/.claude`) and whether GitLance is in it; whether Codex has it —
+    /// Each Claude Code profile (`~/.claude`) and whether Artoo is in it; whether Codex has it —
     /// looked at as the page opens, a tab is shown and a connect ends.
     profiles: Vec<(String, bool)>,
     codex: bool,
@@ -93,7 +93,7 @@ fn parse_seen(text: &str) -> Vec<Part> {
         .collect()
 }
 
-/// The parts to offer: those not seen — none when GitLance was used before Set up came (its
+/// The parts to offer: those not seen — none when Artoo was used before Set up came (its
 /// settings kept, no `setup.txt`): what the parts set is in Settings already.
 fn unseen(seen: &str, used_before: bool) -> Vec<Part> {
     if seen.is_empty() && used_before {
@@ -118,13 +118,23 @@ fn keep_seen(parts: &[Part]) {
 
 /// What the first window offers as it opens; a snapshot draws Set up only when asked.
 pub(super) fn due() -> Vec<Part> {
-    if cfg!(feature = "snapshot") && std::env::var_os("GITLANCE_SNAPSHOT").is_some() {
+    if cfg!(feature = "snapshot") && std::env::var_os("ARTOO_SNAPSHOT").is_some() {
         return Vec::new();
     }
     let seen = storage::read("setup.txt");
-    let parts = unseen(&seen, !storage::read("settings.txt").is_empty());
+    let mut parts = unseen(&seen, !storage::read("settings.txt").is_empty());
     if seen.is_empty() && parts.is_empty() {
         keep_seen(&Part::ALL);
+    }
+    // Agents connected under GitLance, the name Artoo had, are offered Agents once to connect again.
+    if storage::read("renamed.txt").is_empty() && crate::agents::connected_as_gitlance() {
+        storage::save(
+            "renamed.txt",
+            "agents offered to connect again\n".to_owned(),
+        );
+        if !parts.contains(&Part::Agents) {
+            parts.insert(0, Part::Agents);
+        }
     }
     parts
 }
@@ -135,7 +145,7 @@ fn column() -> gpui::Div {
 }
 
 impl Workspace {
-    /// Opens the page on `parts` (Help → Set Up GitLance…: all of them); they are offered now.
+    /// Opens the page on `parts` (Help → Set Up Artoo…: all of them); they are offered now.
     pub(super) fn open_setup(&mut self, parts: Vec<Part>, cx: &mut Context<Self>) {
         if parts.is_empty() {
             return;
@@ -182,7 +192,7 @@ impl Workspace {
         }
     }
 
-    /// A connect ended: whether the profiles have GitLance now.
+    /// A connect ended: whether the profiles have Artoo now.
     pub(super) fn setup_look_again(&mut self) {
         if let Some(s) = &mut self.setup {
             s.look();
@@ -196,7 +206,7 @@ impl Workspace {
             Part::Agents => setup.codex || setup.profiles.iter().any(|(_, on)| *on),
             Part::Keys => {
                 let map = cx.global::<Keymap>();
-                map.preset() != super::keymap::Preset::GitLance || map.changed_count() > 0
+                map.preset() != super::keymap::Preset::Artoo || map.changed_count() > 0
             }
             Part::Look => {
                 let choice = theme::choice();
@@ -303,7 +313,7 @@ impl Workspace {
                                         .flex_1()
                                         .text_size(px(18.))
                                         .font_weight(FontWeight::SEMIBOLD)
-                                        .child("Set up GitLance"),
+                                        .child("Set up Artoo"),
                                 )
                                 .child(
                                     discussion::button(
@@ -365,7 +375,7 @@ impl Workspace {
     /// Agents: Claude Code with its profiles, Codex — the connect panel's rows.
     fn render_setup_agents(&self, s: &Setup, cx: &mut Context<Self>) -> AnyElement {
         let server = crate::agents::server_command();
-        let codex_cmd = format!("codex mcp add gitlance -- {server}");
+        let codex_cmd = crate::codex::add_command(&server);
         let all_in = !s.profiles.is_empty() && s.profiles.iter().all(|(_, on)| *on);
         let what = if s.profiles.is_empty() {
             "No Claude Code profile found (~/.claude)".to_owned()
@@ -456,7 +466,7 @@ impl Workspace {
     }
 
     /// Keys: the keymaps to start from, then the keys that matter by group — a mark and
-    /// GitLance's own where the one picked differs.
+    /// Artoo's own where the one picked differs.
     fn render_setup_keys(&self, cx: &mut Context<Self>) -> AnyElement {
         let presets = self.key_presets(cx);
         let map = cx.global::<Keymap>();
@@ -512,7 +522,7 @@ impl Workspace {
                                 div()
                                     .text_size(px(11.))
                                     .text_color(theme::faint())
-                                    .child(format!("GitLance {}", keys::text(&own)))
+                                    .child(format!("Artoo {}", keys::text(&own)))
                             }))
                             .child(caps(&e.keys)),
                     )
@@ -548,7 +558,7 @@ impl Workspace {
                     .text_size(px(12.))
                     .text_color(theme::muted())
                     .child(format!(
-                        "{differing} of {} keys differ from GitLance's · every key in Settings → Keyboard.",
+                        "{differing} of {} keys differ from Artoo's · every key in Settings → Keyboard.",
                         entries.len()
                     )),
             )
@@ -639,10 +649,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_part_is_offered_once_and_not_to_who_used_gitlance_before() {
+    fn a_part_is_offered_once_and_not_to_who_used_artoo_before() {
         // The first start: every part.
         assert_eq!(unseen("", false), Part::ALL);
-        // GitLance used before Set up came: none.
+        // Artoo used before Set up came: none.
         assert!(unseen("", true).is_empty());
         // A release that adds a part: that part alone.
         assert_eq!(unseen("agents\nkeys\n", true), [Part::Look]);

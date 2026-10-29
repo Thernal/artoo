@@ -60,7 +60,7 @@ export function issue(report, id, pictureUrl) {
   if (pictureUrl) lines.push(`![The window](${pictureUrl})`);
   lines.push(
     `<sub>${id} · ${report.agent ? 'drafted by an agent, sent by the reporter' : 'from the app'} · ` +
-      `GitLance ${report.version || '?'} (${report.commit || '?'}) · installation ${report.install.slice(0, 6)}</sub>`,
+      `Artoo ${report.version || '?'} (${report.commit || '?'}) · installation ${report.install.slice(0, 6)}</sub>`,
   );
   return {
     title: scrub(report.title),
@@ -71,7 +71,7 @@ export function issue(report, id, pictureUrl) {
 
 /** The same problem reported again: a comment on the first one. */
 export function again(report, id) {
-  return `Reported again — ${id}, GitLance ${report.version || '?'} (${report.commit || '?'}), ` +
+  return `Reported again — ${id}, Artoo ${report.version || '?'} (${report.commit || '?'}), ` +
     `installation ${report.install.slice(0, 6)}:\n\n${scrub(report.body)}`;
 }
 

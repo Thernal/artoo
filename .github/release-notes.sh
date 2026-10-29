@@ -1,12 +1,12 @@
 #!/bin/sh
-# Prints the notes of GitLance <version>'s GitHub release (#135): its section of CHANGELOG.md, then the
+# Prints the notes of Artoo <version>'s GitHub release (#135): its section of CHANGELOG.md, then the
 # commits since the release before it by kind, then the compare link. release.yml writes a release's
 # body with it; the app splits a body at "### Commits" (src/updates.rs), so that heading stays.
 #   .github/release-notes.sh 1.0.1           the body (needs the tags: git fetch --tags)
 #   .github/release-notes.sh --check 1.0.1   only fails when CHANGELOG.md has no section for it
 set -eu
 cd "$(dirname "$0")/.."
-repo=${GITHUB_REPOSITORY:-Thernal/gitlance-desktop}
+repo=${GITHUB_REPOSITORY:-Thernal/artoo-desktop}
 
 check=
 if [ "${1:-}" = --check ]; then

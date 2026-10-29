@@ -1,8 +1,18 @@
 # Changelog
 
-What is new in each release of GitLance. A release's notes on GitHub are its section here, then its commits
+What is new in each release of Artoo. A release's notes on GitHub are its section here, then its commits
 (`.github/release-notes.sh`); a release tag whose version has no section here does not build. Write what changed
 for someone using the app, not for someone reading the code; the commits follow anyway.
+
+## Unreleased
+
+- **GitLance is now Artoo.** The app, its window and its menus are Artoo's. The first start takes everything
+  GitLance remembered — the hosts' tokens, the marks of what you reviewed, the settings, the keys, the pictures
+  — from GitLance's folder, which stays as it was, so GitLance still opens beside it. Agents are connected
+  again under the new name: the first start offers Set up's Agents, and Connect moves every Claude Code profile
+  over, GitLance's entry and skill removed; Codex is given the command that does the same. Open chats need a
+  restart to see Artoo's tools. macOS asks again before notifications and before a JetBrains IDE's token is
+  copied, as it does for any new app.
 
 ## 1.3.0 — 2026-10-29
 

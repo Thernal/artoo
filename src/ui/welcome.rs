@@ -206,7 +206,7 @@ impl Workspace {
         .detach();
     }
 
-    /// The welcome: GitLance, what it is, the three ways in and the drop target — or the card one
+    /// The welcome: Artoo, what it is, the three ways in and the drop target — or the card one
     /// of them opened —, and the repositories opened lately.
     pub(super) fn render_welcome(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let body = match self.welcome.card {
@@ -290,7 +290,7 @@ impl Workspace {
                                 div()
                                     .text_size(px(22.))
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .child("GitLance"),
+                                    .child("Artoo"),
                             )
                             .child(div().text_color(theme::muted()).child(
                                 "See what changed between the versions of a branch — and review it — on your own machine.",

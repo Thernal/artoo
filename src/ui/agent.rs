@@ -979,7 +979,7 @@ impl Workspace {
         self.save_comments();
         self.codex_beat(cx);
         if chat.session.is_empty() {
-            let prompt = "GitLance sent review comments to this chat. Call the gitlance list_comments tool, change the code for each comment and answer each with address_comment.";
+            let prompt = "Artoo sent review comments to this chat. Call the artoo list_comments tool, change the code for each comment and answer each with address_comment.";
             if let Err(e) = crate::platform::open_terminal(&root, "claude", prompt) {
                 self.error =
                     Some(format!("Could not open a terminal for the new chat: {e}").into());
@@ -1063,8 +1063,7 @@ impl Workspace {
     /// was sent to one is handed over (`crate::codex`, #18) — off the window's thread, one beat
     /// at a time; a snapshot leaves Codex alone.
     fn codex_beat(&mut self, cx: &mut Context<Self>) {
-        let snapshot =
-            cfg!(feature = "snapshot") && std::env::var_os("GITLANCE_SNAPSHOT").is_some();
+        let snapshot = cfg!(feature = "snapshot") && std::env::var_os("ARTOO_SNAPSHOT").is_some();
         if snapshot || self.codex_beat.is_some() {
             return;
         }
@@ -1558,7 +1557,7 @@ impl Workspace {
                         .py(px(4.))
                         .text_size(px(12.))
                         .text_color(theme::muted())
-                        .child("No chat listens in this repository. Claude Code starts listening with GitLance agent-watch (Settings → Agents); a Codex session open here listens by itself.")
+                        .child("No chat listens in this repository. Claude Code starts listening with Artoo agent-watch (Settings → Agents); a Codex session open here listens by itself.")
                 }))
                 .child(div().px(px(10.)).pt(px(8.)).pb(px(6.)).child(filters))
                 .children(rows)
@@ -2082,7 +2081,7 @@ impl Workspace {
                                 .text_size(px(12.))
                                 .text_color(theme::faint())
                                 .child(keys::text(
-                                    "A Claude Code chat listens once it runs GitLance's watcher (Settings → Agents); a Codex session open here listens by itself. ↑↓ choose, esc cancels.",
+                                    "A Claude Code chat listens once it runs Artoo's watcher (Settings → Agents); a Codex session open here listens by itself. ↑↓ choose, esc cancels.",
                                 ).into_owned()),
                         ),
                 ),
@@ -2092,8 +2091,8 @@ impl Workspace {
     /// Settings → Agents: connect Claude Code (every profile), the commands for others.
     pub(super) fn render_agents_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let server = agents::server_command();
-        let claude_cmd = format!("claude mcp add -s user gitlance -- {server}");
-        let codex_cmd = format!("codex mcp add gitlance -- {server}");
+        let claude_cmd = format!("claude mcp add -s user artoo -- {server}");
+        let codex_cmd = crate::codex::add_command(&server);
         let profiles = agents::claude_profiles()
             .iter()
             .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
@@ -2171,7 +2170,7 @@ impl Workspace {
             .flex_col()
             .child(super::settings::item(
                 "Claude Code",
-                "Adds GitLance's MCP server to every Claude Code profile; a chat already open needs a restart.",
+                "Adds Artoo's MCP server to every Claude Code profile; a chat already open needs a restart.",
                 connect,
             ))
             .children(self.agent_setup.clone().map(|text| {

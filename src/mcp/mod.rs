@@ -1,5 +1,5 @@
-//! `GitLance mcp`: the MCP server an agent runs in its chat (stdio, one JSON-RPC message per line).
-//! It reads the review comments GitLance sent for the repository the agent works in and records
+//! `Artoo mcp`: the MCP server an agent runs in its chat (stdio, one JSON-RPC message per line).
+//! It reads the review comments Artoo sent for the repository the agent works in and records
 //! the agent's answers (`crate::agents`); it never writes the comments or the repository. It also
 //! reads a merge request and keeps the agent's pending comments on it (`requests`, #150), and opens
 //! what the agent changed for the reviewer (`changes`, #149).
@@ -19,13 +19,13 @@ const PROTOCOL: &str = "2025-06-18";
 /// What the agent is told when the server connects.
 fn instructions(exe: &str) -> String {
     format!(
-        "Show the reviewer your work in GitLance without being asked, with open_changes, at these moments: after you \
+        "Show the reviewer your work in Artoo without being asked, with open_changes, at these moments: after you \
 commit; after you make or rewrite a branch (squash, rebase, cherry-pick, reword); after you address review comments; \
 and before you ask the reviewer to look or to approve. A local branch not pushed yet counts. Open your branch against \
 its base, or the working tree when nothing is committed, with a summary of the whole and a note on each file whose \
 change the diff alone does not explain: why this way, what you left alone, what to look at closely.
 
-GitLance is the reviewer's diff app. The reviewer writes comments on lines there and sends them to a chat. \
+Artoo is the reviewer's diff app. The reviewer writes comments on lines there and sends them to a chat. \
 So that they reach this chat, start the watcher once, in the background, as soon as you work in a git repository: \
 run `\"{exe}\" agent-watch` with the Monitor tool if you have it, otherwise with Bash and run_in_background. \
 Do not wait for it. When it prints (review comments arrived), call list_comments, change the code for each comment, \
@@ -33,20 +33,20 @@ call address_comment with its id and one line on what you did — or reply_comme
 watcher again. Read each comment for what it wants: a question gets an answer (reply_comment); a clear change gets made \
 (then address_comment); a change that is large or unclear is asked about first, with a form (reply_comment with \
 `form`: a plan to approve, a confirm, versions of code …); after explaining, you may offer the fix as a confirm. \
-Never claim a comment is resolved: the reviewer confirms each one in GitLance. \
-When GitLance itself fails (one of these tools, or the app), you may draft a report of it with report_problem; it only \
+Never claim a comment is resolved: the reviewer confirms each one in Artoo. \
+When Artoo itself fails (one of these tools, or the app), you may draft a report of it with report_problem; it only \
 opens in the app for the reviewer to check and send. \
 To review a merge request, read it with get_request — its diff as GitLab or GitHub compares it, its discussions \
 and the pending comments already there — and leave each remark with add_pending_comment on a line the diff shows. When you have looked at several, \
 gather them with gather_requests, each with a line on what you did there, so the reviewer finds them together. \
 Notes can also be left alone, on changes already opened, with annotate_changes; answers to them come back as review \
 comments. When a branch is ready for a merge request, you may draft its title and description with \
-draft_request; the reviewer checks it and creates it in GitLance. When you tell the reviewer where something is — a \
+draft_request; the reviewer checks it and creates it in Artoo. When you tell the reviewer where something is — a \
 file and a line, a commit, a comment on a merge request — point at it with show, so they can go there. \
 Pending comments are seen by the reviewer alone; the reviewer edits, deletes or keeps them and submits the review: \
 never submit, approve or publish anything yourself. \
-GitLance shows the reviewer what you did only while it runs. When your work needs the reviewer to look and a tool \
-says GitLance is not running, call open_gitlance: it starts GitLance on this repository (or opens it in a tab) and \
+Artoo shows the reviewer what you did only while it runs. When your work needs the reviewer to look and a tool \
+says Artoo is not running, call open_artoo: it starts Artoo on this repository (or opens it in a tab) and \
 answers once it is there. Do not start it for anything else."
     )
 }
@@ -69,12 +69,12 @@ fn tools() -> Value {
     json!([
         {
             "name": "list_comments",
-            "description": "The review comments the reviewer sent from GitLance for this repository that are not done yet: file, line in the working tree, the commented code, what to change.",
+            "description": "The review comments the reviewer sent from Artoo for this repository that are not done yet: file, line in the working tree, the commented code, what to change.",
             "inputSchema": {"type": "object", "properties": {}}
         },
         {
             "name": "address_comment",
-            "description": "Say a review comment is done, with one line on what you changed. The reviewer then checks and resolves it in GitLance.",
+            "description": "Say a review comment is done, with one line on what you changed. The reviewer then checks and resolves it in Artoo.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -86,7 +86,7 @@ fn tools() -> Value {
         },
         {
             "name": "reply_comment",
-            "description": "Answer a review comment without saying it is done: a question for the reviewer, or why you did not change it. To ask, give a form: the reviewer answers in GitLance with a click, and the answer comes with the comment the next time it is sent.",
+            "description": "Answer a review comment without saying it is done: a question for the reviewer, or why you did not change it. To ask, give a form: the reviewer answers in Artoo with a click, and the answer comes with the comment the next time it is sent.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -119,7 +119,7 @@ fn tools() -> Value {
         },
         {
             "name": "get_request",
-            "description": "Read a merge request of this repository as GitLance shows it: title, description, source and target, the diff GitLab or GitHub compares (each line with its old and new number), the discussions, and the pending comments already there. A long diff lists the files it leaves out: ask for them with paths.",
+            "description": "Read a merge request of this repository as Artoo shows it: title, description, source and target, the diff GitLab or GitHub compares (each line with its old and new number), the discussions, and the pending comments already there. A long diff lists the files it leaves out: ask for them with paths.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -147,7 +147,7 @@ fn tools() -> Value {
         },
         {
             "name": "gather_requests",
-            "description": "Put the merge requests you worked on under Merge requests in GitLance's menu, in this order, each with a line on what you did there, for the reviewer to read one by one. Answers which are there and which numbers are not merge requests of this project.",
+            "description": "Put the merge requests you worked on under Merge requests in Artoo's menu, in this order, each with a line on what you did there, for the reviewer to read one by one. Answers which are there and which numbers are not merge requests of this project.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -168,7 +168,7 @@ fn tools() -> Value {
         },
         {
             "name": "open_changes",
-            "description": "Open what you changed for the reviewer, as a row under Branches in GitLance: two refs or commits compared (head against base, since their merge base unless direct), or the working tree. Call it without being asked: after a commit; after a branch is made or rewritten (squash, rebase, cherry-pick, reword); after review comments are addressed; before asking the reviewer to look or to approve — a local branch not pushed yet included. Give a summary and a note on each file whose change the diff alone does not explain; they show on the diff as annotate_changes leaves them. Nothing on the reviewer's screen moves; a note offers to show it. Answers what it opened, or why it could not.",
+            "description": "Open what you changed for the reviewer, as a row under Branches in Artoo: two refs or commits compared (head against base, since their merge base unless direct), or the working tree. Call it without being asked: after a commit; after a branch is made or rewritten (squash, rebase, cherry-pick, reword); after review comments are addressed; before asking the reviewer to look or to approve — a local branch not pushed yet included. Give a summary and a note on each file whose change the diff alone does not explain; they show on the diff as annotate_changes leaves them. Nothing on the reviewer's screen moves; a note offers to show it. Answers what it opened, or why it could not.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -184,7 +184,7 @@ fn tools() -> Value {
         },
         {
             "name": "annotate_changes",
-            "description": "Explain your changes to the reviewer with notes on their lines — why this way, what you left alone, what to look at closely — and a short summary of the whole. They show on the diff in GitLance, apart from the reviewer's comments, whenever the reviewer opens these changes; a note answered comes back to you as an ordinary review comment. Kept on the reviewer's Mac, never sent to GitLab or GitHub. Name the changes as open_changes does: the working tree, or a head (your branch) against its base. Notes again on the same changes replace your earlier ones.",
+            "description": "Explain your changes to the reviewer with notes on their lines — why this way, what you left alone, what to look at closely — and a short summary of the whole. They show on the diff in Artoo, apart from the reviewer's comments, whenever the reviewer opens these changes; a note answered comes back to you as an ordinary review comment. Kept on the reviewer's Mac, never sent to GitLab or GitHub. Name the changes as open_changes does: the working tree, or a head (your branch) against its base. Notes again on the same changes replace your earlier ones.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -201,7 +201,7 @@ fn tools() -> Value {
         },
         {
             "name": "draft_request",
-            "description": "Draft a merge request (a pull request on GitHub) for a branch: a title and a description written from what you did and why, with reviewers and labels if you know them. GitLance keeps it with that branch, marked under Branches, and its New merge request card opens filled in when the reviewer opens the branch, to check, edit and create. Nothing is created or sent, and nothing is pushed: a branch, or commits, not on origin yet have to be pushed before the request has them.",
+            "description": "Draft a merge request (a pull request on GitHub) for a branch: a title and a description written from what you did and why, with reviewers and labels if you know them. Artoo keeps it with that branch, marked under Branches, and its New merge request card opens filled in when the reviewer opens the branch, to check, edit and create. Nothing is created or sent, and nothing is pushed: a branch, or commits, not on origin yet have to be pushed before the request has them.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -217,7 +217,7 @@ fn tools() -> Value {
         },
         {
             "name": "show",
-            "description": "Point the reviewer at one place in GitLance when you say where something is (\"the bug is in nav.rs:785\", \"look at commit a1b2c3d\"): a file and a line (in the diff on screen when that file is in it, else in Code), a commit, or a merge request at one of its comments or pending comments. Nothing on the reviewer's screen moves; a note offers to show it. Changes you made go with open_changes instead. Answers what it pointed at, or why it could not.",
+            "description": "Point the reviewer at one place in Artoo when you say where something is (\"the bug is in nav.rs:785\", \"look at commit a1b2c3d\"): a file and a line (in the diff on screen when that file is in it, else in Code), a commit, or a merge request at one of its comments or pending comments. Nothing on the reviewer's screen moves; a note offers to show it. Changes you made go with open_changes instead. Answers what it pointed at, or why it could not.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -230,13 +230,13 @@ fn tools() -> Value {
             }
         },
         {
-            "name": "open_gitlance",
-            "description": "Start GitLance on this repository, or open the repository in a tab when GitLance runs without it. Answers once it is there. Only when your work needs the reviewer to look and GitLance is not showing it.",
+            "name": "open_artoo",
+            "description": "Start Artoo on this repository, or open the repository in a tab when Artoo runs without it. Answers once it is there. Only when your work needs the reviewer to look and Artoo is not showing it.",
             "inputSchema": {"type": "object", "properties": {}}
         },
         {
             "name": "report_problem",
-            "description": "Draft a report of a problem in GitLance itself (an error from the app or from these tools, something it did wrong) for its developers. Nothing is sent: the report opens in GitLance with your text, and the reviewer checks it and sends it, or not. Only GitLance's own problems, never the reviewer's code.",
+            "description": "Draft a report of a problem in Artoo itself (an error from the app or from these tools, something it did wrong) for its developers. Nothing is sent: the report opens in Artoo with your text, and the reviewer checks it and sends it, or not. Only Artoo's own problems, never the reviewer's code.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -262,7 +262,7 @@ fn repo() -> Result<(PathBuf, PathBuf), String> {
 fn call(bus: &Bus, exe: &str, name: &str, args: &Value) -> Result<String, String> {
     match name {
         "report_problem" => return draft_report(bus, args),
-        "open_gitlance" => return open_app(bus, exe, Duration::from_secs(30)),
+        "open_artoo" => return open_app(bus, exe, Duration::from_secs(30)),
         _ => {}
     }
     let (here, root) = repo()?;
@@ -323,7 +323,7 @@ fn call(bus: &Bus, exe: &str, name: &str, args: &Value) -> Result<String, String
     })
 }
 
-/// A report of GitLance's own problem, drafted for the reviewer to check in the app (#118).
+/// A report of Artoo's own problem, drafted for the reviewer to check in the app (#118).
 fn draft_report(bus: &Bus, args: &Value) -> Result<String, String> {
     let text = |key: &str| args[key].as_str().unwrap_or_default().trim().to_owned();
     let (title, description) = (text("title"), text("description"));
@@ -345,32 +345,32 @@ fn draft_report(bus: &Bus, args: &Value) -> Result<String, String> {
         at: agents::now(),
     };
     bus.draft_report(&draft).map_err(|e| e.to_string())?;
-    Ok("The report opens in GitLance for the reviewer to check; nothing was sent.".to_owned())
+    Ok("The report opens in Artoo for the reviewer to check; nothing was sent.".to_owned())
 }
 
-/// What a tool adds when the reviewer cannot see its work yet: GitLance is not running (#153).
+/// What a tool adds when the reviewer cannot see its work yet: Artoo is not running (#153).
 fn unseen(bus: &Bus) -> &'static str {
     if bus.running().is_empty() {
-        "\n\nGitLance is not running, so the reviewer does not see this yet; it waits there. If they should \
-         look now, call open_gitlance."
+        "\n\nArtoo is not running, so the reviewer does not see this yet; it waits there. If they should \
+         look now, call open_artoo."
     } else {
         ""
     }
 }
 
-/// `open_gitlance` (#153): GitLance on this project — opened in a tab when the app runs without
+/// `open_artoo` (#153): Artoo on this project — opened in a tab when the app runs without
 /// it, started on it when the app does not run — answered once one of its windows says it is there.
 fn open_app(bus: &Bus, exe: &str, wait: Duration) -> Result<String, String> {
     let (_, project) = repo()?;
     let name = crate::labels::project_name(&project);
     let shows = |bus: &Bus| bus.running().iter().any(|p| p.projects.contains(&project));
     if shows(bus) {
-        return Ok(format!("GitLance has {name} open."));
+        return Ok(format!("Artoo has {name} open."));
     }
     let started = bus.running().is_empty();
     if started {
         crate::platform::launch(Path::new(exe), &project)
-            .map_err(|e| format!("GitLance could not be started: {e}"))?;
+            .map_err(|e| format!("Artoo could not be started: {e}"))?;
     } else {
         bus.event(&agents::Event::new(project.clone(), agents::What::Open))
             .map_err(|e| e.to_string())?;
@@ -379,15 +379,15 @@ fn open_app(bus: &Bus, exe: &str, wait: Duration) -> Result<String, String> {
     while Instant::now() < until {
         if shows(bus) {
             return Ok(if started {
-                format!("GitLance started on {name}. Call the tool you wanted again.")
+                format!("Artoo started on {name}. Call the tool you wanted again.")
             } else {
-                format!("GitLance opened {name} in a tab. Call the tool you wanted again.")
+                format!("Artoo opened {name} in a tab. Call the tool you wanted again.")
             });
         }
         std::thread::sleep(Duration::from_millis(500));
     }
     Err(format!(
-        "GitLance did not show {name} within {} s; the reviewer may have to open it.",
+        "Artoo did not show {name} within {} s; the reviewer may have to open it.",
         wait.as_secs()
     ))
 }
@@ -399,7 +399,7 @@ fn handle(bus: &Bus, exe: &str, message: &Value) -> Option<Value> {
         "initialize" => json!({
             "protocolVersion": message["params"]["protocolVersion"].as_str().unwrap_or(PROTOCOL),
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "gitlance", "version": env!("CARGO_PKG_VERSION")},
+            "serverInfo": {"name": "artoo", "version": env!("CARGO_PKG_VERSION")},
             "instructions": instructions(exe),
         }),
         "ping" => json!({}),
@@ -424,12 +424,12 @@ fn handle(bus: &Bus, exe: &str, message: &Value) -> Option<Value> {
 
 pub fn run() {
     let Some(bus) = Bus::new() else {
-        eprintln!("gitlance mcp: no home folder");
+        eprintln!("artoo mcp: no home folder");
         return;
     };
     let exe = std::env::current_exe()
         .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| "gitlance".into());
+        .unwrap_or_else(|_| "artoo".into());
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     for line in stdin.lock().lines() {
@@ -450,17 +450,17 @@ mod tests {
 
     #[test]
     fn it_introduces_itself_and_its_tools() {
-        let bus = Bus::at(std::env::temp_dir().join("gitlance-mcp-test"));
+        let bus = Bus::at(std::env::temp_dir().join("artoo-mcp-test"));
         let init = handle(
             &bus,
-            "/x/GitLance",
+            "/x/Artoo",
             &json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
                     "params": {"protocolVersion": "2025-03-26"}}),
         )
         .unwrap();
         assert_eq!(init["result"]["protocolVersion"], "2025-03-26");
         let said = init["result"]["instructions"].as_str().unwrap();
-        assert!(said.contains("\"/x/GitLance\" agent-watch"));
+        assert!(said.contains("\"/x/Artoo\" agent-watch"));
         // When to open the changes comes first, apart from the rest (#158).
         let (first, _) = said.split_once("\n\n").unwrap();
         assert!(first.contains("open_changes") && first.contains("after you commit"));
@@ -472,7 +472,7 @@ mod tests {
     }
 
     #[test]
-    fn gitlance_is_opened_on_this_project_only_when_it_does_not_show_it() {
+    fn artoo_is_opened_on_this_project_only_when_it_does_not_show_it() {
         let dir = tempfile::TempDir::new().unwrap();
         let bus = Bus::at(dir.path().to_path_buf());
         let (_, project) = repo().unwrap();

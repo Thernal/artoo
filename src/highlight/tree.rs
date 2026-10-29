@@ -133,7 +133,7 @@ impl Lang {
         }
     }
 
-    /// Its language and queries: highlights (GitLance's last), injections, locals.
+    /// Its language and queries: highlights (Artoo's last), injections, locals.
     fn parts(self) -> (tree_sitter::Language, String, &'static str, String) {
         use tree_sitter_javascript as js;
         use tree_sitter_typescript as ts;

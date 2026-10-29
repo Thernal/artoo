@@ -1,6 +1,6 @@
 //! `git fetch`, run with the `git` CLI so the user's SSH agent, credential helpers and VPN routes
-//! work unchanged. The one place GitLance writes to a repository: remote-tracking refs and objects,
-//! and a merge request's head fetched to `refs/gitlance/requests/<n>` when its branch is not here
+//! work unchanged. The one place Artoo writes to a repository: remote-tracking refs and objects,
+//! and a merge request's head fetched to `refs/artoo/requests/<n>` when its branch is not here
 //! (#114) or its head the host compares is not (#145); nothing else. The app's background fetch
 //! (`ui::fetch`) and the MCP server's request reading (#150) both go through it.
 

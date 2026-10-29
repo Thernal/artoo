@@ -1,6 +1,6 @@
 name: Release
 
-# A `release/v*` tag (its version must be Cargo.toml's) builds GitLance for macOS, Windows and Linux and
+# A `release/v*` tag (its version must be Cargo.toml's) builds Artoo for macOS, Windows and Linux and
 # attaches the files to a GitHub release. Unsigned: README → Releases says how to open them.
 # Run by hand (Actions → Release → Run workflow) it only builds: the files stay on the run.
 on:
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: bin-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/gitlance
+          path: target/${{ matrix.target }}/release/artoo
           retention-days: 1
 
   macos:
@@ -72,23 +72,23 @@ jobs:
       - name: Join
         run: |
           mkdir -p target
-          lipo -create -output target/gitlance-universal \
-            bin/bin-aarch64-apple-darwin/gitlance \
-            bin/bin-x86_64-apple-darwin/gitlance
+          lipo -create -output target/artoo-universal \
+            bin/bin-aarch64-apple-darwin/artoo \
+            bin/bin-x86_64-apple-darwin/artoo
           # An artifact keeps no file modes.
-          chmod +x target/gitlance-universal
+          chmod +x target/artoo-universal
       - name: Bundle
         run: |
-          GITLANCE_BIN=target/gitlance-universal ./bundle.sh
+          ARTOO_BIN=target/artoo-universal ./bundle.sh
           mkdir -p dist dmg
-          ditto -c -k --keepParent target/GitLance.app "dist/GitLance-$VERSION-macos.zip"
-          cp -R target/GitLance.app dmg/
+          ditto -c -k --keepParent target/Artoo.app "dist/Artoo-$VERSION-macos.zip"
+          cp -R target/Artoo.app dmg/
           ln -s /Applications dmg/Applications
           # Sized from the folder by hdiutil, the image came out too small on macos-26 ("No space left on
           # device"): the folder's size, a fifth more and 20 MB.
           size=$(du -sm dmg | cut -f1)
-          hdiutil create -volname GitLance -srcfolder dmg -size "$((size + size / 5 + 20))m" -ov -format UDZO \
-            "dist/GitLance-$VERSION-macos.dmg"
+          hdiutil create -volname Artoo -srcfolder dmg -size "$((size + size / 5 + 20))m" -ov -format UDZO \
+            "dist/Artoo-$VERSION-macos.dmg"
       - uses: actions/upload-artifact@v4
         with:
           name: macos
@@ -109,14 +109,14 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist, pkg/GitLance | Out-Null
-          Copy-Item target/release/gitlance.exe pkg/GitLance/GitLance.exe
-          Copy-Item README.md, LICENSE pkg/GitLance/
-          New-Item -ItemType Directory -Force pkg/GitLance/licenses | Out-Null
-          Copy-Item assets/icons/intellij/LICENSE pkg/GitLance/licenses/intellij-icons-LICENSE
-          Copy-Item assets/icons/intellij/NOTICE pkg/GitLance/licenses/intellij-icons-NOTICE
-          Copy-Item assets/emoji/LICENSE pkg/GitLance/licenses/gitlab-emoji-LICENSE
-          Compress-Archive -Path pkg/GitLance -DestinationPath "dist/GitLance-$env:VERSION-windows-x64.zip"
+          New-Item -ItemType Directory -Force dist, pkg/Artoo | Out-Null
+          Copy-Item target/release/artoo.exe pkg/Artoo/Artoo.exe
+          Copy-Item README.md, LICENSE pkg/Artoo/
+          New-Item -ItemType Directory -Force pkg/Artoo/licenses | Out-Null
+          Copy-Item assets/icons/intellij/LICENSE pkg/Artoo/licenses/intellij-icons-LICENSE
+          Copy-Item assets/icons/intellij/NOTICE pkg/Artoo/licenses/intellij-icons-NOTICE
+          Copy-Item assets/emoji/LICENSE pkg/Artoo/licenses/gitlab-emoji-LICENSE
+          Compress-Archive -Path pkg/Artoo -DestinationPath "dist/Artoo-$env:VERSION-windows-x64.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: windows
@@ -139,27 +139,27 @@ jobs:
         run: cargo build --release
       - name: Package
         run: |
-          mkdir -p dist "pkg/gitlance-$VERSION"
-          cp target/release/gitlance README.md LICENSE assets/linux/gitlance.desktop "pkg/gitlance-$VERSION/"
-          cp assets/icon.png "pkg/gitlance-$VERSION/gitlance.png"
-          mkdir -p "pkg/gitlance-$VERSION/licenses"
-          cp assets/icons/intellij/LICENSE "pkg/gitlance-$VERSION/licenses/intellij-icons-LICENSE"
-          cp assets/icons/intellij/NOTICE "pkg/gitlance-$VERSION/licenses/intellij-icons-NOTICE"
-          cp assets/emoji/LICENSE "pkg/gitlance-$VERSION/licenses/gitlab-emoji-LICENSE"
-          tar -C pkg -czf "dist/gitlance-$VERSION-linux-x86_64.tar.gz" "gitlance-$VERSION"
+          mkdir -p dist "pkg/artoo-$VERSION"
+          cp target/release/artoo README.md LICENSE assets/linux/artoo.desktop "pkg/artoo-$VERSION/"
+          cp assets/icon.png "pkg/artoo-$VERSION/artoo.png"
+          mkdir -p "pkg/artoo-$VERSION/licenses"
+          cp assets/icons/intellij/LICENSE "pkg/artoo-$VERSION/licenses/intellij-icons-LICENSE"
+          cp assets/icons/intellij/NOTICE "pkg/artoo-$VERSION/licenses/intellij-icons-NOTICE"
+          cp assets/emoji/LICENSE "pkg/artoo-$VERSION/licenses/gitlab-emoji-LICENSE"
+          tar -C pkg -czf "dist/artoo-$VERSION-linux-x86_64.tar.gz" "artoo-$VERSION"
 
-          app=GitLance.AppDir
+          app=Artoo.AppDir
           mkdir -p "$app/usr/bin" "$app/usr/share/icons/hicolor/512x512/apps"
-          cp target/release/gitlance "$app/usr/bin/"
-          cp assets/linux/gitlance.desktop "$app/"
-          cp assets/icon.png "$app/gitlance.png"
-          cp assets/icon.png "$app/usr/share/icons/hicolor/512x512/apps/gitlance.png"
-          mkdir -p "$app/usr/share/licenses/gitlance"
-          cp "pkg/gitlance-$VERSION/licenses/"* "$app/usr/share/licenses/gitlance/"
-          ln -s usr/bin/gitlance "$app/AppRun"
+          cp target/release/artoo "$app/usr/bin/"
+          cp assets/linux/artoo.desktop "$app/"
+          cp assets/icon.png "$app/artoo.png"
+          cp assets/icon.png "$app/usr/share/icons/hicolor/512x512/apps/artoo.png"
+          mkdir -p "$app/usr/share/licenses/artoo"
+          cp "pkg/artoo-$VERSION/licenses/"* "$app/usr/share/licenses/artoo/"
+          ln -s usr/bin/artoo "$app/AppRun"
           curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool
-          ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool "$app" "dist/GitLance-$VERSION-x86_64.AppImage"
+          ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool "$app" "dist/Artoo-$VERSION-x86_64.AppImage"
       - uses: actions/upload-artifact@v4
         with:
           name: linux
@@ -191,4 +191,4 @@ jobs:
           case "$VERSION" in *-*) pre=--prerelease ;; esac
           .github/release-notes.sh "$VERSION" > "$RUNNER_TEMP/notes.md"
           gh release create "$GITHUB_REF_NAME" dist/macos/* dist/windows/* dist/linux/* --repo "$GITHUB_REPOSITORY" \
-            --title "GitLance $VERSION" --notes-file "$RUNNER_TEMP/notes.md" $pre
+            --title "Artoo $VERSION" --notes-file "$RUNNER_TEMP/notes.md" $pre

@@ -1,4 +1,4 @@
-//! Merging a request from GitLance (#164 B): what stands in the way — the host's word with what
+//! Merging a request from Artoo (#164 B): what stands in the way — the host's word with what
 //! the page knows already (approvals, discussions, the pipeline) —, the ways the host allows with
 //! the project's defaults, and what a merge sends: the head that was reviewed, so that a push
 //! nobody has seen is refused rather than merged. The calls are `mr::merge_state` / `mr::merge`

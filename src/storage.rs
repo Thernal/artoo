@@ -1,4 +1,4 @@
-//! What GitLance remembers between runs, as small text files in its application support directory:
+//! What Artoo remembers between runs, as small text files in its application support directory:
 //! recently opened repositories, pane sizes and how diffs are shown.
 
 use std::path::{Path, PathBuf};
@@ -12,7 +12,7 @@ fn file(name: &str) -> Option<PathBuf> {
 /// Writes `body` to `name`; failures only cost what would have been remembered.
 pub(crate) fn save(name: &str, body: String) {
     // A snapshot run draws a state; it must not become the user's remembered state.
-    if cfg!(feature = "snapshot") && std::env::var_os("GITLANCE_SNAPSHOT").is_some() {
+    if cfg!(feature = "snapshot") && std::env::var_os("ARTOO_SNAPSHOT").is_some() {
         return;
     }
     // Nor may a test.
@@ -369,9 +369,9 @@ pub struct Settings {
     pub flat: bool,
     /// Panels, menus and folds move instead of jumping (#56).
     pub animations: bool,
-    /// Ask GitHub whether a newer GitLance is out (#135).
+    /// Ask GitHub whether a newer Artoo is out (#135).
     pub check_updates: bool,
-    /// What the Inbox and the agents bring while GitLance is not in front goes to the system's
+    /// What the Inbox and the agents bring while Artoo is not in front goes to the system's
     /// notifications too (#26).
     pub system_notifications: bool,
 }

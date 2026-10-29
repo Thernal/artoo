@@ -1,7 +1,7 @@
-//! System notifications (#26): what the Inbox and the agents bring while no GitLance window is in
+//! System notifications (#26): what the Inbox and the agents bring while no Artoo window is in
 //! front goes to the system's notifications as well — Settings → General, off by default. GPUI
 //! posts them (Notification Center on macOS, a toast on Windows, the freedesktop service on
-//! Linux) and hands a click back; the click brings GitLance forward with that item open. Where the
+//! Linux) and hands a click back; the click brings Artoo forward with that item open. Where the
 //! system has none, or refuses, nothing happens: the Inbox stays the source.
 
 use super::Workspace;
@@ -11,8 +11,8 @@ use gpui::{App, Context, Global, SharedString, SystemNotification, WeakEntity};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-/// What GitLance is to the system: the macOS bundle id, the Windows AppUserModelID.
-pub const IDENTITY: &str = "dev.gitlance.app";
+/// What Artoo is to the system: the macOS bundle id, the Windows AppUserModelID.
+pub const IDENTITY: &str = "dev.artoo.app";
 
 /// More than this many at once are said as one: "5 new in payments-service".
 const MOST_APART: usize = 3;
@@ -57,7 +57,7 @@ fn in_front() -> bool {
     FRONT.with(|f| !f.borrow().is_empty())
 }
 
-/// At launch: what a click does, and who GitLance is when Settings sends notifications.
+/// At launch: what a click does, and who Artoo is when Settings sends notifications.
 pub fn install(cx: &mut App) {
     if crate::storage::Settings::load().system_notifications {
         identify(cx);
@@ -65,10 +65,10 @@ pub fn install(cx: &mut App) {
     cx.on_system_notification_response(|response, cx| clicked(&response.tag, cx));
 }
 
-/// Who GitLance is to the system's notifications. Only once they are on: on Windows it is also the
-/// taskbar's id for its windows, which a GitLance pinned before would no longer group with.
+/// Who Artoo is to the system's notifications. Only once they are on: on Windows it is also the
+/// taskbar's id for its windows, which a Artoo pinned before would no longer group with.
 pub(super) fn identify(cx: &mut App) {
-    cx.set_app_identity(IDENTITY, "GitLance");
+    cx.set_app_identity(IDENTITY, "Artoo");
 }
 
 /// A click: the tab it is about comes forward in its window, then what it opens.
@@ -98,7 +98,7 @@ fn clicked(tag: &str, cx: &mut App) {
 }
 
 impl Workspace {
-    /// `title` and `body` to the system's notifications, when Settings says so and no GitLance
+    /// `title` and `body` to the system's notifications, when Settings says so and no Artoo
     /// window is in front; `tag` the same again replaces it there. A click opens `open` here.
     pub(super) fn notify_system(
         &mut self,
@@ -108,8 +108,7 @@ impl Workspace {
         open: Open,
         cx: &mut Context<Self>,
     ) {
-        let snapshot =
-            cfg!(feature = "snapshot") && std::env::var_os("GITLANCE_SNAPSHOT").is_some();
+        let snapshot = cfg!(feature = "snapshot") && std::env::var_os("ARTOO_SNAPSHOT").is_some();
         if !self.settings.system_notifications || in_front() || snapshot {
             return;
         }

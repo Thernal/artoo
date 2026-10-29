@@ -276,7 +276,7 @@ fn token_file(home: &std::path::Path, host: &str) -> std::path::PathBuf {
             }
         })
         .collect();
-    home.join(".config/gitlance/tokens").join(safe)
+    home.join(".config/artoo/tokens").join(safe)
 }
 
 /// Keeps `token` for the host of `remote`, readable by the owner only.
@@ -305,7 +305,7 @@ pub fn token_page(remote: &WebRemote) -> String {
         return github::token_page(remote);
     }
     let (host, _) = api(remote).unwrap_or_default();
-    format!("{host}/-/user_settings/personal_access_tokens?name=GitLance&scopes=api")
+    format!("{host}/-/user_settings/personal_access_tokens?name=Artoo&scopes=api")
 }
 
 /// The host the requests go to, without the scheme.
@@ -417,14 +417,14 @@ pub fn fixture_on() -> bool {
     fixture().is_some()
 }
 
-/// `GITLANCE_MR_FIXTURE=<dir>` reads `mrs.json` and `discussions-<iid>.json` from a directory
+/// `ARTOO_MR_FIXTURE=<dir>` reads `mrs.json` and `discussions-<iid>.json` from a directory
 /// instead of the network (for UI checks); a test sets its own (`TEST_FIXTURE`).
 pub(crate) fn fixture() -> Option<std::path::PathBuf> {
     #[cfg(test)]
     if let Some(dir) = TEST_FIXTURE.with(|f| f.borrow().clone()) {
         return Some(dir);
     }
-    std::env::var_os("GITLANCE_MR_FIXTURE").map(Into::into)
+    std::env::var_os("ARTOO_MR_FIXTURE").map(Into::into)
 }
 
 #[cfg(test)]
@@ -1636,7 +1636,7 @@ fn project_path(remote: &WebRemote) -> Option<String> {
         .map(|(_, path)| path.to_owned())
 }
 
-/// The token's username (`GITLANCE_MR_FIXTURE`: `user.json`, else "you").
+/// The token's username (`ARTOO_MR_FIXTURE`: `user.json`, else "you").
 pub fn username(remote: &WebRemote) -> Result<String> {
     if remote.github {
         return github::username(remote);
@@ -2430,11 +2430,11 @@ mod tests {
         let home = std::path::Path::new("/h");
         assert_eq!(
             token_file(home, "git.example.com:8443"),
-            std::path::Path::new("/h/.config/gitlance/tokens/git.example.com_8443")
+            std::path::Path::new("/h/.config/artoo/tokens/git.example.com_8443")
         );
         assert_eq!(
             token_file(home, "../x"),
-            std::path::Path::new("/h/.config/gitlance/tokens/.._x")
+            std::path::Path::new("/h/.config/artoo/tokens/.._x")
         );
     }
 
@@ -2562,7 +2562,7 @@ mod tests {
 
     #[test]
     fn a_comment_is_recorded_in_the_fixture() {
-        let dir = std::env::temp_dir().join(format!("gitlance-mr-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("artoo-mr-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         TEST_FIXTURE.with(|f| *f.borrow_mut() = Some(dir.clone()));
         let remote = WebRemote {

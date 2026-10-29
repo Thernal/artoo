@@ -40,23 +40,23 @@ function github() {
     asked.push(`${method} ${path}`);
     const body = init.body ? JSON.parse(init.body) : null;
     const reply = (v, status = 200) => new Response(JSON.stringify(v), { status });
-    if (path === '/repos/Thernal/gitlance-reports/installation') return reply({ id: 77 });
+    if (path === '/repos/Thernal/artoo-reports/installation') return reply({ id: 77 });
     if (path === '/app/installations/77/access_tokens') {
       return reply({ token: 'ghs_x', expires_at: new Date(Date.now() + 3_600_000).toISOString() }, 201);
     }
-    if (method === 'POST' && path === '/repos/Thernal/gitlance-reports/issues') {
+    if (method === 'POST' && path === '/repos/Thernal/artoo-reports/issues') {
       const number = issues.size + 1;
-      issues.set(number, { ...body, number, state: 'open', repository_url: 'https://api.github.com/repos/Thernal/gitlance-reports', comments: [] });
+      issues.set(number, { ...body, number, state: 'open', repository_url: 'https://api.github.com/repos/Thernal/artoo-reports', comments: [] });
       return reply({ number }, 201);
     }
-    let m = path.match(/^\/repos\/Thernal\/gitlance-reports\/issues\/(\d+)$/);
+    let m = path.match(/^\/repos\/Thernal\/artoo-reports\/issues\/(\d+)$/);
     if (m) return issues.has(+m[1]) ? reply(issues.get(+m[1])) : reply({}, 404);
-    m = path.match(/^\/repos\/Thernal\/gitlance-reports\/issues\/(\d+)\/comments$/);
+    m = path.match(/^\/repos\/Thernal\/artoo-reports\/issues\/(\d+)\/comments$/);
     if (m && method === 'POST') {
       issues.get(+m[1]).comments.push(body.body);
       return reply({}, 201);
     }
-    if (method === 'PUT' && path.startsWith('/repos/Thernal/gitlance-reports/contents/attachments/')) return reply({}, 201);
+    if (method === 'PUT' && path.startsWith('/repos/Thernal/artoo-reports/contents/attachments/')) return reply({}, 201);
     return reply({ message: 'not stubbed' }, 500);
   };
   return { asked, issues };
@@ -64,7 +64,7 @@ function github() {
 
 async function setup(extra = {}) {
   const key = await pem();
-  return { env: { REPO: 'Thernal/gitlance-reports', OPEN: '1', DAILY_CAP: '100', APP_ID: '123', APP_KEY: key.text, REPORTS: kv(), ...extra }, key };
+  return { env: { REPO: 'Thernal/artoo-reports', OPEN: '1', DAILY_CAP: '100', APP_ID: '123', APP_KEY: key.text, REPORTS: kv(), ...extra }, key };
 }
 
 const send = (env, body, ip = '1.2.3.4') =>
@@ -108,7 +108,7 @@ test('a picture is kept beside its issue', async () => {
   const gh = github();
   const r = await send(env, { ...report, fingerprint: '', picture: 'iVBORw0KGgo=' });
   const { id } = await r.json();
-  assert.ok(gh.asked.includes(`PUT /repos/Thernal/gitlance-reports/contents/attachments/${id}.png`));
+  assert.ok(gh.asked.includes(`PUT /repos/Thernal/artoo-reports/contents/attachments/${id}.png`));
   assert.match(gh.issues.get(1).body, new RegExp(`attachments/${id}\\.png\\?raw=true`));
 });
 

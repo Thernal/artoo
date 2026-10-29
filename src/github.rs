@@ -90,12 +90,12 @@ pub fn token_source(remote: &WebRemote, run: bool) -> Option<(String, &'static s
 /// of every repository the account can see, private ones too.
 pub fn token_page(remote: &WebRemote) -> String {
     format!(
-        "https://{}/settings/tokens/new?scopes=repo,read:user&description=GitLance",
+        "https://{}/settings/tokens/new?scopes=repo,read:user&description=Artoo",
         host(remote)
     )
 }
 
-/// `GITLANCE_MR_FIXTURE=<dir>` reads GitHub's answers from `<dir>/github/`.
+/// `ARTOO_MR_FIXTURE=<dir>` reads GitHub's answers from `<dir>/github/`.
 fn fixture() -> Option<std::path::PathBuf> {
     crate::mr::fixture().map(|d| d.join("github"))
 }
@@ -205,7 +205,7 @@ fn send_with(
     body: Option<&Value>,
 ) -> Result<Value> {
     let mut config = format!(
-        "url = \"{}\"\nheader = \"Authorization: Bearer {}\"\nheader = \"Accept: application/vnd.github+json\"\nheader = \"X-GitHub-Api-Version: 2022-11-28\"\nuser-agent = \"GitLance\"\n",
+        "url = \"{}\"\nheader = \"Authorization: Bearer {}\"\nheader = \"Accept: application/vnd.github+json\"\nheader = \"X-GitHub-Api-Version: 2022-11-28\"\nuser-agent = \"Artoo\"\n",
         quote(url),
         quote(token)
     );
@@ -1605,10 +1605,10 @@ mod tests {
 
     #[test]
     fn github_com_and_enterprise_have_their_api() {
-        let (rest, graphql, repo) = api(&remote("https://github.com/Thernal/gitlance")).unwrap();
+        let (rest, graphql, repo) = api(&remote("https://github.com/Thernal/artoo")).unwrap();
         assert_eq!(rest, "https://api.github.com");
         assert_eq!(graphql, "https://api.github.com/graphql");
-        assert_eq!(repo, "Thernal/gitlance");
+        assert_eq!(repo, "Thernal/artoo");
         let (rest, graphql, _) = api(&remote("https://git.corp.example/a/b")).unwrap();
         assert_eq!(rest, "https://git.corp.example/api/v3");
         assert_eq!(graphql, "https://git.corp.example/api/graphql");

@@ -17,7 +17,7 @@ mod linux;
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 use linux as os;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub use os::{TRANSPARENT_TITLEBAR, alive, launch, owner_only, reduce_motion, set_icon};
 
@@ -66,7 +66,7 @@ pub fn line(m: &gpui::Modifiers) -> bool {
     MAC && m.platform
 }
 
-/// This computer's name as its owner gave it ("Ann's MacBook Pro"), for what GitLance makes in
+/// This computer's name as its owner gave it ("Ann's MacBook Pro"), for what Artoo makes in
 /// its name (#142); the host name where there is no other.
 pub fn computer_name() -> String {
     let asked = |program: &str, args: &[&str]| {
@@ -88,9 +88,50 @@ pub fn computer_name() -> String {
         .unwrap_or_else(|| "this computer".to_owned())
 }
 
-/// The folder for what GitLance remembers between runs.
+/// The folder for what Artoo remembers between runs. The first time a run asks for it, GitLance's,
+/// the name Artoo had, is copied into it when only that one is there (`carry_over`); never in a test.
 pub fn data_dir() -> Option<PathBuf> {
-    os::data_dir()
+    let dir = os::data_dir()?;
+    static CARRIED: std::sync::Once = std::sync::Once::new();
+    if !cfg!(test) {
+        CARRIED.call_once(|| {
+            if let Some(old) = os::old_data_dir() {
+                carry_over(&old, &dir);
+            }
+        });
+    }
+    Some(dir)
+}
+
+/// Copies `old` to `new` when only `old` is there. A copy, not a move: GitLance installed beside
+/// Artoo keeps its own folder. It is made beside `new` and renamed into place, so a copy cut short
+/// is never taken for the folder.
+fn carry_over(old: &Path, new: &Path) {
+    if new.exists() || !old.is_dir() {
+        return;
+    }
+    let part = new.with_extension("copying");
+    let _ = std::fs::remove_dir_all(&part);
+    if copy_dir(old, &part).is_ok() {
+        let _ = std::fs::rename(&part, new);
+    }
+    // Left when the copy failed, or another run put its own in place first.
+    let _ = std::fs::remove_dir_all(&part);
+}
+
+fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        let target = to.join(entry.file_name());
+        if kind.is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else if kind.is_file() {
+            std::fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
 }
 
 /// The key window as a PNG, for a report (#118); `None` when it cannot be taken.
@@ -148,7 +189,7 @@ pub fn open_with(file: &std::path::Path, app: Option<&std::path::Path>) -> std::
 }
 
 /// The folders JetBrains IDEs keep their settings under, one folder a version inside
-/// (`IntelliJIdea2026.2`, `AndroidStudio2026.1.3`), where GitLance can also read the tokens they
+/// (`IntelliJIdea2026.2`, `AndroidStudio2026.1.3`), where Artoo can also read the tokens they
 /// keep (#156): macOS's Keychain. None elsewhere: there the passwords are in a store not read yet.
 pub fn ide_config_dirs() -> Vec<PathBuf> {
     os::ide_config_dirs()
@@ -191,7 +232,7 @@ fn on_path(names: &[&str], extensions: &[String]) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::pc_keys;
+    use super::{carry_over, pc_keys};
 
     #[test]
     fn mac_keys_become_ctrl_and_tabs_alt() {
@@ -204,5 +245,31 @@ mod tests {
         assert_eq!(pc_keys("ctrl-2"), "ctrl-2");
         assert_eq!(pc_keys("ctrl-cmd-4"), "ctrl-shift-4");
         assert_eq!(pc_keys("g g"), "g g");
+    }
+
+    #[test]
+    fn gitlances_folder_is_copied_once_and_kept() {
+        let home = tempfile::tempdir().unwrap();
+        let (old, new) = (home.path().join("GitLance"), home.path().join("Artoo"));
+        std::fs::create_dir_all(old.join("agents/chat")).unwrap();
+        std::fs::write(old.join("tokens.txt"), "https://h a-token\n").unwrap();
+        std::fs::write(old.join("agents/chat/comments.json"), "[]").unwrap();
+        // A copy an earlier run left cut short.
+        std::fs::create_dir_all(home.path().join("Artoo.copying")).unwrap();
+        carry_over(&old, &new);
+        assert_eq!(
+            std::fs::read_to_string(new.join("tokens.txt")).unwrap(),
+            "https://h a-token\n"
+        );
+        assert!(new.join("agents/chat/comments.json").is_file());
+        assert!(old.join("tokens.txt").is_file(), "GitLance keeps its own");
+        assert!(!home.path().join("Artoo.copying").exists());
+        // Artoo's folder is there now: GitLance's is not copied over it again.
+        std::fs::write(new.join("tokens.txt"), "changed").unwrap();
+        carry_over(&old, &new);
+        assert_eq!(
+            std::fs::read_to_string(new.join("tokens.txt")).unwrap(),
+            "changed"
+        );
     }
 }

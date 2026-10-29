@@ -165,7 +165,7 @@ impl Workspace {
                     cx.show_system_notification(gpui::SystemNotification {
                         tag: "system-notifications-on".into(),
                         title: "Notifications are on".into(),
-                        body: "GitLance tells you here what comes while it is in the background."
+                        body: "Artoo tells you here what comes while it is in the background."
                             .into(),
                         actions: Vec::new(),
                     });
@@ -258,7 +258,7 @@ impl Workspace {
                 ))
                 .child(item(
                     "System notifications",
-                    "While GitLance is in the background: the Inbox's news, and an agent's.",
+                    "While Artoo is in the background: the Inbox's news, and an agent's.",
                     system,
                 ))
                 .child(

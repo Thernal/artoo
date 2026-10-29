@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=GitLance
+Name=Artoo
 Comment=Review commits, branch versions and merge requests without an IDE
-Exec=gitlance %f
-Icon=gitlance
+Exec=artoo %f
+Icon=artoo
 Categories=Development;RevisionControl;
-StartupWMClass=gitlance
+StartupWMClass=artoo
 Terminal=false

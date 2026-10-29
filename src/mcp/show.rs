@@ -40,12 +40,12 @@ pub fn show(bus: &Bus, here: &Path, project: &Path, args: &Value) -> Result<Stri
     bus.event(&Event::new(project.to_path_buf(), What::Point { place }))
         .map_err(|e| e.to_string())?;
     Ok(format!(
-        "Pointed the reviewer at {said}: a note in GitLance offers to show it.{}",
+        "Pointed the reviewer at {said}: a note in Artoo offers to show it.{}",
         super::unseen(bus)
     ))
 }
 
-/// A file of the project's working tree, as GitLance's Code reads it: named from the root, an
+/// A file of the project's working tree, as Artoo's Code reads it: named from the root, an
 /// absolute path or `path:line` taken too; its line one the file has.
 fn file(
     here: &Path,
@@ -67,7 +67,7 @@ fn file(
     let Ok(text) = std::fs::read(project.join(&path)) else {
         if here != project && here.join(&path).is_file() {
             return Err(format!(
-                "{path} is in this worktree only; GitLance shows {}'s own working tree. Commit it and point at the commit instead.",
+                "{path} is in this worktree only; Artoo shows {}'s own working tree. Commit it and point at the commit instead.",
                 project.display()
             ));
         }

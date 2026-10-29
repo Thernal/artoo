@@ -21,10 +21,19 @@ pub fn window_picture() -> Option<Vec<u8>> {
 }
 
 pub fn data_dir() -> Option<PathBuf> {
+    roaming("Artoo")
+}
+
+/// Where GitLance, the name Artoo had, kept it.
+pub fn old_data_dir() -> Option<PathBuf> {
+    roaming("GitLance")
+}
+
+fn roaming(name: &str) -> Option<PathBuf> {
     let base = std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .or_else(|| Some(std::env::home_dir()?.join("AppData/Roaming")))?;
-    Some(base.join("GitLance"))
+    Some(base.join(name))
 }
 
 /// `code` is `code.cmd`, so the PATHEXT extensions are tried too.
@@ -52,7 +61,7 @@ pub fn alive(pid: u32) -> bool {
         .unwrap_or(true)
 }
 
-/// Starts GitLance, `exe`, on `project`, detached from the caller's console (#153).
+/// Starts Artoo, `exe`, on `project`, detached from the caller's console (#153).
 pub fn launch(exe: &std::path::Path, project: &std::path::Path) -> std::io::Result<()> {
     use std::os::windows::process::CommandExt;
     use std::process::Stdio;
@@ -107,7 +116,7 @@ pub fn preview() -> Option<PathBuf> {
     None
 }
 
-/// JetBrains IDEs keep tokens in the system's secret store here, which GitLance does not read yet.
+/// JetBrains IDEs keep tokens in the system's secret store here, which Artoo does not read yet.
 pub fn ide_config_dirs() -> Vec<PathBuf> {
     Vec::new()
 }

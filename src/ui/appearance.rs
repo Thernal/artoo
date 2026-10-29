@@ -1275,8 +1275,7 @@ impl Workspace {
             .unwrap_or_else(|| dir.join(format!("{}.json", edit.theme.id)));
         let json = edit.theme.to_json(false);
         // A snapshot run draws a state; it never writes the user's files.
-        let snapshot =
-            cfg!(feature = "snapshot") && std::env::var_os("GITLANCE_SNAPSHOT").is_some();
+        let snapshot = cfg!(feature = "snapshot") && std::env::var_os("ARTOO_SNAPSHOT").is_some();
         let result = if snapshot {
             Ok(())
         } else {

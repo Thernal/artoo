@@ -120,7 +120,7 @@ impl Workspace {
                 projects.extend(path.rsplit('/').next().map(str::to_owned));
             }
         }
-        if let Some(dir) = std::env::home_dir().map(|h| h.join(".config/gitlance/tokens"))
+        if let Some(dir) = std::env::home_dir().map(|h| h.join(".config/artoo/tokens"))
             && let Ok(entries) = std::fs::read_dir(dir)
         {
             for e in entries.flatten() {
@@ -228,12 +228,11 @@ impl Workspace {
         let mut body = self.report_body();
         if self.report.draft.picture
             && let Some(png) = &self.report.picture
-            && let Some(file) =
-                std::env::home_dir().map(|h| h.join("Downloads/gitlance-report.png"))
+            && let Some(file) = std::env::home_dir().map(|h| h.join("Downloads/artoo-report.png"))
             && std::fs::write(&file, png).is_ok()
         {
             body.push_str(
-                "\n\n_A picture of the window is in Downloads as gitlance-report.png — drag it here._",
+                "\n\n_A picture of the window is in Downloads as artoo-report.png — drag it here._",
             );
         }
         let title = self.report_title();

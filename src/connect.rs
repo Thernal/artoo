@@ -4,7 +4,7 @@
 //! once the developer agrees (GitLab Shell's `personal_access_token`), renewed before it expires;
 //! one copied once from a JetBrains IDE (`crate::ide`). It runs the system's own `git`, `ssh` and
 //! CLIs, so the agent, the keychain and the VPN work as they do in a terminal; nothing is asked on
-//! the terminal, no host key is accepted on anyone's behalf, and a token GitLance did not make is
+//! the terminal, no host key is accepted on anyone's behalf, and a token Artoo did not make is
 //! never refreshed or revoked.
 
 use crate::git::WebRemote;
@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 
 /// How long a `git credential` or `ssh` question may take (ssh's own connect limit is 5 s).
 const LIMIT: Duration = Duration::from_secs(10);
-/// The days a token GitLance makes lasts, and how many before its end it is renewed.
+/// The days a token Artoo makes lasts, and how many before its end it is renewed.
 pub const DAYS: u32 = 30;
 const RENEW_BEFORE: i64 = 5;
 
@@ -226,7 +226,7 @@ pub enum Refused {
 }
 
 /// `text` as one word of the command GitLab Shell splits as a shell does: in single quotes, a quote
-/// in it closed, escaped and opened again. Bare, "GitLance (Mac)" is two words and its `(` refused:
+/// in it closed, escaped and opened again. Bare, "Artoo (Mac)" is two words and its `(` refused:
 /// "invalid command line string".
 fn shell_word(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
@@ -291,7 +291,7 @@ pub fn make(ssh: &Ssh, name: &str, scope: &str) -> Result<Made, Refused> {
     made(&answer)
 }
 
-/// What GitLance knows of a host between runs (`connect.json`); 1.2.0's `declined` (Not now on
+/// What Artoo knows of a host between runs (`connect.json`); 1.2.0's `declined` (Not now on
 /// the SSH key's offer) is read and dropped: the ways list has no offer to decline.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostNote {
@@ -315,7 +315,7 @@ pub struct HostNote {
     pub oauth: Vec<String>,
 }
 
-/// The token GitLance made for a host, so it is renewed only while it is the one in use.
+/// The token Artoo made for a host, so it is renewed only while it is the one in use.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MadeNote {
     pub name: String,
@@ -552,7 +552,7 @@ pub enum Via {
     Cli,
     /// What git keeps — in the remote's URL or with its credential helper — used where it is.
     Git(&'static str),
-    /// Made with the SSH key over GitLab Shell; GitLance's own.
+    /// Made with the SSH key over GitLab Shell; Artoo's own.
     Ssh,
     /// Copied once from a JetBrains IDE, with the developer's yes.
     Ide(crate::ide::Account),
@@ -920,7 +920,7 @@ fn run(mut command: Command, input: Option<&str>) -> Option<(bool, String)> {
     Some((status.success(), text))
 }
 
-/// `GITLANCE_SSH_FIXTURE=<dir>` answers for git's credential helper, ssh, the CLIs, the IDEs and
+/// `ARTOO_SSH_FIXTURE=<dir>` answers for git's credential helper, ssh, the CLIs, the IDEs and
 /// the host's checks of a token (UI checks): `credential.txt`, `whoami.txt`, `made.txt` (`{scope}`
 /// the scope asked), `glab.txt` / `gh.txt` (what `auth status --show-token` prints), `tokens.txt`
 /// (`fixture_check`), `ide/JetBrains/<IDE><version>/options/gitlab.xml` and `keychain/<account id>`
@@ -931,7 +931,7 @@ pub(crate) fn fixture() -> Option<std::path::PathBuf> {
     if let Some(dir) = TEST_FIXTURE.with(|f| f.borrow().clone()) {
         return Some(dir);
     }
-    std::env::var_os("GITLANCE_SSH_FIXTURE").map(Into::into)
+    std::env::var_os("ARTOO_SSH_FIXTURE").map(Into::into)
 }
 
 #[cfg(test)]
@@ -974,14 +974,8 @@ mod tests {
 
     #[test]
     fn a_token_name_goes_to_gitlab_shell_as_one_word() {
-        assert_eq!(
-            shell_word("GitLance (011570-MAC)"),
-            "'GitLance (011570-MAC)'"
-        );
-        assert_eq!(
-            shell_word("GitLance (Ann's Mac)"),
-            r"'GitLance (Ann'\''s Mac)'"
-        );
+        assert_eq!(shell_word("Artoo (011570-MAC)"), "'Artoo (011570-MAC)'");
+        assert_eq!(shell_word("Artoo (Ann's Mac)"), r"'Artoo (Ann'\''s Mac)'");
     }
 
     #[test]
@@ -1050,7 +1044,7 @@ mod tests {
                 token: "glpat-abcd1234".into(),
                 expires: Some("2026-11-26".into()),
             },
-            "GitLance (Mac)",
+            "Artoo (Mac)",
             "api",
         );
         assert_eq!(note.tail, "1234");
@@ -1222,14 +1216,14 @@ mod tests {
             "Token:   glpat-made1\nScopes:  {scope}\nExpires: 2026-11-26\n",
         )
         .unwrap();
-        let made = make(&Ssh::of(url, &gitlab()), "GitLance (Mac)", "read_api").unwrap();
+        let made = make(&Ssh::of(url, &gitlab()), "Artoo (Mac)", "read_api").unwrap();
         assert_eq!(made.token, "glpat-made1");
         TEST_FIXTURE.with(|f| *f.borrow_mut() = None);
     }
 
     #[test]
     fn a_note_from_before_the_ways_is_read() {
-        let old = r#"{"https://h":{"made":{"name":"GitLance (Mac)","scope":"api","expires":"2026-11-26","tail":"1234"}}}"#;
+        let old = r#"{"https://h":{"made":{"name":"Artoo (Mac)","scope":"api","expires":"2026-11-26","tail":"1234"}}}"#;
         let notes: HashMap<String, HostNote> = serde_json::from_str(old).unwrap();
         assert_eq!(notes["https://h"].way, None);
         assert!(notes["https://h"].oauth.is_empty());

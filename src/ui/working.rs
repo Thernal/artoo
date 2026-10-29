@@ -1,5 +1,5 @@
 //! The working tree against `HEAD`: a pinned entry above the commits, kept current while an agent
-//! works. Read-only — GitLance never stages or commits.
+//! works. Read-only — Artoo never stages or commits.
 
 use super::px;
 use super::{Diff, Header, Selection, WorkingState, Workspace, theme};

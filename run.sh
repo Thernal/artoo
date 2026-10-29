@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds GitLance (release) and opens it.
+# Builds Artoo (release) and opens it.
 #   ./run.sh              the tabs of the last session
 #   ./run.sh <path>       the repository at <path>
 #   ./run.sh --debug ...  a debug build, faster to compile
@@ -35,6 +35,6 @@ else
     cargo build
 fi
 if [ -n "$repo" ]; then
-    exec "target/$profile/gitlance" "$repo"
+    exec "target/$profile/artoo" "$repo"
 fi
-exec "target/$profile/gitlance"
+exec "target/$profile/artoo"

@@ -25,7 +25,7 @@ const AGENT: &str = "Codex";
 
 /// What a Codex chat cannot do yet, where it is picked (the developer, 2026-10-23: say its
 /// problems rather than hide it).
-pub const LIMITS: &str = "Codex is limited here: GitLance sees a Codex running in a terminal and the session it has written to since it started; sending starts a turn in that session (codex queue). Not seen: Codex in VS Code or the Codex app, nor a session before its first message. A turn sent as its terminal closes may run on unseen.";
+pub const LIMITS: &str = "Codex is limited here: Artoo sees a Codex running in a terminal and the session it has written to since it started; sending starts a turn in that session (codex queue). Not seen: Codex in VS Code or the Codex app, nor a session before its first message. A turn sent as its terminal closes may run on unseen.";
 
 /// `codex`'s commands that are not a session in a terminal (`codex --help`); `resume` and `fork`
 /// are one, and so is a prompt.
@@ -68,11 +68,31 @@ fn home() -> Option<PathBuf> {
         .or_else(|| Some(std::env::home_dir()?.join(".codex")))
 }
 
-/// Whether Codex has GitLance's MCP server (`codex mcp add gitlance`): its config names it.
+/// Whether Codex has Artoo's MCP server (`codex mcp add artoo`): its config names it.
 pub fn connected() -> bool {
+    has_server("artoo")
+}
+
+/// Whether Codex has GitLance's server, the name Artoo had, and not Artoo's.
+pub fn connected_as_gitlance() -> bool {
+    !connected() && has_server(crate::agents::OLD_NAME)
+}
+
+fn has_server(name: &str) -> bool {
     home()
         .and_then(|h| std::fs::read_to_string(h.join("config.toml")).ok())
-        .is_some_and(|c| c.contains("[mcp_servers.gitlance]"))
+        .is_some_and(|c| c.contains(&format!("[mcp_servers.{name}]")))
+}
+
+/// What connects Codex to `server` (`agents::server_command`), GitLance's entry removed first when
+/// Codex has it.
+pub fn add_command(server: &str) -> String {
+    let add = format!("codex mcp add artoo -- {server}");
+    if has_server(crate::agents::OLD_NAME) {
+        format!("codex mcp remove {} && {add}", crate::agents::OLD_NAME)
+    } else {
+        add
+    }
 }
 
 /// The `codex` program; an app started from the Finder has no shell's PATH.
@@ -470,7 +490,7 @@ mod tests {
 
     #[test]
     fn only_rollouts_are_looked_at() {
-        let home = std::env::temp_dir().join(format!("gitlance-codex-{}", agents::uid()));
+        let home = std::env::temp_dir().join(format!("artoo-codex-{}", agents::uid()));
         let day = home.join("sessions/2026/10/23");
         std::fs::create_dir_all(&day).unwrap();
         std::fs::write(day.join("rollout-2026-10-23T19-12-06-x.jsonl"), "{}").unwrap();

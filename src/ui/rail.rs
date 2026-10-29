@@ -324,7 +324,7 @@ mod tests {
     fn a_mark_takes_the_first_letters_of_the_first_two_words() {
         assert_eq!(initials("payments-service"), "PS");
         assert_eq!(initials("Desktop"), "DE");
-        assert_eq!(initials("gitlance_desktop.app"), "GD");
+        assert_eq!(initials("artoo_desktop.app"), "AD");
         assert_eq!(initials(""), "?");
         assert_eq!(hue("payments-service"), hue("payments-service"));
     }

@@ -260,7 +260,7 @@ fn theme() -> &'static Theme {
             ("invalid", MEMBER, false),
         ];
         Theme {
-            name: Some("GitLance roles".into()),
+            name: Some("Artoo roles".into()),
             author: None,
             settings: ThemeSettings {
                 foreground: Some(color(FOREGROUND)),

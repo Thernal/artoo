@@ -1,4 +1,4 @@
-//! Rebindable keys. The defaults are the bindings written in `ui::run`; a preset (#52: GitLance,
+//! Rebindable keys. The defaults are the bindings written in `ui::run`; a preset (#52: Artoo,
 //! Android Studio, VS Code) changes some of them, and `keymap.txt` in the app support folder
 //! replaces the keys of an action on top, one line each: `NextFile = ] | l` (keys split by ` | `,
 //! nothing after `=` leaves the action without a key; `Preset = vscode` names the preset).
@@ -22,17 +22,17 @@ pub struct Keymap {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Preset {
     #[default]
-    GitLance,
+    Artoo,
     AndroidStudio,
     VsCode,
 }
 
 impl Preset {
-    pub const ALL: [Preset; 3] = [Preset::GitLance, Preset::AndroidStudio, Preset::VsCode];
+    pub const ALL: [Preset; 3] = [Preset::Artoo, Preset::AndroidStudio, Preset::VsCode];
 
     pub fn label(self) -> &'static str {
         match self {
-            Preset::GitLance => "GitLance",
+            Preset::Artoo => "Artoo",
             Preset::AndroidStudio => "Android Studio",
             Preset::VsCode => "VS Code",
         }
@@ -40,13 +40,17 @@ impl Preset {
 
     fn key(self) -> &'static str {
         match self {
-            Preset::GitLance => "gitlance",
+            Preset::Artoo => "artoo",
             Preset::AndroidStudio => "android-studio",
             Preset::VsCode => "vscode",
         }
     }
 
     fn from_key(key: &str) -> Option<Self> {
+        // `gitlance`: these keys' name before Artoo's.
+        if key == "gitlance" {
+            return Some(Preset::Artoo);
+        }
         Self::ALL.into_iter().find(|p| p.key() == key)
     }
 
@@ -54,7 +58,7 @@ impl Preset {
     /// terms).
     fn changes(self) -> &'static [(&'static str, &'static [&'static str])] {
         match self {
-            Preset::GitLance => &[],
+            Preset::Artoo => &[],
             // Go to File ⌘⇧O, Find Action ⌘⇧A, File Structure ⌘F12, Find in Files ⌘⇧F (the
             // commit search keeps ⌘⇧C), Hide All Tool Windows ⌘⇧F12, Synchronize ⌥⌘Y (X55).
             Preset::AndroidStudio => &[
@@ -86,7 +90,7 @@ impl Preset {
     /// own keys there, or a ⌃ key that `cmd-` → `ctrl-` would give another action too.
     fn pc_changes(self) -> &'static [(&'static str, &'static [&'static str])] {
         match self {
-            Preset::GitLance | Preset::AndroidStudio => &[],
+            Preset::Artoo | Preset::AndroidStudio => &[],
             // Go Back and Go Forward are Alt+← Alt+→ there (Ctrl+− is Zoom out); Ctrl+R is Open
             // Recent, so Refresh takes F5.
             Preset::VsCode => &[
@@ -160,7 +164,7 @@ fn read(text: &str) -> (Preset, BTreeMap<String, Vec<String>>) {
 
 fn write(map: &Keymap) {
     let mut text = String::new();
-    if map.preset != Preset::GitLance {
+    if map.preset != Preset::Artoo {
         text.push_str(&format!("Preset = {}\n", map.preset.key()));
     }
     text.push_str(&render(&map.overrides));
@@ -202,7 +206,7 @@ fn apply(cx: &mut App) {
     cx.bind_keys(bindings);
 }
 
-/// `gitlance::NextFile` → `NextFile`.
+/// `artoo::NextFile` → `NextFile`.
 fn short(name: &'static str) -> &'static str {
     name.rsplit("::").next().unwrap_or(name)
 }
@@ -212,7 +216,7 @@ impl Keymap {
         self.preset
     }
 
-    /// The keys GitLance ships for action `name`, before a preset or the user's changes.
+    /// The keys Artoo ships for action `name`, before a preset or the user's changes.
     pub fn shipped(&self, name: &str) -> Vec<String> {
         self.defaults
             .iter()
@@ -235,7 +239,7 @@ impl Keymap {
 
     /// Every action's keys as they are now, in `keymap.txt`'s form (Export).
     pub fn export(&self) -> String {
-        let mut text = format!("# GitLance keys · preset {}\n", self.preset.label());
+        let mut text = format!("# Artoo keys · preset {}\n", self.preset.label());
         for e in self.entries() {
             text.push_str(&format!("{} = {}\n", e.name, e.keys.join(" | ")));
         }
@@ -458,7 +462,7 @@ mod tests {
     fn map(overrides: &str) -> Keymap {
         Keymap {
             mac: crate::platform::MAC,
-            preset: Preset::GitLance,
+            preset: Preset::Artoo,
             defaults: vec![
                 KeyBinding::new("l", NextFile, Some("Workspace && !Typing")),
                 KeyBinding::new("]", NextFile, Some("Workspace && !Typing")),
@@ -467,6 +471,13 @@ mod tests {
             ],
             overrides: parse(overrides),
         }
+    }
+
+    #[test]
+    fn keys_picked_under_gitlances_name_stay_picked() {
+        assert_eq!(Preset::from_key("gitlance"), Some(Preset::Artoo));
+        assert_eq!(Preset::from_key("artoo"), Some(Preset::Artoo));
+        assert_eq!(Preset::from_key("vscode"), Some(Preset::VsCode));
     }
 
     #[test]
@@ -517,7 +528,7 @@ mod tests {
         let shipped = Keymap {
             defaults: super::super::default_bindings(),
             mac: crate::platform::MAC,
-            preset: Preset::GitLance,
+            preset: Preset::Artoo,
             overrides: BTreeMap::new(),
         };
         let clashes: Vec<_> = shipped
@@ -533,7 +544,7 @@ mod tests {
         let shipped = Keymap {
             defaults: super::super::bindings(crate::platform::pc_keys),
             mac: false,
-            preset: Preset::GitLance,
+            preset: Preset::Artoo,
             overrides: BTreeMap::new(),
         };
         let clashes: Vec<_> = shipped

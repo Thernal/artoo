@@ -267,7 +267,7 @@ const COMMANDS: &[(&str, &str, Cmd)] = &[
     ("Diff only", "⌘.", Cmd::FocusDiff),
     ("Diff only, one file at a time", "⌥⌘.", Cmd::ZenOneFile),
     ("Report a problem", "⌥⌘/", Cmd::ReportProblem),
-    ("Set up GitLance", "", Cmd::SetUp),
+    ("Set up Artoo", "", Cmd::SetUp),
     ("Merge this merge request…", "", Cmd::Merge),
     ("Check for updates", "", Cmd::CheckForUpdates),
     ("New tab", "⌘T", Cmd::NewTab),
@@ -1691,7 +1691,7 @@ mod tests {
     fn a_project_is_found_by_its_name_then_by_its_path() {
         let recent = [
             std::path::PathBuf::from("/w/ABB/ibam-android-app"),
-            std::path::PathBuf::from("/w/Thernal/gitlance"),
+            std::path::PathBuf::from("/w/Thernal/artoo"),
             std::path::PathBuf::from("/w/ABB/notes"),
         ];
         let labels = |q: &str| {

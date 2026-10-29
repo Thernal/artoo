@@ -1,4 +1,4 @@
-//! GitLance — review commits and force-pushed branch versions without an IDE. See README.md.
+//! Artoo — review commits and force-pushed branch versions without an IDE. See README.md.
 
 // A GUI app on Windows: no console window behind it.
 #![cfg_attr(windows, windows_subsystem = "windows")]
@@ -48,7 +48,7 @@ use std::path::PathBuf;
 fn main() {
     // An explicit path opens just that folder (a repository or not, #75); without one the window comes back as it was
     // left (the tabs of the last session), or offers to open one.
-    // What an agent runs in its chat (`claude mcp add gitlance -- <this> mcp`): no window.
+    // What an agent runs in its chat (`claude mcp add artoo -- <this> mcp`): no window.
     applog::catch_panics();
     match std::env::args().nth(1).as_deref() {
         Some("mcp") => return mcp::run(),

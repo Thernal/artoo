@@ -7,7 +7,7 @@ pub const MAC: bool = false;
 pub const TRANSPARENT_TITLEBAR: bool = false;
 pub const TITLEBAR_INSET: f32 = 12.;
 
-/// The desktop file names the icon (the window's app id is `gitlance`).
+/// The desktop file names the icon (the window's app id is `artoo`).
 pub fn set_icon() {}
 
 /// The system's "reduce motion" is not read here yet; Settings → Appearance → Animations is (#56).
@@ -21,11 +21,20 @@ pub fn window_picture() -> Option<Vec<u8>> {
 }
 
 pub fn data_dir() -> Option<PathBuf> {
+    xdg_data("artoo")
+}
+
+/// Where GitLance, the name Artoo had, kept it.
+pub fn old_data_dir() -> Option<PathBuf> {
+    xdg_data("gitlance")
+}
+
+fn xdg_data(name: &str) -> Option<PathBuf> {
     let base = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
         .or_else(|| Some(std::env::home_dir()?.join(".local/share")))?;
-    Some(base.join("gitlance"))
+    Some(base.join(name))
 }
 
 pub fn launcher(launcher: &super::Launcher) -> Option<PathBuf> {
@@ -45,7 +54,7 @@ pub fn alive(pid: u32) -> bool {
     r == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
-/// Starts GitLance, `exe`, on `project`, detached from the caller (#153).
+/// Starts Artoo, `exe`, on `project`, detached from the caller (#153).
 pub fn launch(exe: &std::path::Path, project: &std::path::Path) -> std::io::Result<()> {
     use std::os::unix::process::CommandExt;
     use std::process::Stdio;
@@ -104,7 +113,7 @@ pub fn preview() -> Option<PathBuf> {
     None
 }
 
-/// JetBrains IDEs keep tokens in the system's secret store here, which GitLance does not read yet.
+/// JetBrains IDEs keep tokens in the system's secret store here, which Artoo does not read yet.
 pub fn ide_config_dirs() -> Vec<PathBuf> {
     Vec::new()
 }

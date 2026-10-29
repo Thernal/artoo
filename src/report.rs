@@ -12,10 +12,10 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-/// The relay's address (`relay/`); `GITLANCE_REPORT_URL` stands in for it.
-const RELAY: &str = "https://gitlance-reports.h-humbat0.workers.dev";
+/// The relay's address (`relay/`); `ARTOO_REPORT_URL` stands in for it.
+const RELAY: &str = "https://artoo-reports.h-humbat0.workers.dev";
 /// Where a report goes when it is posted by hand.
-const NEW_ISSUE: &str = "https://github.com/Thernal/gitlance-desktop/issues/new";
+const NEW_ISSUE: &str = "https://github.com/Thernal/artoo-desktop/issues/new";
 /// The log lines a report carries.
 pub const LOG_LINES: usize = 200;
 /// GitHub refuses longer new-issue addresses; the log is cut first to fit.
@@ -23,19 +23,19 @@ const URL_MAX: usize = 7_500;
 
 /// The relay's address, when there is one.
 pub fn relay() -> Option<String> {
-    std::env::var("GITLANCE_REPORT_URL")
+    std::env::var("ARTOO_REPORT_URL")
         .ok()
         .or_else(|| (!RELAY.is_empty()).then(|| RELAY.to_owned()))
         .map(|u| u.trim_end_matches('/').to_owned())
         .filter(|u| u.starts_with("https://") || u.starts_with("http://127.0.0.1"))
 }
 
-/// "GitLance 0.2.0 (7c5758f)": which build it is.
+/// "Artoo 0.2.0 (7c5758f)": which build it is.
 pub fn version() -> String {
     format!(
-        "GitLance {} ({})",
+        "Artoo {} ({})",
         env!("CARGO_PKG_VERSION"),
-        env!("GITLANCE_COMMIT")
+        env!("ARTOO_COMMIT")
     )
 }
 
@@ -367,7 +367,7 @@ pub fn send(
     let payload = json!({
         "install": install_id(),
         "version": env!("CARGO_PKG_VERSION"),
-        "commit": env!("GITLANCE_COMMIT"),
+        "commit": env!("ARTOO_COMMIT"),
         "title": title,
         "body": body,
         "fingerprint": fingerprint(title),
@@ -427,7 +427,7 @@ mod tests {
         };
         let log = vec!["12:00 one".to_owned()];
         let bare = body(&draft, &scrub, "macOS 15.1 · Mac15,3", &log);
-        assert!(bare.starts_with("It broke.\n\n---\nGitLance "));
+        assert!(bare.starts_with("It broke.\n\n---\nArtoo "));
         assert!(!bare.contains("macOS") && !bare.contains("<details>"));
         draft.system = true;
         draft.log = true;

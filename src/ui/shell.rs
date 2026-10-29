@@ -326,7 +326,7 @@ impl Shell {
     /// Writes the open repositories and the active tab when they differ from what was written.
     fn save_session(&mut self, cx: &mut Context<Self>) {
         if !self.primary
-            || (cfg!(feature = "snapshot") && std::env::var_os("GITLANCE_SNAPSHOT").is_some())
+            || (cfg!(feature = "snapshot") && std::env::var_os("ARTOO_SNAPSHOT").is_some())
         {
             return;
         }

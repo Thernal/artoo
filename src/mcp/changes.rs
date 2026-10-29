@@ -36,11 +36,11 @@ struct Changes {
 fn changes(repo: &Repo, here: &Path, project: &Path, args: &Value) -> Result<Changes, String> {
     let text = |key: &str| args[key].as_str().map(str::trim).filter(|s| !s.is_empty());
     if args["working_tree"].as_bool().unwrap_or(false) {
-        // GitLance shows the project's main working tree; a linked worktree's changes are not
+        // Artoo shows the project's main working tree; a linked worktree's changes are not
         // in it.
         if here != project {
             return Err(format!(
-                "This folder is a worktree of {}; GitLance shows that project's own working tree, not this one. \
+                "This folder is a worktree of {}; Artoo shows that project's own working tree, not this one. \
                  Commit the work and open it as a comparison (base and head) instead.",
                 project.display()
             ));
@@ -192,14 +192,14 @@ pub fn open_changes(
     bus.event(&Event::new(project.to_path_buf(), what))
         .map_err(|e| e.to_string())?;
     Ok(format!(
-        "Under Branches in GitLance: {}{with}.{}",
+        "Under Branches in Artoo: {}{with}.{}",
         changes.said,
         super::unseen(bus)
     ))
 }
 
 /// `annotate_changes` (#151): notes on lines of the working tree or of a branch, and a summary,
-/// kept in GitLance beside the diff; nothing opens and nothing goes to GitLab or GitHub.
+/// kept in Artoo beside the diff; nothing opens and nothing goes to GitLab or GitHub.
 pub fn annotate_changes(
     bus: &Bus,
     here: &Path,
@@ -230,7 +230,7 @@ pub fn annotate_changes(
     bus.event(&Event::new(project.to_path_buf(), what))
         .map_err(|e| e.to_string())?;
     Ok(format!(
-        "Kept in GitLance beside the diff: {said}. The reviewer sees them there and can answer one as a comment; nothing was sent to GitLab or GitHub.{}",
+        "Kept in Artoo beside the diff: {said}. The reviewer sees them there and can answer one as a comment; nothing was sent to GitLab or GitHub.{}",
         super::unseen(bus)
     ))
 }
@@ -275,7 +275,7 @@ mod tests {
 
         let said = open(json!({"base": name, "head": "feature"})).unwrap();
         assert!(
-            said.starts_with(&format!("Under Branches in GitLance: {name} … feature, since their merge base — 1 file(s), +1 −0.")),
+            said.starts_with(&format!("Under Branches in Artoo: {name} … feature, since their merge base — 1 file(s), +1 −0.")),
             "{said}"
         );
         let events = bus.events();
@@ -361,7 +361,7 @@ mod tests {
         }))
         .unwrap();
         assert!(
-            said.starts_with("Kept in GitLance beside the diff: 2 note(s) on 1 file(s) of "),
+            said.starts_with("Kept in Artoo beside the diff: 2 note(s) on 1 file(s) of "),
             "{said}"
         );
         assert!(said.contains("nothing was sent"), "{said}");

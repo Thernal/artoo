@@ -1,11 +1,11 @@
 ---
-name: gitlance
-description: Show the reviewer your changes in GitLance without being asked, with a summary and notes — after a commit; after a branch is made or rewritten (squash, rebase, cherry-pick, reword); after review comments are addressed; before asking the reviewer to look or to approve. Use whenever GitLance's MCP tools (open_changes) are here and one of these has just happened, a local branch not pushed yet included.
+name: artoo
+description: Show the reviewer your changes in Artoo without being asked, with a summary and notes — after a commit; after a branch is made or rewritten (squash, rebase, cherry-pick, reword); after review comments are addressed; before asking the reviewer to look or to approve. Use whenever Artoo's MCP tools (open_changes) are here and one of these has just happened, a local branch not pushed yet included.
 ---
 
-# Show your changes in GitLance
+# Show your changes in Artoo
 
-GitLance is the reviewer's diff app. The reviewer reads your work there, and sees it only when you open it.
+Artoo is the reviewer's diff app. The reviewer reads your work there, and sees it only when you open it.
 
 ## When
 
@@ -16,7 +16,7 @@ Without being asked, right after:
 - review comments addressed (after `address_comment`);
 
 and before you ask the reviewer to look or to approve. A local branch not pushed yet counts: the reviewer reads it in
-GitLance before anything is pushed.
+Artoo before anything is pushed.
 
 ## How
 
@@ -29,4 +29,4 @@ Call `open_changes`:
   to look at closely — on a line the change leaves in that file.
 
 Notes again on the same changes replace your earlier ones; answers to them come back as review comments. When a tool
-says GitLance is not running, call `open_gitlance` first.
+says Artoo is not running, call `open_artoo` first.

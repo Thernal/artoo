@@ -299,7 +299,7 @@ mod tests {
 
     #[test]
     fn a_plain_folder_is_walked_without_what_it_ignores() {
-        let dir = std::env::temp_dir().join(format!("gitlance-files-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("artoo-files-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         for f in [
             "notes/a.md",

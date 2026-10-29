@@ -181,7 +181,7 @@ impl Workspace {
         let repo = self
             .root
             .as_deref()
-            .map_or_else(|| "GitLance".to_owned(), crate::labels::project_name);
+            .map_or_else(|| "Artoo".to_owned(), crate::labels::project_name);
         // In Tabs mode the tabs take the project's place (D21).
         let tabs = self.render_title_tabs(cx);
         let tabbed = tabs.is_some();
@@ -702,11 +702,11 @@ impl Render for Workspace {
         self.sync_keyboard();
         let title = match &self.root {
             Some(root) => format!(
-                "GitLance — {} · {}",
+                "Artoo — {} · {}",
                 crate::labels::project_name(root),
                 root.display()
             ),
-            None => "GitLance".to_owned(),
+            None => "Artoo".to_owned(),
         };
         if title != self.title {
             window.set_window_title(&title);

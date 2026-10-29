@@ -230,7 +230,7 @@ impl Workspace {
         )
     }
 
-    /// Which keys yours start from — GitLance's, Android Studio's or VS Code's (#54): chosen here
+    /// Which keys yours start from — Artoo's, Android Studio's or VS Code's (#54): chosen here
     /// when the card greets the first launch, as Settings → Keyboard does later.
     fn render_card_presets(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         use super::keymap::{self, Keymap};

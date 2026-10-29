@@ -81,7 +81,20 @@ pub fn window_picture() -> Option<Vec<u8>> {
 }
 
 pub fn data_dir() -> Option<PathBuf> {
-    Some(std::env::home_dir()?.join("Library/Application Support/GitLance"))
+    support("Artoo")
+}
+
+/// Where GitLance, the name Artoo had, kept it.
+pub fn old_data_dir() -> Option<PathBuf> {
+    support("GitLance")
+}
+
+fn support(name: &str) -> Option<PathBuf> {
+    Some(
+        std::env::home_dir()?
+            .join("Library/Application Support")
+            .join(name),
+    )
 }
 
 /// The launcher inside the editor's bundle under `/Applications` or `~/Applications`, so nothing
@@ -114,7 +127,7 @@ pub fn alive(pid: u32) -> bool {
     r == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
-/// Starts GitLance, `exe`, on `project` (#153): inside its app bundle through Launch Services, in
+/// Starts Artoo, `exe`, on `project` (#153): inside its app bundle through Launch Services, in
 /// the background so it takes no keys from the reviewer; a bare program detached from the caller.
 pub fn launch(exe: &std::path::Path, project: &std::path::Path) -> std::io::Result<()> {
     use std::os::unix::process::CommandExt;

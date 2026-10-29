@@ -29,8 +29,8 @@ pub fn set(animations: bool, cx: &mut App) {
 pub fn refresh(cx: &mut App) {
     // A snapshot draws the end state, unless it is asked to show motion midway.
     let snapshot = cfg!(feature = "snapshot")
-        && std::env::var_os("GITLANCE_SNAPSHOT").is_some()
-        && std::env::var_os("GITLANCE_SNAPSHOT_MOTION").is_none();
+        && std::env::var_os("ARTOO_SNAPSHOT").is_some()
+        && std::env::var_os("ARTOO_SNAPSHOT_MOTION").is_none();
     cx.set_reduce_motion(!ON.load(Relaxed) || snapshot || crate::platform::reduce_motion());
 }
 

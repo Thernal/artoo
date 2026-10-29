@@ -1,5 +1,5 @@
-//! The merge request tools (#150): an agent reads a request as GitLance compares it and leaves
-//! pending comments on its lines. The host is called with GitLance's own token (`crate::mr`), so
+//! The merge request tools (#150): an agent reads a request as Artoo compares it and leaves
+//! pending comments on its lines. The host is called with Artoo's own token (`crate::mr`), so
 //! the agent needs none; the app is told through the Bus. Nothing is published: a pending comment
 //! is seen by the reviewer alone until they submit the review, and submitting stays theirs. A
 //! request the agent drafts (#152) opens in the app's New merge request card; the reviewer creates
@@ -37,7 +37,7 @@ fn find(remote: &WebRemote, iid: u64) -> Result<mr::Mr, String> {
     })
 }
 
-/// The repository `here` is in, and its host when GitLance has a token for it.
+/// The repository `here` is in, and its host when Artoo has a token for it.
 fn host(here: &Path) -> Result<(Repo, WebRemote), String> {
     let repo =
         Repo::open(here).map_err(|_| format!("{} is not in a git repository", here.display()))?;
@@ -46,7 +46,7 @@ fn host(here: &Path) -> Result<(Repo, WebRemote), String> {
         .ok_or("This repository has no GitLab or GitHub remote.")?;
     if !mr::fixture_on() && mr::token(&remote).is_none() {
         return Err(format!(
-            "GitLance has no token for {}; the reviewer adds one in GitLance → Settings → Merge requests.",
+            "Artoo has no token for {}; the reviewer adds one in Artoo → Settings → Merge requests.",
             mr::host(&remote)
         ));
     }
@@ -168,7 +168,7 @@ fn agents_drafts(bus: &Bus, project: &Path, iid: u64) -> Vec<Mark> {
         .collect()
 }
 
-/// `get_request`: request `iid` as GitLance shows it — what it is, the diff the host compares,
+/// `get_request`: request `iid` as Artoo shows it — what it is, the diff the host compares,
 /// its discussions and the pending comments already there. `paths` limits the diff to those files.
 pub fn get_request(bus: &Bus, here: &Path, project: &Path, args: &Value) -> Result<String, String> {
     let iid = args["iid"].as_u64().ok_or("iid is missing")?;
@@ -331,7 +331,7 @@ fn shown_lines(file: &FileDiff, old: bool) -> String {
         .join(", ")
 }
 
-/// `add_pending_comment`: a pending comment on a line of request `iid`, written as GitLance's own
+/// `add_pending_comment`: a pending comment on a line of request `iid`, written as Artoo's own
 /// ⇧⌘↵ writes it, from the host's diff; a line not in that diff is refused with why.
 pub fn add_pending_comment(
     bus: &Bus,
@@ -511,7 +511,7 @@ pub fn gather_requests(
     let iids = found.iter().map(|(m, _)| m.iid).collect();
     bus.event(&Event::new(project.to_path_buf(), What::Gathered { iids }))
         .map_err(|e| e.to_string())?;
-    let mut out = String::from("Under Merge requests in GitLance, in this order:\n");
+    let mut out = String::from("Under Merge requests in Artoo, in this order:\n");
     for (m, note) in &found {
         let _ = write!(out, "- !{} {}", m.iid, m.title);
         if !note.is_empty() {
@@ -682,13 +682,13 @@ pub fn draft_request(
     bus.event(&Event::new(project.to_path_buf(), What::NewRequest(draft)))
         .map_err(|e| e.to_string())?;
     let mut out = format!(
-        "Your draft is in GitLance: {source} → {target}, \"{title}\", {commits} commit(s). It is not on the reviewer's screen yet: the branch is under Branches with a dot, and the New merge request card opens, filled in, when the reviewer opens that branch or the toast's Open. Nothing was created or sent: the reviewer checks it, edits it and creates it."
+        "Your draft is in Artoo: {source} → {target}, \"{title}\", {commits} commit(s). It is not on the reviewer's screen yet: the branch is under Branches with a dot, and the New merge request card opens, filled in, when the reviewer opens that branch or the toast's Open. Nothing was created or sent: the reviewer checks it, edits it and creates it."
     );
-    // GitLance never pushes: the host makes the request from what origin has.
+    // Artoo never pushes: the host makes the request from what origin has.
     if pushed.is_none() {
         let _ = write!(
             out,
-            " {source} is only on this Mac: the card asks for it to be pushed first, and GitLance never pushes it."
+            " {source} is only on this Mac: the card asks for it to be pushed first, and Artoo never pushes it."
         );
     } else if unpushed > 0 {
         let _ = write!(
@@ -912,7 +912,7 @@ mod tests {
         }))
         .unwrap();
         assert!(
-            said.starts_with("Your draft is in GitLance: feature → main, \"Say two\", 1 commit(s). It is not on the reviewer's screen yet"),
+            said.starts_with("Your draft is in Artoo: feature → main, \"Say two\", 1 commit(s). It is not on the reviewer's screen yet"),
             "{said}"
         );
         assert!(!said.contains("pushed"), "{said}");

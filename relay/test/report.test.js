@@ -38,12 +38,12 @@ test('ids look alike', () => {
 });
 
 test('what became of an issue', () => {
-  const intake = 'Thernal/gitlance-reports';
+  const intake = 'Thernal/artoo-reports';
   const at = (repo) => `https://api.github.com/repos/${repo}`;
   assert.deepEqual(state({ repository_url: at(intake), state: 'open', labels: [] }, intake), { state: 'received', url: '' });
   assert.deepEqual(
-    state({ repository_url: at('Thernal/gitlance-desktop'), state: 'open', html_url: 'https://github.com/Thernal/gitlance-desktop/issues/142' }, intake),
-    { state: 'moved to the project', url: 'https://github.com/Thernal/gitlance-desktop/issues/142' },
+    state({ repository_url: at('Thernal/artoo-desktop'), state: 'open', html_url: 'https://github.com/Thernal/artoo-desktop/issues/142' }, intake),
+    { state: 'moved to the project', url: 'https://github.com/Thernal/artoo-desktop/issues/142' },
   );
   assert.equal(state({ repository_url: at(intake), state: 'open', labels: [{ name: 'duplicate' }] }, intake).state, 'duplicate');
   assert.equal(state({ repository_url: at(intake), state: 'closed', state_reason: 'completed' }, intake).state, 'fixed');

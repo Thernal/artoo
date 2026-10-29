@@ -1,4 +1,4 @@
-//! GitLance and the coding agents' chats on this Mac: how a review reaches a chat and the agent's
+//! Artoo and the coding agents' chats on this Mac: how a review reaches a chat and the agent's
 //! answers come back. Everything goes through files in the data folder's `agents/`, so the app,
 //! the MCP server (`crate::mcp`) and a chat's watcher (`crate::watch`) need not run at the same
 //! time:
@@ -100,8 +100,8 @@ pub struct ReportDraft {
     pub at: i64,
 }
 
-/// A window of GitLance while it runs (#153): its process and the projects open in its tabs. The
-/// MCP server reads them to know whether what an agent does is seen, and when `open_gitlance` is
+/// A window of Artoo while it runs (#153): its process and the projects open in its tabs. The
+/// MCP server reads them to know whether what an agent does is seen, and when `open_artoo` is
 /// done.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Presence {
@@ -130,7 +130,7 @@ pub struct Event {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum What {
-    /// The project in a tab (`open_gitlance`).
+    /// The project in a tab (`open_artoo`).
     Open,
     /// Pending comments written on request `iid` (`add_pending_comment`, #150).
     Pending { iid: u64, ids: Vec<u64> },
@@ -749,11 +749,11 @@ fn shorten(text: &str, max: usize) -> String {
     format!("{}…", cut.trim_end())
 }
 
-/// The command an agent runs for GitLance's MCP server: this program with `mcp`.
+/// The command an agent runs for Artoo's MCP server: this program with `mcp`.
 pub fn server_command() -> String {
     let exe = std::env::current_exe()
         .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| "gitlance".into());
+        .unwrap_or_else(|_| "artoo".into());
     format!("\"{exe}\" mcp")
 }
 
@@ -800,21 +800,33 @@ fn claude_program() -> Option<PathBuf> {
 
 /// The skill written beside the server in each Claude Code profile (#158): when to open the changes for the
 /// reviewer, kept in the agent's context apart from the server's instructions, which come once.
-pub const SKILL: &str = include_str!("../assets/skills/gitlance/SKILL.md");
+pub const SKILL: &str = include_str!("../assets/skills/artoo/SKILL.md");
 
-/// Writes the skill into a Claude Code profile, replacing an older one: `<profile>/skills/gitlance/SKILL.md`.
+/// Writes the skill into a Claude Code profile, replacing an older one: `<profile>/skills/artoo/SKILL.md`.
 pub fn write_skill(profile: &Path) -> std::io::Result<()> {
-    let dir = profile.join("skills").join("gitlance");
+    let dir = profile.join("skills").join("artoo");
     std::fs::create_dir_all(&dir)?;
     std::fs::write(dir.join("SKILL.md"), SKILL)
 }
 
-/// Whether GitLance connected Claude Code profile `profile`: its skill is there.
+/// Whether Artoo connected Claude Code profile `profile`: its skill is there.
 pub fn claude_connected(profile: &Path) -> bool {
-    profile.join("skills/gitlance/SKILL.md").is_file()
+    profile.join("skills/artoo/SKILL.md").is_file()
 }
 
-/// Adds GitLance's MCP server to every Claude Code profile, for every project (user scope),
+/// The name Artoo had before, GitLance: what an older connection is registered under.
+pub const OLD_NAME: &str = "gitlance";
+
+/// Whether an agent is still connected under GitLance's name only: a Claude Code profile with its
+/// skill and not Artoo's, or Codex with its server and not Artoo's. Connecting again moves it over.
+pub fn connected_as_gitlance() -> bool {
+    claude_profiles()
+        .iter()
+        .any(|p| !claude_connected(p) && p.join("skills").join(OLD_NAME).join("SKILL.md").is_file())
+        || crate::codex::connected_as_gitlance()
+}
+
+/// Adds Artoo's MCP server to every Claude Code profile, for every project (user scope),
 /// replacing an older entry, and the skill beside it. Returns what happened, per profile.
 pub fn connect_claude() -> Result<String, String> {
     let claude = claude_program().ok_or("Claude Code's `claude` was not found.")?;
@@ -828,12 +840,15 @@ pub fn connect_claude() -> Result<String, String> {
                 c.env("CLAUDE_CONFIG_DIR", profile);
             }
         };
-        let mut remove = std::process::Command::new(&claude);
-        remove.args(["mcp", "remove", "-s", "user", "gitlance"]);
-        env(&mut remove);
-        let _ = remove.output();
+        // GitLance's entry too, the name Artoo had: its program may be gone.
+        for name in ["artoo", OLD_NAME] {
+            let mut remove = std::process::Command::new(&claude);
+            remove.args(["mcp", "remove", "-s", "user", name]);
+            env(&mut remove);
+            let _ = remove.output();
+        }
         let mut add = std::process::Command::new(&claude);
-        add.args(["mcp", "add", "-s", "user", "gitlance", "--"])
+        add.args(["mcp", "add", "-s", "user", "artoo", "--"])
             .arg(&exe)
             .arg("mcp");
         env(&mut add);
@@ -844,6 +859,7 @@ pub fn connect_claude() -> Result<String, String> {
             .unwrap_or_default();
         if out.status.success() {
             write_skill(profile).map_err(|e| format!("{name}: {e}"))?;
+            let _ = std::fs::remove_dir_all(profile.join("skills").join(OLD_NAME));
             done.push(name);
         } else {
             return Err(format!(
@@ -856,7 +872,7 @@ pub fn connect_claude() -> Result<String, String> {
         return Err("No Claude Code profile found (~/.claude).".into());
     }
     Ok(format!(
-        "Connected: {}. New chats start the watcher; open chats need a restart or “listen to GitLance”.",
+        "Connected: {}. New chats start the watcher; open chats need a restart or “listen to Artoo”.",
         done.join(", ")
     ))
 }
@@ -865,10 +881,10 @@ pub fn connect_claude() -> Result<String, String> {
 /// placed on the lines of the working tree as it is now.
 pub fn brief(root: &Path, comments: &[&Comment]) -> String {
     if comments.is_empty() {
-        return "No review comments are waiting. The reviewer sends them from GitLance.".to_owned();
+        return "No review comments are waiting. The reviewer sends them from Artoo.".to_owned();
     }
     let mut out = format!(
-        "{} review comment(s) from GitLance. Change the code for each, then call address_comment with its id and one line on what you did (or reply_comment to ask the reviewer). Line numbers are of the working tree now.\n",
+        "{} review comment(s) from Artoo. Change the code for each, then call address_comment with its id and one line on what you did (or reply_comment to ask the reviewer). Line numbers are of the working tree now.\n",
         comments.len()
     );
     for c in comments {
@@ -1294,11 +1310,11 @@ mod tests {
         write_skill(profile.path()).unwrap();
         // Again, over an older one.
         write_skill(profile.path()).unwrap();
-        let file = profile.path().join("skills/gitlance/SKILL.md");
+        let file = profile.path().join("skills/artoo/SKILL.md");
         let text = std::fs::read_to_string(file).unwrap();
         let (_, front) = text.split_once("---\n").unwrap();
         let (front, _) = front.split_once("\n---").unwrap();
-        assert!(front.contains("name: gitlance"));
+        assert!(front.contains("name: artoo"));
         for moment in ["after a commit", "rewritten", "addressed", "to approve"] {
             assert!(front.contains(moment), "{moment}");
         }

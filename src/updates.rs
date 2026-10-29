@@ -1,4 +1,4 @@
-//! Whether a newer GitLance is out (#135): its releases on GitHub, asked when the app starts and every 6
+//! Whether a newer Artoo is out (#135): its releases on GitHub, asked when the app starts and every 6
 //! hours (`ui::run`), the newer ones kept here for the window to announce — a card once per version, then a
 //! mark in the title bar (`ui/updates.rs`). Nothing is downloaded or installed: the builds are not signed,
 //! so updating stays the user's (README → Releases). Settings → General turns the asking off.
@@ -11,7 +11,7 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
 /// The project's releases, newest first.
-const RELEASES: &str = "https://api.github.com/repos/Thernal/gitlance-desktop/releases?per_page=30";
+const RELEASES: &str = "https://api.github.com/repos/Thernal/artoo-desktop/releases?per_page=30";
 /// How often a running app asks again.
 pub const EVERY: Duration = Duration::from_secs(6 * 60 * 60);
 /// A release's notes end in its commits under this heading (`.github/release-notes.sh`).
@@ -74,7 +74,7 @@ pub fn current() -> Version {
     Version::parse(env!("CARGO_PKG_VERSION")).unwrap_or_else(|_| Version::new(0, 0, 0))
 }
 
-/// Asks GitHub (or `GITLANCE_RELEASES_FIXTURE`, a file of its answer) and keeps what it found.
+/// Asks GitHub (or `ARTOO_RELEASES_FIXTURE`, a file of its answer) and keeps what it found.
 /// Blocking: run it off the window's thread.
 pub fn check() -> Check {
     let check = match fetch().and_then(|text| parse(&text, &current())) {
@@ -104,8 +104,8 @@ pub fn last() -> Option<Check> {
 
 /// Whether it is time to ask: never asked, or `EVERY` since. A snapshot asks only its fixture.
 pub fn due() -> bool {
-    if std::env::var_os("GITLANCE_SNAPSHOT").is_some()
-        && std::env::var_os("GITLANCE_RELEASES_FIXTURE").is_none()
+    if std::env::var_os("ARTOO_SNAPSHOT").is_some()
+        && std::env::var_os("ARTOO_RELEASES_FIXTURE").is_none()
     {
         return false;
     }
@@ -173,10 +173,10 @@ fn save(seen: &Seen) {
 
 /// GitHub's answer, as text. No token: the releases are public, and 60 asks an hour is plenty.
 fn fetch() -> Result<String> {
-    if let Some(file) = std::env::var_os("GITLANCE_RELEASES_FIXTURE") {
+    if let Some(file) = std::env::var_os("ARTOO_RELEASES_FIXTURE") {
         return Ok(std::fs::read_to_string(file)?);
     }
-    let agent = format!("User-Agent: GitLance/{}", env!("CARGO_PKG_VERSION"));
+    let agent = format!("User-Agent: Artoo/{}", env!("CARGO_PKG_VERSION"));
     let out = Command::new("curl")
         .args([
             "-sS",
@@ -260,7 +260,7 @@ mod tests {
         serde_json::json!({
             "tag_name": tag,
             "body": body,
-            "html_url": format!("https://github.com/Thernal/gitlance-desktop/releases/tag/{tag}"),
+            "html_url": format!("https://github.com/Thernal/artoo-desktop/releases/tag/{tag}"),
             "draft": draft,
             "prerelease": pre,
             "published_at": "2026-10-24T09:00:00Z",

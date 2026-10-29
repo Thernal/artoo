@@ -156,7 +156,7 @@ pub enum RefKind {
 
 /// Where request `iid`'s head is fetched to: under no remote, so no `fetch --prune` drops it.
 pub fn request_ref(iid: u64) -> String {
-    format!("refs/gitlance/requests/{iid}")
+    format!("refs/artoo/requests/{iid}")
 }
 
 #[derive(Clone, Debug)]
@@ -521,13 +521,13 @@ impl Repo {
                 is_head: branch.is_head(),
             });
         }
-        for reference in self.inner.references_glob("refs/gitlance/requests/*")? {
+        for reference in self.inner.references_glob("refs/artoo/requests/*")? {
             let reference = reference?;
             let (Ok(refname), Some(tip)) = (reference.name(), reference.target()) else {
                 continue;
             };
             out.push(BranchRef {
-                name: refname.trim_start_matches("refs/gitlance/").to_owned(),
+                name: refname.trim_start_matches("refs/artoo/").to_owned(),
                 refname: refname.to_owned(),
                 kind: RefKind::Request,
                 tip,

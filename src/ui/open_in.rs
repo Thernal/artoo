@@ -26,7 +26,7 @@ pub(super) const REVEAL: &str = if platform::MAC {
 /// An app a file opens in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum App {
-    /// One of the editors GitLance opens at a line.
+    /// One of the editors Artoo opens at a line.
     Editor(Editor),
     /// Any other, by name and where it is.
     Other { name: String, path: PathBuf },

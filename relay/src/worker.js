@@ -1,7 +1,7 @@
-// The relay between GitLance and the project's private reports (Desktop #118): it takes a report
+// The relay between Artoo and the project's private reports (Desktop #118): it takes a report
 // from the app, checks it, counts it against the day's limits, and files it as an issue in the
 // intake repository as the GitHub App — or, when the same problem is already open there, as a
-// comment on it. GitLance holds no key; this is the only place one is.
+// comment on it. Artoo holds no key; this is the only place one is.
 //
 // POST /v1/report              → { id }           (400 not a report, 413 too large, 429 too many, 503 closed)
 // GET  /v1/report/<id>?install → { state, url }   (only for the installation that sent it)

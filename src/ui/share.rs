@@ -1,4 +1,4 @@
-//! Links to what GitLance shows, copied without the browser (#162): a merge request's and its
+//! Links to what Artoo shows, copied without the browser (#162): a merge request's and its
 //! number, a branch's page on the host, a comparison's, a commit's, a file's in a diff the host
 //! anchors, and the page on screen (⌘K, ⌥⇧⌘C). A toast says what was copied; what has no link (a
 //! branch only on this Mac, what is not committed) says why instead.

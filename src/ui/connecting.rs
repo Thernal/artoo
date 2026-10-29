@@ -4,7 +4,7 @@
 //! macOS asks first), Open ↗ (made by hand, then pasted). ↑↓ move the focus between them, ↵
 //! presses the focused one's button, ⌘V pastes a token. The way picked is remembered per host and
 //! the next run goes straight to it; Settings → Merge requests lists the same ways to change it.
-//! A token GitLance made is renewed a few days before its end.
+//! A token Artoo made is renewed a few days before its end.
 
 use super::discussion::{self, Kind};
 use super::{Workspace, px, theme};
@@ -69,7 +69,7 @@ fn keep(host: &str, change: impl FnOnce(&mut Found)) {
     }
 }
 
-/// Hosts whose token GitLance made was renewed (or tried) this run.
+/// Hosts whose token Artoo made was renewed (or tried) this run.
 fn renewed() -> &'static Mutex<Vec<String>> {
     static RENEWED: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
     RENEWED.get_or_init(Default::default)
@@ -77,7 +77,7 @@ fn renewed() -> &'static Mutex<Vec<String>> {
 
 /// What a token made over SSH is named on the host.
 fn token_name() -> String {
-    format!("GitLance ({})", crate::platform::computer_name())
+    format!("Artoo ({})", crate::platform::computer_name())
 }
 
 /// One row of the ways: a way, or the SSH key while it asks the host, or its no kept in place.
@@ -241,7 +241,7 @@ impl Workspace {
                 not.push(not_ssh(format!("{host} does not make tokens over SSH")))
             }
             Some(Ok(Known::GitLab(_))) if !may("api") && !may("read_api") => not.push(not_ssh(
-                format!("{host} makes no token GitLance can use over SSH"),
+                format!("{host} makes no token Artoo can use over SSH"),
             )),
             Some(Ok(Known::GitLab(user))) => ways.push(Way {
                 via: Via::Ssh,
@@ -324,7 +324,7 @@ impl Workspace {
     }
 
     /// Use: the CLI's token or git's, where it is. The one saved for the host stops being used —
-    /// GitLance's own revoked, another forgotten.
+    /// Artoo's own revoked, another forgotten.
     fn use_borrowed(&mut self, way: Way, cx: &mut Context<Self>) {
         let Some(remote) = self.web.clone() else {
             return;
@@ -453,12 +453,12 @@ impl Workspace {
                             }
                         });
                         this.connecting.error = Some(format!(
-                            "{product} is signed in with OAuth, whose token lasts two hours: GitLance does not copy it."
+                            "{product} is signed in with OAuth, whose token lasts two hours: Artoo does not copy it."
                         ));
                     }
                     Err(Uncopied::Unread(crate::ide::Unread::Denied)) => {
                         this.connecting.error =
-                            Some(format!("macOS did not let GitLance read {product}’s token."));
+                            Some(format!("macOS did not let Artoo read {product}’s token."));
                     }
                     Err(Uncopied::Refused(why)) => {
                         this.connecting.error = Some(format!("{product}’s token: {why}."));
@@ -500,7 +500,7 @@ impl Workspace {
                     let name = token_name();
                     let before = connect::note(&host).made;
                     let made = connect::make(&ssh, &name, scope)?;
-                    // One GitLance made before goes, as a renewed one's does; one pasted is yours.
+                    // One Artoo made before goes, as a renewed one's does; one pasted is yours.
                     if before.is_some_and(|m| crate::mr::token(&check).is_some_and(|t| m.is(&t))) {
                         let _ = crate::mr::revoke_token(&check);
                     }
@@ -536,7 +536,7 @@ impl Workspace {
                         this.connecting.error = Some(if read {
                             format!("{at} makes only read-only tokens over SSH.")
                         } else {
-                            format!("{at} makes no token GitLance can use over SSH.")
+                            format!("{at} makes no token Artoo can use over SSH.")
                         });
                     }
                     Err(Refused::Other(why)) => {
@@ -550,7 +550,7 @@ impl Workspace {
         .detach();
     }
 
-    /// The token GitLance made, read with the requests (`load_requests`): a few days before its end,
+    /// The token Artoo made, read with the requests (`load_requests`): a few days before its end,
     /// a new one over SSH with the same scope, the old one revoked — once a run, quietly; refused
     /// or unreachable, the next run tries again while the old one still works.
     pub(super) fn renew_ssh_token(&mut self, cx: &mut Context<Self>) {
@@ -592,7 +592,7 @@ impl Workspace {
         .detach();
     }
 
-    /// The token GitLance made, while it is the one in use.
+    /// The token Artoo made, while it is the one in use.
     fn made_in_use(&self) -> Option<connect::MadeNote> {
         let remote = self.web.as_ref()?;
         let made = connect::note(&crate::mr::api_host(remote)).made?;
@@ -651,7 +651,7 @@ impl Workspace {
                 let what = match self.connecting.making {
                     Some(scope) => format!("making “{}” · {scope}…", token_name()),
                     None => format!(
-                        "makes “{}” · {} · {} days, GitLance renews it",
+                        "makes “{}” · {} · {} days, Artoo renews it",
                         token_name(),
                         main_scope(&way.scopes).unwrap_or("api"),
                         connect::DAYS
@@ -687,16 +687,16 @@ impl Workspace {
         let (_, program) = connect::cli_name(remote.github);
         match &way.via {
             Via::Cli => format!(
-                "GitLance uses {program}’s token where it is and never copies it; signing out of {program} brings this back."
+                "Artoo uses {program}’s token where it is and never copies it; signing out of {program} brings this back."
             ),
             Via::Git(from) => {
-                format!("GitLance uses the token {from} keeps where it is and never copies it.")
+                format!("Artoo uses the token {from} keeps where it is and never copies it.")
             }
             Via::Ssh => format!(
-                "A token of GitLance’s own, made by {host} over SSH: nothing to copy, and renewed before it ends."
+                "A token of Artoo’s own, made by {host} over SSH: nothing to copy, and renewed before it ends."
             ),
             Via::Ide(account) => format!(
-                "macOS asks once whether GitLance may read {0}’s token; it is kept as a pasted one. Changing it in {0} later does not change GitLance’s.",
+                "macOS asks once whether Artoo may read {0}’s token; it is kept as a pasted one. Changing it in {0} later does not change Artoo’s.",
                 account.product
             ),
             Via::Hand => "The token is kept in a file only you can read.".to_owned(),
@@ -814,7 +814,7 @@ impl Workspace {
                                     cx.notify();
                                 },
                             )),
-                            "Read only — a read_api token: GitLance reads, never writes".to_owned(),
+                            "Read only — a read_api token: Artoo reads, never writes".to_owned(),
                         ))
                         .into_any_element(),
                 ),
@@ -970,7 +970,7 @@ impl Workspace {
             },
             from if from.ends_with("variable") => (
                 capital(from),
-                "set where GitLance started: it is used whatever is picked here".to_owned(),
+                "set where Artoo started: it is used whatever is picked here".to_owned(),
             ),
             from => (capital(from), "read where it is".to_owned()),
         })
@@ -1159,10 +1159,10 @@ impl Workspace {
             let leaves = match crate::mr::token_source(&remote).map(|(_, f)| f) {
                 Some(f) if f.contains("CLI") => {
                     let (_, program) = connect::cli_name(remote.github);
-                    format!("{program} keeps its token; GitLance stops using it.")
+                    format!("{program} keeps its token; Artoo stops using it.")
                 }
                 Some("Settings") if self.made_in_use().is_some() => {
-                    "The token GitLance made is revoked.".to_owned()
+                    "The token Artoo made is revoked.".to_owned()
                 }
                 Some("Settings") => "The token kept now is forgotten.".to_owned(),
                 _ => String::new(),
@@ -1212,9 +1212,9 @@ impl Workspace {
                         .text_size(px(12.))
                         .text_color(theme::muted())
                         .child(if env {
-                            "How GitLance signs in to this host. A token set where GitLance started is used: the ways below wait until it is not."
+                            "How Artoo signs in to this host. A token set where Artoo started is used: the ways below wait until it is not."
                         } else {
-                            "How GitLance signs in to this host. The way in use is tagged; pick another to change it."
+                            "How Artoo signs in to this host. The way in use is tagged; pick another to change it."
                         }),
                 )
                 .child(card)

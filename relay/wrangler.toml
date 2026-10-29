@@ -1,11 +1,11 @@
-# The relay between GitLance and its private reports (relay/README.md).
-name = "gitlance-reports"
+# The relay between Artoo and its private reports (relay/README.md).
+name = "artoo-reports"
 main = "src/worker.js"
 compatibility_date = "2025-09-01"
 
 [vars]
 # The private intake repository the GitHub App is installed on.
-REPO = "Thernal/gitlance-reports"
+REPO = "Thernal/artoo-reports"
 # "0" closes the reports: the app is answered 503 and offers GitHub's page instead.
 OPEN = "1"
 # Reports in all, in a day.

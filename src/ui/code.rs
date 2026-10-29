@@ -868,7 +868,7 @@ impl Workspace {
         });
         let empty = match &self.file_view {
             None => "Open a file to see what it declares.",
-            Some(_) => "Nothing declared here that GitLance reads.",
+            Some(_) => "Nothing declared here that Artoo reads.",
         };
         super::tools::ToolView {
             title: "Outline".into(),

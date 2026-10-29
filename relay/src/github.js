@@ -1,6 +1,6 @@
 // GitHub, as the GitHub App the relay is: a short-lived token for its installation on the intake
 // repository, and the few calls a report needs. The app's key is a Worker secret; nothing of it
-// is in GitLance.
+// is in Artoo.
 
 const API = 'https://api.github.com';
 
@@ -34,7 +34,7 @@ function headers(token) {
   return {
     Authorization: `Bearer ${token}`,
     Accept: 'application/vnd.github+json',
-    'User-Agent': 'gitlance-reports-relay',
+    'User-Agent': 'artoo-reports-relay',
     'X-GitHub-Api-Version': '2022-11-28',
   };
 }

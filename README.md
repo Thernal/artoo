@@ -1,27 +1,27 @@
 <div align="center">
 
-<img src="assets/icon.png" width="112" alt="GitLance">
+<img src="assets/icon.png" width="112" alt="Artoo">
 
-# GitLance
+# Artoo
 
 **Review commits, branches, merge requests and what your coding agent changed — in one desktop app.**<br>
 No IDE to open, no worktrees to create.
 
-[![Latest release](https://img.shields.io/github/v/release/Thernal/gitlance-desktop?display_name=release&label=latest&color=4c8bf5)](https://github.com/Thernal/gitlance-desktop/releases/latest)
-[![CI](https://github.com/Thernal/gitlance-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/Thernal/gitlance-desktop/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/Thernal/artoo-desktop?display_name=release&label=latest&color=4c8bf5)](https://github.com/Thernal/artoo-desktop/releases/latest)
+[![CI](https://github.com/Thernal/artoo-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/Thernal/artoo-desktop/actions/workflows/ci.yml)
 ![macOS](https://img.shields.io/badge/macOS-universal-6e7781?logo=apple&logoColor=white)
 ![Windows](https://img.shields.io/badge/Windows-x64-0078d4)
 ![Linux](https://img.shields.io/badge/Linux-x86__64-e9a23b?logo=linux&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-GPUI-b7410e?logo=rust&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2da44e)](LICENSE)
 
-[**Download**](https://github.com/Thernal/gitlance-desktop/releases/latest) ·
+[**Download**](https://github.com/Thernal/artoo-desktop/releases/latest) ·
 [What's new](CHANGELOG.md) ·
-[Report a problem](https://github.com/Thernal/gitlance-desktop/issues/new)
+[Report a problem](https://github.com/Thernal/artoo-desktop/issues/new)
 
 </div>
 
-![A commit of a branch in GitLance: its versions, commits and changed files on the left, the split diff with the changed words marked on the right](.github/readme/review.png)
+![A commit of a branch in Artoo: its versions, commits and changed files on the left, the split diff with the changed words marked on the right](.github/readme/review.png)
 
 ## At a glance
 
@@ -33,9 +33,9 @@ No IDE to open, no worktrees to create.
 | 🤖 | **Comments for your agent** | write them on lines, files or folders; Claude Code or Codex changes the code and answers each one |
 | 📥 | **Inbox** | mentions, review requests, replies and your agents' answers in one list, answered in place |
 | 🗂️ | **Code** | the project's tree at the working tree, a branch or a commit; files open as tabs, Markdown rendered |
-| 🎨 | **Made yours** | five themes and your own, any installed face for the interface and the code, every key rebindable (GitLance, Android Studio or VS Code keys), zoom |
+| 🎨 | **Made yours** | five themes and your own, any installed face for the interface and the code, every key rebindable (Artoo, Android Studio or VS Code keys), zoom |
 
-GitLance only reads your repository: it never stages, commits or checks out ([what it writes](#in-detail)).
+Artoo only reads your repository: it never stages, commits or checks out ([what it writes](#in-detail)).
 
 ## Works with
 
@@ -47,21 +47,25 @@ GitLance only reads your repository: it never stages, commits or checks out ([wh
 
 ## Install
 
-Download the file for your system from the [latest release](https://github.com/Thernal/gitlance-desktop/releases/latest):
+Download the file for your system from the [latest release](https://github.com/Thernal/artoo-desktop/releases/latest):
 
 | System | File | |
 |---|---|---|
-| macOS | `GitLance-<v>-macos.dmg` (or `.zip`) | drag GitLance to Applications |
-| Windows | `GitLance-<v>-windows-x64.zip` | unzip, run `GitLance.exe` |
-| Linux | `GitLance-<v>-x86_64.AppImage` | `chmod +x`, then run it — or the `.tar.gz` with a desktop file |
+| macOS | `Artoo-<v>-macos.dmg` (or `.zip`) | drag Artoo to Applications |
+| Windows | `Artoo-<v>-windows-x64.zip` | unzip, run `Artoo.exe` |
+| Linux | `Artoo-<v>-x86_64.AppImage` | `chmod +x`, then run it — or the `.tar.gz` with a desktop file |
 
 > [!NOTE]
 > The builds are not signed yet. **macOS** refuses the first open: right-click the app → Open, or System
-> Settings → Privacy & Security → Open Anyway (or `xattr -dr com.apple.quarantine /Applications/GitLance.app`).
+> Settings → Privacy & Security → Open Anyway (or `xattr -dr com.apple.quarantine /Applications/Artoo.app`).
 > **Windows** SmartScreen asks: More info → Run anyway.
 
-GitLance tells you when a newer release is out, with what is new in it; it downloads nothing by itself
+Artoo tells you when a newer release is out, with what is new in it; it downloads nothing by itself
 (Settings → General → Check for updates).
+
+**Coming from GitLance?** Artoo is its new name. The first start brings over what GitLance remembered — tokens,
+marks, settings, keys — and leaves GitLance's own as it was; Set up → Agents connects your agents again under
+the new name.
 
 ## Your agent in the loop
 
@@ -137,13 +141,13 @@ opens in the app. ⌘[ ⌘] go back and forward through every page seen, esc goe
 <details>
 <summary><b>🕘 Versions of a rewritten branch</b></summary>
 
-When a branch — typically a single commit — was amended, rebased or force-pushed, GitLance lists its earlier
+When a branch — typically a single commit — was amended, rebased or force-pushed, Artoo lists its earlier
 versions and diffs any two of them:
 
 - an unchanged base: a plain diff between the two versions;
 - a moved base (rebase): the two patches are compared, so upstream changes do not show up as noise.
 
-Earlier versions come from the reflogs of the branch and its remote-tracking ref, so GitLance sees the
+Earlier versions come from the reflogs of the branch and its remote-tracking ref, so Artoo sees the
 versions this machine has seen — its own amends and rebases, and every fetch. The background fetch, on for
 every repository with a remote, is what brings other people's pushes in. Versions expire with the reflog
 (90 days by default).
@@ -166,7 +170,7 @@ every repository with a remote, is what brings other people's pushes in. Version
 **Tokens.** GitLab needs one with the `api` scope (`read_api` to only read); GitHub a classic token with the
 `repo` scope. With none for the host, Merge requests lists the ways in this computer offers, easiest first, each
 with the account it signs in as: the GitLab or GitHub CLI's token (`glab auth login`, `gh auth login`) or the one
-git keeps, used where they are; one made with your SSH key (GitLab, renewed by GitLance); one copied once from a
+git keeps, used where they are; one made with your SSH key (GitLab, renewed by Artoo); one copied once from a
 JetBrains IDE signed in to the host (macOS); or one made on the host's page and pasted. Settings → Merge requests
 changes the way in use. `GITLAB_TOKEN`, `GITHUB_TOKEN` / `GH_TOKEN` and `~/.config/gitlab-token` are read too.
 
@@ -183,8 +187,8 @@ their notes, and a file another chat is changing says so over its diff.
 
 | Agent | Setup |
 |---|---|
-| **Claude Code** | Settings → Agents → Connect adds GitLance's MCP server to every Claude Code profile, with a `gitlance` skill telling the agent when to open its changes for you. A chat then runs `GitLance agent-watch` in the background and wakes when comments arrive. |
-| **Codex** (limited) | `codex mcp add gitlance -- <GitLance> mcp`. A Codex running in a terminal in the project then listens by itself. Not seen yet: Codex in VS Code or the Codex app. |
+| **Claude Code** | Settings → Agents → Connect adds Artoo's MCP server to every Claude Code profile, with a `artoo` skill telling the agent when to open its changes for you. A chat then runs `Artoo agent-watch` in the background and wakes when comments arrive. |
+| **Codex** (limited) | `codex mcp add artoo -- <Artoo> mcp`. A Codex running in a terminal in the project then listens by itself. Not seen yet: Codex in VS Code or the Codex app. |
 
 </details>
 
@@ -225,18 +229,18 @@ be filed. Home paths, hosts, project names, tokens and e-mail addresses are take
 </details>
 
 <details>
-<summary><b>🔒 What GitLance writes</b></summary>
+<summary><b>🔒 What Artoo writes</b></summary>
 
-GitLance reads git state; it never stages, commits, checks out or creates worktrees. The exceptions:
+Artoo reads git state; it never stages, commits, checks out or creates worktrees. The exceptions:
 
 - the background fetch (Settings → Repository turns it off for one) writes remote-tracking refs and objects;
 - a request whose branch is not here (merged and deleted, closed, a fork's) has its head fetched once to
-  `refs/gitlance/requests/<n>`;
+  `refs/artoo/requests/<n>`;
 - a clone from the welcome window runs your own `git clone`;
 - a comment posted to a merge request goes to GitLab or GitHub, not to the repository.
 
-Settings, the session, themes and comments for agents are kept in `~/Library/Application Support/GitLance/`
-(Windows `%APPDATA%\GitLance`, Linux `~/.local/share/gitlance`).
+Settings, the session, themes and comments for agents are kept in `~/Library/Application Support/Artoo/`
+(Windows `%APPDATA%\Artoo`, Linux `~/.local/share/artoo`).
 
 </details>
 
@@ -253,7 +257,7 @@ tracks what was reviewed, or sends comments back to an agent.
 | Git | `git2` (libgit2, vendored), read-only; the `git` CLI only to fetch and clone |
 | Highlighting | `tree-sitter` for Kotlin, Java, Rust, Swift, TypeScript, JavaScript, Go, Python, JSON, YAML, Markdown; `syntect` for the rest |
 | Requests | GitLab's REST API, GitHub's REST and GraphQL |
-| Agents | an MCP server on stdio in the same binary (`GitLance mcp`) |
+| Agents | an MCP server on stdio in the same binary (`Artoo mcp`) |
 
 ## Building from source
 
@@ -264,7 +268,7 @@ and font headers (`.github/linux-deps.sh` installs them on Debian and Ubuntu).
 ./run.sh               # release build; opens the tabs of the last session
 ./run.sh <path>        # opens only <path>
 ./run.sh --debug       # a debug build, faster to compile
-./bundle.sh            # wraps the release build in target/GitLance.app
+./bundle.sh            # wraps the release build in target/Artoo.app
 ```
 
 <details>
