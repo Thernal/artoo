@@ -3,15 +3,10 @@
 // A GUI app on Windows: no console window behind it.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
-mod agents;
-mod codex;
-mod mcp;
-mod notes;
 mod report;
-mod review;
 mod ui;
-mod watch;
 
+use artoo_agents::{agents, codex, mcp, notes, review, watch};
 use artoo_core::{
     applog, codeowners, editor, emoji, file_icons, files, fswatch, generated, git, highlight,
     labels, links, markdown, mddiff, platform, rank, search, storage, structural, symbols,

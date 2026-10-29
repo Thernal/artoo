@@ -800,7 +800,7 @@ fn claude_program() -> Option<PathBuf> {
 
 /// The skill written beside the server in each Claude Code profile (#158): when to open the changes for the
 /// reviewer, kept in the agent's context apart from the server's instructions, which come once.
-pub const SKILL: &str = include_str!("../assets/skills/artoo/SKILL.md");
+pub const SKILL: &str = include_str!("../../../assets/skills/artoo/SKILL.md");
 
 /// Writes the skill into a Claude Code profile, replacing an older one: `<profile>/skills/artoo/SKILL.md`.
 pub fn write_skill(profile: &Path) -> std::io::Result<()> {

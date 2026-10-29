@@ -204,6 +204,7 @@ name = "artoo"
 version = "1.3.0"
 dependencies = [
  "anyhow",
+ "artoo-agents",
  "artoo-core",
  "artoo-hosts",
  "artoo-updates",
@@ -244,6 +245,18 @@ dependencies = [
  "tree-sitter-typescript",
  "tree-sitter-yaml",
  "two-face",
+]
+
+[[package]]
+name = "artoo-agents"
+version = "1.3.0"
+dependencies = [
+ "artoo-core",
+ "artoo-hosts",
+ "git2",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
