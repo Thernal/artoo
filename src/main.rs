@@ -7,12 +7,13 @@ mod ui;
 
 use artoo_agents::{agents, codex, mcp, notes, review, watch};
 use artoo_core::{
-    applog, codeowners, editor, emoji, file_icons, files, fswatch, generated, git, highlight,
-    labels, links, markdown, mddiff, platform, rank, search, storage, structural, symbols,
-    textedit, themes, worddiff,
+    applog, codeowners, editor, emoji, files, fswatch, generated, git, highlight, labels, links,
+    markdown, mddiff, platform, rank, search, storage, structural, symbols, textedit, themes,
+    worddiff,
 };
 use artoo_hosts::{avatars, connect, ide, merge, mr, pictures};
 use artoo_reports as report;
+use artoo_ui_kit::file_icons;
 use artoo_updates as updates;
 use std::path::PathBuf;
 

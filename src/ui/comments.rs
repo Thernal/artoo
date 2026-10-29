@@ -1976,7 +1976,7 @@ impl Workspace {
     pub(super) fn vertical_key(&mut self, key: &gpui::Keystroke, cx: &mut Context<Self>) -> bool {
         use input::Drawn;
         let m = key.modifiers;
-        let motion = match (key.key.as_str(), crate::platform::line(&m), m.alt) {
+        let motion = match (key.key.as_str(), super::keys::line(&m), m.alt) {
             ("up", false, false) => Drawn::Up,
             ("down", false, false) => Drawn::Down,
             ("left", true, false) => Drawn::Start,

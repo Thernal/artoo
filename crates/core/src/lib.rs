@@ -4,7 +4,6 @@ pub mod applog;
 pub mod codeowners;
 pub mod editor;
 pub mod emoji;
-pub mod file_icons;
 pub mod files;
 pub mod fswatch;
 pub mod generated;

@@ -10,8 +10,6 @@ publish = false
 anyhow.workspace = true
 chrono.workspace = true
 git2.workspace = true
-# Data types only — `Image`, `Modifiers`; stage 2 (ui-kit) takes them out (#165).
-gpui.workspace = true
 image.workspace = true
 imagesize.workspace = true
 notify.workspace = true

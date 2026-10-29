@@ -10,6 +10,7 @@ publish = false
 artoo-core = { path = "../core" }
 chrono.workspace = true
 gpui.workspace = true
+regex.workspace = true
 
 [features]
 # A snapshot run (the app's `snapshot`) draws motion's end state.

@@ -97,6 +97,16 @@ fn pc_text(text: &str) -> String {
         .collect()
 }
 
+/// Whether `m` moves the caret by words: ⌥ on macOS, Ctrl elsewhere.
+pub fn word(m: &gpui::Modifiers) -> bool {
+    if platform::MAC { m.alt } else { m.control }
+}
+
+/// Whether `m` moves the caret to a line's ends with ← →: ⌘ on macOS; elsewhere Home and End do.
+pub fn line(m: &gpui::Modifiers) -> bool {
+    platform::MAC && m.platform
+}
+
 /// `text` with every shortcut in it in this OS's words: as written on macOS, `Ctrl+Shift+Enter`
 /// for `⇧⌘↵` on Windows and Linux. Every shortcut shown to the user goes through this.
 /// It also says the host's words (`words::say`): GitHub's pull requests.

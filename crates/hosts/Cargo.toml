@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 artoo-core = { path = "../core" }
 anyhow.workspace = true
-# Data types only — `Image`; stage 2 (ui-kit) takes it out (#165).
+# People's and comments' pictures as images GPUI draws.
 gpui.workspace = true
 imagesize.workspace = true
 serde.workspace = true

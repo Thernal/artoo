@@ -4,7 +4,6 @@
 //! filled from a tag), `sync` starts the edit over with the caret at the end.
 
 use super::{px, theme};
-use crate::platform;
 use crate::textedit::TextEdit;
 use gpui::{AnyElement, App, Div, Keystroke, Pixels, TextLayout, div, prelude::*};
 use std::cell::{Cell, RefCell};
@@ -363,7 +362,7 @@ fn edit_with(edit: &mut TextEdit, key: &Keystroke, cx: &mut App, lines: bool) ->
     let m = key.modifiers;
     // macOS: ⌘← ⌘→ line ends, ⌘↑ ⌘↓ text ends, ⌥← ⌥→ words. Windows and Linux: Home End line
     // ends, Ctrl+Home Ctrl+End text ends, Ctrl+← Ctrl+→ words (`platform::line`, `word`).
-    let (line, word) = (platform::line(&m), platform::word(&m));
+    let (line, word) = (super::keys::line(&m), super::keys::word(&m));
     let movement = match (key.key.as_str(), line, word) {
         ("home", ..) if m.secondary() => Some(Move::Start),
         ("end", ..) if m.secondary() => Some(Move::End),

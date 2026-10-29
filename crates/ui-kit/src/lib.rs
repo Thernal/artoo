@@ -2,6 +2,7 @@
 //! keycaps, motion, how a row gives way as its list narrows, and the words and formats the window uses.
 //! A module draws with this and GPUI alone.
 
+pub mod file_icons;
 pub mod format;
 pub mod hover;
 pub mod icons;
@@ -12,7 +13,7 @@ pub mod room;
 pub mod theme;
 pub mod words;
 
-use artoo_core::{file_icons, highlight, platform, storage, textedit, themes};
+use artoo_core::{highlight, platform, storage, textedit, themes};
 
 /// The corner of a row, a field, a tooltip.
 pub const ROW_RADIUS: f32 = 6.;

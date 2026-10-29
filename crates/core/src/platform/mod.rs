@@ -56,16 +56,6 @@ pub fn pc_keys(mac: &str) -> String {
         .join(" ")
 }
 
-/// Whether `m` moves the caret by words: ⌥ on macOS, Ctrl elsewhere.
-pub fn word(m: &gpui::Modifiers) -> bool {
-    if MAC { m.alt } else { m.control }
-}
-
-/// Whether `m` moves the caret to a line's ends with ← →: ⌘ on macOS; elsewhere Home and End do.
-pub fn line(m: &gpui::Modifiers) -> bool {
-    MAC && m.platform
-}
-
 /// This computer's name as its owner gave it ("Ann's MacBook Pro"), for what Artoo makes in
 /// its name (#142); the host name where there is no other.
 pub fn computer_name() -> String {
