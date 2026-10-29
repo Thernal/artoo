@@ -155,11 +155,20 @@ pub fn index(name: &str) -> Option<usize> {
 
 /// The built-in themes: (id, file).
 const BUILT_IN: [(&str, &str); 5] = [
-    ("one-dark", include_str!("../assets/themes/one-dark.json")),
-    ("graphite", include_str!("../assets/themes/graphite.json")),
-    ("darcula", include_str!("../assets/themes/darcula.json")),
-    ("night", include_str!("../assets/themes/night.json")),
-    ("paper", include_str!("../assets/themes/paper.json")),
+    (
+        "one-dark",
+        include_str!("../../../assets/themes/one-dark.json"),
+    ),
+    (
+        "graphite",
+        include_str!("../../../assets/themes/graphite.json"),
+    ),
+    (
+        "darcula",
+        include_str!("../../../assets/themes/darcula.json"),
+    ),
+    ("night", include_str!("../../../assets/themes/night.json")),
+    ("paper", include_str!("../../../assets/themes/paper.json")),
 ];
 
 /// A theme ready to draw with: every token, 0xRRGGBBAA.
@@ -599,7 +608,7 @@ pub fn from_hsva([h, s, v, a]: [f32; 4]) -> u32 {
     byte(r) << 24 | byte(g) << 16 | byte(b) << 8 | (a.clamp(0., 1.) * 255.).round() as u32
 }
 
-pub(crate) fn luminance(c: u32) -> f32 {
+pub fn luminance(c: u32) -> f32 {
     let ch = |shift: u32| {
         let v = ((c >> shift) & 0xff) as f32 / 255.;
         if v <= 0.03928 {

@@ -36,17 +36,17 @@ jobs:
 
       - name: Format
         if: runner.os == 'Linux'
-        run: cargo fmt --check
+        run: cargo fmt --all --check
 
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Test
         shell: bash
         run: |
           # A failing test's name and panic become annotations: the log needs signing in to read.
           set -o pipefail
-          cargo test 2>&1 | tee test.log || {
+          cargo test --workspace 2>&1 | tee test.log || {
             grep -E "panicked at|^---- |^    [a-z_:]+$|assertion|left:|right:" test.log \
               | head -40 | sed 's/^/::error title=test::/'
             exit 1

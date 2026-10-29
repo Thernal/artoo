@@ -1,0 +1,58 @@
+[package]
+name = "artoo-core"
+description = "Artoo's core: git, highlighting, the platform layer and what is remembered between runs — nothing that draws (#165)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+git2.workspace = true
+# Data types only — `Image`, `Modifiers`; stage 2 (ui-kit) takes them out (#165).
+gpui.workspace = true
+image.workspace = true
+imagesize.workspace = true
+notify.workspace = true
+pulldown-cmark.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1_smol.workspace = true
+sha2.workspace = true
+syntect.workspace = true
+two-face.workspace = true
+tree-sitter.workspace = true
+tree-sitter-highlight.workspace = true
+tree-sitter-language.workspace = true
+tree-sitter-kotlin-ng.workspace = true
+tree-sitter-java.workspace = true
+tree-sitter-rust.workspace = true
+tree-sitter-swift.workspace = true
+tree-sitter-typescript.workspace = true
+tree-sitter-javascript.workspace = true
+tree-sitter-go.workspace = true
+tree-sitter-python.workspace = true
+tree-sitter-json.workspace = true
+tree-sitter-yaml.workspace = true
+tree-sitter-md.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics.workspace = true
+objc2.workspace = true
+objc2-app-kit.workspace = true
+objc2-foundation.workspace = true
+
+[features]
+# A snapshot run (the app's `snapshot`) never writes the user's state files.
+snapshot = []
+# Tests of a crate that calls this one: the data folder and the network are left alone
+# (`platform::sandboxed`).
+sandbox = []
+
+[dev-dependencies]
+tempfile.workspace = true

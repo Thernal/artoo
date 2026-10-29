@@ -8,7 +8,7 @@ mod versions;
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "sandbox"))]
 pub use diff::Hunk;
 pub use diff::{
     ChangeKind, DiffLine, DiffSettings, FileDiff, ImageKind, ImageSide, LineKind, svg_size,

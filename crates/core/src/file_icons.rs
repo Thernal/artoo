@@ -17,16 +17,21 @@ macro_rules! icon {
     ($name:literal) => {
         (
             $name,
-            include_bytes!(concat!("../assets/icons/intellij/", $name, ".svg")).as_slice(),
-            include_bytes!(concat!("../assets/icons/intellij/", $name, "_dark.svg")).as_slice(),
+            include_bytes!(concat!("../../../assets/icons/intellij/", $name, ".svg")).as_slice(),
+            include_bytes!(concat!(
+                "../../../assets/icons/intellij/",
+                $name,
+                "_dark.svg"
+            ))
+            .as_slice(),
         )
     };
     // One drawn the same on light and dark themes.
     ($name:literal, both) => {
         (
             $name,
-            include_bytes!(concat!("../assets/icons/intellij/", $name, ".svg")).as_slice(),
-            include_bytes!(concat!("../assets/icons/intellij/", $name, ".svg")).as_slice(),
+            include_bytes!(concat!("../../../assets/icons/intellij/", $name, ".svg")).as_slice(),
+            include_bytes!(concat!("../../../assets/icons/intellij/", $name, ".svg")).as_slice(),
         )
     };
 }

@@ -141,32 +141,32 @@ impl Lang {
         match self {
             Lang::Kotlin => (
                 tree_sitter_kotlin_ng::LANGUAGE.into(),
-                include_str!("../../assets/highlight/kotlin.scm").to_owned(),
+                include_str!("../../../../assets/highlight/kotlin.scm").to_owned(),
                 "",
-                include_str!("../../assets/highlight/kotlin-locals.scm").to_owned(),
+                include_str!("../../../../assets/highlight/kotlin-locals.scm").to_owned(),
             ),
             Lang::Java => (
                 tree_sitter_java::LANGUAGE.into(),
                 own(
-                    include_str!("../../assets/highlight/java.scm"),
+                    include_str!("../../../../assets/highlight/java.scm"),
                     tree_sitter_java::HIGHLIGHTS_QUERY,
                 ),
                 "",
-                include_str!("../../assets/highlight/java-locals.scm").to_owned(),
+                include_str!("../../../../assets/highlight/java-locals.scm").to_owned(),
             ),
             Lang::Rust => (
                 tree_sitter_rust::LANGUAGE.into(),
                 own(
-                    include_str!("../../assets/highlight/rust.scm"),
+                    include_str!("../../../../assets/highlight/rust.scm"),
                     tree_sitter_rust::HIGHLIGHTS_QUERY,
                 ),
                 tree_sitter_rust::INJECTIONS_QUERY,
-                include_str!("../../assets/highlight/rust-locals.scm").to_owned(),
+                include_str!("../../../../assets/highlight/rust-locals.scm").to_owned(),
             ),
             Lang::Swift => (
                 tree_sitter_swift::LANGUAGE.into(),
                 own(
-                    include_str!("../../assets/highlight/swift.scm"),
+                    include_str!("../../../../assets/highlight/swift.scm"),
                     tree_sitter_swift::HIGHLIGHTS_QUERY,
                 ),
                 tree_sitter_swift::INJECTIONS_QUERY,
@@ -189,7 +189,7 @@ impl Lang {
                         "{}\n{jsx}\n{}\n{}",
                         js::HIGHLIGHT_QUERY,
                         ts::HIGHLIGHTS_QUERY,
-                        include_str!("../../assets/highlight/ecma.scm"),
+                        include_str!("../../../../assets/highlight/ecma.scm"),
                     ),
                     js::INJECTIONS_QUERY,
                     format!("{}\n{}", ts::LOCALS_QUERY, js::LOCALS_QUERY),
@@ -201,7 +201,7 @@ impl Lang {
                     "{}\n{}\n{}",
                     js::HIGHLIGHT_QUERY,
                     js::JSX_HIGHLIGHT_QUERY,
-                    include_str!("../../assets/highlight/ecma.scm"),
+                    include_str!("../../../../assets/highlight/ecma.scm"),
                 ),
                 js::INJECTIONS_QUERY,
                 js::LOCALS_QUERY.to_owned(),
@@ -209,25 +209,25 @@ impl Lang {
             Lang::Go => (
                 tree_sitter_go::LANGUAGE.into(),
                 own(
-                    include_str!("../../assets/highlight/go.scm"),
+                    include_str!("../../../../assets/highlight/go.scm"),
                     tree_sitter_go::HIGHLIGHTS_QUERY,
                 ),
                 "",
-                include_str!("../../assets/highlight/go-locals.scm").to_owned(),
+                include_str!("../../../../assets/highlight/go-locals.scm").to_owned(),
             ),
             Lang::Python => (
                 tree_sitter_python::LANGUAGE.into(),
                 own(
-                    include_str!("../../assets/highlight/python.scm"),
+                    include_str!("../../../../assets/highlight/python.scm"),
                     tree_sitter_python::HIGHLIGHTS_QUERY,
                 ),
                 "",
-                include_str!("../../assets/highlight/python-locals.scm").to_owned(),
+                include_str!("../../../../assets/highlight/python-locals.scm").to_owned(),
             ),
             Lang::Json => (
                 tree_sitter_json::LANGUAGE.into(),
                 own(
-                    include_str!("../../assets/highlight/json.scm"),
+                    include_str!("../../../../assets/highlight/json.scm"),
                     tree_sitter_json::HIGHLIGHTS_QUERY,
                 ),
                 "",
@@ -242,7 +242,7 @@ impl Lang {
             Lang::Markdown => (
                 tree_sitter_md::LANGUAGE.into(),
                 tree_sitter_md::HIGHLIGHT_QUERY_BLOCK.to_owned(),
-                include_str!("../../assets/highlight/markdown-injections.scm"),
+                include_str!("../../../../assets/highlight/markdown-injections.scm"),
                 String::new(),
             ),
             Lang::MarkdownInline => (

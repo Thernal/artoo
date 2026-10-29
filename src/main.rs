@@ -4,45 +4,27 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod agents;
-mod applog;
 mod avatars;
-mod codeowners;
 mod codex;
 mod connect;
-mod editor;
-mod emoji;
-mod file_icons;
-mod files;
-mod fswatch;
-mod generated;
-mod git;
 mod github;
-mod highlight;
 mod ide;
-mod labels;
-mod links;
-mod markdown;
 mod mcp;
-mod mddiff;
 mod merge;
 mod mr;
 mod notes;
 mod pictures;
-mod platform;
-mod rank;
 mod report;
 mod review;
-mod search;
-mod storage;
-mod structural;
-mod symbols;
-mod textedit;
-mod themes;
 mod ui;
 mod updates;
 mod watch;
-mod worddiff;
 
+use artoo_core::{
+    applog, codeowners, editor, emoji, file_icons, files, fswatch, generated, git, highlight,
+    labels, links, markdown, mddiff, platform, rank, search, storage, structural, symbols,
+    textedit, themes, worddiff,
+};
 use std::path::PathBuf;
 
 fn main() {
@@ -60,4 +42,14 @@ fn main() {
         .map(PathBuf::from)
         .filter(|p| p.is_dir() || git::Repo::open(p).is_ok());
     ui::run(path);
+}
+
+#[cfg(test)]
+mod tests {
+    /// The core is another crate now (#165): its `cfg!(test)` is false here, so its guard must hold through
+    /// the `sandbox` feature the dev-dependencies turn on, or these tests would write the user's data folder.
+    #[test]
+    fn the_cores_test_guard_holds_in_the_apps_tests() {
+        assert!(crate::platform::sandboxed());
+    }
 }

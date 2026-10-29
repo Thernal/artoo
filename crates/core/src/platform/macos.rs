@@ -18,7 +18,7 @@ pub fn set_icon() {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
-    let data = NSData::with_bytes(include_bytes!("../../assets/icon.png"));
+    let data = NSData::with_bytes(include_bytes!("../../../../assets/icon.png"));
     if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
         // SAFETY: called on the main thread with a valid image.
         unsafe { NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image)) };

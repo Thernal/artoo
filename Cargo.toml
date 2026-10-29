@@ -1,12 +1,15 @@
-[package]
-name = "artoo"
+[workspace]
+# The app (this package) and its crates (#165): a feature crate never depends on another one.
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
 version = "1.3.0"
 edition = "2024"
-description = "Review commits, branch versions and merge requests, and send line comments to your coding agent — without an IDE and without worktrees."
 license = "MIT"
-publish = false
 
-[dependencies]
+[workspace.dependencies]
+tempfile = "3"
 anyhow = "1"
 # Image sizes from their headers, for image review (already in GPUI's dependency graph).
 imagesize = "0.14"
@@ -51,28 +54,76 @@ tree-sitter-python = "0.25"
 tree-sitter-json = "0.24"
 tree-sitter-yaml = "0.7"
 tree-sitter-md = "0.5"
-
-# Linux windows through X11 and Wayland (features add up with the line above).
-[target.'cfg(target_os = "linux")'.dependencies]
-gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["x11", "wayland"] }
-
 # Whether an agent's process still runs (`platform::alive`).
-[target.'cfg(unix)'.dependencies]
 libc = "0.2"
-
-[target.'cfg(target_os = "macos")'.dependencies]
 # The key window's picture for a report, its own window only (#118; already in GPUI's graph).
 core-graphics = "0.24"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSAccessibility", "NSApplication", "NSImage", "NSResponder", "NSWindow", "NSWorkspace"] }
 objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSString", "NSURL"] }
 
+[package]
+name = "artoo"
+version.workspace = true
+edition.workspace = true
+description = "Review commits, branch versions and merge requests, and send line comments to your coding agent — without an IDE and without worktrees."
+license.workspace = true
+publish = false
+
+[dependencies]
+artoo-core = { path = "crates/core" }
+anyhow.workspace = true
+imagesize.workspace = true
+sha1_smol.workspace = true
+sha2.workspace = true
+image.workspace = true
+base64.workspace = true
+serde.workspace = true
+semver.workspace = true
+regex.workspace = true
+notify.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+pulldown-cmark.workspace = true
+git2.workspace = true
+gpui.workspace = true
+gpui_platform.workspace = true
+syntect.workspace = true
+two-face.workspace = true
+tree-sitter.workspace = true
+tree-sitter-highlight.workspace = true
+tree-sitter-language.workspace = true
+tree-sitter-kotlin-ng.workspace = true
+tree-sitter-java.workspace = true
+tree-sitter-rust.workspace = true
+tree-sitter-swift.workspace = true
+tree-sitter-typescript.workspace = true
+tree-sitter-javascript.workspace = true
+tree-sitter-go.workspace = true
+tree-sitter-python.workspace = true
+tree-sitter-json.workspace = true
+tree-sitter-yaml.workspace = true
+tree-sitter-md.workspace = true
+
+# Linux windows through X11 and Wayland (features add up with the line above).
+[target.'cfg(target_os = "linux")'.dependencies]
+gpui_platform = { workspace = true, features = ["x11", "wayland"] }
+
+# Whether an agent's process still runs (`platform::alive`).
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics.workspace = true
+objc2.workspace = true
+objc2-app-kit.workspace = true
+objc2-foundation.workspace = true
+
 [features]
 # `ARTOO_SNAPSHOT=<file.png>` renders the window to a PNG and quits — UI checks without screen access.
-snapshot = ["gpui/test-support", "gpui_platform/test-support"]
-# Tests of a crate that calls this one: the data folder and the network are left alone
-# (`platform::sandboxed`, #165).
-sandbox = []
+snapshot = ["gpui/test-support", "gpui_platform/test-support", "artoo-core/snapshot"]
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true
+# The core's tests guard for the app's tests too (`platform::sandboxed`).
+artoo-core = { path = "crates/core", features = ["sandbox"] }

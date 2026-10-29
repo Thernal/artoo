@@ -10,7 +10,7 @@ fn file(name: &str) -> Option<PathBuf> {
 }
 
 /// Writes `body` to `name`; failures only cost what would have been remembered.
-pub(crate) fn save(name: &str, body: String) {
+pub fn save(name: &str, body: String) {
     // A snapshot run draws a state; it must not become the user's remembered state.
     if cfg!(feature = "snapshot") && std::env::var_os("ARTOO_SNAPSHOT").is_some() {
         return;
@@ -27,7 +27,7 @@ pub(crate) fn save(name: &str, body: String) {
     }
 }
 
-pub(crate) fn read(name: &str) -> String {
+pub fn read(name: &str) -> String {
     file(name)
         .and_then(|f| std::fs::read_to_string(f).ok())
         .unwrap_or_default()

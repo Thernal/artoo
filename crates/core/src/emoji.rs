@@ -15,7 +15,7 @@ pub struct Emoji {
 }
 
 static LIST: LazyLock<Vec<Emoji>> = LazyLock::new(|| {
-    include_str!("../assets/emoji/gitlab.tsv")
+    include_str!("../../../assets/emoji/gitlab.tsv")
         .lines()
         .filter(|l| !l.starts_with('#'))
         .filter_map(|l| {
