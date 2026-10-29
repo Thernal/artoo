@@ -5,13 +5,14 @@
 pub mod format;
 pub mod hover;
 pub mod icons;
+pub mod input;
 pub mod keys;
 pub mod motion;
 pub mod room;
 pub mod theme;
 pub mod words;
 
-use artoo_core::{file_icons, highlight, platform, storage, themes};
+use artoo_core::{file_icons, highlight, platform, storage, textedit, themes};
 
 /// The corner of a row, a field, a tooltip.
 pub const ROW_RADIUS: f32 = 6.;
