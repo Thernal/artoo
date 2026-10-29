@@ -421,7 +421,7 @@ pub fn cli_token_now(host: &str) -> Option<String> {
 /// What the host's CLI says (glab for GitLab, gh for GitHub): read once a run — a process, and
 /// the CLI asks its host: off the window's thread.
 pub fn cli(remote: &WebRemote) -> CliSaid {
-    let host = crate::mr::api_host(remote);
+    let host = crate::hosts::of(remote).api_host();
     if let Some(said) = clis().lock().ok().and_then(|c| c.get(&host).cloned()) {
         return said;
     }
@@ -450,7 +450,7 @@ pub fn cli_name(github: bool) -> (&'static str, &'static str) {
 }
 
 fn read_cli(remote: &WebRemote) -> CliSaid {
-    let host = crate::mr::host(remote);
+    let host = crate::hosts::of(remote).host();
     let (_, name) = cli_name(remote.github);
     if let Some(dir) = fixture() {
         return match std::fs::read_to_string(dir.join(format!("{name}.txt"))) {
@@ -640,12 +640,12 @@ impl Access {
 /// Asks the host who `token` is and what it may do (the network: off the window's thread); else
 /// why it cannot be used — a token for cloning only, one refused, or the host not reached.
 pub fn check(remote: &WebRemote, token: &str) -> Result<Access, String> {
-    let host = crate::mr::host(remote);
+    let host = crate::hosts::of(remote).host();
     if let Some(dir) = fixture() {
         return fixture_check(&dir, token, &host);
     }
-    let info = crate::mr::token_check_with(remote, token);
-    match crate::mr::whois_with(remote, token) {
+    let info = crate::hosts::of(remote).token_check_with(token);
+    match crate::hosts::of(remote).whois_with(token) {
         Ok((name, user)) => {
             let (scopes, expires) = info.unwrap_or_default();
             Ok(Access {
@@ -713,7 +713,7 @@ pub struct Looked {
 /// IDEs signed in to the host. A token is checked with the host before it is listed; git's one the
 /// host takes is kept for this run. Slow (processes, the network): off the window's thread.
 pub fn look_here(root: &Path, url: &str, remote: &WebRemote) -> Looked {
-    let host = crate::mr::host(remote);
+    let host = crate::hosts::of(remote).host();
     let mut looked = Looked::default();
     let (cli, git) = std::thread::scope(|s| {
         let cli = beside(s, || look_cli(remote));
@@ -726,7 +726,7 @@ pub fn look_here(root: &Path, url: &str, remote: &WebRemote) -> Looked {
             Err(not) => looked.not_here.push(not),
         }
     }
-    let oauth = note(&crate::mr::api_host(remote)).oauth;
+    let oauth = note(&crate::hosts::of(remote).api_host()).oauth;
     for account in crate::ide::accounts(&host, remote.github) {
         if oauth.contains(&account.id) {
             looked.not_here.push(NotHere {
@@ -762,7 +762,7 @@ fn beside<'s, T: Send + 's>(
 }
 
 fn look_cli(remote: &WebRemote) -> Option<Result<Way, NotHere>> {
-    let host = crate::mr::host(remote);
+    let host = crate::hosts::of(remote).host();
     let not = |why: String| Some(Err(NotHere { via: Via::Cli, why }));
     match cli(remote) {
         CliSaid::Absent => None,
@@ -780,12 +780,12 @@ fn look_cli(remote: &WebRemote) -> Option<Result<Way, NotHere>> {
 /// What git keeps: the remote's URL's token, else its credential helper's; the first the host
 /// takes is a way and kept for this run, one it refuses is said.
 fn look_git(root: &Path, url: &str, remote: &WebRemote) -> Vec<Result<Way, NotHere>> {
-    let api_host = crate::mr::api_host(remote);
+    let api_host = crate::hosts::of(remote).api_host();
     let mut out = Vec::new();
     let candidates = [
         (url_token(url), "the remote's URL"),
         (
-            credential_token(root, &crate::mr::host(remote)),
+            credential_token(root, &crate::hosts::of(remote).host()),
             "git's credential helper",
         ),
     ];
@@ -825,7 +825,7 @@ fn borrowed() -> &'static Mutex<Vec<String>> {
 
 /// Whether the way picked for the host borrows a token (the CLI's, git's) not read yet this run.
 pub fn to_borrow(remote: &WebRemote) -> bool {
-    let host = crate::mr::api_host(remote);
+    let host = crate::hosts::of(remote).api_host();
     matches!(note(&host).way.as_deref(), Some("cli" | "git"))
         && borrowed().lock().is_ok_and(|b| !b.contains(&host))
 }
@@ -834,7 +834,7 @@ pub fn to_borrow(remote: &WebRemote) -> bool {
 /// follow are the check: the CLI's, or what git keeps for repository `root` with remote `url`.
 /// Slow (processes): off the window's thread.
 pub fn borrow(root: &Path, url: &str, remote: &WebRemote) {
-    let host = crate::mr::api_host(remote);
+    let host = crate::hosts::of(remote).api_host();
     match borrowed().lock() {
         Ok(mut done) if !done.contains(&host) => done.push(host.clone()),
         _ => return,
@@ -845,7 +845,7 @@ pub fn borrow(root: &Path, url: &str, remote: &WebRemote) {
         }
         Some("git") => {
             let token = url_token(url).map(|t| (t, "the remote's URL")).or_else(|| {
-                credential_token(root, &crate::mr::host(remote))
+                credential_token(root, &crate::hosts::of(remote).host())
                     .map(|t| (t, "git's credential helper"))
             });
             keep_found(&host, token);
@@ -858,7 +858,7 @@ pub fn borrow(root: &Path, url: &str, remote: &WebRemote) {
 /// read this run, or — `run` — read now (the CLI; git's credential helper, from the working
 /// directory), off the window's thread.
 pub fn borrowed_token(remote: &WebRemote, run: bool) -> Option<(String, &'static str)> {
-    let host = crate::mr::api_host(remote);
+    let host = crate::hosts::of(remote).api_host();
     match note(&host).way.as_deref()? {
         "cli" => {
             let token = if run {
@@ -880,7 +880,7 @@ pub fn borrowed_token(remote: &WebRemote, run: bool) -> Option<(String, &'static
         }
         "git" => found_token(&host).or_else(|| {
             run.then(|| {
-                let token = credential_token(Path::new("."), &crate::mr::host(remote))?;
+                let token = credential_token(Path::new("."), &crate::hosts::of(remote).host())?;
                 keep_found(&host, Some((token, "git's credential helper")));
                 found_token(&host)
             })

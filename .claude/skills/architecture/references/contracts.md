@@ -44,13 +44,20 @@ use gpui::{App, Global};
 use std::sync::Arc;
 
 pub trait Hosts: Send + Sync {
-    /// The host `remote` is on, when Artoo is connected to it; `None` for one it does not know.
-    fn of(&self, remote: &WebRemote) -> Option<Arc<dyn Host>>;
+    /// The host `remote` is on: GitHub's for github.com, GitLab's for any other.
+    fn of(&self, remote: &WebRemote) -> Arc<dyn Host>;
 }
 
-pub trait Host: Send + Sync {
-    fn request(&self, number: u64) -> anyhow::Result<Request>;
-    fn post_pending(&self, number: u64, note: &PendingNote) -> anyhow::Result<()>;
+/// One remote's host, every side of it; a function that needs one side takes it alone (`&dyn Discussions`).
+pub trait Host: Account + Requests + Discussions + Reviews + Merging {
+    fn remote(&self) -> &WebRemote;
+}
+
+/// A request's discussions: their notes and reactions, the pending comments.
+pub trait Discussions: Send + Sync {
+    fn threads(&self, iid: u64) -> anyhow::Result<Vec<Thread>>;
+    /// Sends pending comment `id` alone; an error where the host sends one only with its review (GitHub).
+    fn publish_draft(&self, iid: u64, id: u64) -> anyhow::Result<()>;
 }
 
 struct Installed(Arc<dyn Hosts>);

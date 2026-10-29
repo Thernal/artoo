@@ -89,9 +89,10 @@ The target above is reached stage by stage; until then:
 - `src/ui/` is still the app's: the shell and every feature's views, as `impl Workspace` blocks in 68 files.
   Stage 4 moves them out, the shell first, then one feature at a time.
 - Stage 3 (under way): `artoo-hosts-api` holds the hosts' contract and agents reads requests through it
-  (`ALLOWED` is empty), and so do the app's views (`Workspace::host`, `ui::host_of`). Inside hosts, `mr.rs`
-  still hands a GitHub remote to `github.rs`; the connect panel still calls `connect::` for the token's ways
-  until it moves with hosts' views. The kit's `Pictures` port and markdown's move come next.
+  (`ALLOWED` is empty), and so do the app's views (`Workspace::host`, `ui::host_of`). GitLab answers from
+  `mr.rs`, GitHub from `github.rs`, neither asking which host it is; what both use (the saved tokens, the
+  fixture) still sits in `mr.rs`. The connect panel still calls `connect::` for the token's ways until it
+  moves with hosts' views. The kit's `Pictures` port and markdown's move come next.
 - `Page` (`src/ui/nav.rs`) is a closed enum the route registry replaces; `menu::Act` and `toast` know every
   feature until `shell-api`'s registries. Meanwhile a new page, action or toast is added there in the shape the
   registries will take: one variant, one id, one owner.

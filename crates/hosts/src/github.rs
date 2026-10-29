@@ -186,7 +186,7 @@ fn send(remote: &WebRemote, url: &str, method: &str, body: Option<&Value>) -> Re
     })?;
     match send_with(remote, &token, url, method, body) {
         Err(e) if e.to_string() == REFUSED && from.contains("CLI") => {
-            crate::connect::drop_cli(&crate::mr::api_host(remote));
+            crate::connect::drop_cli(&format!("https://{}", host(remote)));
             match token_source(remote, true).filter(|(fresh, _)| *fresh != token) {
                 Some((fresh, _)) => send_with(remote, &fresh, url, method, body),
                 None => Err(e),
@@ -523,7 +523,16 @@ pub fn awards(
 }
 
 /// Reacts to a comment with GitLab's `name` (one of GitHub's eight).
-pub fn react(remote: &WebRemote, comment: u64, issue: bool, name: &str) -> Result<u64> {
+pub fn react(
+    remote: &WebRemote,
+    number: u64,
+    comment: u64,
+    issue: bool,
+    name: &str,
+) -> Result<u64> {
+    if crate::mr::record(format!("award {number} {comment} {name}"))? {
+        return Ok(comment * 1000 + 1);
+    }
     let content =
         crate::emoji::github_name(name).ok_or_else(|| anyhow!("GitHub has no {name} reaction"))?;
     let kind = if issue { "issues" } else { "pulls" };
@@ -536,7 +545,17 @@ pub fn react(remote: &WebRemote, comment: u64, issue: bool, name: &str) -> Resul
     Ok(value["id"].as_u64().unwrap_or(0))
 }
 
-pub fn unreact(remote: &WebRemote, comment: u64, issue: bool, reaction: u64) -> Result<()> {
+pub fn unreact(
+    remote: &WebRemote,
+    number: u64,
+    comment: u64,
+    issue: bool,
+    name: &str,
+    reaction: u64,
+) -> Result<()> {
+    if crate::mr::record(format!("unaward {number} {comment} {name}"))? {
+        return Ok(());
+    }
     let kind = if issue { "issues" } else { "pulls" };
     rest(
         remote,
@@ -1105,7 +1124,16 @@ pub fn reply(remote: &WebRemote, number: u64, thread: &str, body: &str) -> Resul
 }
 
 /// Changes the text of one's own comment `note`: a conversation comment, or one on a line.
-pub fn edit_note(remote: &WebRemote, thread: &str, note: u64, body: &str) -> Result<()> {
+pub fn edit_note(
+    remote: &WebRemote,
+    number: u64,
+    thread: &str,
+    note: u64,
+    body: &str,
+) -> Result<()> {
+    if crate::mr::record(format!("edit {number} {note} {body}"))? {
+        return Ok(());
+    }
     let endpoint = match thread_ids(thread) {
         ("issue", _) => format!("issues/comments/{note}"),
         _ => format!("pulls/comments/{note}"),
@@ -1115,7 +1143,10 @@ pub fn edit_note(remote: &WebRemote, thread: &str, note: u64, body: &str) -> Res
 }
 
 /// Deletes one's own comment `note` of thread `thread` (#76).
-pub fn delete_note(remote: &WebRemote, thread: &str, note: u64) -> Result<()> {
+pub fn delete_note(remote: &WebRemote, number: u64, thread: &str, note: u64) -> Result<()> {
+    if crate::mr::record(format!("delete-note {number} {note}"))? {
+        return Ok(());
+    }
     let endpoint = match thread_ids(thread) {
         ("issue", _) => format!("issues/comments/{note}"),
         _ => format!("pulls/comments/{note}"),

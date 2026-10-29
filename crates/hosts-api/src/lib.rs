@@ -12,7 +12,6 @@ use anyhow::Result;
 use artoo_core::git::{DiffLine, WebRemote};
 use gpui::{App, Global};
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 
 /// Where a merge request is in its life (#114): open, merged, or closed without merging.
@@ -528,21 +527,11 @@ pub trait Discussions: Send + Sync {
     /// The author's own unpublished comments on a request.
     fn drafts(&self, iid: u64) -> Result<Vec<Draft>>;
 
-    /// Publishes every draft of the request at once: the review is submitted.
-    fn publish_drafts(&self, iid: u64) -> Result<()>;
-
     /// Publishes draft `id` of the request alone: it becomes a discussion, the others stay pending
     /// (#138). GitHub publishes a pending comment only with its review.
     fn publish_draft(&self, iid: u64, id: u64) -> Result<()>;
 
     fn delete_draft(&self, iid: u64, id: u64) -> Result<()>;
-
-    /// Fetches an upload of the project into `out` through the API (`<secret>/<file>`, as a comment
-    /// writes it after `/uploads/`): a private project's uploads are behind sign-in, which the address
-    /// itself does not take a token for. `false` when there is no token, or the host refused or does
-    /// not have the call (GitLab before 17.4). The token goes as `Authorization`, which curl does not
-    /// carry on to another host when the upload is redirected to its storage.
-    fn upload(&self, path: &str, out: &Path) -> bool;
 }
 
 /// Approving a request and submitting a review.
@@ -558,10 +547,6 @@ pub trait Reviews: Send + Sync {
 
     /// A comment on request `iid` as a whole (a review's summary).
     fn comment(&self, iid: u64, body: &str) -> Result<()>;
-
-    /// Marks the token's user as asking for changes on request `iid` (GitLab 17 and later; an older
-    /// one answers with an error that says so).
-    fn request_changes(&self, iid: u64) -> Result<()>;
 
     /// Submits a review of request `iid` (whose head the reviewer sees as `head`): one's pending
     /// comments when there are, the summary, the verdict. GitLab takes them as three calls; GitHub as

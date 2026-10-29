@@ -1,15 +1,20 @@
-//! The hosts' contract implemented (#165 stage 3): GitLab for any remote but GitHub's. Each forwards to `mr.rs`
-//! for now, which still hands a GitHub remote to `github.rs`; the next step gives each its own.
+//! The hosts' contract implemented (#165 stage 3): GitLab for any remote but GitHub's. GitLab answers from
+//! `mr.rs`, GitHub from `github.rs`; neither asks which host it is.
 
 use crate::git::WebRemote;
-use crate::mr;
+use crate::{github, mr};
 use anyhow::Result;
+use anyhow::bail;
 use artoo_hosts_api::*;
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 
 pub(crate) struct HostsImpl;
+
+/// The host `remote` is on, for hosts' own modules (connect's checks).
+pub(crate) fn of(remote: &WebRemote) -> Arc<dyn Host> {
+    HostsImpl.of(remote)
+}
 
 impl Hosts for HostsImpl {
     fn of(&self, remote: &WebRemote) -> Arc<dyn Host> {
@@ -178,12 +183,12 @@ impl Discussions for GitLab {
         mr::awards(&self.remote, iid, notes)
     }
 
-    fn award(&self, iid: u64, note: u64, issue: bool, name: &str) -> Result<u64> {
-        mr::award(&self.remote, iid, note, issue, name)
+    fn award(&self, iid: u64, note: u64, _issue: bool, name: &str) -> Result<u64> {
+        mr::award(&self.remote, iid, note, name)
     }
 
-    fn unaward(&self, iid: u64, note: u64, issue: bool, name: &str, award: u64) -> Result<()> {
-        mr::unaward(&self.remote, iid, note, issue, name, award)
+    fn unaward(&self, iid: u64, note: u64, _issue: bool, name: &str, award: u64) -> Result<()> {
+        mr::unaward(&self.remote, iid, note, name, award)
     }
 
     fn post_discussion(
@@ -217,20 +222,12 @@ impl Discussions for GitLab {
         mr::drafts(&self.remote, iid)
     }
 
-    fn publish_drafts(&self, iid: u64) -> Result<()> {
-        mr::publish_drafts(&self.remote, iid)
-    }
-
     fn publish_draft(&self, iid: u64, id: u64) -> Result<()> {
         mr::publish_draft(&self.remote, iid, id)
     }
 
     fn delete_draft(&self, iid: u64, id: u64) -> Result<()> {
         mr::delete_draft(&self.remote, iid, id)
-    }
-
-    fn upload(&self, path: &str, out: &Path) -> bool {
-        mr::upload(&self.remote, path, out)
     }
 }
 
@@ -249,10 +246,6 @@ impl Reviews for GitLab {
 
     fn comment(&self, iid: u64, body: &str) -> Result<()> {
         mr::comment(&self.remote, iid, body)
-    }
-
-    fn request_changes(&self, iid: u64) -> Result<()> {
-        mr::request_changes(&self.remote, iid)
     }
 
     fn submit(
@@ -277,8 +270,8 @@ impl Merging for GitLab {
         mr::merge(&self.remote, iid, m)
     }
 
-    fn cancel_auto_merge(&self, iid: u64, node: &str) -> Result<()> {
-        mr::cancel_auto_merge(&self.remote, iid, node)
+    fn cancel_auto_merge(&self, iid: u64, _node: &str) -> Result<()> {
+        mr::cancel_auto_merge(&self.remote, iid)
     }
 
     fn rebase(&self, iid: u64) -> Result<()> {
@@ -288,23 +281,23 @@ impl Merging for GitLab {
 
 impl Account for GitHub {
     fn host(&self) -> String {
-        mr::host(&self.remote)
+        github::host(&self.remote)
     }
 
     fn api_host(&self) -> String {
-        mr::api_host(&self.remote)
+        format!("https://{}", github::host(&self.remote))
     }
 
     fn token_source(&self) -> Option<(String, &'static str)> {
-        mr::token_source(&self.remote)
+        github::token_source(&self.remote, false)
     }
 
     fn token(&self) -> Option<String> {
-        mr::token(&self.remote)
+        github::token_source(&self.remote, true).map(|(t, _)| t)
     }
 
     fn token_now(&self) -> Option<String> {
-        mr::token_now(&self.remote)
+        github::token_source(&self.remote, false).map(|(t, _)| t)
     }
 
     fn save_token(&self, token: &str) -> Result<()> {
@@ -316,73 +309,73 @@ impl Account for GitHub {
     }
 
     fn token_page(&self) -> String {
-        mr::token_page(&self.remote)
+        github::token_page(&self.remote)
     }
 
     fn me(&self) -> Result<String> {
-        mr::me(&self.remote)
+        github::me(&self.remote)
     }
 
     fn whois_with(&self, token: &str) -> Result<(String, String)> {
-        mr::whois_with(&self.remote, token)
+        github::whois_with(&self.remote, token)
     }
 
     fn token_info(&self) -> Option<String> {
-        mr::token_info(&self.remote)
+        None
     }
 
-    fn token_check_with(&self, token: &str) -> Option<(Vec<String>, Option<String>)> {
-        mr::token_check_with(&self.remote, token)
+    fn token_check_with(&self, _token: &str) -> Option<(Vec<String>, Option<String>)> {
+        None
     }
 
     fn revoke_token(&self) -> Result<()> {
-        mr::revoke_token(&self.remote)
+        Ok(())
     }
 
     fn available(&self) -> bool {
-        mr::available(&self.remote)
+        mr::fixture().is_some() || self.token_now().is_some()
     }
 
     fn username(&self) -> Result<String> {
-        mr::username(&self.remote)
+        github::username(&self.remote)
     }
 }
 
 impl Requests for GitHub {
     fn list(&self) -> Result<Vec<Mr>> {
-        mr::list(&self.remote)
+        github::list(&self.remote)
     }
 
     fn list_past(&self, state: MrState, whose: &Whose, at: Option<&str>) -> Result<PastPage> {
-        mr::list_past(&self.remote, state, whose, at)
+        github::list_past(&self.remote, state, whose, at)
     }
 
     fn one(&self, iid: u64) -> Result<Mr> {
-        mr::one(&self.remote, iid)
+        github::one(&self.remote, iid)
     }
 
     fn details(&self, iid: u64) -> Result<Details> {
-        mr::details(&self.remote, iid)
+        github::details(&self.remote, iid)
     }
 
     fn labels(&self) -> Result<Vec<Label>> {
-        mr::labels(&self.remote)
+        github::labels(&self.remote)
     }
 
     fn milestones(&self) -> Result<Vec<Milestone>> {
-        mr::milestones(&self.remote)
+        github::milestones(&self.remote)
     }
 
     fn members(&self) -> Result<Vec<(String, String)>> {
-        mr::members(&self.remote)
+        github::members(&self.remote)
     }
 
     fn project_template(&self) -> Result<Option<String>> {
-        mr::project_template(&self.remote)
+        Ok(None)
     }
 
     fn unreached(&self) -> Result<Vec<String>> {
-        mr::unreached(&self.remote)
+        Ok(Vec::new())
     }
 
     fn create(
@@ -393,41 +386,41 @@ impl Requests for GitHub {
         description: &str,
         options: &NewOptions,
     ) -> Result<Mr> {
-        mr::create(&self.remote, source, target, title, description, options)
+        github::create(&self.remote, source, target, title, description, options)
     }
 
     fn pipeline(&self, iid: u64) -> Result<Option<Pipeline>> {
-        mr::pipeline(&self.remote, iid)
+        github::pipeline(&self.remote, iid)
     }
 
     fn versions(&self, iid: u64) -> Result<Vec<Push>> {
-        mr::versions(&self.remote, iid)
+        github::versions(&self.remote, iid)
     }
 
     fn todos(&self) -> Result<Vec<Todo>> {
-        mr::todos(&self.remote)
+        github::todos(&self.remote)
     }
 
     fn mark_todo_done(&self, id: u64) -> Result<()> {
-        mr::mark_todo_done(&self.remote, id)
+        github::mark_todo_done(&self.remote, id)
     }
 }
 
 impl Discussions for GitHub {
     fn threads(&self, iid: u64) -> Result<Vec<Thread>> {
-        mr::threads(&self.remote, iid)
+        github::threads(&self.remote, iid)
     }
 
     fn awards(&self, iid: u64, notes: &[(u64, bool)]) -> Result<HashMap<u64, Vec<Award>>> {
-        mr::awards(&self.remote, iid, notes)
+        github::awards(&self.remote, iid, notes)
     }
 
     fn award(&self, iid: u64, note: u64, issue: bool, name: &str) -> Result<u64> {
-        mr::award(&self.remote, iid, note, issue, name)
+        github::react(&self.remote, iid, note, issue, name)
     }
 
     fn unaward(&self, iid: u64, note: u64, issue: bool, name: &str, award: u64) -> Result<()> {
-        mr::unaward(&self.remote, iid, note, issue, name, award)
+        github::unreact(&self.remote, iid, note, issue, name, award)
     }
 
     fn post_discussion(
@@ -438,95 +431,85 @@ impl Discussions for GitHub {
         body: &str,
         draft: bool,
     ) -> Result<Option<u64>> {
-        mr::post_discussion(&self.remote, iid, head, place, body, draft)
+        github::post_discussion(&self.remote, iid, head, place, body, draft)
     }
 
     fn resolve(&self, iid: u64, discussion: &str, resolved: bool) -> Result<()> {
-        mr::resolve(&self.remote, iid, discussion, resolved)
+        github::resolve(&self.remote, iid, discussion, resolved)
     }
 
     fn reply(&self, iid: u64, discussion: &str, body: &str) -> Result<()> {
-        mr::reply(&self.remote, iid, discussion, body)
+        github::reply(&self.remote, iid, discussion, body)
     }
 
     fn edit_note(&self, iid: u64, discussion: &str, note: u64, body: &str) -> Result<()> {
-        mr::edit_note(&self.remote, iid, discussion, note, body)
+        github::edit_note(&self.remote, iid, discussion, note, body)
     }
 
     fn delete_note(&self, iid: u64, discussion: &str, note: u64) -> Result<()> {
-        mr::delete_note(&self.remote, iid, discussion, note)
+        github::delete_note(&self.remote, iid, discussion, note)
     }
 
     fn drafts(&self, iid: u64) -> Result<Vec<Draft>> {
-        mr::drafts(&self.remote, iid)
+        github::drafts(&self.remote, iid)
     }
 
-    fn publish_drafts(&self, iid: u64) -> Result<()> {
-        mr::publish_drafts(&self.remote, iid)
-    }
-
-    fn publish_draft(&self, iid: u64, id: u64) -> Result<()> {
-        mr::publish_draft(&self.remote, iid, id)
+    fn publish_draft(&self, _iid: u64, _id: u64) -> Result<()> {
+        bail!("GitHub sends a pending comment only with its review")
     }
 
     fn delete_draft(&self, iid: u64, id: u64) -> Result<()> {
-        mr::delete_draft(&self.remote, iid, id)
-    }
-
-    fn upload(&self, path: &str, out: &Path) -> bool {
-        mr::upload(&self.remote, path, out)
+        github::delete_draft(&self.remote, iid, id)
     }
 }
 
 impl Reviews for GitHub {
     fn approvals(&self, iid: u64) -> Result<Approvals> {
-        mr::approvals(&self.remote, iid)
+        github::approvals(&self.remote, iid)
     }
 
     fn approve(&self, iid: u64, head: &str) -> Result<()> {
-        mr::approve(&self.remote, iid, head)
+        github::submit(&self.remote, iid, head, "", Verdict::Approve)
     }
 
-    fn unapprove(&self, iid: u64) -> Result<()> {
-        mr::unapprove(&self.remote, iid)
+    fn unapprove(&self, _iid: u64) -> Result<()> {
+        bail!(
+            "GitHub cannot take an approval back — a later review (comment or changes) replaces it"
+        )
     }
 
     fn comment(&self, iid: u64, body: &str) -> Result<()> {
-        mr::comment(&self.remote, iid, body)
-    }
-
-    fn request_changes(&self, iid: u64) -> Result<()> {
-        mr::request_changes(&self.remote, iid)
+        github::comment(&self.remote, iid, body)
     }
 
     fn submit(
         &self,
         iid: u64,
         head: &str,
-        drafts: bool,
+        _drafts: bool,
         summary: &str,
         verdict: Verdict,
-        approved: bool,
+        _approved: bool,
     ) -> Result<()> {
-        mr::submit(&self.remote, iid, head, drafts, summary, verdict, approved)
+        github::submit(&self.remote, iid, head, summary, verdict)
     }
 }
 
 impl Merging for GitHub {
     fn merge_state(&self, iid: u64) -> Result<MergeState> {
-        mr::merge_state(&self.remote, iid)
+        github::merge_state(&self.remote, iid)
     }
 
     fn merge(&self, iid: u64, m: &Merge) -> Result<()> {
-        mr::merge(&self.remote, iid, m)
+        github::merge(&self.remote, iid, m)
     }
 
     fn cancel_auto_merge(&self, iid: u64, node: &str) -> Result<()> {
-        mr::cancel_auto_merge(&self.remote, iid, node)
+        github::cancel_auto_merge(&self.remote, iid, node)
     }
 
-    fn rebase(&self, iid: u64) -> Result<()> {
-        mr::rebase(&self.remote, iid)
+    fn rebase(&self, _iid: u64) -> Result<()> {
+        bail!("GitHub cannot rebase a pull request from here: update the branch on GitHub")
     }
 }
 
@@ -542,6 +525,13 @@ mod tests {
             r#"[{"iid": 412, "title": "Fix the login", "author": {"name": "Ann"}}]"#,
         )
         .unwrap();
+        std::fs::create_dir(dir.path().join("github")).unwrap();
+        std::fs::write(
+            dir.path().join("github/pulls.json"),
+            r#"[{"number": 7, "title": "Tidy the docs", "user": {"login": "bo"},
+                "head": {"ref": "docs", "sha": "abc"}, "base": {"ref": "main"}}]"#,
+        )
+        .unwrap();
         mr::TEST_FIXTURE.with(|f| *f.borrow_mut() = Some(dir.path().to_owned()));
         let gitlab = WebRemote {
             base: "https://git.example.com/g/p".into(),
@@ -553,6 +543,9 @@ mod tests {
         };
         let hosts = HostsImpl;
         assert_eq!(hosts.of(&github).remote(), &github);
+        // Each host answers from its own side: GitHub's pull requests, GitLab's merge requests.
+        let pulls = hosts.of(&github).list().unwrap();
+        assert_eq!(pulls.iter().map(|m| m.iid).collect::<Vec<_>>(), [7]);
         let host = hosts.of(&gitlab);
         assert_eq!(host.remote(), &gitlab);
         let list = host.list().unwrap();
