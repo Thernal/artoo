@@ -8,17 +8,18 @@ publish = false
 
 [dependencies]
 artoo-core = { path = "../core" }
-# `mcp` reads requests through `mr` until stage 3's `Host` trait (#165).
-artoo-hosts = { path = "../hosts" }
+# `mcp` reads requests through the hosts' contract; the app hands it the implementation.
+artoo-hosts-api = { path = "../hosts-api" }
 git2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
 [features]
-# Tests of a crate that calls this one: the core's guard and the hosts' fixtures.
-sandbox = ["artoo-core/sandbox", "artoo-hosts/sandbox"]
+# Tests of a crate that calls this one: the core's guard.
+sandbox = ["artoo-core/sandbox"]
 
 [dev-dependencies]
 artoo-core = { path = "../core", features = ["sandbox"] }
+# The real hosts over their fixtures (`mr::TEST_FIXTURE`).
 artoo-hosts = { path = "../hosts", features = ["sandbox"] }
 tempfile.workspace = true

@@ -33,10 +33,7 @@ fn may_depend(from: Role, to: Role) -> bool {
 }
 
 /// Edges the roles forbid, allowed for now, each until the stage that removes it.
-const ALLOWED: &[(&str, &str)] = &[
-    // `mcp` reads requests through `mr` until stage 3's `Host` trait.
-    ("artoo-agents", "artoo-hosts"),
-];
+const ALLOWED: &[(&str, &str)] = &[];
 
 /// Implementations whose `lib.rs` still shows more than functions, each until the stage that narrows it.
 const OPEN: &[&str] = &[

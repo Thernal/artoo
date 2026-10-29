@@ -23,7 +23,7 @@ fn main() {
     // What an agent runs in its chat (`claude mcp add artoo -- <this> mcp`): no window.
     applog::catch_panics();
     match std::env::args().nth(1).as_deref() {
-        Some("mcp") => return mcp::run(),
+        Some("mcp") => return mcp::run(artoo_hosts::hosts()),
         Some("agent-watch") => return watch::run(),
         _ => {}
     }

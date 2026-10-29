@@ -4,10 +4,17 @@
 
 use crate::agents::{Bus, Event, Place, What};
 use crate::git::Repo;
+use artoo_hosts_api::Hosts;
 use serde_json::Value;
 use std::path::Path;
 
-pub fn show(bus: &Bus, here: &Path, project: &Path, args: &Value) -> Result<String, String> {
+pub fn show(
+    hosts: &dyn Hosts,
+    bus: &Bus,
+    here: &Path,
+    project: &Path,
+    args: &Value,
+) -> Result<String, String> {
     let text = |key: &str| args[key].as_str().map(str::trim).filter(|s| !s.is_empty());
     let request = args["request"].as_u64();
     let asked = [
@@ -35,7 +42,7 @@ pub fn show(bus: &Bus, here: &Path, project: &Path, args: &Value) -> Result<Stri
         (Place::Commit { id }, said)
     } else {
         let comment = args["comment"].as_u64();
-        super::requests::request_place(here, request.unwrap_or_default(), comment)?
+        super::requests::request_place(hosts, here, request.unwrap_or_default(), comment)?
     };
     bus.event(&Event::new(project.to_path_buf(), What::Point { place }))
         .map_err(|e| e.to_string())?;

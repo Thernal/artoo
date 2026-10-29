@@ -10,11 +10,14 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
 - **A Cargo workspace (#165).** The root package is the app (`src/main.rs`, `src/ui/`);
   `crates/core` (`artoo-core`) holds what draws nothing — it has no GPUI — and depends on no feature: git, highlighting, the platform
   layer, storage, themes, markdown and the diff helpers. `crates/updates` (`artoo-updates`, imported as `updates`) asks for
-  newer releases. `crates/hosts` (`artoo-hosts`): GitLab and GitHub — requests, connecting a host, merging,
-  pictures — one crate while they reach into one another (stage 3's `Host` trait splits it); a test's fixture
-  (`mr::TEST_FIXTURE`, `connect::TEST_FIXTURE`) reaches the app's tests through its `sandbox`. `crates/agents`
-  (`artoo-agents`): the MCP server, `agent-watch`, comments sent to a chat and their answers, notes, Codex — the one
-  feature crate allowed another (`artoo-hosts`, for `mr`) until the `Host` trait. `crates/reports` (`artoo-reports`, imported as
+  newer releases. `crates/hosts-api` (`artoo-hosts-api`): the hosts' contract — the models GitLab and GitHub answer
+  in, the traits (`Account`, `Requests`, `Discussions`, `Reviews`, `Merging`; `Host` the five; `Hosts::of(remote)`)
+  and the handle (`provide` / `get`). `crates/hosts` (`artoo-hosts`): GitLab and GitHub behind it (`hosts.rs`),
+  connecting a host, merging, pictures — one crate while they share helpers (#165 stage 3); `install` provides the
+  hosts, `hosts()` gives them to a mode without a window; a test's fixture (`mr::TEST_FIXTURE`,
+  `connect::TEST_FIXTURE`) reaches the app's tests through its `sandbox`. `crates/agents` (`artoo-agents`): the MCP
+  server, `agent-watch`, comments sent to a chat and their answers, notes, Codex — requests through the hosts'
+  contract (`mcp::run(hosts)`). `crates/reports` (`artoo-reports`, imported as
   `report`; its `build.rs` gives a build its commit): Report a problem. `crates/ui-kit` (`artoo-ui-kit`): the design system —
   theme, the interface size (`px`, `ui_zoom`), icons, keycaps, motion, row room, formats, words, tooltips and the
   cut (`hover`: `Hover`, `Tip`, `TipOwned`, `cut`, `mid`), the text field and its editing (`input`), file and folder icons (`file_icons`) — on the core and

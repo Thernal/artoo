@@ -9,9 +9,11 @@ mod requests;
 mod show;
 
 use crate::agents::{self, Answer, Bus, Kind};
+use artoo_hosts_api::Hosts;
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const PROTOCOL: &str = "2025-06-18";
@@ -259,7 +261,13 @@ fn repo() -> Result<(PathBuf, PathBuf), String> {
         .map_err(|_| format!("{} is not in a git repository", cwd.display()))
 }
 
-fn call(bus: &Bus, exe: &str, name: &str, args: &Value) -> Result<String, String> {
+fn call(
+    hosts: &dyn Hosts,
+    bus: &Bus,
+    exe: &str,
+    name: &str,
+    args: &Value,
+) -> Result<String, String> {
     match name {
         "report_problem" => return draft_report(bus, args),
         "open_artoo" => return open_app(bus, exe, Duration::from_secs(30)),
@@ -267,13 +275,15 @@ fn call(bus: &Bus, exe: &str, name: &str, args: &Value) -> Result<String, String
     }
     let (here, root) = repo()?;
     match name {
-        "get_request" => return requests::get_request(bus, &here, &root, args),
-        "add_pending_comment" => return requests::add_pending_comment(bus, &here, &root, args),
-        "gather_requests" => return requests::gather_requests(bus, &here, &root, args),
+        "get_request" => return requests::get_request(hosts, bus, &here, &root, args),
+        "add_pending_comment" => {
+            return requests::add_pending_comment(hosts, bus, &here, &root, args);
+        }
+        "gather_requests" => return requests::gather_requests(hosts, bus, &here, &root, args),
         "open_changes" => return changes::open_changes(bus, &here, &root, args),
         "annotate_changes" => return changes::annotate_changes(bus, &here, &root, args),
-        "draft_request" => return requests::draft_request(bus, &here, &root, args),
-        "show" => return show::show(bus, &here, &root, args),
+        "draft_request" => return requests::draft_request(hosts, bus, &here, &root, args),
+        "show" => return show::show(hosts, bus, &here, &root, args),
         _ => {}
     }
     let comments = bus.comments(&root);
@@ -393,7 +403,7 @@ fn open_app(bus: &Bus, exe: &str, wait: Duration) -> Result<String, String> {
 }
 
 /// The answer to one request, or `None` for a notification.
-fn handle(bus: &Bus, exe: &str, message: &Value) -> Option<Value> {
+fn handle(hosts: &dyn Hosts, bus: &Bus, exe: &str, message: &Value) -> Option<Value> {
     let id = message.get("id")?.clone();
     let result = match message["method"].as_str().unwrap_or_default() {
         "initialize" => json!({
@@ -407,7 +417,7 @@ fn handle(bus: &Bus, exe: &str, message: &Value) -> Option<Value> {
         "tools/call" => {
             let params = &message["params"];
             let name = params["name"].as_str().unwrap_or_default();
-            match call(bus, exe, name, &params["arguments"]) {
+            match call(hosts, bus, exe, name, &params["arguments"]) {
                 Ok(text) => json!({"content": [{"type": "text", "text": text}]}),
                 Err(text) => json!({"content": [{"type": "text", "text": text}], "isError": true}),
             }
@@ -422,7 +432,8 @@ fn handle(bus: &Bus, exe: &str, message: &Value) -> Option<Value> {
     Some(json!({"jsonrpc": "2.0", "id": id, "result": result}))
 }
 
-pub fn run() {
+/// The server on stdin and stdout, reading requests through `hosts`.
+pub fn run(hosts: Arc<dyn Hosts>) {
     let Some(bus) = Bus::new() else {
         eprintln!("artoo mcp: no home folder");
         return;
@@ -437,7 +448,7 @@ pub fn run() {
         let Ok(message) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-        if let Some(reply) = handle(&bus, &exe, &message) {
+        if let Some(reply) = handle(&*hosts, &bus, &exe, &message) {
             let _ = writeln!(stdout, "{reply}");
             let _ = stdout.flush();
         }
@@ -451,7 +462,9 @@ mod tests {
     #[test]
     fn it_introduces_itself_and_its_tools() {
         let bus = Bus::at(std::env::temp_dir().join("artoo-mcp-test"));
+        let hosts = artoo_hosts::hosts();
         let init = handle(
+            &*hosts,
             &bus,
             "/x/Artoo",
             &json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -464,10 +477,18 @@ mod tests {
         // When to open the changes comes first, apart from the rest (#158).
         let (first, _) = said.split_once("\n\n").unwrap();
         assert!(first.contains("open_changes") && first.contains("after you commit"));
-        let list = handle(&bus, "", &json!({"id": 2, "method": "tools/list"})).unwrap();
+        let list = handle(&*hosts, &bus, "", &json!({"id": 2, "method": "tools/list"})).unwrap();
         assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 12);
-        assert!(handle(&bus, "", &json!({"method": "notifications/initialized"})).is_none());
-        let unknown = handle(&bus, "", &json!({"id": 3, "method": "nope"})).unwrap();
+        assert!(
+            handle(
+                &*hosts,
+                &bus,
+                "",
+                &json!({"method": "notifications/initialized"})
+            )
+            .is_none()
+        );
+        let unknown = handle(&*hosts, &bus, "", &json!({"id": 3, "method": "nope"})).unwrap();
         assert_eq!(unknown["error"]["code"], -32601);
     }
 
@@ -501,8 +522,10 @@ mod tests {
     fn a_report_is_only_drafted() {
         let dir = tempfile::TempDir::new().unwrap();
         let bus = Bus::at(dir.path().to_path_buf());
+        let hosts = artoo_hosts::hosts();
         let call = |args: Value| {
             handle(
+                &*hosts,
                 &bus,
                 "",
                 &json!({"id": 4, "method": "tools/call",

@@ -10,4 +10,3 @@ pub mod review;
 pub mod watch;
 
 use artoo_core::{applog, generated, git, labels, platform, storage};
-use artoo_hosts::mr;

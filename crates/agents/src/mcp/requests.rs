@@ -1,17 +1,18 @@
 //! The merge request tools (#150): an agent reads a request as Artoo compares it and leaves
-//! pending comments on its lines. The host is called with Artoo's own token (`crate::mr`), so
+//! pending comments on its lines. The host is called with Artoo's own token (`Hosts`), so
 //! the agent needs none; the app is told through the Bus. Nothing is published: a pending comment
 //! is seen by the reviewer alone until they submit the review, and submitting stays theirs. A
 //! request the agent drafts (#152) opens in the app's New merge request card; the reviewer creates
 //! it.
 
 use crate::agents::{self, Bus, Event, Mark, RequestDraft, What};
-use crate::git::{DiffSettings, FileDiff, LineKind, Repo, WebRemote};
-use crate::mr;
+use crate::git::{DiffSettings, FileDiff, LineKind, Repo};
+use artoo_hosts_api::{Host, Hosts, Mr, Place};
 use git2::Oid;
 use serde_json::Value;
 use std::fmt::Write as _;
 use std::path::Path;
+use std::sync::Arc;
 
 /// The diff lines one answer gives at most; the files past them are listed, and `paths` asks for
 /// them.
@@ -19,8 +20,8 @@ const MOST_LINES: usize = 3000;
 
 /// A request as its host compares it, read in this clone.
 struct Read {
-    remote: WebRemote,
-    mr: mr::Mr,
+    host: Arc<dyn Host>,
+    mr: Mr,
     /// Where the diff starts (the sides' merge base) and its head.
     start: Oid,
     head: Oid,
@@ -28,9 +29,9 @@ struct Read {
 }
 
 /// Request `iid`, wherever the host lists it: the open ones are a list of their own.
-fn find(remote: &WebRemote, iid: u64) -> Result<mr::Mr, String> {
-    mr::one(remote, iid).or_else(|e| {
-        mr::list(remote)
+fn find(host: &dyn Host, iid: u64) -> Result<Mr, String> {
+    host.one(iid).or_else(|e| {
+        host.list()
             .ok()
             .and_then(|l| l.into_iter().find(|m| m.iid == iid))
             .ok_or_else(|| format!("!{iid} is not a merge request of this project: {e:#}"))
@@ -38,29 +39,29 @@ fn find(remote: &WebRemote, iid: u64) -> Result<mr::Mr, String> {
 }
 
 /// The repository `here` is in, and its host when Artoo has a token for it.
-fn host(here: &Path) -> Result<(Repo, WebRemote), String> {
+fn host(hosts: &dyn Hosts, here: &Path) -> Result<(Repo, Arc<dyn Host>), String> {
     let repo =
         Repo::open(here).map_err(|_| format!("{} is not in a git repository", here.display()))?;
     let remote = repo
         .web_remote()
         .ok_or("This repository has no GitLab or GitHub remote.")?;
-    if !mr::fixture_on() && mr::token(&remote).is_none() {
+    let host = hosts.of(&remote);
+    // Known now (or the checks' fixture), else a CLI's, read here: no window waits on it.
+    if !host.available() && host.token().is_none() {
         return Err(format!(
             "Artoo has no token for {}; the reviewer adds one in Artoo → Settings → Merge requests.",
-            mr::host(&remote)
+            host.host()
         ));
     }
-    Ok((repo, remote))
+    Ok((repo, host))
 }
 
 /// Request `iid` of the repository `here` is in, compared from the base and head of its host's
 /// latest push (#145): a side this clone lacks is fetched first, once.
-fn read(here: &Path, iid: u64) -> Result<Read, String> {
-    let (repo, remote) = host(here)?;
-    let m = find(&remote, iid)?;
-    let latest = mr::versions(&remote, iid)
-        .ok()
-        .and_then(|p| p.last().cloned());
+fn read(hosts: &dyn Hosts, here: &Path, iid: u64) -> Result<Read, String> {
+    let (repo, host) = host(hosts, here)?;
+    let m = find(&*host, iid)?;
+    let latest = host.versions(iid).ok().and_then(|p| p.last().cloned());
     let oid = |s: &str| Oid::from_str(s).ok().filter(|o| !o.is_zero());
     let head = latest
         .as_ref()
@@ -70,9 +71,10 @@ fn read(here: &Path, iid: u64) -> Result<Read, String> {
     let root = repo.root();
     if head.is_none_or(|h| !repo.has_commit(h)) {
         let sha = head.map(|h| h.to_string());
-        crate::git::fetch::fetch_request(&root, iid, remote.github, sha.as_deref()).map_err(
-            |e| format!("The head of !{iid} is not in this clone and fetching it failed: {e}"),
-        )?;
+        crate::git::fetch::fetch_request(&root, iid, host.remote().github, sha.as_deref())
+            .map_err(|e| {
+                format!("The head of !{iid} is not in this clone and fetching it failed: {e}")
+            })?;
     }
     if base.is_some_and(|b| !repo.has_commit(b)) {
         crate::git::fetch::fetch_branch(&root, &m.target).map_err(|e| {
@@ -106,7 +108,7 @@ fn read(here: &Path, iid: u64) -> Result<Read, String> {
         .compare(base, head, true, DiffSettings::default())
         .map_err(|e| format!("{e:#}"))?;
     Ok(Read {
-        remote,
+        host,
         mr: m,
         start: compared.start,
         head,
@@ -170,7 +172,13 @@ fn agents_drafts(bus: &Bus, project: &Path, iid: u64) -> Vec<Mark> {
 
 /// `get_request`: request `iid` as Artoo shows it — what it is, the diff the host compares,
 /// its discussions and the pending comments already there. `paths` limits the diff to those files.
-pub fn get_request(bus: &Bus, here: &Path, project: &Path, args: &Value) -> Result<String, String> {
+pub fn get_request(
+    hosts: &dyn Hosts,
+    bus: &Bus,
+    here: &Path,
+    project: &Path,
+    args: &Value,
+) -> Result<String, String> {
     let iid = args["iid"].as_u64().ok_or("iid is missing")?;
     let paths: Vec<&str> = args["paths"]
         .as_array()
@@ -178,7 +186,7 @@ pub fn get_request(bus: &Bus, here: &Path, project: &Path, args: &Value) -> Resu
         .flatten()
         .filter_map(Value::as_str)
         .collect();
-    let r = read(here, iid)?;
+    let r = read(hosts, here, iid)?;
     let m = &r.mr;
     let (added, removed) = r
         .files
@@ -192,7 +200,11 @@ pub fn get_request(bus: &Bus, here: &Path, project: &Path, args: &Value) -> Resu
         m.source,
         m.target,
         m.url,
-        if r.remote.github { "GitHub" } else { "GitLab" },
+        if r.host.remote().github {
+            "GitHub"
+        } else {
+            "GitLab"
+        },
         short(r.start),
         short(r.head),
         r.files.len(),
@@ -254,7 +266,7 @@ pub fn get_request(bus: &Bus, here: &Path, project: &Path, args: &Value) -> Resu
             left.join(", ")
         );
     }
-    let threads = mr::threads(&r.remote, iid).unwrap_or_default();
+    let threads = r.host.threads(iid).unwrap_or_default();
     let _ = write!(out, "\n## Discussions ({})\n", threads.len());
     for t in &threads {
         let at = match (&t.path, t.new_line, t.old_line) {
@@ -275,7 +287,7 @@ pub fn get_request(bus: &Bus, here: &Path, project: &Path, args: &Value) -> Resu
             );
         }
     }
-    let drafts = mr::drafts(&r.remote, iid).unwrap_or_default();
+    let drafts = r.host.drafts(iid).unwrap_or_default();
     let mine = agents_drafts(bus, project, iid);
     let _ = write!(
         out,
@@ -334,6 +346,7 @@ fn shown_lines(file: &FileDiff, old: bool) -> String {
 /// `add_pending_comment`: a pending comment on a line of request `iid`, written as Artoo's own
 /// ⇧⌘↵ writes it, from the host's diff; a line not in that diff is refused with why.
 pub fn add_pending_comment(
+    hosts: &dyn Hosts,
     bus: &Bus,
     here: &Path,
     project: &Path,
@@ -354,7 +367,7 @@ pub fn add_pending_comment(
         .as_u64()
         .and_then(|n| u32::try_from(n).ok())
         .filter(|&s| s != line);
-    let r = read(here, iid)?;
+    let r = read(hosts, here, iid)?;
     let file = r
         .files
         .iter()
@@ -403,14 +416,16 @@ pub fn add_pending_comment(
         .clone()
         .or(file.new_path.clone())
         .unwrap_or_default();
-    let place = mr::Place {
+    let place = Place {
         path: &new_path,
         old_path: &old_path,
         new_line,
         old_line,
         range,
     };
-    let id = mr::post_discussion(&r.remote, iid, &r.head.to_string(), &place, body, true)
+    let id = r
+        .host
+        .post_discussion(iid, &r.head.to_string(), &place, body, true)
         .map_err(|e| format!("{e:#}"))?;
     let agent = agents::agent_name();
     if let Some(id) = id {
@@ -449,6 +464,7 @@ pub fn add_pending_comment(
 /// put under Merge requests in the order given; the numbers that are not requests of this project
 /// are said.
 pub fn gather_requests(
+    hosts: &dyn Hosts,
     bus: &Bus,
     here: &Path,
     project: &Path,
@@ -468,10 +484,10 @@ pub fn gather_requests(
     if asked.is_empty() {
         return Err("requests is missing: a list of {iid, note}".to_owned());
     }
-    let (_, remote) = host(here)?;
+    let (_, host) = host(hosts, here)?;
     // The open ones in one call; another state is asked for one by one.
-    let open = mr::list(&remote).unwrap_or_default();
-    let mut found: Vec<(mr::Mr, &str)> = Vec::new();
+    let open = host.list().unwrap_or_default();
+    let mut found: Vec<(Mr, &str)> = Vec::new();
     let mut missing: Vec<u64> = Vec::new();
     for (iid, note) in asked {
         if found.iter().any(|(m, _)| m.iid == iid) || missing.contains(&iid) {
@@ -479,7 +495,7 @@ pub fn gather_requests(
         }
         match open.iter().find(|m| m.iid == iid) {
             Some(m) => found.push((m.clone(), note)),
-            None => match mr::one(&remote, iid) {
+            None => match host.one(iid) {
                 Ok(m) => found.push((m, note)),
                 Err(_) => missing.push(iid),
             },
@@ -532,12 +548,13 @@ pub fn gather_requests(
 /// Request `iid` as `show` points at it (#154): at comment `comment` of one of its discussions or
 /// at that pending comment, refused with why when it has no such one; and how it is said.
 pub fn request_place(
+    hosts: &dyn Hosts,
     here: &Path,
     iid: u64,
     comment: Option<u64>,
 ) -> Result<(agents::Place, String), String> {
-    let (_, remote) = host(here)?;
-    let m = find(&remote, iid)?;
+    let (_, host) = host(hosts, here)?;
+    let m = find(&*host, iid)?;
     let said = format!("!{iid} {}", m.title);
     let Some(id) = comment else {
         let place = agents::Place::Request {
@@ -547,7 +564,7 @@ pub fn request_place(
         };
         return Ok((place, said));
     };
-    let threads = mr::threads(&remote, iid).map_err(|e| format!("{e:#}"))?;
+    let threads = host.threads(iid).map_err(|e| format!("{e:#}"))?;
     if let Some(n) = threads.iter().flat_map(|t| &t.notes).find(|n| n.id == id) {
         let place = agents::Place::Request {
             iid,
@@ -556,7 +573,7 @@ pub fn request_place(
         };
         return Ok((place, format!("{said}, {}'s comment {id}", n.author)));
     }
-    let drafts = mr::drafts(&remote, iid).map_err(|e| format!("{e:#}"))?;
+    let drafts = host.drafts(iid).map_err(|e| format!("{e:#}"))?;
     if drafts.iter().any(|d| d.id == id) {
         let place = agents::Place::Request {
             iid,
@@ -575,6 +592,7 @@ pub fn request_place(
 /// commits its target has not; one not on origin, or with commits origin has not, is said, as the
 /// card says it. Nothing is created, sent or pushed.
 pub fn draft_request(
+    hosts: &dyn Hosts,
     bus: &Bus,
     here: &Path,
     project: &Path,
@@ -653,8 +671,8 @@ pub fn draft_request(
     }
     // One already open for the pair is the reviewer's to open, not to create again; asked only
     // when the host answers.
-    if let Ok((_, remote)) = host(here)
-        && let Ok(open) = mr::list(&remote)
+    if let Ok((_, host)) = host(hosts, here)
+        && let Ok(open) = host.list()
         && let Some(m) = open
             .iter()
             .find(|m| m.source == source && m.target == target)
@@ -759,11 +777,12 @@ mod tests {
         let push = json!([{"head_commit_sha": head.to_string(),
             "base_commit_sha": base.to_string(), "created_at": "2026-10-01T10:00:00Z"}]);
         std::fs::write(host.join("versions-7.json"), push.to_string()).unwrap();
-        mr::TEST_FIXTURE.with(|f| *f.borrow_mut() = Some(host.clone()));
+        artoo_hosts::mr::TEST_FIXTURE.with(|f| *f.borrow_mut() = Some(host.clone()));
+        let hosts = artoo_hosts::hosts();
         let bus = Bus::at(dir.path().join("agents"));
         let here = clone.as_path();
 
-        let read = get_request(&bus, here, here, &json!({"iid": 7})).unwrap();
+        let read = get_request(&*hosts, &bus, here, here, &json!({"iid": 7})).unwrap();
         assert!(read.starts_with("# !7 Louder"), "{read}");
         assert!(read.contains("Shouts line 15."));
         assert!(read.contains("   15       - line 15"), "{read}");
@@ -771,7 +790,7 @@ mod tests {
         assert!(read.contains("## Pending comments (0)"));
 
         // Not in the diff: refused, with the lines that are.
-        let comment = |args: Value| add_pending_comment(&bus, here, here, &args);
+        let comment = |args: Value| add_pending_comment(&*hosts, &bus, here, here, &args);
         let off = comment(json!({"iid": 7, "path": "a.rs", "line": 2, "body": "Hm"})).unwrap_err();
         assert!(
             off.contains("not in !7's diff") && off.contains("12–18"),
@@ -806,11 +825,11 @@ mod tests {
                 .any(|e| matches!(&e.what, What::Pending { iid: 7, ids } if ids == &[id]))
         };
         assert!(said(9001) && said(9002));
-        let read = get_request(&bus, here, here, &json!({"iid": 7})).unwrap();
+        let read = get_request(&*hosts, &bus, here, here, &json!({"iid": 7})).unwrap();
         assert!(read.contains("## Pending comments (2)"), "{read}");
         assert!(read.contains("- 9002 · a.rs:15 · by "), "{read}");
         assert!(!read.contains("by the reviewer"), "{read}");
-        mr::TEST_FIXTURE.with(|f| *f.borrow_mut() = None);
+        artoo_hosts::mr::TEST_FIXTURE.with(|f| *f.borrow_mut() = None);
     }
 
     #[test]
@@ -826,10 +845,11 @@ mod tests {
         std::fs::write(host.join("mrs.json"), open.to_string()).unwrap();
         let merged = json!([{"iid": 5, "title": "Older", "state": "merged"}]);
         std::fs::write(host.join("mrs-merged.json"), merged.to_string()).unwrap();
-        mr::TEST_FIXTURE.with(|f| *f.borrow_mut() = Some(host.clone()));
+        artoo_hosts::mr::TEST_FIXTURE.with(|f| *f.borrow_mut() = Some(host.clone()));
+        let hosts = artoo_hosts::hosts();
         let bus = Bus::at(dir.path().join("agents"));
         let here = dir.path().join("clone");
-        let gather = |args: Value| gather_requests(&bus, &here, &here, &args);
+        let gather = |args: Value| gather_requests(&*hosts, &bus, &here, &here, &args);
 
         let said = gather(json!({"requests": [
             {"iid": 8, "note": "2 pending comments"}, {"iid": 99, "note": "?"},
@@ -869,7 +889,7 @@ mod tests {
         assert!(gather(json!({"requests": [{"iid": 99}]})).is_err());
         assert!(gather(json!({})).is_err());
         assert_eq!(bus.events().len(), 1);
-        mr::TEST_FIXTURE.with(|f| *f.borrow_mut() = None);
+        artoo_hosts::mr::TEST_FIXTURE.with(|f| *f.borrow_mut() = None);
     }
 
     #[test]
@@ -899,8 +919,9 @@ mod tests {
         );
         git.set_head("refs/heads/solo").unwrap();
         let bus = Bus::at(dir.path().join("agents"));
+        let hosts = artoo_hosts::hosts();
         let here = clone.as_path();
-        let draft = |args: Value| draft_request(&bus, here, here, &args);
+        let draft = |args: Value| draft_request(&*hosts, &bus, here, here, &args);
 
         let said = draft(json!({
             "source": "origin/feature",
@@ -970,7 +991,7 @@ mod tests {
             "target_branch": "main", "sha": pushed.to_string(),
             "author": {"name": "Ann", "username": "ann"}}]);
         std::fs::write(host.join("mrs.json"), open.to_string()).unwrap();
-        mr::TEST_FIXTURE.with(|f| *f.borrow_mut() = Some(host.clone()));
+        artoo_hosts::mr::TEST_FIXTURE.with(|f| *f.borrow_mut() = Some(host.clone()));
         let twice =
             draft(json!({"source": "feature", "target": "main", "title": "t"})).unwrap_err();
         assert!(
