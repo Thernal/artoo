@@ -19,7 +19,7 @@ independent of each other); the Rust form below waits for the developer's review
 
 | Crate | Holds | Depends on |
 |---|---|---|
-| `artoo-core` (`crates/core`) | what draws nothing and more than one crate needs: git, highlighting, storage, the platform layer, the diff's rows, the places a page can show (`Route`) | nothing of Artoo's; no GPUI |
+| `artoo-core` (`crates/core`) | what draws nothing and more than one crate needs: git, highlighting, storage, the platform layer, the diff's rows, a route as data (`Route`, `Place`) | nothing of Artoo's; no GPUI |
 | `artoo-ui-kit` (`crates/ui-kit`) | the design system — what draws and knows no feature: theme, icons, tooltips, the text field, markdown — and the ports its drawing needs (`Pictures`) | core |
 | `artoo-<x>-api` (`crates/<x>-api`) | feature x's contract: traits, the plain types they speak, the handle that reads them | core, GPUI |
 | `artoo-<x>` (`crates/<x>`) | feature x: its implementation, its views, its state; it shows the app functions only (`install`) | core, the kit, any `-api` |
@@ -34,7 +34,7 @@ independent of each other); the Rust form below waits for the developer's review
 |---|---|
 | draws nothing and two crates need it (a git read, a parser, the diff's rows) | core, as plain functions |
 | draws and knows no feature (a control, a card's frame, markdown) | the kit |
-| a kind of place a page shows (a request, a commit, a file at a line) | a `Route` variant in core |
+| a kind of place a page shows (a request, a commit, a file at a line) | a route type in its owner's `-api` (`RequestRoute`), registered by the owner's `install`; a plugin's kinds at run time |
 | something one feature asks another for while running (a request from its host, the chat a note goes to) | a trait in the owner's `-api`, implemented in the owner's crate |
 | a service the kit's drawing needs (a picture by its address) | a port in the kit, implemented by the feature that has it |
 | one feature's views, state and logic | that feature's crate, `pub(crate)` |
@@ -55,8 +55,9 @@ independent of each other); the Rust form below waits for the developer's review
   → [wiring](references/wiring.md)
 - **`install` registers and reads nothing**, so the app calls them in any order; a worker takes a clone of
   the `Arc` it needs before it leaves the window's thread. → [wiring](references/wiring.md)
-- **One feature reaches another only through the shell:** it opens a `Route`, it raises a toast, it lists
-  actions and settings sections it registered — never by naming the other feature. A feature's state is its
+- **One feature reaches another only through the shell:** it opens a route, it raises a toast, it lists
+  actions and settings sections it registered — never by naming the other feature. Every module registers its
+  own routes, so a plugin adds places the app was built without. A feature's state is its
   own entity; nothing is added to the shell's struct. → [contributions](references/contributions.md)
 - **A fake replaces the transport, never the contract**, so the real mapping runs; a consumer's test stubs
   the trait by hand. → [tests](references/tests.md)
@@ -90,7 +91,7 @@ The target above is reached stage by stage; until then:
 - `artoo-hosts` has no contract yet. Stage 3 gives it `artoo-hosts-api` (`Host`, `Hosts`), the kit its
   `Pictures` port (markdown and discussions move to the kit), and agents its contract dependency instead of
   `ALLOWED`'s agents → hosts.
-- `Page` (`src/ui/nav.rs`) is today's `Route`; `menu::Act` and `toast` know every feature until
-  `shell-api`'s registries. Meanwhile a new page, action or toast is added there in the shape the
+- `Page` (`src/ui/nav.rs`) is a closed enum the route registry replaces; `menu::Act` and `toast` know every
+  feature until `shell-api`'s registries. Meanwhile a new page, action or toast is added there in the shape the
   registries will take: one variant, one id, one owner.
 - Every implementation's surface is wide (`OPEN`) until its views move with it.

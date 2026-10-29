@@ -4,8 +4,8 @@
 
 ## Rule
 
-1. **An `-api` crate holds a contract and nothing else:** traits, the plain types they take and return, and
-   the handle (`provide` / `get`). No logic past a constructor, a `Display` or a `matches`.
+1. **An `-api` crate holds a contract and nothing else:** traits, the plain types they take and return, the
+   routes others may open ([contributions](contributions.md)), and the handle (`provide` / `get`). No logic past a constructor, a `Display` or a `matches`.
 2. **A trait exists only to cross a crate boundary, to have a second implementation (GitLab and GitHub), or to
    be replaced in a test.** Pure code that two crates need — the diff's rows, a parser — is plain functions in
    the core, not a trait.
