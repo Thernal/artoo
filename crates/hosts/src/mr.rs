@@ -252,7 +252,7 @@ pub fn token_now(remote: &WebRemote) -> Option<String> {
 }
 
 /// The token this app saved for `host` (`https://host`), as written.
-pub(crate) fn saved_token(host: &str) -> Option<String> {
+pub fn saved_token(host: &str) -> Option<String> {
     std::fs::read_to_string(token_file(&tokens_home()?, host)).ok()
 }
 
@@ -420,17 +420,17 @@ pub fn fixture_on() -> bool {
 /// `ARTOO_MR_FIXTURE=<dir>` reads `mrs.json` and `discussions-<iid>.json` from a directory
 /// instead of the network (for UI checks); a test sets its own (`TEST_FIXTURE`).
 pub(crate) fn fixture() -> Option<std::path::PathBuf> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "sandbox"))]
     if let Some(dir) = TEST_FIXTURE.with(|f| f.borrow().clone()) {
         return Some(dir);
     }
     std::env::var_os("ARTOO_MR_FIXTURE").map(Into::into)
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "sandbox"))]
 thread_local! {
     /// A test's fixture, on its thread only: tests run side by side in one process.
-    pub(crate) static TEST_FIXTURE: std::cell::RefCell<Option<std::path::PathBuf>> =
+    pub static TEST_FIXTURE: std::cell::RefCell<Option<std::path::PathBuf>> =
         const { std::cell::RefCell::new(None) };
 }
 

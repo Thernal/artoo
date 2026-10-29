@@ -4,16 +4,9 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod agents;
-mod avatars;
 mod codex;
-mod connect;
-mod github;
-mod ide;
 mod mcp;
-mod merge;
-mod mr;
 mod notes;
-mod pictures;
 mod report;
 mod review;
 mod ui;
@@ -24,6 +17,7 @@ use artoo_core::{
     labels, links, markdown, mddiff, platform, rank, search, storage, structural, symbols,
     textedit, themes, worddiff,
 };
+use artoo_hosts::{avatars, connect, ide, merge, mr, pictures};
 use artoo_updates as updates;
 use std::path::PathBuf;
 

@@ -1,0 +1,26 @@
+[package]
+name = "artoo-hosts"
+description = "GitLab and GitHub: requests, connecting a host, merging, pictures (#165)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+artoo-core = { path = "../core" }
+anyhow.workspace = true
+# Data types only — `Image`; stage 2 (ui-kit) takes it out (#165).
+gpui.workspace = true
+imagesize.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1_smol.workspace = true
+
+[features]
+# Tests of a crate that calls this one: a test's fixture (`mr::TEST_FIXTURE`, `connect::TEST_FIXTURE`), and the
+# core's guard.
+sandbox = ["artoo-core/sandbox"]
+
+[dev-dependencies]
+artoo-core = { path = "../core", features = ["sandbox"] }
+tempfile.workspace = true

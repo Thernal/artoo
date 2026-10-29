@@ -73,6 +73,7 @@ publish = false
 [dependencies]
 artoo-core = { path = "crates/core" }
 artoo-updates = { path = "crates/updates" }
+artoo-hosts = { path = "crates/hosts" }
 anyhow.workspace = true
 imagesize.workspace = true
 sha1_smol.workspace = true
@@ -128,3 +129,4 @@ snapshot = ["gpui/test-support", "gpui_platform/test-support", "artoo-core/snaps
 tempfile.workspace = true
 # The core's tests guard for the app's tests too (`platform::sandboxed`).
 artoo-core = { path = "crates/core", features = ["sandbox"] }
+artoo-hosts = { path = "crates/hosts", features = ["sandbox"] }

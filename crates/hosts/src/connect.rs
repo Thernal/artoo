@@ -752,10 +752,10 @@ fn beside<'s, T: Send + 's>(
     s: &'s std::thread::Scope<'s, '_>,
     work: impl FnOnce() -> T + Send + 's,
 ) -> std::thread::ScopedJoinHandle<'s, T> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "sandbox"))]
     let test = TEST_FIXTURE.with(|f| f.borrow().clone());
     s.spawn(move || {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "sandbox"))]
         TEST_FIXTURE.with(|f| *f.borrow_mut() = test);
         work()
     })
@@ -927,16 +927,16 @@ fn run(mut command: Command, input: Option<&str>) -> Option<(bool, String)> {
 /// (what the IDE keeps), each missing file a no; tokens saved go under its `home/`. A test sets its
 /// own (`TEST_FIXTURE`).
 pub(crate) fn fixture() -> Option<std::path::PathBuf> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "sandbox"))]
     if let Some(dir) = TEST_FIXTURE.with(|f| f.borrow().clone()) {
         return Some(dir);
     }
     std::env::var_os("ARTOO_SSH_FIXTURE").map(Into::into)
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "sandbox"))]
 thread_local! {
-    pub(crate) static TEST_FIXTURE: std::cell::RefCell<Option<std::path::PathBuf>> =
+    pub static TEST_FIXTURE: std::cell::RefCell<Option<std::path::PathBuf>> =
         const { std::cell::RefCell::new(None) };
 }
 
