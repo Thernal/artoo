@@ -16,7 +16,7 @@ pub(crate) fn save(name: &str, body: String) {
         return;
     }
     // Nor may a test.
-    if cfg!(test) {
+    if crate::platform::sandboxed() {
         return;
     }
     if let Some(file) = file(name)

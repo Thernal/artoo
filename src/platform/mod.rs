@@ -88,12 +88,20 @@ pub fn computer_name() -> String {
         .unwrap_or_else(|| "this computer".to_owned())
 }
 
+/// Whether this run must leave the user's data folder and the network alone: a test's. A crate's own
+/// tests see `cfg!(test)`; another crate's tests turn on `sandbox` through their dev-dependencies, as
+/// `cfg!(test)` is false in a crate they only call (#165).
+pub fn sandboxed() -> bool {
+    cfg!(test) || cfg!(feature = "sandbox")
+}
+
 /// The folder for what Artoo remembers between runs. The first time a run asks for it, GitLance's,
-/// the name Artoo had, is copied into it when only that one is there (`carry_over`); never in a test.
+/// the name Artoo had, is copied into it when only that one is there (`carry_over`); never in a test
+/// (`sandboxed`).
 pub fn data_dir() -> Option<PathBuf> {
     let dir = os::data_dir()?;
     static CARRIED: std::sync::Once = std::sync::Once::new();
-    if !cfg!(test) {
+    if !sandboxed() {
         CARRIED.call_once(|| {
             if let Some(old) = os::old_data_dir() {
                 carry_over(&old, &dir);

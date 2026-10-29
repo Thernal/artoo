@@ -70,6 +70,9 @@ objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSString
 [features]
 # `ARTOO_SNAPSHOT=<file.png>` renders the window to a PNG and quits — UI checks without screen access.
 snapshot = ["gpui/test-support", "gpui_platform/test-support"]
+# Tests of a crate that calls this one: the data folder and the network are left alone
+# (`platform::sandboxed`, #165).
+sandbox = []
 
 [dev-dependencies]
 tempfile = "3"

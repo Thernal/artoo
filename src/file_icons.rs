@@ -469,7 +469,7 @@ fn read_user() -> User {
         ..User::default()
     };
     // A test reads none of the user's icons.
-    if cfg!(test) {
+    if crate::platform::sandboxed() {
         return user;
     }
     let Some(dir) = folder() else {

@@ -92,7 +92,7 @@ fn upload_path(src: &str) -> Option<&str> {
 /// `/uploads/`) is asked through the API first.
 pub fn want(url: &str, shelf: Shelf, upload: Option<(String, String)>) {
     // A test fetches nothing: no folder made, no network asked.
-    if cfg!(test) {
+    if crate::platform::sandboxed() {
         return;
     }
     let mut files = FILES.lock().unwrap_or_else(|e| e.into_inner());
