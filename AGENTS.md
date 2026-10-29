@@ -15,7 +15,8 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   (`mr::TEST_FIXTURE`, `connect::TEST_FIXTURE`) reaches the app's tests through its `sandbox`. `crates/agents`
   (`artoo-agents`): the MCP server, `agent-watch`, comments sent to a chat and their answers, notes, Codex — the one
   feature crate allowed another (`artoo-hosts`, for `mr`) until the `Host` trait. `crates/reports` (`artoo-reports`, imported as
-  `report`; its `build.rs` gives a build its commit): Report a problem. `main.rs` imports its modules (`use artoo_core::{git, …}`),
+  `report`; its `build.rs` gives a build its commit): Report a problem. `tests/crates.rs` fails when a feature crate
+  depends on another; its `ALLOWED` lists the exceptions, each until the stage that removes it. `main.rs` imports its modules (`use artoo_core::{git, …}`),
   so `crate::git::…` reads as before. A feature crate never depends on another feature crate. A test guard in a
   crate is `platform::sandboxed()`, never `cfg!(test)` alone (false in a crate another crate's tests call): the
   callers' dev-dependencies turn on its `sandbox` feature. Items another crate's tests need are
