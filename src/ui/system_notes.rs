@@ -12,7 +12,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 /// What Artoo is to the system: the macOS bundle id, the Windows AppUserModelID.
-pub const IDENTITY: &str = "dev.artoo.app";
+pub const IDENTITY: &str = "io.github.thernal.artoo";
 
 /// More than this many at once are said as one: "5 new in payments-service".
 const MOST_APART: usize = 3;

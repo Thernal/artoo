@@ -31,7 +31,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <plist version="1.0"><dict>
 <key>CFBundleName</key><string>Artoo</string>
 <key>CFBundleDisplayName</key><string>Artoo</string>
-<key>CFBundleIdentifier</key><string>dev.artoo.app</string>
+<key>CFBundleIdentifier</key><string>io.github.thernal.artoo</string>
 <key>CFBundleExecutable</key><string>Artoo</string>
 <key>CFBundleIconFile</key><string>Artoo</string>
 <key>CFBundlePackageType</key><string>APPL</string>
