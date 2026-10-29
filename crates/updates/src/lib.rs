@@ -181,6 +181,8 @@ fn fetch() -> Result<String> {
     let out = Command::new("curl")
         .args([
             "-sS",
+            // A moved or renamed repository answers with a redirect to where it is now.
+            "-L",
             "--max-time",
             "20",
             "-H",
