@@ -1,5 +1,7 @@
 //! The Artoo window: branches, versions and commits on the left, the diff on the right.
 
+pub(crate) use artoo_ui_kit::{apply_ui_zoom, px, ui_zoom};
+use artoo_ui_kit::{format, icons, keys, room, theme, words};
 mod agent;
 mod agent_events;
 mod agent_notes;
@@ -22,16 +24,13 @@ mod file_view;
 mod find;
 mod findfiles;
 mod fonts;
-mod format;
 mod frame;
 mod goto;
 mod hover;
-mod icons;
 mod image_view;
 mod inbox;
 mod input;
 mod keymap;
-mod keys;
 mod labeling;
 mod lists;
 mod markdown;
@@ -54,7 +53,6 @@ mod report;
 mod request_page;
 mod requests;
 mod reviewed;
-mod room;
 mod roots;
 mod rows;
 mod select;
@@ -68,7 +66,6 @@ mod spaces;
 mod stack;
 mod submit;
 mod system_notes;
-mod theme;
 mod toast;
 mod tools;
 mod typing;
@@ -76,7 +73,6 @@ mod updates;
 mod waiting;
 mod watch;
 mod welcome;
-mod words;
 mod working;
 mod zones;
 
@@ -4899,26 +4895,6 @@ fn section_label(text: impl Into<SharedString>) -> gpui::Div {
 }
 
 /// A rounded pane floating on the window background.
-/// A length in logical pixels at the interface size the reader chose (⌘+ ⌘−): every size in the
-/// window goes through here, so the whole of it grows and shrinks together.
-pub(crate) fn px(value: f32) -> gpui::Pixels {
-    gpui::px(value * f32::from(UI_ZOOM.load(std::sync::atomic::Ordering::Relaxed)) / 100.)
-}
-
-/// The interface size as a factor (1.1 at 110 %): what turns window pixels into `px` units.
-pub(crate) fn ui_zoom() -> f32 {
-    f32::from(UI_ZOOM.load(std::sync::atomic::Ordering::Relaxed)) / 100.
-}
-
-/// Makes `percent` the interface size: `px` and the window's rem (what `px_2`, `gap_3` … use).
-pub(crate) fn apply_ui_zoom(percent: u16, window: &mut Window) {
-    UI_ZOOM.store(percent, std::sync::atomic::Ordering::Relaxed);
-    window.set_rem_size(gpui::px(16. * f32::from(percent) / 100.));
-}
-
-/// The interface size, in percent; read by `px`.
-static UI_ZOOM: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(100);
-
 fn island() -> gpui::Div {
     div()
         .flex()

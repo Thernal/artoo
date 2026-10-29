@@ -76,6 +76,7 @@ artoo-updates = { path = "crates/updates" }
 artoo-hosts = { path = "crates/hosts" }
 artoo-agents = { path = "crates/agents" }
 artoo-reports = { path = "crates/reports" }
+artoo-ui-kit = { path = "crates/ui-kit" }
 anyhow.workspace = true
 imagesize.workspace = true
 sha1_smol.workspace = true
@@ -125,7 +126,7 @@ objc2-foundation.workspace = true
 
 [features]
 # `ARTOO_SNAPSHOT=<file.png>` renders the window to a PNG and quits — UI checks without screen access.
-snapshot = ["gpui/test-support", "gpui_platform/test-support", "artoo-core/snapshot"]
+snapshot = ["gpui/test-support", "gpui_platform/test-support", "artoo-core/snapshot", "artoo-ui-kit/snapshot"]
 
 [dev-dependencies]
 tempfile.workspace = true

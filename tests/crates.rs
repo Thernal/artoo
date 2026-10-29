@@ -1,7 +1,11 @@
-//! The one rule of the crates (#165): a feature crate never depends on another feature crate. The core
-//! is everyone's, and the app (this package) may depend on all of them.
+//! The one rule of the crates (#165): a feature crate never depends on another feature crate. The shared
+//! crates are everyone's, and the app (this package) may depend on all of them.
 
 use std::path::Path;
+
+/// The crates every feature may depend on, each on the ones before it only: the core, then the design
+/// system drawn over it.
+const SHARED: &[&str] = &["artoo-core", "artoo-ui-kit"];
 
 /// Edges between feature crates allowed for now, each until the stage that removes it.
 const ALLOWED: &[(&str, &str)] = &[
@@ -48,8 +52,13 @@ fn a_feature_crate_never_depends_on_another() {
     let mut found = Vec::new();
     for (name, deps) in crates() {
         for dep in deps {
-            let core = dep == "artoo-core" && name != "artoo-core";
-            if !core && !ALLOWED.contains(&(name.as_str(), dep.as_str())) {
+            let rank = |c: &str| SHARED.iter().position(|s| *s == c);
+            let shared = match (rank(&name), rank(&dep)) {
+                (_, None) => false,
+                (None, Some(_)) => true,
+                (Some(from), Some(to)) => to < from,
+            };
+            if !shared && !ALLOWED.contains(&(name.as_str(), dep.as_str())) {
                 found.push(format!("{name} → {dep}"));
             }
         }

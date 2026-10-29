@@ -1,0 +1,19 @@
+[package]
+name = "artoo-ui-kit"
+description = "Artoo's design system: theme, interface size, icons, keys, motion, rows that give way (#165)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+artoo-core = { path = "../core" }
+chrono.workspace = true
+gpui.workspace = true
+
+[features]
+# A snapshot run (the app's `snapshot`) draws motion's end state.
+snapshot = []
+
+[dev-dependencies]
+artoo-core = { path = "../core", features = ["sandbox"] }

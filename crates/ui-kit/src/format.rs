@@ -61,7 +61,8 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
     (y, m, d)
 }
 
-pub fn short(id: git2::Oid) -> String {
+/// An object id cut to its first 7 characters, as git shows it (a `git2::Oid`, without the kit knowing git).
+pub fn short(id: impl std::fmt::Display) -> String {
     id.to_string()[..7].to_owned()
 }
 
