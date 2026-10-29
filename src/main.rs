@@ -31,7 +31,9 @@ fn main() {
         .nth(1)
         .map(PathBuf::from)
         .filter(|p| p.is_dir() || git::Repo::open(p).is_ok());
-    ui::run(path);
+    ui::run(path, |cx| {
+        artoo_hosts::install(cx);
+    });
 }
 
 #[cfg(test)]

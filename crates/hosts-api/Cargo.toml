@@ -8,3 +8,6 @@ publish = false
 
 [dependencies]
 artoo-core = { path = "../core" }
+anyhow.workspace = true
+# The handle every window reads (`provide` / `get`).
+gpui.workspace = true

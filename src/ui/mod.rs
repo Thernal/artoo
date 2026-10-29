@@ -486,10 +486,12 @@ fn bindings(k: fn(&str) -> String) -> Vec<KeyBinding> {
     ]
 }
 
-pub fn run(path: Option<PathBuf>) {
+/// The window, once `install` has wired the crates in (`main.rs`).
+pub fn run(path: Option<PathBuf>, install: impl FnOnce(&mut App) + 'static) {
     gpui_platform::application()
         .with_assets(icons::Icons)
         .run(move |cx: &mut App| {
+            install(cx);
             keymap::install(default_bindings(), cx);
             // Before any window: who Artoo is to the system's notifications (#26).
             system_notes::install(cx);
