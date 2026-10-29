@@ -30,6 +30,7 @@ impl Workspace {
         let (Some(remote), Some(iid)) = (self.web.clone(), self.requests.current) else {
             return;
         };
+        let host = super::host_of(&remote, cx);
         let notes: Vec<(u64, bool)> = self
             .requests
             .threads
@@ -42,7 +43,7 @@ impl Workspace {
         self.requests.award_task = Some(cx.spawn(async move |this, cx| {
             let awards = cx
                 .background_executor()
-                .spawn(async move { mr::awards(&remote, iid, &notes) })
+                .spawn(async move { host.awards(iid, &notes) })
                 .await;
             this.update(cx, |this, cx| {
                 if this.requests.current == Some(iid)
@@ -117,6 +118,7 @@ impl Workspace {
         let (Some(remote), Some(iid)) = (self.web.clone(), self.requests.current) else {
             return;
         };
+        let host = super::host_of(&remote, cx);
         let me = self.requests.login.clone().unwrap_or_default();
         let issue = self
             .requests
@@ -133,7 +135,8 @@ impl Workspace {
             Some(at) => {
                 let award = list.remove(at);
                 self.spawn_reaction(note, undo, cx, move || {
-                    mr::unaward(&remote, iid, note, issue, &award.name, award.id).map(|_| None)
+                    host.unaward(iid, note, issue, &award.name, award.id)
+                        .map(|_| None)
                 });
             }
             None => {
@@ -144,7 +147,8 @@ impl Workspace {
                 });
                 Self::count_use(&name);
                 self.spawn_reaction(note, undo, cx, move || {
-                    mr::award(&remote, iid, note, issue, &name).map(|id| Some((id, name)))
+                    host.award(iid, note, issue, &name)
+                        .map(|id| Some((id, name)))
                 });
             }
         }

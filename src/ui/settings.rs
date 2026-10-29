@@ -30,12 +30,13 @@ impl Workspace {
         let Some(remote) = self.web.clone() else {
             return;
         };
+        let host = super::host_of(&remote, cx);
         self.gitlab_check = None;
         self.connecting.error = None;
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { crate::mr::me(&remote) })
+                .spawn(async move { host.me() })
                 .await;
             this.update(cx, |this, cx| {
                 this.gitlab_check = Some(result.map_err(|e| format!("{e:#}")));

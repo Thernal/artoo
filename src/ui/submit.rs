@@ -189,21 +189,13 @@ impl Workspace {
             }
             cx.notify();
         };
-        let work = move |remote: crate::git::WebRemote| {
+        let work = move |host: std::sync::Arc<dyn artoo_hosts_api::Host>| {
             let verdict = match verdict {
                 Verdict::Comment => mr::Verdict::Comment,
                 Verdict::Approve => mr::Verdict::Approve,
                 Verdict::RequestChanges => mr::Verdict::RequestChanges,
             };
-            mr::submit(
-                &remote,
-                iid,
-                &head,
-                drafts,
-                &summary,
-                verdict,
-                approve_already,
-            )
+            host.submit(iid, &head, drafts, &summary, verdict, approve_already)
         };
         self.send_change(iid, ops, work, refused, cx);
     }

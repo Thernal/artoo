@@ -376,6 +376,7 @@ impl Workspace {
         let (Some(remote), Some(root)) = (self.web.clone(), self.root.clone()) else {
             return;
         };
+        let host = super::host_of(&remote, cx);
         // Pushed since your review: what changed since the push you viewed.
         let head = git2::Oid::from_str(&m.head).ok();
         let viewed = match self.request_seen(iid, head) {
@@ -388,7 +389,8 @@ impl Workspace {
                 .background_executor()
                 .spawn(async move {
                     let since = viewed.and_then(|(head, viewed)| {
-                        let pushes: Vec<_> = crate::mr::versions(&remote, iid)
+                        let pushes: Vec<_> = host
+                            .versions(iid)
                             .ok()?
                             .iter()
                             .filter_map(|p| {
@@ -407,8 +409,8 @@ impl Workspace {
                         Some((from.number, diff.files.len()))
                     });
                     (
-                        crate::mr::pipeline(&remote, iid).ok().flatten(),
-                        crate::mr::approvals(&remote, iid).ok(),
+                        host.pipeline(iid).ok().flatten(),
+                        host.approvals(iid).ok(),
                         since,
                     )
                 })

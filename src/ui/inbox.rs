@@ -336,7 +336,7 @@ impl Workspace {
         self.send_change(
             iid,
             vec![op],
-            move |remote| crate::mr::resolve(&remote, iid, &id, resolved),
+            move |host| host.resolve(iid, &id, resolved),
             Self::say_refused,
             cx,
         );

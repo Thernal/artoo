@@ -980,9 +980,9 @@ impl Workspace {
                 at: None,
             },
         };
-        self.submit_compose(iid, vec![op], cx, move |remote| match discussion {
-            Some(id) => crate::mr::reply(&remote, iid, &id, &body),
-            None => crate::mr::comment(&remote, iid, &body),
+        self.submit_compose(iid, vec![op], cx, move |host| match discussion {
+            Some(id) => host.reply(iid, &id, &body),
+            None => host.comment(iid, &body),
         });
     }
 
@@ -1108,8 +1108,8 @@ impl Workspace {
                     note,
                     body: body.clone(),
                 };
-                self.submit_compose(iid, vec![op], cx, move |remote| {
-                    crate::mr::edit_note(&remote, iid, &id, note, &body)
+                self.submit_compose(iid, vec![op], cx, move |host| {
+                    host.edit_note(iid, &id, note, &body)
                 });
             }
         }
@@ -1175,14 +1175,7 @@ impl Workspace {
                 request: Some(iid),
                 since_merge_base: true,
                 ..
-            } if self
-                .web
-                .as_ref()
-                .is_some_and(|w| crate::mr::token_now(w).is_some())
-                || crate::mr::fixture_on() =>
-            {
-                Some(iid)
-            }
+            } if self.host.as_ref().is_some_and(|h| h.available()) => Some(iid),
             _ => None,
         }
     }
@@ -1333,9 +1326,8 @@ impl Workspace {
                 }),
             }
         };
-        self.submit_compose(iid, vec![op], cx, move |remote| {
-            crate::mr::post_discussion(
-                &remote,
+        self.submit_compose(iid, vec![op], cx, move |host| {
+            host.post_discussion(
                 iid,
                 &head,
                 &crate::mr::Place {
@@ -1370,9 +1362,7 @@ impl Workspace {
             note: self.requests.waiting.temp(),
             body: body.clone(),
         };
-        self.submit_compose(iid, vec![op], cx, move |remote| {
-            crate::mr::reply(&remote, iid, &id, &body)
-        });
+        self.submit_compose(iid, vec![op], cx, move |host| host.reply(iid, &id, &body));
     }
 
     /// Sends what the composer holds, as `ops` on request `iid`, with `work`: the composer closes
@@ -1384,7 +1374,9 @@ impl Workspace {
         iid: u64,
         ops: Vec<Op>,
         cx: &mut Context<Self>,
-        work: impl FnOnce(crate::git::WebRemote) -> anyhow::Result<()> + Send + 'static,
+        work: impl FnOnce(std::sync::Arc<dyn artoo_hosts_api::Host>) -> anyhow::Result<()>
+        + Send
+        + 'static,
     ) {
         if self.web.is_none() {
             return;

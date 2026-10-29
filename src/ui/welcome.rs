@@ -105,12 +105,13 @@ impl Workspace {
             self.welcome.said = Some(Err("That does not look like a host.".to_owned()));
             return cx.notify();
         };
+        let host = super::host_of(&remote, cx);
         let token = self.token_input.trim().to_owned();
         if token.len() < 8 || token.contains(char::is_whitespace) {
             self.welcome.said = Some(Err("That does not look like a token.".to_owned()));
             return cx.notify();
         }
-        if let Err(e) = crate::mr::save_token(&remote, &token) {
+        if let Err(e) = host.save_token(&token) {
             self.welcome.said = Some(Err(format!("{e:#}")));
             return cx.notify();
         }
@@ -118,12 +119,12 @@ impl Workspace {
         self.welcome.busy = true;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let check = remote.clone();
+            let check = host.clone();
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    let who = crate::mr::me(&check)?;
-                    Ok::<_, anyhow::Error>(match crate::mr::token_info(&check) {
+                    let who = check.me()?;
+                    Ok::<_, anyhow::Error>(match check.token_info() {
                         Some(info) => format!("{who} · {info}"),
                         None => who,
                     })
@@ -138,7 +139,7 @@ impl Workspace {
                         this.field = None;
                     }
                     Err(e) => {
-                        crate::mr::forget_token(&remote);
+                        host.forget_token();
                         this.welcome.said = Some(Err(format!("{e:#}")));
                     }
                 }
@@ -382,7 +383,8 @@ impl Workspace {
         };
         let fields = match card {
             Card::Connect => {
-                let page = remote_of(&self.welcome.host).map(|r| crate::mr::token_page(&r));
+                let page =
+                    remote_of(&self.welcome.host).map(|r| super::host_of(&r, cx).token_page());
                 div()
                     .flex()
                     .flex_col()

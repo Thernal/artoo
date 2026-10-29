@@ -110,7 +110,7 @@ impl Workspace {
         let mut hosts = Vec::new();
         let mut projects = Vec::new();
         if let Some(web) = &self.web {
-            hosts.push(crate::mr::host(web));
+            hosts.extend(self.host.as_ref().map(|h| h.host()));
             if let Some((_, path)) = web
                 .base
                 .split_once("://")

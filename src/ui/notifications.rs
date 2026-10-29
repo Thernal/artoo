@@ -11,7 +11,7 @@
 
 use super::Workspace;
 use crate::links::{self, Target};
-use crate::mr::{self, Mr, Thread, Todo};
+use crate::mr::{Mr, Thread, Todo};
 use crate::storage;
 use gpui::{Context, Task};
 use std::collections::{HashMap, HashSet};
@@ -349,6 +349,7 @@ impl Workspace {
         let Some(remote) = self.web.clone() else {
             return;
         };
+        let host = super::host_of(&remote, cx);
         if !self.requests.available {
             self.notices.list.clear();
             return;
@@ -365,8 +366,8 @@ impl Workspace {
             let found = cx
                 .background_executor()
                 .spawn(async move {
-                    let me = mr::username(&remote)?;
-                    let todos = mr::todos(&remote);
+                    let me = host.username()?;
+                    let todos = host.todos();
                     // Everything read: only then may read keys no longer listed be forgotten.
                     let mut complete = todos.is_ok();
                     let mut notices: Vec<Notice> =
@@ -380,7 +381,7 @@ impl Workspace {
                         // Read again only what changed since the last look.
                         let threads = match cache.get(&m.iid) {
                             Some((updated, threads)) if *updated == m.updated => threads.clone(),
-                            _ => match mr::threads(&remote, m.iid) {
+                            _ => match host.threads(m.iid) {
                                 Ok(threads) => {
                                     read_again.push(m.iid);
                                     threads
@@ -556,11 +557,12 @@ impl Workspace {
         if let Some(id) = n.todo
             && let Some(remote) = self.web.clone()
         {
+            let host = super::host_of(&remote, cx);
             let back = n.clone();
             cx.spawn(async move |this, cx| {
                 let done = cx
                     .background_executor()
-                    .spawn(async move { mr::mark_todo_done(&remote, id) })
+                    .spawn(async move { host.mark_todo_done(id) })
                     .await;
                 this.update(cx, |this, cx| {
                     if let Err(e) = done {

@@ -284,14 +284,15 @@ impl Workspace {
     /// The project's labels, milestones and template setting, in the background. The template
     /// setting comes after a template file and before a commit's message.
     fn read_create_lists(&mut self, web: crate::git::WebRemote, cx: &mut Context<Self>) {
+        let host = super::host_of(&web, cx);
         cx.spawn(async move |this, cx| {
             let (labels, milestones, template) = cx
                 .background_executor()
                 .spawn(async move {
                     (
-                        mr::labels(&web).unwrap_or_default(),
-                        mr::milestones(&web).unwrap_or_default(),
-                        mr::project_template(&web).ok().flatten(),
+                        host.labels().unwrap_or_default(),
+                        host.milestones().unwrap_or_default(),
+                        host.project_template().ok().flatten(),
                     )
                 })
                 .await;
@@ -737,6 +738,7 @@ impl Workspace {
         let Some(remote) = self.web.clone() else {
             return;
         };
+        let host = super::host_of(&remote, cx);
         let Some(n) = self.newreq.as_mut() else {
             return;
         };
@@ -772,9 +774,7 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move {
-                    mr::create(&remote, &source, &target, &title, &description, &options)
-                })
+                .spawn(async move { host.create(&source, &target, &title, &description, &options) })
                 .await;
             this.update(cx, |this, cx| {
                 match result {

@@ -221,6 +221,7 @@ impl Workspace {
         let (Some(remote), Some(whose)) = (self.web.clone(), whose) else {
             return;
         };
+        let host = super::host_of(&remote, cx);
         let pages = self.requests.past.of_scope_mut(scope);
         if pages.loading || !pages.more || state == mr::MrState::Opened {
             return;
@@ -230,7 +231,7 @@ impl Workspace {
         pages.task = Some(cx.spawn(async move |this, cx| {
             let read = cx
                 .background_executor()
-                .spawn(async move { mr::list_past(&remote, state, &whose, at.as_deref()) })
+                .spawn(async move { host.list_past(state, &whose, at.as_deref()) })
                 .await;
             this.update(cx, |this, cx| {
                 if this.requests.past.of != state {
@@ -281,12 +282,13 @@ impl Workspace {
         let Some(remote) = self.web.clone().filter(|_| !iids.is_empty()) else {
             return;
         };
+        let host = super::host_of(&remote, cx);
         cx.spawn(async move |this, cx| {
             let read = cx
                 .background_executor()
                 .spawn(async move {
                     iids.into_iter()
-                        .filter_map(|iid| mr::one(&remote, iid).ok())
+                        .filter_map(|iid| host.one(iid).ok())
                         .collect::<Vec<_>>()
                 })
                 .await;
@@ -310,7 +312,8 @@ impl Workspace {
             self.requests = Requests::default();
             return;
         };
-        let available = mr::available(&remote);
+        let host = super::host_of(&remote, cx);
+        let available = host.available();
         self.requests.available = available;
         // The way picked borrows a token not read yet this run (the CLI's, git's): read first.
         if !available && crate::connect::to_borrow(&remote) {
@@ -334,14 +337,10 @@ impl Workspace {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    let login = if known {
-                        None
-                    } else {
-                        mr::username(&remote).ok()
-                    };
-                    let members = mr::members(&remote).unwrap_or_default();
-                    let unreached = mr::unreached(&remote).unwrap_or_default();
-                    mr::list(&remote).map(|list| (list, login, (members, unreached)))
+                    let login = if known { None } else { host.username().ok() };
+                    let members = host.members().unwrap_or_default();
+                    let unreached = host.unreached().unwrap_or_default();
+                    host.list().map(|list| (list, login, (members, unreached)))
                 })
                 .await;
             this.update(cx, |this, cx| {
@@ -395,14 +394,15 @@ impl Workspace {
         let (Some(iid), Some(remote)) = (self.requests.current, self.web.clone()) else {
             return;
         };
+        let host = super::host_of(&remote, cx);
         let from = self.requests.waiting.tick();
         self.requests.reload_task = Some(cx.spawn(async move |this, cx| {
             let read = cx
                 .background_executor()
                 .spawn(async move {
-                    let drafts = mr::drafts(&remote, iid).ok();
-                    let approvals = mr::approvals(&remote, iid).ok();
-                    mr::threads(&remote, iid).map(|t| (t, drafts, approvals))
+                    let drafts = host.drafts(iid).ok();
+                    let approvals = host.approvals(iid).ok();
+                    host.threads(iid).map(|t| (t, drafts, approvals))
                 })
                 .await;
             this.update(cx, |this, cx| {
@@ -477,6 +477,7 @@ impl Workspace {
         let (Some(iid), Some(remote)) = (iid, self.web.clone()) else {
             return;
         };
+        let host = super::host_of(&remote, cx);
         let known = self.requests.login.is_some();
         let open = self
             .requests
@@ -489,17 +490,13 @@ impl Workspace {
                 .background_executor()
                 .spawn(async move {
                     // Drafts need a recent GitLab; without them the rest still works.
-                    let drafts = mr::drafts(&remote, iid).unwrap_or_default();
-                    let pipeline = mr::pipeline(&remote, iid).ok().flatten();
-                    let approvals = mr::approvals(&remote, iid).ok();
-                    let details = mr::details(&remote, iid).ok();
-                    let merge = open.then(|| mr::merge_state(&remote, iid).ok()).flatten();
-                    let login = if known {
-                        None
-                    } else {
-                        mr::username(&remote).ok()
-                    };
-                    mr::threads(&remote, iid)
+                    let drafts = host.drafts(iid).unwrap_or_default();
+                    let pipeline = host.pipeline(iid).ok().flatten();
+                    let approvals = host.approvals(iid).ok();
+                    let details = host.details(iid).ok();
+                    let merge = open.then(|| host.merge_state(iid).ok()).flatten();
+                    let login = if known { None } else { host.username().ok() };
+                    host.threads(iid)
                         .map(|t| (t, drafts, pipeline, approvals, login, (details, merge)))
                 })
                 .await;
@@ -898,11 +895,12 @@ impl Workspace {
         let (Some(remote), Some(root)) = (self.web.clone(), self.root.clone()) else {
             return;
         };
+        let host = super::host_of(&remote, cx);
         self.requests.version_task = Some(cx.spawn(async move |this, cx| {
             let built = cx
                 .background_executor()
                 .spawn(async move {
-                    let read = mr::versions(&remote, iid)?;
+                    let read = host.versions(iid)?;
                     let oid = |sha: &str| git2::Oid::from_str(sha).ok();
                     let host: Option<HostSides> = read.last().map(|p| (oid(&p.base), oid(&p.head)));
                     let pushes: Vec<_> = read
@@ -1779,7 +1777,9 @@ impl Workspace {
     fn request_action(
         &mut self,
         ops: Vec<Op>,
-        work: impl FnOnce(crate::git::WebRemote) -> anyhow::Result<()> + Send + 'static,
+        work: impl FnOnce(std::sync::Arc<dyn artoo_hosts_api::Host>) -> anyhow::Result<()>
+        + Send
+        + 'static,
         cx: &mut Context<Self>,
     ) {
         if let Some(iid) = self.requests.current {
@@ -1806,11 +1806,7 @@ impl Workspace {
             thread: id.clone(),
             resolved,
         };
-        self.request_action(
-            vec![op],
-            move |remote| mr::resolve(&remote, iid, &id, resolved),
-            cx,
-        );
+        self.request_action(vec![op], move |host| host.resolve(iid, &id, resolved), cx);
     }
 
     /// `a`: approves the open request, or takes one's approval back.
@@ -1823,14 +1819,14 @@ impl Workspace {
         }
         let op = vec![Op::Approve { mine: !a.mine }];
         if a.mine {
-            self.request_action(op, move |remote| mr::unapprove(&remote, iid), cx);
+            self.request_action(op, move |host| host.unapprove(iid), cx);
         } else if a.can {
             let head = self
                 .requests
                 .find(iid)
                 .map(|m| m.head.clone())
                 .unwrap_or_default();
-            self.request_action(op, move |remote| mr::approve(&remote, iid, &head), cx);
+            self.request_action(op, move |host| host.approve(iid, &head), cx);
         } else {
             self.error = Some("GitLab does not let you approve this merge request.".into());
             cx.notify();
@@ -1904,7 +1900,7 @@ impl Workspace {
         };
         self.request_action(
             vec![Op::DropDraft(id)],
-            move |remote| mr::delete_draft(&remote, iid, id),
+            move |host| host.delete_draft(iid, id),
             cx,
         );
     }
@@ -1921,11 +1917,7 @@ impl Workspace {
         };
         let w = &mut self.requests.waiting;
         let op = Op::Publish(vec![(id, w.temp_thread(), w.temp())]);
-        self.request_action(
-            vec![op],
-            move |remote| mr::publish_draft(&remote, iid, id),
-            cx,
-        );
+        self.request_action(vec![op], move |host| host.publish_draft(iid, id), cx);
     }
 
     /// Whether a pending comment can be sent alone: GitLab publishes one draft, GitHub only the
@@ -2068,7 +2060,7 @@ impl Workspace {
         };
         self.request_action(
             vec![Op::Delete { note }],
-            move |remote| mr::delete_note(&remote, iid, &discussion, note),
+            move |host| host.delete_note(iid, &discussion, note),
             cx,
         );
     }
@@ -2428,12 +2420,13 @@ impl Workspace {
         let Some(remote) = self.web.clone() else {
             return;
         };
+        let host = super::host_of(&remote, cx);
         let token = self.token_input.trim().to_owned();
         if token.len() < 8 || token.contains(char::is_whitespace) {
             self.gitlab_check = Some(Err("That does not look like a token.".to_owned()));
             return cx.notify();
         }
-        if let Err(e) = mr::save_token(&remote, &token) {
+        if let Err(e) = host.save_token(&token) {
             self.gitlab_check = Some(Err(format!("{e:#}")));
             return cx.notify();
         }
@@ -2441,16 +2434,16 @@ impl Workspace {
         self.testing = true;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let check = remote.clone();
+            let check = host.clone();
             let result = cx
                 .background_executor()
-                .spawn(async move { mr::me(&check) })
+                .spawn(async move { check.me() })
                 .await;
             this.update(cx, |this, cx| {
                 this.testing = false;
                 match result {
                     Ok(who) => {
-                        let host = mr::api_host(&remote);
+                        let host = host.api_host();
                         crate::connect::set_note(&host, |n| {
                             n.way = Some("pasted".to_owned());
                             n.ide = None;
@@ -2461,7 +2454,7 @@ impl Workspace {
                         this.load_requests(cx);
                     }
                     Err(e) => {
-                        mr::forget_token(&remote);
+                        host.forget_token();
                         this.gitlab_check = Some(Err(format!("{e:#}")));
                     }
                 }

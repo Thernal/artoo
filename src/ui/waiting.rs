@@ -321,20 +321,23 @@ impl Workspace {
         &mut self,
         iid: u64,
         ops: Vec<Op>,
-        work: impl FnOnce(crate::git::WebRemote) -> anyhow::Result<()> + Send + 'static,
+        work: impl FnOnce(std::sync::Arc<dyn artoo_hosts_api::Host>) -> anyhow::Result<()>
+        + Send
+        + 'static,
         refused: impl FnOnce(&mut Self, String, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
     ) {
         let Some(remote) = self.web.clone() else {
             return;
         };
+        let host = super::host_of(&remote, cx);
         let key = self.requests.waiting.send(iid, ops, super::inbox::now());
         self.show_waiting(iid);
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { work(remote) })
+                .spawn(async move { work(host) })
                 .await;
             this.update(cx, |this, cx| {
                 match result {

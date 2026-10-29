@@ -145,10 +145,11 @@ impl Workspace {
         let (Some(remote), Some(root)) = (self.web.clone(), self.root.clone()) else {
             return;
         };
+        let web_host = super::host_of(&remote, cx);
         let Some((url, _)) = self.ssh_of() else {
             return;
         };
-        let host = crate::mr::api_host(&remote);
+        let host = web_host.api_host();
         let known = found_for(&host);
         if known.here.is_none() && !self.connecting.looking {
             self.connecting.looking = true;
@@ -224,9 +225,10 @@ impl Workspace {
     /// be used; while the CLI, git and the IDEs are being looked in, by hand alone.
     pub(super) fn ways(&self) -> Option<(Vec<Row>, Vec<NotHere>)> {
         let remote = self.web.as_ref()?;
-        let host = crate::mr::host(remote);
-        let found = found_for(&crate::mr::api_host(remote));
-        let note = connect::note(&crate::mr::api_host(remote));
+        let web_host = self.host.clone()?;
+        let host = web_host.host();
+        let found = found_for(&web_host.api_host());
+        let note = connect::note(&web_host.api_host());
         let (mut ways, mut not) = match &found.here {
             Some(here) => (here.ways.clone(), here.not_here.clone()),
             None => return Some((vec![Row::Way(by_hand())], Vec::new())),
@@ -315,8 +317,8 @@ impl Workspace {
             Via::Ide(account) => self.copy_ide_token(account, cx),
             Via::Hand if !self.token_input.trim().is_empty() => self.submit_token(cx),
             Via::Hand => {
-                if let Some(remote) = &self.web {
-                    cx.open_url(&crate::mr::token_page(remote));
+                if let Some(web_host) = &self.host {
+                    cx.open_url(&web_host.token_page());
                 }
                 self.start_field(super::lists::Field::Token, cx);
             }
@@ -329,7 +331,8 @@ impl Workspace {
         let Some(remote) = self.web.clone() else {
             return;
         };
-        let host = crate::mr::api_host(&remote);
+        let web_host = super::host_of(&remote, cx);
+        let host = web_host.api_host();
         self.connecting.error = None;
         let made = self.made_in_use().is_some();
         let saved = crate::mr::saved_token(&host).is_some();
@@ -339,14 +342,14 @@ impl Workspace {
             _ => format!("with {}’s token", connect::cli_name(remote.github).1),
         };
         cx.spawn(async move |this, cx| {
-            let check = remote.clone();
+            let check_host = web_host.clone();
             cx.background_executor()
                 .spawn(async move {
                     if made {
-                        let _ = crate::mr::revoke_token(&check);
+                        let _ = check_host.revoke_token();
                     }
                     if saved {
-                        crate::mr::forget_token(&check);
+                        check_host.forget_token();
                     }
                 })
                 .await;
@@ -386,25 +389,27 @@ impl Workspace {
         let Some(remote) = self.web.clone() else {
             return;
         };
+        let web_host = super::host_of(&remote, cx);
         if self.connecting.copying.is_some() {
             return;
         }
         self.connecting.copying = Some(account.id.clone());
         self.connecting.error = None;
         cx.notify();
-        let host = crate::mr::api_host(&remote);
+        let host = web_host.api_host();
         let made = self.made_in_use().is_some();
         cx.spawn(async move |this, cx| {
             let (check, read) = (remote.clone(), account.clone());
+            let check_host = web_host.clone();
             let result = cx
                 .background_executor()
                 .spawn(async move {
                     let token = crate::ide::read(&read).map_err(Uncopied::Unread)?;
                     let access = connect::check(&check, &token).map_err(Uncopied::Refused)?;
                     if made {
-                        let _ = crate::mr::revoke_token(&check);
+                        let _ = check_host.revoke_token();
                     }
-                    crate::mr::save_token(&check, &token)
+                    check_host.save_token(&token)
                         .map_err(|e| Uncopied::Refused(format!("{e:#}")))?;
                     Ok(access)
                 })
@@ -477,6 +482,7 @@ impl Workspace {
         let Some(remote) = self.web.clone() else {
             return;
         };
+        let web_host = super::host_of(&remote, cx);
         let Some((_, ssh)) = self.ssh_of() else {
             return;
         };
@@ -487,13 +493,13 @@ impl Workspace {
         self.connecting.error = None;
         self.gitlab_check = None;
         cx.notify();
-        let host = crate::mr::api_host(&remote);
+        let host = web_host.api_host();
         let user = match found_for(&host).ssh {
             Some(Ok(Known::GitLab(user))) => Some(user),
             _ => None,
         };
         cx.spawn(async move |this, cx| {
-            let check = remote.clone();
+            let check_host = web_host.clone();
             let result = cx
                 .background_executor()
                 .spawn(async move {
@@ -501,10 +507,11 @@ impl Workspace {
                     let before = connect::note(&host).made;
                     let made = connect::make(&ssh, &name, scope)?;
                     // One Artoo made before goes, as a renewed one's does; one pasted is yours.
-                    if before.is_some_and(|m| crate::mr::token(&check).is_some_and(|t| m.is(&t))) {
-                        let _ = crate::mr::revoke_token(&check);
+                    if before.is_some_and(|m| check_host.token().is_some_and(|t| m.is(&t))) {
+                        let _ = check_host.revoke_token();
                     }
-                    crate::mr::save_token(&check, &made.token)
+                    check_host
+                        .save_token(&made.token)
                         .map_err(|e| Refused::Other(format!("{e:#}")))?;
                     connect::set_note(&host, |n| {
                         n.way = Some("ssh".to_owned());
@@ -516,8 +523,8 @@ impl Workspace {
                 .await;
             this.update(cx, |this, cx| {
                 this.connecting.making = None;
-                let host = crate::mr::api_host(&remote);
-                let at = crate::mr::host(&remote);
+                let host = web_host.api_host();
+                let at = web_host.host();
                 match result {
                     Ok(name) => this.connected(
                         user,
@@ -557,7 +564,8 @@ impl Workspace {
         let Some(remote) = self.web.clone() else {
             return;
         };
-        let host = crate::mr::api_host(&remote);
+        let web_host = super::host_of(&remote, cx);
+        let host = web_host.api_host();
         let Some(made) = self.made_in_use() else {
             return;
         };
@@ -577,8 +585,8 @@ impl Workspace {
                 .spawn(async move {
                     let fresh = connect::make(&ssh, &made.name, &made.scope).ok()?;
                     // The old one goes with its own call, before the new one takes its place.
-                    let _ = crate::mr::revoke_token(&remote);
-                    crate::mr::save_token(&remote, &fresh.token).ok()?;
+                    let _ = web_host.revoke_token();
+                    web_host.save_token(&fresh.token).ok()?;
                     connect::set_note(&host, |n| {
                         n.made = Some(connect::MadeNote::of(&fresh, &made.name, &made.scope));
                     });
@@ -594,9 +602,10 @@ impl Workspace {
 
     /// The token Artoo made, while it is the one in use.
     fn made_in_use(&self) -> Option<connect::MadeNote> {
-        let remote = self.web.as_ref()?;
-        let made = connect::note(&crate::mr::api_host(remote)).made?;
-        crate::mr::token_now(remote)
+        let web_host = self.host.clone()?;
+        let made = connect::note(&web_host.api_host()).made?;
+        web_host
+            .token_now()
             .is_some_and(|t| made.is(&t))
             .then_some(made)
     }
@@ -607,7 +616,7 @@ impl Workspace {
         row: &Row,
         remote: &WebRemote,
     ) -> (&'static str, String, Option<String>, String) {
-        let host = crate::mr::host(remote);
+        let host = self.host.as_ref().map(|h| h.host()).unwrap_or_default();
         let (cli, program) = connect::cli_name(remote.github);
         let scope_until = |way: &Way| {
             let mut out = main_scope(&way.scopes)
@@ -682,8 +691,7 @@ impl Workspace {
     }
 
     /// What a way sets off, said before it happens (Settings, a row picked).
-    fn more(way: &Way, remote: &WebRemote) -> String {
-        let host = crate::mr::host(remote);
+    fn more(way: &Way, remote: &WebRemote, host: &str) -> String {
         let (_, program) = connect::cli_name(remote.github);
         match &way.via {
             Via::Cli => format!(
@@ -751,12 +759,12 @@ impl Workspace {
         let Some(remote) = self.web.clone() else {
             return div().into_any_element();
         };
+        let web_host = super::host_of(&remote, cx);
         let Some((rows, not)) = self.ways() else {
             return div().into_any_element();
         };
-        let host = crate::mr::host(&remote);
-        let looking =
-            self.connecting.looking || found_for(&crate::mr::api_host(&remote)).here.is_none();
+        let host = web_host.host();
+        let looking = self.connecting.looking || found_for(&web_host.api_host()).here.is_none();
         let line = if looking {
             format!("{host} · looking for the ways in…")
         } else if rows.len() == 1 {
@@ -766,7 +774,7 @@ impl Workspace {
         };
         let focus = self.focused(&rows);
         let can_read = {
-            let note = connect::note(&crate::mr::api_host(&remote));
+            let note = connect::note(&web_host.api_host());
             note.allowed.is_empty() || note.allowed.iter().any(|s| s == "read_api")
         };
         let note = match (&self.gitlab_check, self.testing) {
@@ -944,15 +952,16 @@ impl Workspace {
     }
 
     /// What is in use for the host, when it is none of the ways listed: its name and what it is.
-    fn own_in_use(&self, remote: &WebRemote, rows: &[Row]) -> Option<(String, String)> {
-        let (_, from) = crate::mr::token_source(remote)?;
+    fn own_in_use(&self, rows: &[Row]) -> Option<(String, String)> {
+        let web_host = self.host.clone()?;
+        let (_, from) = web_host.token_source()?;
         let listed = rows
             .iter()
-            .any(|r| matches!(r, Row::Way(w) if self.in_use(w, remote)));
+            .any(|r| matches!(r, Row::Way(w) if self.in_use(w)));
         if listed {
             return None;
         }
-        let note = connect::note(&crate::mr::api_host(remote));
+        let note = connect::note(&web_host.api_host());
         let kept = "kept in a file only you can read";
         Some(match from {
             "Settings" => match (self.made_in_use(), note.way.as_deref(), note.ide) {
@@ -977,11 +986,14 @@ impl Workspace {
     }
 
     /// Whether `way` is the one the host's token comes from now.
-    fn in_use(&self, way: &Way, remote: &WebRemote) -> bool {
-        let Some((_, from)) = crate::mr::token_source(remote) else {
+    fn in_use(&self, way: &Way) -> bool {
+        let Some(web_host) = self.host.clone() else {
             return false;
         };
-        let note = connect::note(&crate::mr::api_host(remote));
+        let Some((_, from)) = web_host.token_source() else {
+            return false;
+        };
+        let note = connect::note(&web_host.api_host());
         match &way.via {
             Via::Cli => from.contains("CLI"),
             Via::Git(at) => from == *at,
@@ -1000,11 +1012,14 @@ impl Workspace {
     /// tagged with Test; the picked one open with what it does, its button and Cancel.
     pub(super) fn render_ways_settings(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let remote = self.web.clone()?;
+        let web_host = super::host_of(&remote, cx);
         let (rows, not) = self.ways()?;
-        let host = crate::mr::host(&remote);
-        let env = crate::mr::token_source(&remote).is_some_and(|(_, f)| f.ends_with("variable"));
-        let own = self.own_in_use(&remote, &rows);
-        let note = connect::note(&crate::mr::api_host(&remote));
+        let host = web_host.host();
+        let env = web_host
+            .token_source()
+            .is_some_and(|(_, f)| f.ends_with("variable"));
+        let own = self.own_in_use(&rows);
+        let note = connect::note(&web_host.api_host());
         let can_read = note.allowed.is_empty() || note.allowed.iter().any(|s| s == "read_api");
         let can_write = note.allowed.is_empty() || note.allowed.iter().any(|s| s == "api");
         let test = || {
@@ -1077,7 +1092,7 @@ impl Workspace {
             };
             let key = row_key(way);
             let on = picked.as_deref() == Some(key.as_str());
-            let used = self.in_use(way, &remote);
+            let used = self.in_use(way);
             if on && !used {
                 chosen = Some(way.clone());
             }
@@ -1141,7 +1156,7 @@ impl Workspace {
                             div()
                                 .text_size(px(12.))
                                 .text_color(theme::muted())
-                                .child(Self::more(way, &remote)),
+                                .child(Self::more(way, &remote, &host)),
                         )
                         .children(scopes)
                         .when(way.via == Via::Hand, |d| {
@@ -1156,7 +1171,7 @@ impl Workspace {
             }
         }
         let go = chosen.map(|way| {
-            let leaves = match crate::mr::token_source(&remote).map(|(_, f)| f) {
+            let leaves = match web_host.token_source().map(|(_, f)| f) {
                 Some(f) if f.contains("CLI") => {
                     let (_, program) = connect::cli_name(remote.github);
                     format!("{program} keeps its token; Artoo stops using it.")
@@ -1195,7 +1210,7 @@ impl Workspace {
                 )
                 .child(self.way_button("ways-go", &way, true, false, scope, cx))
         });
-        let status = self.ways_status(&remote);
+        let status = self.ways_status();
         Some(
             div()
                 .flex()
@@ -1228,7 +1243,8 @@ impl Workspace {
     }
 
     /// The line under Settings' ways: being made or copied, why not, or what a test said.
-    fn ways_status(&self, remote: &WebRemote) -> Option<(String, Rgba)> {
+    fn ways_status(&self) -> Option<(String, Rgba)> {
+        let web_host = self.host.clone()?;
         if self.connecting.making.is_some() {
             return Some((
                 "Making a token with your SSH key…".to_owned(),
@@ -1238,7 +1254,7 @@ impl Workspace {
         if let Some(e) = &self.connecting.error {
             return Some((e.clone(), theme::removed()));
         }
-        match (&self.gitlab_check, crate::mr::token_source(remote)) {
+        match (&self.gitlab_check, web_host.token_source()) {
             (Some(Ok(who)), _) => Some((format!("Connected as {who}"), theme::added())),
             (Some(Err(e)), _) => Some((e.clone(), theme::removed())),
             (None, None) => Some((

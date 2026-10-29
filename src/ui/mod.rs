@@ -100,6 +100,14 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use artoo_hosts_api::Host;
+
+/// The host `remote` is on, from the hosts the app was given (`main.rs`). A worker takes it on the window's
+/// thread, before it leaves.
+pub(crate) fn host_of(remote: &crate::git::WebRemote, cx: &App) -> Arc<dyn Host> {
+    artoo_hosts_api::get(cx).of(remote)
+}
+
 actions!(
     artoo,
     [
@@ -1840,6 +1848,8 @@ pub struct Workspace {
     /// A context menu open at the pointer, and the repository's address on the web.
     ctx_menu: Option<CtxMenu>,
     web: Option<crate::git::WebRemote>,
+    /// The host `web` is on, set with it.
+    host: Option<Arc<dyn Host>>,
     /// The selected text of the open diff, and whether the button is down (a drag extends it).
     sel: Option<Sel>,
     selecting: bool,
@@ -2097,6 +2107,7 @@ impl Workspace {
             decor: Default::default(),
             ctx_menu: None,
             web: None,
+            host: None,
             sel: None,
             selecting: false,
             dfind: None,
@@ -2197,6 +2208,7 @@ impl Workspace {
                     Ok(Ok((root, branches, git_dir, fingerprint, web, (decor, me, project)))) => {
                         this.plain = false;
                         this.project = Some(project.clone());
+                        this.host = web.as_ref().map(|w| host_of(w, cx));
                         this.web = web;
                         this.decor = decor;
                         this.me = me.unwrap_or_else(|| "You".to_owned());
@@ -2263,6 +2275,7 @@ impl Workspace {
     fn open_plain(&mut self, root: PathBuf, cx: &mut Context<Self>) {
         self.plain = true;
         self.web = None;
+        self.host = None;
         self.recent = storage::remember(&root);
         self.project = Some(root.clone());
         if self.root.as_ref() != Some(&root) {

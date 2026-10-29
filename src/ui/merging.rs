@@ -11,7 +11,7 @@ use super::menu::{Act, Entry};
 use super::typing::Input;
 use super::{ISLAND_RADIUS, ROW_RADIUS, Workspace, icons, plural, px, theme};
 use crate::merge::{self, Fix, Merge, Method, Squash, Stand};
-use crate::mr::{self, MrState};
+use crate::mr::MrState;
 use gpui::{
     ClickEvent, Context, FontWeight, KeyDownEvent, MouseButton, Pixels, Point, SharedString, div,
     prelude::*,
@@ -78,10 +78,11 @@ impl Workspace {
         let (Some(iid), Some(remote)) = (self.requests.current, self.web.clone()) else {
             return;
         };
+        let host = super::host_of(&remote, cx);
         self.requests.merge_task = Some(cx.spawn(async move |this, cx| {
             let read = cx
                 .background_executor()
-                .spawn(async move { mr::merge_state(&remote, iid) })
+                .spawn(async move { host.merge_state(iid) })
                 .await;
             this.update(cx, |this, cx| {
                 if this.requests.current == Some(iid) {
@@ -328,6 +329,7 @@ impl Workspace {
         let Some(remote) = self.web.clone() else {
             return;
         };
+        let host = super::host_of(&remote, cx);
         let Some(card) = self.merging.as_mut().filter(|c| !c.busy) else {
             return;
         };
@@ -339,7 +341,7 @@ impl Workspace {
             let sent = merge.clone();
             let result = cx
                 .background_executor()
-                .spawn(async move { mr::merge(&remote, iid, &sent) })
+                .spawn(async move { host.merge(iid, &sent) })
                 .await;
             this.update(cx, |this, cx| {
                 match result {
@@ -407,12 +409,16 @@ impl Workspace {
 
     /// Rebase: GitLab puts the commits on top of the target, and the pipeline runs again.
     fn rebase_request(&mut self, cx: &mut Context<Self>) {
-        self.merge_call("Rebasing…", |remote, iid, _| mr::rebase(remote, iid), cx);
+        self.merge_call("Rebasing…", |host, iid, _| host.rebase(iid), cx);
     }
 
     /// Cancel: it no longer merges when the pipeline succeeds.
     fn cancel_auto_merge(&mut self, cx: &mut Context<Self>) {
-        self.merge_call("Cancelling…", mr::cancel_auto_merge, cx);
+        self.merge_call(
+            "Cancelling…",
+            |host, iid, node| host.cancel_auto_merge(iid, node),
+            cx,
+        );
     }
 
     /// A call about merging the current request, `busy` said in Merge's place until it answers;
@@ -420,12 +426,13 @@ impl Workspace {
     fn merge_call(
         &mut self,
         busy: &'static str,
-        call: impl FnOnce(&crate::git::WebRemote, u64, &str) -> anyhow::Result<()> + Send + 'static,
+        call: impl FnOnce(&dyn artoo_hosts_api::Host, u64, &str) -> anyhow::Result<()> + Send + 'static,
         cx: &mut Context<Self>,
     ) {
         let (Some(iid), Some(remote)) = (self.requests.current, self.web.clone()) else {
             return;
         };
+        let host = super::host_of(&remote, cx);
         let node = self
             .requests
             .merge
@@ -436,7 +443,7 @@ impl Workspace {
         self.requests.merge_task = Some(cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { call(&remote, iid, &node) })
+                .spawn(async move { call(&*host, iid, &node) })
                 .await;
             this.update(cx, |this, cx| {
                 if let Err(e) = result {
