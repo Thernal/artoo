@@ -16,9 +16,11 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   (`artoo-agents`): the MCP server, `agent-watch`, comments sent to a chat and their answers, notes, Codex — the one
   feature crate allowed another (`artoo-hosts`, for `mr`) until the `Host` trait. `crates/reports` (`artoo-reports`, imported as
   `report`; its `build.rs` gives a build its commit): Report a problem. `crates/ui-kit` (`artoo-ui-kit`): the design system —
-  theme, the interface size (`px`, `ui_zoom`), icons, keycaps, motion, row room, formats, words — on the core and
+  theme, the interface size (`px`, `ui_zoom`), icons, keycaps, motion, row room, formats, words, tooltips and the
+  cut (`hover`: `Hover`, `Tip`, `TipOwned`, `cut`, `mid`) — on the core and
   GPUI alone (`format::short` takes any `Display`, so the kit knows no git); `ui/mod.rs` imports its modules by
-  their old names, and `ui/motion.rs` keeps only the motion that reads `Workspace`, re-exporting the kit's. `tests/crates.rs` fails when a feature crate
+  their old names, and `ui/motion.rs` and `ui/hover.rs` keep only what reads `Workspace` (fold motion; the commit, person and
+  branch cards), re-exporting the kit's. `tests/crates.rs` fails when a feature crate
   depends on another; its `ALLOWED` lists the exceptions, each until the stage that removes it. `main.rs` imports its modules (`use artoo_core::{git, …}`),
   so `crate::git::…` reads as before. A feature crate never depends on another feature crate. A test guard in a
   crate is `platform::sandboxed()`, never `cfg!(test)` alone (false in a crate another crate's tests call): the

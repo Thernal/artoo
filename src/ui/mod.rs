@@ -1,7 +1,9 @@
 //! The Artoo window: branches, versions and commits on the left, the diff on the right.
 
+use artoo_ui_kit::hover::{Tip, TipOwned};
 pub(crate) use artoo_ui_kit::{apply_ui_zoom, px, ui_zoom};
-use artoo_ui_kit::{format, icons, keys, room, theme, words};
+mod hover;
+use artoo_ui_kit::{ROW_RADIUS, format, icons, keys, room, theme, words};
 mod agent;
 mod agent_events;
 mod agent_notes;
@@ -26,7 +28,6 @@ mod findfiles;
 mod fonts;
 mod frame;
 mod goto;
-mod hover;
 mod image_view;
 mod inbox;
 mod input;
@@ -280,7 +281,6 @@ fn gap() -> f32 {
     if flat() { 0. } else { GAP }
 }
 const ISLAND_RADIUS: f32 = 10.;
-const ROW_RADIUS: f32 = 6.;
 
 /// The keys of the app as shipped; `keymap.txt` changes them (`keymap.rs`).
 fn default_bindings() -> Vec<KeyBinding> {
@@ -5032,49 +5032,6 @@ fn nav_button(
             .tooltip(move |_, cx| cx.new(|_| Tip(tip)).into())
     } else {
         button.opacity(0.45)
-    }
-}
-
-/// A tooltip: a small panel with a line of text.
-struct Tip(&'static str);
-
-/// A tooltip whose text is made when it is shown (blame's: the commit's title, hash and age).
-struct TipOwned(SharedString);
-
-impl Render for TipOwned {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        let tip = div()
-            .mt(px(6.))
-            // Long text wraps rather than leaving the window.
-            .max_w(px(440.))
-            .px_2()
-            .py_1()
-            .rounded(px(ROW_RADIUS))
-            .border_1()
-            .border_color(theme::island_border())
-            .bg(theme::hover())
-            .text_size(px(11.))
-            .text_color(theme::text())
-            .child(SharedString::from(keys::text(&self.0).into_owned()));
-        // It fades in after the long rest (#56, 7).
-        motion::appear(tip, "tip-in", motion::FAST, |tip, v| tip.opacity(v))
-    }
-}
-
-impl Render for Tip {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        let tip = div()
-            .mt(px(6.))
-            .px_2()
-            .py_1()
-            .rounded(px(ROW_RADIUS))
-            .border_1()
-            .border_color(theme::island_border())
-            .bg(theme::hover())
-            .text_size(px(11.))
-            .text_color(theme::text())
-            .child(keys::text(self.0).into_owned());
-        motion::appear(tip, "tip-in", motion::FAST, |tip, v| tip.opacity(v))
     }
 }
 

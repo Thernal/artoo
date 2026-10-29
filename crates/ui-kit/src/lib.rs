@@ -3,6 +3,7 @@
 //! A module draws with this and GPUI alone.
 
 pub mod format;
+pub mod hover;
 pub mod icons;
 pub mod keys;
 pub mod motion;
@@ -11,6 +12,9 @@ pub mod theme;
 pub mod words;
 
 use artoo_core::{file_icons, highlight, platform, storage, themes};
+
+/// The corner of a row, a field, a tooltip.
+pub const ROW_RADIUS: f32 = 6.;
 
 /// A length in logical pixels at the interface size the reader chose (⌘+ ⌘−): every size in the
 /// window goes through here, so the whole of it grows and shrinks together.
