@@ -4,74 +4,8 @@
 //! nobody has seen is refused rather than merged. The calls are `mr::merge_state` / `mr::merge`
 //! (GitLab) and their GitHub twins.
 
-use crate::mr::{Approvals, Pipeline};
-
-/// What the host says of merging the request, read with it.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Host {
-    pub github: bool,
-    /// GitLab's `detailed_merge_status`, GitHub's `mergeable_state`.
-    pub status: String,
-    /// The token's user may merge into the target.
-    pub can: bool,
-    pub conflicts: bool,
-    /// Commits the target has that the branch has not (GitLab's `diverged_commits_count`).
-    pub behind: u32,
-    /// The project wants the pipeline to pass first, and every discussion resolved.
-    pub pipeline_must_pass: bool,
-    pub discussions_must_resolve: bool,
-    /// Set to merge when the pipeline succeeds already.
-    pub auto_set: bool,
-    /// Merging when the pipeline succeeds can be set: GitLab always, GitHub where the
-    /// repository has auto-merge on.
-    pub auto_allowed: bool,
-    pub squash: Squash,
-    /// Delete the source branch after, as the request or the project has it.
-    pub delete_branch: bool,
-    /// GitHub deletes the branch itself after a merge (`delete_branch_on_merge`).
-    pub deletes_itself: bool,
-    /// GitHub: the ways the repository allows, its default first.
-    pub methods: Vec<Method>,
-    /// GitHub's node id of the pull request, for auto-merge's mutations.
-    pub node: String,
-}
-
-/// Squashing the request's commits into one, as the project allows it (GitLab's `squash_option`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Squash {
-    #[default]
-    Never,
-    Always,
-    /// The merger chooses; the project's default.
-    Choose(bool),
-}
-
-/// How GitHub puts a pull request into its base.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Method {
-    Merge,
-    Squash,
-    Rebase,
-}
-
-impl Method {
-    pub fn label(self) -> &'static str {
-        match self {
-            Method::Merge => "Merge commit",
-            Method::Squash => "Squash",
-            Method::Rebase => "Rebase",
-        }
-    }
-
-    /// The REST API's `merge_method`.
-    pub fn key(self) -> &'static str {
-        match self {
-            Method::Merge => "merge",
-            Method::Squash => "squash",
-            Method::Rebase => "rebase",
-        }
-    }
-}
+use artoo_hosts_api::{Approvals, Pipeline};
+pub use artoo_hosts_api::{Merge, MergeState, Method, Squash};
 
 /// Where a reason it cannot merge is fixed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -167,7 +101,7 @@ fn running(p: Option<&Pipeline>) -> bool {
 }
 
 /// Where merging stands: every reason in the way, or what can be done.
-pub fn stand(host: &Host, known: &Known) -> Stand {
+pub fn stand(host: &MergeState, known: &Known) -> Stand {
     if host.auto_set {
         return Stand::Auto;
     }
@@ -286,40 +220,6 @@ pub fn stand(host: &Host, known: &Known) -> Stand {
     Stand::Ready
 }
 
-/// What a merge sends.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Merge {
-    /// The head that was reviewed: the host refuses when the branch moved on since.
-    pub sha: String,
-    pub squash: bool,
-    pub delete_branch: bool,
-    /// GitHub's way.
-    pub method: Method,
-    /// The commit's message: its first line is GitHub's title.
-    pub message: String,
-    /// Set to merge when the pipeline succeeds, rather than now.
-    pub when_pipeline_succeeds: bool,
-}
-
-impl Merge {
-    /// The card's start: the project's defaults, the title and the reference as the message.
-    pub fn defaults(host: &Host, sha: &str, message: String, when_pipeline_succeeds: bool) -> Self {
-        let method = host.methods.first().copied().unwrap_or(Method::Merge);
-        Merge {
-            sha: sha.to_owned(),
-            squash: match host.squash {
-                Squash::Never => false,
-                Squash::Always => true,
-                Squash::Choose(on) => on,
-            },
-            delete_branch: host.delete_branch,
-            method,
-            message,
-            when_pipeline_succeeds,
-        }
-    }
-}
-
 /// The host refused because the branch moved on since the head that was sent.
 pub fn moved_on(error: &str) -> bool {
     let moved = ["SHA does not match", "Head branch was modified", "head sha"];
@@ -362,12 +262,12 @@ mod tests {
         }
     }
 
-    fn gitlab(status: &str) -> Host {
-        Host {
+    fn gitlab(status: &str) -> MergeState {
+        MergeState {
             status: status.into(),
             can: true,
             auto_allowed: true,
-            ..Host::default()
+            ..MergeState::default()
         }
     }
 
@@ -379,7 +279,7 @@ mod tests {
             ..Approvals::default()
         };
         let failed = pipeline("failed");
-        let host = Host {
+        let host = MergeState {
             pipeline_must_pass: true,
             discussions_must_resolve: true,
             ..gitlab("not_approved")
@@ -411,17 +311,17 @@ mod tests {
     #[test]
     fn a_running_pipeline_a_rebase_and_auto_merge_are_offered_as_such() {
         let running = pipeline("running");
-        let must = Host {
+        let must = MergeState {
             pipeline_must_pass: true,
             ..gitlab("ci_still_running")
         };
         assert_eq!(stand(&must, &known(None, Some(&running))), Stand::Running);
-        let behind = Host {
+        let behind = MergeState {
             behind: 4,
             ..gitlab("need_rebase")
         };
         assert_eq!(stand(&behind, &known(None, None)), Stand::Rebase(4));
-        let set = Host {
+        let set = MergeState {
             auto_set: true,
             ..gitlab("ci_still_running")
         };
@@ -438,7 +338,7 @@ mod tests {
 
     #[test]
     fn github_says_blocked_for_a_rule_or_a_check_on_its_way() {
-        let github = |status: &str, auto| Host {
+        let github = |status: &str, auto| MergeState {
             github: true,
             auto_allowed: auto,
             ..gitlab(status)

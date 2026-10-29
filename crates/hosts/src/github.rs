@@ -1203,7 +1203,7 @@ pub fn submit(
 
 /// What GitHub says of merging pull request `number` (#164): `mergeable_state`, the ways the
 /// repository allows, auto-merge. The fixture's are `github/merge-<n>.json` and `github/repo.json`.
-pub fn merge_state(remote: &WebRemote, number: u64) -> Result<crate::merge::Host> {
+pub fn merge_state(remote: &WebRemote, number: u64) -> Result<crate::merge::MergeState> {
     let (pull, repo) = match fixture() {
         Some(_) => (
             read_fixture(&format!("merge-{number}.json")).unwrap_or(Ok(Value::Null))?,
@@ -1220,8 +1220,8 @@ pub fn merge_state(remote: &WebRemote, number: u64) -> Result<crate::merge::Host
     Ok(parse_merge_state(&pull, &repo))
 }
 
-pub fn parse_merge_state(pull: &Value, repo: &Value) -> crate::merge::Host {
-    use crate::merge::{Host, Method, Squash};
+pub fn parse_merge_state(pull: &Value, repo: &Value) -> crate::merge::MergeState {
+    use crate::merge::{MergeState, Method, Squash};
     // A token that cannot read the settings is not told them: each way is taken as allowed.
     let allowed = |key: &str| repo[key].as_bool().unwrap_or(true);
     let methods = [
@@ -1234,7 +1234,7 @@ pub fn parse_merge_state(pull: &Value, repo: &Value) -> crate::merge::Host {
     .map(|(_, m)| m)
     .collect();
     let deletes = repo["delete_branch_on_merge"].as_bool().unwrap_or(false);
-    Host {
+    MergeState {
         github: true,
         status: s(&pull["mergeable_state"]),
         can: repo["permissions"]["push"].as_bool().unwrap_or(true),

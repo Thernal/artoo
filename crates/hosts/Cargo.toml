@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 artoo-core = { path = "../core" }
+artoo-hosts-api = { path = "../hosts-api" }
 anyhow.workspace = true
 # People's and comments' pictures as images GPUI draws.
 gpui.workspace = true

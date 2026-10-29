@@ -104,7 +104,7 @@ pub struct Requests {
     pub approvals: Option<mr::Approvals>,
     /// What the host says of merging an open one (#164), and the call about it on its way: its
     /// word in Merge's place.
-    pub merge: Option<crate::merge::Host>,
+    pub merge: Option<crate::merge::MergeState>,
     pub merge_busy: Option<&'static str>,
     pub merge_task: Option<Task<()>>,
     /// The host's last answer for them, and the tick the read that gave it began at.

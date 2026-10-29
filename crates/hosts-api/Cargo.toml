@@ -1,0 +1,10 @@
+[package]
+name = "artoo-hosts-api"
+description = "The hosts' contract (#165): what GitLab and GitHub answer, in the same shapes."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+artoo-core = { path = "../core" }

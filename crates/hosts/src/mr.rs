@@ -6,193 +6,28 @@
 use crate::git::{DiffLine, LineKind, WebRemote};
 use crate::github;
 use anyhow::{Result, anyhow, bail};
+use artoo_hosts_api::MergeState;
+pub use artoo_hosts_api::{
+    Approvals, Award, Details, Draft, Label, Milestone, Mr, MrState, NewOptions, Note, PAST_PAGE,
+    PastPage, Pipeline, Place, Push, Thread, Todo, Verdict, Whose,
+};
 use serde_json::Value;
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-/// Where a merge request is in its life (#114): open, merged, or closed without merging.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum MrState {
-    #[default]
-    Opened,
-    Merged,
-    Closed,
-}
-
-impl MrState {
-    /// GitLab's word for it in a list's `state=`.
-    fn query(self) -> &'static str {
-        match self {
-            MrState::Opened => "opened",
-            MrState::Merged => "merged",
-            MrState::Closed => "closed",
-        }
-    }
-
-    pub fn word(self) -> &'static str {
-        match self {
-            MrState::Opened => "Open",
-            MrState::Merged => "Merged",
-            MrState::Closed => "Closed",
-        }
+/// GitLab's word for a state in a list's `state=`, and in the fixture's file names.
+fn query(state: MrState) -> &'static str {
+    match state {
+        MrState::Opened => "opened",
+        MrState::Merged => "merged",
+        MrState::Closed => "closed",
     }
 }
 
-/// Merged and closed requests come a page of this many at a time, as the list is scrolled.
-pub const PAST_PAGE: usize = 30;
-
-/// Whose merged or closed requests a list reads. The host picks them, so a short list ends at its
-/// own last page instead of reading the whole project's (#169).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Whose {
-    All,
-    /// Written by this username.
-    Author(String),
-    /// With this username among the reviewers.
-    Reviewer(String),
-}
-
-/// A page of merged or closed requests: what is on it, where the next one starts (none: it was
-/// the last), and how many there are in all where the host says.
-#[derive(Debug, Default)]
-pub struct PastPage {
-    pub list: Vec<Mr>,
-    pub next: Option<String>,
-    pub total: Option<u32>,
-}
 /// Open requests, a request's discussions, are read a page of this many at a time, every page.
 const OPEN_PAGE: usize = 100;
 /// No more than this many pages of one listing.
 const OPEN_PAGES: u32 = 10;
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Mr {
-    pub iid: u64,
-    pub title: String,
-    pub author: String,
-    pub source: String,
-    pub target: String,
-    pub url: String,
-    /// Seconds since the epoch.
-    pub updated: i64,
-    pub created: i64,
-    /// The source branch's head as GitLab knows it.
-    pub head: String,
-    pub comments: usize,
-    pub draft: bool,
-    /// The author's and the reviewers' usernames: whose request it is, who was asked to look.
-    pub author_login: String,
-    pub reviewers: Vec<String>,
-    /// What the author wrote about it, as the list gives it: the root page's preview (#72).
-    pub description: String,
-    pub state: MrState,
-    /// What it was merged as (the merge or squash commit): its first parent is the target as it
-    /// was, so the diff is the request's, not what the target became since.
-    pub merged_with: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Note {
-    /// GitLab's id: a link's `#note_<id>` points at it.
-    pub id: u64,
-    pub author: String,
-    /// The author's username, to tell one's own notes.
-    pub login: String,
-    pub body: String,
-    pub created: i64,
-}
-
-/// A discussion on a merge request: on a line of a file, or on the request as a whole.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Thread {
-    /// GitLab's id of the discussion, for replying to it and resolving it.
-    pub id: String,
-    pub notes: Vec<Note>,
-    pub path: Option<String>,
-    /// 1-based line on the new side; `None` for a comment on a removed line or on no line.
-    pub new_line: Option<u32>,
-    pub old_line: Option<u32>,
-    pub resolved: bool,
-    /// A discussion on code can be resolved; a plain comment cannot.
-    pub resolvable: bool,
-    /// Who resolved it (name, username) and when, while it is resolved.
-    pub resolved_by: Option<(String, String)>,
-    pub resolved_at: i64,
-    /// The commit (a version's head) the discussion was written on, when the host says (#46).
-    pub commit: Option<String>,
-    /// The host already knows its line is gone from the latest version (GitHub's `isOutdated`).
-    pub outdated: bool,
-}
-
-/// The latest pipeline of a merge request, and when it failed, the job that did.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Pipeline {
-    /// GitLab's word: success, failed, running, pending, canceled, skipped, manual …
-    pub status: String,
-    pub url: String,
-    /// Seconds since the epoch, when it last changed.
-    pub updated: i64,
-    /// The jobs that failed, each with its page; the first is the one the pill names.
-    pub failed: Vec<(String, String)>,
-}
-
-/// A comment of one's own that is not published yet: only its author sees it until the review is
-/// submitted.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Draft {
-    pub id: u64,
-    pub body: String,
-    pub path: Option<String>,
-    pub new_line: Option<u32>,
-    pub old_line: Option<u32>,
-    /// The discussion it replies to (its `Thread::id`): a reply in another's thread has no place of
-    /// its own on GitLab, it is where its thread is (#166).
-    pub reply_to: Option<String>,
-}
-
-/// A GitLab to-do on a merge request of this project: someone mentioned the user, asked for a
-/// review, addressed them.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Todo {
-    pub id: u64,
-    /// GitLab's word: mentioned, review_requested, directly_addressed, assigned, …
-    pub action: String,
-    pub iid: u64,
-    pub title: String,
-    pub author: String,
-    /// The comment's text, when it came from one.
-    pub body: String,
-    /// The page it points at, often with `#note_<id>`.
-    pub url: String,
-    pub created: i64,
-}
-
-/// Who approved a merge request, how many approvals it needs, and where the reviewer stands.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Approvals {
-    /// Names of those who approved.
-    pub by: Vec<String>,
-    /// Approvals the rules require (0 when there are no rules).
-    pub required: u32,
-    /// Approvals still missing.
-    pub left: u32,
-    /// The token's user approved it.
-    pub mine: bool,
-    /// The token's user may approve it (not the author on a project that forbids that, …).
-    pub can: bool,
-}
-
-/// One push of the merge request's branch, as GitLab keeps it: the commit it ended on, the commit
-/// the merge request was based on then, and when.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Push {
-    /// GitLab's id of the version it made (a link to two versions compared names it, #162); 0 on
-    /// GitHub, which has none.
-    pub id: u64,
-    pub head: String,
-    pub base: String,
-    pub created: i64,
-}
 
 /// Where the token for a GitLab host comes from, best first: `GITLAB_TOKEN`, the token saved by this
 /// app for that host (pasted, made with the SSH key or copied from an IDE), the way picked for it
@@ -494,7 +329,7 @@ pub fn list_past(
     let (value, total) = match fixture() {
         // `mrs-merged.json`, `mrs-closed.json`: every one, picked and cut into pages here.
         Some(dir) => {
-            let file = dir.join(format!("mrs-{}.json", state.query()));
+            let file = dir.join(format!("mrs-{}.json", query(state)));
             let all: Vec<Value> = std::fs::read_to_string(file)
                 .ok()
                 .and_then(|t| serde_json::from_str(&t).ok())
@@ -515,7 +350,7 @@ pub fn list_past(
                 remote,
                 &format!(
                     "merge_requests?state={}{filter}&order_by=updated_at&per_page={PAST_PAGE}&page={page}",
-                    state.query()
+                    query(state)
                 ),
             )?;
             let total = (page == 1)
@@ -561,7 +396,7 @@ fn past_count(remote: &WebRemote, state: MrState, whose: &Whose) -> Option<u32> 
         COUNT,
         serde_json::json!({
             "path": path.replace("%2F", "/"),
-            "state": state.query(),
+            "state": query(state),
             "author": author,
             "reviewer": reviewer,
         }),
@@ -582,7 +417,7 @@ pub fn one(remote: &WebRemote, iid: u64) -> Result<Mr> {
         Some(dir) => [MrState::Merged, MrState::Closed]
             .iter()
             .filter_map(|s| {
-                std::fs::read_to_string(dir.join(format!("mrs-{}.json", s.query()))).ok()
+                std::fs::read_to_string(dir.join(format!("mrs-{}.json", query(*s)))).ok()
             })
             .filter_map(|t| serde_json::from_str::<Vec<Value>>(&t).ok())
             .flatten()
@@ -610,14 +445,6 @@ pub fn threads(remote: &WebRemote, iid: u64) -> Result<Vec<Thread>> {
         None => get_all(remote, &format!("merge_requests/{iid}/discussions"))?,
     };
     Ok(parse_threads(&value))
-}
-
-/// One reaction on a note (#9): its id (to take one's own back), its GitLab name, who gave it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Award {
-    pub id: u64,
-    pub name: String,
-    pub user: String,
 }
 
 /// The reactions on `notes` of request `iid`, by note id; a note is `(id, on the conversation)`
@@ -723,36 +550,6 @@ pub fn members(remote: &WebRemote) -> Result<Vec<(String, String)>> {
         .map(|m| (text(m, "username"), text(m, "name")))
         .filter(|(u, _)| !u.is_empty())
         .collect())
-}
-
-/// A label of a request, with its colour as 0xRRGGBB when the project gives one.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Label {
-    pub name: String,
-    pub color: Option<u32>,
-}
-
-/// What a request's Overview says beyond its list row (#8, #73).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Details {
-    pub description: String,
-    pub labels: Vec<Label>,
-    /// The milestone's title and its due date (`YYYY-MM-DD`), if any.
-    pub milestone: Option<(String, Option<String>)>,
-    pub assignees: Vec<String>,
-    /// The reviewers by name (GitHub: those still asked; who approved is in the approvals).
-    pub reviewers: Vec<String>,
-    /// The reviewers, by name, whose last word was to request changes.
-    pub changes_requested: Vec<String>,
-}
-
-/// A milestone a new request can be put in.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Milestone {
-    /// GitLab's id, GitHub's number: what creating a request takes.
-    pub id: u64,
-    pub title: String,
-    pub due: Option<String>,
 }
 
 /// `#rrggbb` (or `rrggbb`) as 0xRRGGBB.
@@ -1276,29 +1073,16 @@ fn message(body: &str) -> String {
         .unwrap_or_else(|| body.chars().take(160).collect())
 }
 
-/// Where a comment goes in a merge request's diff.
-pub struct Place<'a> {
-    pub path: &'a str,
-    pub old_path: &'a str,
-    pub new_line: Option<u32>,
-    pub old_line: Option<u32>,
-    /// A comment on several lines: the first and the last, each with both counters
-    /// (`FileDiff::position`). The last is the line above.
-    pub range: Option<(DiffLine, DiffLine)>,
-}
-
-impl Place<'_> {
-    /// `<old>_<new>..<old>_<new>` of the range, for the fixture's record.
-    fn range_text(&self) -> String {
-        self.range
-            .map(|(a, b)| {
-                let n = |l: DiffLine| {
-                    format!("{}_{}", l.old_line.unwrap_or(0), l.new_line.unwrap_or(0))
-                };
-                format!(" range {}..{}", n(a), n(b))
-            })
-            .unwrap_or_default()
-    }
+/// `<old>_<new>..<old>_<new>` of the range, for the fixture's record.
+fn range_text(place: &Place<'_>) -> String {
+    place
+        .range
+        .map(|(a, b)| {
+            let n =
+                |l: DiffLine| format!("{}_{}", l.old_line.unwrap_or(0), l.new_line.unwrap_or(0));
+            format!(" range {}..{}", n(a), n(b))
+        })
+        .unwrap_or_default()
 }
 
 /// GitLab's `line_range` fields of a comment on several lines of `path`.
@@ -1352,7 +1136,7 @@ pub fn post_discussion(
             place.path,
             place.new_line,
             place.old_line,
-            place.range_text()
+            range_text(place)
         ))?;
         return if draft {
             fixture_draft(&dir, iid, place, body).map(Some)
@@ -1450,19 +1234,6 @@ pub(crate) fn record(line: String) -> Result<bool> {
         .open(dir.join("posted.txt"))?
         .write_all(format!("{line}\n").as_bytes())?;
     Ok(true)
-}
-
-/// What a new request asks for besides its branches, title and description.
-#[derive(Clone, Debug, Default)]
-pub struct NewOptions {
-    pub draft: bool,
-    pub remove_source: bool,
-    pub squash: bool,
-    /// Usernames to ask for a review.
-    pub reviewers: Vec<String>,
-    /// Label names, and the milestone's id (GitHub: number).
-    pub labels: Vec<String>,
-    pub milestone: Option<u64>,
 }
 
 /// Opens a merge request from `source` into `target`. The branch must already be on the remote.
@@ -1767,7 +1538,7 @@ pub fn approve(remote: &WebRemote, iid: u64, head: &str) -> Result<()> {
 
 /// What GitLab says of merging request `iid` (#164): its status, the project's rules and its
 /// defaults. The fixture's are `merge-<iid>.json` and `project.json`.
-pub fn merge_state(remote: &WebRemote, iid: u64) -> Result<crate::merge::Host> {
+pub fn merge_state(remote: &WebRemote, iid: u64) -> Result<MergeState> {
     if remote.github {
         return github::merge_state(remote, iid);
     }
@@ -1795,8 +1566,8 @@ pub fn merge_state(remote: &WebRemote, iid: u64) -> Result<crate::merge::Host> {
     Ok(parse_merge_state(&request, &project))
 }
 
-pub fn parse_merge_state(m: &Value, project: &Value) -> crate::merge::Host {
-    use crate::merge::{Host, Squash};
+pub fn parse_merge_state(m: &Value, project: &Value) -> MergeState {
+    use artoo_hosts_api::{MergeState, Squash};
     let flag = |v: &Value, key: &str| v.get(key).and_then(Value::as_bool).unwrap_or(false);
     // A GitLab before 15.6 says only `merge_status`.
     let status = match text(m, "detailed_merge_status") {
@@ -1808,7 +1579,7 @@ pub fn parse_merge_state(m: &Value, project: &Value) -> crate::merge::Host {
             other => other.to_owned(),
         },
     };
-    Host {
+    MergeState {
         github: false,
         status,
         can: m
@@ -1973,14 +1744,6 @@ pub fn request_changes(remote: &WebRemote, iid: u64) -> Result<()> {
         );
     }
     Ok(())
-}
-
-/// A review's verdict.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Verdict {
-    Comment,
-    Approve,
-    RequestChanges,
 }
 
 /// Submits a review of request `iid` (whose head the reviewer sees as `head`): one's pending

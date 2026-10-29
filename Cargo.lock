@@ -207,6 +207,7 @@ dependencies = [
  "artoo-agents",
  "artoo-core",
  "artoo-hosts",
+ "artoo-hosts-api",
  "artoo-reports",
  "artoo-ui-kit",
  "artoo-updates",
@@ -307,12 +308,20 @@ version = "1.3.0"
 dependencies = [
  "anyhow",
  "artoo-core",
+ "artoo-hosts-api",
  "gpui-pre",
  "imagesize",
  "serde",
  "serde_json",
  "sha1_smol",
  "tempfile",
+]
+
+[[package]]
+name = "artoo-hosts-api"
+version = "1.3.0"
+dependencies = [
+ "artoo-core",
 ]
 
 [[package]]
