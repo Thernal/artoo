@@ -20,9 +20,11 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   cut (`hover`: `Hover`, `Tip`, `TipOwned`, `cut`, `mid`), the text field and its editing (`input`), file and folder icons (`file_icons`) — on the core and
   GPUI alone (`format::short` takes any `Display`, so the kit knows no git); `ui/mod.rs` imports its modules by
   their old names, and `ui/motion.rs`, `ui/hover.rs` and `ui/input.rs` keep only what reads `Workspace` (fold motion; the commit,
-  person and branch cards; which field has the keys), re-exporting the kit's. `tests/crates.rs` fails when a feature crate
-  depends on another; its `ALLOWED` lists the exceptions, each until the stage that removes it. `main.rs` imports its modules (`use artoo_core::{git, …}`),
-  so `crate::git::…` reads as before. A feature crate never depends on another feature crate. A test guard in a
+  person and branch cards; which field has the keys), re-exporting the kit's. The crates' rules — which crate code goes to, what may depend on
+  what, contracts (`-api`), wiring (`install`), routes and actions, fakes — are the `architecture` skill
+  (`.claude/skills/architecture/`): read it before adding a crate, moving code between crates or adding a dependency
+  between them; `tests/crates.rs` checks them, its `ALLOWED` and `OPEN` the exceptions, each until the stage that removes it. `main.rs` imports its modules (`use artoo_core::{git, …}`),
+  so `crate::git::…` reads as before. An implementation never depends on another implementation. A test guard in a
   crate is `platform::sandboxed()`, never `cfg!(test)` alone (false in a crate another crate's tests call): the
   callers' dev-dependencies turn on its `sandbox` feature. Items another crate's tests need are
   `#[cfg(any(test, feature = "sandbox"))]`.
