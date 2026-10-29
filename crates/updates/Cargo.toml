@@ -1,0 +1,18 @@
+[package]
+name = "artoo-updates"
+description = "Whether a newer Artoo is out (#135): its releases on GitHub, asked and kept (#165)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+artoo-core = { path = "../core" }
+anyhow.workspace = true
+chrono.workspace = true
+semver.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+artoo-core = { path = "../core", features = ["sandbox"] }

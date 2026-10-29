@@ -72,6 +72,7 @@ publish = false
 
 [dependencies]
 artoo-core = { path = "crates/core" }
+artoo-updates = { path = "crates/updates" }
 anyhow.workspace = true
 imagesize.workspace = true
 sha1_smol.workspace = true

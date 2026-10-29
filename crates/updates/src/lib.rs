@@ -4,6 +4,7 @@
 //! so updating stays the user's (README → Releases). Settings → General turns the asking off.
 
 use anyhow::{Result, anyhow, bail};
+use artoo_core::{applog, storage};
 use semver::Version;
 use serde::Deserialize;
 use std::process::{Command, Stdio};

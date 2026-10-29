@@ -17,7 +17,6 @@ mod pictures;
 mod report;
 mod review;
 mod ui;
-mod updates;
 mod watch;
 
 use artoo_core::{
@@ -25,6 +24,7 @@ use artoo_core::{
     labels, links, markdown, mddiff, platform, rank, search, storage, structural, symbols,
     textedit, themes, worddiff,
 };
+use artoo_updates as updates;
 use std::path::PathBuf;
 
 fn main() {
