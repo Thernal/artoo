@@ -1,11 +1,11 @@
-//! Comment bodies drawn as markdown (`crate::markdown`): GitLab discussions are written in it, so
+//! Comment bodies drawn as markdown (parsed by `artoo_core::markdown`): GitLab discussions are written in it, so
 //! the raw text reads badly. *Rich* draws it formatted, *Raw* shows the text as written; the choice
 //! is a setting (⌥M), and a comment without markdown looks the same either way.
 
-use super::px;
-use super::theme;
-use crate::highlight;
-use crate::markdown::{self, Block, Helper, Inline, Mark};
+use crate::pictures::{Picture, Pictures};
+use crate::{px, theme};
+use artoo_core::highlight;
+use artoo_core::markdown::{self, Block, Helper, Inline, Mark};
 use gpui::{
     AnyElement, App, Div, ElementId, FontStyle, FontWeight, HighlightStyle, InteractiveText,
     MouseButton, SharedString, StrikethroughStyle, StyledText, TextLayout, UnderlineStyle, div,
@@ -18,7 +18,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 /// The images a document draws, by the path it writes: the decoded image and its size.
-pub type Pictures = HashMap<String, (Arc<gpui::Image>, Option<(u32, u32)>)>;
+pub type DocPictures = HashMap<String, Picture>;
 
 /// A selection in the text of one comment. The comment's text blocks (paragraphs, headings, list
 /// items, lines of code) are numbered in reading order; an end is (block, byte in it).
@@ -127,6 +127,7 @@ pub fn body(
     key: impl Into<SharedString>,
     base: Option<&str>,
     sel: Option<Selecting>,
+    cx: &App,
 ) -> AnyElement {
     let mut ctx = Ctx {
         key: key.into(),
@@ -136,6 +137,7 @@ pub fn body(
         blocks: 0,
         texts: Rc::default(),
         doc: None,
+        pictures: crate::pictures::get(cx),
     };
     let blocks = rich.then(|| markdown::parse(text));
     match blocks.filter(|b| markdown::is_rich(b)) {
@@ -153,8 +155,9 @@ pub fn body(
 pub fn doc_block(
     block: &Block,
     key: impl Into<SharedString>,
-    pictures: Rc<Pictures>,
+    pictures: Rc<DocPictures>,
     sel: Selecting,
+    cx: &App,
 ) -> AnyElement {
     let mut ctx = Ctx {
         key: key.into(),
@@ -164,6 +167,7 @@ pub fn doc_block(
         blocks: 0,
         texts: Rc::default(),
         doc: Some(pictures),
+        pictures: crate::pictures::get(cx),
     };
     self::block(block, &mut ctx)
 }
@@ -182,7 +186,9 @@ struct Ctx {
     blocks: usize,
     texts: Rc<RefCell<Vec<String>>>,
     /// Drawn as a page (a changed document), with its images.
-    doc: Option<Rc<Pictures>>,
+    doc: Option<Rc<DocPictures>>,
+    /// Images from the web (the port hosts provides).
+    pictures: Option<Arc<dyn Pictures>>,
 }
 
 /// A block of text that can be selected: numbered, its selection painted under it, the mouse
@@ -249,7 +255,7 @@ pub fn line_block(
         )
         .child(text_el)
         .on_mouse_down(MouseButton::Left, move |event, _, cx| {
-            let at = super::input::nearest_index(&for_down, event.position).min(len);
+            let at = crate::input::nearest_index(&for_down, event.position).min(len);
             on_down(
                 Press::Down {
                     note: note_down.clone(),
@@ -264,7 +270,7 @@ pub fn line_block(
         })
         .on_mouse_move(move |event, _, cx| {
             if event.pressed_button == Some(MouseButton::Left) {
-                let at = super::input::nearest_index(&for_move, event.position).min(len);
+                let at = crate::input::nearest_index(&for_move, event.position).min(len);
                 on_move(
                     Press::Drag {
                         note: note_move.clone(),
@@ -338,7 +344,7 @@ fn pictures(i: &Inline, ctx: &mut Ctx) -> Option<AnyElement> {
         || ctx.doc.is_none()
             && images
                 .iter()
-                .any(|(src, _)| web_picture(src, ctx.base.as_deref()).is_none())
+                .any(|(src, _)| web_picture(src, ctx).is_none())
     {
         return None;
     }
@@ -367,10 +373,11 @@ fn pictures(i: &Inline, ctx: &mut Ctx) -> Option<AnyElement> {
 
 /// An image from the web, once it is in: an address, or an upload of the comment's project as
 /// GitLab writes it (`/uploads/…`, asked with the host's token).
-fn web_picture(src: &str, base: Option<&str>) -> Option<crate::pictures::Picture> {
-    match base {
-        Some(project) if src.starts_with("/uploads/") => crate::pictures::upload(project, src),
-        _ => crate::pictures::image(src),
+fn web_picture(src: &str, ctx: &Ctx) -> Option<Picture> {
+    let pictures = ctx.pictures.as_ref()?;
+    match ctx.base.as_deref() {
+        Some(project) if src.starts_with("/uploads/") => pictures.upload(project, src),
+        _ => pictures.image(src),
     }
 }
 
@@ -380,10 +387,7 @@ fn picture_row(images: &[(String, String)], ctx: &mut Ctx) -> Option<AnyElement>
     let mut row = div().flex().flex_wrap().gap(px(8.));
     for (src, alt) in images {
         let kept = ctx.doc.as_ref().and_then(|p| p.get(src).cloned());
-        let web = kept
-            .is_none()
-            .then(|| web_picture(src, ctx.base.as_deref()))
-            .flatten();
+        let web = kept.is_none().then(|| web_picture(src, ctx)).flatten();
         let Some((image, size)) = kept.or_else(|| web.clone()) else {
             // Not in the repository, not in from the web (yet): its name.
             row = row.child(
@@ -697,7 +701,7 @@ fn inline(i: &Inline, ctx: &mut Ctx) -> AnyElement {
     // Mentions on their tint, where no other style already covers the text.
     let me = ME.lock().map(|m| m.clone()).unwrap_or_default();
     let mut highlights = highlights;
-    for r in crate::markdown::mentions(&i.text) {
+    for r in markdown::mentions(&i.text) {
         if i.spans
             .iter()
             .any(|s| s.range.start < r.end && r.start < s.range.end)
@@ -778,7 +782,7 @@ fn inline(i: &Inline, ctx: &mut Ctx) -> AnyElement {
     let layout = styled.layout().clone();
     // The mentions a card can be shown for: (range, login).
     let tagged: Vec<(Range<usize>, String)> = match ctx.sel.as_ref() {
-        Some(_) => crate::markdown::mentions(&i.text)
+        Some(_) => markdown::mentions(&i.text)
             .into_iter()
             .map(|r| (r.clone(), i.text[r.start + 1..r.end].to_owned()))
             .collect(),

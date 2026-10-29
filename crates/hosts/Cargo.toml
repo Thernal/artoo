@@ -9,6 +9,8 @@ publish = false
 [dependencies]
 artoo-core = { path = "../core" }
 artoo-hosts-api = { path = "../hosts-api" }
+# The kit's `Pictures` port, implemented by `pictures`.
+artoo-ui-kit = { path = "../ui-kit" }
 anyhow.workspace = true
 # People's and comments' pictures as images GPUI draws.
 gpui.workspace = true

@@ -11,7 +11,7 @@
 //! space and ⇧space scroll it.
 
 use super::diff_view::{LineNote, NoteTone, chip, group};
-use super::markdown::{Pictures, doc_block};
+use super::markdown::{DocPictures, doc_block};
 use super::{Selection, Workspace, px, theme};
 use crate::git::FileDiff;
 use crate::markdown::{self, Block};
@@ -318,6 +318,7 @@ impl Workspace {
         path: &str,
         rows: &[Row],
         this: &WeakEntity<Self>,
+        cx: &gpui::App,
     ) -> HashMap<(bool, u32), Vec<AnyElement>> {
         let span = |old: bool, line: u32| {
             rows.iter()
@@ -328,7 +329,7 @@ impl Workspace {
         let mut under: HashMap<(bool, u32), Vec<AnyElement>> = HashMap::new();
         if let Some((_, old, line)) = self.page_compose().filter(|(f, _, _)| *f == ix)
             && let Some((first, _)) = span(old, line)
-            && let Some(composer) = self.compose_box(this.clone())
+            && let Some(composer) = self.compose_box(this.clone(), cx)
         {
             under
                 .entry((old, first))
@@ -346,14 +347,14 @@ impl Workspace {
                     self.request_threads_in(path)
                         .into_iter()
                         .filter(|&(_, o, n)| here(o, n))
-                        .map(|(t, _, _)| self.render_request_thread(t, 0., this.clone())),
+                        .map(|(t, _, _)| self.render_request_thread(t, 0., this.clone(), cx)),
                 );
             }
             notes.extend(
                 self.comments
                     .iter()
                     .filter(|c| c.path == path && here(c.old, c.line))
-                    .map(|c| self.render_thread(c.id, 0., this.clone())),
+                    .map(|c| self.render_thread(c.id, 0., this.clone(), cx)),
             );
             under.entry((*old, first)).or_default().extend(
                 notes
@@ -398,8 +399,13 @@ impl Workspace {
     }
 
     /// File `ix` as a page in the list of every file: Unified or Split as the toolbar says.
-    pub(super) fn render_page(&self, ix: usize, this: WeakEntity<Self>) -> AnyElement {
-        let blocks = self.page_blocks(ix, this);
+    pub(super) fn render_page(
+        &self,
+        ix: usize,
+        this: WeakEntity<Self>,
+        cx: &gpui::App,
+    ) -> AnyElement {
+        let blocks = self.page_blocks(ix, this, cx);
         let page = page_text(div().w_full().py(px(16.)).pl(px(44.)).pr(px(24.))).child(
             div()
                 .when(self.options.unified, |s| s.max_w(px(880.)))
@@ -420,8 +426,13 @@ impl Workspace {
 
     /// File `ix` alone as a page that scrolls on its own, its blocks its children, so n / p can
     /// step through the changed ones.
-    pub(super) fn render_page_alone(&self, ix: usize, this: WeakEntity<Self>) -> AnyElement {
-        let blocks = self.page_blocks(ix, this);
+    pub(super) fn render_page_alone(
+        &self,
+        ix: usize,
+        this: WeakEntity<Self>,
+        cx: &gpui::App,
+    ) -> AnyElement {
+        let blocks = self.page_blocks(ix, this, cx);
         *self.page.changes.borrow_mut() = blocks
             .iter()
             .enumerate()
@@ -519,14 +530,19 @@ impl Workspace {
     }
 
     /// File `ix`'s blocks: Unified or Split as the toolbar says, each with whether it is a change.
-    fn page_blocks(&self, ix: usize, this: WeakEntity<Self>) -> Vec<(AnyElement, bool)> {
+    fn page_blocks(
+        &self,
+        ix: usize,
+        this: WeakEntity<Self>,
+        cx: &gpui::App,
+    ) -> Vec<(AnyElement, bool)> {
         let Some(file) = self.diff.as_ref().and_then(|d| d.files.get(ix)) else {
             return Vec::new();
         };
         let rows = self.page.rows(file);
         let path = file.path().to_owned();
         let side = |old: bool| {
-            let pictures: Pictures = file
+            let pictures: DocPictures = file
                 .pictures
                 .iter()
                 .filter(|p| p.old == old)
@@ -541,7 +557,7 @@ impl Workspace {
             .into_iter()
             .filter(|n| n.tone != NoteTone::Bookmark)
             .collect();
-        let under = self.page_under(ix, &path, &rows, &this);
+        let under = self.page_under(ix, &path, &rows, &this, cx);
         let ctx = BlockCtx {
             ix,
             sel: self.selecting(this.clone()),
@@ -550,9 +566,9 @@ impl Workspace {
             under: RefCell::new(under),
         };
         if self.options.unified {
-            self.unified(&rows, &path, &ctx, &old_pics, &new_pics)
+            self.unified(&rows, &path, &ctx, &old_pics, &new_pics, cx)
         } else {
-            self.split(&rows, &ctx, &old_pics, &new_pics)
+            self.split(&rows, &ctx, &old_pics, &new_pics, cx)
         }
     }
 
@@ -562,8 +578,9 @@ impl Workspace {
         rows: &[Row],
         path: &str,
         ctx: &BlockCtx,
-        old_pics: &Rc<Pictures>,
-        new_pics: &Rc<Pictures>,
+        old_pics: &Rc<DocPictures>,
+        new_pics: &Rc<DocPictures>,
+        cx: &gpui::App,
     ) -> Vec<(AnyElement, bool)> {
         let mut out: Vec<(AnyElement, bool)> = Vec::new();
         let mut k = 0;
@@ -589,7 +606,7 @@ impl Workspace {
                     // Opened, its blocks fade in (#56, 15).
                     for (n, r) in rows[k..end].iter().enumerate() {
                         let block = super::motion::appear(
-                            div().child(ctx.block(r, true, old_pics, k + n, true)),
+                            div().child(ctx.block(r, true, old_pics, k + n, true, cx)),
                             ("removed-opening", k + n),
                             super::motion::BASE,
                             |block, v| block.opacity(v),
@@ -606,7 +623,7 @@ impl Workspace {
                 new_pics
             };
             out.push((
-                ctx.block(row, row.change == Change::Removed, pics, k, true),
+                ctx.block(row, row.change == Change::Removed, pics, k, true, cx),
                 row.change != Change::Same,
             ));
             k += 1;
@@ -619,8 +636,9 @@ impl Workspace {
         &self,
         rows: &[Row],
         ctx: &BlockCtx,
-        old_pics: &Rc<Pictures>,
-        new_pics: &Rc<Pictures>,
+        old_pics: &Rc<DocPictures>,
+        new_pics: &Rc<DocPictures>,
+        cx: &gpui::App,
     ) -> Vec<(AnyElement, bool)> {
         let (before, now) = self.page_heads();
         let head = |text: String| {
@@ -663,11 +681,11 @@ impl Workspace {
         std::iter::once((heads, false))
             .chain(rows.iter().enumerate().map(|(k, r)| {
                 let (left, right) = match r.change {
-                    Change::Added => (hatch(), cell(ctx.side_block(r, false, new_pics, k))),
-                    Change::Removed => (cell(ctx.side_block(r, true, old_pics, k)), hatch()),
+                    Change::Added => (hatch(), cell(ctx.side_block(r, false, new_pics, k, cx))),
+                    Change::Removed => (cell(ctx.side_block(r, true, old_pics, k, cx)), hatch()),
                     _ => (
-                        cell(ctx.side_block(r, true, old_pics, k)),
-                        cell(ctx.side_block(r, false, new_pics, k)),
+                        cell(ctx.side_block(r, true, old_pics, k, cx)),
+                        cell(ctx.side_block(r, false, new_pics, k, cx)),
                     ),
                 };
                 (
@@ -702,9 +720,10 @@ impl BlockCtx {
         &self,
         r: &Row,
         old: bool,
-        pics: &Rc<Pictures>,
+        pics: &Rc<DocPictures>,
         k: usize,
         unified: bool,
+        cx: &gpui::App,
     ) -> AnyElement {
         let (block, lines) = match (old, r) {
             (
@@ -742,6 +761,7 @@ impl BlockCtx {
                 format!("page-{}-{k}-{old}", self.ix),
                 pics.clone(),
                 self.sel.clone(),
+                cx,
             ),
             bar(r.change),
             struck,
@@ -752,8 +772,15 @@ impl BlockCtx {
     }
 
     /// A block of Split: one side's own (a changed one with its side's words marked).
-    fn side_block(&self, r: &Row, old: bool, pics: &Rc<Pictures>, k: usize) -> AnyElement {
-        self.block(r, old, pics, k, false)
+    fn side_block(
+        &self,
+        r: &Row,
+        old: bool,
+        pics: &Rc<DocPictures>,
+        k: usize,
+        cx: &gpui::App,
+    ) -> AnyElement {
+        self.block(r, old, pics, k, false, cx)
     }
 
     /// A block in its margin: the change's bar left, the comments on its lines and a comment

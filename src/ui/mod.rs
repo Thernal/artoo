@@ -3,7 +3,7 @@
 use artoo_ui_kit::hover::{Tip, TipOwned};
 pub(crate) use artoo_ui_kit::{apply_ui_zoom, px, ui_zoom};
 mod hover;
-use artoo_ui_kit::{ROW_RADIUS, format, icons, keys, room, theme, words};
+use artoo_ui_kit::{ROW_RADIUS, format, icons, keys, markdown, room, theme, words};
 mod agent;
 mod agent_events;
 mod agent_notes;
@@ -34,7 +34,6 @@ mod input;
 mod keymap;
 mod labeling;
 mod lists;
-mod markdown;
 mod md_page;
 mod menu;
 mod merging;
@@ -4042,6 +4041,7 @@ impl Workspace {
                                 format!("commit-summary-{}", commit.id),
                                 &commit.summary,
                                 cx.entity().downgrade(),
+                                cx,
                             ))
                             .tip(tip.join("\n"))
                     })
@@ -4055,6 +4055,7 @@ impl Workspace {
                                 format!("commit-body-{}", commit.id),
                                 &b,
                                 cx.entity().downgrade(),
+                                cx,
                             ))
                     }))
                     .child(
@@ -4363,7 +4364,7 @@ impl Workspace {
                 .child("No changes")
                 .into_any_element(),
             (Some(file), _) if self.shows_page(file) => {
-                self.render_page_alone(self.file, cx.entity().downgrade())
+                self.render_page_alone(self.file, cx.entity().downgrade(), cx)
             }
             (Some(file), _) if self.shows_image(file) => self.render_image(file, cx),
             (Some(file), _) if file.hunks.is_empty() => div()
@@ -4606,7 +4607,7 @@ impl Workspace {
                         return workspace.render_block_header(file, this.clone());
                     }
                     if workspace.body(b) != stack::Body::Rows {
-                        return workspace.render_block_note(b, file, this.clone());
+                        return workspace.render_block_note(b, file, this.clone(), cx);
                     }
                     (Some((b, file)), inside - 1)
                 }
@@ -4644,17 +4645,17 @@ impl Workspace {
                 style.gutter + 8.
             };
             match row {
-                Row::Thread(id) => return workspace.render_thread(id, indent, this.clone()),
+                Row::Thread(id) => return workspace.render_thread(id, indent, this.clone(), cx),
                 Row::Request(ix) => {
-                    return workspace.render_request_thread(ix, indent, this.clone());
+                    return workspace.render_request_thread(ix, indent, this.clone(), cx);
                 }
-                Row::Draft(ix) => return workspace.render_draft(ix, indent, this.clone()),
-                Row::Note(id) => return workspace.render_agent_note(id, indent, this.clone()),
+                Row::Draft(ix) => return workspace.render_draft(ix, indent, this.clone(), cx),
+                Row::Note(id) => return workspace.render_agent_note(id, indent, this.clone(), cx),
                 Row::Composer if workspace.compose.is_none() && active => {
                     return workspace.render_goline_row(indent, this.clone());
                 }
                 Row::Composer if workspace.compose.is_none() => return div().into_any_element(),
-                Row::Composer => return workspace.render_composer(indent, this.clone()),
+                Row::Composer => return workspace.render_composer(indent, this.clone(), cx),
                 _ => {}
             }
             let marked = active && workspace.goline.is_some() && workspace.goline_row == Some(ix);

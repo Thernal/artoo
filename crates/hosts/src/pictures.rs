@@ -33,8 +33,20 @@ impl Shelf {
     }
 }
 
-/// A picture and its size in pixels, when it could be read.
-pub type Picture = (Arc<gpui::Image>, Option<(u32, u32)>);
+pub use artoo_ui_kit::pictures::Picture;
+
+/// The kit's `Pictures` port: what markdown draws by its address.
+pub(crate) struct WebPictures;
+
+impl artoo_ui_kit::pictures::Pictures for WebPictures {
+    fn image(&self, url: &str) -> Option<Picture> {
+        image(url)
+    }
+
+    fn upload(&self, project: &str, src: &str) -> Option<Picture> {
+        upload(project, src)
+    }
+}
 
 /// Each address's file once it is in; None while it is being fetched or could not be.
 static FILES: LazyLock<Mutex<HashMap<String, Option<PathBuf>>>> = LazyLock::new(Default::default);

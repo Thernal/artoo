@@ -331,6 +331,7 @@ impl Workspace {
                     format!("file-{}", view.path),
                     None,
                     Some(self.selecting(cx.entity().downgrade())),
+                    cx,
                 ))
                 .into_any_element()
         } else {
@@ -454,13 +455,13 @@ impl Workspace {
                     let Some(ws) = this.upgrade() else {
                         return div().into_any_element();
                     };
-                    return ws.read(cx).render_thread(id, gutter + 8., this.clone());
+                    return ws.read(cx).render_thread(id, gutter + 8., this.clone(), cx);
                 }
                 Row::Composer => {
                     let Some(ws) = this.upgrade() else {
                         return div().into_any_element();
                     };
-                    return ws.read(cx).render_composer(gutter + 8., this.clone());
+                    return ws.read(cx).render_composer(gutter + 8., this.clone(), cx);
                 }
             };
             let (line, spans) = &text[n];

@@ -252,6 +252,7 @@ impl Workspace {
                         format!("update-notes-{}", r.version),
                         None,
                         Some(selecting.clone()),
+                        cx,
                     )
                 })
                 .when(r.count > 0, |s| {
@@ -291,6 +292,7 @@ impl Workspace {
                             format!("update-commits-{}", r.version),
                             None,
                             Some(selecting.clone()),
+                            cx,
                         )))
                     })
                 })

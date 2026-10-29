@@ -879,7 +879,7 @@ impl Workspace {
                 .collect();
             excerpt_view(&c.path, c.line, Some(Some(&Excerpt { lines })))
         });
-        let thread = self.render_thread(id, 0., cx.entity().downgrade());
+        let thread = self.render_thread(id, 0., cx.entity().downgrade(), cx);
         let open = super::bar::bar_button("inbox-agent-open", "Open at the line", "↵", true)
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_agent_note(id, cx)));
         let later = super::bar::bar_button(
@@ -983,6 +983,7 @@ impl Workspace {
                             format!("md-inbox-{}", note.id),
                             None,
                             Some(self.selecting(cx.entity().downgrade())),
+                            cx,
                         ),
                         i == last,
                         None,
@@ -1032,6 +1033,7 @@ impl Workspace {
                         format!("md-inbox-{}", n.key),
                         None,
                         Some(self.selecting(cx.entity().downgrade())),
+                        cx,
                     ),
                     true,
                     None,
@@ -1047,7 +1049,7 @@ impl Workspace {
             .is_some_and(|c| c.target == Target::InboxReply);
         let composer = answerable.then(|| {
             if writing {
-                self.reply_editor(cx.entity().downgrade())
+                self.reply_editor(cx.entity().downgrade(), cx)
                     .map(|e| e.max_w(px(720.)).into_any_element())
                     .unwrap_or_else(|| div().into_any_element())
             } else {

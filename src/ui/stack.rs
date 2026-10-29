@@ -1042,6 +1042,7 @@ impl Workspace {
         b: usize,
         ix: usize,
         this: WeakEntity<Self>,
+        cx: &gpui::App,
     ) -> gpui::AnyElement {
         let Some(file) = self.diff.as_ref().and_then(|d| d.files.get(ix)) else {
             return div().into_any_element();
@@ -1099,7 +1100,7 @@ impl Workspace {
             .into_any_element();
         }
         if self.shows_page(file) {
-            return self.card_row(self.render_page(ix, this), ix, true);
+            return self.card_row(self.render_page(ix, this, cx), ix, true);
         }
         if self.shows_image(file) {
             return line("An image.".to_owned())

@@ -12,7 +12,7 @@ use super::waiting::Op;
 use super::{Header, Selection, Workspace, format, plural, theme};
 use crate::git::{RefKind, Repo, Version};
 use crate::mr::{self, Draft, Mr, Pipeline, Thread};
-use gpui::{ClickEvent, Context, FontWeight, SharedString, Task, WeakEntity, div, prelude::*};
+use gpui::{App, ClickEvent, Context, FontWeight, SharedString, Task, WeakEntity, div, prelude::*};
 
 /// Which requests the list shows: All · To review · Mine in Merge requests' bar (#70, #72).
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
@@ -1183,6 +1183,7 @@ impl Workspace {
         ix: usize,
         indent: f32,
         this: WeakEntity<Self>,
+        cx: &App,
     ) -> gpui::AnyElement {
         use super::discussion::{self, Kind, Source};
         let Some(t) = self.requests.threads.get(ix) else {
@@ -1307,7 +1308,7 @@ impl Workspace {
                 thread: ix,
                 note: note.id,
             };
-            let edit_box = self.edit_box(change, edit.clone());
+            let edit_box = self.edit_box(change, edit.clone(), cx);
             let own = self.requests.login.as_deref() == Some(note.login.as_str());
             // Waiting on the host: faded, its time saying what for; a new one takes no actions.
             let (time, note_waits) = self.note_time(note.id, note.created);
@@ -1332,6 +1333,7 @@ impl Workspace {
                             format!("md-note-{ix}-{n}"),
                             self.link_base(),
                             Some(selecting.clone()),
+                            cx,
                         ),
                     })
                     .children(pills)
@@ -1403,7 +1405,7 @@ impl Workspace {
                 .child(discussion::avatar(&self.me, true, 24.))
         };
         let reply_row = if replying {
-            self.reply_editor(reply.clone()).map(|editor| {
+            self.reply_editor(reply.clone(), cx).map(|editor| {
                 div()
                     .flex()
                     .items_start()
@@ -1656,6 +1658,7 @@ impl Workspace {
         ix: usize,
         indent: f32,
         this: WeakEntity<Self>,
+        cx: &App,
     ) -> gpui::AnyElement {
         use super::discussion::{self, Kind, Source};
         let Some(d) = self.requests.drafts.get(ix) else {
@@ -1763,6 +1766,7 @@ impl Workspace {
                             format!("md-draft-{ix}"),
                             self.link_base(),
                             Some(selecting),
+                            cx,
                         ),
                         true,
                         None,

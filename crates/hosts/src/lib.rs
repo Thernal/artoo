@@ -19,9 +19,10 @@ use artoo_core::{emoji, git, links, platform, search, storage};
 use artoo_hosts_api::Hosts;
 use std::sync::Arc;
 
-/// Provides the hosts every window reads.
+/// Provides the hosts every window reads, and the pictures the kit's markdown draws.
 pub fn install(cx: &mut gpui::App) {
     artoo_hosts_api::provide(cx, hosts());
+    artoo_ui_kit::pictures::provide(cx, Arc::new(pictures::WebPictures));
 }
 
 /// GitLab and GitHub, for a mode without a window.

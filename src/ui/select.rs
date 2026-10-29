@@ -4,7 +4,7 @@
 
 use super::{CopySelection, SelectAll, Workspace};
 use crate::worddiff;
-use gpui::{ClipboardItem, Context, Window};
+use gpui::{App, ClipboardItem, Context, Window};
 use std::ops::Range;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -237,8 +237,9 @@ impl Workspace {
         key: impl Into<gpui::SharedString>,
         text: &str,
         this: gpui::WeakEntity<Self>,
+        cx: &App,
     ) -> gpui::AnyElement {
-        super::markdown::body(text, false, key, None, Some(self.selecting(this)))
+        super::markdown::body(text, false, key, None, Some(self.selecting(this)), cx)
     }
 
     /// How the text of comments can be selected: the selection now, and presses back to here.

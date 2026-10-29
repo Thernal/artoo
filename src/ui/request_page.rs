@@ -85,6 +85,7 @@ impl Workspace {
                 format!("overview-{}", m.iid),
                 self.web.as_ref().map(|w| w.base.as_str()),
                 Some(self.selecting(cx.entity().downgrade())),
+                cx,
             )
         };
         island()
@@ -204,6 +205,7 @@ impl Workspace {
                                 format!("title-{}", m.iid),
                                 &m.title,
                                 cx.entity().downgrade(),
+                                cx,
                             ),
                         )
                         .text_size(px(17.))
@@ -653,6 +655,7 @@ impl Workspace {
                     format!("line-title-{}", m.iid),
                     &m.title,
                     cx.entity().downgrade(),
+                    cx,
                 );
                 match self.request_tip(m.iid) {
                     Some(tip) => div()

@@ -1116,7 +1116,12 @@ impl Workspace {
     }
 
     /// The editor of an edit, when `change` is being edited.
-    pub(super) fn edit_box(&self, change: Change, this: WeakEntity<Self>) -> Option<gpui::Div> {
+    pub(super) fn edit_box(
+        &self,
+        change: Change,
+        this: WeakEntity<Self>,
+        cx: &gpui::App,
+    ) -> Option<gpui::Div> {
         let compose = self
             .compose
             .as_ref()
@@ -1165,6 +1170,7 @@ impl Workspace {
             ],
             tail,
             this,
+            cx,
         ))
     }
 
@@ -2137,6 +2143,7 @@ impl Workspace {
         id: u64,
         indent: f32,
         this: WeakEntity<Self>,
+        cx: &gpui::App,
     ) -> gpui::AnyElement {
         let Some(comment) = self.comments.iter().find(|c| c.id == id) else {
             return div().into_any_element();
@@ -2261,7 +2268,7 @@ impl Workspace {
                 .ok();
             });
         let change = Change::Agent(id);
-        let edit_box = self.edit_box(change, editing.clone());
+        let edit_box = self.edit_box(change, editing.clone(), cx);
         let body = discussion::note(
             &self.me,
             true,
@@ -2275,6 +2282,7 @@ impl Workspace {
                     format!("md-agent-{id}"),
                     None,
                     Some(selecting.clone()),
+                    cx,
                 ),
             },
             comment.replies.is_empty(),
@@ -2313,6 +2321,7 @@ impl Workspace {
                         format!("md-agent-{id}-{ix}"),
                         None,
                         Some(selecting.clone()),
+                        cx,
                     ),
                     ix + 1 == comment.replies.len(),
                     None,
@@ -2326,7 +2335,7 @@ impl Workspace {
             |c| matches!(c.target, Target::Answer(i) | Target::AnswerValue(i) if i == id),
         );
         let answer_box = answering
-            .then(|| self.reply_editor(asking))
+            .then(|| self.reply_editor(asking, cx))
             .flatten()
             .map(|editor| div().ml(px(52.)).mr(px(12.)).mb(px(10.)).child(editor));
         let on_thread = comment.thread.is_some().then(|| {
@@ -2366,8 +2375,13 @@ impl Workspace {
 
     /// The composer of a new comment, drawn under its line: my avatar beside the box. A reply is
     /// not drawn here but inside its discussion (`requests::render_request_thread`).
-    pub(super) fn render_composer(&self, indent: f32, this: WeakEntity<Self>) -> gpui::AnyElement {
-        let Some(boxed) = self.compose_box(this) else {
+    pub(super) fn render_composer(
+        &self,
+        indent: f32,
+        this: WeakEntity<Self>,
+        cx: &gpui::App,
+    ) -> gpui::AnyElement {
+        let Some(boxed) = self.compose_box(this, cx) else {
             return div().into_any_element();
         };
         // Under 520 px of row the avatar and the indent give way and the box takes the row
@@ -2395,7 +2409,7 @@ impl Workspace {
     }
 
     /// The new comment's input: the one input component (variant D) with who sees it on its edge.
-    pub(super) fn compose_box(&self, this: WeakEntity<Self>) -> Option<gpui::Div> {
+    pub(super) fn compose_box(&self, this: WeakEntity<Self>, cx: &gpui::App) -> Option<gpui::Div> {
         let compose = self.compose.as_ref()?;
         let request = self.compose_request();
         let source = match compose.target {
@@ -2669,6 +2683,7 @@ impl Workspace {
             &[Helper::Bold, Helper::Code, Helper::Link, Helper::Bullet],
             tail,
             this,
+            cx,
         );
         // Several lines: which, above the box.
         Some(match compose.first {
@@ -2691,7 +2706,7 @@ impl Workspace {
     }
 
     /// A reply: the discussion's own one-line field, grown inside its outline (variant D).
-    pub(super) fn reply_editor(&self, this: WeakEntity<Self>) -> Option<gpui::Div> {
+    pub(super) fn reply_editor(&self, this: WeakEntity<Self>, cx: &gpui::App) -> Option<gpui::Div> {
         let compose = self.compose.as_ref()?;
         // ⇥ turned it into a note for the agent: purple, and it stays on this Mac (#50 G).
         let agent = matches!(
@@ -2810,6 +2825,7 @@ impl Workspace {
             ],
             tail,
             this,
+            cx,
         ))
     }
 
@@ -2825,6 +2841,7 @@ impl Workspace {
         tools: &[Helper],
         tail: Vec<gpui::AnyElement>,
         this: WeakEntity<Self>,
+        cx: &gpui::App,
     ) -> gpui::Div {
         let keys = this.clone();
         let text = if compose.preview {
@@ -2841,6 +2858,7 @@ impl Workspace {
                         "md-compose",
                         self.link_base(),
                         None,
+                        cx,
                     ))
                 })
                 .into_any_element()

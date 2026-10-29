@@ -1241,6 +1241,7 @@ impl Workspace {
                         format!("folder-readme-{path}"),
                         None,
                         selecting,
+                        cx,
                     ))
             });
         self.code_island(cx)
@@ -1291,9 +1292,9 @@ impl Workspace {
                             .children(
                                 notes
                                     .iter()
-                                    .map(|&id| self.render_thread(id, 0., this.clone())),
+                                    .map(|&id| self.render_thread(id, 0., this.clone(), cx)),
                             )
-                            .children(writing.then(|| self.render_composer(0., this.clone())))
+                            .children(writing.then(|| self.render_composer(0., this.clone(), cx)))
                             .children((notes.is_empty() && !writing).then(|| {
                                 let folder = path.to_owned();
                                 div()
@@ -1338,7 +1339,7 @@ impl Workspace {
         };
         let selecting = Some(self.selecting(cx.entity().downgrade()));
         let body = if path.ends_with(".md") || path.ends_with(".markdown") {
-            markdown::body(text, true, "folder-readme", None, selecting)
+            markdown::body(text, true, "folder-readme", None, selecting, cx)
         } else {
             div()
                 .font_family(theme::code_font())
@@ -1349,6 +1350,7 @@ impl Workspace {
                     "folder-readme",
                     None,
                     selecting,
+                    cx,
                 ))
                 .into_any_element()
         };

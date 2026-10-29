@@ -12,7 +12,7 @@ use super::{Header, Workspace, markdown, px, theme};
 use crate::agents::{Event, What};
 use crate::notes::{Note, Notes, On};
 use crate::review::Place;
-use gpui::{Context, FontWeight, WeakEntity, div, prelude::*};
+use gpui::{App, Context, FontWeight, WeakEntity, div, prelude::*};
 
 impl Workspace {
     /// An agent's notes on its changes (`What::Notes`) come in: kept, its earlier ones on the
@@ -272,6 +272,7 @@ impl Workspace {
         id: u64,
         indent: f32,
         this: WeakEntity<Self>,
+        cx: &App,
     ) -> gpui::AnyElement {
         let Some((notes, note)) = self.agent_note(id) else {
             return div().into_any_element();
@@ -341,6 +342,7 @@ impl Workspace {
                 format!("md-agent-note-{id}"),
                 None,
                 Some(selecting),
+                cx,
             )))
             .into_any_element()
     }
@@ -414,6 +416,7 @@ impl Workspace {
                             format!("md-notes-summary-{}", n.uid),
                             None,
                             Some(self.selecting(this.clone())),
+                            cx,
                         ))
                 }))
         });

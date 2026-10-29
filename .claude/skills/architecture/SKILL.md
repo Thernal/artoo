@@ -92,7 +92,8 @@ The target above is reached stage by stage; until then:
   (`ALLOWED` is empty), and so do the app's views (`Workspace::host`, `ui::host_of`). GitLab answers from
   `gitlab.rs`, GitHub from `github.rs`, neither asking which host it is; what both use has its own module
   (`tokens`, `fixture`, `json`). The connect panel still calls `connect::` for the token's ways until it
-  moves with hosts' views. The kit's `Pictures` port and markdown's move come next.
+  moves with hosts' views. Markdown is the kit's, drawing web pictures through the kit's `Pictures` port
+  (hosts provides it); a view that draws it passes `cx`.
 - `Page` (`src/ui/nav.rs`) is a closed enum the route registry replaces; `menu::Act` and `toast` know every
   feature until `shell-api`'s registries. Meanwhile a new page, action or toast is added there in the shape the
   registries will take: one variant, one id, one owner.
