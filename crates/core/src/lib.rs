@@ -1,5 +1,6 @@
 //! Artoo's core: git, highlighting, the platform layer and what is remembered between runs — nothing that draws (#165).
 
+pub mod anchor;
 pub mod applog;
 pub mod codeowners;
 pub mod editor;

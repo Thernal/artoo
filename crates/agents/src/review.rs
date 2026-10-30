@@ -2,6 +2,8 @@
 //! attached to a file and to the text of a line rather than its number, so a rebase does not
 //! detach them, and exported as markdown to paste into an agent.
 
+/// Where a comment is now: the core finds a line written on again.
+pub use artoo_core::anchor::{Place, find_line};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -235,33 +237,10 @@ impl Comment {
     }
 }
 
-/// Where a comment sits in the file as it is now.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Place {
-    /// On this 1-based line.
-    Line(u32),
-    /// The line is gone or changed beyond recognition.
-    Outdated,
-}
-
 /// Finds `comment`'s line in a side of a file: where it was if it still reads the same, else the one
 /// line that does; ambiguous or missing means outdated.
 pub fn place<'a>(comment: &Comment, count: u32, line: impl Fn(u32) -> &'a str) -> Place {
     find_line(comment.line, &comment.code, count, line)
-}
-
-/// Line `at` reading `code`, found again in a side of `count` lines: there if it still reads the
-/// same, else the one line that does; ambiguous or missing means outdated. An agent's notes on its
-/// changes are found the same way (#151).
-pub fn find_line<'a>(at: u32, code: &str, count: u32, line: impl Fn(u32) -> &'a str) -> Place {
-    if at >= 1 && at <= count && line(at) == code {
-        return Place::Line(at);
-    }
-    let mut found = (1..=count).filter(|&n| line(n) == code);
-    match (found.next(), found.next()) {
-        (Some(only), None) if !code.trim().is_empty() => Place::Line(only),
-        _ => Place::Outdated,
-    }
 }
 
 /// The repository's name in the data folder's file names.

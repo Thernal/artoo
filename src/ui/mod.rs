@@ -84,6 +84,7 @@ use crate::git::{
 use crate::rows::{self, FileData, Row};
 use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
 use artoo_review::diff_view::{self, CODE_SIZE, DIFF_ROW};
+use artoo_review::pins::Pins;
 use artoo_review::select::Sel;
 use diff_view::{RowStyle, chip};
 use gpui::{
@@ -95,7 +96,6 @@ use gpui::{
 };
 use lists::Field;
 use menu::{Act, CtxMenu, Entry};
-use pins::Pins;
 use review::ReviewEvent;
 use std::cell::Cell as Shared;
 use std::collections::HashSet;

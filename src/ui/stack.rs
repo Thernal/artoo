@@ -8,11 +8,11 @@
 //! theirs in the stack (`artoo_review::stack`) and are drawn as they are until a click or the scroll
 //! makes them active.
 
-use super::pins::Pins;
 use super::review::{FileEvent, Host, ReviewEvent};
 use super::rows::{self, FileData, Row};
 use super::{ROW_RADIUS, Workspace, px, theme};
 use crate::git::FileDiff;
+use artoo_review::pins::Pins;
 use artoo_review::reviewed::State;
 use artoo_review::stack::{Body, CARD_GAP, CARD_MARGIN, CARD_RADIUS, Stack, changed_span};
 use gpui::{

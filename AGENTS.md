@@ -10,9 +10,11 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
 - **A Cargo workspace (#165).** The root package is the app (`src/main.rs`, `src/ui/`);
   `crates/core` (`artoo-core`) holds what draws nothing — it has no GPUI — and depends on no feature: git, highlighting, the platform
   layer, storage, themes, markdown and the diff helpers, among them the diff's rows (`rows`: a file built to rows in
-  the background, laid out for the view options, with what is pinned on its lines merged in); its `build.rs` gives a build its commit (`artoo_core::version`). `crates/review` (`artoo-review`, #165 stage 4,
+  the background, laid out for the view options, with what is pinned on its lines merged in) and a line written on found
+  again once the file changed (`anchor`, a comment's and an agent's note's); its `build.rs` gives a build its commit (`artoo_core::version`). `crates/review` (`artoo-review`, #165 stage 4,
   moving in bottom up): the review — so far the row drawing (`diff_view`) and the types it keeps: the selection's
-  (`select`), the reviewed marks' store (`reviewed`), blame's (`annotate`) and the one scroll's blocks (`stack`); the app's
+  (`select`), the reviewed marks' store (`reviewed`), blame's (`annotate`), the one scroll's blocks (`stack`) and what
+  other features pin on a file's lines (`pins`: the agents' comments and notes as `Anchored` lines); the app's
   views read them as `ui::diff_view` and `artoo_review::…`. `crates/updates` (`artoo-updates`) asks for
   newer releases and draws what it found (its `install` alone is shown). `crates/shell-api` (`artoo-shell-api`): the
   shell's contract — actions (the app menu and ⌘K list them), parts each tab draws (title-bar items, cards over the

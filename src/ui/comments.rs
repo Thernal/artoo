@@ -7,7 +7,6 @@ use super::diff_view::NoteTone;
 use super::discussion::{self, Kind, Source};
 use super::input::{self, Edit};
 use super::markdown;
-use super::pins::FilePins;
 use super::px;
 use super::rows::{FileData, Pin, Row};
 use super::typing::{self, Input};
@@ -16,6 +15,7 @@ use super::{ROW_RADIUS, Selection, Workspace, format, theme};
 use crate::markdown::Helper;
 use crate::review::{self, Comment, Place, State};
 use crate::textedit::TextEdit;
+use artoo_review::pins::{Anchored, FilePins};
 use gpui::{App, ClipboardItem, Context, KeyDownEvent, WeakEntity, div, prelude::*};
 
 /// The quiet Edit on one's own note: a pencil, alone in a narrow diff (#69).
@@ -274,20 +274,25 @@ impl Workspace {
             .into_iter()
             .flat_map(|n| n.notes.iter())
             .filter(|n| n.path == path)
-            .map(|n| {
-                (
-                    n.id,
-                    n.line,
-                    n.code.clone(),
-                    self.note_lines.get(&n.id).copied(),
-                )
+            .map(|n| Anchored {
+                id: n.id,
+                old: false,
+                line: n.line,
+                code: n.code.clone(),
+                followed: self.note_lines.get(&n.id).copied(),
             })
             .collect();
         let comments = self
             .comments
             .iter()
             .filter(|c| !c.archived && c.path == path)
-            .map(|c| (c.clone(), self.agent_lines.get(&c.id).copied()))
+            .map(|c| Anchored {
+                id: c.id,
+                old: c.old,
+                line: c.line,
+                code: c.code.clone(),
+                followed: self.agent_lines.get(&c.id).copied(),
+            })
             .collect();
         // A note written on Code's file is drawn there, not in a diff (#75).
         let compose = self
