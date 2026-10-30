@@ -3,11 +3,13 @@
 //! kept on this Mac (`crate::review`), never in the reviewed repository. Designed in
 //! `../Design/mockups/line-comments/a-agent-comments.html`.
 
+use super::diff_view::NoteTone;
 use super::discussion::{self, Kind, Source};
 use super::input::{self, Edit};
 use super::markdown;
+use super::pins::FilePins;
 use super::px;
-use super::rows::{FileData, Row};
+use super::rows::{FileData, Pin, Row};
 use super::typing::{self, Input};
 use super::waiting::Op;
 use super::{ROW_RADIUS, Selection, Workspace, format, theme};
@@ -124,68 +126,10 @@ impl Workspace {
             .map(|f| f.path().to_owned())
     }
 
-    /// The comment marks of the open file's gutter: one per line with comments, in the colour of
-    /// the most important kind there (the request's, then one's pending, then the agent's).
-    pub(super) fn line_notes(&self) -> Vec<super::diff_view::LineNote> {
-        self.current_path()
-            .map(|path| self.line_notes_in(&path, self.review.data.as_deref()))
-            .unwrap_or_default()
-    }
-
-    /// The comment marks of file `path`'s gutter, `data` its built diff.
-    pub(super) fn line_notes_in(
-        &self,
-        path: &str,
-        data: Option<&FileData>,
-    ) -> Vec<super::diff_view::LineNote> {
-        use super::diff_view::{LineNote, NoteTone};
-        let mut out: Vec<LineNote> = Vec::new();
-        let mut add = |old: bool, line: u32, tone: NoteTone| match out
-            .iter_mut()
-            .find(|n| n.old == old && n.line == line)
-        {
-            Some(n) => {
-                n.count += 1;
-                let rank = |t: NoteTone| match t {
-                    NoteTone::Request => 0,
-                    NoteTone::Draft => 1,
-                    NoteTone::Agent => 2,
-                    NoteTone::Bookmark => 3,
-                };
-                if rank(tone) < rank(n.tone) {
-                    n.tone = tone;
-                }
-            }
-            None => out.push(LineNote {
-                old,
-                line,
-                tone,
-                count: 1,
-            }),
-        };
-        for c in &self.comments {
-            if let Some(Place::Line(n)) = data.and_then(|data| self.place_in_file(c, path, data)) {
-                add(c.old, n, NoteTone::Agent);
-            }
-        }
-        for line in self.bookmarks_in(path) {
-            add(false, line, NoteTone::Bookmark);
-        }
-        if self.showing_request() {
-            for (_, old, line) in self.request_threads_in(path) {
-                add(old, line, NoteTone::Request);
-            }
-            for (_, old, line) in self.drafts_in(path) {
-                add(old, line, NoteTone::Draft);
-            }
-        }
-        out
-    }
-
     /// A click on a line's comment mark: folds what is open there, or opens what is folded.
     pub(super) fn toggle_notes_at(&mut self, old: bool, line: u32, cx: &mut Context<Self>) {
         // A line with nothing but a bookmark: the click takes the mark off.
-        let only_bookmark = self.notes.iter().any(|n| {
+        let only_bookmark = self.review.notes.iter().any(|n| {
             n.old == old
                 && n.line == line
                 && n.tone == super::diff_view::NoteTone::Bookmark
@@ -306,134 +250,123 @@ impl Workspace {
         }));
     }
 
-    /// The rows with each comment's thread, and the composer, put under their lines.
-    pub(super) fn with_comments(&self, rows: Vec<Row>) -> Vec<Row> {
-        match (self.current_path(), &self.review.data) {
-            (Some(path), Some(data)) => self.with_comments_in(&path, data, rows, true),
-            _ => rows,
-        }
-    }
-
-    /// The rows of file `path` with its comments under their lines; the `c` prompt only in the
-    /// `active` file, the one the keyboard works in.
-    pub(super) fn with_comments_in(
-        &self,
-        path: &str,
-        data: &FileData,
-        rows: Vec<Row>,
-        active: bool,
-    ) -> Vec<Row> {
-        let here: Vec<(u64, bool, u32)> = self
+    /// What the agents' comments and notes, the request's discussions and pending comments, the composer and
+    /// bookmarks put on file `path`'s lines (`pins.rs`).
+    pub(super) fn pins_of(&self, path: &str) -> FilePins {
+        let notes = self
+            .notes_shown()
+            .into_iter()
+            .flat_map(|n| n.notes.iter())
+            .filter(|n| n.path == path)
+            .map(|n| {
+                (
+                    n.id,
+                    n.line,
+                    n.code.clone(),
+                    self.note_lines.get(&n.id).copied(),
+                )
+            })
+            .collect();
+        let comments = self
             .comments
             .iter()
-            .filter_map(|c| match self.place_in_file(c, path, data)? {
-                Place::Line(n) => Some((c.id, c.old, n)),
-                Place::Outdated => None,
-            })
+            .filter(|c| !c.archived && c.path == path)
+            .map(|c| (c.clone(), self.agent_lines.get(&c.id).copied()))
             .collect();
         // A note written on Code's file is drawn there, not in a diff (#75).
         let compose = self
             .compose
             .as_ref()
             .filter(|c| c.path == path && c.file.is_none());
-        let theirs = if self.showing_request() {
+        let showing = self.showing_request();
+        let theirs = if showing {
             self.request_threads_in(path)
         } else {
             self.since_thread_in(path)
         };
-        let drafts = if self.showing_request() {
+        let drafts = if showing {
             self.drafts_in(path)
         } else {
             Vec::new()
         };
-        // An agent's notes on its changes, on the new side (#151).
-        let notes = self.notes_in(path, data);
-        // The prompt of `c` hangs under the marked line, like the composer that follows it.
-        let go = if active && compose.is_none() && self.review.goline.is_some() {
-            self.goline_target()
-        } else {
-            None
+        let reply_of = |ix: usize| {
+            self.requests
+                .drafts
+                .get(ix)
+                .and_then(|d| self.draft_thread(d))
         };
-        if here.is_empty()
-            && compose.is_none()
-            && theirs.is_empty()
-            && drafts.is_empty()
-            && notes.is_empty()
-            && go.is_none()
-        {
-            return rows;
+        let mut fixed = Vec::new();
+        // A reply waiting to be sent comes right under its own discussion (#166).
+        for &(t, old, line) in &theirs {
+            fixed.push(Pin {
+                old,
+                line,
+                row: Row::Request(t),
+            });
+            fixed.extend(
+                drafts
+                    .iter()
+                    .filter(|&&(ix, o, n)| o == old && n == line && reply_of(ix) == Some(t))
+                    .map(|&(ix, old, line)| Pin {
+                        old,
+                        line,
+                        row: Row::Draft(ix),
+                    }),
+            );
         }
-        let mut out = Vec::with_capacity(rows.len() + here.len() + 1);
-        for row in rows {
-            out.push(row);
-            let cells = match row {
-                Row::Split { left, right } => {
-                    [left.map(|c| (true, c.line)), right.map(|c| (false, c.line))]
-                }
-                Row::Unified { cell, old, .. } => [Some((old, cell.line)), None],
-                _ => continue,
-            };
-            for (old, line) in cells.into_iter().flatten() {
-                // Why the line is as it is comes before what is said about it.
-                if !old {
-                    out.extend(
-                        notes
-                            .iter()
-                            .filter(|(_, n)| *n == line)
-                            .map(|(id, _)| Row::Note(*id)),
-                    );
-                }
-                out.extend(
-                    here.iter()
-                        .filter(|(_, o, n)| *o == old && *n == line)
-                        .map(|(id, _, _)| Row::Thread(*id)),
-                );
-                let at = |&&(_, o, n): &&(usize, bool, u32)| o == old && n == line;
-                let reply_of = |ix: usize| {
-                    self.requests
-                        .drafts
-                        .get(ix)
-                        .and_then(|d| self.draft_thread(d))
-                };
-                // A reply waiting to be sent comes right under its own discussion (#166).
-                for &(t, ..) in theirs.iter().filter(at) {
-                    out.push(Row::Request(t));
-                    out.extend(
-                        drafts
-                            .iter()
-                            .filter(at)
-                            .filter(|(ix, ..)| reply_of(*ix) == Some(t))
-                            .map(|(ix, ..)| Row::Draft(*ix)),
-                    );
-                }
-                out.extend(
-                    drafts
-                        .iter()
-                        .filter(at)
-                        .filter(|(ix, ..)| {
-                            reply_of(*ix).is_none_or(|t| !theirs.iter().any(|(x, ..)| *x == t))
-                        })
-                        .map(|(ix, _, _)| Row::Draft(*ix)),
-                );
-                if compose.is_some_and(|c| {
-                    c.old == old
-                        && c.line == line
-                        && !matches!(
-                            c.target,
-                            Target::Reply(_)
-                                | Target::Edit(_)
-                                | Target::ThreadNote(_)
-                                | Target::Answer(_)
-                                | Target::AnswerValue(_)
-                                | Target::InboxReply
-                        )
-                }) || go == Some((old, line))
-                {
-                    out.push(Row::Composer);
-                }
-            }
+        fixed.extend(
+            drafts
+                .iter()
+                .filter(|(ix, ..)| {
+                    reply_of(*ix).is_none_or(|t| !theirs.iter().any(|(x, ..)| *x == t))
+                })
+                .map(|&(ix, old, line)| Pin {
+                    old,
+                    line,
+                    row: Row::Draft(ix),
+                }),
+        );
+        if let Some(c) = compose.filter(|c| {
+            !matches!(
+                c.target,
+                Target::Reply(_)
+                    | Target::Edit(_)
+                    | Target::ThreadNote(_)
+                    | Target::Answer(_)
+                    | Target::AnswerValue(_)
+                    | Target::InboxReply
+            )
+        }) {
+            fixed.push(Pin {
+                old: c.old,
+                line: c.line,
+                row: Row::Composer,
+            });
         }
-        out
+        let mut marks: Vec<(bool, u32, NoteTone)> = self
+            .bookmarks_in(path)
+            .into_iter()
+            .map(|line| (false, line, NoteTone::Bookmark))
+            .collect();
+        if showing {
+            marks.extend(
+                theirs
+                    .iter()
+                    .map(|&(_, old, line)| (old, line, NoteTone::Request)),
+            );
+            marks.extend(
+                drafts
+                    .iter()
+                    .map(|&(_, old, line)| (old, line, NoteTone::Draft)),
+            );
+        }
+        FilePins {
+            notes,
+            comments,
+            fixed,
+            marks,
+            composing: compose.is_some(),
+        }
     }
 
     /// Lays the rows out again after a comment changed, keeping the scroll position.
@@ -1592,7 +1525,7 @@ impl Workspace {
     }
 
     /// The side and line the typed number stands for; with nothing typed, the first change.
-    fn goline_target(&self) -> Option<(bool, u32)> {
+    pub(super) fn goline_target(&self) -> Option<(bool, u32)> {
         let text = self.review.goline.as_deref()?;
         if text.trim().is_empty() {
             let first = self

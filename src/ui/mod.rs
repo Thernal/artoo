@@ -48,6 +48,7 @@ mod outdated;
 mod pages;
 mod palette;
 mod parts;
+mod pins;
 mod rail;
 mod reactions;
 mod recents;
@@ -1759,9 +1760,6 @@ pub struct Workspace {
     ffind: Option<findfiles::FindFiles>,
     /// The window's width in logical pixels, as of the last frame.
     win_width: f32,
-    /// The files list is open over the diff (a window too narrow for its column).
-    /// The comment marks of the open file's gutter.
-    notes: Vec<diff_view::LineNote>,
     /// Discussions whose open or folded state differs from the default (a resolved one is folded).
     toggled_mr: HashSet<usize>,
     /// Agent comments the reader folded.
@@ -1923,6 +1921,7 @@ impl Workspace {
             keys_exact: false,
             keys_changed_only: false,
             review: review::Review {
+                notes: Vec::new(),
                 images: Default::default(),
                 page: Default::default(),
                 annotate: false,
@@ -2043,7 +2042,6 @@ impl Workspace {
             menu_leaving: None,
             ffind: None,
             win_width: 1480.,
-            notes: Vec::new(),
             toggled_mr: HashSet::new(),
             toggled_agent: HashSet::new(),
             thread_at: None,
@@ -2707,8 +2705,8 @@ impl Workspace {
             .as_ref()
             .map(|data| rows::layout(data, &self.view_options(), &self.review.expanded))
             .unwrap_or_default();
-        self.review.rows = self.with_comments(rows);
-        self.notes = self.line_notes();
+        self.review.rows = self.with_pins(rows);
+        self.review.notes = self.line_notes();
         match block {
             Some((b, before)) => self.stack_changed(b, before),
             None => self.review.diff_list.reset(self.review.rows.len()),
@@ -2808,7 +2806,7 @@ impl Workspace {
             return;
         };
         self.review.expanded.insert(segment);
-        let rows = self.with_comments(rows::layout(
+        let rows = self.with_pins(rows::layout(
             &data,
             &self.view_options(),
             &self.review.expanded,
@@ -3202,7 +3200,7 @@ impl Workspace {
     }
 
     fn row_style(&self) -> RowStyle<'_> {
-        self.row_style_for(self.review.data.as_deref(), &self.notes, true)
+        self.row_style_for(self.review.data.as_deref(), &self.review.notes, true)
     }
 
     /// How a row of a file built as `data` is drawn; the selection and blame only in the `active`

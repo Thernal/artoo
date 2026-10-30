@@ -97,7 +97,7 @@ impl Workspace {
 
     /// The notes on the changes the diff shows: the working tree's on the working tree; a head's
     /// where the diff's head is its commit or bears its name.
-    fn notes_shown(&self) -> Vec<&Notes> {
+    pub(super) fn notes_shown(&self) -> Vec<&Notes> {
         let Some(header) = self.review.diff.as_ref().map(|d| &d.header) else {
             return Vec::new();
         };

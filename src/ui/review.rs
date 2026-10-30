@@ -5,6 +5,8 @@
 use super::*;
 
 pub(super) struct Review {
+    /// The comment marks of the open file's gutter (`pins.rs`).
+    pub(super) notes: Vec<diff_view::LineNote>,
     /// How changed images are shown (`image_view.rs`).
     pub(super) images: image_view::Images,
     /// How changed documents are read (`md_page.rs`).

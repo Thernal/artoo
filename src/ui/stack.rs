@@ -445,12 +445,12 @@ impl Workspace {
         block.data = self.review.data.take();
         block.rows = std::mem::take(&mut self.review.rows);
         block.expanded = std::mem::take(&mut self.review.expanded);
-        block.notes = std::mem::take(&mut self.notes);
+        block.notes = std::mem::take(&mut self.review.notes);
         let block = &mut stack.blocks[to];
         self.review.data = block.data.take();
         self.review.rows = std::mem::take(&mut block.rows);
         self.review.expanded = std::mem::take(&mut block.expanded);
-        self.notes = std::mem::take(&mut block.notes);
+        self.review.notes = std::mem::take(&mut block.notes);
         self.review.file = ix;
         self.fcursor = None;
         self.review.sel = None;
@@ -665,7 +665,7 @@ impl Workspace {
             return;
         };
         let rows = rows::layout(&data, &self.view_options(), &stack.blocks[b].expanded);
-        let rows = self.with_comments_in(path, &data, rows, false);
+        let rows = self.with_pins_in(path, &data, rows, false);
         let notes = self.line_notes_in(path, Some(&data));
         if let Some(block) = self.review.stack.as_mut().map(|s| &mut s.blocks[b]) {
             block.data = Some(data);

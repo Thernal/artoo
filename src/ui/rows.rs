@@ -98,6 +98,42 @@ pub fn row_with(rows: &[Row], (line, old): (u32, bool)) -> Option<usize> {
     })
 }
 
+/// A row another feature puts under a line of a file's diff (a discussion, a note, the composer): side `old`,
+/// line `line`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Pin {
+    pub old: bool,
+    pub line: u32,
+    pub row: Row,
+}
+
+/// `rows` with each pin under the row showing its line, in the order of `pins`; a row with both sides gets the old
+/// side's first.
+pub fn pinned(rows: Vec<Row>, pins: &[Pin]) -> Vec<Row> {
+    if pins.is_empty() {
+        return rows;
+    }
+    let mut out = Vec::with_capacity(rows.len() + pins.len());
+    for row in rows {
+        out.push(row);
+        let cells = match row {
+            Row::Split { left, right } => {
+                [left.map(|c| (true, c.line)), right.map(|c| (false, c.line))]
+            }
+            Row::Unified { cell, old, .. } => [Some((old, cell.line)), None],
+            _ => continue,
+        };
+        for (old, line) in cells.into_iter().flatten() {
+            out.extend(
+                pins.iter()
+                    .filter(|p| p.old == old && p.line == line)
+                    .map(|p| p.row),
+            );
+        }
+    }
+    out
+}
+
 /// One side's text, split into lines, with its highlighting and changed-token marks.
 pub struct Side {
     text: Arc<str>,
@@ -998,5 +1034,42 @@ mod tests {
         assert_eq!(line_of(&split[0]), None);
         assert_eq!(line_of(&unified[0]), Some((4, true)));
         assert_eq!(row_with(&split, (4, true)), Some(1));
+    }
+
+    #[test]
+    fn pins_go_under_their_lines_in_order() {
+        let split = |l: Option<u32>, r: Option<u32>| Row::Split {
+            left: l.and_then(|n| cell(n, LineKind::Removed)),
+            right: r.and_then(|n| cell(n, LineKind::Added)),
+        };
+        let pin = |old, line, row| Pin { old, line, row };
+        let rows = vec![
+            split(Some(4), Some(4)),
+            split(None, Some(5)),
+            Row::Gap {
+                segment: 1,
+                count: 3,
+            },
+        ];
+        let pins = [
+            pin(false, 4, Row::Note(1)),
+            pin(false, 5, Row::Thread(2)),
+            pin(true, 4, Row::Request(0)),
+            pin(false, 4, Row::Composer),
+            pin(true, 9, Row::Draft(3)),
+        ];
+        assert_eq!(
+            pinned(rows.clone(), &pins),
+            vec![
+                rows[0],
+                Row::Request(0),
+                Row::Note(1),
+                Row::Composer,
+                rows[1],
+                Row::Thread(2),
+                rows[2],
+            ]
+        );
+        assert_eq!(pinned(rows.clone(), &[]), rows);
     }
 }
