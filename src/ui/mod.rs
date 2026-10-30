@@ -1051,9 +1051,9 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         "swipe" | "onion" => {
                             this.review.update(cx, |rv, _| {
                                 rv.images.mode = if name.trim() == "swipe" {
-                                    image_view::Mode::Swipe
+                                    artoo_review::image_view::Mode::Swipe
                                 } else {
-                                    image_view::Mode::Onion
+                                    artoo_review::image_view::Mode::Onion
                                 }
                             });
                             continue;

@@ -24,9 +24,9 @@ pub(super) struct Review {
     /// The comment marks of the open file's gutter (`pins.rs`).
     pub(super) notes: Vec<diff_view::LineNote>,
     /// How changed images are shown (`image_view.rs`).
-    pub(super) images: image_view::Images,
+    pub(super) images: artoo_review::image_view::Images,
     /// How changed documents are read (`md_page.rs`).
-    pub(super) page: md_page::Page,
+    pub(super) page: artoo_review::md_page::Page,
     /// The annotation column (who wrote each line) is on, and what blame said of the open file.
     pub(super) annotate: bool,
     pub(super) annotations: Vec<diff_view::AnnCell>,
@@ -35,8 +35,8 @@ pub(super) struct Review {
     pub(super) blames: artoo_review::annotate::Blames,
     pub(super) blame_tip: Option<artoo_review::annotate::BlameTip>,
     /// A file the diff does not change, shown in its place (D18), and its read.
-    pub(super) file_view: Option<file_view::FileView>,
-    pub(super) file_reading: file_view::Reading,
+    pub(super) file_view: Option<artoo_review::file_view::FileView>,
+    pub(super) file_reading: artoo_review::file_view::Reading,
     /// The marks of files read, and the scope and file fingerprints of the open diff.
     pub(super) reviewed: artoo_review::reviewed::Store,
     /// The card that comes up when the last file of a diff is marked reviewed.

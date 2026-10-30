@@ -11,87 +11,15 @@ use super::spaces::Space;
 use super::{Header, Workspace, format, markdown, px, theme};
 use crate::git::ImageKind;
 use crate::git::Repo;
-use crate::highlight::{self, Span};
+use crate::highlight;
+use artoo_review::file_view::{FileView, Row, place_note, widen};
 use git2::Oid;
 use gpui::{
     App, ClickEvent, Context, FontStyle, HighlightStyle, ListAlignment, ListState, SharedString,
-    StyledText, Task, div, img, list, prelude::*,
+    StyledText, div, img, list, prelude::*,
 };
 use std::rc::Rc;
 use std::sync::Arc;
-
-pub struct FileView {
-    pub path: String,
-    /// What it was read at: a short id, or the working tree.
-    at: String,
-    /// The commit it was read at; None the working tree.
-    rev: Option<Oid>,
-    lines: Vec<String>,
-    /// Its lines with their tabs widened, and their highlights.
-    text: Rc<Vec<(SharedString, Vec<Span>)>>,
-    /// Those lines as the selection copies them (#93).
-    plain: Rc<std::cell::RefCell<Vec<String>>>,
-    list: ListState,
-    /// A Markdown file: shown rendered, until Source.
-    pub rendered: bool,
-    /// An image file, decoded.
-    image: Option<Arc<gpui::Image>>,
-    /// A binary file that is no image: its size, and nothing to show (#78).
-    binary: Option<u64>,
-}
-
-/// The file being read for the view.
-pub type Reading = Option<Task<()>>;
-
-/// A row of the file's list: a line, a note under it, or the note being written.
-#[derive(Clone, Copy)]
-enum Row {
-    Line(usize),
-    Note(u64),
-    Composer,
-}
-
-impl FileView {
-    /// What it was read at: a short id, or the working tree.
-    pub fn at(&self) -> &str {
-        &self.at
-    }
-
-    /// The commit it was read at; None the working tree.
-    pub fn rev(&self) -> Option<Oid> {
-        self.rev
-    }
-
-    /// Line `line` (1-based) as it is.
-    pub fn line(&self, line: u32) -> Option<&str> {
-        self.lines
-            .get((line as usize).checked_sub(1)?)
-            .map(String::as_str)
-    }
-
-    pub fn line_count(&self) -> usize {
-        self.lines.len()
-    }
-
-    fn markdown(&self) -> bool {
-        self.path.ends_with(".md") || self.path.ends_with(".markdown")
-    }
-}
-
-/// Where a note on `code` written at line `line` sits now among `lines`: its line while the text
-/// is there, else the nearest line with that text; None when it is gone (outdated).
-fn place_note(lines: &[String], line: u32, code: &str) -> Option<usize> {
-    let at = (line as usize).checked_sub(1)?;
-    if lines.get(at).is_some_and(|l| l == code) {
-        return Some(at);
-    }
-    lines
-        .iter()
-        .enumerate()
-        .filter(|(_, l)| *l == code)
-        .min_by_key(|(n, _)| n.abs_diff(at))
-        .map(|(n, _)| n)
-}
 
 impl Workspace {
     /// A file's lines are on screen in Code: `c` writes a note on one of them.
@@ -299,7 +227,11 @@ impl Workspace {
         let facts = if view.image.is_some() {
             format!("image · {}", view.at)
         } else if let Some(size) = view.binary {
-            format!("{} · {}", super::image_view::bytes(size as usize), view.at)
+            format!(
+                "{} · {}",
+                artoo_review::image_view::bytes(size as usize),
+                view.at
+            )
         } else {
             format!("{} lines · {}", view.lines.len(), view.at)
         };
@@ -515,34 +447,6 @@ impl Workspace {
     }
 }
 
-/// A line with its tabs as four spaces, and its spans moved to match; an empty line is a space.
-fn widen(line: &str, spans: &[Span]) -> (SharedString, Vec<Span>) {
-    let mut out = String::with_capacity(line.len());
-    // Where each byte of `line` (and its end) lands in `out`.
-    let mut at = Vec::with_capacity(line.len() + 1);
-    for (i, c) in line.char_indices() {
-        at.resize(i + 1, out.len());
-        if c == '\t' {
-            out.push_str("    ");
-        } else {
-            out.push(c);
-        }
-    }
-    at.resize(line.len() + 1, out.len());
-    let spans = spans
-        .iter()
-        .filter(|s| s.range.end <= line.len())
-        .map(|s| Span {
-            range: at[s.range.start]..at[s.range.end],
-            ..s.clone()
-        })
-        .collect();
-    if out.is_empty() {
-        out.push(' ');
-    }
-    (out.into(), spans)
-}
-
 impl super::review::Review {
     /// Reads `path` at `rev` (the working tree when `None`) in the background; once read it is the file
     /// shown (`ReviewEvent::FileRead`), or why it could not be.
@@ -567,7 +471,8 @@ impl super::review::Review {
                             Some(rev) => Repo::open(&root).ok()?.bytes_at(rev, &file)?,
                             None => std::fs::read(root.join(&file)).ok()?,
                         };
-                        let image = gpui::Image::from_bytes(super::image_view::format(kind), bytes);
+                        let image =
+                            gpui::Image::from_bytes(artoo_review::image_view::format(kind), bytes);
                         return Some((Vec::new(), Vec::new(), at, Some(Arc::new(image)), None));
                     }
                     let bytes = match rev {
@@ -629,39 +534,5 @@ impl super::review::Review {
                 Some((n as u32 + 1, indent / 4, kind, name))
             })
             .collect()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn tabs_widen_and_the_colours_follow() {
-        let span = |r: std::ops::Range<usize>| Span {
-            range: r,
-            color: 1,
-            italic: false,
-            bold: false,
-        };
-        let (text, spans) = widen("\tfn x", &[span(1..3)]);
-        assert_eq!(text.as_ref(), "    fn x");
-        assert_eq!(spans[0].range, 4..6);
-        assert_eq!(widen("", &[]).0.as_ref(), " ");
-    }
-
-    #[test]
-    fn a_note_follows_its_text_and_is_gone_with_it() {
-        let lines: Vec<String> = ["a", "fun round()", "b", "fun round()"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        // Still where it was written.
-        assert_eq!(place_note(&lines, 2, "fun round()"), Some(1));
-        // Lines came above it: the nearest line with its text.
-        assert_eq!(place_note(&lines, 3, "fun round()"), Some(1));
-        assert_eq!(place_note(&lines, 4, "fun round()"), Some(3));
-        // Its text is gone: outdated.
-        assert_eq!(place_note(&lines, 2, "fun round(mode)"), None);
     }
 }
