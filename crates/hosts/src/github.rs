@@ -1233,7 +1233,7 @@ pub fn submit(
 
 /// What GitHub says of merging pull request `number` (#164): `mergeable_state`, the ways the
 /// repository allows, auto-merge. The fixture's are `github/merge-<n>.json` and `github/repo.json`.
-pub fn merge_state(remote: &WebRemote, number: u64) -> Result<crate::merge::MergeState> {
+pub fn merge_state(remote: &WebRemote, number: u64) -> Result<artoo_hosts_api::MergeState> {
     let (pull, repo) = match fixture() {
         Some(_) => (
             read_fixture(&format!("merge-{number}.json")).unwrap_or(Ok(Value::Null))?,
@@ -1250,8 +1250,8 @@ pub fn merge_state(remote: &WebRemote, number: u64) -> Result<crate::merge::Merg
     Ok(parse_merge_state(&pull, &repo))
 }
 
-pub fn parse_merge_state(pull: &Value, repo: &Value) -> crate::merge::MergeState {
-    use crate::merge::{MergeState, Method, Squash};
+pub fn parse_merge_state(pull: &Value, repo: &Value) -> artoo_hosts_api::MergeState {
+    use artoo_hosts_api::{MergeState, Method, Squash};
     // A token that cannot read the settings is not told them: each way is taken as allowed.
     let allowed = |key: &str| repo[key].as_bool().unwrap_or(true);
     let methods = [
@@ -1289,7 +1289,7 @@ const AUTO_MERGE: &str = "mutation($id: ID!, $method: PullRequestMergeMethod!, $
 /// Merges pull request `number` as of the head that was reviewed, the message's first line its
 /// title; or sets it to merge when its checks pass. Its branch goes after, when asked and the
 /// repository does not delete it itself.
-pub fn merge(remote: &WebRemote, number: u64, m: &crate::merge::Merge) -> Result<()> {
+pub fn merge(remote: &WebRemote, number: u64, m: &artoo_hosts_api::Merge) -> Result<()> {
     let (title, body) = match m.message.trim().split_once('\n') {
         Some((title, body)) => (title.trim().to_owned(), body.trim().to_owned()),
         None => (m.message.trim().to_owned(), String::new()),
@@ -1614,7 +1614,7 @@ mod tests {
 
     #[test]
     fn a_repository_says_the_ways_it_merges() {
-        use crate::merge::Method;
+        use artoo_hosts_api::Method;
         let pull = json!({
             "mergeable_state": "blocked", "mergeable": true, "node_id": "PR_1",
             "auto_merge": {"merge_method": "squash"},

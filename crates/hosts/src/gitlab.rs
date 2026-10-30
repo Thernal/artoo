@@ -1396,7 +1396,7 @@ pub fn parse_merge_state(m: &Value, project: &Value) -> MergeState {
 
 /// Merges request `iid` as of the head that was reviewed (#164): GitLab refuses when the branch
 /// moved on since. Or sets it to merge when the pipeline succeeds.
-pub fn merge(remote: &WebRemote, iid: u64, m: &crate::merge::Merge) -> Result<()> {
+pub fn merge(remote: &WebRemote, iid: u64, m: &artoo_hosts_api::Merge) -> Result<()> {
     if record(format!(
         "merge {iid} {} squash={} delete={} auto={} {}",
         m.sha,
@@ -2064,7 +2064,7 @@ mod tests {
 
     #[test]
     fn a_merge_reads_the_projects_rules_and_sends_the_head_reviewed() {
-        use crate::merge::{Merge, Squash};
+        use artoo_hosts_api::{Merge, Squash};
         let request = json!({
             "detailed_merge_status": "mergeable", "user": {"can_merge": false},
             "diverged_commits_count": 3,

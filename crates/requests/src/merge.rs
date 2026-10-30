@@ -4,7 +4,8 @@
 //! nobody has seen is refused rather than merged. The calls are `Host::merge_state` / `Host::merge`
 //! (GitLab) and their GitHub twins.
 
-use artoo_hosts_api::{Approvals, Pipeline};
+use crate::requests::Requests;
+use artoo_hosts_api::{Approvals, MrState, Pipeline};
 pub use artoo_hosts_api::{Merge, MergeState, Method, Squash};
 
 /// Where a reason it cannot merge is fixed.
@@ -236,6 +237,32 @@ pub fn refusal(error: &str) -> String {
             .into();
     }
     error.to_owned()
+}
+
+impl Requests {
+    /// Where merging the request open stands: the host's word with what the page knows, fresher
+    /// after an approval or a discussion resolved here.
+    pub fn merge_stand(&self) -> Option<Stand> {
+        let iid = self.current?;
+        let m = self.find(iid).filter(|m| m.state == MrState::Opened)?;
+        let host = self.merge.as_ref()?;
+        let open_threads = self
+            .threads
+            .iter()
+            .filter(|t| t.resolvable && !t.resolved)
+            .count();
+        Some(stand(
+            host,
+            &Known {
+                draft: m.draft,
+                approvals: self.approvals.as_ref(),
+                open_threads,
+                pipeline: self.pipeline.as_ref(),
+                url: &m.url,
+                target: &m.target,
+            },
+        ))
+    }
 }
 
 #[cfg(test)]

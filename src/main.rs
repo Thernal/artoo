@@ -10,9 +10,10 @@ use artoo_core::{
     applog, codeowners, editor, emoji, files, fswatch, generated, git, highlight, labels, links,
     markdown, mddiff, platform, rank, rows, search, storage, symbols, textedit, themes, worddiff,
 };
-use artoo_hosts::{connect, ide, merge, pictures, tokens};
+use artoo_hosts::{connect, ide, pictures, tokens};
 /// The hosts' models (a request, a thread, a draft…), by the name the views knew them by before #165.
 use artoo_hosts_api as mr;
+use artoo_requests::merge;
 use artoo_ui_kit::file_icons;
 use std::path::PathBuf;
 

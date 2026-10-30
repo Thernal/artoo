@@ -11,10 +11,9 @@ use super::menu::{Act, Entry};
 use super::typing::Input;
 use super::{ISLAND_RADIUS, ROW_RADIUS, Workspace, icons, plural, px, theme};
 use crate::merge::{self, Fix, Merge, Method, Squash, Stand};
-use crate::mr::MrState;
 use gpui::{
-    App, ClickEvent, Context, FontWeight, KeyDownEvent, MouseButton, Pixels, Point, SharedString,
-    div, prelude::*,
+    ClickEvent, Context, FontWeight, KeyDownEvent, MouseButton, Pixels, Point, SharedString, div,
+    prelude::*,
 };
 
 /// The card before a merge goes.
@@ -44,36 +43,6 @@ impl Workspace {
         format!("{}{iid}", if self.on_github() { '#' } else { '!' })
     }
 
-    /// Where merging the request on the page stands: the host's word with what the page knows,
-    /// fresher after an approval or a discussion resolved here.
-    pub(super) fn merge_stand(&self, cx: &App) -> Option<Stand> {
-        let iid = self.requests.read(cx).current?;
-        let m = self
-            .requests
-            .read(cx)
-            .find(iid)
-            .filter(|m| m.state == MrState::Opened)?;
-        let host = self.requests.read(cx).merge.as_ref()?;
-        let open_threads = self
-            .requests
-            .read(cx)
-            .threads
-            .iter()
-            .filter(|t| t.resolvable && !t.resolved)
-            .count();
-        Some(merge::stand(
-            host,
-            &merge::Known {
-                draft: m.draft,
-                approvals: self.requests.read(cx).approvals.as_ref(),
-                open_threads,
-                pipeline: self.requests.read(cx).pipeline.as_ref(),
-                url: &m.url,
-                target: &m.target,
-            },
-        ))
-    }
-
     /// Reads where merging the current request stands again (`Requests::reload_merge`).
     pub(super) fn reload_merge(&mut self, cx: &mut Context<Self>) {
         let Some(host) = self.host(cx) else {
@@ -84,7 +53,7 @@ impl Workspace {
 
     /// Merge in the request's bar, as it stands; none while the host has not said.
     pub(super) fn render_merge_control(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        let stand = self.merge_stand(cx)?;
+        let stand = self.requests.read(cx).merge_stand()?;
         let m = self
             .requests
             .read(cx)
@@ -199,7 +168,7 @@ impl Workspace {
 
     /// Merge's ▾: each reason in the way, and where it is fixed.
     pub(super) fn open_merge_reasons(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
-        let Some(Stand::InTheWay(blocks)) = self.merge_stand(cx) else {
+        let Some(Stand::InTheWay(blocks)) = self.requests.read(cx).merge_stand() else {
             return;
         };
         let pipeline = self
@@ -247,7 +216,7 @@ impl Workspace {
     /// Merge… or ⌘K's Merge this merge request: the card, the project's defaults filled in; while
     /// something is in the way, the list of what.
     pub(super) fn open_merge(&mut self, cx: &mut Context<Self>) {
-        let when = match self.merge_stand(cx) {
+        let when = match self.requests.read(cx).merge_stand() {
             Some(Stand::Ready) => false,
             Some(Stand::Running) => true,
             Some(Stand::InTheWay(_)) => {
