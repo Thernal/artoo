@@ -187,6 +187,8 @@ pub enum FileEvent {
     Fold(usize),
     /// File `ix` (an image, which has no rows) is shown on its own.
     Alone(usize),
+    /// Line `n` (from 1) of the file read in Code is given a note: its number or its + was clicked.
+    Note(u32),
 }
 
 /// What the tab gives the review to draw its rows with (`TabHost`): the rows other features pin on lines, what

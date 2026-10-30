@@ -1,12 +1,16 @@
 //! A file read in Code: what it was read at, its lines highlighted with their tabs widened, a Markdown file
 //! rendered until Source, an image decoded, a binary file's size; and where a note on a line sits now.
 
-use crate::review::{Review, ReviewEvent};
+use crate::review::{FileEvent, Host, Review, ReviewEvent};
 use artoo_core::git::{ImageKind, Repo};
 use artoo_core::highlight::{self, Span};
-use artoo_ui_kit::{format, px};
+use artoo_ui_kit::markdown::{self, Selecting};
+use artoo_ui_kit::{ROW_RADIUS, format, icons, keys, px, theme};
 use git2::Oid;
-use gpui::{Context, ListAlignment, ListState, SharedString, Task};
+use gpui::{
+    AnyElement, ClickEvent, Context, FontStyle, HighlightStyle, ListAlignment, ListState,
+    SharedString, StyledText, Task, div, img, list, prelude::*,
+};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -66,6 +70,41 @@ impl FileView {
     pub fn markdown(&self) -> bool {
         self.path.ends_with(".md") || self.path.ends_with(".markdown")
     }
+}
+
+/// What other features put on the file's lines: the agents' notes, each its id, the line it was written on and
+/// that line's text then, and the line of the note being written.
+#[derive(Default)]
+pub struct FileNotes {
+    pub notes: Vec<(u64, u32, String)>,
+    pub compose: Option<u32>,
+}
+
+/// The rows of a file of `lines`: its lines, each with the notes on it and the note being written.
+pub fn rows(lines: &[String], notes: &FileNotes) -> Vec<Row> {
+    let mut placed: Vec<(usize, u64)> = notes
+        .notes
+        .iter()
+        .filter_map(|(id, line, code)| Some((place_note(lines, *line, code)?, *id)))
+        .collect();
+    placed.sort_unstable();
+    let compose = notes.compose.map(|line| line as usize - 1);
+    let mut out = Vec::with_capacity(lines.len() + placed.len() + 1);
+    let mut next = placed.iter().peekable();
+    for n in 0..lines.len() {
+        out.push(Row::Line(n));
+        while let Some(&&(at, id)) = next.peek() {
+            if at != n {
+                break;
+            }
+            out.push(Row::Note(id));
+            next.next();
+        }
+        if compose == Some(n) {
+            out.push(Row::Composer);
+        }
+    }
+    out
 }
 
 /// Where a note on `code` written at line `line` sits now among `lines`: its line while the text
@@ -198,6 +237,318 @@ impl Review {
             })
             .collect()
     }
+
+    /// The file's lines are on screen: neither an image nor a document rendered.
+    pub fn file_lines_shown(&self) -> bool {
+        self.file_view
+            .as_ref()
+            .is_some_and(|v| v.image.is_none() && !(v.markdown() && v.rendered))
+    }
+
+    /// The file, a document, shown rendered or as its source.
+    pub fn set_rendered(&mut self, on: bool, cx: &mut Context<Self>) {
+        if let Some(view) = &mut self.file_view {
+            view.rendered = on;
+        }
+        cx.emit(ReviewEvent::Changed);
+    }
+
+    /// Line `line` of the file comes into view, its source shown; `notes` are what is on its lines.
+    pub fn reveal_file_line(&mut self, line: u32, notes: &FileNotes) {
+        let Some(view) = self.file_view.as_mut() else {
+            return;
+        };
+        view.rendered = false;
+        let rows = rows(&view.lines, notes);
+        let fresh = view.list.item_count() != rows.len();
+        if fresh {
+            view.list.reset(rows.len());
+        }
+        if let Some(ix) = rows
+            .iter()
+            .position(|r| matches!(r, Row::Line(n) if *n + 1 == line as usize))
+        {
+            // Rows not measured yet (a file just read) cannot be revealed: the line goes near the
+            // top, a few above it showing (#154).
+            if fresh {
+                let item_ix = ix.saturating_sub(4);
+                view.list.scroll_to(gpui::ListOffset {
+                    item_ix,
+                    offset_in_item: px(0.),
+                });
+            } else {
+                view.list.scroll_to_reveal_item(ix);
+            }
+        }
+    }
+
+    /// The line at the top of `path`'s view as it is scrolled, `notes` on its lines: where Open in opens it
+    /// (#78).
+    pub fn file_top_line(&self, path: &str, notes: &FileNotes) -> u32 {
+        let Some(view) = self.file_view.as_ref().filter(|v| v.path == path) else {
+            return 1;
+        };
+        let top = view.list.logical_scroll_top().item_ix;
+        rows(&view.lines, notes)
+            .iter()
+            .take(top + 1)
+            .rev()
+            .find_map(|row| match row {
+                Row::Line(n) => Some(*n as u32 + 1),
+                _ => None,
+            })
+            .unwrap_or(1)
+    }
+
+    /// The file's head line and what is under it: its lines with `notes` on them (the threads and the
+    /// composer from `host`), a document rendered, an image, or `binary` for a file that is neither. Its text
+    /// selects with `selecting`.
+    pub fn render_file_view(
+        &self,
+        host: Rc<dyn Host>,
+        notes: &FileNotes,
+        binary: Option<AnyElement>,
+        selecting: Selecting,
+        cx: &mut Context<Self>,
+    ) -> Option<(gpui::Div, AnyElement)> {
+        let view = self.file_view.as_ref()?;
+        let head = self.render_file_head(view, cx);
+        let body = if let Some(binary) = binary.filter(|_| view.binary.is_some()) {
+            binary
+        } else if let Some(image) = &view.image {
+            div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .p(px(24.))
+                .child(img(image.clone()).max_w_full().max_h_full())
+                .into_any_element()
+        } else if view.markdown() && view.rendered {
+            div()
+                .id("file-rendered")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .px(px(24.))
+                .py(px(18.))
+                .text_size(px(13.))
+                .child(markdown::body(
+                    &view.lines.join("\n"),
+                    true,
+                    format!("file-{}", view.path),
+                    None,
+                    Some(selecting),
+                    cx,
+                ))
+                .into_any_element()
+        } else {
+            self.render_file_lines(view, host, notes, selecting)
+        };
+        Some((head, body))
+    }
+
+    /// The file's line over it: its path, language, lines and revision; Rendered | Source for a
+    /// Markdown file; read only.
+    fn render_file_head(&self, view: &FileView, cx: &Context<Self>) -> gpui::Div {
+        let markdown = view.markdown() && view.image.is_none();
+        let facts = if view.image.is_some() {
+            format!("image · {}", view.at)
+        } else if let Some(size) = view.binary {
+            format!("{} · {}", crate::image_view::bytes(size as usize), view.at)
+        } else {
+            format!("{} lines · {}", view.lines.len(), view.at)
+        };
+        div()
+            .flex_none()
+            .h(px(34.))
+            .px(px(14.))
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .border_b_1()
+            .border_color(theme::island_border())
+            .text_size(px(12.))
+            // Its path is the bar's, its name the tab's (A, 2026-10-23).
+            .child(div().text_color(theme::faint()).child(facts))
+            .child(div().flex_1())
+            // `c` asks which line the note goes on.
+            .children(
+                self.goline
+                    .as_ref()
+                    .filter(|_| self.file_lines_shown())
+                    .map(|typed| {
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .text_color(theme::agent())
+                            .child("Note on line")
+                            .child(
+                                div()
+                                    .min_w(px(28.))
+                                    .px(px(6.))
+                                    .rounded(px(4.))
+                                    .border_1()
+                                    .border_color(theme::agent())
+                                    .child(if typed.is_empty() {
+                                        " ".to_owned()
+                                    } else {
+                                        typed.clone()
+                                    }),
+                            )
+                            .child(keys::caps("↵", keys::On::Plain))
+                    }),
+            )
+            .children(markdown.then(|| {
+                let rendered = view.rendered;
+                crate::diff_view::group()
+                    .child(
+                        crate::diff_view::chip("file-rendered-on", "Rendered", rendered).on_click(
+                            cx.listener(|rv, _: &ClickEvent, _, cx| rv.set_rendered(true, cx)),
+                        ),
+                    )
+                    .child(
+                        crate::diff_view::chip("file-source", "Source", !rendered).on_click(
+                            cx.listener(|rv, _: &ClickEvent, _, cx| rv.set_rendered(false, cx)),
+                        ),
+                    )
+            }))
+            .child(div().text_color(theme::faint()).child("read only"))
+    }
+
+    /// The lines with their numbers; a number's click writes a note on its line.
+    fn render_file_lines(
+        &self,
+        view: &FileView,
+        host: Rc<dyn Host>,
+        notes: &FileNotes,
+        selecting: Selecting,
+    ) -> AnyElement {
+        let size = self.code_size();
+        let row = (size * 1.55).round();
+        let digits = view.lines.len().max(1).to_string().len() as f32;
+        // Room on its left for the + that writes a note (#104).
+        let gutter = digits * size * 0.62 + 42.;
+        let rows = Rc::new(rows(&view.lines, notes));
+        if view.list.item_count() != rows.len() {
+            let top = view.list.logical_scroll_top();
+            view.list.reset(rows.len());
+            view.list.scroll_to(top);
+        }
+        let text = view.text.clone();
+        // Its lines select as one text, across rows (#93).
+        let (sel, note, plain) = (
+            selecting,
+            SharedString::from(format!("file-lines-{}", view.path)),
+            view.plain.clone(),
+        );
+        list(view.list.clone(), move |ix, _, cx| {
+            let Some(&row_kind) = rows.get(ix) else {
+                return div().into_any_element();
+            };
+            let n = match row_kind {
+                Row::Line(n) => n,
+                Row::Note(id) => {
+                    return host.pin(artoo_core::rows::Row::Thread(id), true, gutter + 8., cx);
+                }
+                Row::Composer => {
+                    return host.pin(artoo_core::rows::Row::Composer, true, gutter + 8., cx);
+                }
+            };
+            let (line, spans) = &text[n];
+            let highlights = spans
+                .iter()
+                .filter(|s| s.range.end <= line.len())
+                .map(|s| {
+                    (
+                        s.range.clone(),
+                        HighlightStyle {
+                            color: Some(theme::code(s.color)),
+                            font_style: s.italic.then_some(FontStyle::Italic),
+                            font_weight: s.bold.then_some(gpui::FontWeight::SEMIBOLD),
+                            ..Default::default()
+                        },
+                    )
+                })
+                .collect::<Vec<_>>();
+            let comment = host.clone();
+            let styled = StyledText::new(line.clone()).with_highlights(highlights);
+            let layout = styled.layout().clone();
+            let plus = host.clone();
+            // In the code's font and size on each row: the list's own reach none of its rows.
+            div()
+                .id(("file-row", n))
+                .group("file-row")
+                .relative()
+                .h(px(row))
+                .font_family(theme::code_font())
+                .text_size(px(size))
+                .flex()
+                .items_center()
+                // A note for your agent on the line, as the diff's + is (#104).
+                .child(
+                    div()
+                        .id(("file-plus", n))
+                        .absolute()
+                        .left(px(3.))
+                        .top(px(((row - 18.) / 2.).max(0.)))
+                        .size(px(18.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(ROW_RADIUS))
+                        .bg(theme::agent())
+                        .text_color(theme::base())
+                        .font_family(theme::ui_font())
+                        .text_size(px(13.))
+                        .cursor_pointer()
+                        .invisible()
+                        .group_hover("file-row", |s| s.visible())
+                        .child(icons::icon("plus").size(px(13.)).text_color(theme::base()))
+                        .on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            plus.file(FileEvent::Note(n as u32 + 1), cx);
+                        }),
+                )
+                .child(
+                    div()
+                        .id(("file-line", n))
+                        .w(px(gutter))
+                        .flex_none()
+                        .flex()
+                        .justify_end()
+                        .pr_2()
+                        .text_color(theme::muted())
+                        .cursor_pointer()
+                        .hover(|s| s.text_color(theme::agent()))
+                        .child((n + 1).to_string())
+                        .on_click(move |_, _, cx| comment.file(FileEvent::Note(n as u32 + 1), cx)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .pl_2()
+                        .whitespace_nowrap()
+                        .text_color(theme::code_text())
+                        .child(markdown::line_block(
+                            styled.into_any_element(),
+                            layout,
+                            note.clone(),
+                            n,
+                            plain.clone(),
+                            sel.clone(),
+                        )),
+                )
+                .into_any_element()
+        })
+        .flex_1()
+        .py(px(6.))
+        .font_family(theme::code_font())
+        .text_size(px(size))
+        .into_any_element()
+    }
 }
 
 #[cfg(test)]
@@ -216,6 +567,31 @@ mod tests {
         assert_eq!(text.as_ref(), "    fn x");
         assert_eq!(spans[0].range, 4..6);
         assert_eq!(widen("", &[]).0.as_ref(), " ");
+    }
+
+    #[test]
+    fn a_files_rows_put_its_notes_and_the_composer_under_their_lines() {
+        let lines: Vec<String> = ["a", "b", "c"].iter().map(|s| s.to_string()).collect();
+        let notes = FileNotes {
+            notes: vec![
+                (7, 2, "b".to_owned()),
+                (3, 1, "a".to_owned()),
+                (9, 2, "gone".to_owned()),
+            ],
+            compose: Some(2),
+        };
+        let rows: Vec<String> = rows(&lines, &notes)
+            .iter()
+            .map(|r| match r {
+                Row::Line(n) => format!("line {n}"),
+                Row::Note(id) => format!("note {id}"),
+                Row::Composer => "composer".to_owned(),
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            ["line 0", "note 3", "line 1", "note 7", "composer", "line 2"]
+        );
     }
 
     #[test]

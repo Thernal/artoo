@@ -4326,6 +4326,7 @@ impl review::Host for TabHost {
                     this.flip_fold(ix, cx);
                 }
                 FileEvent::Alone(ix) => this.view_alone(ix, cx),
+                FileEvent::Note(line) => this.start_file_comment(line, cx),
             })
             .ok();
     }
