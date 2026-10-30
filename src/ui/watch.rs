@@ -332,7 +332,7 @@ impl Workspace {
             .restore_scroll
             .as_ref()
             .map(|(path, _)| path.clone());
-        let undo = self.selection;
+        let undo = Some((from, to));
         self.load_versions(from, latest, file, cx);
         // `load_versions` clears the notice of the diff it replaces; this one belongs to the new.
         self.review.update(cx, |rv, _| {
@@ -351,7 +351,7 @@ impl Workspace {
         let Some(notice) = self.review.update(cx, |rv, _| rv.notice.take()) else {
             return;
         };
-        let Selection::Versions { from, to } = notice.undo else {
+        let Some((from, to)) = notice.undo else {
             return;
         };
         self.review

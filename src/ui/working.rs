@@ -4,6 +4,7 @@
 use super::px;
 use super::{Diff, Header, Selection, WorkingState, Workspace, theme};
 use crate::git::Repo;
+use artoo_review::diff::FileTags;
 use gpui::{Context, div, prelude::*};
 use std::sync::Arc;
 use std::time::Duration;
@@ -181,27 +182,6 @@ impl Workspace {
                     this.select_working_tree(cx)
                 }))
         })
-    }
-}
-
-/// The working tree's words for its files, by index: `staged`, `partly staged`, `not staged` or
-/// `untracked`; empty for any other diff.
-#[derive(Default)]
-pub(super) struct FileTags {
-    pub words: Vec<&'static str>,
-    /// In two groups (#22): how many of the files, first, are what is staged.
-    pub staged: Option<usize>,
-}
-
-impl FileTags {
-    pub fn word(&self, ix: usize) -> Option<&'static str> {
-        self.words.get(ix).copied()
-    }
-
-    /// The word a row of the list shows: in a group only `untracked`, as its header says the rest.
-    pub fn row_word(&self, ix: usize) -> Option<&'static str> {
-        self.word(ix)
-            .filter(|w| self.staged.is_none() || *w == "untracked")
     }
 }
 

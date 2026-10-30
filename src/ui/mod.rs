@@ -78,11 +78,11 @@ mod working;
 mod zones;
 
 use crate::git::{
-    BranchRef, ChangeKind, CommitInfo, DiffSettings, FileDiff, PairCommit, PairKind, RangePair,
-    Repo, Version,
+    BranchRef, ChangeKind, CommitInfo, DiffSettings, FileDiff, PairKind, Repo, Version,
 };
 use crate::rows::{self, FileData, Row};
 use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
+use artoo_review::diff::{Diff, Header, Notice};
 use artoo_review::diff_view::{self, CODE_SIZE, DIFF_ROW};
 use artoo_review::pins::Pins;
 use artoo_review::select::Sel;
@@ -982,7 +982,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             this.review.update(cx, |rv, _| {
                                 rv.notice = Some(Notice {
                                     text: "v3 arrived — this comparison now ends at v3.".into(),
-                                    undo: Selection::None,
+                                    undo: None,
                                 })
                             });
                             continue;
@@ -1498,39 +1498,6 @@ enum Selection {
     WorkingTree,
 }
 
-enum Header {
-    Commit(CommitInfo),
-    Versions {
-        from: Version,
-        to: Version,
-        rebased: bool,
-        conflicts: usize,
-    },
-    /// Uncommitted work against `HEAD`.
-    WorkingTree {
-        only_unstaged: bool,
-    },
-    /// Any two refs: what `head` changed against `base`.
-    Compare {
-        base: (String, git2::Oid),
-        head: (String, git2::Oid),
-        since_merge_base: bool,
-        start: git2::Oid,
-        commits: usize,
-        /// The merge request this is the diff of, so comments can go to it.
-        request: Option<u64>,
-        /// The base is a local branch behind its upstream.
-        stale: Option<crate::git::Stale>,
-    },
-    /// One commit of an older version against its counterpart in a newer one.
-    Interdiff {
-        from: usize,
-        to: usize,
-        old: PairCommit,
-        new: PairCommit,
-    },
-}
-
 /// A ref's name and the commit it points at.
 type NamedTip = (String, git2::Oid);
 /// Base, head and merge request of a diff to show.
@@ -1552,36 +1519,6 @@ struct WorkingState {
 enum VersionTab {
     Files,
     Commits,
-}
-
-/// A change the user did not ask for, with the way back.
-struct Notice {
-    text: String,
-    undo: Selection,
-}
-
-struct Diff {
-    header: Header,
-    files: Arc<Vec<FileDiff>>,
-    /// The commits of a version comparison, paired (empty for anything else).
-    pairs: Vec<RangePair>,
-    /// The working tree's words for its files (staged, untracked…) and its two groups.
-    tags: working::FileTags,
-}
-
-impl Diff {
-    /// How many files: a file partly staged, in both of the working tree's groups (#22), is one.
-    fn file_count(&self) -> usize {
-        match self.tags.staged {
-            Some(_) => self
-                .files
-                .iter()
-                .map(FileDiff::path)
-                .collect::<HashSet<_>>()
-                .len(),
-            None => self.files.len(),
-        }
-    }
 }
 
 /// A pane boundary that can be dragged.
