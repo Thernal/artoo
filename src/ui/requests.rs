@@ -829,7 +829,10 @@ impl Workspace {
             this.clone(),
             this.clone(),
         );
-        let history = self.render_history(ix, this.clone(), cx);
+        let history =
+            self.requests
+                .read(cx)
+                .render_history(ix, self.latest_version(), acts_of(this.clone()));
         let selecting = self.selecting(this.clone());
         let first = &t.notes[0];
         let author = self
@@ -1916,7 +1919,12 @@ impl Workspace {
             .get(&t.id)
             .map(|h| h.written);
         // What a click does: the line where it is now, or (gone) the versions compared.
-        let shows = match (line_now, self.compare_label(ix, cx)) {
+        let shows = match (
+            line_now,
+            self.requests
+                .read(cx)
+                .compare_label(ix, self.latest_version()),
+        ) {
             (Some(_), _) => "Show its line now".to_owned(),
             (None, Some(compare)) => compare,
             (None, None) => String::new(),
@@ -2172,6 +2180,7 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
             }
             Act::ThreadNote(thread) => this.start_thread_note(thread, cx),
             Act::ReplyMentioning { thread, login } => this.reply_mentioning(thread, &login, cx),
+            Act::CompareSince(ix) => this.compare_since(ix, cx),
             Act::RunMerge => this.run_merge(cx),
             Act::ShowNewVersion => this.show_new_version(cx),
         })

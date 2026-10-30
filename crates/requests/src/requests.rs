@@ -101,6 +101,8 @@ pub enum Act {
     ThreadNote(usize),
     /// A reply to discussion `thread` with `login` already mentioned.
     ReplyMentioning { thread: usize, login: String },
+    /// Outdated discussion `ix`'s version compared with the latest.
+    CompareSince(usize),
     /// Merge's card sends the merge.
     RunMerge,
     /// Merge was refused for a push after the version on the page: the card goes, the new one

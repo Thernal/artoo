@@ -7,14 +7,15 @@
 //! grouped by the version it was written on.
 
 use super::{Selection, Workspace, px, theme};
-use crate::worddiff::Piece;
 pub(super) use artoo_requests::outdated::{LineHistory, Since};
-use gpui::{
-    AnyElement, App, Context, FontWeight, HighlightStyle, StrikethroughStyle, StyledText,
-    WeakEntity, div, prelude::*,
-};
+use gpui::{AnyElement, App, Context, div, prelude::*};
 
 impl Workspace {
+    /// The timeline's last version: what an outdated discussion's is compared with.
+    pub(super) fn latest_version(&self) -> Option<usize> {
+        self.versions.last().map(|v| v.number)
+    }
+
     /// Follows the line of every discussion written on an earlier version to the latest
     /// (`Requests::compute_histories`).
     pub(super) fn compute_histories(&mut self, cx: &mut Context<Self>) {
@@ -23,167 +24,6 @@ impl Workspace {
         };
         self.requests
             .update(cx, |rq, cx| rq.compute_histories(root, cx));
-    }
-
-    /// The button that compares thread `ix`'s version with the latest: "Compare v1 → v3".
-    pub(super) fn compare_label(&self, ix: usize, cx: &App) -> Option<String> {
-        let t = self.requests.read(cx).threads.get(ix)?;
-        let written = self.requests.read(cx).histories.get(&t.id)?.written;
-        let latest = self.versions.last()?.number;
-        Some(format!("Compare v{written} → v{latest}"))
-    }
-
-    /// Under an outdated discussion: the line's history and Compare with the new version.
-    pub(super) fn render_history(
-        &self,
-        ix: usize,
-        this: WeakEntity<Self>,
-        cx: &App,
-    ) -> Option<AnyElement> {
-        let t = self.requests.read(cx).threads.get(ix)?;
-        let h = self.requests.read(cx).histories.get(&t.id)?.clone();
-        let changed = h.changed();
-        let row = |tag: String, who: String, text: Option<AnyElement>, struck: bool| {
-            div()
-                .flex()
-                .items_start()
-                .gap(px(10.))
-                .child(
-                    div()
-                        .w(px(28.))
-                        .flex_none()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::accent())
-                        .child(tag),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap(px(2.))
-                        .child(div().text_color(theme::muted()).child(who))
-                        .children(text.map(|t| {
-                            div()
-                                .px(px(8.))
-                                .py(px(2.))
-                                .rounded(px(4.))
-                                .bg(if struck {
-                                    theme::removed_line()
-                                } else {
-                                    theme::added_line()
-                                })
-                                .font_family(theme::code_font())
-                                .text_size(px(12.))
-                                .text_color(theme::text())
-                                .overflow_hidden()
-                                .whitespace_nowrap()
-                                .child(t)
-                        })),
-                )
-        };
-        // Who wrote the comment, named unless it is you.
-        let who = if self.requests.read(cx).yours(t) {
-            "you commented on".to_owned()
-        } else {
-            let author = t.notes.first().map_or("", |n| n.author.as_str());
-            format!("{author} commented on")
-        };
-        let compare = self.compare_label(ix, cx).unwrap_or_default();
-        let mut rows: Vec<AnyElement> = vec![
-            row(
-                format!("v{}", h.written),
-                who,
-                Some(h.then.clone().into_any_element()),
-                changed,
-            )
-            .into_any_element(),
-        ];
-        // Each version's line against the one before it, the changed words marked (#46 B).
-        let mut before = h.then.clone();
-        for s in &h.steps {
-            let text = match &s.now {
-                Some(now) => {
-                    let marked = word_line(&before, now);
-                    before = now.clone();
-                    marked
-                }
-                None => "(removed)".into_any_element(),
-            };
-            rows.push(
-                row(
-                    format!("v{}", s.version),
-                    if s.summary.is_empty() {
-                        "changed".to_owned()
-                    } else {
-                        format!("{} · {} {}", s.who, s.sha, s.summary)
-                    },
-                    Some(text),
-                    s.now.is_none(),
-                )
-                .into_any_element(),
-            );
-        }
-        let written = h.written;
-        Some(
-            div()
-                .mx(px(12.))
-                .mb(px(8.))
-                .px(px(12.))
-                .py(px(10.))
-                .rounded(px(8.))
-                .bg(theme::base())
-                .flex()
-                .flex_col()
-                .gap(px(8.))
-                .text_size(px(12.))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            div()
-                                .px(px(8.))
-                                .h(px(20.))
-                                .flex()
-                                .items_center()
-                                .rounded_full()
-                                .bg(theme::warning_bg())
-                                .text_color(theme::warning())
-                                .child(
-                                    self.requests.read(cx).since_comment(ix).unwrap_or_default(),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .text_color(theme::faint())
-                                .child(format!("written on v{written}")),
-                        )
-                        .child(div().flex_1())
-                        .children(changed.then(|| {
-                            div()
-                                .id(("compare-since", ix))
-                                .px(px(8.))
-                                .h(px(24.))
-                                .flex()
-                                .items_center()
-                                .rounded(px(6.))
-                                .border_1()
-                                .border_color(theme::island_border())
-                                .cursor_pointer()
-                                .hover(|s| s.bg(theme::hover()))
-                                .flex_none()
-                                .child(compare)
-                                .on_click(move |_, _, cx| {
-                                    this.update(cx, |this, cx| this.compare_since(ix, cx)).ok();
-                                })
-                        })),
-                )
-                .children(rows)
-                .into_any_element(),
-        )
     }
 
     /// Compare with the new version, for discussion `ix`: its version against the latest, at its
@@ -391,98 +231,5 @@ impl Workspace {
         {
             self.compare_since(ix, cx);
         }
-    }
-}
-
-/// `new` with what changed from `old` marked: removed words struck, added ones tinted, both in
-/// place; a line rewritten past recognition reads whole.
-fn word_line(old: &str, new: &str) -> AnyElement {
-    let Some(pieces) = crate::worddiff::pieces(old, new) else {
-        return new.to_owned().into_any_element();
-    };
-    let (text, runs) = joined(old, new, &pieces);
-    let style = |gone: bool| HighlightStyle {
-        background_color: Some(if gone {
-            theme::removed_word().into()
-        } else {
-            theme::added_word().into()
-        }),
-        strikethrough: gone.then_some(StrikethroughStyle {
-            thickness: px(1.),
-            color: Some(theme::removed().into()),
-        }),
-        ..Default::default()
-    };
-    StyledText::new(text)
-        .with_highlights(runs.into_iter().map(move |(r, gone)| (r, style(gone))))
-        .into_any_element()
-}
-
-/// One text from `old` and `new` read together: what stayed, then for each change what went and
-/// what came. The ranges of what went (`true`) and what came (`false`) in it.
-fn joined(old: &str, new: &str, pieces: &[Piece]) -> (String, Vec<(std::ops::Range<usize>, bool)>) {
-    let mut text = String::new();
-    let mut runs = Vec::new();
-    for piece in pieces {
-        match piece {
-            Piece::Same(_, n) => text.push_str(&new[n.clone()]),
-            Piece::Change(o, n) => {
-                for (part, gone) in [(&old[o.clone()], true), (&new[n.clone()], false)] {
-                    if !part.is_empty() {
-                        let at = text.len();
-                        text.push_str(part);
-                        runs.push((at..text.len(), gone));
-                    }
-                }
-            }
-        }
-    }
-    (text, runs)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use artoo_requests::outdated::Step;
-
-    fn step(version: usize, line: Option<u32>) -> Step {
-        Step {
-            version,
-            who: String::new(),
-            summary: String::new(),
-            sha: String::new(),
-            now: line.map(|_| String::new()),
-            line,
-        }
-    }
-
-    #[test]
-    fn the_stepper_stops_where_the_line_changed_and_at_the_latest() {
-        let h = LineHistory {
-            written: 3,
-            then: String::new(),
-            steps: vec![step(5, Some(50)), step(6, Some(52))],
-            line_now: Some(55),
-        };
-        assert_eq!(
-            h.stops(Some(48), 7),
-            [(3, Some(48)), (5, Some(50)), (6, Some(52)), (7, Some(55))]
-        );
-        // Changed in the latest itself: no extra stop.
-        assert_eq!(h.stops(Some(48), 6).len(), 3);
-    }
-
-    #[test]
-    fn a_changed_line_reads_once_with_both_sides_of_each_change() {
-        let (old, new) = (
-            "val result = api.login(form)",
-            "val result = runCatching { api.login(form) }",
-        );
-        let pieces = crate::worddiff::pieces(old, new).expect("alike lines");
-        let (text, runs) = joined(old, new, &pieces);
-        assert!(text.contains("runCatching"));
-        assert!(runs.iter().all(|(_, gone)| !gone));
-        let added: Vec<&str> = runs.iter().map(|(r, _)| &text[r.clone()]).collect();
-        assert!(added.iter().any(|a| a.contains("runCatching")));
     }
 }
