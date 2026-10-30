@@ -143,15 +143,6 @@ fn heading(block: &Block) -> Option<String> {
 }
 
 impl Workspace {
-    /// Whether file `file` is drawn as a page (not as its text diff).
-    pub(super) fn shows_page(&self, file: &FileDiff) -> bool {
-        !self.review.page.is_source(file.path())
-            && markdown::is_document(file.path())
-            && file.note.is_none()
-            && !file.hunks.is_empty()
-            && (file.old_text.is_some() || file.new_text.is_some())
-    }
-
     /// Rendered | Source, M, and with `legend` what the bars mean while rendered, for a document's
     /// header.
     pub(super) fn page_switch(
@@ -478,7 +469,7 @@ impl Workspace {
     /// n / p on a page viewed alone: the next (or previous) changed block, from the last one gone
     /// to, else from the top of the view. Whether the page took the keys.
     pub(super) fn step_page(&mut self, forward: bool, cx: &mut Context<Self>) -> bool {
-        if !self.page_alone() {
+        if !self.review.page_alone() {
             return false;
         }
         let changes = self.review.page.changes.borrow().clone();
@@ -506,7 +497,7 @@ impl Workspace {
 
     /// Space and ⇧space on a page viewed alone: a screen down or up. Whether the page took it.
     pub(super) fn scroll_page(&mut self, down: bool, cx: &mut Context<Self>) -> bool {
-        if !self.page_alone() {
+        if !self.review.page_alone() {
             return false;
         }
         let s = &self.review.page.scroll;
@@ -520,17 +511,6 @@ impl Workspace {
         self.review.page.at = None;
         cx.notify();
         true
-    }
-
-    /// One file at a time, and it is a page.
-    fn page_alone(&self) -> bool {
-        self.review.stack.is_none()
-            && self
-                .review
-                .diff
-                .as_ref()
-                .and_then(|d| d.files.get(self.review.file))
-                .is_some_and(|f| self.shows_page(f))
     }
 
     /// File `ix`'s blocks: Unified or Split as the toolbar says, each with whether it is a change.
@@ -965,6 +945,27 @@ fn fold_line(
             .ok();
         })
         .into_any_element()
+}
+
+impl super::review::Review {
+    /// Whether file `file` is drawn as a page (not as its text diff).
+    pub(super) fn shows_page(&self, file: &FileDiff) -> bool {
+        !self.page.is_source(file.path())
+            && markdown::is_document(file.path())
+            && file.note.is_none()
+            && !file.hunks.is_empty()
+            && (file.old_text.is_some() || file.new_text.is_some())
+    }
+
+    /// One file at a time, and it is a page.
+    fn page_alone(&self) -> bool {
+        self.stack.is_none()
+            && self
+                .diff
+                .as_ref()
+                .and_then(|d| d.files.get(self.file))
+                .is_some_and(|f| self.shows_page(f))
+    }
 }
 
 #[cfg(test)]

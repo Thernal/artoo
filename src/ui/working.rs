@@ -114,7 +114,7 @@ impl Workspace {
         }
         if self.selection == Selection::WorkingTree {
             // Reload in place: the selected file stays.
-            let keep = self.current_path();
+            let keep = self.review.current_path();
             self.load_working_tree(keep, cx);
         }
         cx.notify();
@@ -158,7 +158,7 @@ impl Workspace {
 
     pub(super) fn set_only_unstaged(&mut self, on: bool, cx: &mut Context<Self>) {
         self.wt.only_unstaged = on;
-        let keep = self.current_path();
+        let keep = self.review.current_path();
         self.load_working_tree(keep, cx);
     }
 

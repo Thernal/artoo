@@ -173,7 +173,7 @@ impl Workspace {
             settings: self.settings_open,
             space: self.space(),
             page: self.nav_page().cloned(),
-            file: self.current_path(),
+            file: self.review.current_path(),
         }
     }
 

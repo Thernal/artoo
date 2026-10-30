@@ -1106,7 +1106,7 @@ impl Render for Workspace {
         // Last, so it paints over everything.
         .children(self.render_ctx_menu(window.viewport_size(), cx))
         .children(self.render_mention_card(cx))
-        .children(self.render_blame_tip())
+        .children(self.review.render_blame_tip())
         .children(self.render_find_files(cx))
         .children(self.render_open_ask(cx))
         .children(self.render_beside_backdrop(cx))

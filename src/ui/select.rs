@@ -140,31 +140,6 @@ impl Workspace {
         }
     }
 
-    /// The selected text, `None` when nothing is selected.
-    pub(super) fn selected_text(&self) -> Option<String> {
-        let sel = self.review.sel.filter(|s| !s.is_empty())?;
-        let data = self.review.data.as_ref()?;
-        let side = data.side(sel.old);
-        let (start, end) = sel.ends();
-        let lines: Vec<&str> = (start.line..=end.line)
-            .map(|n| {
-                let text = side.line(n).0;
-                let from = if n == start.line {
-                    start.byte.min(text.len())
-                } else {
-                    0
-                };
-                let to = if n == end.line {
-                    end.byte.min(text.len())
-                } else {
-                    text.len()
-                };
-                text.get(from..to).unwrap_or_default()
-            })
-            .collect();
-        Some(lines.join("\n"))
-    }
-
     /// ⌘C.
     pub(super) fn copy_selection(
         &mut self,
@@ -177,7 +152,7 @@ impl Workspace {
         let text = self
             .field_selection()
             .or_else(|| self.note_sel.as_ref().and_then(|s| s.text()))
-            .or_else(|| self.selected_text());
+            .or_else(|| self.review.selected_text());
         if let Some(text) = text {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
         }
@@ -316,6 +291,33 @@ impl Workspace {
             },
         }
         cx.notify();
+    }
+}
+
+impl super::review::Review {
+    /// The selected text, `None` when nothing is selected.
+    pub(super) fn selected_text(&self) -> Option<String> {
+        let sel = self.sel.filter(|s| !s.is_empty())?;
+        let data = self.data.as_ref()?;
+        let side = data.side(sel.old);
+        let (start, end) = sel.ends();
+        let lines: Vec<&str> = (start.line..=end.line)
+            .map(|n| {
+                let text = side.line(n).0;
+                let from = if n == start.line {
+                    start.byte.min(text.len())
+                } else {
+                    0
+                };
+                let to = if n == end.line {
+                    end.byte.min(text.len())
+                } else {
+                    text.len()
+                };
+                text.get(from..to).unwrap_or_default()
+            })
+            .collect();
+        Some(lines.join("\n"))
     }
 }
 

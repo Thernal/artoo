@@ -1109,7 +1109,8 @@ impl Workspace {
 
     /// The discussions on lines of the open file: (index, old side, line).
     pub(super) fn request_threads_here(&self) -> Vec<(usize, bool, u32)> {
-        self.current_path()
+        self.review
+            .current_path()
             .map(|path| self.request_threads_in(&path))
             .unwrap_or_default()
     }
@@ -1568,7 +1569,7 @@ impl Workspace {
     /// the first open one from the top of the view.
     pub(super) fn acting_thread(&self) -> Option<usize> {
         self.thread_at.or_else(|| {
-            let top = self.local_top();
+            let top = self.review.local_top();
             self.review.rows.iter().skip(top).find_map(|row| match row {
                 super::rows::Row::Request(ix) if self.mr_open(*ix) => Some(*ix),
                 _ => None,
@@ -2630,7 +2631,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         self.review.jump_line = Some((line, old));
-        if self.current_path().as_deref() == Some(path) {
+        if self.review.current_path().as_deref() == Some(path) {
             self.apply_jump(cx);
             return;
         }
@@ -2643,26 +2644,6 @@ impl Workspace {
             Some(ix) => self.select_file(ix, cx),
             None => self.review.jump_line = None,
         }
-    }
-
-    /// The list row that shows `line` of the old or the new side.
-    pub(super) fn row_of_line(&self, line: u32, old: bool) -> Option<usize> {
-        self.review.rows.iter().position(|r| match r {
-            Row::Split { left, right } => {
-                let cell = if old { left } else { right };
-                cell.is_some_and(|c| c.line == line)
-            }
-            Row::Unified {
-                old_line, new_line, ..
-            } => {
-                if old {
-                    *old_line == Some(line)
-                } else {
-                    *new_line == Some(line)
-                }
-            }
-            _ => false,
-        })
     }
 }
 
@@ -2755,6 +2736,28 @@ pub(super) fn comment_item(
                     .text_color(theme::muted()),
             ),
         )
+}
+
+impl super::review::Review {
+    /// The list row that shows `line` of the old or the new side.
+    pub(super) fn row_of_line(&self, line: u32, old: bool) -> Option<usize> {
+        self.rows.iter().position(|r| match r {
+            Row::Split { left, right } => {
+                let cell = if old { left } else { right };
+                cell.is_some_and(|c| c.line == line)
+            }
+            Row::Unified {
+                old_line, new_line, ..
+            } => {
+                if old {
+                    *old_line == Some(line)
+                } else {
+                    *new_line == Some(line)
+                }
+            }
+            _ => false,
+        })
+    }
 }
 
 #[cfg(test)]

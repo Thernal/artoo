@@ -394,7 +394,7 @@ impl Workspace {
             return;
         }
         // ← on a file: the folder it is in, or its group (#22).
-        if let Some(path) = self.file_key(self.review.file) {
+        if let Some(path) = self.review.file_key(self.review.file) {
             let parent = self
                 .item_keys()
                 .into_iter()

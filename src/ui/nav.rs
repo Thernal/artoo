@@ -684,7 +684,7 @@ impl Workspace {
         let Some(item) = page.item() else {
             return;
         };
-        let place = self.scroll_place();
+        let place = self.review.scroll_place();
         let commit = self.shown_commit();
         let paths: Vec<String> = self
             .review

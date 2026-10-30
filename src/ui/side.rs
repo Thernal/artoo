@@ -412,7 +412,7 @@ impl Workspace {
             let summary = if one {
                 Some(diff.files[0].path().to_owned())
             } else {
-                Some(match self.review_progress() {
+                Some(match self.review.review_progress() {
                     Some((done, total)) => format!("{done} / {total} reviewed"),
                     None => plural(diff.file_count(), "file"),
                 })

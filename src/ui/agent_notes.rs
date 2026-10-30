@@ -101,7 +101,7 @@ impl Workspace {
         let Some(header) = self.review.diff.as_ref().map(|d| &d.header) else {
             return Vec::new();
         };
-        let head = self.shown_head().map(|h| h.to_string());
+        let head = self.review.shown_head().map(|h| h.to_string());
         let named = match header {
             Header::Compare { head, .. } => Some(head.0.clone()),
             _ => None,
@@ -139,7 +139,7 @@ impl Workspace {
     /// written on to the one shown, in the background (#46).
     pub(super) fn map_agent_notes(&mut self, cx: &mut Context<Self>) {
         self.note_lines.clear();
-        let (Some(root), Some(head)) = (self.root.clone(), self.shown_head()) else {
+        let (Some(root), Some(head)) = (self.root.clone(), self.review.shown_head()) else {
             return;
         };
         let asks: Vec<(u64, String, String, u32)> = self

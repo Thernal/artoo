@@ -167,34 +167,16 @@ impl Workspace {
             && self.review.diff.as_ref().is_some_and(|d| d.files.len() > 1)
     }
 
-    /// The list index of the active file's first row.
-    pub(super) fn list_base(&self) -> usize {
-        self.review
-            .stack
-            .as_ref()
-            .and_then(|s| s.header(self.review.file))
-            .map_or(0, |h| h + 1)
-    }
-
-    /// The active file's row at the top of the view (its first while the view is above it).
-    pub(super) fn local_top(&self) -> usize {
-        self.review
-            .diff_list
-            .logical_scroll_top()
-            .item_ix
-            .saturating_sub(self.list_base())
-    }
-
     fn needs_rows(&self, file: &FileDiff) -> bool {
         !file.hunks.is_empty()
             && !self.generated_folded(file)
-            && !self.shows_image(file)
-            && !self.shows_page(file)
+            && !self.review.shows_image(file)
+            && !self.review.shows_page(file)
     }
 
     /// File `ix` folds by default: it is reviewed and View → Fold reviewed files is on.
     fn folds_by_default(&self, ix: usize) -> bool {
-        self.review.options.fold_reviewed && self.review_state(ix) == Some(State::Done)
+        self.review.options.fold_reviewed && self.review.review_state(ix) == Some(State::Done)
     }
 
     /// File `ix` shows its header alone: by default, unless the reader opened it (or the other
@@ -341,7 +323,7 @@ impl Workspace {
             .take()
             .filter(|(path, _)| diff.files.get(ix).is_some_and(|f| f.path() == path))
             .map(|(_, offset)| offset);
-        self.clear_file();
+        self.review.clear_file();
         self.review.file = ix;
         let mut stack = Stack::new(&order, files);
         stack.anchor = anchor;
@@ -355,13 +337,13 @@ impl Workspace {
             stack.reindex();
             self.review.diff_list.reset(stack.total());
         }
-        self.scroll_to_header(ix);
+        self.review.scroll_to_header(ix);
         self.build_stack(cx);
     }
 
     /// Builds the stack again (a new diff mode), keeping the place.
     pub(super) fn reopen_stack(&mut self, cx: &mut Context<Self>) {
-        self.review.restore_scroll = self.scroll_place();
+        self.review.restore_scroll = self.review.scroll_place();
         let ix = self
             .review
             .restore_scroll
@@ -378,35 +360,6 @@ impl Workspace {
         self.open_stack(ix, cx);
     }
 
-    /// The place the view is at: the file at the top and the rows below its header (the open
-    /// file and the list's offset when files are shown one at a time).
-    pub(super) fn scroll_place(&self) -> Option<(String, ListOffset)> {
-        let diff = self.review.diff.as_ref()?;
-        let top = self.review.diff_list.logical_scroll_top();
-        let Some(stack) = &self.review.stack else {
-            return Some((diff.files.get(self.review.file)?.path().to_owned(), top));
-        };
-        let (b, inside) = stack.locate(top.item_ix);
-        let file = diff.files.get(stack.blocks.get(b)?.file)?;
-        Some((
-            file.path().to_owned(),
-            // Counted from the file's first row, as when files are shown one at a time.
-            ListOffset {
-                item_ix: inside.saturating_sub(1),
-                offset_in_item: top.offset_in_item,
-            },
-        ))
-    }
-
-    fn scroll_to_header(&mut self, ix: usize) {
-        if let Some(at) = self.review.stack.as_ref().and_then(|s| s.header(ix)) {
-            self.review.diff_list.scroll_to(ListOffset {
-                item_ix: at,
-                offset_in_item: px(0.),
-            });
-        }
-    }
-
     /// Picking file `ix` (the files island, ← →, `v`, a link): it becomes active, opens when it
     /// was folded, and its header comes to the top.
     pub(super) fn stack_select(&mut self, ix: usize, cx: &mut Context<Self>) {
@@ -417,7 +370,7 @@ impl Workspace {
         if self.folded(ix) {
             self.flip_fold(ix, cx);
         }
-        self.scroll_to_header(ix);
+        self.review.scroll_to_header(ix);
         if self.review.data.is_some() {
             self.apply_jump(cx);
         }
@@ -456,7 +409,7 @@ impl Workspace {
         self.review.sel = None;
         self.review.change_at = None;
         self.review.match_at = 0;
-        self.recompute_matches();
+        self.review.recompute_matches();
         self.refresh_annotations(cx);
         self.scroll_file_into_view(ix);
         cx.notify();
@@ -543,23 +496,11 @@ impl Workspace {
         self.activate_file(to, cx);
         let passed: Vec<usize> = passed
             .into_iter()
-            .filter(|&ix| self.review_state(ix) == Some(State::Open))
+            .filter(|&ix| self.review.review_state(ix) == Some(State::Open))
             .collect();
         if !passed.is_empty() {
             self.set_reviewed_many(&passed, true, cx);
         }
-    }
-
-    /// The widest line of the files built, for the horizontal scroll.
-    pub(super) fn widest(&self) -> Option<usize> {
-        let mine = self.review.data.as_ref().map(|d| d.widest);
-        let others = self
-            .review
-            .stack
-            .iter()
-            .flat_map(|s| &s.blocks)
-            .filter_map(|b| b.data.as_ref().map(|d| d.widest));
-        mine.into_iter().chain(others).max()
     }
 
     // ---- building -----------------------------------------------------------------------------
@@ -654,7 +595,7 @@ impl Workspace {
             let before = self.shown_rows(b);
             self.lay_block(b, &path, data);
             self.stack_changed(b, before);
-            self.recompute_stack_matches();
+            self.review.recompute_stack_matches();
         }
         cx.notify();
     }
@@ -664,7 +605,11 @@ impl Workspace {
         let Some(stack) = self.review.stack.as_ref() else {
             return;
         };
-        let rows = rows::layout(&data, &self.view_options(), &stack.blocks[b].expanded);
+        let rows = rows::layout(
+            &data,
+            &self.review.view_options(),
+            &stack.blocks[b].expanded,
+        );
         let rows = self.with_pins_in(path, &data, rows, false);
         let notes = self.line_notes_in(path, Some(&data));
         if let Some(block) = self.review.stack.as_mut().map(|s| &mut s.blocks[b]) {
@@ -710,7 +655,7 @@ impl Workspace {
         self.remeasure_pages();
         // Files that now fold, or no longer do (Settings → Fold generated files).
         self.sync_stack();
-        self.recompute_stack_matches();
+        self.review.recompute_stack_matches();
     }
 
     /// A document drawn as a page is one item of the list: measured again after it changed
@@ -726,7 +671,7 @@ impl Workspace {
             .filter(|(b, block)| {
                 diff.files
                     .get(block.file)
-                    .is_some_and(|f| self.shows_page(f))
+                    .is_some_and(|f| self.review.shows_page(f))
                     && self.body(*b) == Body::Note
             })
             .map(|(b, _)| stack.starts[b] + 1)
@@ -776,54 +721,6 @@ impl Workspace {
         cx.notify();
     }
 
-    /// The find text's rows in every file built, folded ones too.
-    pub(super) fn recompute_stack_matches(&mut self) {
-        let Some(stack) = &self.review.stack else {
-            return;
-        };
-        let mut matches = Vec::new();
-        if !self.review.dterms.is_empty() {
-            for block in &stack.blocks {
-                let (data, rows) = if block.file == self.review.file {
-                    (self.review.data.as_deref(), &self.review.rows[..])
-                } else {
-                    (block.data.as_deref(), &block.rows[..])
-                };
-                if let Some(data) = data {
-                    matches.extend(
-                        rows::matching_rows(data, rows, &self.review.dterms)
-                            .into_iter()
-                            .map(|row| (block.file, row)),
-                    );
-                }
-            }
-        }
-        if let Some(stack) = self.review.stack.as_mut() {
-            stack.match_at = stack.match_at.min(matches.len().saturating_sub(1));
-            stack.matches = matches;
-        }
-    }
-
-    /// The find bar's count with all files in one scroll: "2 of 9 lines · 3 files".
-    pub(super) fn stack_match_count(&self) -> Option<String> {
-        let stack = self.review.stack.as_ref()?;
-        if stack.matches.is_empty() {
-            return Some("No matches".to_owned());
-        }
-        let files = stack
-            .matches
-            .iter()
-            .map(|(file, _)| file)
-            .collect::<HashSet<_>>()
-            .len();
-        Some(format!(
-            "{} of {} lines · {}",
-            stack.match_at + 1,
-            stack.matches.len(),
-            super::plural(files, "file")
-        ))
-    }
-
     /// The match `at` of every file's: its file becomes active and opens, the row comes into view.
     pub(super) fn go_to_stack_match(&mut self, at: usize, cx: &mut Context<Self>) {
         let Some(&(file, row)) = self.review.stack.as_ref().and_then(|s| s.matches.get(at)) else {
@@ -835,21 +732,6 @@ impl Workspace {
         self.activate_file(file, cx);
         self.scroll_to_row(row);
         cx.notify();
-    }
-
-    /// Where a new find starts: the first match in the file in view or after it.
-    pub(super) fn first_stack_match(&self) -> Option<usize> {
-        let stack = self.review.stack.as_ref()?;
-        let here = stack.block_of(self.review.file)?;
-        let top = self.local_top();
-        stack
-            .matches
-            .iter()
-            .position(|&(file, row)| {
-                let b = stack.block_of(file).unwrap_or(0);
-                b > here || (b == here && row >= top)
-            })
-            .or((!stack.matches.is_empty()).then_some(0))
     }
 
     /// Opens the active file when it is folded: something in it is about to be shown.
@@ -881,7 +763,7 @@ impl Workspace {
             _ => file.path().to_owned(),
         };
         let folded = self.folded(ix);
-        let state = self.review_state(ix);
+        let state = self.review.review_state(ix);
         let active = ix == self.review.file;
         let first = self.review.stack.as_ref().and_then(|s| s.block_of(ix)) == Some(0);
         let (fold, mark) = (this.clone(), this.clone());
@@ -1008,7 +890,7 @@ impl Workspace {
                             .on_click(move |_: &ClickEvent, _, cx| {
                                 cx.stop_propagation();
                                 mark.update(cx, |this, cx| {
-                                    let done = this.review_state(ix) == Some(State::Done);
+                                    let done = this.review.review_state(ix) == Some(State::Done);
                                     this.set_reviewed(ix, !done, cx);
                                 })
                                 .ok();
@@ -1026,37 +908,6 @@ impl Workspace {
                 })
                 .ok();
             })
-            .into_any_element()
-    }
-
-    /// A row of a file's card: its sides framed, and the last one closes the card.
-    pub(super) fn card_row(
-        &self,
-        row: gpui::AnyElement,
-        file: usize,
-        last: bool,
-    ) -> gpui::AnyElement {
-        let border = if file == self.review.file {
-            theme::focus()
-        } else {
-            theme::island_border()
-        };
-        div()
-            .w_full()
-            .px(px(CARD_MARGIN))
-            .child(
-                div()
-                    .w_full()
-                    .overflow_hidden()
-                    .bg(theme::editor())
-                    .border_l_1()
-                    .border_r_1()
-                    .border_color(border)
-                    .when(last, |s| {
-                        s.border_b_1().rounded_b(px(CARD_RADIUS)).pb(px(4.))
-                    })
-                    .child(row),
-            )
             .into_any_element()
     }
 
@@ -1123,10 +974,12 @@ impl Workspace {
             ))
             .into_any_element();
         }
-        if self.shows_page(file) {
-            return self.card_row(self.render_page(ix, this, cx), ix, true);
+        if self.review.shows_page(file) {
+            return self
+                .review
+                .card_row(self.render_page(ix, this, cx), ix, true);
         }
-        if self.shows_image(file) {
+        if self.review.shows_image(file) {
             return line("An image.".to_owned())
                 .child(action("image-alone", "View it on its own").on_click(
                     move |_: &ClickEvent, _, cx| {
@@ -1149,6 +1002,158 @@ impl Workspace {
     fn view_alone(&mut self, ix: usize, cx: &mut Context<Self>) {
         self.set_option_unsaved(super::Opt::OneFile, true, cx);
         self.select_file(ix, cx);
+    }
+}
+
+impl super::review::Review {
+    /// The list index of the active file's first row.
+    pub(super) fn list_base(&self) -> usize {
+        self.stack
+            .as_ref()
+            .and_then(|s| s.header(self.file))
+            .map_or(0, |h| h + 1)
+    }
+
+    /// The active file's row at the top of the view (its first while the view is above it).
+    pub(super) fn local_top(&self) -> usize {
+        self.diff_list
+            .logical_scroll_top()
+            .item_ix
+            .saturating_sub(self.list_base())
+    }
+
+    /// The place the view is at: the file at the top and the rows below its header (the open
+    /// file and the list's offset when files are shown one at a time).
+    pub(super) fn scroll_place(&self) -> Option<(String, ListOffset)> {
+        let diff = self.diff.as_ref()?;
+        let top = self.diff_list.logical_scroll_top();
+        let Some(stack) = &self.stack else {
+            return Some((diff.files.get(self.file)?.path().to_owned(), top));
+        };
+        let (b, inside) = stack.locate(top.item_ix);
+        let file = diff.files.get(stack.blocks.get(b)?.file)?;
+        Some((
+            file.path().to_owned(),
+            // Counted from the file's first row, as when files are shown one at a time.
+            ListOffset {
+                item_ix: inside.saturating_sub(1),
+                offset_in_item: top.offset_in_item,
+            },
+        ))
+    }
+
+    fn scroll_to_header(&mut self, ix: usize) {
+        if let Some(at) = self.stack.as_ref().and_then(|s| s.header(ix)) {
+            self.diff_list.scroll_to(ListOffset {
+                item_ix: at,
+                offset_in_item: px(0.),
+            });
+        }
+    }
+
+    /// The widest line of the files built, for the horizontal scroll.
+    pub(super) fn widest(&self) -> Option<usize> {
+        let mine = self.data.as_ref().map(|d| d.widest);
+        let others = self
+            .stack
+            .iter()
+            .flat_map(|s| &s.blocks)
+            .filter_map(|b| b.data.as_ref().map(|d| d.widest));
+        mine.into_iter().chain(others).max()
+    }
+
+    /// The find text's rows in every file built, folded ones too.
+    pub(super) fn recompute_stack_matches(&mut self) {
+        let Some(stack) = &self.stack else {
+            return;
+        };
+        let mut matches = Vec::new();
+        if !self.dterms.is_empty() {
+            for block in &stack.blocks {
+                let (data, rows) = if block.file == self.file {
+                    (self.data.as_deref(), &self.rows[..])
+                } else {
+                    (block.data.as_deref(), &block.rows[..])
+                };
+                if let Some(data) = data {
+                    matches.extend(
+                        rows::matching_rows(data, rows, &self.dterms)
+                            .into_iter()
+                            .map(|row| (block.file, row)),
+                    );
+                }
+            }
+        }
+        if let Some(stack) = self.stack.as_mut() {
+            stack.match_at = stack.match_at.min(matches.len().saturating_sub(1));
+            stack.matches = matches;
+        }
+    }
+
+    /// The find bar's count with all files in one scroll: "2 of 9 lines · 3 files".
+    pub(super) fn stack_match_count(&self) -> Option<String> {
+        let stack = self.stack.as_ref()?;
+        if stack.matches.is_empty() {
+            return Some("No matches".to_owned());
+        }
+        let files = stack
+            .matches
+            .iter()
+            .map(|(file, _)| file)
+            .collect::<HashSet<_>>()
+            .len();
+        Some(format!(
+            "{} of {} lines · {}",
+            stack.match_at + 1,
+            stack.matches.len(),
+            super::plural(files, "file")
+        ))
+    }
+
+    /// Where a new find starts: the first match in the file in view or after it.
+    pub(super) fn first_stack_match(&self) -> Option<usize> {
+        let stack = self.stack.as_ref()?;
+        let here = stack.block_of(self.file)?;
+        let top = self.local_top();
+        stack
+            .matches
+            .iter()
+            .position(|&(file, row)| {
+                let b = stack.block_of(file).unwrap_or(0);
+                b > here || (b == here && row >= top)
+            })
+            .or((!stack.matches.is_empty()).then_some(0))
+    }
+
+    /// A row of a file's card: its sides framed, and the last one closes the card.
+    pub(super) fn card_row(
+        &self,
+        row: gpui::AnyElement,
+        file: usize,
+        last: bool,
+    ) -> gpui::AnyElement {
+        let border = if file == self.file {
+            theme::focus()
+        } else {
+            theme::island_border()
+        };
+        div()
+            .w_full()
+            .px(px(CARD_MARGIN))
+            .child(
+                div()
+                    .w_full()
+                    .overflow_hidden()
+                    .bg(theme::editor())
+                    .border_l_1()
+                    .border_r_1()
+                    .border_color(border)
+                    .when(last, |s| {
+                        s.border_b_1().rounded_b(px(CARD_RADIUS)).pb(px(4.))
+                    })
+                    .child(row),
+            )
+            .into_any_element()
     }
 }
 

@@ -496,12 +496,6 @@ impl Workspace {
         }
     }
 
-    /// File `ix`'s key in the tree (`row_key`).
-    pub(super) fn file_key(&self, ix: usize) -> Option<String> {
-        let diff = self.review.diff.as_ref()?;
-        Some(row_key(diff.tags.staged, ix, diff.files.get(ix)?.path()))
-    }
-
     /// File indexes in the order the island shows them: what ← and → walk through.
     pub(super) fn file_order(&self) -> Vec<usize> {
         files_of(self.items())
@@ -519,13 +513,6 @@ impl Workspace {
                 diff.tags.staged,
             )),
             None => Vec::new(),
-        }
-    }
-
-    /// Opens every collapsed folder file `ix` is under, at any depth, and its group.
-    pub(super) fn open_folders_of(&mut self, ix: usize) {
-        if let Some(key) = self.file_key(ix) {
-            self.review.collapsed.retain(|dir| !inside(&key, dir));
         }
     }
 
@@ -668,7 +655,7 @@ impl Workspace {
                     .next()
                     .unwrap_or_default()
                     .to_owned();
-                let done = self.review_state(ix) == Some(super::reviewed::State::Done);
+                let done = self.review.review_state(ix) == Some(super::reviewed::State::Done);
                 div()
                     .w_full()
                     .h(px(28.))
@@ -850,7 +837,7 @@ impl Workspace {
             return div().into_any_element();
         };
         let tag = self.review.diff.as_ref().and_then(|d| d.tags.row_word(ix));
-        let done = self.review_state(ix) == Some(super::reviewed::State::Done);
+        let done = self.review.review_state(ix) == Some(super::reviewed::State::Done);
         let path = file.path();
         let (dir, name) = match path.rsplit_once('/') {
             Some((dir, name)) => (Some(dir.to_owned()), name.to_owned()),
@@ -923,7 +910,7 @@ fn uniform_list_files(
                 .filter_map(|i| items.get(i))
                 .map(|item| {
                     let path = match item {
-                        FileItem::File { ix, .. } => this.file_key(*ix).unwrap_or_default(),
+                        FileItem::File { ix, .. } => this.review.file_key(*ix).unwrap_or_default(),
                         FileItem::Dir { path, .. } => path.clone(),
                         FileItem::Group { group, .. } => group.key().to_owned(),
                     };
@@ -949,6 +936,21 @@ pub(super) fn progress_badge(done: u32, total: u32) -> gpui::Div {
         .text_size(px(11.))
         .text_color(theme::muted())
         .child(format!("{done}/{total}"))
+}
+
+impl super::review::Review {
+    /// File `ix`'s key in the tree (`row_key`).
+    pub(super) fn file_key(&self, ix: usize) -> Option<String> {
+        let diff = self.diff.as_ref()?;
+        Some(row_key(diff.tags.staged, ix, diff.files.get(ix)?.path()))
+    }
+
+    /// Opens every collapsed folder file `ix` is under, at any depth, and its group.
+    pub(super) fn open_folders_of(&mut self, ix: usize) {
+        if let Some(key) = self.file_key(ix) {
+            self.collapsed.retain(|dir| !inside(&key, dir));
+        }
+    }
 }
 
 #[cfg(test)]

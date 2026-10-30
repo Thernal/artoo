@@ -375,31 +375,6 @@ impl Workspace {
         self.review.done_card = false;
     }
 
-    pub(super) fn review_state(&self, ix: usize) -> Option<State> {
-        let scope = self.review.review_scope.as_deref()?;
-        let path = self.review.diff.as_ref()?.files.get(ix)?.path();
-        Some(
-            match (
-                self.review.reviewed.get(scope, path),
-                self.review.fps.get(ix),
-            ) {
-                (Some(was), Some(now)) if was == *now => State::Done,
-                (Some(_), _) => State::Stale,
-                _ => State::Open,
-            },
-        )
-    }
-
-    /// How many files are marked read, of how many.
-    pub(super) fn review_progress(&self) -> Option<(usize, usize)> {
-        self.review.review_scope.as_ref()?;
-        let total = self.review.diff.as_ref()?.files.len();
-        let done = (0..total)
-            .filter(|&ix| self.review_state(ix) == Some(State::Done))
-            .count();
-        Some((done, total))
-    }
-
     pub(super) fn set_reviewed(&mut self, ix: usize, done: bool, cx: &mut Context<Self>) {
         let (Some(scope), Some(fp)) = (
             self.review.review_scope.clone(),
@@ -417,7 +392,7 @@ impl Workspace {
             return;
         };
         if done {
-            let head = self.viewed_rev();
+            let head = self.review.viewed_rev();
             self.review.reviewed.set(&scope, &path, fp, head);
         } else {
             self.review.reviewed.clear(&scope, &path);
@@ -443,7 +418,7 @@ impl Workspace {
                 ))
             })
             .collect();
-        let head = self.viewed_rev();
+        let head = self.review.viewed_rev();
         self.review.reviewed.set_many(&scope, &files, done, head);
         self.review_changed(ixs);
         self.sync_complete();
@@ -452,14 +427,15 @@ impl Workspace {
 
     /// Every file of the open diff is reviewed.
     pub(super) fn all_reviewed(&self) -> bool {
-        self.review_progress()
+        self.review
+            .review_progress()
             .is_some_and(|(done, total)| total > 0 && done == total)
     }
 
     /// Records whether the head of the open diff is fully reviewed; the card offering what is next
     /// comes up the moment it becomes so.
     fn sync_complete(&mut self) {
-        let (Some(root), Some(head)) = (self.root.clone(), self.viewed_rev()) else {
+        let (Some(root), Some(head)) = (self.root.clone(), self.review.viewed_rev()) else {
             return;
         };
         let root = root.display().to_string();
@@ -478,7 +454,7 @@ impl Workspace {
         }
         if whole {
             self.review.reviewed.set_head(&root, head, done);
-            if let Some((reviewed, total)) = self.review_progress() {
+            if let Some((reviewed, total)) = self.review.review_progress() {
                 self.review
                     .reviewed
                     .set_progress(&root, head, reviewed as u32, total as u32);
@@ -573,7 +549,7 @@ impl Workspace {
         let shown = self.file_order();
         let done = shown
             .iter()
-            .all(|&ix| self.review_state(ix) == Some(State::Done));
+            .all(|&ix| self.review.review_state(ix) == Some(State::Done));
         self.set_reviewed_many(&shown, !done, cx);
     }
 
@@ -587,7 +563,7 @@ impl Workspace {
         let ixs = self.files_under(path);
         let done = ixs
             .iter()
-            .filter(|&&ix| self.review_state(ix) == Some(State::Done))
+            .filter(|&&ix| self.review.review_state(ix) == Some(State::Done))
             .count();
         let all = done == ixs.len() && done > 0;
         let (border, fill, glyph) = if all {
@@ -638,7 +614,7 @@ impl Workspace {
     /// `⇧V`: marks or unmarks the open file.
     pub(super) fn toggle_reviewed(&mut self, cx: &mut Context<Self>) {
         let ix = self.review.file;
-        let done = self.review_state(ix) == Some(State::Done);
+        let done = self.review.review_state(ix) == Some(State::Done);
         self.set_reviewed(ix, !done, cx);
     }
 
@@ -656,10 +632,10 @@ impl Workspace {
     pub(super) fn next_unreviewed(&mut self, cx: &mut Context<Self>) {
         let order = self.file_order_all();
         let next = next_open(&order, self.review.file, |ix| {
-            self.review_state(ix) == Some(State::Done)
+            self.review.review_state(ix) == Some(State::Done)
         });
         if let Some(ix) = next {
-            self.open_folders_of(ix);
+            self.review.open_folders_of(ix);
             // It is read next: a generated file folded opens too, as its "Show it anyway" (#144).
             if let Some(path) = self
                 .review
@@ -709,7 +685,7 @@ impl Workspace {
         ix: usize,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
-        let state = self.review_state(ix)?;
+        let state = self.review.review_state(ix)?;
         let said: gpui::SharedString = self.review_said(ix, state).into();
         let (border, fill, glyph) = match state {
             State::Open => (theme::faint(), None, ""),
@@ -748,7 +724,7 @@ impl Workspace {
                 ))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let done = this.review_state(ix) == Some(State::Done);
+                    let done = this.review.review_state(ix) == Some(State::Done);
                     this.set_reviewed(ix, !done, cx);
                 })),
         )
@@ -759,12 +735,12 @@ impl Workspace {
         &self,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
-        let (done, total) = self.review_progress()?;
+        let (done, total) = self.review.review_progress()?;
         let filtered = !self.pfilter.trim().is_empty();
         let shown = self.file_order();
         let shown_done = shown
             .iter()
-            .all(|&ix| self.review_state(ix) == Some(State::Done));
+            .all(|&ix| self.review.review_state(ix) == Some(State::Done));
         let action = |id: &'static str, label: String| {
             div()
                 .id(id)
@@ -845,7 +821,7 @@ impl Workspace {
 
     /// The chip in the file header: mark it read, and the key.
     pub(super) fn render_review_chip(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let state = self.review_state(self.review.file)?;
+        let state = self.review.review_state(self.review.file)?;
         Some(
             div()
                 .id("review-chip")
@@ -874,13 +850,35 @@ impl Workspace {
                     super::keys::On::Plain,
                 ))
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    if this.review_state(this.review.file) == Some(State::Done) {
+                    if this.review.review_state(this.review.file) == Some(State::Done) {
                         this.toggle_reviewed(cx)
                     } else {
                         this.mark_and_advance(cx)
                     }
                 })),
         )
+    }
+}
+
+impl super::review::Review {
+    pub(super) fn review_state(&self, ix: usize) -> Option<State> {
+        let scope = self.review_scope.as_deref()?;
+        let path = self.diff.as_ref()?.files.get(ix)?.path();
+        Some(match (self.reviewed.get(scope, path), self.fps.get(ix)) {
+            (Some(was), Some(now)) if was == *now => State::Done,
+            (Some(_), _) => State::Stale,
+            _ => State::Open,
+        })
+    }
+
+    /// How many files are marked read, of how many.
+    pub(super) fn review_progress(&self) -> Option<(usize, usize)> {
+        self.review_scope.as_ref()?;
+        let total = self.diff.as_ref()?.files.len();
+        let done = (0..total)
+            .filter(|&ix| self.review_state(ix) == Some(State::Done))
+            .count();
+        Some((done, total))
     }
 }
 

@@ -118,12 +118,24 @@ impl Compose {
 }
 
 impl Workspace {
-    pub(super) fn current_path(&self) -> Option<String> {
-        self.review
-            .diff
+    /// The lines selected in the file read in Code, first and last (1-based); a selection that
+    /// ends at the start of a line does not take that line (#104).
+    fn file_selected_lines(&self) -> Option<(u32, u32)> {
+        let view = self.review.file_view.as_ref()?;
+        let sel = self
+            .note_sel
             .as_ref()
-            .and_then(|d| d.files.get(self.review.file))
-            .map(|f| f.path().to_owned())
+            .filter(|s| s.note.as_ref() == format!("file-lines-{}", view.path))?;
+        if sel.anchor == sel.head {
+            return None;
+        }
+        let ((first, _), (last, at)) = sel.ends();
+        let last = if at == 0 && last > first {
+            last - 1
+        } else {
+            last
+        };
+        Some((first as u32 + 1, last as u32 + 1))
     }
 
     /// A click on a line's comment mark: folds what is open there, or opens what is folded.
@@ -177,7 +189,11 @@ impl Workspace {
 
     /// Where `comment` sits in the open file now (`None` when it belongs to another file).
     fn place_in_open_file(&self, comment: &Comment) -> Option<Place> {
-        self.place_in_file(comment, &self.current_path()?, self.review.data.as_ref()?)
+        self.place_in_file(
+            comment,
+            &self.review.current_path()?,
+            self.review.data.as_ref()?,
+        )
     }
 
     /// Where `comment` sits in file `path` built as `data`: by its line's text, else, its line
@@ -202,7 +218,7 @@ impl Workspace {
         self.agent_lines.clear();
         let (Some(root), Some(head), Some(diff)) = (
             self.root.clone(),
-            self.shown_head(),
+            self.review.shown_head(),
             self.review.diff.as_ref(),
         ) else {
             return;
@@ -553,26 +569,6 @@ impl Workspace {
         })
     }
 
-    /// The lines selected in the file read in Code, first and last (1-based); a selection that
-    /// ends at the start of a line does not take that line (#104).
-    fn file_selected_lines(&self) -> Option<(u32, u32)> {
-        let view = self.review.file_view.as_ref()?;
-        let sel = self
-            .note_sel
-            .as_ref()
-            .filter(|s| s.note.as_ref() == format!("file-lines-{}", view.path))?;
-        if sel.anchor == sel.head {
-            return None;
-        }
-        let ((first, _), (last, at)) = sel.ends();
-        let last = if at == 0 && last > first {
-            last - 1
-        } else {
-            last
-        };
-        Some((first as u32 + 1, last as u32 + 1))
-    }
-
     /// The composer written on Code's file: its path and line.
     pub(super) fn file_compose(&self) -> Option<(&str, u32)> {
         let c = self.compose.as_ref().filter(|c| c.file.is_some())?;
@@ -585,19 +581,6 @@ impl Workspace {
         Some((c.page?, c.old, c.line))
     }
 
-    /// The lines selected in the diff, first and last, on their side; a selection that ends at the
-    /// start of a line does not take that line.
-    fn selected_lines(&self) -> Option<(bool, u32, u32)> {
-        let sel = self.review.sel.filter(|s| !s.is_empty())?;
-        let (start, end) = sel.ends();
-        let last = if end.byte == 0 && end.line > start.line {
-            end.line - 1
-        } else {
-            end.line
-        };
-        Some((sel.old, start.line, last))
-    }
-
     /// A comment on line `line`, or on `first`..=`line`.
     fn start_comment_on(
         &mut self,
@@ -606,7 +589,7 @@ impl Workspace {
         line: u32,
         cx: &mut Context<Self>,
     ) {
-        let (Some(data), Some(path)) = (&self.review.data, self.current_path()) else {
+        let (Some(data), Some(path)) = (&self.review.data, self.review.current_path()) else {
             return;
         };
         let code = data.side(old).line(line).0.to_owned();
@@ -1198,7 +1181,7 @@ impl Workspace {
             at: compose.at,
             commit: match compose.file {
                 Some(rev) => rev.map(|id| id.to_string()),
-                None => self.shown_head().map(|id| id.to_string()),
+                None => self.review.shown_head().map(|id| id.to_string()),
             },
             branch: self.page_branch(),
             answers: compose.answers,
@@ -1237,11 +1220,11 @@ impl Workspace {
         };
         self.last_request_target = Some(iid);
         let (old_line, new_line) =
-            pair.unwrap_or_else(|| self.line_pair(compose.line, compose.old));
+            pair.unwrap_or_else(|| self.review.line_pair(compose.line, compose.old));
         let range = compose.first.and_then(|first| {
             Some((
-                self.diff_line(first, compose.old)?,
-                self.diff_line(compose.line, compose.old)?,
+                self.review.diff_line(first, compose.old)?,
+                self.review.diff_line(compose.line, compose.old)?,
             ))
         });
         let path = new_path.clone().or(old_path.clone()).unwrap_or_default();
@@ -1354,7 +1337,7 @@ impl Workspace {
                 Target::Request(_) => {
                     this.requests.current == Some(iid)
                         && (compose.page.is_some()
-                            || this.current_path().as_deref() == Some(compose.path.as_str()))
+                            || this.review.current_path().as_deref() == Some(compose.path.as_str()))
                 }
                 _ => this.requests.current == Some(iid),
             };
@@ -1384,48 +1367,6 @@ impl Workspace {
             cx.notify();
         };
         self.send_change(iid, ops, work, refused, cx);
-    }
-
-    /// A line of the open file with both of GitLab's counters: from its hunk, or, outside the
-    /// hunks (all lines shown), an unchanged line.
-    fn diff_line(&self, line: u32, old: bool) -> Option<crate::git::DiffLine> {
-        let file = self.review.diff.as_ref()?.files.get(self.review.file)?;
-        file.position(old, line)
-            .or_else(|| match self.line_pair(line, old) {
-                (Some(o), Some(n)) => Some(crate::git::DiffLine {
-                    kind: crate::git::LineKind::Context,
-                    old_line: Some(o),
-                    new_line: Some(n),
-                }),
-                _ => None,
-            })
-    }
-
-    /// The old and the new line numbers GitLab wants for a line: both for an unchanged line, one
-    /// for an added or removed line.
-    fn line_pair(&self, line: u32, old: bool) -> (Option<u32>, Option<u32>) {
-        use crate::git::LineKind;
-        let single = if old {
-            (Some(line), None)
-        } else {
-            (None, Some(line))
-        };
-        let Some(at) = self.row_of_line(line, old) else {
-            return single;
-        };
-        match self.review.rows[at] {
-            Row::Split {
-                left: Some(l),
-                right: Some(r),
-            } if l.kind == LineKind::Context => (Some(l.line), Some(r.line)),
-            Row::Unified {
-                cell,
-                old_line: Some(o),
-                new_line: Some(n),
-                ..
-            } if cell.kind == LineKind::Context => (Some(o), Some(n)),
-            _ => single,
-        }
     }
 
     // ---- a comment by line number ------------------------------------------------------------
@@ -1464,7 +1405,7 @@ impl Workspace {
         if self.review.data.is_none() || self.settings_open || self.compose.is_some() {
             return;
         }
-        if let Some((old, first, last)) = self.selected_lines() {
+        if let Some((old, first, last)) = self.review.selected_lines() {
             self.zone = super::zones::Zone::Diff;
             return self.start_comment_on(old, Some(first), last, cx);
         }
@@ -1490,7 +1431,7 @@ impl Workspace {
         let key = event.keystroke.key.as_str();
         if matches!(key, "up" | "down") {
             let step: i64 = if key == "up" { -1 } else { 1 };
-            if let Some((old, line)) = self.goline_target() {
+            if let Some((old, line)) = self.review.goline_target() {
                 let next = (i64::from(line) + step).max(1);
                 self.review.goline = Some(format!("{}{next}", if old { "-" } else { "" }));
                 self.move_marker();
@@ -1524,57 +1465,25 @@ impl Workspace {
         cx.notify();
     }
 
-    /// The side and line the typed number stands for; with nothing typed, the first change.
-    pub(super) fn goline_target(&self) -> Option<(bool, u32)> {
-        let text = self.review.goline.as_deref()?;
-        if text.trim().is_empty() {
-            let first = self
-                .review
-                .changes
-                .first()
-                .and_then(|&row| self.review.rows.get(row))
-                .copied();
-            return match first {
-                Some(Row::Split { right: Some(c), .. }) => Some((false, c.line)),
-                Some(Row::Split { left: Some(c), .. }) => Some((true, c.line)),
-                Some(Row::Unified { cell, old, .. }) => Some((old, cell.line)),
-                _ => None,
-            };
-        }
-        let n = text.trim_start_matches('-').parse::<u32>().ok()?;
-        Some((text.starts_with('-'), n))
-    }
-
     /// Puts the marker on the row of the typed line and scrolls it into view.
     fn move_marker(&mut self) {
         // The prompt row moves with the marker, so the rows are laid out again first.
         self.refresh_rows();
         self.review.goline_row = self
+            .review
             .goline_target()
-            .and_then(|(old, line)| self.row_of_line(line, old));
+            .and_then(|(old, line)| self.review.row_of_line(line, old));
         if let Some(at) = self.review.goline_row {
             // The marked line and the prompt under it.
             self.reveal_rows(at..at + 2);
         } else if let Some(gap) = self
+            .review
             .goline_target()
-            .and_then(|(old, line)| self.gap_of(line, old))
+            .and_then(|(old, line)| self.review.gap_of(line, old))
         {
             // Folded away: the run that holds it, which ↵ opens.
             self.reveal_rows(gap..gap + 1);
         }
-    }
-
-    /// The row of the folded run of unchanged lines that holds `line`.
-    fn gap_of(&self, line: u32, old: bool) -> Option<usize> {
-        let data = self.review.data.as_ref()?;
-        self.review.rows.iter().position(|r| match r {
-            Row::Gap { segment, .. } => matches!(
-                data.segments.get(*segment),
-                Some(super::rows::Segment::Same { old: o, new: n, len })
-                    if (if old { *o } else { *n }) <= line && line < (if old { *o } else { *n }) + len
-            ),
-            _ => false,
-        })
     }
 
     /// Opens the composer under the marked line.
@@ -1597,7 +1506,7 @@ impl Workspace {
         let Some(data) = self.review.data.clone() else {
             return;
         };
-        let Some((old, line)) = self.goline_target() else {
+        let Some((old, line)) = self.review.goline_target() else {
             return cx.notify();
         };
         if line == 0 || line > data.side(old).count() {
@@ -1615,14 +1524,14 @@ impl Workspace {
         self.review.goline_row = None;
         self.reveal_line(line, old);
         self.start_comment(old, line, cx);
-        if let Some(at) = self.row_of_line(line, old) {
+        if let Some(at) = self.review.row_of_line(line, old) {
             self.reveal_rows(at..at + 2);
         }
     }
 
     /// Opens the collapsed run of unchanged lines that holds `line`, if there is one.
     fn reveal_line(&mut self, line: u32, old: bool) {
-        if self.row_of_line(line, old).is_some() {
+        if self.review.row_of_line(line, old).is_some() {
             return;
         }
         let Some(data) = &self.review.data else {
@@ -1695,7 +1604,7 @@ impl Workspace {
             return None;
         }
         let text = self.review.goline.as_ref()?;
-        let target = self.goline_target();
+        let target = self.review.goline_target();
         let preview = target.and_then(|(old, line)| {
             let data = self.review.data.as_ref()?;
             (line >= 1 && line <= data.side(old).count())
@@ -3100,7 +3009,7 @@ impl Workspace {
             return self.open_folder_page(folder.to_owned(), cx);
         }
         self.jump = Some(id);
-        if self.current_path().as_ref() == Some(&path) {
+        if self.review.current_path().as_ref() == Some(&path) {
             self.apply_jump(cx);
             return;
         }
@@ -3132,7 +3041,7 @@ impl Workspace {
             if std::mem::take(&mut self.review.jump_whole) {
                 self.reveal_function(line, old);
             }
-            if let Some(at) = self.row_of_line(line, old) {
+            if let Some(at) = self.review.row_of_line(line, old) {
                 let under = self.review.rows[at + 1..]
                     .iter()
                     .take_while(|r| {
@@ -3184,6 +3093,103 @@ pub(super) fn room_for(width: f32, tight: bool) -> Room {
         w if w > 0. && w < 440. => Room::S,
         w if tight || (w > 0. && w < 720.) => Room::M,
         _ => Room::L,
+    }
+}
+
+impl super::review::Review {
+    pub(super) fn current_path(&self) -> Option<String> {
+        self.diff
+            .as_ref()
+            .and_then(|d| d.files.get(self.file))
+            .map(|f| f.path().to_owned())
+    }
+
+    /// The lines selected in the diff, first and last, on their side; a selection that ends at the
+    /// start of a line does not take that line.
+    fn selected_lines(&self) -> Option<(bool, u32, u32)> {
+        let sel = self.sel.filter(|s| !s.is_empty())?;
+        let (start, end) = sel.ends();
+        let last = if end.byte == 0 && end.line > start.line {
+            end.line - 1
+        } else {
+            end.line
+        };
+        Some((sel.old, start.line, last))
+    }
+
+    /// A line of the open file with both of GitLab's counters: from its hunk, or, outside the
+    /// hunks (all lines shown), an unchanged line.
+    fn diff_line(&self, line: u32, old: bool) -> Option<crate::git::DiffLine> {
+        let file = self.diff.as_ref()?.files.get(self.file)?;
+        file.position(old, line)
+            .or_else(|| match self.line_pair(line, old) {
+                (Some(o), Some(n)) => Some(crate::git::DiffLine {
+                    kind: crate::git::LineKind::Context,
+                    old_line: Some(o),
+                    new_line: Some(n),
+                }),
+                _ => None,
+            })
+    }
+
+    /// The old and the new line numbers GitLab wants for a line: both for an unchanged line, one
+    /// for an added or removed line.
+    fn line_pair(&self, line: u32, old: bool) -> (Option<u32>, Option<u32>) {
+        use crate::git::LineKind;
+        let single = if old {
+            (Some(line), None)
+        } else {
+            (None, Some(line))
+        };
+        let Some(at) = self.row_of_line(line, old) else {
+            return single;
+        };
+        match self.rows[at] {
+            Row::Split {
+                left: Some(l),
+                right: Some(r),
+            } if l.kind == LineKind::Context => (Some(l.line), Some(r.line)),
+            Row::Unified {
+                cell,
+                old_line: Some(o),
+                new_line: Some(n),
+                ..
+            } if cell.kind == LineKind::Context => (Some(o), Some(n)),
+            _ => single,
+        }
+    }
+
+    /// The side and line the typed number stands for; with nothing typed, the first change.
+    pub(super) fn goline_target(&self) -> Option<(bool, u32)> {
+        let text = self.goline.as_deref()?;
+        if text.trim().is_empty() {
+            let first = self
+                .changes
+                .first()
+                .and_then(|&row| self.rows.get(row))
+                .copied();
+            return match first {
+                Some(Row::Split { right: Some(c), .. }) => Some((false, c.line)),
+                Some(Row::Split { left: Some(c), .. }) => Some((true, c.line)),
+                Some(Row::Unified { cell, old, .. }) => Some((old, cell.line)),
+                _ => None,
+            };
+        }
+        let n = text.trim_start_matches('-').parse::<u32>().ok()?;
+        Some((text.starts_with('-'), n))
+    }
+
+    /// The row of the folded run of unchanged lines that holds `line`.
+    fn gap_of(&self, line: u32, old: bool) -> Option<usize> {
+        let data = self.data.as_ref()?;
+        self.rows.iter().position(|r| match r {
+            Row::Gap { segment, .. } => matches!(
+                data.segments.get(*segment),
+                Some(super::rows::Segment::Same { old: o, new: n, len })
+                    if (if old { *o } else { *n }) <= line && line < (if old { *o } else { *n }) + len
+            ),
+            _ => false,
+        })
     }
 }
 

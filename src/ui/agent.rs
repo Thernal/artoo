@@ -675,7 +675,7 @@ impl Workspace {
             .review
             .data
             .as_ref()
-            .filter(|_| self.current_path().as_deref() == Some(c.path.as_str()));
+            .filter(|_| self.review.current_path().as_deref() == Some(c.path.as_str()));
         let text_of = |n: u32| -> Option<String> {
             suggested
                 .iter()
@@ -779,7 +779,7 @@ impl Workspace {
     /// The asked comment the form keys act on: the first one with a form from the top of the
     /// view (#10 C: 1…9 pick, 0 your call, ⇧N a note).
     pub(super) fn acting_agent_form(&self) -> Option<u64> {
-        let top = self.local_top();
+        let top = self.review.local_top();
         self.review.rows.iter().skip(top).find_map(|row| match row {
             super::rows::Row::Thread(id) => self
                 .comments

@@ -113,7 +113,7 @@ impl Workspace {
             match self.review.diff.as_ref().map(|d| &d.header) {
                 Some(Header::WorkingTree { .. }) => self.code.rev = None,
                 Some(_) => {
-                    if let Some(rev) = self.viewed_rev() {
+                    if let Some(rev) = self.review.viewed_rev() {
                         self.code.rev = Some((format::short(rev), rev));
                     }
                 }
@@ -205,22 +205,6 @@ impl Workspace {
             })
             .ok();
         }));
-    }
-
-    /// The file's declarations, by keyword: (1-based line, depth, kind, name) — its Outline (#76).
-    pub(super) fn file_outline(&self) -> Vec<(u32, usize, &'static str, String)> {
-        let Some(view) = self.review.file_view.as_ref().filter(|v| v.image.is_none()) else {
-            return Vec::new();
-        };
-        view.lines
-            .iter()
-            .enumerate()
-            .filter_map(|(n, line)| {
-                let (kind, name) = crate::symbols::declaration(line)?;
-                let indent = line.len() - line.trim_start().len();
-                Some((n as u32 + 1, indent / 4, kind, name))
-            })
-            .collect()
     }
 
     /// Line `line` of the file comes into view, its source shown.
@@ -597,6 +581,24 @@ fn widen(line: &str, spans: &[Span]) -> (SharedString, Vec<Span>) {
         out.push(' ');
     }
     (out.into(), spans)
+}
+
+impl super::review::Review {
+    /// The file's declarations, by keyword: (1-based line, depth, kind, name) — its Outline (#76).
+    pub(super) fn file_outline(&self) -> Vec<(u32, usize, &'static str, String)> {
+        let Some(view) = self.file_view.as_ref().filter(|v| v.image.is_none()) else {
+            return Vec::new();
+        };
+        view.lines
+            .iter()
+            .enumerate()
+            .filter_map(|(n, line)| {
+                let (kind, name) = crate::symbols::declaration(line)?;
+                let indent = line.len() - line.trim_start().len();
+                Some((n as u32 + 1, indent / 4, kind, name))
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]

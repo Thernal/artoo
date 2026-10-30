@@ -1215,7 +1215,7 @@ impl Workspace {
             }
             Pick::Symbol { old, line } => {
                 self.palette = None;
-                if let Some(path) = self.current_path() {
+                if let Some(path) = self.review.current_path() {
                     self.jump_to_line(&path, line, old, cx);
                 }
             }

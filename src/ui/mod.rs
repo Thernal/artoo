@@ -853,7 +853,8 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         }
                         "comments" => {
                             // Unsaved sample comments on the first changed line, one being written.
-                            let (Some(data), Some(path)) = (&this.review.data, this.current_path())
+                            let (Some(data), Some(path)) =
+                                (&this.review.data, this.review.current_path())
                             else {
                                 continue;
                             };
@@ -891,7 +892,8 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         }
                         // An agent comment sent, and the agent asking back with a plan (#10).
                         "agent-form" => {
-                            let (Some(data), Some(path)) = (&this.review.data, this.current_path())
+                            let (Some(data), Some(path)) =
+                                (&this.review.data, this.review.current_path())
                             else {
                                 continue;
                             };
@@ -1227,7 +1229,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             ws.update(cx, |this, cx| {
                 this.find.text = Some(text);
                 this.refilter();
-                this.recompute_matches();
+                this.review.recompute_matches();
                 cx.notify();
             });
             wait(800).await;
@@ -2277,25 +2279,8 @@ impl Workspace {
         self.selection = Selection::None;
         self.review.diff = None;
         self.review.diff_task = None;
-        self.clear_file();
+        self.review.clear_file();
         self.review.file = 0;
-    }
-
-    fn clear_file(&mut self) {
-        self.review.stack = None;
-        self.review.page.leave();
-        self.review.annotations.clear();
-        self.review.data = None;
-        self.review.view_task = None;
-        self.review.rows.clear();
-        self.review.expanded.clear();
-        self.review.sel = None;
-        self.review.matches.clear();
-        self.review.match_at = 0;
-        self.review.changes.clear();
-        self.review.change_at = None;
-        self.review.offset = 0.;
-        self.review.diff_list.reset(0);
     }
 
     fn select_branch(&mut self, ix: usize, keep: Option<git2::Oid>, cx: &mut Context<Self>) {
@@ -2558,17 +2543,6 @@ impl Workspace {
         }
     }
 
-    /// The commit the shown diff's new side is: what a comment written now is read from.
-    pub(super) fn shown_head(&self) -> Option<git2::Oid> {
-        match &self.review.diff.as_ref()?.header {
-            Header::Commit(c) => Some(c.id),
-            Header::Versions { to, .. } => Some(to.tip),
-            Header::Compare { head, .. } => Some(head.1),
-            Header::Interdiff { new, .. } => Some(new.id),
-            Header::WorkingTree { .. } => None,
-        }
-    }
-
     fn load_diff(
         &mut self,
         keep: Option<String>,
@@ -2613,10 +2587,9 @@ impl Workspace {
                             })
                         );
                         let order = this.file_order();
-                        let unread = order
-                            .iter()
-                            .copied()
-                            .find(|&ix| this.review_state(ix) != Some(reviewed::State::Done));
+                        let unread = order.iter().copied().find(|&ix| {
+                            this.review.review_state(ix) != Some(reviewed::State::Done)
+                        });
                         let ix = ix
                             .or(unread.filter(|_| request))
                             .or_else(|| order.first().copied())
@@ -2658,7 +2631,7 @@ impl Workspace {
         }
         self.review.file = ix;
         self.fcursor = None;
-        self.clear_file();
+        self.review.clear_file();
         self.scroll_file_into_view(ix);
         let mode = self.review.options.mode;
         self.review.view_task = Some(cx.spawn(async move |this, cx| {
@@ -2702,7 +2675,7 @@ impl Workspace {
             .review
             .data
             .as_ref()
-            .map(|data| rows::layout(data, &self.view_options(), &self.review.expanded))
+            .map(|data| rows::layout(data, &self.review.view_options(), &self.review.expanded))
             .unwrap_or_default();
         self.review.rows = self.with_pins(rows);
         self.review.notes = self.line_notes();
@@ -2711,79 +2684,22 @@ impl Workspace {
             None => self.review.diff_list.reset(self.review.rows.len()),
         }
         self.review.offset = self.review.offset.min(self.max_offset());
-        self.recompute_matches();
+        self.review.recompute_matches();
     }
 
     /// Every file laid out again: the open one, or all of them in one scroll. The line at the top
     /// stays there — a narrow window's unified diff and back has other rows above it (the
     /// developer, 2026-10-23: the place seemed lost).
     fn relayout_all(&mut self) {
-        let anchor = self.scroll_anchor();
+        let anchor = self.review.scroll_anchor();
         if self.review.stack.is_some() {
             self.relayout_stack();
         } else {
             self.relayout();
         }
         if let Some(anchor) = anchor {
-            self.restore_anchor(anchor);
+            self.review.restore_anchor(anchor);
         }
-    }
-
-    /// What the diff's top shows: the file, the line of the nearest row with one (none on its
-    /// header), and how far into that row it is scrolled.
-    fn scroll_anchor(&self) -> Option<Anchor> {
-        let top = self.review.diff_list.logical_scroll_top();
-        let (file, rows, inside) = match &self.review.stack {
-            Some(stack) => {
-                let (b, inside) = stack.locate(top.item_ix);
-                let block = stack.blocks.get(b)?;
-                let rows = if block.file == self.review.file {
-                    &self.review.rows
-                } else {
-                    &block.rows
-                };
-                (block.file, rows, inside.checked_sub(1))
-            }
-            None => (self.review.file, &self.review.rows, Some(top.item_ix)),
-        };
-        let line = inside.and_then(|at| {
-            rows.get(..=at.min(rows.len().checked_sub(1)?))?
-                .iter()
-                .rev()
-                .find_map(rows::line_of)
-        });
-        Some((file, line, top.offset_in_item))
-    }
-
-    /// Back to what `scroll_anchor` saw, in the rows as they are laid out now.
-    fn restore_anchor(&mut self, (file, line, offset): Anchor) {
-        let item_ix = match &self.review.stack {
-            Some(stack) => {
-                let (Some(b), Some(header)) = (stack.block_of(file), stack.header(file)) else {
-                    return;
-                };
-                let rows = if file == self.review.file {
-                    &self.review.rows
-                } else {
-                    &stack.blocks[b].rows
-                };
-                match line.and_then(|l| rows::row_with(rows, l)) {
-                    Some(at) if at < stack.shown(b) => header + 1 + at,
-                    _ => header,
-                }
-            }
-            None if file == self.review.file => {
-                match line.and_then(|l| rows::row_with(&self.review.rows, l)) {
-                    Some(at) => at,
-                    None => return,
-                }
-            }
-            None => return,
-        };
-        self.review.diff_list.scroll_to(gpui::ListOffset {
-            item_ix,
-            offset_in_item: offset,
-        });
     }
 
     /// Shows the hidden lines of an unchanged run in place, keeping the scroll position.
@@ -2807,36 +2723,25 @@ impl Workspace {
         self.review.expanded.insert(segment);
         let rows = self.with_pins(rows::layout(
             &data,
-            &self.view_options(),
+            &self.review.view_options(),
             &self.review.expanded,
         ));
         let inserted = rows.len() + 1 - self.review.rows.len();
         self.review.rows = rows;
         self.review.diff_list.splice(at..at + 1, inserted);
-        self.recompute_matches();
+        self.review.recompute_matches();
         cx.notify();
     }
 
-    fn option(&self, opt: Opt) -> bool {
-        match opt {
-            Opt::Unified => self.review.options.unified,
-            Opt::Wrap => self.review.options.wrap,
-            Opt::FullContext => self.review.options.full_context,
-            Opt::Whitespace => self.review.options.ignore_whitespace,
-            Opt::OneFile => self.review.options.one_file,
-            Opt::FoldReviewed => self.review.options.fold_reviewed,
-        }
-    }
-
     fn set_option(&mut self, opt: Opt, value: bool, cx: &mut Context<Self>) {
-        if self.option(opt) != value {
+        if self.review.option(opt) != value {
             self.set_option_unsaved(opt, value, cx);
             self.review.options.save();
         }
     }
 
     fn set_option_unsaved(&mut self, opt: Opt, value: bool, cx: &mut Context<Self>) {
-        if self.option(opt) == value {
+        if self.review.option(opt) == value {
             return;
         }
         match opt {
@@ -2937,15 +2842,6 @@ impl Workspace {
 
     // ---- selecting and context menus ---------------------------------------------------
 
-    /// The new-side line shown at `row`, to open the editor where the reader is.
-    pub(super) fn new_line_of_row(&self, row: usize) -> Option<u32> {
-        match *self.review.rows.get(row)? {
-            rows::Row::Split { right, .. } => right.map(|c| c.line),
-            rows::Row::Unified { new_line, .. } => new_line,
-            _ => None,
-        }
-    }
-
     /// A right click on a diff line: copy it (or the selection), comment on it, open it.
     fn line_context(
         &mut self,
@@ -2961,7 +2857,7 @@ impl Workspace {
             let (start, end) = s.ends();
             !s.is_empty() && s.old == old && (start.line..=end.line).contains(&line)
         });
-        let copy = match self.selected_text() {
+        let copy = match self.review.selected_text() {
             Some(text) if in_selection => Entry::new("Copy selection", Act::Copy(text)).key("⌘C"),
             _ => Entry::new(
                 "Copy line",
@@ -2974,7 +2870,7 @@ impl Workspace {
         )];
         if let (false, Some(path), Some(editor)) = (
             old,
-            self.current_path(),
+            self.review.current_path(),
             crate::editor::pick(self.settings.editor),
         ) {
             second.push(Entry::new(
@@ -2984,7 +2880,7 @@ impl Workspace {
         }
         // What a reviewer pastes into a chat: a link to the line, its place, the command.
         let mut share = Vec::new();
-        if let (Some(path), Some(rev)) = (self.current_path(), self.viewed_rev()) {
+        if let (Some(path), Some(rev)) = (self.review.current_path(), self.review.viewed_rev()) {
             if let (false, Some(web)) = (old, &self.web) {
                 share.push(
                     Entry::new(
@@ -3006,17 +2902,6 @@ impl Workspace {
             }
         }
         self.open_menu(at, vec![vec![copy], second, share], cx);
-    }
-
-    /// The revision whose files the open diff shows on its new side; none for the working tree.
-    pub(super) fn viewed_rev(&self) -> Option<git2::Oid> {
-        match &self.review.diff.as_ref()?.header {
-            Header::Commit(c) => Some(c.id),
-            Header::Compare { head, .. } => Some(head.1),
-            Header::Versions { to, .. } => Some(to.tip),
-            Header::Interdiff { new, .. } => Some(new.id),
-            Header::WorkingTree { .. } => None,
-        }
     }
 
     fn commit_context(&mut self, ix: usize, at: Point<gpui::Pixels>, cx: &mut Context<Self>) {
@@ -3099,7 +2984,7 @@ impl Workspace {
     }
 
     fn toggle(&mut self, opt: Opt, cx: &mut Context<Self>) {
-        self.set_option(opt, !self.option(opt), cx);
+        self.set_option(opt, !self.review.option(opt), cx);
     }
 
     /// Recomputes the selected commit's or versions' diff, staying on the same file.
@@ -3169,13 +3054,6 @@ impl Workspace {
         cx.notify();
     }
 
-    /// The options the rows are laid out with: a diff under 700 px wide is unified.
-    fn view_options(&self) -> ViewOptions {
-        let mut options = self.review.options;
-        options.unified |= self.review.narrow;
-        options
-    }
-
     /// The side panel's Changes is open and has the files as a zone.
     pub(super) fn files_zone(&self) -> bool {
         self.side_open()
@@ -3232,20 +3110,25 @@ impl Workspace {
 
     /// How far the longest line can scroll before its end reaches the right edge.
     fn max_offset(&self) -> f32 {
-        let Some(widest) = self.widest() else {
+        let Some(widest) = self.review.widest() else {
             return 0.;
         };
         let style = self.row_style();
-        let sides = if self.view_options().unified { 1. } else { 2. };
+        let sides = if self.review.view_options().unified {
+            1.
+        } else {
+            2.
+        };
         // A file's card is inset from the sides, and framed.
         let card = if self.review.stack.is_some() {
             2. * stack::CARD_MARGIN + 2.
         } else {
             0.
         };
-        let visible =
-            (self.review.body_width.get() - card - style.chrome(self.view_options().unified))
-                / sides;
+        let visible = (self.review.body_width.get()
+            - card
+            - style.chrome(self.review.view_options().unified))
+            / sides;
         (widest as f32 * self.char_width + 24. - visible).max(0.)
     }
 
@@ -3448,8 +3331,8 @@ impl Workspace {
     /// The files shown again as they now should be, one at a time or in one scroll, the file and
     /// the place in it kept.
     fn show_files_anew(&mut self, cx: &mut Context<Self>) {
-        self.review.restore_scroll = self.scroll_place();
-        self.clear_file();
+        self.review.restore_scroll = self.review.scroll_place();
+        self.review.clear_file();
         self.select_file(self.review.file, cx);
     }
 
@@ -3720,7 +3603,7 @@ impl Workspace {
             let bars = order.iter().map(|&ix| {
                 let color = if ix == self.review.file {
                     theme::accent()
-                } else if self.review_state(ix) == Some(reviewed::State::Done) {
+                } else if self.review.review_state(ix) == Some(reviewed::State::Done) {
                     theme::added()
                 } else {
                     theme::hover()
@@ -3778,7 +3661,7 @@ impl Workspace {
                     .text_size(px(12.))
                     .text_color(theme::muted())
             }))
-            .children(self.review_progress().map(|(done, total)| {
+            .children(self.review.review_progress().map(|(done, total)| {
                 div()
                     .flex_none()
                     .text_size(px(12.))
@@ -4348,10 +4231,10 @@ impl Workspace {
                 .text_color(theme::muted())
                 .child("No changes")
                 .into_any_element(),
-            (Some(file), _) if self.shows_page(file) => {
+            (Some(file), _) if self.review.shows_page(file) => {
                 self.render_page_alone(self.review.file, cx.entity().downgrade(), cx)
             }
-            (Some(file), _) if self.shows_image(file) => self.render_image(file, cx),
+            (Some(file), _) if self.review.shows_image(file) => self.render_image(file, cx),
             (Some(file), _) if file.hunks.is_empty() => div()
                 .flex_1()
                 .flex()
@@ -4779,7 +4662,9 @@ impl Workspace {
                     } else {
                         element
                     };
-                    workspace.card_row(element, file, stack.last_of_block(ix))
+                    workspace
+                        .review
+                        .card_row(element, file, stack.last_of_block(ix))
                 }
                 _ => element,
             }
@@ -5072,6 +4957,129 @@ fn button(
                 .text_color(theme::faint())
                 .child(keys::text(shortcut).into_owned()),
         )
+}
+
+impl review::Review {
+    fn clear_file(&mut self) {
+        self.stack = None;
+        self.page.leave();
+        self.annotations.clear();
+        self.data = None;
+        self.view_task = None;
+        self.rows.clear();
+        self.expanded.clear();
+        self.sel = None;
+        self.matches.clear();
+        self.match_at = 0;
+        self.changes.clear();
+        self.change_at = None;
+        self.offset = 0.;
+        self.diff_list.reset(0);
+    }
+
+    /// The commit the shown diff's new side is: what a comment written now is read from.
+    pub(super) fn shown_head(&self) -> Option<git2::Oid> {
+        match &self.diff.as_ref()?.header {
+            Header::Commit(c) => Some(c.id),
+            Header::Versions { to, .. } => Some(to.tip),
+            Header::Compare { head, .. } => Some(head.1),
+            Header::Interdiff { new, .. } => Some(new.id),
+            Header::WorkingTree { .. } => None,
+        }
+    }
+
+    /// What the diff's top shows: the file, the line of the nearest row with one (none on its
+    /// header), and how far into that row it is scrolled.
+    fn scroll_anchor(&self) -> Option<Anchor> {
+        let top = self.diff_list.logical_scroll_top();
+        let (file, rows, inside) = match &self.stack {
+            Some(stack) => {
+                let (b, inside) = stack.locate(top.item_ix);
+                let block = stack.blocks.get(b)?;
+                let rows = if block.file == self.file {
+                    &self.rows
+                } else {
+                    &block.rows
+                };
+                (block.file, rows, inside.checked_sub(1))
+            }
+            None => (self.file, &self.rows, Some(top.item_ix)),
+        };
+        let line = inside.and_then(|at| {
+            rows.get(..=at.min(rows.len().checked_sub(1)?))?
+                .iter()
+                .rev()
+                .find_map(rows::line_of)
+        });
+        Some((file, line, top.offset_in_item))
+    }
+
+    /// Back to what `scroll_anchor` saw, in the rows as they are laid out now.
+    fn restore_anchor(&mut self, (file, line, offset): Anchor) {
+        let item_ix = match &self.stack {
+            Some(stack) => {
+                let (Some(b), Some(header)) = (stack.block_of(file), stack.header(file)) else {
+                    return;
+                };
+                let rows = if file == self.file {
+                    &self.rows
+                } else {
+                    &stack.blocks[b].rows
+                };
+                match line.and_then(|l| rows::row_with(rows, l)) {
+                    Some(at) if at < stack.shown(b) => header + 1 + at,
+                    _ => header,
+                }
+            }
+            None if file == self.file => match line.and_then(|l| rows::row_with(&self.rows, l)) {
+                Some(at) => at,
+                None => return,
+            },
+            None => return,
+        };
+        self.diff_list.scroll_to(gpui::ListOffset {
+            item_ix,
+            offset_in_item: offset,
+        });
+    }
+
+    fn option(&self, opt: Opt) -> bool {
+        match opt {
+            Opt::Unified => self.options.unified,
+            Opt::Wrap => self.options.wrap,
+            Opt::FullContext => self.options.full_context,
+            Opt::Whitespace => self.options.ignore_whitespace,
+            Opt::OneFile => self.options.one_file,
+            Opt::FoldReviewed => self.options.fold_reviewed,
+        }
+    }
+
+    /// The new-side line shown at `row`, to open the editor where the reader is.
+    pub(super) fn new_line_of_row(&self, row: usize) -> Option<u32> {
+        match *self.rows.get(row)? {
+            rows::Row::Split { right, .. } => right.map(|c| c.line),
+            rows::Row::Unified { new_line, .. } => new_line,
+            _ => None,
+        }
+    }
+
+    /// The revision whose files the open diff shows on its new side; none for the working tree.
+    pub(super) fn viewed_rev(&self) -> Option<git2::Oid> {
+        match &self.diff.as_ref()?.header {
+            Header::Commit(c) => Some(c.id),
+            Header::Compare { head, .. } => Some(head.1),
+            Header::Versions { to, .. } => Some(to.tip),
+            Header::Interdiff { new, .. } => Some(new.id),
+            Header::WorkingTree { .. } => None,
+        }
+    }
+
+    /// The options the rows are laid out with: a diff under 700 px wide is unified.
+    fn view_options(&self) -> ViewOptions {
+        let mut options = self.options;
+        options.unified |= self.narrow;
+        options
+    }
 }
 
 #[cfg(test)]

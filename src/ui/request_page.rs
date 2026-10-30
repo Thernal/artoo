@@ -172,6 +172,7 @@ impl Workspace {
         };
         let head = git2::Oid::from_str(&m.head).ok();
         let reviewed = self
+            .review
             .review_progress()
             .map(|(done, total)| (done as u32, total as u32))
             .or_else(|| head.and_then(|h| self.head_part(h)))

@@ -103,7 +103,7 @@ impl Workspace {
         if !span || c.anchor.is_none() {
             c.anchor = Some(ix);
         }
-        let keep = self.current_path();
+        let keep = self.review.current_path();
         self.load_compare_pick(keep, cx);
     }
 

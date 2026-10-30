@@ -78,9 +78,11 @@ impl Workspace {
         if !self.review.annotate {
             return;
         }
-        let (Some(root), Some(rev), Some(path)) =
-            (self.root.clone(), self.viewed_rev(), self.current_path())
-        else {
+        let (Some(root), Some(rev), Some(path)) = (
+            self.root.clone(),
+            self.review.viewed_rev(),
+            self.review.current_path(),
+        ) else {
             return;
         };
         // A deleted file has no new side to annotate.
@@ -144,23 +146,6 @@ impl Workspace {
         }));
     }
 
-    /// Where file `ix`'s side is read for its blame, and its path there.
-    fn blame_at(&self, ix: usize, old: bool) -> Option<Side> {
-        let diff = self.review.diff.as_ref()?;
-        let file = diff.files.get(ix)?;
-        let path = if old { &file.old_path } else { &file.new_path };
-        let at = match (&diff.header, old) {
-            (Header::WorkingTree { .. }, true) => BlameAt::Head,
-            (Header::WorkingTree { .. }, false) => BlameAt::Working,
-            (Header::Commit(c), true) => BlameAt::ParentOf(c.id),
-            (Header::Compare { start, .. }, true) => BlameAt::Rev(*start),
-            (Header::Versions { from, .. }, true) => BlameAt::Rev(from.tip),
-            (Header::Interdiff { old, .. }, true) => BlameAt::Rev(old.id),
-            (_, false) => BlameAt::Rev(self.viewed_rev()?),
-        };
-        Some((at, path.clone()?))
-    }
-
     /// The pointer came on line number `line` of file `ix` (`at`), or went off it: after a long rest
     /// its tip says who wrote the line.
     pub(super) fn hover_line_number(
@@ -198,22 +183,6 @@ impl Workspace {
         });
     }
 
-    /// The tip of the line number the pointer rests on, under the pointer.
-    pub(super) fn render_blame_tip(&self) -> Option<gpui::AnyElement> {
-        let tip = self.review.blame_tip.as_ref()?;
-        let view = tip.view.clone()?;
-        Some(
-            gpui::deferred(
-                gpui::anchored()
-                    .position(tip.at + gpui::point(gpui::px(0.), gpui::px(10.)))
-                    .snap_to_window_with_margin(gpui::px(8.))
-                    .child(view),
-            )
-            .with_priority(2)
-            .into_any_element(),
-        )
-    }
-
     /// Who wrote line `line` of file `ix`, read in the background the first time a side of a file
     /// is asked about.
     pub(super) fn blame_view(
@@ -223,7 +192,7 @@ impl Workspace {
         line: u32,
         cx: &mut Context<Self>,
     ) -> AnyView {
-        let (Some(root), Some(key)) = (self.root.clone(), self.blame_at(ix, old)) else {
+        let (Some(root), Some(key)) = (self.root.clone(), self.review.blame_at(ix, old)) else {
             return cx.new(|_| NoTip).into();
         };
         if let Some(lines) = self.review.blames.read.get(&key) {
@@ -292,5 +261,40 @@ impl Workspace {
                 cx.notify();
             }
         }
+    }
+}
+
+impl super::review::Review {
+    /// Where file `ix`'s side is read for its blame, and its path there.
+    fn blame_at(&self, ix: usize, old: bool) -> Option<Side> {
+        let diff = self.diff.as_ref()?;
+        let file = diff.files.get(ix)?;
+        let path = if old { &file.old_path } else { &file.new_path };
+        let at = match (&diff.header, old) {
+            (Header::WorkingTree { .. }, true) => BlameAt::Head,
+            (Header::WorkingTree { .. }, false) => BlameAt::Working,
+            (Header::Commit(c), true) => BlameAt::ParentOf(c.id),
+            (Header::Compare { start, .. }, true) => BlameAt::Rev(*start),
+            (Header::Versions { from, .. }, true) => BlameAt::Rev(from.tip),
+            (Header::Interdiff { old, .. }, true) => BlameAt::Rev(old.id),
+            (_, false) => BlameAt::Rev(self.viewed_rev()?),
+        };
+        Some((at, path.clone()?))
+    }
+
+    /// The tip of the line number the pointer rests on, under the pointer.
+    pub(super) fn render_blame_tip(&self) -> Option<gpui::AnyElement> {
+        let tip = self.blame_tip.as_ref()?;
+        let view = tip.view.clone()?;
+        Some(
+            gpui::deferred(
+                gpui::anchored()
+                    .position(tip.at + gpui::point(gpui::px(0.), gpui::px(10.)))
+                    .snap_to_window_with_margin(gpui::px(8.))
+                    .child(view),
+            )
+            .with_priority(2)
+            .into_any_element(),
+        )
     }
 }

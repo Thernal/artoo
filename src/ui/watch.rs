@@ -324,7 +324,7 @@ impl Workspace {
         if seen == 0 || to + 1 != seen || latest <= to {
             return;
         }
-        self.review.restore_scroll = self.scroll_place();
+        self.review.restore_scroll = self.review.scroll_place();
         let file = self
             .review
             .restore_scroll
@@ -350,7 +350,7 @@ impl Workspace {
         let Selection::Versions { from, to } = notice.undo else {
             return;
         };
-        self.review.restore_scroll = self.scroll_place();
+        self.review.restore_scroll = self.review.scroll_place();
         let file = self
             .review
             .restore_scroll

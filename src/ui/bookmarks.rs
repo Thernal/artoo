@@ -113,13 +113,13 @@ impl Workspace {
     /// With nothing clicked: the first changed line shown.
     fn bookmark_fallback_line(&self) -> Option<u32> {
         let row = *self.review.changes.first()?;
-        self.new_line_of_row(row)
+        self.review.new_line_of_row(row)
     }
 
     pub(super) fn toggle_bookmark_at(&mut self, line: u32, cx: &mut Context<Self>) {
         let (Some(scope), Some(path), Some(data)) = (
             self.review.review_scope.clone(),
-            self.current_path(),
+            self.review.current_path(),
             self.review.data.clone(),
         ) else {
             return;

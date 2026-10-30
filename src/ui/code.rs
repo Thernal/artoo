@@ -843,7 +843,7 @@ impl Workspace {
 
     /// The Outline tool window: the declarations of the file read in Code; a click goes to one.
     pub(super) fn outline_tool(&self, cx: &mut Context<Self>) -> super::tools::ToolView {
-        let outline = self.file_outline();
+        let outline = self.review.file_outline();
         let n = outline.len();
         let rows = outline.into_iter().map(|(line, depth, kind, name)| {
             super::row(SharedString::from(format!("outline-{line}")), false)

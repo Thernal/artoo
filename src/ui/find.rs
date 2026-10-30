@@ -181,44 +181,10 @@ impl Workspace {
         cx.notify();
     }
 
-    /// The rows of the open diff that hold the find text, and where each change begins.
-    pub(super) fn recompute_matches(&mut self) {
-        self.review.matches = match &self.review.data {
-            Some(data) => rows::matching_rows(data, &self.review.rows, &self.review.dterms),
-            None => Vec::new(),
-        };
-        self.review.match_at = self
-            .review
-            .match_at
-            .min(self.review.matches.len().saturating_sub(1));
-        let mut changes = Vec::new();
-        let mut inside = false;
-        for (ix, row) in self.review.rows.iter().enumerate() {
-            match row {
-                Row::Thread(_) | Row::Request(_) | Row::Draft(_) | Row::Note(_) | Row::Composer => {
-                    continue;
-                }
-                row if rows::is_change(row) => {
-                    if !inside {
-                        changes.push(ix);
-                    }
-                    inside = true;
-                }
-                _ => inside = false,
-            }
-        }
-        self.review.changes = changes;
-        self.review.change_at = self
-            .review
-            .change_at
-            .filter(|&at| at < self.review.changes.len());
-        self.recompute_stack_matches();
-    }
-
     /// Scrolls the diff so `row` sits a few lines below the top.
     pub(super) fn scroll_to_row(&mut self, row: usize) {
         self.open_active();
-        let row = row + self.list_base();
+        let row = row + self.review.list_base();
         self.review.diff_list.scroll_to(gpui::ListOffset {
             item_ix: row.saturating_sub(3),
             offset_in_item: px(0.),
@@ -231,7 +197,7 @@ impl Workspace {
     /// it.
     pub(super) fn reveal_rows(&mut self, rows: std::ops::Range<usize>) {
         self.open_active();
-        let base = self.list_base();
+        let base = self.review.list_base();
         let rows = rows.start + base..rows.end + base;
         let height = f32::from(self.review.diff_list.viewport_bounds().size.height);
         let fit = (height / f32::from(px(self.row_height()))).floor() as usize;
@@ -467,7 +433,7 @@ impl Workspace {
     pub(super) fn close_dfind(&mut self, cx: &mut Context<Self>) {
         self.review.dfind = None;
         self.review.dterms = Arc::default();
-        self.recompute_matches();
+        self.review.recompute_matches();
         cx.notify();
     }
 
@@ -481,11 +447,11 @@ impl Workspace {
         self.review.dterms = Arc::new(terms.unwrap_or_default());
         self.review.dfind = Some(text);
         self.review.match_at = 0;
-        self.recompute_matches();
+        self.review.recompute_matches();
         if self.review.stack.is_some() {
             // The folded files are built to be searched too.
             self.build_stack(cx);
-            if let Some(at) = self.first_stack_match() {
+            if let Some(at) = self.review.first_stack_match() {
                 self.go_to_stack_match(at, cx);
             }
         } else if let Some(&row) = self.review.matches.first() {
@@ -502,7 +468,7 @@ impl Workspace {
             format!("Not a regular expression: {error}")
         } else if self.review.dterms.is_empty() {
             String::new()
-        } else if let Some(count) = self.stack_match_count() {
+        } else if let Some(count) = self.review.stack_match_count() {
             count
         } else if self.review.matches.is_empty() {
             "No matches".to_owned()
@@ -757,3 +723,33 @@ impl Workspace {
 }
 
 use super::Selection;
+
+impl super::review::Review {
+    /// The rows of the open diff that hold the find text, and where each change begins.
+    pub(super) fn recompute_matches(&mut self) {
+        self.matches = match &self.data {
+            Some(data) => rows::matching_rows(data, &self.rows, &self.dterms),
+            None => Vec::new(),
+        };
+        self.match_at = self.match_at.min(self.matches.len().saturating_sub(1));
+        let mut changes = Vec::new();
+        let mut inside = false;
+        for (ix, row) in self.rows.iter().enumerate() {
+            match row {
+                Row::Thread(_) | Row::Request(_) | Row::Draft(_) | Row::Note(_) | Row::Composer => {
+                    continue;
+                }
+                row if rows::is_change(row) => {
+                    if !inside {
+                        changes.push(ix);
+                    }
+                    inside = true;
+                }
+                _ => inside = false,
+            }
+        }
+        self.changes = changes;
+        self.change_at = self.change_at.filter(|&at| at < self.changes.len());
+        self.recompute_stack_matches();
+    }
+}

@@ -202,9 +202,9 @@ impl Workspace {
                     .review
                     .changes
                     .get(self.review.change_at.unwrap_or(0))
-                    .and_then(|&row| self.new_line_of_row(row))
+                    .and_then(|&row| self.review.new_line_of_row(row))
                     .unwrap_or(1);
-                Some((root.join(self.current_path()?), line))
+                Some((root.join(self.review.current_path()?), line))
             }
             _ => None,
         }

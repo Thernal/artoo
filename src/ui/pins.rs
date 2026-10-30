@@ -114,7 +114,7 @@ impl FilePins {
 impl Workspace {
     /// The open file's rows with what is pinned on its lines.
     pub(super) fn with_pins(&self, rows: Vec<Row>) -> Vec<Row> {
-        match (self.current_path(), &self.review.data) {
+        match (self.review.current_path(), &self.review.data) {
             (Some(path), Some(data)) => self.with_pins_in(&path, data, rows, true),
             _ => rows,
         }
@@ -132,7 +132,7 @@ impl Workspace {
         let pins = self.pins_of(path);
         // The prompt of `c` hangs under the marked line, like the composer that follows it.
         let go = if active && !pins.composing && self.review.goline.is_some() {
-            self.goline_target()
+            self.review.goline_target()
         } else {
             None
         };
@@ -141,7 +141,8 @@ impl Workspace {
 
     /// The comment marks of the open file's gutter.
     pub(super) fn line_notes(&self) -> Vec<LineNote> {
-        self.current_path()
+        self.review
+            .current_path()
             .map(|path| self.line_notes_in(&path, self.review.data.as_deref()))
             .unwrap_or_default()
     }
