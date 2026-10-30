@@ -6,7 +6,6 @@ use super::hover::CutInTip;
 use super::nav::Page;
 use super::px;
 use super::roots::Group;
-use super::rows::Row;
 use super::tools::ToolView;
 use super::waiting::Op;
 use super::{Header, Selection, Workspace, format, plural, theme};
@@ -2752,28 +2751,6 @@ pub(super) fn comment_item(
                     .text_color(theme::muted()),
             ),
         )
-}
-
-impl super::review::Review {
-    /// The list row that shows `line` of the old or the new side.
-    pub(super) fn row_of_line(&self, line: u32, old: bool) -> Option<usize> {
-        self.rows.iter().position(|r| match r {
-            Row::Split { left, right } => {
-                let cell = if old { left } else { right };
-                cell.is_some_and(|c| c.line == line)
-            }
-            Row::Unified {
-                old_line, new_line, ..
-            } => {
-                if old {
-                    *old_line == Some(line)
-                } else {
-                    *new_line == Some(line)
-                }
-            }
-            _ => false,
-        })
-    }
 }
 
 #[cfg(test)]

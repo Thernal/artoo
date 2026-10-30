@@ -1,10 +1,11 @@
 //! A changed markdown file read as a page: the documents read as Source (kept between launches, per repository,
 //! in `page-source.txt`), the removed sections and the blocks' comments opened, each document's rows compared.
 
+use crate::review::Review;
 use artoo_core::git::FileDiff;
 use artoo_core::markdown::Block;
 use artoo_core::mddiff::{self, Change, Row};
-use artoo_core::storage;
+use artoo_core::{markdown, storage};
 use artoo_ui_kit::theme;
 use gpui::Rgba;
 use std::cell::RefCell;
@@ -129,6 +130,27 @@ pub fn heading(block: &Block) -> Option<String> {
     match block {
         Block::Heading(_, i) => Some(i.text.clone()),
         _ => None,
+    }
+}
+
+impl Review {
+    /// Whether file `file` is drawn as a page (not as its text diff).
+    pub fn shows_page(&self, file: &FileDiff) -> bool {
+        !self.page.is_source(file.path())
+            && markdown::is_document(file.path())
+            && file.note.is_none()
+            && !file.hunks.is_empty()
+            && (file.old_text.is_some() || file.new_text.is_some())
+    }
+
+    /// One file at a time, and it is a page.
+    pub fn page_alone(&self) -> bool {
+        self.stack.is_none()
+            && self
+                .diff
+                .as_ref()
+                .and_then(|d| d.files.get(self.file))
+                .is_some_and(|f| self.shows_page(f))
     }
 }
 

@@ -1,9 +1,12 @@
 //! A file read in Code: what it was read at, its lines highlighted with their tabs widened, a Markdown file
 //! rendered until Source, an image decoded, a binary file's size; and where a note on a line sits now.
 
-use artoo_core::highlight::Span;
+use crate::review::{Review, ReviewEvent};
+use artoo_core::git::{ImageKind, Repo};
+use artoo_core::highlight::{self, Span};
+use artoo_ui_kit::{format, px};
 use git2::Oid;
-use gpui::{ListState, SharedString, Task};
+use gpui::{Context, ListAlignment, ListState, SharedString, Task};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -106,6 +109,95 @@ pub fn widen(line: &str, spans: &[Span]) -> (SharedString, Vec<Span>) {
         out.push(' ');
     }
     (out.into(), spans)
+}
+
+impl Review {
+    /// Reads `path` at `rev` (the working tree when `None`) in the background; once read it is the file
+    /// shown (`ReviewEvent::FileRead`), or why it could not be.
+    pub fn read_file(
+        &mut self,
+        root: std::path::PathBuf,
+        path: String,
+        rev: Option<Oid>,
+        cx: &mut Context<Self>,
+    ) {
+        let file = path.clone();
+        self.file_reading = Some(cx.spawn(async move |this, cx| {
+            let read = cx
+                .background_executor()
+                .spawn(async move {
+                    let at = match rev {
+                        Some(rev) => format::short(rev),
+                        None => "the working tree".to_owned(),
+                    };
+                    if let Some(kind) = ImageKind::of(&file) {
+                        let bytes = match rev {
+                            Some(rev) => Repo::open(&root).ok()?.bytes_at(rev, &file)?,
+                            None => std::fs::read(root.join(&file)).ok()?,
+                        };
+                        let image = gpui::Image::from_bytes(crate::image_view::format(kind), bytes);
+                        return Some((Vec::new(), Vec::new(), at, Some(Arc::new(image)), None));
+                    }
+                    let bytes = match rev {
+                        Some(rev) => Repo::open(&root).ok()?.bytes_at(rev, &file)?,
+                        None => std::fs::read(root.join(&file)).ok()?,
+                    };
+                    if artoo_core::files::binary(&bytes) {
+                        let size = Some(bytes.len() as u64);
+                        return Some((Vec::new(), Vec::new(), at, None, size));
+                    }
+                    let text = String::from_utf8_lossy(&bytes);
+                    let spans = highlight::highlight(&file, &text);
+                    let lines: Vec<String> = text.lines().map(str::to_owned).collect();
+                    Some((lines, spans, at, None, None))
+                })
+                .await;
+            this.update(cx, |rv, cx| {
+                rv.file_reading = None;
+                cx.emit(match read {
+                    Some((lines, spans, at, image, binary)) => {
+                        let text: Vec<_> = lines
+                            .iter()
+                            .enumerate()
+                            .map(|(n, l)| widen(l, spans.get(n).map_or(&[][..], Vec::as_slice)))
+                            .collect();
+                        let plain = text.iter().map(|(l, _)| l.to_string()).collect();
+                        rv.file_view = Some(FileView {
+                            path,
+                            at,
+                            rev,
+                            lines,
+                            text: Rc::new(text),
+                            plain: Rc::new(std::cell::RefCell::new(plain)),
+                            list: ListState::new(0, ListAlignment::Top, px(400.)),
+                            rendered: true,
+                            image,
+                            binary,
+                        });
+                        ReviewEvent::FileRead
+                    }
+                    None => ReviewEvent::Failed(format!("{path} is not in this version.")),
+                });
+            })
+            .ok();
+        }));
+    }
+
+    /// The file's declarations, by keyword: (1-based line, depth, kind, name) — its Outline (#76).
+    pub fn file_outline(&self) -> Vec<(u32, usize, &'static str, String)> {
+        let Some(view) = self.file_view.as_ref().filter(|v| v.image.is_none()) else {
+            return Vec::new();
+        };
+        view.lines
+            .iter()
+            .enumerate()
+            .filter_map(|(n, line)| {
+                let (kind, name) = artoo_core::symbols::declaration(line)?;
+                let indent = line.len() - line.trim_start().len();
+                Some((n as u32 + 1, indent / 4, kind, name))
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]

@@ -4,10 +4,7 @@
 //! it works.
 
 use super::Workspace;
-use super::diff_view::LineNote;
-use super::review::Review;
-use super::rows::{self, FileData, Row};
-use artoo_review::pins::{FilePins, Pins};
+use artoo_review::pins::Pins;
 use gpui::App;
 
 /// The tab's side: what is pinned on the files a layout lays out, gathered now.
@@ -38,54 +35,5 @@ impl Workspace {
                 (path, pins)
             })
             .collect()
-    }
-}
-
-/// The review's side: the rows and marks of a file with what others pinned on it.
-impl Review {
-    /// The open file's rows with what is pinned on its lines.
-    pub(super) fn with_pins(&self, rows: Vec<Row>, pins: &Pins) -> Vec<Row> {
-        match (self.current_path(), &self.data) {
-            (Some(path), Some(data)) => self.with_pins_in(&path, data, rows, true, pins),
-            _ => rows,
-        }
-    }
-
-    /// The rows of file `path` with what is pinned on its lines; the `c` prompt only in the `active` file, the one
-    /// the keyboard works in.
-    pub(super) fn with_pins_in(
-        &self,
-        path: &str,
-        data: &FileData,
-        rows: Vec<Row>,
-        active: bool,
-        pins: &Pins,
-    ) -> Vec<Row> {
-        let none = FilePins::default();
-        let pins = pins.get(path).unwrap_or(&none);
-        // The prompt of `c` hangs under the marked line, like the composer that follows it.
-        let go = if active && !pins.composing && self.goline.is_some() {
-            self.goline_target()
-        } else {
-            None
-        };
-        rows::pinned(rows, &pins.rows(data, go))
-    }
-
-    /// The comment marks of the open file's gutter.
-    pub(super) fn line_notes(&self, pins: &Pins) -> Vec<LineNote> {
-        self.current_path()
-            .map(|path| self.line_notes_in(&path, self.data.as_deref(), pins))
-            .unwrap_or_default()
-    }
-
-    /// The comment marks of file `path`'s gutter, `data` its built diff.
-    pub(super) fn line_notes_in(
-        &self,
-        path: &str,
-        data: Option<&FileData>,
-        pins: &Pins,
-    ) -> Vec<LineNote> {
-        pins.get(path).map(|p| p.marks(data)).unwrap_or_default()
     }
 }

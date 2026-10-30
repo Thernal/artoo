@@ -41,8 +41,8 @@ const OPEN: &[&str] = &[
     // The app's views reach their modules: stage 3 gives hosts its contract, stage 4 moves the views.
     "artoo-hosts",
     "artoo-agents",
-    // The review moves here bottom up (stage 4, R3): the app's views read its modules until its entity and views
-    // follow and its contract (`artoo-review-api`) holds what pages speak.
+    // The review (stage 4, R3): the app's views read its modules, its entity included, until the find bar, the
+    // Changes list and the head line follow and its contract (`artoo-review-api`) holds what pages speak.
     "artoo-review",
 ];
 

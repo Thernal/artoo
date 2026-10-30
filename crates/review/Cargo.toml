@@ -9,5 +9,6 @@ publish = false
 [dependencies]
 artoo-core = { path = "../core" }
 artoo-ui-kit = { path = "../ui-kit" }
+anyhow.workspace = true
 git2.workspace = true
 gpui.workspace = true

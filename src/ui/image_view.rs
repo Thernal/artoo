@@ -5,9 +5,9 @@
 use super::diff_view::{chip, group};
 use super::px;
 use super::{Workspace, theme};
-use crate::git::{ChangeKind, FileDiff, ImageSide};
-use artoo_review::image_view::{MAX_H, MAX_W, Mode, change, describe, fit, frame, is_svg};
-use gpui::{ClickEvent, Context, FontWeight, MouseButton, ObjectFit, Pixels, div, img, prelude::*};
+use crate::git::{FileDiff, ImageSide};
+use artoo_review::image_view::{MAX_H, MAX_W, Mode, change, describe, fit, is_svg};
+use gpui::{ClickEvent, Context, MouseButton, ObjectFit, Pixels, div, img, prelude::*};
 
 impl Workspace {
     pub(super) fn render_image(&self, file: &FileDiff, cx: &mut Context<Self>) -> gpui::AnyElement {
@@ -207,86 +207,4 @@ pub(super) fn source_switch(source: bool, cx: &mut Context<Workspace>) -> impl I
                 cx.notify();
             },
         )))
-}
-
-impl super::review::Review {
-    /// Whether the open file is drawn as images (not as its text diff).
-    pub(super) fn shows_image(&self, file: &FileDiff) -> bool {
-        (file.old_image.is_some() || file.new_image.is_some())
-            && !(self.images.source && is_svg(file))
-    }
-
-    /// The sides next to each other, each with its kind, size and weight.
-    fn render_two_up(&self, file: &FileDiff) -> impl IntoElement + use<> {
-        let half = MAX_W / 2. + 40.;
-        let side = |image: Option<&ImageSide>, before: bool| {
-            let tone = if before {
-                theme::removed()
-            } else {
-                theme::added()
-            };
-            let label = match (before, file.change) {
-                (true, _) => "Before",
-                (false, _) => "After",
-            };
-            div()
-                .flex()
-                .flex_col()
-                .items_center()
-                .gap_2()
-                .w(px(half))
-                .child(
-                    div()
-                        .text_size(px(12.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(tone)
-                        .child(label),
-                )
-                .child(match image {
-                    Some(s) => {
-                        let (w, h) = fit(s.size, half - 16., MAX_H);
-                        frame(tone)
-                            .child(
-                                img(self.images.image(s))
-                                    .w(px(w))
-                                    .h(px(h))
-                                    .object_fit(ObjectFit::Contain),
-                            )
-                            .into_any_element()
-                    }
-                    None => div()
-                        .w(px(half - 16.))
-                        .h(px(120.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(6.))
-                        .border_1()
-                        .border_dashed()
-                        .border_color(theme::island_border())
-                        .text_size(px(12.))
-                        .text_color(theme::faint())
-                        .child(if before {
-                            "Not there before"
-                        } else {
-                            "Deleted"
-                        })
-                        .into_any_element(),
-                })
-                .children(image.map(|s| {
-                    div()
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child(describe(s))
-                }))
-        };
-        let added = file.change == ChangeKind::Added;
-        let deleted = file.change == ChangeKind::Deleted;
-        div()
-            .flex()
-            .items_start()
-            .gap_4()
-            .when(!added, |s| s.child(side(file.old_image.as_ref(), true)))
-            .when(!deleted, |s| s.child(side(file.new_image.as_ref(), false)))
-    }
 }

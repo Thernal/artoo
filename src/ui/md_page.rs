@@ -858,24 +858,3 @@ fn fold_line(
         })
         .into_any_element()
 }
-
-impl super::review::Review {
-    /// Whether file `file` is drawn as a page (not as its text diff).
-    pub(super) fn shows_page(&self, file: &FileDiff) -> bool {
-        !self.page.is_source(file.path())
-            && markdown::is_document(file.path())
-            && file.note.is_none()
-            && !file.hunks.is_empty()
-            && (file.old_text.is_some() || file.new_text.is_some())
-    }
-
-    /// One file at a time, and it is a page.
-    fn page_alone(&self) -> bool {
-        self.stack.is_none()
-            && self
-                .diff
-                .as_ref()
-                .and_then(|d| d.files.get(self.file))
-                .is_some_and(|f| self.shows_page(f))
-    }
-}

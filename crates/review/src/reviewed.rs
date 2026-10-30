@@ -1,6 +1,8 @@
 //! The marks of files read: which files of a diff a reviewer read, kept per commit, version range or merge request on
 //! this machine (`Store`); a file that changes in a newer version loses its mark (`fingerprint`).
 
+use crate::diff::Header;
+use crate::review::Review;
 use artoo_core::git::FileDiff;
 use artoo_core::storage;
 use std::collections::HashMap;
@@ -328,6 +330,210 @@ pub fn fingerprint(file: &FileDiff) -> u64 {
         file.old_text.as_deref().unwrap_or_default().as_bytes(),
     );
     h
+}
+
+impl Review {
+    pub fn review_state(&self, ix: usize) -> Option<State> {
+        let scope = self.review_scope.as_deref()?;
+        let path = self.diff.as_ref()?.files.get(ix)?.path();
+        Some(match (self.reviewed.get(scope, path), self.fps.get(ix)) {
+            (Some(was), Some(now)) if was == *now => State::Done,
+            (Some(_), _) => State::Stale,
+            _ => State::Open,
+        })
+    }
+
+    /// How many files are marked read, of how many.
+    pub fn review_progress(&self) -> Option<(usize, usize)> {
+        self.review_scope.as_ref()?;
+        let total = self.diff.as_ref()?.files.len();
+        let done = (0..total)
+            .filter(|&ix| self.review_state(ix) == Some(State::Done))
+            .count();
+        Some((done, total))
+    }
+
+    /// Every file of the open diff is reviewed.
+    pub fn all_reviewed(&self) -> bool {
+        self.review_progress()
+            .is_some_and(|(done, total)| total > 0 && done == total)
+    }
+
+    /// The files under folder `path` of the tree.
+    pub fn files_under(&self, path: &str) -> Vec<usize> {
+        let prefix = format!("{path}/");
+        self.diff
+            .as_ref()
+            .map(|d| {
+                d.files
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, f)| f.path().starts_with(&prefix))
+                    .map(|(ix, _)| ix)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The key the marks of the open diff are kept under; none for the working tree, which has
+    /// no stable identity. A branch's pages keep them too: your own work is reviewed there before
+    /// it goes out (the developer, 2026-10-23; #74 had none).
+    fn review_scope(&self) -> Option<String> {
+        let root = self.root.as_ref()?.display().to_string();
+        let key = match &self.diff.as_ref()?.header {
+            Header::Commit(c) => format!("commit:{}", c.id),
+            Header::Compare {
+                request: Some(iid), ..
+            } => format!("mr:{iid}"),
+            Header::Compare { base, head, .. } => format!("range:{}..{}", base.1, head.1),
+            Header::Versions { from, to, .. } => format!("ver:{}..{}", from.tip, to.tip),
+            Header::Interdiff { .. } | Header::WorkingTree { .. } => return None,
+        };
+        Some(format!("{root}|{key}"))
+    }
+
+    /// Records whether the head of the open diff is fully reviewed; the card offering what is next
+    /// comes up the moment it becomes so.
+    fn sync_complete(&mut self) {
+        let (Some(root), Some(head)) = (self.root.clone(), self.viewed_rev()) else {
+            return;
+        };
+        let root = root.display().to_string();
+        let done = self.all_reviewed();
+        // Only a whole branch or request (a compare, versions) makes its head count as reviewed;
+        // one commit read is not its branch read.
+        let whole = matches!(
+            self.diff.as_ref().map(|d| &d.header),
+            Some(Header::Compare { .. } | Header::Versions { .. })
+        );
+        if done && !(whole && self.reviewed.head_done(&root, head)) {
+            self.done_card = true;
+        }
+        if !done {
+            self.done_card = false;
+        }
+        if whole {
+            self.reviewed.set_head(&root, head, done);
+            if let Some((reviewed, total)) = self.review_progress() {
+                self.reviewed
+                    .set_progress(&root, head, reviewed as u32, total as u32);
+            }
+        }
+    }
+
+    /// How far the review of the branch or request ending at `head` got, when it started and is
+    /// not done: (files reviewed, files).
+    pub fn head_part(&self, head: git2::Oid) -> Option<(u32, u32)> {
+        let root = self.root.as_ref()?.display().to_string();
+        if self.reviewed.head_done(&root, head) {
+            return None;
+        }
+        self.reviewed
+            .head_progress(&root, head)
+            .filter(|&(done, total)| done > 0 && done < total)
+    }
+
+    /// How far your review of request `iid` got, against `head`, its head now (#72).
+    pub fn request_seen(&self, iid: u64, head: Option<git2::Oid>) -> Seen {
+        let Some(root) = self.root.as_ref().map(|r| r.display().to_string()) else {
+            return Seen::Never;
+        };
+        if head.is_some_and(|h| self.reviewed.head_done(&root, h)) {
+            return Seen::Done;
+        }
+        let heads = self.reviewed.marked_heads(&format!("{root}|mr:{iid}"));
+        if heads.is_empty() {
+            Seen::Never
+        } else if head.is_some() && heads.iter().all(|h| *h == head) {
+            Seen::Started
+        } else {
+            Seen::Earlier
+        }
+    }
+
+    /// The head of request `iid` you last reviewed at, when it was pushed since (`Seen::Earlier`).
+    pub fn reviewed_head(&self, iid: u64, head: Option<git2::Oid>) -> Option<git2::Oid> {
+        let root = self.root.as_ref()?.display().to_string();
+        self.reviewed.last_head(&format!("{root}|mr:{iid}"), head)
+    }
+
+    /// Whether the whole diff of a branch or request ending at `head` was reviewed.
+    pub fn head_reviewed(&self, head: git2::Oid) -> bool {
+        self.root
+            .as_ref()
+            .is_some_and(|r| self.reviewed.head_done(&r.display().to_string(), head))
+    }
+
+    /// Called when a diff arrives: its scope and the fingerprint of each file.
+    pub fn index(&mut self) {
+        self.review_scope = self.review_scope();
+        self.fps = match (&self.review_scope, &self.diff) {
+            (Some(_), Some(d)) => d.files.iter().map(fingerprint).collect(),
+            _ => Vec::new(),
+        };
+        self.done_card = false;
+    }
+
+    /// Marks file `ix` read (`done`) or unmarks it; false when the diff keeps no marks.
+    pub fn set_reviewed(&mut self, ix: usize, done: bool) -> bool {
+        let (Some(scope), Some(fp)) = (self.review_scope.clone(), self.fps.get(ix).copied()) else {
+            return false;
+        };
+        let Some(path) = self
+            .diff
+            .as_ref()
+            .and_then(|d| d.files.get(ix))
+            .map(|f| f.path().to_owned())
+        else {
+            return false;
+        };
+        if done {
+            let head = self.viewed_rev();
+            self.reviewed.set(&scope, &path, fp, head);
+        } else {
+            self.reviewed.clear(&scope, &path);
+        }
+        self.review_changed(&[ix]);
+        self.sync_complete();
+        true
+    }
+
+    /// Marks or unmarks files `ixs` at once; false when the diff keeps no marks.
+    pub fn set_reviewed_many(&mut self, ixs: &[usize], done: bool) -> bool {
+        let (Some(scope), Some(diff)) = (self.review_scope.clone(), self.diff.as_ref()) else {
+            return false;
+        };
+        let files: Vec<(String, u64)> = ixs
+            .iter()
+            .filter_map(|&ix| Some((diff.files.get(ix)?.path().to_owned(), *self.fps.get(ix)?)))
+            .collect();
+        let head = self.viewed_rev();
+        self.reviewed.set_many(&scope, &files, done, head);
+        self.review_changed(ixs);
+        self.sync_complete();
+        true
+    }
+
+    /// The next file, in the tree's order, that is not marked read: its collapsed folders open, and a
+    /// generated file folded opens too, as its "Show it anyway" (#144, #167).
+    pub fn next_unreviewed(&mut self) -> Option<usize> {
+        let order = self.file_order_all();
+        let ix = next_open(&order, self.file, |ix| {
+            self.review_state(ix) == Some(State::Done)
+        })?;
+        self.open_folders_of(ix);
+        if let Some(path) = self
+            .diff
+            .as_ref()
+            .and_then(|d| d.files.get(ix))
+            .filter(|f| self.generated_folded(f))
+            .map(|f| f.path().to_owned())
+        {
+            self.unfolded.insert(path);
+            self.sync_stack();
+        }
+        Some(ix)
+    }
 }
 
 #[cfg(test)]

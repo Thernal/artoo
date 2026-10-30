@@ -104,7 +104,8 @@ The target above is reached stage by stage; until then:
   core's `Route` and `Place`; the app's kinds in `src/ui/routes.rs`, each to move to its owner's `-api` with its
   pages). `menu::Act` and `toast` still know the other features. Meanwhile a new page, action or toast is added there in the shape the registries will take: one
   variant, one id, one owner.
-- `artoo-review` (stage 4, R3) receives the review bottom up: the row drawing (`diff_view`) and the types the review
-  keeps (`select`, `reviewed`, `annotate`, `stack`, `pins`, `diff`, the images', pages' and file view's state, the Changes list's rows) first, the diff's rows having gone to the core (`artoo_core::rows`);
-  the entity, its events and its host follow, then `artoo-review-api` for what pages speak.
+- `artoo-review` (stage 4, R3) holds the review: the entity (`review::Review`) with its events and its host, the
+  row drawing (`diff_view`) and the types it keeps, the diff's rows having gone to the core (`artoo_core::rows`).
+  The find bar, the Changes list and the head line are still drawn by the tab; `artoo-review-api` for what pages
+  speak follows.
 - Every implementation's surface is wide (`OPEN`) until its views move with it.
