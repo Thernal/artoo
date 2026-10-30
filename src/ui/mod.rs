@@ -1796,7 +1796,6 @@ pub struct Workspace {
     note_lines: std::collections::HashMap<u64, u32>,
     note_task: Option<Task<()>>,
     tabs: shell::TabModel,
-    options: ViewOptions,
     settings: Settings,
     settings_open: bool,
     /// Set up Artoo, while it is open (#143).
@@ -1921,6 +1920,7 @@ impl Workspace {
             keys_exact: false,
             keys_changed_only: false,
             review: review::Review {
+                options: ViewOptions::load(&settings),
                 notes: Vec::new(),
                 images: Default::default(),
                 page: Default::default(),
@@ -2059,7 +2059,6 @@ impl Workspace {
             note_lines: Default::default(),
             note_task: None,
             tabs: Default::default(),
-            options: ViewOptions::load(&settings),
             settings,
             settings_open: false,
             setup: None,
@@ -2555,7 +2554,7 @@ impl Workspace {
 
     fn settings(&self) -> DiffSettings {
         DiffSettings {
-            ignore_whitespace: self.options.ignore_whitespace,
+            ignore_whitespace: self.review.options.ignore_whitespace,
         }
     }
 
@@ -2661,7 +2660,7 @@ impl Workspace {
         self.fcursor = None;
         self.clear_file();
         self.scroll_file_into_view(ix);
-        let mode = self.options.mode;
+        let mode = self.review.options.mode;
         self.review.view_task = Some(cx.spawn(async move |this, cx| {
             let data = cx
                 .background_executor()
@@ -2820,19 +2819,19 @@ impl Workspace {
 
     fn option(&self, opt: Opt) -> bool {
         match opt {
-            Opt::Unified => self.options.unified,
-            Opt::Wrap => self.options.wrap,
-            Opt::FullContext => self.options.full_context,
-            Opt::Whitespace => self.options.ignore_whitespace,
-            Opt::OneFile => self.options.one_file,
-            Opt::FoldReviewed => self.options.fold_reviewed,
+            Opt::Unified => self.review.options.unified,
+            Opt::Wrap => self.review.options.wrap,
+            Opt::FullContext => self.review.options.full_context,
+            Opt::Whitespace => self.review.options.ignore_whitespace,
+            Opt::OneFile => self.review.options.one_file,
+            Opt::FoldReviewed => self.review.options.fold_reviewed,
         }
     }
 
     fn set_option(&mut self, opt: Opt, value: bool, cx: &mut Context<Self>) {
         if self.option(opt) != value {
             self.set_option_unsaved(opt, value, cx);
-            self.options.save();
+            self.review.options.save();
         }
     }
 
@@ -2841,14 +2840,14 @@ impl Workspace {
             return;
         }
         match opt {
-            Opt::Unified => self.options.unified = value,
-            Opt::Wrap => self.options.wrap = value,
-            Opt::FullContext => self.options.full_context = value,
-            Opt::Whitespace => self.options.ignore_whitespace = value,
-            Opt::OneFile => self.options.one_file = value,
-            Opt::FoldReviewed => self.options.fold_reviewed = value,
+            Opt::Unified => self.review.options.unified = value,
+            Opt::Wrap => self.review.options.wrap = value,
+            Opt::FullContext => self.review.options.full_context = value,
+            Opt::Whitespace => self.review.options.ignore_whitespace = value,
+            Opt::OneFile => self.review.options.one_file = value,
+            Opt::FoldReviewed => self.review.options.fold_reviewed = value,
         }
-        cx.set_menus(menus(&self.options, cx));
+        cx.set_menus(menus(&self.review.options, cx));
         match opt {
             Opt::Unified | Opt::FullContext => self.relayout_all(),
             Opt::FoldReviewed => self.refold(cx),
@@ -2862,11 +2861,11 @@ impl Workspace {
 
     /// Changes what a diff marks inside changed lines. Not remembered: Settings holds the default.
     fn set_mode(&mut self, mode: DiffMode, cx: &mut Context<Self>) {
-        if self.options.mode == mode {
+        if self.review.options.mode == mode {
             return;
         }
-        self.options.mode = mode;
-        cx.set_menus(menus(&self.options, cx));
+        self.review.options.mode = mode;
+        cx.set_menus(menus(&self.review.options, cx));
         if self.review.stack.is_some() {
             self.reopen_stack(cx);
         } else {
@@ -2878,7 +2877,7 @@ impl Workspace {
     /// The View menu: the diff mode, then the options that are on or off.
     /// The View ▾ menu (#48 A): one flat list of what the toolbar does not show, in groups.
     fn view_menu(&self) -> Vec<(Option<&'static str>, Vec<Entry>)> {
-        let o = self.options;
+        let o = self.review.options;
         let tool = self.tool();
         vec![
             (
@@ -3172,7 +3171,7 @@ impl Workspace {
 
     /// The options the rows are laid out with: a diff under 700 px wide is unified.
     fn view_options(&self) -> ViewOptions {
-        let mut options = self.options;
+        let mut options = self.review.options;
         options.unified |= self.review.narrow;
         options
     }
@@ -3213,7 +3212,7 @@ impl Workspace {
     ) -> RowStyle<'a> {
         let digits = data.map_or(3, |d| d.gutter_digits);
         RowStyle {
-            wrap: self.options.wrap,
+            wrap: self.review.options.wrap,
             offset: self.review.offset,
             marks: self.settings.mark_style,
             terms: &self.review.dterms,
@@ -3251,7 +3250,7 @@ impl Workspace {
     }
 
     fn scroll_horizontally(&mut self, event: &ScrollWheelEvent, cx: &mut Context<Self>) {
-        if self.options.wrap {
+        if self.review.options.wrap {
             return;
         }
         let delta = f32::from(event.delta.pixel_delta(px(self.row_height())).x);
@@ -3459,7 +3458,7 @@ impl Workspace {
     }
 
     fn cycle_mode(&mut self, _: &CycleMode, _: &mut Window, cx: &mut Context<Self>) {
-        self.set_mode(self.options.mode.next(), cx);
+        self.set_mode(self.review.options.mode.next(), cx);
     }
 
     fn set_lines(&mut self, _: &SetLines, _: &mut Window, cx: &mut Context<Self>) {
@@ -3807,7 +3806,7 @@ impl Workspace {
                 this.set_option(opt, value, cx)
             })
         };
-        let o = self.options;
+        let o = self.review.options;
         div()
             .flex_none()
             .flex()
@@ -4789,7 +4788,7 @@ impl Workspace {
 
         let width = self.review.body_width.clone();
         let max = self.max_offset();
-        let thumb = (!self.options.wrap && max > 0.).then(|| {
+        let thumb = (!self.review.options.wrap && max > 0.).then(|| {
             // Its track keeps clear of the island's round bottom corners.
             let inset = if flat() { 0. } else { ISLAND_RADIUS };
             let track = (self.review.body_width.get() - 2. * inset).max(0.);

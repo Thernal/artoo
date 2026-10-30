@@ -417,7 +417,7 @@ impl Workspace {
                     None => plural(diff.file_count(), "file"),
                 })
             };
-            let list = self.options.list_files;
+            let list = self.review.options.list_files;
             let mut end: Vec<AnyElement> = Vec::new();
             if !folded {
                 end.push(

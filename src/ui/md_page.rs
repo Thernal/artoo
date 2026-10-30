@@ -411,7 +411,7 @@ impl Workspace {
         let blocks = self.page_blocks(ix, this, cx);
         let page = page_text(div().w_full().py(px(16.)).pl(px(44.)).pr(px(24.))).child(
             div()
-                .when(self.options.unified, |s| s.max_w(px(880.)))
+                .when(self.review.options.unified, |s| s.max_w(px(880.)))
                 .flex()
                 .flex_col()
                 .gap(px(12.))
@@ -442,7 +442,7 @@ impl Workspace {
             .filter(|(_, (_, changed))| *changed)
             .map(|(k, _)| k)
             .collect();
-        let unified = self.options.unified;
+        let unified = self.review.options.unified;
         // Laid over its place rather than in it: its blocks never make the pane taller than the
         // window, so it scrolls.
         let page = page_text(
@@ -576,7 +576,7 @@ impl Workspace {
             notes: Rc::new(notes),
             under: RefCell::new(under),
         };
-        if self.options.unified {
+        if self.review.options.unified {
             self.unified(&rows, &path, &ctx, &old_pics, &new_pics, cx)
         } else {
             self.split(&rows, &ctx, &old_pics, &new_pics, cx)

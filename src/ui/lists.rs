@@ -487,7 +487,7 @@ impl Workspace {
         match &self.review.diff {
             Some(diff) => file_items(
                 &diff.files,
-                self.options.list_files,
+                self.review.options.list_files,
                 &self.pfilter,
                 &self.review.collapsed,
                 diff.tags.staged,
@@ -513,7 +513,7 @@ impl Workspace {
         match &self.review.diff {
             Some(diff) => files_of(file_items(
                 &diff.files,
-                self.options.list_files,
+                self.review.options.list_files,
                 &self.pfilter,
                 &HashSet::new(),
                 diff.tags.staged,
@@ -555,9 +555,9 @@ impl Workspace {
     }
 
     pub(super) fn set_file_view(&mut self, list: bool, cx: &mut Context<Self>) {
-        if self.options.list_files != list {
-            self.options.list_files = list;
-            self.options.save();
+        if self.review.options.list_files != list {
+            self.review.options.list_files = list;
+            self.review.options.save();
             cx.notify();
         }
     }
@@ -654,7 +654,7 @@ impl Workspace {
         let Some(diff) = &self.review.diff else {
             return div().into_any_element();
         };
-        let tree = !self.options.list_files && self.pfilter.trim().is_empty();
+        let tree = !self.review.options.list_files && self.pfilter.trim().is_empty();
         // A file's row: its status and name always, its +/− while the list has 240 px (#79); its
         // tooltip the whole path.
         let counts = self.counts_fit();

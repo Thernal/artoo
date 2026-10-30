@@ -151,7 +151,7 @@ impl Workspace {
     /// ← and → : the neighbouring file, or in the file tree open and close folders.
     pub(super) fn zone_horizontal(&mut self, forward: bool, cx: &mut Context<Self>) {
         match self.zone {
-            Zone::Files if !self.options.list_files && self.pfilter.trim().is_empty() => {
+            Zone::Files if !self.review.options.list_files && self.pfilter.trim().is_empty() => {
                 self.tree_horizontal(forward, cx)
             }
             Zone::Branches if forward => self.set_zone(Zone::Commits, cx),

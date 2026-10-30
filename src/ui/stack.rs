@@ -162,7 +162,7 @@ fn changed_span(old: &[Row], new: &[Row]) -> Option<(usize, usize, usize)> {
 impl Workspace {
     /// Every file in one scroll: the option is on and the diff has more than one file.
     pub(super) fn wants_stack(&self) -> bool {
-        !self.options.one_file
+        !self.review.options.one_file
             && !(self.zen_one && self.zen.is_some())
             && self.review.diff.as_ref().is_some_and(|d| d.files.len() > 1)
     }
@@ -194,7 +194,7 @@ impl Workspace {
 
     /// File `ix` folds by default: it is reviewed and View → Fold reviewed files is on.
     fn folds_by_default(&self, ix: usize) -> bool {
-        self.options.fold_reviewed && self.review_state(ix) == Some(State::Done)
+        self.review.options.fold_reviewed && self.review_state(ix) == Some(State::Done)
     }
 
     /// File `ix` shows its header alone: by default, unless the reader opened it (or the other
@@ -322,7 +322,7 @@ impl Workspace {
         };
         let order: Vec<usize> = super::lists::file_items(
             &diff.files,
-            self.options.list_files,
+            self.review.options.list_files,
             "",
             &HashSet::new(),
             diff.tags.staged,
@@ -489,7 +489,7 @@ impl Workspace {
     /// Files marked or unmarked reviewed fold or open as their mark says again. Only with Fold
     /// reviewed files on does the mark say anything: else a file the reader folded stays so (#144).
     pub(super) fn review_changed(&mut self, ixs: &[usize]) {
-        if !self.options.fold_reviewed {
+        if !self.review.options.fold_reviewed {
             return;
         }
         let Some(stack) = self.review.stack.as_mut() else {
@@ -622,7 +622,7 @@ impl Workspace {
             };
             let file = diff.files.get(ix)?;
             (!built && (finding || !self.folded(ix)) && self.needs_rows(file))
-                .then(|| (ix, file.clone(), self.options.mode))
+                .then(|| (ix, file.clone(), self.review.options.mode))
         })
     }
 
