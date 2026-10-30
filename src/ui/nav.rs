@@ -451,7 +451,7 @@ impl Workspace {
         }
         let tabbed = self.branch_tabbed(&refname);
         Some(
-            match (self.selection, self.diff.as_ref().map(|d| &d.header)) {
+            match (self.selection, self.review.diff.as_ref().map(|d| &d.header)) {
                 (Selection::WorkingTree, _) => Page::WorkingTree,
                 (Selection::Versions { from, to }, _) => Page::Versions(refname, from, to),
                 (Selection::Commit(ix), _) if tabbed => {
@@ -687,6 +687,7 @@ impl Workspace {
         let place = self.scroll_place();
         let commit = self.shown_commit();
         let paths: Vec<String> = self
+            .review
             .diff
             .as_ref()
             .map(|d| d.files.iter().map(|f| f.path().to_owned()).collect())
@@ -764,7 +765,9 @@ impl Workspace {
         let loaded = self.loaded_page();
         if page.space() == Space::Code {
             match page {
-                Page::File(path) if self.file_view.as_ref().map(|v| &v.path) != Some(&path) => {
+                Page::File(path)
+                    if self.review.file_view.as_ref().map(|v| &v.path) != Some(&path) =>
+                {
                     self.open_file_view(path, cx)
                 }
                 // A folder reached by the path, back or forward, is in the preview tab too.
@@ -783,7 +786,7 @@ impl Workspace {
         let same_item =
             loaded.as_ref().and_then(Page::item) == page.item() && page.item().is_some();
         if !same_item {
-            self.restore_scroll = opened.as_ref().and_then(|o| o.place.clone());
+            self.review.restore_scroll = opened.as_ref().and_then(|o| o.place.clone());
         }
         match page.clone() {
             Page::File(_) | Page::Folder(_) => {}
@@ -1268,7 +1271,7 @@ impl Workspace {
             .then(|| self.nav.opened(&item).and_then(|o| o.place.clone()))
             .flatten();
         self.arrive(Page::Branch(refname));
-        self.restore_scroll = place;
+        self.review.restore_scroll = place;
         self.select_branch(ix, keep, cx);
     }
 }

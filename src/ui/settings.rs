@@ -119,7 +119,7 @@ impl Workspace {
                 this.change_settings(
                     |this| {
                         this.settings.fold_generated = !this.settings.fold_generated;
-                        this.unfolded.clear();
+                        this.review.unfolded.clear();
                     },
                     cx,
                 );

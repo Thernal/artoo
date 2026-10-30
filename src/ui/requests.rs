@@ -693,7 +693,7 @@ impl Workspace {
                 Some("Every other merge request in the list is reviewed, or yours.".into());
             return cx.notify();
         };
-        self.done_card = false;
+        self.review.done_card = false;
         self.select_request(next, cx);
     }
 
@@ -745,10 +745,10 @@ impl Workspace {
         &self,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
-        if !self.done_card {
+        if !self.review.done_card {
             return None;
         }
-        let total = self.diff.as_ref()?.files.len();
+        let total = self.review.diff.as_ref()?.files.len();
         let current = self.requests.current;
         // The next merge request in request mode, else the next branch.
         let next = match current {
@@ -827,7 +827,7 @@ impl Workspace {
                                 .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
                                 .child("esc")
                                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                    this.done_card = false;
+                                    this.review.done_card = false;
                                     cx.notify();
                                 })),
                         ),
@@ -858,7 +858,7 @@ impl Workspace {
                     )
                     .on_click(cx.listener(
                         move |this, _: &ClickEvent, _, cx| {
-                            this.done_card = false;
+                            this.review.done_card = false;
                             match to {
                                 Err(iid) => this.select_request(iid, cx),
                                 Ok(ix) => this.open_branch(ix, None, cx),
@@ -869,7 +869,7 @@ impl Workspace {
                 .children(current.map(|_| {
                     button("done-leave", "Back to your branch".to_owned(), "⌥⌘L", false).on_click(
                         cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.done_card = false;
+                            this.review.done_card = false;
                             this.leave_request(cx);
                         }),
                     )
@@ -991,7 +991,7 @@ impl Workspace {
                     };
                 }
                 let whole = self.request_loaded(iid)
-                    || (self.diff.is_none() && self.nav_page() == Some(&Page::Request(iid)));
+                    || (self.review.diff.is_none() && self.nav_page() == Some(&Page::Request(iid)));
                 if self.selection == Selection::None && whole {
                     self.run_compare(base, head, true, Some(iid), cx);
                 }
@@ -1102,7 +1102,7 @@ impl Workspace {
     pub(super) fn request_loaded(&self, iid: u64) -> bool {
         self.requests.current == Some(iid)
             && matches!(
-                self.diff.as_ref().map(|d| &d.header),
+                self.review.diff.as_ref().map(|d| &d.header),
                 Some(Header::Compare { request: Some(i), .. }) if *i == iid
             )
     }
@@ -1351,7 +1351,7 @@ impl Workspace {
                             super::comments::edit_button(
                                 ("edit-note", note.id as usize),
                                 key,
-                                self.tight,
+                                self.review.tight,
                                 change,
                                 edit.clone(),
                             )
@@ -1438,7 +1438,7 @@ impl Workspace {
                             .hover(|s| s.border_color(theme::muted()))
                             .child(div().flex_1().child("Reply…"))
                             .children(
-                                (!self.tight)
+                                (!self.review.tight)
                                     .then(|| super::keys::caps("r", super::keys::On::Plain)),
                             )
                             .on_click(move |_, _, cx| {
@@ -1458,7 +1458,7 @@ impl Workspace {
                             Some("x"),
                             None,
                             Kind::Plain,
-                            self.tight,
+                            self.review.tight,
                         )
                         .h(px(34.))
                         .on_click(move |_, _, cx| {
@@ -1513,7 +1513,7 @@ impl Workspace {
 
     /// The discussions on lines of the files of this diff, in reading order.
     fn thread_order(&self) -> Vec<usize> {
-        let Some(diff) = &self.diff else {
+        let Some(diff) = &self.review.diff else {
             return Vec::new();
         };
         let mut order: Vec<(usize, u32, usize)> = self
@@ -1569,7 +1569,7 @@ impl Workspace {
     pub(super) fn acting_thread(&self) -> Option<usize> {
         self.thread_at.or_else(|| {
             let top = self.local_top();
-            self.rows.iter().skip(top).find_map(|row| match row {
+            self.review.rows.iter().skip(top).find_map(|row| match row {
                 super::rows::Row::Request(ix) if self.mr_open(*ix) => Some(*ix),
                 _ => None,
             })
@@ -1683,7 +1683,7 @@ impl Workspace {
                 "GitHub sends a pending comment only with its review: Submit review sends it"
             }),
             Kind::Plain,
-            self.tight,
+            self.review.tight,
         )
         .h(px(24.))
         .px(px(8.))
@@ -1736,7 +1736,7 @@ impl Workspace {
                     None,
                     None,
                     Kind::Danger,
-                    self.tight,
+                    self.review.tight,
                 )
                 .h(px(24.))
                 .px(px(8.))
@@ -1876,7 +1876,7 @@ impl Workspace {
 
     /// The pending comments on lines of the diff loaded, in its order: (file, line, index).
     pub(super) fn draft_order(&self) -> Vec<(usize, u32, usize)> {
-        let Some(diff) = self.diff.as_ref() else {
+        let Some(diff) = self.review.diff.as_ref() else {
             return Vec::new();
         };
         let mut order: Vec<(usize, u32, usize)> = self
@@ -1986,7 +1986,7 @@ impl Workspace {
                 None,
                 None,
                 Kind::Quiet,
-                self.tight,
+                self.review.tight,
             )
             .h(px(22.))
             .px(px(6.))
@@ -2629,24 +2629,25 @@ impl Workspace {
         old: bool,
         cx: &mut Context<Self>,
     ) {
-        self.jump_line = Some((line, old));
+        self.review.jump_line = Some((line, old));
         if self.current_path().as_deref() == Some(path) {
             self.apply_jump(cx);
             return;
         }
         let ix = self
+            .review
             .diff
             .as_ref()
             .and_then(|d| d.files.iter().position(|f| f.path() == path));
         match ix {
             Some(ix) => self.select_file(ix, cx),
-            None => self.jump_line = None,
+            None => self.review.jump_line = None,
         }
     }
 
     /// The list row that shows `line` of the old or the new side.
     pub(super) fn row_of_line(&self, line: u32, old: bool) -> Option<usize> {
-        self.rows.iter().position(|r| match r {
+        self.review.rows.iter().position(|r| match r {
             Row::Split { left, right } => {
                 let cell = if old { left } else { right };
                 cell.is_some_and(|c| c.line == line)

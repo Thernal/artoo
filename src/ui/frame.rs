@@ -728,17 +728,17 @@ impl Render for Workspace {
             zones::Zone::Files => !self.files_zone(),
             _ => false,
         };
-        if folded_zone && self.diff.is_some() {
+        if folded_zone && self.review.diff.is_some() {
             self.zone = zones::Zone::Diff;
         }
-        let body = self.body_width.get();
+        let body = self.review.body_width.get();
         // Under 1280 px of window too (#80).
         let narrow = (body > 0. && body < 700.) || self.menu_narrow();
         // At the interface size chosen: 600 px of the design is more at 150 %.
         let tight = body > 0. && body < f32::from(px(600.));
-        if narrow != self.narrow || tight != self.tight {
-            self.narrow = narrow;
-            self.tight = tight;
+        if narrow != self.review.narrow || tight != self.review.tight {
+            self.review.narrow = narrow;
+            self.review.tight = tight;
             self.relayout_all();
         }
         self.follow_scroll(cx);
@@ -873,7 +873,7 @@ impl Render for Workspace {
         .on_action(cx.listener(|this, _: &ShowBookmarks, _, cx| {
             if this.palette.is_some() {
                 this.close_palette(cx);
-            } else if this.diff.is_some() {
+            } else if this.review.diff.is_some() {
                 this.open_palette(palette::Kind::Bookmarks, cx);
             }
         }))
@@ -883,7 +883,7 @@ impl Render for Workspace {
         .on_action(cx.listener(|this, _: &ShowStructure, _, cx| {
             if this.palette.is_some() {
                 this.close_palette(cx);
-            } else if this.diff.is_some() {
+            } else if this.review.diff.is_some() {
                 this.open_palette(palette::Kind::Structure, cx);
             }
         }))
@@ -1043,7 +1043,7 @@ impl Render for Workspace {
         .on_mouse_up(
             MouseButton::Left,
             cx.listener(|this, _, _, cx| {
-                this.selecting = false;
+                this.review.selecting = false;
                 this.end_drag(cx)
             }),
         )

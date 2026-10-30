@@ -896,6 +896,7 @@ impl Workspace {
     fn render_create_totals(&self) -> Option<gpui::Div> {
         let n = self.newreq.as_ref()?;
         let d = self
+            .review
             .diff
             .as_ref()
             .filter(|d| matches!(d.header, super::Header::Compare { .. }))?;
@@ -923,7 +924,7 @@ impl Workspace {
     /// The Request | Changes switch at the top of the pane.
     pub(super) fn render_create_switch(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let n = self.newreq.as_ref().filter(|n| !n.quick)?;
-        let files = self.diff.as_ref().map_or(0, |d| d.files.len());
+        let files = self.review.diff.as_ref().map_or(0, |d| d.files.len());
         let set = |changes: bool| {
             cx.listener(move |this: &mut Self, _: &ClickEvent, _, cx| {
                 if let Some(n) = this.newreq.as_mut() {

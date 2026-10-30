@@ -35,6 +35,7 @@ impl Workspace {
         match key {
             Key::File(path) => {
                 let ix = self
+                    .review
                     .diff
                     .as_ref()
                     .and_then(|d| d.files.iter().position(|f| f.path() == path));

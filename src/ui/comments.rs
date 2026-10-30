@@ -117,9 +117,10 @@ impl Compose {
 
 impl Workspace {
     pub(super) fn current_path(&self) -> Option<String> {
-        self.diff
+        self.review
+            .diff
             .as_ref()
-            .and_then(|d| d.files.get(self.file))
+            .and_then(|d| d.files.get(self.review.file))
             .map(|f| f.path().to_owned())
     }
 
@@ -127,7 +128,7 @@ impl Workspace {
     /// the most important kind there (the request's, then one's pending, then the agent's).
     pub(super) fn line_notes(&self) -> Vec<super::diff_view::LineNote> {
         self.current_path()
-            .map(|path| self.line_notes_in(&path, self.data.as_deref()))
+            .map(|path| self.line_notes_in(&path, self.review.data.as_deref()))
             .unwrap_or_default()
     }
 
@@ -232,7 +233,7 @@ impl Workspace {
 
     /// Where `comment` sits in the open file now (`None` when it belongs to another file).
     fn place_in_open_file(&self, comment: &Comment) -> Option<Place> {
-        self.place_in_file(comment, &self.current_path()?, self.data.as_ref()?)
+        self.place_in_file(comment, &self.current_path()?, self.review.data.as_ref()?)
     }
 
     /// Where `comment` sits in file `path` built as `data`: by its line's text, else, its line
@@ -255,9 +256,11 @@ impl Workspace {
     /// was written on to the diff shown, in the background (#46).
     pub(super) fn map_agent_comments(&mut self, cx: &mut Context<Self>) {
         self.agent_lines.clear();
-        let (Some(root), Some(head), Some(diff)) =
-            (self.root.clone(), self.shown_head(), self.diff.as_ref())
-        else {
+        let (Some(root), Some(head), Some(diff)) = (
+            self.root.clone(),
+            self.shown_head(),
+            self.review.diff.as_ref(),
+        ) else {
             return;
         };
         let paths: Vec<String> = diff.files.iter().map(|f| f.path().to_owned()).collect();
@@ -305,7 +308,7 @@ impl Workspace {
 
     /// The rows with each comment's thread, and the composer, put under their lines.
     pub(super) fn with_comments(&self, rows: Vec<Row>) -> Vec<Row> {
-        match (self.current_path(), &self.data) {
+        match (self.current_path(), &self.review.data) {
             (Some(path), Some(data)) => self.with_comments_in(&path, data, rows, true),
             _ => rows,
         }
@@ -346,7 +349,7 @@ impl Workspace {
         // An agent's notes on its changes, on the new side (#151).
         let notes = self.notes_in(path, data);
         // The prompt of `c` hangs under the marked line, like the composer that follows it.
-        let go = if active && compose.is_none() && self.goline.is_some() {
+        let go = if active && compose.is_none() && self.review.goline.is_some() {
             self.goline_target()
         } else {
             None
@@ -437,12 +440,12 @@ impl Workspace {
     pub(super) fn refresh_rows(&mut self) {
         // With all files in one scroll the comment may be in any of them; only rows that changed
         // are replaced, so the view stays where it is.
-        if self.stack.is_some() {
+        if self.review.stack.is_some() {
             return self.relayout_stack();
         }
-        let top = self.diff_list.logical_scroll_top();
+        let top = self.review.diff_list.logical_scroll_top();
         self.relayout();
-        self.diff_list.scroll_to(top);
+        self.review.diff_list.scroll_to(top);
     }
 
     pub(super) fn start_comment(&mut self, old: bool, line: u32, cx: &mut Context<Self>) {
@@ -494,7 +497,7 @@ impl Workspace {
         line: u32,
         cx: &mut Context<Self>,
     ) {
-        let Some(file) = self.diff.as_ref().and_then(|d| d.files.get(ix)) else {
+        let Some(file) = self.review.diff.as_ref().and_then(|d| d.files.get(ix)) else {
             return;
         };
         let text = if old { &file.old_text } else { &file.new_text };
@@ -535,7 +538,7 @@ impl Workspace {
 
     /// A note on lines `first`…`line` of the file read in Code (#104), under the last.
     fn start_file_comment_on(&mut self, first: Option<u32>, line: u32, cx: &mut Context<Self>) {
-        let Some(view) = &self.file_view else {
+        let Some(view) = &self.review.file_view else {
             return;
         };
         let Some(code) = view.line(line) else {
@@ -566,7 +569,7 @@ impl Workspace {
     /// How much of its foot the field being written has room for (`room_for`). Its own width
     /// decides, wherever it is — the diff, a file in Code, a folder's page —, or the narrow diff's.
     pub(super) fn compose_room(&self) -> Room {
-        room_for(self.widths.width("composer"), self.tight)
+        room_for(self.widths.width("composer"), self.review.tight)
     }
 
     /// Under L: the secondary buttons keep only their icon, named in the tooltip, the keycaps go,
@@ -620,7 +623,7 @@ impl Workspace {
     /// The lines selected in the file read in Code, first and last (1-based); a selection that
     /// ends at the start of a line does not take that line (#104).
     fn file_selected_lines(&self) -> Option<(u32, u32)> {
-        let view = self.file_view.as_ref()?;
+        let view = self.review.file_view.as_ref()?;
         let sel = self
             .note_sel
             .as_ref()
@@ -652,7 +655,7 @@ impl Workspace {
     /// The lines selected in the diff, first and last, on their side; a selection that ends at the
     /// start of a line does not take that line.
     fn selected_lines(&self) -> Option<(bool, u32, u32)> {
-        let sel = self.sel.filter(|s| !s.is_empty())?;
+        let sel = self.review.sel.filter(|s| !s.is_empty())?;
         let (start, end) = sel.ends();
         let last = if end.byte == 0 && end.line > start.line {
             end.line - 1
@@ -670,7 +673,7 @@ impl Workspace {
         line: u32,
         cx: &mut Context<Self>,
     ) {
-        let (Some(data), Some(path)) = (&self.data, self.current_path()) else {
+        let (Some(data), Some(path)) = (&self.review.data, self.current_path()) else {
             return;
         };
         let code = data.side(old).line(line).0.to_owned();
@@ -851,6 +854,7 @@ impl Workspace {
             .collect::<Vec<_>>()
             .join("\n");
         let code = self
+            .review
             .data
             .as_ref()
             .map(|d| d.side(compose.old).line(compose.line).0.to_owned())
@@ -1176,7 +1180,7 @@ impl Workspace {
 
     /// The merge request whose diff is open, when a comment can be posted to it.
     pub(super) fn request_target(&self) -> Option<u64> {
-        match self.diff.as_ref()?.header {
+        match self.review.diff.as_ref()?.header {
             super::Header::Compare {
                 request: Some(iid),
                 since_merge_base: true,
@@ -1240,7 +1244,7 @@ impl Workspace {
         }
         self.last_request_target = None;
         let id = self.comments.iter().map(|c| c.id).max().unwrap_or(0) + 1;
-        let above = match (compose.first, &self.data, &self.file_view) {
+        let above = match (compose.first, &self.review.data, &self.review.file_view) {
             // On a file read in Code: its own lines, whatever diff is loaded (#104).
             (Some(first), _, Some(view)) if compose.file.is_some() => (first..compose.line)
                 .filter_map(|n| view.line(n).map(str::to_owned))
@@ -1281,13 +1285,13 @@ impl Workspace {
             return;
         };
         let body = compose.edit.text().trim().to_owned();
-        let head = match self.diff.as_ref().map(|d| &d.header) {
+        let head = match self.review.diff.as_ref().map(|d| &d.header) {
             Some(super::Header::Compare { head, .. }) => head.1.to_string(),
             _ => return,
         };
         // On a page the file is the page's, and its counters come from its hunks (#11).
-        let at_file = compose.page.unwrap_or(self.file);
-        let file = self.diff.as_ref().and_then(|d| d.files.get(at_file));
+        let at_file = compose.page.unwrap_or(self.review.file);
+        let file = self.review.diff.as_ref().and_then(|d| d.files.get(at_file));
         let pair = file
             .filter(|_| compose.page.is_some())
             .map(|f| f.line_pair(compose.old, compose.line));
@@ -1452,7 +1456,7 @@ impl Workspace {
     /// A line of the open file with both of GitLab's counters: from its hunk, or, outside the
     /// hunks (all lines shown), an unchanged line.
     fn diff_line(&self, line: u32, old: bool) -> Option<crate::git::DiffLine> {
-        let file = self.diff.as_ref()?.files.get(self.file)?;
+        let file = self.review.diff.as_ref()?.files.get(self.review.file)?;
         file.position(old, line)
             .or_else(|| match self.line_pair(line, old) {
                 (Some(o), Some(n)) => Some(crate::git::DiffLine {
@@ -1476,7 +1480,7 @@ impl Workspace {
         let Some(at) = self.row_of_line(line, old) else {
             return single;
         };
-        match self.rows[at] {
+        match self.review.rows[at] {
             Row::Split {
                 left: Some(l),
                 right: Some(r),
@@ -1520,11 +1524,11 @@ impl Workspace {
         // On a file read in Code: the number of the line to write a note on (#75).
         if self.code_file_shown() && !self.settings_open && self.compose.is_none() {
             self.reset_field_edit();
-            self.goline = Some(String::new());
+            self.review.goline = Some(String::new());
             self.take_keyboard(Input::GoLine);
             return cx.notify();
         }
-        if self.data.is_none() || self.settings_open || self.compose.is_some() {
+        if self.review.data.is_none() || self.settings_open || self.compose.is_some() {
             return;
         }
         if let Some((old, first, last)) = self.selected_lines() {
@@ -1533,7 +1537,7 @@ impl Workspace {
         }
         self.reset_field_edit();
         self.zone = super::zones::Zone::Diff;
-        self.goline = Some(String::new());
+        self.review.goline = Some(String::new());
         self.take_keyboard(Input::GoLine);
         self.move_marker();
         cx.notify();
@@ -1541,13 +1545,13 @@ impl Workspace {
 
     /// The line marker goes, nothing written.
     pub(super) fn close_goline(&mut self) {
-        self.goline = None;
-        self.goline_row = None;
+        self.review.goline = None;
+        self.review.goline_row = None;
         self.refresh_rows();
     }
 
     pub(super) fn goline_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
-        let Some(text) = self.goline.as_mut() else {
+        let Some(text) = self.review.goline.as_mut() else {
             return;
         };
         let key = event.keystroke.key.as_str();
@@ -1555,7 +1559,7 @@ impl Workspace {
             let step: i64 = if key == "up" { -1 } else { 1 };
             if let Some((old, line)) = self.goline_target() {
                 let next = (i64::from(line) + step).max(1);
-                self.goline = Some(format!("{}{next}", if old { "-" } else { "" }));
+                self.review.goline = Some(format!("{}{next}", if old { "-" } else { "" }));
                 self.move_marker();
             }
             return cx.notify();
@@ -1589,12 +1593,13 @@ impl Workspace {
 
     /// The side and line the typed number stands for; with nothing typed, the first change.
     fn goline_target(&self) -> Option<(bool, u32)> {
-        let text = self.goline.as_deref()?;
+        let text = self.review.goline.as_deref()?;
         if text.trim().is_empty() {
             let first = self
+                .review
                 .changes
                 .first()
-                .and_then(|&row| self.rows.get(row))
+                .and_then(|&row| self.review.rows.get(row))
                 .copied();
             return match first {
                 Some(Row::Split { right: Some(c), .. }) => Some((false, c.line)),
@@ -1611,10 +1616,10 @@ impl Workspace {
     fn move_marker(&mut self) {
         // The prompt row moves with the marker, so the rows are laid out again first.
         self.refresh_rows();
-        self.goline_row = self
+        self.review.goline_row = self
             .goline_target()
             .and_then(|(old, line)| self.row_of_line(line, old));
-        if let Some(at) = self.goline_row {
+        if let Some(at) = self.review.goline_row {
             // The marked line and the prompt under it.
             self.reveal_rows(at..at + 2);
         } else if let Some(gap) = self
@@ -1628,8 +1633,8 @@ impl Workspace {
 
     /// The row of the folded run of unchanged lines that holds `line`.
     fn gap_of(&self, line: u32, old: bool) -> Option<usize> {
-        let data = self.data.as_ref()?;
-        self.rows.iter().position(|r| match r {
+        let data = self.review.data.as_ref()?;
+        self.review.rows.iter().position(|r| match r {
             Row::Gap { segment, .. } => matches!(
                 data.segments.get(*segment),
                 Some(super::rows::Segment::Same { old: o, new: n, len })
@@ -1643,19 +1648,20 @@ impl Workspace {
     fn finish_goline(&mut self, cx: &mut Context<Self>) {
         if self.code_file_shown() {
             let line = self
+                .review
                 .goline
                 .as_deref()
                 .and_then(|t| t.parse::<u32>().ok())
                 .unwrap_or(0);
-            let count = self.file_view.as_ref().map_or(0, |v| v.line_count());
+            let count = self.review.file_view.as_ref().map_or(0, |v| v.line_count());
             if line == 0 || line as usize > count {
                 self.error = Some(format!("This file has {count} lines.").into());
                 return cx.notify();
             }
-            self.goline = None;
+            self.review.goline = None;
             return self.start_file_comment(line, cx);
         }
-        let Some(data) = self.data.clone() else {
+        let Some(data) = self.review.data.clone() else {
             return;
         };
         let Some((old, line)) = self.goline_target() else {
@@ -1672,8 +1678,8 @@ impl Workspace {
             );
             return cx.notify();
         }
-        self.goline = None;
-        self.goline_row = None;
+        self.review.goline = None;
+        self.review.goline_row = None;
         self.reveal_line(line, old);
         self.start_comment(old, line, cx);
         if let Some(at) = self.row_of_line(line, old) {
@@ -1686,7 +1692,7 @@ impl Workspace {
         if self.row_of_line(line, old).is_some() {
             return;
         }
-        let Some(data) = &self.data else {
+        let Some(data) = &self.review.data else {
             return;
         };
         let hit = data.segments.iter().position(|s| match s {
@@ -1701,7 +1707,7 @@ impl Workspace {
             super::rows::Segment::Change(_) => false,
         });
         if let Some(segment) = hit {
-            self.expanded.insert(segment);
+            self.review.expanded.insert(segment);
             self.relayout();
         }
     }
@@ -1712,7 +1718,7 @@ impl Workspace {
         indent: f32,
         this: WeakEntity<Self>,
     ) -> gpui::AnyElement {
-        let Some(text) = self.goline.as_ref() else {
+        let Some(text) = self.review.goline.as_ref() else {
             return div().into_any_element();
         };
         let active = self.has_keyboard(Input::GoLine);
@@ -1752,17 +1758,17 @@ impl Workspace {
     }
 
     pub(super) fn render_goline(&self, this: WeakEntity<Self>) -> Option<impl IntoElement + use<>> {
-        if self.goline_row.is_some() {
+        if self.review.goline_row.is_some() {
             return None;
         }
-        let text = self.goline.as_ref()?;
+        let text = self.review.goline.as_ref()?;
         let target = self.goline_target();
         let preview = target.and_then(|(old, line)| {
-            let data = self.data.as_ref()?;
+            let data = self.review.data.as_ref()?;
             (line >= 1 && line <= data.side(old).count())
                 .then(|| data.side(old).line(line).0.trim().to_owned())
         });
-        let hint = match (target, &preview, self.goline_row) {
+        let hint = match (target, &preview, self.review.goline_row) {
             (None, ..) if !text.is_empty() => "type a line number".to_owned(),
             (None, ..) => "no changes in this file".to_owned(),
             (Some(_), None, _) => "no such line in this file".to_owned(),
@@ -1900,7 +1906,7 @@ impl Workspace {
             Edit::Changed | Edit::Selected => {}
         }
         // The box grows with its text.
-        self.diff_list.remeasure();
+        self.review.diff_list.remeasure();
         cx.notify();
     }
 
@@ -1959,7 +1965,7 @@ impl Workspace {
                 let end = at + choice.insert.len();
                 c.edit.replace(at..caret, &choice.insert, end..end);
                 c.pick = 0;
-                self.diff_list.remeasure();
+                self.review.diff_list.remeasure();
             }
             "escape" => c.closed = Some(at),
             _ => return false,
@@ -2056,7 +2062,7 @@ impl Workspace {
             return;
         };
         crate::markdown::apply(&mut compose.edit, helper);
-        self.diff_list.remeasure();
+        self.review.diff_list.remeasure();
         cx.notify();
     }
 
@@ -2066,7 +2072,7 @@ impl Workspace {
         }
         if let Some(compose) = self.compose.as_mut() {
             compose.preview = !compose.preview;
-            self.diff_list.remeasure();
+            self.review.diff_list.remeasure();
             cx.notify();
         }
     }
@@ -2075,7 +2081,7 @@ impl Workspace {
     pub(super) fn toggle_rich_comments(&mut self, cx: &mut Context<Self>) {
         self.settings.rich_comments = !self.settings.rich_comments;
         self.settings.save();
-        self.diff_list.remeasure();
+        self.review.diff_list.remeasure();
         cx.notify();
     }
 
@@ -2221,7 +2227,7 @@ impl Workspace {
                         None,
                         None,
                         Kind::Plain,
-                        self.tight,
+                        self.review.tight,
                     )
                     .h(px(24.))
                     .px(px(8.))
@@ -2241,7 +2247,7 @@ impl Workspace {
                     None,
                     None,
                     Kind::Danger,
-                    self.tight,
+                    self.review.tight,
                 )
                 .h(px(24.))
                 .px(px(8.))
@@ -2287,7 +2293,7 @@ impl Workspace {
             },
             comment.replies.is_empty(),
             (self.compose.is_none())
-                .then(|| edit_button(("edit-agent", id), None, self.tight, change, editing)),
+                .then(|| edit_button(("edit-agent", id), None, self.review.tight, change, editing)),
             None,
         );
         // The last question is answered under it while the comment is open; an earlier one, or
@@ -3166,6 +3172,7 @@ impl Workspace {
             return;
         }
         let ix = self
+            .review
             .diff
             .as_ref()
             .and_then(|d| d.files.iter().position(|f| f.path() == path));
@@ -3187,13 +3194,13 @@ impl Workspace {
     /// out: the line, opened first when it is folded away, with the discussions or the pending
     /// comment below it in view.
     pub(super) fn apply_jump(&mut self, cx: &mut Context<Self>) {
-        if let Some((line, old)) = self.jump_line.take() {
+        if let Some((line, old)) = self.review.jump_line.take() {
             self.reveal_line(line, old);
-            if std::mem::take(&mut self.jump_whole) {
+            if std::mem::take(&mut self.review.jump_whole) {
                 self.reveal_function(line, old);
             }
             if let Some(at) = self.row_of_line(line, old) {
-                let under = self.rows[at + 1..]
+                let under = self.review.rows[at + 1..]
                     .iter()
                     .take_while(|r| {
                         matches!(
@@ -3209,7 +3216,7 @@ impl Workspace {
         let Some(id) = self.jump.take() else {
             return;
         };
-        if let Some(at) = self.rows.iter().position(|r| *r == Row::Thread(id)) {
+        if let Some(at) = self.review.rows.iter().position(|r| *r == Row::Thread(id)) {
             self.reveal_rows(at.saturating_sub(1)..at + 1);
             cx.notify();
         }

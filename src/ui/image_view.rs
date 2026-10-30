@@ -145,17 +145,21 @@ impl Workspace {
     /// Whether the open file is drawn as images (not as its text diff).
     pub(super) fn shows_image(&self, file: &FileDiff) -> bool {
         (file.old_image.is_some() || file.new_image.is_some())
-            && !(self.images.source && is_svg(file))
+            && !(self.review.images.source && is_svg(file))
     }
 
     pub(super) fn render_image(&self, file: &FileDiff, cx: &mut Context<Self>) -> gpui::AnyElement {
         let both = file.old_image.is_some() && file.new_image.is_some();
-        let mode = if both { self.images.mode } else { Mode::TwoUp };
+        let mode = if both {
+            self.review.images.mode
+        } else {
+            Mode::TwoUp
+        };
         let modes = group().children(Mode::ALL.map(|m| {
             chip(m.label(), m.label(), mode == m)
                 .when(!both && m != Mode::TwoUp, |s| s.opacity(0.4))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.images.mode = m;
+                    this.review.images.mode = m;
                     cx.notify();
                 }))
         }));
@@ -240,7 +244,7 @@ impl Workspace {
                         let (w, h) = fit(s.size, half - 16., MAX_H);
                         frame(tone)
                             .child(
-                                img(self.images.image(s))
+                                img(self.review.images.image(s))
                                     .w(px(w))
                                     .h(px(h))
                                     .object_fit(ObjectFit::Contain),
@@ -298,9 +302,9 @@ impl Workspace {
             (a, b) => a.or(b),
         };
         let (w, h) = fit(size, MAX_W, MAX_H);
-        let mix = self.images.mix;
+        let mix = self.review.images.mix;
         let picture = |side: &ImageSide| {
-            img(self.images.image(side))
+            img(self.review.images.image(side))
                 .absolute()
                 .top_0()
                 .left_0()
@@ -308,12 +312,12 @@ impl Workspace {
                 .h(px(h))
                 .object_fit(ObjectFit::Contain)
         };
-        let area = self.images.area.clone();
+        let area = self.review.images.area.clone();
         let (down, drag) = (cx.entity().downgrade(), cx.entity().downgrade());
         let set = |this: &mut Workspace, x: Pixels, cx: &mut Context<Workspace>| {
-            if let Some(b) = this.images.area.get() {
+            if let Some(b) = this.review.images.area.get() {
                 let at = f32::from(x - b.origin.x) / f32::from(b.size.width).max(1.);
-                this.images.mix = at.clamp(0., 1.);
+                this.review.images.mix = at.clamp(0., 1.);
                 cx.notify();
             }
         };
@@ -421,13 +425,13 @@ pub(super) fn source_switch(source: bool, cx: &mut Context<Workspace>) -> impl I
     group()
         .child(chip("svg-image", "Image", !source).on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {
-                this.images.source = false;
+                this.review.images.source = false;
                 cx.notify();
             },
         )))
         .child(chip("svg-source", "Source", source).on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {
-                this.images.source = true;
+                this.review.images.source = true;
                 cx.notify();
             },
         )))

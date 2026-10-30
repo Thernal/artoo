@@ -104,7 +104,7 @@ impl Workspace {
         if !changed {
             return;
         }
-        self.blames.working_changed();
+        self.review.blames.working_changed();
         if self.nav.space == super::spaces::Space::Branches && self.at_root_list() {
             self.read_tree_files(cx);
         }
@@ -130,10 +130,10 @@ impl Workspace {
             return;
         };
         let only_unstaged = self.wt.only_unstaged;
-        let at = self.file;
+        let at = self.review.file;
         self.clear_diff();
         // A reload finds a file partly staged at its place, in the group it was in (#22).
-        self.file = at;
+        self.review.file = at;
         self.selection = Selection::WorkingTree;
         let settings = self.settings();
         self.load_diff(keep, cx, move || {

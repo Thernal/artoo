@@ -183,14 +183,17 @@ impl Workspace {
 
     /// The rows of the open diff that hold the find text, and where each change begins.
     pub(super) fn recompute_matches(&mut self) {
-        self.matches = match &self.data {
-            Some(data) => rows::matching_rows(data, &self.rows, &self.dterms),
+        self.review.matches = match &self.review.data {
+            Some(data) => rows::matching_rows(data, &self.review.rows, &self.review.dterms),
             None => Vec::new(),
         };
-        self.match_at = self.match_at.min(self.matches.len().saturating_sub(1));
+        self.review.match_at = self
+            .review
+            .match_at
+            .min(self.review.matches.len().saturating_sub(1));
         let mut changes = Vec::new();
         let mut inside = false;
-        for (ix, row) in self.rows.iter().enumerate() {
+        for (ix, row) in self.review.rows.iter().enumerate() {
             match row {
                 Row::Thread(_) | Row::Request(_) | Row::Draft(_) | Row::Note(_) | Row::Composer => {
                     continue;
@@ -204,8 +207,11 @@ impl Workspace {
                 _ => inside = false,
             }
         }
-        self.changes = changes;
-        self.change_at = self.change_at.filter(|&at| at < self.changes.len());
+        self.review.changes = changes;
+        self.review.change_at = self
+            .review
+            .change_at
+            .filter(|&at| at < self.review.changes.len());
         self.recompute_stack_matches();
     }
 
@@ -213,7 +219,7 @@ impl Workspace {
     pub(super) fn scroll_to_row(&mut self, row: usize) {
         self.open_active();
         let row = row + self.list_base();
-        self.diff_list.scroll_to(gpui::ListOffset {
+        self.review.diff_list.scroll_to(gpui::ListOffset {
             item_ix: row.saturating_sub(3),
             offset_in_item: px(0.),
         });
@@ -227,14 +233,14 @@ impl Workspace {
         self.open_active();
         let base = self.list_base();
         let rows = rows.start + base..rows.end + base;
-        let height = f32::from(self.diff_list.viewport_bounds().size.height);
+        let height = f32::from(self.review.diff_list.viewport_bounds().size.height);
         let fit = (height / f32::from(px(self.row_height()))).floor() as usize;
-        let top = self.diff_list.logical_scroll_top().item_ix;
+        let top = self.review.diff_list.logical_scroll_top().item_ix;
         // The top row may be cut, and threads are taller than a code row: keep a margin.
         if fit > 6 && rows.start > top && rows.end + 3 <= top + fit {
             return;
         }
-        self.diff_list.scroll_to(gpui::ListOffset {
+        self.review.diff_list.scroll_to(gpui::ListOffset {
             item_ix: rows.start.saturating_sub(fit / 3),
             offset_in_item: px(0.),
         });
@@ -242,7 +248,7 @@ impl Workspace {
 
     /// Steps to the next (or previous) matching line.
     pub(super) fn step_match(&mut self, forward: bool, cx: &mut Context<Self>) {
-        if let Some(stack) = &self.stack {
+        if let Some(stack) = &self.review.stack {
             let n = stack.matches.len();
             if n > 0 {
                 let at = if forward {
@@ -254,16 +260,16 @@ impl Workspace {
             }
             return;
         }
-        if self.matches.is_empty() {
+        if self.review.matches.is_empty() {
             return;
         }
-        let n = self.matches.len();
-        self.match_at = if forward {
-            (self.match_at + 1) % n
+        let n = self.review.matches.len();
+        self.review.match_at = if forward {
+            (self.review.match_at + 1) % n
         } else {
-            (self.match_at + n - 1) % n
+            (self.review.match_at + n - 1) % n
         };
-        self.scroll_to_row(self.matches[self.match_at]);
+        self.scroll_to_row(self.review.matches[self.review.match_at]);
         cx.notify();
     }
 
@@ -273,18 +279,18 @@ impl Workspace {
         if self.step_page(forward, cx) {
             return;
         }
-        let n = self.changes.len();
+        let n = self.review.changes.len();
         if n == 0 {
             return;
         }
-        let at = match (self.change_at, forward) {
+        let at = match (self.review.change_at, forward) {
             (None, true) => 0,
             (None, false) => n - 1,
             (Some(at), true) => (at + 1) % n,
             (Some(at), false) => (at + n - 1) % n,
         };
-        self.change_at = Some(at);
-        self.scroll_to_row(self.changes[at]);
+        self.review.change_at = Some(at);
+        self.scroll_to_row(self.review.changes[at]);
         cx.notify();
     }
 
@@ -333,8 +339,8 @@ impl Workspace {
         // Esc closes the innermost thing — a card, menu or popover, the find bar, a filter, the
         // tool window with the keyboard — then goes one page up (#71).
         if key.key == "escape" {
-            if self.done_card {
-                self.done_card = false;
+            if self.review.done_card {
+                self.review.done_card = false;
                 cx.notify();
             } else if self.label_edit.is_some() {
                 self.close_label(cx);
@@ -345,10 +351,10 @@ impl Workspace {
                 cx.notify();
             } else if self.ctx_menu.is_some() {
                 self.close_menu(cx);
-            } else if self.goline.is_some() {
+            } else if self.review.goline.is_some() {
                 self.close_goline();
                 cx.notify();
-            } else if self.dfind.is_some() {
+            } else if self.review.dfind.is_some() {
                 self.close_dfind(cx);
             } else if self.find.text.is_some() {
                 self.close_find(cx);
@@ -361,7 +367,7 @@ impl Workspace {
             } else if self.settings_open {
                 self.settings_open = false;
                 cx.notify();
-            } else if self.note_sel.take().is_some() || self.sel.take().is_some() {
+            } else if self.note_sel.take().is_some() || self.review.sel.take().is_some() {
                 cx.notify();
             } else if self.tool().is_some() && self.zone == super::zones::Zone::Tool {
                 self.set_tool(None, cx);
@@ -384,7 +390,7 @@ impl Workspace {
     /// Esc after esc: the filter that was left with text, of the list on screen, is cleared.
     fn clear_filter(&mut self) -> bool {
         if !self.pfilter.is_empty()
-            && self.diff.is_some()
+            && self.review.diff.is_some()
             && self
                 .space()
                 .is_some_and(|s| s != super::spaces::Space::Code)
@@ -402,7 +408,7 @@ impl Workspace {
     /// Typing into the find bar over the diff; esc lets the keyboard go, what was typed kept.
     fn dfind_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
         let key = &event.keystroke;
-        let Some(mut text) = self.dfind.clone() else {
+        let Some(mut text) = self.review.dfind.clone() else {
             return;
         };
         // ⌥R: the text as a regular expression, or as typed again (#113).
@@ -440,12 +446,12 @@ impl Workspace {
 
     /// ⌘F: a find bar over the open diff, like the page find of a browser or an IDE.
     pub(super) fn start_dfind(&mut self, cx: &mut Context<Self>) {
-        if self.dfind.is_none() {
+        if self.review.dfind.is_none() {
             self.reset_field_edit();
         }
         self.settings_open = false;
-        if self.dfind.is_none() {
-            self.dfind = Some(String::new());
+        if self.review.dfind.is_none() {
+            self.review.dfind = Some(String::new());
         }
         self.take_keyboard(Input::DiffFind);
         cx.notify();
@@ -453,36 +459,36 @@ impl Workspace {
 
     /// `.*` in ⌘F's bar: its text read as a regular expression, or as typed.
     pub(super) fn toggle_dfind_regex(&mut self, cx: &mut Context<Self>) {
-        self.dfind_regex = !self.dfind_regex;
-        let text = self.dfind.clone().unwrap_or_default();
+        self.review.dfind_regex = !self.review.dfind_regex;
+        let text = self.review.dfind.clone().unwrap_or_default();
         self.set_dfind(text, cx);
     }
 
     pub(super) fn close_dfind(&mut self, cx: &mut Context<Self>) {
-        self.dfind = None;
-        self.dterms = Arc::default();
+        self.review.dfind = None;
+        self.review.dterms = Arc::default();
         self.recompute_matches();
         cx.notify();
     }
 
     pub(super) fn set_dfind(&mut self, text: String, cx: &mut Context<Self>) {
-        let terms = if self.dfind_regex {
+        let terms = if self.review.dfind_regex {
             search::Terms::regex(&text)
         } else {
             Ok(search::Terms::text(&text))
         };
-        self.dfind_error = terms.as_ref().err().cloned();
-        self.dterms = Arc::new(terms.unwrap_or_default());
-        self.dfind = Some(text);
-        self.match_at = 0;
+        self.review.dfind_error = terms.as_ref().err().cloned();
+        self.review.dterms = Arc::new(terms.unwrap_or_default());
+        self.review.dfind = Some(text);
+        self.review.match_at = 0;
         self.recompute_matches();
-        if self.stack.is_some() {
+        if self.review.stack.is_some() {
             // The folded files are built to be searched too.
             self.build_stack(cx);
             if let Some(at) = self.first_stack_match() {
                 self.go_to_stack_match(at, cx);
             }
-        } else if let Some(&row) = self.matches.first() {
+        } else if let Some(&row) = self.review.matches.first() {
             self.scroll_to_row(row);
         }
         cx.notify();
@@ -490,18 +496,22 @@ impl Workspace {
 
     /// The find bar above the diff: the text, "2 of 4 lines", previous, next, close.
     pub(super) fn render_dfind(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
-        let text = self.dfind.clone()?;
+        let text = self.review.dfind.clone()?;
         let active = self.has_keyboard(Input::DiffFind);
-        let count = if let Some(error) = &self.dfind_error {
+        let count = if let Some(error) = &self.review.dfind_error {
             format!("Not a regular expression: {error}")
-        } else if self.dterms.is_empty() {
+        } else if self.review.dterms.is_empty() {
             String::new()
         } else if let Some(count) = self.stack_match_count() {
             count
-        } else if self.matches.is_empty() {
+        } else if self.review.matches.is_empty() {
             "No matches".to_owned()
         } else {
-            format!("{} of {} lines", self.match_at + 1, self.matches.len())
+            format!(
+                "{} of {} lines",
+                self.review.match_at + 1,
+                self.review.matches.len()
+            )
         };
         let step = |id: &'static str, label: &'static str, forward: bool| {
             chip(id, label, false).on_click(
@@ -542,7 +552,7 @@ impl Workspace {
                     .child(self.field_text(&text, active, "Find in this diff", cx))
                     .child({
                         use super::hover::Hover;
-                        chip("dfind-regex", ".*", self.dfind_regex)
+                        chip("dfind-regex", ".*", self.review.dfind_regex)
                             .tip("Regular expression  ⌥R")
                             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.toggle_dfind_regex(cx)
@@ -552,11 +562,13 @@ impl Workspace {
             .child(
                 super::hover::cut("find-count", count.clone())
                     .text_size(px(12.))
-                    .text_color(if count == "No matches" || self.dfind_error.is_some() {
-                        theme::removed()
-                    } else {
-                        theme::muted()
-                    }),
+                    .text_color(
+                        if count == "No matches" || self.review.dfind_error.is_some() {
+                            theme::removed()
+                        } else {
+                            theme::muted()
+                        },
+                    ),
             )
             .child(step("dfind-prev", "↑", false))
             .child(step("dfind-next", "↓", true))

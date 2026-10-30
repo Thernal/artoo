@@ -53,6 +53,7 @@ mod reactions;
 mod recents;
 mod request_page;
 mod requests;
+mod review;
 mod reviewed;
 mod roots;
 mod routes;
@@ -771,6 +772,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         if let Ok(path) = std::env::var("ARTOO_SNAPSHOT_FILE") {
             ws.update(cx, |this, cx| {
                 let found = this
+                    .review
                     .diff
                     .as_ref()
                     .and_then(|d| d.files.iter().position(|f| f.path() == path));
@@ -850,10 +852,11 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         }
                         "comments" => {
                             // Unsaved sample comments on the first changed line, one being written.
-                            let (Some(data), Some(path)) = (&this.data, this.current_path()) else {
+                            let (Some(data), Some(path)) = (&this.review.data, this.current_path())
+                            else {
                                 continue;
                             };
-                            let target = this.rows.iter().find_map(|row| match row {
+                            let target = this.review.rows.iter().find_map(|row| match row {
                                 Row::Split { right: Some(c), .. }
                                 | Row::Unified {
                                     cell: c,
@@ -887,10 +890,11 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         }
                         // An agent comment sent, and the agent asking back with a plan (#10).
                         "agent-form" => {
-                            let (Some(data), Some(path)) = (&this.data, this.current_path()) else {
+                            let (Some(data), Some(path)) = (&this.review.data, this.current_path())
+                            else {
                                 continue;
                             };
-                            let line = this.rows.iter().find_map(|row| match row {
+                            let line = this.review.rows.iter().find_map(|row| match row {
                                 Row::Split { right: Some(c), .. }
                                 | Row::Unified {
                                     cell: c,
@@ -968,7 +972,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             continue;
                         }
                         "notice" => {
-                            this.notice = Some(Notice {
+                            this.review.notice = Some(Notice {
                                 text: "v3 arrived — this comparison now ends at v3.".into(),
                                 undo: Selection::None,
                             });
@@ -980,7 +984,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             continue;
                         }
                         "linemenu" => {
-                            this.sel = Some(Sel {
+                            this.review.sel = Some(Sel {
                                 old: false,
                                 anchor: select::Pos { line: 66, byte: 4 },
                                 head: select::Pos { line: 68, byte: 12 },
@@ -1034,7 +1038,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             continue;
                         }
                         "swipe" | "onion" => {
-                            this.images.mode = if name.trim() == "swipe" {
+                            this.review.images.mode = if name.trim() == "swipe" {
                                 image_view::Mode::Swipe
                             } else {
                                 image_view::Mode::Onion
@@ -1052,13 +1056,13 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         }
                         // A comment on the rendered document's third block (#11).
                         "page-comment" => {
-                            let ix = this.file;
+                            let ix = this.review.file;
                             this.page_block_comment(ix, cx);
                             continue;
                         }
                         // The comments of the rendered document's third block, opened.
                         "page-notes" => {
-                            let ix = this.file;
+                            let ix = this.review.file;
                             this.page_block_notes(ix, cx);
                             continue;
                         }
@@ -1609,10 +1613,9 @@ pub struct Workspace {
     pending_link: Option<crate::links::Target>,
     /// The comment or line a link pointed at, waiting for the request's diff and discussions.
     spot: Option<goto::Spot>,
-    /// How changed images are shown (`image_view.rs`).
-    images: image_view::Images,
-    /// How changed documents are read (`md_page.rs`).
-    page: md_page::Page,
+    /// The diff on screen and how it is read: its files and rows, the find over it, the marks of files read, the
+    /// annotations (#165 stage 4: the review's state, on its way out of the tab).
+    review: review::Review,
     /// The theme open in Settings → Appearance's editor (`appearance.rs`).
     theme_edit: Option<appearance::ThemeEdit>,
     /// The value of its selected token, as typed.
@@ -1741,13 +1744,6 @@ pub struct Workspace {
     bookmarks: bookmarks::Store,
     /// Places opened lately, newest first.
     recents: Vec<recents::Entry>,
-    /// The annotation column (who wrote each line) is on, and what blame said of the open file.
-    annotate: bool,
-    annotations: Vec<diff_view::AnnCell>,
-    annot_task: Option<Task<()>>,
-    /// Blame for a long hover on a line number (D19), and the tip shown.
-    blames: annotate::Blames,
-    blame_tip: Option<annotate::BlameTip>,
     /// A mention in comment text under the pointer, and its card (X62).
     mention_hover: Option<hover::MentionHover>,
     /// When panes last opened or closed, to draw them coming and going (#56).
@@ -1756,29 +1752,13 @@ pub struct Workspace {
     last_tool: Option<tools::Tool>,
     /// The menu just closed, drawn fading out.
     menu_leaving: Option<menu::CtxMenu>,
-    /// A file the diff does not change, shown in its place (D18), and its read.
-    file_view: Option<file_view::FileView>,
-    file_reading: file_view::Reading,
     /// Open in's choices kept per extension, and the app its button names (#78).
     open_with: std::collections::HashMap<String, open_in::App>,
     open_cache: open_in::Cache,
     /// The search over all files of the diff, while it is open.
     ffind: Option<findfiles::FindFiles>,
-    /// The marks of files read, and the scope and file fingerprints of the open diff.
-    reviewed: reviewed::Store,
-    /// The card that comes up when the last file of a diff is marked reviewed.
-    done_card: bool,
-    review_scope: Option<String>,
-    fps: Vec<u64>,
-    /// Generated files the reader asked to see in full.
-    unfolded: HashSet<String>,
     /// The window's width in logical pixels, as of the last frame.
     win_width: f32,
-    /// The diff is narrower than 700 px: it is drawn unified whatever the option says.
-    narrow: bool,
-    /// The diff is narrower than 600 px: a comment's secondary buttons keep only their icon, the
-    /// keycaps go and its indent gives way (#69).
-    tight: bool,
     /// The files list is open over the diff (a window too narrow for its column).
     /// The comment marks of the open file's gutter.
     notes: Vec<diff_view::LineNote>,
@@ -1792,13 +1772,6 @@ pub struct Workspace {
     token_input: String,
     /// A token is being checked against GitLab.
     testing: bool,
-    /// The line number being typed for a quick comment.
-    goline: Option<String>,
-    /// The diff row the `c` marker stands on.
-    goline_row: Option<usize>,
-    jump_line: Option<(u32, bool)>,
-    /// The jump shows the whole function around its line (#46 C).
-    jump_whole: bool,
     /// A comparison opened from an outdated discussion, with the versions that changed its line.
     since: Option<outdated::Since>,
     /// A notification opened on a comment: once its line's history is in, an outdated one opens
@@ -1825,8 +1798,6 @@ pub struct Workspace {
     note_lines: std::collections::HashMap<u64, u32>,
     note_task: Option<Task<()>>,
     tabs: shell::TabModel,
-    diff: Option<Diff>,
-    file: usize,
     options: ViewOptions,
     settings: Settings,
     settings_open: bool,
@@ -1864,8 +1835,6 @@ pub struct Workspace {
     bfilter: String,
     pfilter: String,
     field: Option<Field>,
-    /// Folders closed in the file tree.
-    collapsed: HashSet<String>,
     /// Labels on commits: where branches, remote branches and tags point.
     decor: std::collections::HashMap<git2::Oid, Vec<crate::git::Deco>>,
     /// A context menu open at the pointer, and the repository's address on the web.
@@ -1873,41 +1842,8 @@ pub struct Workspace {
     web: Option<crate::git::WebRemote>,
     /// The host `web` is on, set with it.
     host: Option<Arc<dyn Host>>,
-    /// The selected text of the open diff, and whether the button is down (a drag extends it).
-    sel: Option<Sel>,
-    selecting: bool,
-    /// The find bar's text over the open diff, and what it looks for.
-    dfind: Option<String>,
-    dterms: Arc<crate::search::Terms>,
-    /// ⌘F's `.*`: the text is a regular expression (#113); what is wrong with it, when it is.
-    dfind_regex: bool,
-    dfind_error: Option<String>,
-    /// Rows where a change begins, and the one stepped to (F7).
-    changes: Vec<usize>,
-    change_at: Option<usize>,
     /// The commit message's full body is shown.
     body_expanded: bool,
-    /// Rows of the open diff that hold the find text, and the one stepped to.
-    matches: Vec<usize>,
-    match_at: usize,
-    /// Said above the diff when it changed under the user.
-    notice: Option<Notice>,
-    /// Scroll position (file path, offset) to put back once the reloaded file is laid out.
-    restore_scroll: Option<(String, gpui::ListOffset)>,
-    /// The selected file, built in the background.
-    data: Option<Arc<FileData>>,
-    /// `data` laid out for `options`.
-    rows: Vec<Row>,
-    /// Every file of the diff in one scroll (`stack.rs`); `None` while files are shown one at a
-    /// time.
-    stack: Option<stack::Stack>,
-    /// Unchanged runs of the selected file the user opened.
-    expanded: HashSet<usize>,
-    diff_list: ListState,
-    /// Horizontal scroll of the diff, in pixels.
-    offset: f32,
-    /// Width of the diff body at the last paint.
-    body_width: Rc<Shared<f32>>,
     /// Each list's width as last drawn: its rows keep what it has room for (#79).
     widths: room::Widths,
     /// What folds, its open height (#110, `folding`).
@@ -1940,12 +1876,9 @@ pub struct Workspace {
     char_face: SharedString,
     commit_scroll: UniformListScrollHandle,
     compare_scroll: UniformListScrollHandle,
-    file_scroll: UniformListScrollHandle,
     // Replacing a task drops, and so cancels, the one it replaces.
     repo_task: Option<Task<()>>,
     branch_task: Option<Task<()>>,
-    diff_task: Option<Task<()>>,
-    view_task: Option<Task<()>>,
 }
 
 impl Workspace {
@@ -1989,8 +1922,53 @@ impl Workspace {
             keys_filter: String::new(),
             keys_exact: false,
             keys_changed_only: false,
-            images: Default::default(),
-            page: Default::default(),
+            review: review::Review {
+                images: Default::default(),
+                page: Default::default(),
+                annotate: false,
+                annotations: Vec::new(),
+                annot_task: None,
+                blames: Default::default(),
+                blame_tip: None,
+                file_view: None,
+                file_reading: None,
+                reviewed: reviewed::Store::load(),
+                done_card: false,
+                review_scope: None,
+                fps: Vec::new(),
+                unfolded: HashSet::new(),
+                narrow: false,
+                tight: false,
+                goline: None,
+                goline_row: None,
+                jump_line: None,
+                jump_whole: false,
+                diff: None,
+                file: 0,
+                collapsed: HashSet::new(),
+                sel: None,
+                selecting: false,
+                dfind: None,
+                dterms: Arc::default(),
+                dfind_regex: false,
+                dfind_error: None,
+                changes: Vec::new(),
+                change_at: None,
+                matches: Vec::new(),
+                match_at: 0,
+                notice: None,
+                restore_scroll: None,
+                data: None,
+                rows: Vec::new(),
+                expanded: HashSet::new(),
+                diff_list: ListState::new(0, ListAlignment::Top, px(400.)),
+                stack: None,
+                offset: 0.,
+                body_width: Rc::new(Shared::new(0.)),
+                file_scroll: UniformListScrollHandle::new(),
+                diff_task: None,
+                view_task: None,
+            },
             theme_edit: None,
             theme_value: String::new(),
             pending_link: None,
@@ -2057,38 +2035,20 @@ impl Workspace {
             zoom_applied: false,
             bookmarks: bookmarks::Store::load(),
             recents: Vec::new(),
-            annotate: false,
-            annotations: Vec::new(),
-            annot_task: None,
-            blames: Default::default(),
-            blame_tip: None,
             mention_hover: None,
-            file_view: None,
-            file_reading: None,
             open_with: open_in::load(),
             open_cache: Default::default(),
             motion: Default::default(),
             last_tool: None,
             menu_leaving: None,
             ffind: None,
-            reviewed: reviewed::Store::load(),
-            done_card: false,
-            review_scope: None,
-            fps: Vec::new(),
-            unfolded: HashSet::new(),
             win_width: 1480.,
-            narrow: false,
-            tight: false,
             notes: Vec::new(),
             toggled_mr: HashSet::new(),
             toggled_agent: HashSet::new(),
             thread_at: None,
             token_input: String::new(),
             testing: false,
-            goline: None,
-            goline_row: None,
-            jump_line: None,
-            jump_whole: false,
             since: None,
             since_on_open: None,
             agent_lines: Default::default(),
@@ -2101,8 +2061,6 @@ impl Workspace {
             note_lines: Default::default(),
             note_task: None,
             tabs: Default::default(),
-            diff: None,
-            file: 0,
             options: ViewOptions::load(&settings),
             settings,
             settings_open: false,
@@ -2126,31 +2084,11 @@ impl Workspace {
             bfilter: String::new(),
             pfilter: String::new(),
             field: None,
-            collapsed: HashSet::new(),
             decor: Default::default(),
             ctx_menu: None,
             web: None,
             host: None,
-            sel: None,
-            selecting: false,
-            dfind: None,
-            dterms: Arc::default(),
-            dfind_regex: false,
-            dfind_error: None,
-            changes: Vec::new(),
-            change_at: None,
             body_expanded: false,
-            matches: Vec::new(),
-            match_at: 0,
-            notice: None,
-            restore_scroll: None,
-            data: None,
-            rows: Vec::new(),
-            expanded: HashSet::new(),
-            diff_list: ListState::new(0, ListAlignment::Top, px(400.)),
-            stack: None,
-            offset: 0.,
-            body_width: Rc::new(Shared::new(0.)),
             widths: Default::default(),
             heights: Default::default(),
             folds: Default::default(),
@@ -2171,11 +2109,8 @@ impl Workspace {
             char_face: theme::code_font(),
             commit_scroll: UniformListScrollHandle::new(),
             compare_scroll: UniformListScrollHandle::new(),
-            file_scroll: UniformListScrollHandle::new(),
             repo_task: None,
             branch_task: None,
-            diff_task: None,
-            view_task: None,
         };
         let frame = Rc::new(parts::TabFrame(cx.weak_entity()));
         this.parts = artoo_shell_api::make_parts(frame, window, cx);
@@ -2256,7 +2191,7 @@ impl Workspace {
                         this.start_working_poll(cx);
                         this.load_requests(cx);
                         // The documents this repository reads as Source (#11).
-                        this.page.load(&crate::review::key(&root));
+                        this.review.page.load(&crate::review::key(&root));
                         // Its requests list's folds and the requests opened (#81).
                         this.roots.load(&crate::review::key(&root));
                         // Code's pinned tabs (#20).
@@ -2318,7 +2253,7 @@ impl Workspace {
         self.fetch = Default::default();
         self.start_working_poll(cx);
         self.load_requests(cx);
-        self.page.load(&crate::review::key(&root));
+        self.review.page.load(&crate::review::key(&root));
         self.roots.load(&crate::review::key(&root));
         self.code.load_pins(&crate::review::key(&root));
         self.root = Some(root);
@@ -2339,31 +2274,31 @@ impl Workspace {
     }
 
     fn clear_diff(&mut self) {
-        self.unfolded.clear();
-        self.notice = None;
+        self.review.unfolded.clear();
+        self.review.notice = None;
         self.body_expanded = false;
         self.selection = Selection::None;
-        self.diff = None;
-        self.diff_task = None;
+        self.review.diff = None;
+        self.review.diff_task = None;
         self.clear_file();
-        self.file = 0;
+        self.review.file = 0;
     }
 
     fn clear_file(&mut self) {
-        self.stack = None;
-        self.page.leave();
-        self.annotations.clear();
-        self.data = None;
-        self.view_task = None;
-        self.rows.clear();
-        self.expanded.clear();
-        self.sel = None;
-        self.matches.clear();
-        self.match_at = 0;
-        self.changes.clear();
-        self.change_at = None;
-        self.offset = 0.;
-        self.diff_list.reset(0);
+        self.review.stack = None;
+        self.review.page.leave();
+        self.review.annotations.clear();
+        self.review.data = None;
+        self.review.view_task = None;
+        self.review.rows.clear();
+        self.review.expanded.clear();
+        self.review.sel = None;
+        self.review.matches.clear();
+        self.review.match_at = 0;
+        self.review.changes.clear();
+        self.review.change_at = None;
+        self.review.offset = 0.;
+        self.review.diff_list.reset(0);
     }
 
     fn select_branch(&mut self, ix: usize, keep: Option<git2::Oid>, cx: &mut Context<Self>) {
@@ -2598,6 +2533,7 @@ impl Workspace {
             return;
         };
         let Some((old, new)) = self
+            .review
             .diff
             .as_ref()
             .and_then(|d| d.pairs.get(pair))
@@ -2627,7 +2563,7 @@ impl Workspace {
 
     /// The commit the shown diff's new side is: what a comment written now is read from.
     pub(super) fn shown_head(&self) -> Option<git2::Oid> {
-        match &self.diff.as_ref()?.header {
+        match &self.review.diff.as_ref()?.header {
             Header::Commit(c) => Some(c.id),
             Header::Versions { to, .. } => Some(to.tip),
             Header::Compare { head, .. } => Some(head.1),
@@ -2642,7 +2578,7 @@ impl Workspace {
         cx: &mut Context<Self>,
         load: impl FnOnce() -> anyhow::Result<Diff> + Send + 'static,
     ) {
-        self.diff_task = Some(cx.spawn(async move |this, cx| {
+        self.review.diff_task = Some(cx.spawn(async move |this, cx| {
             let loaded = cx.background_executor().spawn(async move { load() }).await;
             this.update(cx, |this, cx| {
                 match loaded {
@@ -2650,18 +2586,22 @@ impl Workspace {
                         // The file asked for, else the one a page comes back to (#71): the one
                         // at the same place while it is still there — a file partly staged is
                         // listed twice (#22) —, else the first with its path.
-                        let keep = keep
-                            .or_else(|| this.restore_scroll.as_ref().map(|(path, _)| path.clone()));
+                        let keep = keep.or_else(|| {
+                            this.review
+                                .restore_scroll
+                                .as_ref()
+                                .map(|(path, _)| path.clone())
+                        });
                         let ix = keep.and_then(|path| {
-                            let at = this.file;
+                            let at = this.review.file;
                             (diff.files.get(at).map(|f| f.path()) == Some(path.as_str()))
                                 .then_some(at)
                                 .or_else(|| diff.files.iter().position(|f| f.path() == path))
                         });
                         let empty = diff.files.is_empty();
-                        this.diff = Some(diff);
+                        this.review.diff = Some(diff);
                         // The files of the diff it replaces are gone.
-                        this.stack = None;
+                        this.review.stack = None;
                         this.map_agent_comments(cx);
                         this.map_agent_notes(cx);
                         this.index_review();
@@ -2669,7 +2609,7 @@ impl Workspace {
                         // the first file as the island lists it (a tree sorts folders first), so
                         // → walks on from the top.
                         let request = matches!(
-                            this.diff.as_ref().map(|d| &d.header),
+                            this.review.diff.as_ref().map(|d| &d.header),
                             Some(Header::Compare {
                                 request: Some(_),
                                 ..
@@ -2684,7 +2624,9 @@ impl Workspace {
                             .or(unread.filter(|_| request))
                             .or_else(|| order.first().copied())
                             .unwrap_or(0);
-                        this.file_scroll.scroll_to_item(0, ScrollStrategy::Top);
+                        this.review
+                            .file_scroll
+                            .scroll_to_item(0, ScrollStrategy::Top);
                         if !empty {
                             this.select_file(ix, cx);
                         }
@@ -2700,7 +2642,13 @@ impl Workspace {
     }
 
     fn select_file(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let Some(file) = self.diff.as_ref().and_then(|d| d.files.get(ix)).cloned() else {
+        let Some(file) = self
+            .review
+            .diff
+            .as_ref()
+            .and_then(|d| d.files.get(ix))
+            .cloned()
+        else {
             return;
         };
         self.remember_place(
@@ -2711,30 +2659,31 @@ impl Workspace {
         if self.wants_stack() {
             return self.stack_select(ix, cx);
         }
-        self.file = ix;
+        self.review.file = ix;
         self.fcursor = None;
         self.clear_file();
         self.scroll_file_into_view(ix);
         let mode = self.options.mode;
-        self.view_task = Some(cx.spawn(async move |this, cx| {
+        self.review.view_task = Some(cx.spawn(async move |this, cx| {
             let data = cx
                 .background_executor()
                 .spawn(async move { FileData::build(&file, mode) })
                 .await;
             this.update(cx, |this, cx| {
-                this.data = Some(Arc::new(data));
+                this.review.data = Some(Arc::new(data));
                 this.refresh_annotations(cx);
                 this.relayout();
                 this.apply_jump(cx);
-                if let Some((path, offset)) = this.restore_scroll.take()
+                if let Some((path, offset)) = this.review.restore_scroll.take()
                     && this
+                        .review
                         .diff
                         .as_ref()
-                        .and_then(|d| d.files.get(this.file))
+                        .and_then(|d| d.files.get(this.review.file))
                         .map(|f| f.path())
                         == Some(path.as_str())
                 {
-                    this.diff_list.scroll_to(offset);
+                    this.review.diff_list.scroll_to(offset);
                 }
                 cx.notify();
             })
@@ -2747,22 +2696,24 @@ impl Workspace {
     /// (with all files in one scroll, only its rows that changed are replaced).
     fn relayout(&mut self) {
         let block = self
+            .review
             .stack
             .as_ref()
-            .and_then(|s| s.block_of(self.file))
+            .and_then(|s| s.block_of(self.review.file))
             .map(|b| (b, self.shown_rows(b)));
         let rows = self
+            .review
             .data
             .as_ref()
-            .map(|data| rows::layout(data, &self.view_options(), &self.expanded))
+            .map(|data| rows::layout(data, &self.view_options(), &self.review.expanded))
             .unwrap_or_default();
-        self.rows = self.with_comments(rows);
+        self.review.rows = self.with_comments(rows);
         self.notes = self.line_notes();
         match block {
             Some((b, before)) => self.stack_changed(b, before),
-            None => self.diff_list.reset(self.rows.len()),
+            None => self.review.diff_list.reset(self.review.rows.len()),
         }
-        self.offset = self.offset.min(self.max_offset());
+        self.review.offset = self.review.offset.min(self.max_offset());
         self.recompute_matches();
     }
 
@@ -2771,7 +2722,7 @@ impl Workspace {
     /// developer, 2026-10-23: the place seemed lost).
     fn relayout_all(&mut self) {
         let anchor = self.scroll_anchor();
-        if self.stack.is_some() {
+        if self.review.stack.is_some() {
             self.relayout_stack();
         } else {
             self.relayout();
@@ -2784,19 +2735,19 @@ impl Workspace {
     /// What the diff's top shows: the file, the line of the nearest row with one (none on its
     /// header), and how far into that row it is scrolled.
     fn scroll_anchor(&self) -> Option<Anchor> {
-        let top = self.diff_list.logical_scroll_top();
-        let (file, rows, inside) = match &self.stack {
+        let top = self.review.diff_list.logical_scroll_top();
+        let (file, rows, inside) = match &self.review.stack {
             Some(stack) => {
                 let (b, inside) = stack.locate(top.item_ix);
                 let block = stack.blocks.get(b)?;
-                let rows = if block.file == self.file {
-                    &self.rows
+                let rows = if block.file == self.review.file {
+                    &self.review.rows
                 } else {
                     &block.rows
                 };
                 (block.file, rows, inside.checked_sub(1))
             }
-            None => (self.file, &self.rows, Some(top.item_ix)),
+            None => (self.review.file, &self.review.rows, Some(top.item_ix)),
         };
         let line = inside.and_then(|at| {
             rows.get(..=at.min(rows.len().checked_sub(1)?))?
@@ -2809,13 +2760,13 @@ impl Workspace {
 
     /// Back to what `scroll_anchor` saw, in the rows as they are laid out now.
     fn restore_anchor(&mut self, (file, line, offset): Anchor) {
-        let item_ix = match &self.stack {
+        let item_ix = match &self.review.stack {
             Some(stack) => {
                 let (Some(b), Some(header)) = (stack.block_of(file), stack.header(file)) else {
                     return;
                 };
-                let rows = if file == self.file {
-                    &self.rows
+                let rows = if file == self.review.file {
+                    &self.review.rows
                 } else {
                     &stack.blocks[b].rows
                 };
@@ -2824,13 +2775,15 @@ impl Workspace {
                     _ => header,
                 }
             }
-            None if file == self.file => match line.and_then(|l| rows::row_with(&self.rows, l)) {
-                Some(at) => at,
-                None => return,
-            },
+            None if file == self.review.file => {
+                match line.and_then(|l| rows::row_with(&self.review.rows, l)) {
+                    Some(at) => at,
+                    None => return,
+                }
+            }
             None => return,
         };
-        self.diff_list.scroll_to(gpui::ListOffset {
+        self.review.diff_list.scroll_to(gpui::ListOffset {
             item_ix,
             offset_in_item: offset,
         });
@@ -2838,26 +2791,31 @@ impl Workspace {
 
     /// Shows the hidden lines of an unchanged run in place, keeping the scroll position.
     fn expand_gap(&mut self, segment: usize, cx: &mut Context<Self>) {
-        let Some(data) = self.data.clone() else {
+        let Some(data) = self.review.data.clone() else {
             return;
         };
-        if self.stack.is_some() {
-            self.expanded.insert(segment);
+        if self.review.stack.is_some() {
+            self.review.expanded.insert(segment);
             self.relayout();
             return cx.notify();
         }
         let Some(at) = self
+            .review
             .rows
             .iter()
             .position(|r| matches!(r, Row::Gap { segment: s, .. } if *s == segment))
         else {
             return;
         };
-        self.expanded.insert(segment);
-        let rows = self.with_comments(rows::layout(&data, &self.view_options(), &self.expanded));
-        let inserted = rows.len() + 1 - self.rows.len();
-        self.rows = rows;
-        self.diff_list.splice(at..at + 1, inserted);
+        self.review.expanded.insert(segment);
+        let rows = self.with_comments(rows::layout(
+            &data,
+            &self.view_options(),
+            &self.review.expanded,
+        ));
+        let inserted = rows.len() + 1 - self.review.rows.len();
+        self.review.rows = rows;
+        self.review.diff_list.splice(at..at + 1, inserted);
         self.recompute_matches();
         cx.notify();
     }
@@ -2898,7 +2856,7 @@ impl Workspace {
             Opt::FoldReviewed => self.refold(cx),
             Opt::OneFile => self.show_files_anew(cx),
             // Same rows, new heights.
-            Opt::Wrap => self.diff_list.remeasure(),
+            Opt::Wrap => self.review.diff_list.remeasure(),
             Opt::Whitespace => self.reload_diff(cx),
         }
         cx.notify();
@@ -2911,10 +2869,10 @@ impl Workspace {
         }
         self.options.mode = mode;
         cx.set_menus(menus(&self.options, cx));
-        if self.stack.is_some() {
+        if self.review.stack.is_some() {
             self.reopen_stack(cx);
         } else {
-            self.select_file(self.file, cx);
+            self.select_file(self.review.file, cx);
         }
         cx.notify();
     }
@@ -2948,7 +2906,7 @@ impl Workspace {
                         .checked(o.wrap),
                     Entry::new("Annotate (blame)", Act::Annotate)
                         .key("⌥⌘B")
-                        .checked(self.annotate),
+                        .checked(self.review.annotate),
                 ],
             ),
             (
@@ -2984,7 +2942,7 @@ impl Workspace {
 
     /// The new-side line shown at `row`, to open the editor where the reader is.
     pub(super) fn new_line_of_row(&self, row: usize) -> Option<u32> {
-        match *self.rows.get(row)? {
+        match *self.review.rows.get(row)? {
             rows::Row::Split { right, .. } => right.map(|c| c.line),
             rows::Row::Unified { new_line, .. } => new_line,
             _ => None,
@@ -2999,10 +2957,10 @@ impl Workspace {
         at: Point<gpui::Pixels>,
         cx: &mut Context<Self>,
     ) {
-        let Some(data) = &self.data else {
+        let Some(data) = &self.review.data else {
             return;
         };
-        let in_selection = self.sel.is_some_and(|s| {
+        let in_selection = self.review.sel.is_some_and(|s| {
             let (start, end) = s.ends();
             !s.is_empty() && s.old == old && (start.line..=end.line).contains(&line)
         });
@@ -3055,7 +3013,7 @@ impl Workspace {
 
     /// The revision whose files the open diff shows on its new side; none for the working tree.
     pub(super) fn viewed_rev(&self) -> Option<git2::Oid> {
-        match &self.diff.as_ref()?.header {
+        match &self.review.diff.as_ref()?.header {
             Header::Commit(c) => Some(c.id),
             Header::Compare { head, .. } => Some(head.1),
             Header::Versions { to, .. } => Some(to.tip),
@@ -3087,6 +3045,7 @@ impl Workspace {
 
     fn file_context(&mut self, ix: usize, at: Point<gpui::Pixels>, cx: &mut Context<Self>) {
         let Some(path) = self
+            .review
             .diff
             .as_ref()
             .and_then(|d| d.files.get(ix))
@@ -3149,9 +3108,10 @@ impl Workspace {
     /// Recomputes the selected commit's or versions' diff, staying on the same file.
     fn reload_diff(&mut self, cx: &mut Context<Self>) {
         let keep = self
+            .review
             .diff
             .as_ref()
-            .and_then(|d| d.files.get(self.file))
+            .and_then(|d| d.files.get(self.review.file))
             .map(|f| f.path().to_owned());
         match self.selection {
             Selection::Commit(ix) => self.load_commit(ix, keep, cx),
@@ -3215,7 +3175,7 @@ impl Workspace {
     /// The options the rows are laid out with: a diff under 700 px wide is unified.
     fn view_options(&self) -> ViewOptions {
         let mut options = self.options;
-        options.unified |= self.narrow;
+        options.unified |= self.review.narrow;
         options
     }
 
@@ -3223,7 +3183,7 @@ impl Workspace {
     pub(super) fn files_zone(&self) -> bool {
         self.side_open()
             && self.layout.show_files
-            && self.diff.as_ref().is_some_and(|d| d.files.len() > 1)
+            && self.review.diff.as_ref().is_some_and(|d| d.files.len() > 1)
     }
 
     /// A generated file with a long change starts folded; the reader can open it.
@@ -3231,18 +3191,18 @@ impl Workspace {
         self.settings.fold_generated
             && crate::generated::is_generated(file.path())
             && file.added + file.removed > crate::generated::FOLD_ABOVE
-            && !self.unfolded.contains(file.path())
+            && !self.review.unfolded.contains(file.path())
     }
 
     fn unfold(&mut self, path: &str, cx: &mut Context<Self>) {
-        self.unfolded.insert(path.to_owned());
+        self.review.unfolded.insert(path.to_owned());
         self.sync_stack();
         self.build_stack(cx);
         cx.notify();
     }
 
     fn row_style(&self) -> RowStyle<'_> {
-        self.row_style_for(self.data.as_deref(), &self.notes, true)
+        self.row_style_for(self.review.data.as_deref(), &self.notes, true)
     }
 
     /// How a row of a file built as `data` is drawn; the selection and blame only in the `active`
@@ -3256,15 +3216,17 @@ impl Workspace {
         let digits = data.map_or(3, |d| d.gutter_digits);
         RowStyle {
             wrap: self.options.wrap,
-            offset: self.offset,
+            offset: self.review.offset,
             marks: self.settings.mark_style,
-            terms: &self.dterms,
+            terms: &self.review.dterms,
             strong: false,
-            sel: self.sel.filter(|_| active),
+            sel: self.review.sel.filter(|_| active),
             notes,
-            annot: self
-                .annotate
-                .then_some(if active { &self.annotations[..] } else { &[] }),
+            annot: self.review.annotate.then_some(if active {
+                &self.review.annotations[..]
+            } else {
+                &[]
+            }),
             row: self.row_height(),
             // Room for the comment mark (16 px) left of the number.
             gutter: digits.max(3) as f32 * self.char_width + 30.,
@@ -3279,13 +3241,14 @@ impl Workspace {
         let style = self.row_style();
         let sides = if self.view_options().unified { 1. } else { 2. };
         // A file's card is inset from the sides, and framed.
-        let card = if self.stack.is_some() {
+        let card = if self.review.stack.is_some() {
             2. * stack::CARD_MARGIN + 2.
         } else {
             0.
         };
         let visible =
-            (self.body_width.get() - card - style.chrome(self.view_options().unified)) / sides;
+            (self.review.body_width.get() - card - style.chrome(self.view_options().unified))
+                / sides;
         (widest as f32 * self.char_width + 24. - visible).max(0.)
     }
 
@@ -3297,9 +3260,9 @@ impl Workspace {
         if delta == 0. {
             return;
         }
-        let offset = (self.offset - delta).clamp(0., self.max_offset());
-        if offset != self.offset {
-            self.offset = offset;
+        let offset = (self.review.offset - delta).clamp(0., self.max_offset());
+        if offset != self.review.offset {
+            self.review.offset = offset;
             cx.notify();
         }
     }
@@ -3488,9 +3451,9 @@ impl Workspace {
     /// The files shown again as they now should be, one at a time or in one scroll, the file and
     /// the place in it kept.
     fn show_files_anew(&mut self, cx: &mut Context<Self>) {
-        self.restore_scroll = self.scroll_place();
+        self.review.restore_scroll = self.scroll_place();
         self.clear_file();
-        self.select_file(self.file, cx);
+        self.select_file(self.review.file, cx);
     }
 
     fn toggle_unified(&mut self, _: &ToggleUnified, _: &mut Window, cx: &mut Context<Self>) {
@@ -3576,7 +3539,7 @@ impl Workspace {
     fn find_action(&mut self, _: &Find, _: &mut Window, cx: &mut Context<Self>) {
         if self.at_root_list() && !self.settings_open {
             self.start_field(lists::Field::Branches, cx);
-        } else if self.diff.is_some() && !self.settings_open {
+        } else if self.review.diff.is_some() && !self.settings_open {
             self.start_dfind(cx);
         } else {
             self.start_find(cx);
@@ -3658,9 +3621,9 @@ impl Workspace {
                 .children(self.render_create_form(cx))
                 .into_any_element();
         }
-        let Some(diff) = &self.diff else {
+        let Some(diff) = &self.review.diff else {
             // Loading: a shimmer of lines where the diff will be (#56, 18).
-            if self.diff_task.is_some() {
+            if self.review.diff_task.is_some() {
                 return island()
                     .flex_1()
                     .bg(theme::editor())
@@ -3703,7 +3666,7 @@ impl Workspace {
                                     .max_w(px(READING_WIDTH))
                                     .flex()
                                     .child(file),
-                                ("zen-file", self.file),
+                                ("zen-file", self.review.file),
                                 motion::BASE,
                                 |d, v| d.top(px(16. * (1. - v))).opacity(v),
                             ))
@@ -3741,18 +3704,24 @@ impl Workspace {
     /// time: the file's name and folder, where it is among the files ("file 3 of 8") and a bar
     /// per file — reviewed, the one shown, the rest (#55).
     fn render_zen_head(&self, diff: &Diff) -> impl IntoElement + use<> {
-        let file = diff.files.get(self.file).map(|f| f.path().to_owned());
+        let file = diff
+            .files
+            .get(self.review.file)
+            .map(|f| f.path().to_owned());
         if self.zen_one
             && let Some(path) = &file
         {
             let order = self.file_order();
-            let at = order.iter().position(|&ix| ix == self.file).unwrap_or(0);
+            let at = order
+                .iter()
+                .position(|&ix| ix == self.review.file)
+                .unwrap_or(0);
             let (dir, name) = match path.rsplit_once('/') {
                 Some((dir, name)) => (format!("{dir}/"), name.to_owned()),
                 None => (String::new(), path.clone()),
             };
             let bars = order.iter().map(|&ix| {
-                let color = if ix == self.file {
+                let color = if ix == self.review.file {
                     theme::accent()
                 } else if self.review_state(ix) == Some(reviewed::State::Done) {
                     theme::added()
@@ -3851,7 +3820,7 @@ impl Workspace {
                     .child(chip("split", "Split", !o.unified).on_click(set(Opt::Unified, false)))
                     .child(chip("unified", "Unified", o.unified).on_click(set(Opt::Unified, true))),
             )
-            .children(self.stack.is_some().then(|| {
+            .children(self.review.stack.is_some().then(|| {
                 let folded = self.any_folded();
                 diff_view::group().child(
                     chip(
@@ -4337,9 +4306,9 @@ impl Workspace {
     }
 
     fn render_file(&self, diff: &Diff, cx: &mut Context<Self>) -> impl IntoElement {
-        let file = diff.files.get(self.file);
-        let body = match (file, &self.data) {
-            _ if self.stack.is_some() => self.render_rows(cx).into_any_element(),
+        let file = diff.files.get(self.review.file);
+        let body = match (file, &self.review.data) {
+            _ if self.review.stack.is_some() => self.render_rows(cx).into_any_element(),
             (Some(f), _) if self.generated_folded(f) => {
                 let path = f.path().to_owned();
                 div()
@@ -4383,7 +4352,7 @@ impl Workspace {
                 .child("No changes")
                 .into_any_element(),
             (Some(file), _) if self.shows_page(file) => {
-                self.render_page_alone(self.file, cx.entity().downgrade(), cx)
+                self.render_page_alone(self.review.file, cx.entity().downgrade(), cx)
             }
             (Some(file), _) if self.shows_image(file) => self.render_image(file, cx),
             (Some(file), _) if file.hunks.is_empty() => div()
@@ -4401,7 +4370,7 @@ impl Workspace {
             (Some(_), None) => div().flex_1().into_any_element(),
             (Some(_), Some(_)) => self.render_rows(cx).into_any_element(),
         };
-        let mode_note = self.data.as_ref().and_then(|d| d.mode_note.clone());
+        let mode_note = self.review.data.as_ref().and_then(|d| d.mode_note.clone());
         island()
             .relative()
             .flex_1()
@@ -4441,19 +4410,21 @@ impl Workspace {
                     // The working tree's part it is (#22): staged, not staged, untracked; with
                     // every file in one scroll the card's own header has it.
                     .children(
-                        self.stack
+                        self.review
+                            .stack
                             .is_none()
-                            .then(|| working::file_tag(diff.tags.word(self.file)))
+                            .then(|| working::file_tag(diff.tags.word(self.review.file)))
                             .flatten(),
                     )
                     // An SVG read as its source can go back to the picture.
                     .children(
-                        (self.images.source && image_view::is_svg(f))
+                        (self.review.images.source && image_view::is_svg(f))
                             .then(|| image_view::source_switch(true, cx)),
                     )
                     // With every file in one scroll the card's own header has it.
                     .children(
-                        self.stack
+                        self.review
+                            .stack
                             .is_none()
                             .then(|| self.page_switch(f, false, cx.entity().downgrade()))
                             .flatten(),
@@ -4465,20 +4436,24 @@ impl Workspace {
                             .flatten()
                             .map(|n| div().text_color(theme::warning()).child(n)),
                     )
-                    .children((!self.changes.is_empty()).then(|| {
+                    .children((!self.review.changes.is_empty()).then(|| {
                         div()
                             .flex_none()
                             .flex()
                             .items_center()
                             .gap_2()
                             // A diff under 600 px keeps the arrows (#80).
-                            .when(!self.tight, |s| {
+                            .when(!self.review.tight, |s| {
                                 s.child(div().text_size(px(12.)).text_color(theme::muted()).child(
-                                    match self.change_at {
+                                    match self.review.change_at {
                                         Some(at) => {
-                                            format!("change {} of {}", at + 1, self.changes.len())
+                                            format!(
+                                                "change {} of {}",
+                                                at + 1,
+                                                self.review.changes.len()
+                                            )
                                         }
-                                        None => plural(self.changes.len(), "change"),
+                                        None => plural(self.review.changes.len(), "change"),
                                     },
                                 ))
                             })
@@ -4498,7 +4473,7 @@ impl Workspace {
                             .and_then(|(path, _)| self.open_app(&path))
                             .map(|app| {
                                 // A diff under 600 px keeps its ↗, the app in its tooltip (#80).
-                                let label = if self.tight {
+                                let label = if self.review.tight {
                                     "↗".to_owned()
                                 } else {
                                     format!("Open in {} ↗", app.name())
@@ -4551,7 +4526,7 @@ impl Workspace {
                 self.render_done_card(cx)
                     .map(|card| gpui::deferred(card).with_priority(1)),
             )
-            .children(self.notice.as_ref().map(|notice| {
+            .children(self.review.notice.as_ref().map(|notice| {
                 div()
                     .flex_none()
                     .flex()
@@ -4586,7 +4561,7 @@ impl Workspace {
                             .hover(|s| s.bg(theme::hover()))
                             .child("✕")
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.notice = None;
+                                this.review.notice = None;
                                 cx.notify();
                             })),
                     )
@@ -4597,8 +4572,10 @@ impl Workspace {
                     .min_h_0()
                     .flex()
                     .flex_col()
-                    .when(self.stack.is_none(), |s| s.px(px(4.)).pt(px(4.)).pb(px(6.)))
-                    .when(self.stack.is_some(), |s| {
+                    .when(self.review.stack.is_none(), |s| {
+                        s.px(px(4.)).pt(px(4.)).pb(px(6.))
+                    })
+                    .when(self.review.stack.is_some(), |s| {
                         s.bg(theme::base()).rounded_b(px(ISLAND_RADIUS))
                     })
                     .child(body),
@@ -4618,7 +4595,7 @@ impl Workspace {
             let workspace = workspace.read(cx);
             // With all files in one scroll: the file of the row, and its place among the file's
             // rows (the active file's are the workspace's own).
-            let (file, ix) = match &workspace.stack {
+            let (file, ix) = match &workspace.review.stack {
                 Some(stack) => {
                     let (b, inside) = stack.locate(ix);
                     let file = stack.blocks[b].file;
@@ -4632,11 +4609,11 @@ impl Workspace {
                 }
                 None => (None, ix),
             };
-            let active = file.is_none_or(|(_, f)| f == workspace.file);
-            let file_ix = file.map_or(workspace.file, |(_, f)| f);
+            let active = file.is_none_or(|(_, f)| f == workspace.review.file);
+            let file_ix = file.map_or(workspace.review.file, |(_, f)| f);
             let (data, row, mut style) = match file {
                 Some((b, _)) if !active => {
-                    let Some(stack) = &workspace.stack else {
+                    let Some(stack) = &workspace.review.stack else {
                         return div().into_any_element();
                     };
                     let block = &stack.blocks[b];
@@ -4647,18 +4624,19 @@ impl Workspace {
                     (data, row, style)
                 }
                 _ => {
-                    let (Some(data), Some(&row)) = (workspace.data.clone(), workspace.rows.get(ix))
+                    let (Some(data), Some(&row)) =
+                        (workspace.review.data.clone(), workspace.review.rows.get(ix))
                     else {
                         return div().into_any_element();
                     };
                     (data, row, workspace.row_style())
                 }
             };
-            style.strong = match (&workspace.stack, file) {
+            style.strong = match (&workspace.review.stack, file) {
                 (Some(stack), Some((_, f))) => stack.matches.get(stack.match_at) == Some(&(f, ix)),
-                _ => workspace.matches.get(workspace.match_at) == Some(&ix),
+                _ => workspace.review.matches.get(workspace.review.match_at) == Some(&ix),
             };
-            let indent = if workspace.tight {
+            let indent = if workspace.review.tight {
                 24.
             } else {
                 style.gutter + 8.
@@ -4677,7 +4655,9 @@ impl Workspace {
                 Row::Composer => return workspace.render_composer(indent, this.clone(), cx),
                 _ => {}
             }
-            let marked = active && workspace.goline.is_some() && workspace.goline_row == Some(ix);
+            let marked = active
+                && workspace.review.goline.is_some()
+                && workspace.review.goline_row == Some(ix);
             // A press in another file makes it the active one first.
             let file = file.map(|(_, f)| f).filter(|_| !active);
             let touch = move |this: &mut Self, cx: &mut Context<Self>| {
@@ -4774,7 +4754,7 @@ impl Workspace {
             element
         };
         // With all files in one scroll, a file's rows are framed as its card.
-        let rows = list(self.diff_list.clone(), move |ix, _, cx| {
+        let rows = list(self.review.diff_list.clone(), move |ix, _, cx| {
             // Its own id: the ids inside a row (a line number's, its +) repeat from file to file.
             let element = div()
                 .id(("list-row", ix))
@@ -4785,7 +4765,7 @@ impl Workspace {
                 return element;
             };
             let workspace = workspace.read(cx);
-            match &workspace.stack {
+            match &workspace.review.stack {
                 Some(stack) if stack.locate(ix).1 > 0 => {
                     let file = stack.blocks[stack.locate(ix).0].file;
                     // A file just opened: its rows fade in (#56, 9).
@@ -4809,12 +4789,12 @@ impl Workspace {
         })
         .flex_1();
 
-        let width = self.body_width.clone();
+        let width = self.review.body_width.clone();
         let max = self.max_offset();
         let thumb = (!self.options.wrap && max > 0.).then(|| {
             // Its track keeps clear of the island's round bottom corners.
             let inset = if flat() { 0. } else { ISLAND_RADIUS };
-            let track = (self.body_width.get() - 2. * inset).max(0.);
+            let track = (self.review.body_width.get() - 2. * inset).max(0.);
             let share = track / (track + max);
             let thumb = (track * share).max(32.).min(track);
             div()
@@ -4822,7 +4802,7 @@ impl Workspace {
                 .bottom(px(2.))
                 .h(px(4.))
                 .w(px(thumb))
-                .left(px(inset + (track - thumb) * self.offset / max))
+                .left(px(inset + (track - thumb) * self.review.offset / max))
                 .rounded_full()
                 .bg(theme::scrollbar())
         });
@@ -4830,7 +4810,7 @@ impl Workspace {
             .id("diff-body")
             .relative()
             // The ground between the files' cards.
-            .when(self.stack.is_some(), |s| s.bg(theme::base()))
+            .when(self.review.stack.is_some(), |s| s.bg(theme::base()))
             .flex_1()
             .min_h_0()
             .flex()

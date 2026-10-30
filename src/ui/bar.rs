@@ -295,6 +295,7 @@ impl Workspace {
             },
             Some(Page::File(path)) => {
                 let at = self
+                    .review
                     .file_view
                     .as_ref()
                     .filter(|v| &v.path == path)
@@ -485,9 +486,11 @@ impl Workspace {
                 Some(self.requests.list.len().to_string())
             }
             (Space::Branches, None) => Some(self.branches_count()),
-            (Space::Code, Some(Page::File(_))) => {
-                self.file_view.as_ref().map(|v| format!("as of {}", v.at()))
-            }
+            (Space::Code, Some(Page::File(_))) => self
+                .review
+                .file_view
+                .as_ref()
+                .map(|v| format!("as of {}", v.at())),
             (Space::Code, Some(Page::Folder(path))) => {
                 let inside = format!("{path}/");
                 let n = self

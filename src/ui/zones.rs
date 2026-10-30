@@ -82,7 +82,7 @@ impl Workspace {
         {
             out.push(Zone::Commits);
         }
-        if self.diff.is_some() && !self.settings_open {
+        if self.review.diff.is_some() && !self.settings_open {
             if self.files_zone() {
                 out.push(Zone::Files);
             }
@@ -136,6 +136,7 @@ impl Workspace {
             Zone::Branches => self.step_pick(down, cx),
             Zone::Files => self.step_file_item(down, cx),
             Zone::Diff => self
+                .review
                 .diff_list
                 .scroll_by(px(if down { LINE } else { -LINE })),
             Zone::Tool => match self.tool() {
@@ -170,7 +171,7 @@ impl Workspace {
 
     pub(super) fn step_file(&mut self, forward: bool, cx: &mut Context<Self>) {
         let order = self.file_order();
-        let Some(at) = order.iter().position(|&ix| ix == self.file) else {
+        let Some(at) = order.iter().position(|&ix| ix == self.review.file) else {
             return;
         };
         let to = if forward {
@@ -205,7 +206,7 @@ impl Workspace {
             }
             Zone::Tool | Zone::Branches => {}
             Zone::Commits => {
-                if self.diff.is_some() {
+                if self.review.diff.is_some() {
                     self.set_zone(
                         if self.files_zone() {
                             Zone::Files
@@ -226,13 +227,14 @@ impl Workspace {
             Zone::Diff => {
                 // A folded generated file opens on ↵.
                 if let Some(path) = self
+                    .review
                     .diff
                     .as_ref()
-                    .and_then(|d| d.files.get(self.file))
+                    .and_then(|d| d.files.get(self.review.file))
                     .filter(|f| self.generated_folded(f))
                     .map(|f| f.path().to_owned())
                 {
-                    self.unfolded.insert(path);
+                    self.review.unfolded.insert(path);
                     cx.notify();
                 }
             }
@@ -244,7 +246,8 @@ impl Workspace {
         if self.scroll_page(down, cx) {
             return;
         }
-        self.diff_list
+        self.review
+            .diff_list
             .scroll_by(px(if down { PAGE } else { -PAGE }));
         cx.notify();
     }
@@ -252,9 +255,9 @@ impl Workspace {
     /// Home and End: the top or the bottom of the diff.
     pub(super) fn diff_edge(&mut self, end: bool, cx: &mut Context<Self>) {
         if end {
-            self.diff_list.scroll_to_end();
+            self.review.diff_list.scroll_to_end();
         } else {
-            self.diff_list.scroll_to(gpui::ListOffset {
+            self.review.diff_list.scroll_to(gpui::ListOffset {
                 item_ix: 0,
                 offset_in_item: px(0.),
             });
@@ -355,7 +358,7 @@ impl Workspace {
                 .position(|k| matches!(k, ItemKey::Dir(d) if d == dir)),
             None => items
                 .iter()
-                .position(|k| matches!(k, ItemKey::File(ix) if *ix == self.file)),
+                .position(|k| matches!(k, ItemKey::File(ix) if *ix == self.review.file)),
         };
         let to = match (here, down) {
             (Some(i), true) => (i + 1 < items.len()).then(|| i + 1),
@@ -378,7 +381,7 @@ impl Workspace {
     /// In the tree: → opens a folder or goes into the diff, ← closes a folder or goes up to it.
     fn tree_horizontal(&mut self, forward: bool, cx: &mut Context<Self>) {
         if let Some(dir) = self.fcursor.clone() {
-            let open = !self.collapsed.contains(&dir);
+            let open = !self.review.collapsed.contains(&dir);
             match (forward, open) {
                 (true, false) | (false, true) => self.toggle_dir(&dir, cx),
                 (true, true) => self.step_file_item(true, cx),
@@ -391,7 +394,7 @@ impl Workspace {
             return;
         }
         // ← on a file: the folder it is in, or its group (#22).
-        if let Some(path) = self.file_key(self.file) {
+        if let Some(path) = self.file_key(self.review.file) {
             let parent = self
                 .item_keys()
                 .into_iter()

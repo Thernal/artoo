@@ -421,7 +421,7 @@ impl Workspace {
         match next {
             Some((next, _)) => self.open_code_tab(&next, cx),
             None => {
-                self.file_view = None;
+                self.review.file_view = None;
                 self.show(Space::Code, None, cx);
             }
         }
@@ -469,7 +469,7 @@ impl Workspace {
             _ if left => cx.notify(),
             Some(key) => self.open_code_tab(&key, cx),
             None => {
-                self.file_view = None;
+                self.review.file_view = None;
                 self.show(Space::Code, None, cx);
             }
         }
@@ -497,8 +497,12 @@ impl Workspace {
         let page = match self.nav_page() {
             // A file being read that is not on screen yet: a shimmer of lines, not the one before.
             Some(Page::File(path))
-                if self.file_reading.is_some()
-                    && self.file_view.as_ref().is_none_or(|v| &v.path != path) =>
+                if self.review.file_reading.is_some()
+                    && self
+                        .review
+                        .file_view
+                        .as_ref()
+                        .is_none_or(|v| &v.path != path) =>
             {
                 self.code_island(cx)
                     .flex_1()
@@ -866,7 +870,7 @@ impl Workspace {
                     cx.listener(move |this, _: &ClickEvent, _, cx| this.reveal_file_line(line, cx)),
                 )
         });
-        let empty = match &self.file_view {
+        let empty = match &self.review.file_view {
             None => "Open a file to see what it declares.",
             Some(_) => "Nothing declared here that Artoo reads.",
         };

@@ -59,7 +59,8 @@ impl Workspace {
                 )
             }))
             .children(
-                self.diff
+                self.review
+                    .diff
                     .as_ref()
                     .filter(|_| self.zen.is_some() || self.motion.recent("zen"))
                     .map(|diff| {
@@ -83,6 +84,7 @@ impl Workspace {
     /// diff; the tool window.
     fn render_item(&self, cx: &mut Context<Self>) -> gpui::Div {
         let identity = self
+            .review
             .diff
             .as_ref()
             .filter(|_| self.zen.is_none() || self.motion.recent("zen"))

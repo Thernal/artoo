@@ -66,7 +66,8 @@ pub fn word_at(text: &str, byte: usize) -> Range<usize> {
 
 impl Workspace {
     fn line_text(&self, old: bool, line: u32) -> String {
-        self.data
+        self.review
+            .data
             .as_ref()
             .map(|d| d.side(old).line(line).0.to_owned())
             .unwrap_or_default()
@@ -86,8 +87,8 @@ impl Workspace {
         self.note_sel = None;
         let at = Pos { line, byte };
         let text = self.line_text(old, line);
-        self.selecting = true;
-        self.sel = match (self.sel, clicks, shift) {
+        self.review.selecting = true;
+        self.review.sel = match (self.review.sel, clicks, shift) {
             (Some(sel), 1, true) if sel.old == old => Some(Sel { head: at, ..sel }),
             (_, 2, _) => {
                 let w = word_at(&text, byte);
@@ -125,10 +126,10 @@ impl Workspace {
         byte: usize,
         cx: &mut Context<Self>,
     ) {
-        if !self.selecting {
+        if !self.review.selecting {
             return;
         }
-        if let Some(sel) = &mut self.sel
+        if let Some(sel) = &mut self.review.sel
             && sel.old == old
         {
             let head = Pos { line, byte };
@@ -141,8 +142,8 @@ impl Workspace {
 
     /// The selected text, `None` when nothing is selected.
     pub(super) fn selected_text(&self) -> Option<String> {
-        let sel = self.sel.filter(|s| !s.is_empty())?;
-        let data = self.data.as_ref()?;
+        let sel = self.review.sel.filter(|s| !s.is_empty())?;
+        let data = self.review.data.as_ref()?;
         let side = data.side(sel.old);
         let (start, end) = sel.ends();
         let lines: Vec<&str> = (start.line..=end.line)
@@ -211,13 +212,13 @@ impl Workspace {
 
     /// ⌘A: the whole side of the diff that is being read (the new one, unless the old is selected).
     pub(super) fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(data) = &self.data else {
+        let Some(data) = &self.review.data else {
             return;
         };
-        let old = self.sel.is_some_and(|s| s.old);
+        let old = self.review.sel.is_some_and(|s| s.old);
         let side = data.side(old);
         let last = side.count().max(1);
-        self.sel = Some(Sel {
+        self.review.sel = Some(Sel {
             old,
             anchor: Pos { line: 1, byte: 0 },
             head: Pos {
@@ -276,7 +277,7 @@ impl Workspace {
                 shift,
                 texts,
             } => {
-                self.sel = None;
+                self.review.sel = None;
                 self.ctx_menu = None;
                 let text = texts.borrow().get(block).cloned().unwrap_or_default();
                 let same = self.note_sel.as_ref().is_some_and(|s| s.note == note);

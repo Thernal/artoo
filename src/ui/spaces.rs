@@ -245,7 +245,7 @@ impl Workspace {
                 let on = here && self.is_shown(&open.item);
                 // The one loaded says its files as they are now.
                 let now: Vec<String>;
-                let paths = match &self.diff {
+                let paths = match &self.review.diff {
                     Some(diff) if loaded.as_ref() == Some(&open.item) => {
                         now = diff.files.iter().map(|f| f.path().to_owned()).collect();
                         &now

@@ -66,13 +66,13 @@ fn find_in(hay: &str, needle: &str, case: bool, word: bool) -> Option<Range<usiz
 
 impl Workspace {
     pub(super) fn open_find_files(&mut self, cx: &mut Context<Self>) {
-        if self.diff.is_none() || self.settings_open {
+        if self.review.diff.is_none() || self.settings_open {
             return;
         }
         self.palette = None;
         self.field = None;
         self.reset_field_edit();
-        let query = self.dfind.clone().unwrap_or_default();
+        let query = self.review.dfind.clone().unwrap_or_default();
         self.ffind = Some(FindFiles {
             query,
             at: 0,
@@ -96,7 +96,7 @@ impl Workspace {
     }
 
     fn refresh_ffind(&mut self) {
-        let (Some(f), Some(diff)) = (&self.ffind, &self.diff) else {
+        let (Some(f), Some(diff)) = (&self.ffind, &self.review.diff) else {
             return;
         };
         let (query, case, word) = (f.query.clone(), f.case, f.word);
@@ -248,6 +248,7 @@ impl Workspace {
             return;
         };
         let path = self
+            .review
             .diff
             .as_ref()
             .and_then(|d| d.files.get(hit.file))
@@ -264,7 +265,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
         let f = self.ffind.as_ref()?;
-        let diff = self.diff.as_ref()?;
+        let diff = self.review.diff.as_ref()?;
         let toggle = |id: &'static str, label: &'static str, on: bool, tip: &'static str| {
             div()
                 .id(id)

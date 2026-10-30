@@ -68,7 +68,7 @@ impl Workspace {
             return false;
         };
         matches!(
-            (self.diff.as_ref().map(|d| &d.header), &f.base, self.branches.get(ix)),
+            (self.review.diff.as_ref().map(|d| &d.header), &f.base, self.branches.get(ix)),
             (
                 Some(Header::Compare { base, head, request: None, .. }),
                 Some(main),

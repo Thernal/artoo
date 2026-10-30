@@ -53,7 +53,7 @@ impl Workspace {
             Zone::Files => !self.files_zone(),
             _ => false,
         };
-        if gone && self.diff.is_some() {
+        if gone && self.review.diff.is_some() {
             self.set_zone(Zone::Diff, cx);
         }
         cx.notify();
@@ -197,7 +197,12 @@ impl Workspace {
                 {
                     icons.push(("commit", "Commits", Some(Zone::Commits)));
                 }
-                if self.diff.as_ref().is_some_and(|d| !d.files.is_empty()) {
+                if self
+                    .review
+                    .diff
+                    .as_ref()
+                    .is_some_and(|d| !d.files.is_empty())
+                {
                     icons.push(("files", "Changes", Some(Zone::Files)));
                 }
                 icons
@@ -401,7 +406,7 @@ impl Workspace {
             );
         }
 
-        if let Some(diff) = self.diff.as_ref().filter(|d| !d.files.is_empty()) {
+        if let Some(diff) = self.review.diff.as_ref().filter(|d| !d.files.is_empty()) {
             let one = diff.files.len() == 1;
             let folded = one || self.section_folded(Section::Changes);
             let summary = if one {

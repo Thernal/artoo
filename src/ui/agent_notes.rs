@@ -98,7 +98,7 @@ impl Workspace {
     /// The notes on the changes the diff shows: the working tree's on the working tree; a head's
     /// where the diff's head is its commit or bears its name.
     fn notes_shown(&self) -> Vec<&Notes> {
-        let Some(header) = self.diff.as_ref().map(|d| &d.header) else {
+        let Some(header) = self.review.diff.as_ref().map(|d| &d.header) else {
             return Vec::new();
         };
         let head = self.shown_head().map(|h| h.to_string());
@@ -205,14 +205,16 @@ impl Workspace {
         };
         // In one scroll of all the files, its file becomes the one the keyboard works in.
         if let Some(file) = self
+            .review
             .diff
             .as_ref()
             .and_then(|d| d.files.iter().position(|f| f.path() == path))
-            && self.stack.is_some()
+            && self.review.stack.is_some()
         {
             self.activate_file(file, cx);
         }
         let Some(line) = self
+            .review
             .data
             .as_ref()
             .and_then(|data| self.notes_in(&path, data).into_iter().find(|n| n.0 == id))
@@ -232,11 +234,12 @@ impl Workspace {
     #[cfg(feature = "snapshot")]
     pub(super) fn snapshot_answer_note(&mut self, cx: &mut Context<Self>) {
         let path = self
+            .review
             .diff
             .as_ref()
-            .and_then(|d| d.files.get(self.file))
+            .and_then(|d| d.files.get(self.review.file))
             .map(|f| f.path().to_owned());
-        let first = match (&self.data, path) {
+        let first = match (&self.review.data, path) {
             (Some(data), Some(path)) => self.notes_in(&path, data).first().map(|&(id, _)| id),
             _ => None,
         };
@@ -303,7 +306,7 @@ impl Workspace {
                     None,
                     Some("A comment for the agent on this line"),
                     Kind::Plain,
-                    self.tight,
+                    self.review.tight,
                 )
                 .h(px(24.))
                 .px(px(8.))

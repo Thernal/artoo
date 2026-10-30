@@ -672,6 +672,7 @@ impl Workspace {
         });
         // The file's own lines fill the gaps when it is the open one.
         let open = self
+            .review
             .data
             .as_ref()
             .filter(|_| self.current_path().as_deref() == Some(c.path.as_str()));
@@ -779,7 +780,7 @@ impl Workspace {
     /// view (#10 C: 1…9 pick, 0 your call, ⇧N a note).
     pub(super) fn acting_agent_form(&self) -> Option<u64> {
         let top = self.local_top();
-        self.rows.iter().skip(top).find_map(|row| match row {
+        self.review.rows.iter().skip(top).find_map(|row| match row {
             super::rows::Row::Thread(id) => self
                 .comments
                 .iter()

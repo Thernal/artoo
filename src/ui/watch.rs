@@ -324,12 +324,16 @@ impl Workspace {
         if seen == 0 || to + 1 != seen || latest <= to {
             return;
         }
-        self.restore_scroll = self.scroll_place();
-        let file = self.restore_scroll.as_ref().map(|(path, _)| path.clone());
+        self.review.restore_scroll = self.scroll_place();
+        let file = self
+            .review
+            .restore_scroll
+            .as_ref()
+            .map(|(path, _)| path.clone());
         let undo = self.selection;
         self.load_versions(from, latest, file, cx);
         // `load_versions` clears the notice of the diff it replaces; this one belongs to the new.
-        self.notice = Some(super::Notice {
+        self.review.notice = Some(super::Notice {
             text: format!(
                 "v{} arrived — this comparison now ends at v{}.",
                 self.versions[latest].number, self.versions[latest].number
@@ -340,14 +344,18 @@ impl Workspace {
 
     /// Goes back to the comparison a notice replaced, at the same place in the file.
     pub(super) fn undo_notice(&mut self, cx: &mut Context<Self>) {
-        let Some(notice) = self.notice.take() else {
+        let Some(notice) = self.review.notice.take() else {
             return;
         };
         let Selection::Versions { from, to } = notice.undo else {
             return;
         };
-        self.restore_scroll = self.scroll_place();
-        let file = self.restore_scroll.as_ref().map(|(path, _)| path.clone());
+        self.review.restore_scroll = self.scroll_place();
+        let file = self
+            .review
+            .restore_scroll
+            .as_ref()
+            .map(|(path, _)| path.clone());
         self.load_versions(from, to, file, cx);
     }
 

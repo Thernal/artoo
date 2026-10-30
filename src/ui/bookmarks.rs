@@ -86,7 +86,7 @@ impl Store {
 impl Workspace {
     /// The marked lines of file `path` (new side).
     pub(super) fn bookmarks_in(&self, path: &str) -> Vec<u32> {
-        let Some(scope) = self.review_scope.as_deref() else {
+        let Some(scope) = self.review.review_scope.as_deref() else {
             return Vec::new();
         };
         self.bookmarks
@@ -100,6 +100,7 @@ impl Workspace {
     /// F3: the line under the last click gets a mark, or loses it.
     pub(super) fn toggle_bookmark(&mut self, cx: &mut Context<Self>) {
         let line = self
+            .review
             .sel
             .filter(|s| !s.old)
             .map(|s| s.ends().0.line)
@@ -111,15 +112,15 @@ impl Workspace {
 
     /// With nothing clicked: the first changed line shown.
     fn bookmark_fallback_line(&self) -> Option<u32> {
-        let row = *self.changes.first()?;
+        let row = *self.review.changes.first()?;
         self.new_line_of_row(row)
     }
 
     pub(super) fn toggle_bookmark_at(&mut self, line: u32, cx: &mut Context<Self>) {
         let (Some(scope), Some(path), Some(data)) = (
-            self.review_scope.clone(),
+            self.review.review_scope.clone(),
             self.current_path(),
-            self.data.clone(),
+            self.review.data.clone(),
         ) else {
             return;
         };
@@ -134,7 +135,8 @@ impl Workspace {
 
     /// The marks of the open diff, for the list.
     pub(super) fn bookmark_list(&self) -> Vec<Bookmark> {
-        self.review_scope
+        self.review
+            .review_scope
             .as_deref()
             .map(|s| self.bookmarks.of(s).to_vec())
             .unwrap_or_default()

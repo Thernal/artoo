@@ -97,6 +97,7 @@ impl Workspace {
     pub(super) fn code_file_shown(&self) -> bool {
         self.nav.space == Space::Code
             && self
+                .review
                 .file_view
                 .as_ref()
                 .is_some_and(|v| v.image.is_none() && !(v.markdown() && v.rendered))
@@ -109,7 +110,7 @@ impl Workspace {
             return;
         };
         if self.nav.space != Space::Code && !self.plain {
-            match self.diff.as_ref().map(|d| &d.header) {
+            match self.review.diff.as_ref().map(|d| &d.header) {
                 Some(Header::WorkingTree { .. }) => self.code.rev = None,
                 Some(_) => {
                     if let Some(rev) = self.viewed_rev() {
@@ -133,7 +134,7 @@ impl Workspace {
         );
         let rev = self.code.at().filter(|_| !self.plain);
         let file = path.clone();
-        self.file_reading = Some(cx.spawn(async move |this, cx| {
+        self.review.file_reading = Some(cx.spawn(async move |this, cx| {
             let read = cx
                 .background_executor()
                 .spawn(async move {
@@ -164,7 +165,7 @@ impl Workspace {
                 })
                 .await;
             this.update(cx, |this, cx| {
-                this.file_reading = None;
+                this.review.file_reading = None;
                 match read {
                     Some((lines, spans, at, image, binary)) => {
                         let text: Vec<_> = lines
@@ -173,7 +174,7 @@ impl Workspace {
                             .map(|(n, l)| widen(l, spans.get(n).map_or(&[][..], Vec::as_slice)))
                             .collect();
                         let plain = text.iter().map(|(l, _)| l.to_string()).collect();
-                        this.file_view = Some(FileView {
+                        this.review.file_view = Some(FileView {
                             path,
                             at,
                             rev,
@@ -188,7 +189,9 @@ impl Workspace {
                         // A note shown from the Agents window: its line comes into view.
                         if let Some(line) = this
                             .file_jump
-                            .take_if(|(p, _)| this.file_view.as_ref().is_some_and(|v| &v.path == p))
+                            .take_if(|(p, _)| {
+                                this.review.file_view.as_ref().is_some_and(|v| &v.path == p)
+                            })
                             .map(|(_, line)| line)
                         {
                             this.reveal_file_line(line, cx);
@@ -206,7 +209,7 @@ impl Workspace {
 
     /// The file's declarations, by keyword: (1-based line, depth, kind, name) — its Outline (#76).
     pub(super) fn file_outline(&self) -> Vec<(u32, usize, &'static str, String)> {
-        let Some(view) = self.file_view.as_ref().filter(|v| v.image.is_none()) else {
+        let Some(view) = self.review.file_view.as_ref().filter(|v| v.image.is_none()) else {
             return Vec::new();
         };
         view.lines
@@ -222,11 +225,11 @@ impl Workspace {
 
     /// Line `line` of the file comes into view, its source shown.
     pub(super) fn reveal_file_line(&mut self, line: u32, cx: &mut Context<Self>) {
-        let Some(view) = self.file_view.as_mut() else {
+        let Some(view) = self.review.file_view.as_mut() else {
             return;
         };
         view.rendered = false;
-        let Some(view) = self.file_view.as_ref() else {
+        let Some(view) = self.review.file_view.as_ref() else {
             return;
         };
         let rows = self.file_rows(view);
@@ -286,7 +289,7 @@ impl Workspace {
 
     /// The line at the top of `path`'s view as it is scrolled: where Open in opens it (#78).
     pub(super) fn file_top_line(&self, path: &str) -> u32 {
-        let Some(view) = self.file_view.as_ref().filter(|v| v.path == path) else {
+        let Some(view) = self.review.file_view.as_ref().filter(|v| v.path == path) else {
             return 1;
         };
         let top = view.list.logical_scroll_top().item_ix;
@@ -302,7 +305,7 @@ impl Workspace {
     }
 
     pub(super) fn render_file_view(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        let view = self.file_view.as_ref()?;
+        let view = self.review.file_view.as_ref()?;
         let head = self.render_file_head(view, cx);
         let body = if let Some(size) = view.binary {
             self.render_binary(size, cx)
@@ -374,7 +377,8 @@ impl Workspace {
             .child(div().flex_1())
             // `c` asks which line the note goes on.
             .children(
-                self.goline
+                self.review
+                    .goline
                     .as_ref()
                     .filter(|_| self.code_file_shown())
                     .map(|typed| {
@@ -418,7 +422,7 @@ impl Workspace {
     }
 
     fn set_rendered(&mut self, on: bool, cx: &mut Context<Self>) {
-        if let Some(view) = &mut self.file_view {
+        if let Some(view) = &mut self.review.file_view {
             view.rendered = on;
         }
         cx.notify();

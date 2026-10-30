@@ -486,7 +486,7 @@ impl Workspace {
                 .unwrap_or_default(),
         };
         self.field = None;
-        self.dfind = None;
+        self.review.dfind = None;
         self.find.text = None;
         self.ctx_menu = None;
         self.reset_field_edit();
@@ -810,7 +810,12 @@ impl Workspace {
         }
         if matches!(p.kind, Kind::Structure) {
             let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-            let Some(file) = self.diff.as_ref().and_then(|d| d.files.get(self.file)) else {
+            let Some(file) = self
+                .review
+                .diff
+                .as_ref()
+                .and_then(|d| d.files.get(self.review.file))
+            else {
                 return Vec::new();
             };
             let name = file
@@ -926,7 +931,7 @@ impl Workspace {
         let name = |path: &str| path.rsplit('/').next().unwrap_or_default().to_owned();
         let mut items: Vec<Item> = Vec::new();
         let mut seen = std::collections::HashSet::new();
-        if let Some(diff) = &self.diff {
+        if let Some(diff) = &self.review.diff {
             for (ix, f) in crate::rank::rank(diff.files.iter().enumerate(), query, |(_, f)| {
                 f.path().rsplit('/').next().unwrap_or_default()
             })
@@ -1226,6 +1231,7 @@ impl Workspace {
             Pick::File(ix) if self.nav.space == super::spaces::Space::Code => {
                 self.palette = None;
                 if let Some(path) = self
+                    .review
                     .diff
                     .as_ref()
                     .and_then(|d| d.files.get(ix))
@@ -1406,6 +1412,7 @@ impl Workspace {
             // A file's icon before it (#95).
             let path = match &item.pick {
                 Pick::File(f) => self
+                    .review
                     .diff
                     .as_ref()
                     .and_then(|d| d.files.get(*f))

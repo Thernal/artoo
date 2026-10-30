@@ -185,7 +185,7 @@ impl Workspace {
                     let (path, new, old) = self.draft_place(&self.requests.drafts[ix])?;
                     Some((None, Some(ix), path, new.or(old)?, new.is_none()))
                 }),
-            Spot::Line(l) => self.diff.as_ref().and_then(|d| {
+            Spot::Line(l) => self.review.diff.as_ref().and_then(|d| {
                 let file = d
                     .files
                     .iter()

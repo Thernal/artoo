@@ -136,8 +136,8 @@ impl Workspace {
             Input::Merge => self.merging.is_some(),
             Input::Field => self.field.is_some(),
             Input::Compose => self.compose.is_some(),
-            Input::GoLine => self.goline.is_some(),
-            Input::DiffFind => self.dfind.is_some(),
+            Input::GoLine => self.review.goline.is_some(),
+            Input::DiffFind => self.review.dfind.is_some(),
             Input::CommitSearch => self.find.text.is_some(),
             Input::NewRequest => self.newreq.is_some(),
             Input::Submit => self.submit.is_some(),
@@ -186,9 +186,10 @@ impl Workspace {
             return true;
         }
         let file = self
+            .review
             .diff
             .as_ref()
-            .and_then(|d| d.files.get(self.file))
+            .and_then(|d| d.files.get(self.review.file))
             .map(|f| f.path());
         at.settings == self.settings_open
             && at.space == self.space()
@@ -233,7 +234,7 @@ impl Workspace {
         };
         match h.input {
             Input::Field => self.field = None,
-            Input::DiffFind if self.dfind.as_deref() == Some("") => self.close_dfind(cx),
+            Input::DiffFind if self.review.dfind.as_deref() == Some("") => self.close_dfind(cx),
             Input::CommitSearch if self.find.text.as_deref() == Some("") => self.close_find(cx),
             Input::GoLine => self.close_goline(),
             _ => {}

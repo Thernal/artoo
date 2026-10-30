@@ -66,16 +66,16 @@ fn blame_text(lines: &[Option<BlameLine>], line: u32) -> SharedString {
 
 impl Workspace {
     pub(super) fn toggle_annotate(&mut self, cx: &mut Context<Self>) {
-        self.annotate = !self.annotate;
-        self.annotations.clear();
+        self.review.annotate = !self.review.annotate;
+        self.review.annotations.clear();
         self.refresh_annotations(cx);
         cx.notify();
     }
 
     /// Reads who wrote the lines of the open file, when the column is on.
     pub(super) fn refresh_annotations(&mut self, cx: &mut Context<Self>) {
-        self.annot_task = None;
-        if !self.annotate {
+        self.review.annot_task = None;
+        if !self.review.annotate {
             return;
         }
         let (Some(root), Some(rev), Some(path)) =
@@ -85,14 +85,15 @@ impl Workspace {
         };
         // A deleted file has no new side to annotate.
         if self
+            .review
             .diff
             .as_ref()
-            .and_then(|d| d.files.get(self.file))
+            .and_then(|d| d.files.get(self.review.file))
             .is_none_or(|f| f.new_path.is_none())
         {
             return;
         }
-        self.annot_task = Some(cx.spawn(async move |this, cx| {
+        self.review.annot_task = Some(cx.spawn(async move |this, cx| {
             let lines = cx
                 .background_executor()
                 .spawn(async move { Repo::open(&root)?.blame(rev, &path) })
@@ -100,7 +101,7 @@ impl Workspace {
             this.update(cx, |this, cx| {
                 if let Ok(lines) = lines {
                     let mut previous = None;
-                    this.annotations = lines
+                    this.review.annotations = lines
                         .into_iter()
                         .map(|line| {
                             let line = line?;
@@ -145,7 +146,7 @@ impl Workspace {
 
     /// Where file `ix`'s side is read for its blame, and its path there.
     fn blame_at(&self, ix: usize, old: bool) -> Option<Side> {
-        let diff = self.diff.as_ref()?;
+        let diff = self.review.diff.as_ref()?;
         let file = diff.files.get(ix)?;
         let path = if old { &file.old_path } else { &file.new_path };
         let at = match (&diff.header, old) {
@@ -172,8 +173,8 @@ impl Workspace {
     ) {
         let key = (ix, old, line);
         let Some(at) = at else {
-            if self.blame_tip.as_ref().is_some_and(|t| t.key == key) {
-                self.blame_tip = None;
+            if self.review.blame_tip.as_ref().is_some_and(|t| t.key == key) {
+                self.review.blame_tip = None;
                 cx.notify();
             }
             return;
@@ -182,14 +183,14 @@ impl Workspace {
             cx.background_executor().timer(super::hover::LONG).await;
             this.update(cx, |this, cx| {
                 let view = this.blame_view(ix, old, line, cx);
-                if let Some(tip) = this.blame_tip.as_mut().filter(|t| t.key == key) {
+                if let Some(tip) = this.review.blame_tip.as_mut().filter(|t| t.key == key) {
                     tip.view = Some(view);
                     cx.notify();
                 }
             })
             .ok();
         });
-        self.blame_tip = Some(BlameTip {
+        self.review.blame_tip = Some(BlameTip {
             key,
             at,
             view: None,
@@ -199,7 +200,7 @@ impl Workspace {
 
     /// The tip of the line number the pointer rests on, under the pointer.
     pub(super) fn render_blame_tip(&self) -> Option<gpui::AnyElement> {
-        let tip = self.blame_tip.as_ref()?;
+        let tip = self.review.blame_tip.as_ref()?;
         let view = tip.view.clone()?;
         Some(
             gpui::deferred(
@@ -225,12 +226,12 @@ impl Workspace {
         let (Some(root), Some(key)) = (self.root.clone(), self.blame_at(ix, old)) else {
             return cx.new(|_| NoTip).into();
         };
-        if let Some(lines) = self.blames.read.get(&key) {
+        if let Some(lines) = self.review.blames.read.get(&key) {
             let text = blame_text(lines, line);
             return cx.new(|_| TipOwned(text)).into();
         }
         let tip = cx.new(|_| TipOwned("Reading who wrote this line…".into()));
-        let waiting = self.blames.waiting.entry(key.clone()).or_default();
+        let waiting = self.review.blames.waiting.entry(key.clone()).or_default();
         waiting.push((tip.downgrade(), line));
         if waiting.len() == 1 {
             cx.spawn(async move |this, cx| {
@@ -249,7 +250,7 @@ impl Workspace {
                     .await;
                 this.update(cx, |this, cx| {
                     let lines = Rc::new(lines.unwrap_or_default());
-                    for (tip, line) in this.blames.waiting.remove(&key).unwrap_or_default() {
+                    for (tip, line) in this.review.blames.waiting.remove(&key).unwrap_or_default() {
                         let text = blame_text(&lines, line);
                         tip.update(cx, |tip, cx| {
                             tip.0 = text;
@@ -257,7 +258,7 @@ impl Workspace {
                         })
                         .ok();
                     }
-                    this.blames.read.insert(key, lines);
+                    this.review.blames.read.insert(key, lines);
                 })
                 .ok();
             })
@@ -270,7 +271,7 @@ impl Workspace {
     pub(super) fn open_annotated_commit(&mut self, line: u32, cx: &mut Context<Self>) {
         let Some(id) = line
             .checked_sub(1)
-            .and_then(|i| self.annotations.get(i as usize))
+            .and_then(|i| self.review.annotations.get(i as usize))
             .map(|c| c.id)
         else {
             return;

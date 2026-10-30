@@ -484,12 +484,12 @@ fn file_rows(
 
 impl Workspace {
     pub(super) fn items(&self) -> Vec<FileItem> {
-        match &self.diff {
+        match &self.review.diff {
             Some(diff) => file_items(
                 &diff.files,
                 self.options.list_files,
                 &self.pfilter,
-                &self.collapsed,
+                &self.review.collapsed,
                 diff.tags.staged,
             ),
             None => Vec::new(),
@@ -498,7 +498,7 @@ impl Workspace {
 
     /// File `ix`'s key in the tree (`row_key`).
     pub(super) fn file_key(&self, ix: usize) -> Option<String> {
-        let diff = self.diff.as_ref()?;
+        let diff = self.review.diff.as_ref()?;
         Some(row_key(diff.tags.staged, ix, diff.files.get(ix)?.path()))
     }
 
@@ -510,7 +510,7 @@ impl Workspace {
     /// File indexes in the tree's order with every folder open: what `v` walks, so a collapsed
     /// folder's files are not passed over (#167). A filter still narrows it.
     pub(super) fn file_order_all(&self) -> Vec<usize> {
-        match &self.diff {
+        match &self.review.diff {
             Some(diff) => files_of(file_items(
                 &diff.files,
                 self.options.list_files,
@@ -525,7 +525,7 @@ impl Workspace {
     /// Opens every collapsed folder file `ix` is under, at any depth, and its group.
     pub(super) fn open_folders_of(&mut self, ix: usize) {
         if let Some(key) = self.file_key(ix) {
-            self.collapsed.retain(|dir| !inside(&key, dir));
+            self.review.collapsed.retain(|dir| !inside(&key, dir));
         }
     }
 
@@ -548,7 +548,9 @@ impl Workspace {
             .iter()
             .position(|item| matches!(item, FileItem::File { ix: i, .. } if *i == ix));
         if let Some(at) = at {
-            self.file_scroll.scroll_to_item(at, ScrollStrategy::Nearest);
+            self.review
+                .file_scroll
+                .scroll_to_item(at, ScrollStrategy::Nearest);
         }
     }
 
@@ -561,10 +563,10 @@ impl Workspace {
     }
 
     pub(super) fn toggle_dir(&mut self, path: &str, cx: &mut Context<Self>) {
-        if self.collapsed.remove(path) {
+        if self.review.collapsed.remove(path) {
             self.tree_opening(path, cx);
         } else {
-            self.collapsed.insert(path.to_owned());
+            self.review.collapsed.insert(path.to_owned());
         }
         cx.notify();
     }
@@ -606,7 +608,7 @@ impl Workspace {
     /// Over the files: how many, and their lines' total in the column of each file's own + and −
     /// (#157); with a path typed, the files shown of all, and theirs.
     fn render_changes_total(&self) -> Option<gpui::Div> {
-        let diff = self.diff.as_ref()?;
+        let diff = self.review.diff.as_ref()?;
         let all = diff.files.len();
         if all == 0 {
             return None;
@@ -649,7 +651,7 @@ impl Workspace {
     }
 
     fn render_file_item(&self, item: &FileItem, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let Some(diff) = &self.diff else {
+        let Some(diff) = &self.review.diff else {
             return div().into_any_element();
         };
         let tree = !self.options.list_files && self.pfilter.trim().is_empty();
@@ -673,7 +675,7 @@ impl Workspace {
                     .px(px(6.))
                     .py(px(1.))
                     .child(
-                        row(("file", ix), self.file == ix)
+                        row(("file", ix), self.review.file == ix)
                             .h(px(26.))
                             .gap_2()
                             .pl(px(8. + *depth as f32 * 14.))
@@ -844,17 +846,17 @@ impl Workspace {
 
     /// A file of the flat list: its name over its folder, its +/− when `counts`.
     fn render_file_row(&self, ix: usize, counts: bool, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let Some(file) = self.diff.as_ref().and_then(|d| d.files.get(ix)) else {
+        let Some(file) = self.review.diff.as_ref().and_then(|d| d.files.get(ix)) else {
             return div().into_any_element();
         };
-        let tag = self.diff.as_ref().and_then(|d| d.tags.row_word(ix));
+        let tag = self.review.diff.as_ref().and_then(|d| d.tags.row_word(ix));
         let done = self.review_state(ix) == Some(super::reviewed::State::Done);
         let path = file.path();
         let (dir, name) = match path.rsplit_once('/') {
             Some((dir, name)) => (Some(dir.to_owned()), name.to_owned()),
             None => (None, path.to_owned()),
         };
-        let item = row(("file", ix), self.file == ix)
+        let item = row(("file", ix), self.review.file == ix)
             .h(px(40.))
             .gap_2()
             .when(done, |s| s.text_color(theme::muted()))
@@ -931,7 +933,7 @@ fn uniform_list_files(
                 .collect::<Vec<_>>()
         }),
     )
-    .track_scroll(&this.file_scroll)
+    .track_scroll(&this.review.file_scroll)
     .flex_1()
     .pb(px(6.))
     .into_any_element()

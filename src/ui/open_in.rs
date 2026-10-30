@@ -199,8 +199,9 @@ impl Workspace {
                 if matches!(self.page_tab(), None | Some(super::nav::Section::Changes)) =>
             {
                 let line = self
+                    .review
                     .changes
-                    .get(self.change_at.unwrap_or(0))
+                    .get(self.review.change_at.unwrap_or(0))
                     .and_then(|&row| self.new_line_of_row(row))
                     .unwrap_or(1);
                 Some((root.join(self.current_path()?), line))
