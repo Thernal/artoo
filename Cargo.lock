@@ -209,6 +209,7 @@ dependencies = [
  "artoo-hosts",
  "artoo-hosts-api",
  "artoo-reports",
+ "artoo-shell-api",
  "artoo-ui-kit",
  "artoo-updates",
  "base64",
@@ -342,6 +343,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "artoo-shell-api"
+version = "1.3.0"
+dependencies = [
+ "artoo-ui-kit",
+ "gpui-pre",
+]
+
+[[package]]
 name = "artoo-ui-kit"
 version = "1.3.0"
 dependencies = [
@@ -357,7 +366,10 @@ version = "1.3.0"
 dependencies = [
  "anyhow",
  "artoo-core",
+ "artoo-shell-api",
+ "artoo-ui-kit",
  "chrono",
+ "gpui-pre",
  "semver",
  "serde",
  "serde_json",

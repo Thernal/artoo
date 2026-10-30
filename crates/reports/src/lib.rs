@@ -31,14 +31,8 @@ pub fn relay() -> Option<String> {
         .filter(|u| u.starts_with("https://") || u.starts_with("http://127.0.0.1"))
 }
 
-/// "Artoo 0.2.0 (7c5758f)": which build it is.
-pub fn version() -> String {
-    format!(
-        "Artoo {} ({})",
-        env!("CARGO_PKG_VERSION"),
-        env!("ARTOO_COMMIT")
-    )
-}
+/// "Artoo 0.2.0 (7c5758f)": which build it is (the core's).
+pub use artoo_core::version;
 
 /// The system and the machine: "macOS 15.1 · Mac15,3".
 pub fn system() -> String {
@@ -368,7 +362,7 @@ pub fn send(
     let payload = json!({
         "install": install_id(),
         "version": env!("CARGO_PKG_VERSION"),
-        "commit": env!("ARTOO_COMMIT"),
+        "commit": artoo_core::COMMIT,
         "title": title,
         "body": body,
         "fingerprint": fingerprint(title),

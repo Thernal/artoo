@@ -13,7 +13,9 @@
 3. **Direction:**
    - the core depends on nothing of Artoo's, and has no GPUI;
    - the kit depends on the core alone;
-   - a contract depends on the core (and GPUI) only — never on another contract, an implementation or the kit;
+   - a contract depends on the core and the kit (and GPUI) only — never on another contract or an implementation.
+     The kit is there for the shell's contract: a part draws with it, and the selection a frame hands a part is
+     the kit's markdown's (2026-10-30, #165 stage 4);
    - an implementation depends on the core, the kit and any contract, its own and other features'. **Never on
      another implementation;**
    - the app depends on everything; it is the only crate that names an implementation.

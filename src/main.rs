@@ -16,7 +16,6 @@ use artoo_hosts::{avatars, connect, ide, merge, pictures, tokens};
 use artoo_hosts_api as mr;
 use artoo_reports as report;
 use artoo_ui_kit::file_icons;
-use artoo_updates as updates;
 use std::path::PathBuf;
 
 fn main() {
@@ -35,6 +34,7 @@ fn main() {
         .filter(|p| p.is_dir() || git::Repo::open(p).is_ok());
     ui::run(path, |cx| {
         artoo_hosts::install(cx);
+        artoo_updates::install(cx);
     });
 }
 

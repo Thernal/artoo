@@ -130,7 +130,6 @@ pub enum Cmd {
     ReportProblem,
     SetUp,
     Merge,
-    CheckForUpdates,
     Unified,
     CycleMode,
     Rendered,
@@ -269,7 +268,6 @@ const COMMANDS: &[(&str, &str, Cmd)] = &[
     ("Report a problem", "⌥⌘/", Cmd::ReportProblem),
     ("Set up Artoo", "", Cmd::SetUp),
     ("Merge this merge request…", "", Cmd::Merge),
-    ("Check for updates", "", Cmd::CheckForUpdates),
     ("New tab", "⌘T", Cmd::NewTab),
     ("Settings", "⌘,", Cmd::Settings),
 ];
@@ -293,6 +291,8 @@ enum Pick {
     RepoFile(String),
     Link(crate::links::Link),
     Command(Cmd),
+    /// A command a feature offers (`Workspace::contributed`), by its place there.
+    Offered(usize),
     Ref(String, Oid),
     Theme(String),
     /// A repository to open in a tab of its own, or go to when one has it.
@@ -649,6 +649,22 @@ impl Workspace {
         }
     }
 
+    /// The commands features offer that the palette's words match.
+    fn offered_items(&self, group: &'static str, words: &[String]) -> Vec<Item> {
+        self.contributed
+            .iter()
+            .enumerate()
+            .filter(|(_, (label, _))| matches(words, label))
+            .map(|(ix, (label, _))| Item {
+                group,
+                label: (*label).to_owned(),
+                detail: String::new(),
+                key: "",
+                pick: Pick::Offered(ix),
+            })
+            .collect()
+    }
+
     /// What tab `scope` lists for the palette's text.
     fn scope_items(&self, scope: Scope, p: &Palette) -> Vec<Item> {
         let query = p.query.trim();
@@ -665,6 +681,7 @@ impl Workspace {
                     key,
                     pick: Pick::Command(cmd),
                 })
+                .chain(self.offered_items("Actions", &words))
                 .collect(),
             Scope::Branches => crate::rank::rank(self.listed_branches(), query, |(_, b)| &b.name)
                 .into_iter()
@@ -983,14 +1000,15 @@ impl Workspace {
                 COMMANDS
                     .iter()
                     .filter(|(label, ..)| matches(&words, label))
-                    .take(cap(5))
                     .map(|&(label, key, cmd)| Item {
                         group: "Commands",
                         label: self.command_label(label, cmd),
                         detail: String::new(),
                         key,
                         pick: Pick::Command(cmd),
-                    }),
+                    })
+                    .chain(self.offered_items("Commands", &words))
+                    .take(cap(5)),
             );
         }
         if scope.is_none_or(|s| s == '#') && !words.is_empty() | scope.is_some() {
@@ -1245,6 +1263,13 @@ impl Workspace {
                 cx.notify();
                 window.dispatch_action(command_action(cmd), cx);
             }
+            Pick::Offered(ix) => {
+                self.palette = None;
+                cx.notify();
+                if let Some((_, act)) = self.contributed.get(ix) {
+                    window.dispatch_action(act.boxed_clone(), cx);
+                }
+            }
             Pick::Theme(id) => {
                 self.palette = None;
                 let mut choice = theme::choice();
@@ -1419,6 +1444,13 @@ impl Workspace {
                                 .global::<super::keymap::Keymap>()
                                 .shown(command_action(cmd).as_ref())
                                 .unwrap_or_else(|| item.key.to_owned()),
+                            Pick::Offered(ix) => self
+                                .contributed
+                                .get(ix)
+                                .and_then(|(_, act)| {
+                                    cx.global::<super::keymap::Keymap>().shown(act.as_ref())
+                                })
+                                .unwrap_or_default(),
                             _ => item.key.to_owned(),
                         };
                         (!key.is_empty()).then(|| super::keys::caps(&key, super::keys::On::Plain))
@@ -1637,7 +1669,6 @@ fn command_action(cmd: Cmd) -> Box<dyn Action> {
         Cmd::ReportProblem => Box::new(ReportProblem),
         Cmd::SetUp => Box::new(super::SetUp),
         Cmd::Merge => Box::new(super::MergeRequest),
-        Cmd::CheckForUpdates => Box::new(CheckForUpdates),
         Cmd::Unified => Box::new(ToggleUnified),
         Cmd::CycleMode => Box::new(CycleMode),
         Cmd::Wrap => Box::new(ToggleWrap),

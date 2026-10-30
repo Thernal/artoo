@@ -22,3 +22,11 @@ pub mod symbols;
 pub mod textedit;
 pub mod themes;
 pub mod worddiff;
+
+/// The commit this build is made from (`build.rs`).
+pub const COMMIT: &str = env!("ARTOO_COMMIT");
+
+/// "Artoo 0.2.0 (7c5758f)": which build it is.
+pub fn version() -> String {
+    format!("Artoo {} ({COMMIT})", env!("CARGO_PKG_VERSION"))
+}

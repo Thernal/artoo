@@ -1,8 +1,16 @@
 # Contributions: routes, pages, actions, settings, toasts
 
-**Decided:** 2026-10-29 · **Applies to:** every feature with a view · **In force:** with the shell's crates
-(stage 4). Until then `Page` (`src/ui/nav.rs`), `menu::Act` and `toast` are what these replace, and a new
-page, action or toast is added there in the shape below — one variant, one id, one owner.
+**Decided:** 2026-10-29 · **Applies to:** every feature with a view · **In force:** actions, parts and the
+`Frame` since 2026-10-30 (`artoo-shell-api`, updates the first feature on it); routes and pages with the first
+feature that has a page (requests). Until then `Page` (`src/ui/nav.rs`), `menu::Act` and `toast` are what these
+replace, and a new page, action or toast is added there in the shape below — one variant, one id, one owner.
+
+**What `artoo-shell-api` holds now:** `add_action` (an id, its words for ⌘K, the menu that shows it, its GPUI
+action) and `add_parts` (a maker each tab calls with its `Frame`: a title-bar item with when it shows, an
+`Overlay` — a card that is drawn and has the keys while open, closed by Escape, polled each frame the tab is not
+busy —, Settings rows by section, the tab's handlers of the feature's actions, the snapshot views it opens). The
+shell calls a part's key, close, poll and snapshot hooks from inside its own update, so those never ask their
+`Frame`; the part's listeners and tasks do (`redraw` after the card opens or closes itself).
 
 ## Rule
 

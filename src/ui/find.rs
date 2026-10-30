@@ -301,7 +301,7 @@ impl Workspace {
             Some(Input::Palette) => return self.palette_key(event, window, cx),
             Some(Input::OpenAsk) => return self.open_ask_key(event, cx),
             Some(Input::AgentPick) => return self.agent_pick_key(event, cx),
-            Some(Input::UpdateCard) => return self.update_card_key(event, cx),
+            Some(Input::Overlay) => return self.overlay_key(event, window, cx),
             Some(Input::Beside) => return self.beside_key(event, cx),
             Some(Input::Merge) => return self.merge_key(event, cx),
             Some(Input::Reactions) => return self.reaction_key(event, cx),
@@ -338,8 +338,8 @@ impl Workspace {
                 cx.notify();
             } else if self.label_edit.is_some() {
                 self.close_label(cx);
-            } else if self.update_card.is_some() {
-                self.close_update_card(cx);
+            } else if self.overlay_open() {
+                self.close_overlay(cx);
             } else if self.shortcuts {
                 self.shortcuts = false;
                 cx.notify();

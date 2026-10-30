@@ -154,7 +154,7 @@ impl Workspace {
                 );
             },
         ));
-        let update_status = self.render_update_status(cx);
+        let update_rows = self.settings_rows(artoo_shell_api::Section::General);
         let system = switch("system-notifications", s.system_notifications).on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {
                 let on = !this.settings.system_notifications;
@@ -271,7 +271,7 @@ impl Workspace {
                             "At start and every 6 hours.",
                             updates,
                         ))
-                        .child(div().pt(px(6.)).child(update_status)),
+                        .children(update_rows.into_iter().map(|row| div().pt(px(6.)).child(row))),
                 )
                 .into_any_element(),
             Section::Repository => column()
@@ -863,7 +863,7 @@ impl Workspace {
     /// against the new menus at once, and the action it fires must not find the workspace still
     /// being updated (a crash when a recorded key was also a new menu shortcut).
     pub(super) fn refresh_menus(&self, cx: &mut Context<Self>) {
-        let menus = super::menus(&self.options);
+        let menus = super::menus(&self.options, cx);
         cx.spawn(async move |_, cx| {
             cx.background_executor()
                 .timer(std::time::Duration::from_millis(50))

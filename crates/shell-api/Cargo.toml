@@ -1,0 +1,12 @@
+[package]
+name = "artoo-shell-api"
+description = "The shell's contract (#165): what a feature adds to the window and asks of it."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# A part draws with the kit: the text selection a frame hands it is the kit's markdown's.
+artoo-ui-kit = { path = "../ui-kit" }
+gpui.workspace = true

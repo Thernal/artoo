@@ -1,26 +1,66 @@
 //! Whether a newer Artoo is out (#135): its releases on GitHub, asked when the app starts and every 6
-//! hours (`ui::run`), the newer ones kept here for the window to announce — a card once per version, then a
-//! mark in the title bar (`ui/updates.rs`). Nothing is downloaded or installed: the builds are not signed,
+//! hours (`install`), the newer ones kept here for the window to announce — a card once per version, then a
+//! mark in the title bar (`card`). Nothing is downloaded or installed: the builds are not signed,
 //! so updating stays the user's (README → Releases). Settings → General turns the asking off.
 
 use anyhow::{Result, anyhow, bail};
 use artoo_core::{applog, storage};
+use artoo_shell_api::{Action, Menu};
+use gpui::App;
 use semver::Version;
 use serde::Deserialize;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
+mod card;
+
+gpui::actions!(
+    artoo,
+    [
+        /// Artoo → Check for Updates…, ⌘K (#135).
+        CheckForUpdates
+    ]
+);
+
+/// Offers the check (the app menu, ⌘K), draws the card, the mark and Settings' line in every tab, and asks at
+/// launch and every 6 hours while Settings says so — looked at each minute, so turning it on asks soon. A
+/// snapshot asks only its fixture.
+pub fn install(cx: &mut App) {
+    artoo_shell_api::add_action(
+        cx,
+        Action {
+            id: "updates.check",
+            words: "Check for updates",
+            menu: Some((Menu::App, "Check for Updates…")),
+            act: Box::new(CheckForUpdates),
+        },
+    );
+    artoo_shell_api::add_parts(cx, card::parts);
+    cx.spawn(async move |cx| {
+        loop {
+            if storage::Settings::load().check_updates && due() {
+                cx.background_executor().spawn(async { check() }).await;
+                cx.update(|cx| cx.refresh_windows());
+            }
+            cx.background_executor()
+                .timer(Duration::from_secs(60))
+                .await;
+        }
+    })
+    .detach();
+}
+
 /// The project's releases, newest first.
 const RELEASES: &str = "https://api.github.com/repos/Thernal/artoo-desktop/releases?per_page=30";
 /// How often a running app asks again.
-pub const EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+pub(crate) const EVERY: Duration = Duration::from_secs(6 * 60 * 60);
 /// A release's notes end in its commits under this heading (`.github/release-notes.sh`).
 const COMMITS: &str = "### Commits";
 
 /// A release newer than this build.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Release {
+pub(crate) struct Release {
     pub version: Version,
     /// What is new, in words: the notes above its commits.
     pub notes: String,
@@ -36,7 +76,7 @@ pub struct Release {
 
 /// What the last check found.
 #[derive(Clone, Debug, Default)]
-pub struct Check {
+pub(crate) struct Check {
     /// The releases newer than this build, newest first.
     pub newer: Vec<Release>,
     /// When GitHub answered, or the asking failed.
@@ -71,13 +111,13 @@ static LAST: Mutex<Option<Check>> = Mutex::new(None);
 static SEEN: Mutex<Option<Seen>> = Mutex::new(None);
 
 /// This build's version.
-pub fn current() -> Version {
+pub(crate) fn current() -> Version {
     Version::parse(env!("CARGO_PKG_VERSION")).unwrap_or_else(|_| Version::new(0, 0, 0))
 }
 
 /// Asks GitHub (or `ARTOO_RELEASES_FIXTURE`, a file of its answer) and keeps what it found.
 /// Blocking: run it off the window's thread.
-pub fn check() -> Check {
+pub(crate) fn check() -> Check {
     let check = match fetch().and_then(|text| parse(&text, &current())) {
         Ok(newer) => Check {
             newer,
@@ -99,12 +139,12 @@ pub fn check() -> Check {
 }
 
 /// The last check, if one ran.
-pub fn last() -> Option<Check> {
+pub(crate) fn last() -> Option<Check> {
     LAST.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 /// Whether it is time to ask: never asked, or `EVERY` since. A snapshot asks only its fixture.
-pub fn due() -> bool {
+pub(crate) fn due() -> bool {
     if std::env::var_os("ARTOO_SNAPSHOT").is_some()
         && std::env::var_os("ARTOO_RELEASES_FIXTURE").is_none()
     {
@@ -117,14 +157,14 @@ pub fn due() -> bool {
 }
 
 /// The newest release out, unless it is the one the user skipped.
-pub fn newest() -> Option<Release> {
+pub(crate) fn newest() -> Option<Release> {
     let release = last()?.newer.into_iter().next()?;
     let skipped = with_seen(|s| s.skipped.clone());
     (skipped.as_ref() != Some(&release.version)).then_some(release)
 }
 
 /// The newest release whose card has not opened by itself yet; taking it counts as shown.
-pub fn take_news() -> Option<Release> {
+pub(crate) fn take_news() -> Option<Release> {
     let release = newest()?;
     with_seen(|s| {
         if s.shown.as_ref() == Some(&release.version) {
@@ -137,7 +177,7 @@ pub fn take_news() -> Option<Release> {
 }
 
 /// Quiet about `version` until a newer one is out.
-pub fn skip(version: &Version) {
+pub(crate) fn skip(version: &Version) {
     with_seen(|s| {
         s.skipped = Some(version.clone());
         save(s);

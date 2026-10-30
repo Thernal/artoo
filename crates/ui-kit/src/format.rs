@@ -105,9 +105,29 @@ pub fn home_relative(path: &std::path::Path) -> String {
     }
 }
 
+/// "1 file", "3 commits", "2 replies".
+pub fn plural(n: usize, noun: &str) -> String {
+    if n == 1 {
+        return format!("1 {noun}");
+    }
+    // "reply" → "replies", not "replys".
+    match noun.strip_suffix('y') {
+        Some(stem) if stem.ends_with(|c: char| !"aeiou".contains(c)) => format!("{n} {stem}ies"),
+        _ => format!("{n} {noun}s"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plurals_read_naturally() {
+        assert_eq!(plural(1, "file"), "1 file");
+        assert_eq!(plural(3, "commit"), "3 commits");
+        assert_eq!(plural(2, "reply"), "2 replies");
+        assert_eq!(plural(2, "day"), "2 days");
+    }
 
     #[test]
     fn long_branch_names_keep_both_ends() {

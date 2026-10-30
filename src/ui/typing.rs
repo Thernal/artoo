@@ -24,8 +24,8 @@ pub(super) enum Input {
     AgentPick,
     /// The reactions' grid and its search.
     Reactions,
-    /// The new version's card (#135).
-    UpdateCard,
+    /// A feature's card over the window (`artoo_shell_api::Overlay`): the new version's (#135).
+    Overlay,
     /// What is beside a folder of Code's path (`beside.rs`).
     Beside,
     /// The card before a merge goes, its message (`merging.rs`, #164).
@@ -56,7 +56,7 @@ impl Input {
         Input::OpenAsk,
         Input::AgentPick,
         Input::Reactions,
-        Input::UpdateCard,
+        Input::Overlay,
         Input::Beside,
         Input::Merge,
         Input::Field,
@@ -79,7 +79,7 @@ impl Input {
                 | Input::OpenAsk
                 | Input::AgentPick
                 | Input::Reactions
-                | Input::UpdateCard
+                | Input::Overlay
                 | Input::Beside
                 | Input::Merge
         )
@@ -130,7 +130,7 @@ impl Workspace {
             Input::OpenAsk => self.open_ask.is_some(),
             Input::AgentPick => self.agent_pick.is_some(),
             Input::Reactions => self.reaction_grid.is_some(),
-            Input::UpdateCard => self.update_card.is_some(),
+            Input::Overlay => self.overlay_open(),
             Input::Beside => self.beside.is_some(),
             Input::Merge => self.merging.is_some(),
             Input::Field => self.field.is_some(),

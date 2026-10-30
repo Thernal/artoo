@@ -333,7 +333,7 @@ impl Workspace {
                     .items_center()
                     .justify_end()
                     .gap_3()
-                    .children(self.render_update_mark(cx))
+                    .children(self.title_items(cx))
                     .children(self.render_fetch(cx))
                     .children(self.render_status(cx))
                     .child(
@@ -693,7 +693,7 @@ impl Render for Workspace {
         words::set(self.web.as_ref().is_some_and(|w| w.github));
         markdown::set_me(self.requests.login.as_deref());
         self.take_error(cx);
-        self.take_update_news(cx);
+        self.poll_parts(cx);
         // Settings closed (esc, Done, a place) while a theme was edited: its preview ends too.
         if !self.settings_open && self.theme_edit.is_some() {
             self.close_theme_edit(cx);
@@ -751,381 +751,373 @@ impl Render for Workspace {
                 .map_or(7.2, |size| f32::from(size.width));
         }
 
-        div()
-            .id("workspace")
-            .key_context(
-                // Recording a key in Settings → Keyboard: no binding may take it first.
-                if self.recording.is_some() {
-                    "Recording"
-                } else {
-                    match self.typing() {
-                        None => "Workspace",
-                        Some(Input::Palette | Input::FindFiles | Input::Beside) => {
-                            "Workspace Typing Palette"
-                        }
-                        // ↑ ↓ belong to the field: they move its caret or its line. The new
-                        // version's card scrolls with them (#135).
-                        Some(
-                            Input::Compose
-                            | Input::GoLine
-                            | Input::Submit
-                            | Input::Report
-                            | Input::UpdateCard,
-                        ) => "Workspace Typing Caret",
-                        Some(Input::NewRequest) if self.typing_description() => {
-                            "Workspace Typing Caret"
-                        }
-                        Some(_) => "Workspace Typing",
+        let mut root = div().id("workspace");
+        // The commands features offer, as this tab runs them (`artoo_shell_api::Parts::actions`).
+        for (act, run) in self.part_actions() {
+            root = root.on_boxed_action(act.as_ref(), move |_, window, cx| run(window, cx));
+        }
+        root.key_context(
+            // Recording a key in Settings → Keyboard: no binding may take it first.
+            if self.recording.is_some() {
+                "Recording"
+            } else {
+                match self.typing() {
+                    None => "Workspace",
+                    Some(Input::Palette | Input::FindFiles | Input::Beside) => {
+                        "Workspace Typing Palette"
                     }
-                },
-            )
-            .track_focus(&self.focus)
-            .on_action(cx.listener(Self::open))
-            .on_action(cx.listener(Self::refresh))
-            .on_action(cx.listener(Self::previous_commit))
-            .on_action(cx.listener(Self::next_commit))
-            .on_action(cx.listener(Self::previous_file))
-            .on_action(cx.listener(Self::next_file))
-            .on_action(cx.listener(Self::previous_step))
-            .on_action(cx.listener(Self::next_step))
-            .on_action(cx.listener(Self::toggle_unified))
-            .on_action(cx.listener(Self::cycle_mode))
-            .on_action(cx.listener(|this, _: &ToggleRendered, _, cx| this.toggle_page_source(cx)))
-            .on_action(
-                cx.listener(|this, _: &PickTheme, _, cx| {
-                    this.open_palette(palette::Kind::Theme, cx)
-                }),
-            )
-            .on_action(cx.listener(Self::set_lines))
-            .on_action(cx.listener(Self::set_words))
-            .on_action(cx.listener(Self::set_structural))
-            .on_action(cx.listener(Self::open_settings_action))
-            .on_action(cx.listener(Self::find_action))
-            .on_action(cx.listener(Self::find_commits_action))
-            .on_action(cx.listener(Self::filter_files_action))
-            .on_action(cx.listener(Self::go_back_action))
-            .on_action(cx.listener(Self::go_forward_action))
-            .on_action(cx.listener(Self::toggle_sidebar))
-            .on_action(cx.listener(Self::save_theme_key))
-            .on_action(cx.listener(Self::toggle_files))
-            .on_action(cx.listener(Self::toggle_requests))
-            .on_action(cx.listener(Self::focus_diff))
-            .on_action(cx.listener(Self::zen_one_file))
-            .on_action(cx.listener(Self::report_problem))
-            .on_action(cx.listener(Self::set_up))
-            .on_action(cx.listener(Self::merge_request))
-            .on_action(cx.listener(Self::check_for_updates))
-            .on_action(cx.listener(Self::copy_selection))
-            .on_action(cx.listener(Self::select_all))
-            .on_action(cx.listener(Self::next_change))
-            .on_action(cx.listener(Self::previous_change))
-            .on_action(cx.listener(Self::next_match))
-            .on_action(cx.listener(Self::previous_match))
-            .on_action(cx.listener(|this, _: &CommentLine, _, cx| this.open_goline(cx)))
-            .on_action(cx.listener(|this, _: &SubmitReview, _, cx| this.open_submit(cx)))
-            .on_action(cx.listener(|this, _: &ApproveRequest, _, cx| this.toggle_approval(cx)))
-            .on_action(cx.listener(|this, _: &SwitchTo, _, cx| {
-                if this.root.is_some() {
-                    this.open_palette(palette::Kind::Switch, cx)
+                    // ↑ ↓ belong to the field: they move its caret or its line. The new
+                    // version's card scrolls with them (#135).
+                    Some(
+                        Input::Compose
+                        | Input::GoLine
+                        | Input::Submit
+                        | Input::Report
+                        | Input::Overlay,
+                    ) => "Workspace Typing Caret",
+                    Some(Input::NewRequest) if self.typing_description() => {
+                        "Workspace Typing Caret"
+                    }
+                    Some(_) => "Workspace Typing",
                 }
-            }))
-            .on_action(cx.listener(|this, _: &NextDraft, _, cx| this.step_draft(true, cx)))
-            .on_action(cx.listener(|this, _: &PreviousDraft, _, cx| this.step_draft(false, cx)))
-            .on_action(cx.listener(|this, _: &CreateRequest, _, cx| this.open_create(None, cx)))
-            .on_action(
-                cx.listener(|this, _: &QuickCreateRequest, _, cx| this.open_create_quick(cx)),
-            )
-            // Every draft to its route; with no chat listening, the card asks (#77).
-            .on_action(cx.listener(|this, _: &SendToAgent, _, cx| {
-                let ids = this.agent_drafts();
-                if ids.is_empty() {
-                    return this.open_agent_pick(cx);
-                }
-                this.send_agent(ids, cx)
-            }))
-            .on_action(cx.listener(|this, _: &OpenIn, _, cx| this.open_in(cx)))
-            .on_action(cx.listener(|this, _: &RevealInFinder, _, cx| this.reveal_target(cx)))
-            .on_action(cx.listener(|this, _: &ShowShortcuts, _, cx| this.toggle_shortcuts(cx)))
-            .on_action(cx.listener(|this, _: &NameProject, _, cx| {
-                if let Some(root) = this.root.clone() {
-                    this.open_label(labeling::Target::Project(root), cx)
-                }
-            }))
-            .on_action(cx.listener(|this, _: &NextThread, _, cx| {
-                // ⇧N: a note on the agent's form in view, else the next discussion (#10 C).
-                match this.acting_agent_form() {
-                    Some(id) => this.start_answer(id, cx),
-                    None => this.step_thread(true, cx),
-                }
-            }))
-            .on_action(cx.listener(|this, _: &PreviousThread, _, cx| this.step_thread(false, cx)))
-            .on_action(cx.listener(|this, _: &ReplyThread, _, cx| this.reply_focused(cx)))
-            .on_action(cx.listener(|this, _: &ResolveThread, _, cx| this.resolve_focused(cx)))
-            .on_action(cx.listener(|this, _: &EditComment, _, cx| {
-                // In the Inbox, e is done with the selected notice (an agent's: later, or resolved).
-                if this.inbox && this.zone != zones::Zone::Tool {
-                    this.inbox_done(cx)
-                } else {
-                    this.edit_focused(cx)
-                }
-            }))
-            .on_action(cx.listener(|this, _: &ToggleThread, _, cx| this.toggle_focused(cx)))
-            .on_action(cx.listener(|this, _: &ReactNote, _, cx| this.react_focused(cx)))
-            .on_action(cx.listener(|this, _: &MarkReviewed, _, cx| this.mark_and_advance(cx)))
-            .on_action(cx.listener(|this, _: &ToggleBookmark, _, cx| this.toggle_bookmark(cx)))
-            .on_action(cx.listener(|this, _: &ShowBookmarks, _, cx| {
-                if this.palette.is_some() {
-                    this.close_palette(cx);
-                } else if this.diff.is_some() {
-                    this.open_palette(palette::Kind::Bookmarks, cx);
-                }
-            }))
-            .on_action(cx.listener(|this, _: &ZoomIn, window, cx| this.ui_zoom_by(1, window, cx)))
-            .on_action(cx.listener(|this, _: &ZoomOut, window, cx| this.ui_zoom_by(-1, window, cx)))
-            .on_action(
-                cx.listener(|this, _: &ZoomReset, window, cx| this.set_ui_zoom(100, window, cx)),
-            )
-            .on_action(cx.listener(|this, _: &ShowStructure, _, cx| {
-                if this.palette.is_some() {
-                    this.close_palette(cx);
-                } else if this.diff.is_some() {
-                    this.open_palette(palette::Kind::Structure, cx);
-                }
-            }))
-            .on_action(cx.listener(|this, _: &OpenRecent, _, cx| {
-                if this.palette.is_some() {
-                    this.close_palette(cx);
-                } else {
-                    this.open_palette(palette::Kind::Recent, cx);
-                }
-            }))
-            .on_action(cx.listener(|this, _: &ToggleAnnotate, _, cx| this.toggle_annotate(cx)))
-            .on_action(cx.listener(|this, _: &FindInFiles, _, cx| this.open_find_files(cx)))
-            .on_action(cx.listener(|this, _: &ToggleReviewed, _, cx| this.toggle_reviewed(cx)))
-            .on_action(cx.listener(|this, _: &ShowOverview, _, cx| {
-                this.show_section(nav::Section::Overview, cx)
-            }))
-            .on_action(cx.listener(|this, _: &NextSection, _, cx| this.step_section(true, cx)))
-            .on_action(cx.listener(|this, _: &PreviousSection, _, cx| this.step_section(false, cx)))
-            .on_action(cx.listener(|this, _: &NextOpenItem, _, cx| this.step_open_item(true, cx)))
-            .on_action(
-                cx.listener(|this, _: &PreviousOpenItem, _, cx| this.step_open_item(false, cx)),
-            )
-            .on_action(cx.listener(|this, _: &ToggleComments, _, cx| {
-                this.toggle_tool(tools::Tool::Discussions, cx)
-            }))
-            .on_action(cx.listener(|this, _: &ToggleAgents, _, cx| {
-                this.toggle_tool(tools::Tool::Agents, cx)
-            }))
-            .on_action(cx.listener(|this, _: &FoldMenu, _, cx| this.toggle_menu(cx)))
-            .on_action(
-                cx.listener(|this, _: &GoToInbox, _, cx| this.go_space(spaces::Space::Inbox, cx)),
-            )
-            .on_action(
-                cx.listener(|this, _: &GoToCode, _, cx| this.go_space(spaces::Space::Code, cx)),
-            )
-            .on_action(cx.listener(|this, _: &GoToBranches, _, cx| {
-                this.go_space(spaces::Space::Branches, cx)
-            }))
-            .on_action(cx.listener(|this, _: &GoToMergeRequests, _, cx| {
-                this.go_space(spaces::Space::Requests, cx)
-            }))
-            .on_action(cx.listener(|this, _: &NextZone, _, cx| this.step_zone(true, cx)))
-            .on_action(cx.listener(|this, _: &PreviousZone, _, cx| this.step_zone(false, cx)))
-            .on_action(cx.listener(|this, _: &Activate, _, cx| this.activate(cx)))
-            .on_action(cx.listener(|this, _: &PageDown, _, cx| this.page(true, cx)))
-            .on_action(cx.listener(|this, _: &PageUp, _, cx| this.page(false, cx)))
-            .on_action(cx.listener(|this, _: &DiffStart, _, cx| this.diff_edge(false, cx)))
-            .on_action(cx.listener(|this, _: &DiffEnd, _, cx| this.diff_edge(true, cx)))
-            // ⌃1, the branch quick switch: search everywhere on its Branches (#72).
-            .on_action(cx.listener(|this, _: &SwitchBranch, _, cx| {
-                if this.root.is_some() {
-                    this.search(palette::Scope::Branches, cx)
-                }
-            }))
-            // ⌃2 ⌃3: a section of the side panel; narrow, its drawer opens there (#80).
-            .on_action(cx.listener(|this, _: &FocusCommits, _, cx| {
-                this.focus_panel(zones::Zone::Commits, cx)
-            }))
-            .on_action(
-                cx.listener(|this, _: &FocusFiles, _, cx| this.focus_panel(zones::Zone::Files, cx)),
-            )
-            .on_action(
-                cx.listener(|this, _: &FocusDiffZone, _, cx| this.set_zone(zones::Zone::Diff, cx)),
-            )
-            .on_action(
-                cx.listener(|this, _: &NewTab, _, cx| {
-                    this.open_palette(palette::Kind::Projects, cx)
-                }),
-            )
-            .on_action(cx.listener(|this, _: &CloseItem, _, cx| this.close_shown(cx)))
-            .on_action(cx.listener(|this, _: &CloseTab, window, cx| {
-                this.with_shell(window, cx, |s, window, cx| {
-                    let active = s.active_ix();
-                    s.close(active, window, cx)
-                })
-            }))
-            .on_action(cx.listener(|this, _: &ReopenTab, window, cx| {
-                this.with_shell(window, cx, |s, window, cx| s.reopen(window, cx))
-            }))
-            .on_action(cx.listener(|this, _: &NextTab, window, cx| {
-                this.with_shell(window, cx, |s, window, cx| s.step(true, window, cx))
-            }))
-            .on_action(cx.listener(|this, _: &PreviousTab, window, cx| {
-                this.with_shell(window, cx, |s, window, cx| s.step(false, window, cx))
-            }))
-            .on_action(cx.listener(|this, _: &Tab1, window, cx| {
-                this.with_shell(window, cx, |s, window, cx| s.select(0, window, cx))
-            }))
-            .on_action(cx.listener(|this, _: &Tab2, window, cx| {
-                this.with_shell(window, cx, |s, window, cx| s.select(1, window, cx))
-            }))
-            .on_action(cx.listener(|this, _: &Tab3, window, cx| {
-                this.with_shell(window, cx, |s, window, cx| s.select(2, window, cx))
-            }))
-            .on_action(cx.listener(|this, _: &Tab4, window, cx| {
-                this.with_shell(window, cx, |s, window, cx| s.select(3, window, cx))
-            }))
-            .on_action(cx.listener(|this, _: &Tab5, window, cx| {
-                this.with_shell(window, cx, |s, window, cx| s.select(4, window, cx))
-            }))
-            .on_action(cx.listener(|this, _: &Tab6, window, cx| {
-                this.with_shell(window, cx, |s, window, cx| s.select(5, window, cx))
-            }))
-            .on_action(cx.listener(|this, _: &Tab7, window, cx| {
-                this.with_shell(window, cx, |s, window, cx| s.select(6, window, cx))
-            }))
-            .on_action(cx.listener(|this, _: &Tab8, window, cx| {
-                this.with_shell(window, cx, |s, window, cx| s.select(7, window, cx))
-            }))
-            .on_action(cx.listener(|this, _: &Tab9, window, cx| {
-                this.with_shell(window, cx, |s, window, cx| s.select(8, window, cx))
-            }))
-            .on_action(cx.listener(Self::open_palette_action))
-            .on_action(
-                cx.listener(|this, _: &SearchFiles, _, cx| this.search(palette::Scope::Files, cx)),
-            )
-            .on_action(cx.listener(|this, _: &SearchCommits, _, cx| {
-                this.search(palette::Scope::Commits, cx)
-            }))
-            .on_action(cx.listener(|this, _: &SearchBranches, _, cx| {
+            },
+        )
+        .track_focus(&self.focus)
+        .on_action(cx.listener(Self::open))
+        .on_action(cx.listener(Self::refresh))
+        .on_action(cx.listener(Self::previous_commit))
+        .on_action(cx.listener(Self::next_commit))
+        .on_action(cx.listener(Self::previous_file))
+        .on_action(cx.listener(Self::next_file))
+        .on_action(cx.listener(Self::previous_step))
+        .on_action(cx.listener(Self::next_step))
+        .on_action(cx.listener(Self::toggle_unified))
+        .on_action(cx.listener(Self::cycle_mode))
+        .on_action(cx.listener(|this, _: &ToggleRendered, _, cx| this.toggle_page_source(cx)))
+        .on_action(
+            cx.listener(|this, _: &PickTheme, _, cx| this.open_palette(palette::Kind::Theme, cx)),
+        )
+        .on_action(cx.listener(Self::set_lines))
+        .on_action(cx.listener(Self::set_words))
+        .on_action(cx.listener(Self::set_structural))
+        .on_action(cx.listener(Self::open_settings_action))
+        .on_action(cx.listener(Self::find_action))
+        .on_action(cx.listener(Self::find_commits_action))
+        .on_action(cx.listener(Self::filter_files_action))
+        .on_action(cx.listener(Self::go_back_action))
+        .on_action(cx.listener(Self::go_forward_action))
+        .on_action(cx.listener(Self::toggle_sidebar))
+        .on_action(cx.listener(Self::save_theme_key))
+        .on_action(cx.listener(Self::toggle_files))
+        .on_action(cx.listener(Self::toggle_requests))
+        .on_action(cx.listener(Self::focus_diff))
+        .on_action(cx.listener(Self::zen_one_file))
+        .on_action(cx.listener(Self::report_problem))
+        .on_action(cx.listener(Self::set_up))
+        .on_action(cx.listener(Self::merge_request))
+        .on_action(cx.listener(Self::copy_selection))
+        .on_action(cx.listener(Self::select_all))
+        .on_action(cx.listener(Self::next_change))
+        .on_action(cx.listener(Self::previous_change))
+        .on_action(cx.listener(Self::next_match))
+        .on_action(cx.listener(Self::previous_match))
+        .on_action(cx.listener(|this, _: &CommentLine, _, cx| this.open_goline(cx)))
+        .on_action(cx.listener(|this, _: &SubmitReview, _, cx| this.open_submit(cx)))
+        .on_action(cx.listener(|this, _: &ApproveRequest, _, cx| this.toggle_approval(cx)))
+        .on_action(cx.listener(|this, _: &SwitchTo, _, cx| {
+            if this.root.is_some() {
+                this.open_palette(palette::Kind::Switch, cx)
+            }
+        }))
+        .on_action(cx.listener(|this, _: &NextDraft, _, cx| this.step_draft(true, cx)))
+        .on_action(cx.listener(|this, _: &PreviousDraft, _, cx| this.step_draft(false, cx)))
+        .on_action(cx.listener(|this, _: &CreateRequest, _, cx| this.open_create(None, cx)))
+        .on_action(cx.listener(|this, _: &QuickCreateRequest, _, cx| this.open_create_quick(cx)))
+        // Every draft to its route; with no chat listening, the card asks (#77).
+        .on_action(cx.listener(|this, _: &SendToAgent, _, cx| {
+            let ids = this.agent_drafts();
+            if ids.is_empty() {
+                return this.open_agent_pick(cx);
+            }
+            this.send_agent(ids, cx)
+        }))
+        .on_action(cx.listener(|this, _: &OpenIn, _, cx| this.open_in(cx)))
+        .on_action(cx.listener(|this, _: &RevealInFinder, _, cx| this.reveal_target(cx)))
+        .on_action(cx.listener(|this, _: &ShowShortcuts, _, cx| this.toggle_shortcuts(cx)))
+        .on_action(cx.listener(|this, _: &NameProject, _, cx| {
+            if let Some(root) = this.root.clone() {
+                this.open_label(labeling::Target::Project(root), cx)
+            }
+        }))
+        .on_action(cx.listener(|this, _: &NextThread, _, cx| {
+            // ⇧N: a note on the agent's form in view, else the next discussion (#10 C).
+            match this.acting_agent_form() {
+                Some(id) => this.start_answer(id, cx),
+                None => this.step_thread(true, cx),
+            }
+        }))
+        .on_action(cx.listener(|this, _: &PreviousThread, _, cx| this.step_thread(false, cx)))
+        .on_action(cx.listener(|this, _: &ReplyThread, _, cx| this.reply_focused(cx)))
+        .on_action(cx.listener(|this, _: &ResolveThread, _, cx| this.resolve_focused(cx)))
+        .on_action(cx.listener(|this, _: &EditComment, _, cx| {
+            // In the Inbox, e is done with the selected notice (an agent's: later, or resolved).
+            if this.inbox && this.zone != zones::Zone::Tool {
+                this.inbox_done(cx)
+            } else {
+                this.edit_focused(cx)
+            }
+        }))
+        .on_action(cx.listener(|this, _: &ToggleThread, _, cx| this.toggle_focused(cx)))
+        .on_action(cx.listener(|this, _: &ReactNote, _, cx| this.react_focused(cx)))
+        .on_action(cx.listener(|this, _: &MarkReviewed, _, cx| this.mark_and_advance(cx)))
+        .on_action(cx.listener(|this, _: &ToggleBookmark, _, cx| this.toggle_bookmark(cx)))
+        .on_action(cx.listener(|this, _: &ShowBookmarks, _, cx| {
+            if this.palette.is_some() {
+                this.close_palette(cx);
+            } else if this.diff.is_some() {
+                this.open_palette(palette::Kind::Bookmarks, cx);
+            }
+        }))
+        .on_action(cx.listener(|this, _: &ZoomIn, window, cx| this.ui_zoom_by(1, window, cx)))
+        .on_action(cx.listener(|this, _: &ZoomOut, window, cx| this.ui_zoom_by(-1, window, cx)))
+        .on_action(cx.listener(|this, _: &ZoomReset, window, cx| this.set_ui_zoom(100, window, cx)))
+        .on_action(cx.listener(|this, _: &ShowStructure, _, cx| {
+            if this.palette.is_some() {
+                this.close_palette(cx);
+            } else if this.diff.is_some() {
+                this.open_palette(palette::Kind::Structure, cx);
+            }
+        }))
+        .on_action(cx.listener(|this, _: &OpenRecent, _, cx| {
+            if this.palette.is_some() {
+                this.close_palette(cx);
+            } else {
+                this.open_palette(palette::Kind::Recent, cx);
+            }
+        }))
+        .on_action(cx.listener(|this, _: &ToggleAnnotate, _, cx| this.toggle_annotate(cx)))
+        .on_action(cx.listener(|this, _: &FindInFiles, _, cx| this.open_find_files(cx)))
+        .on_action(cx.listener(|this, _: &ToggleReviewed, _, cx| this.toggle_reviewed(cx)))
+        .on_action(cx.listener(|this, _: &ShowOverview, _, cx| {
+            this.show_section(nav::Section::Overview, cx)
+        }))
+        .on_action(cx.listener(|this, _: &NextSection, _, cx| this.step_section(true, cx)))
+        .on_action(cx.listener(|this, _: &PreviousSection, _, cx| this.step_section(false, cx)))
+        .on_action(cx.listener(|this, _: &NextOpenItem, _, cx| this.step_open_item(true, cx)))
+        .on_action(cx.listener(|this, _: &PreviousOpenItem, _, cx| this.step_open_item(false, cx)))
+        .on_action(cx.listener(|this, _: &ToggleComments, _, cx| {
+            this.toggle_tool(tools::Tool::Discussions, cx)
+        }))
+        .on_action(
+            cx.listener(|this, _: &ToggleAgents, _, cx| this.toggle_tool(tools::Tool::Agents, cx)),
+        )
+        .on_action(cx.listener(|this, _: &FoldMenu, _, cx| this.toggle_menu(cx)))
+        .on_action(
+            cx.listener(|this, _: &GoToInbox, _, cx| this.go_space(spaces::Space::Inbox, cx)),
+        )
+        .on_action(cx.listener(|this, _: &GoToCode, _, cx| this.go_space(spaces::Space::Code, cx)))
+        .on_action(
+            cx.listener(|this, _: &GoToBranches, _, cx| this.go_space(spaces::Space::Branches, cx)),
+        )
+        .on_action(cx.listener(|this, _: &GoToMergeRequests, _, cx| {
+            this.go_space(spaces::Space::Requests, cx)
+        }))
+        .on_action(cx.listener(|this, _: &NextZone, _, cx| this.step_zone(true, cx)))
+        .on_action(cx.listener(|this, _: &PreviousZone, _, cx| this.step_zone(false, cx)))
+        .on_action(cx.listener(|this, _: &Activate, _, cx| this.activate(cx)))
+        .on_action(cx.listener(|this, _: &PageDown, _, cx| this.page(true, cx)))
+        .on_action(cx.listener(|this, _: &PageUp, _, cx| this.page(false, cx)))
+        .on_action(cx.listener(|this, _: &DiffStart, _, cx| this.diff_edge(false, cx)))
+        .on_action(cx.listener(|this, _: &DiffEnd, _, cx| this.diff_edge(true, cx)))
+        // ⌃1, the branch quick switch: search everywhere on its Branches (#72).
+        .on_action(cx.listener(|this, _: &SwitchBranch, _, cx| {
+            if this.root.is_some() {
                 this.search(palette::Scope::Branches, cx)
-            }))
-            .on_action(cx.listener(|this, _: &SearchRequests, _, cx| {
+            }
+        }))
+        // ⌃2 ⌃3: a section of the side panel; narrow, its drawer opens there (#80).
+        .on_action(
+            cx.listener(|this, _: &FocusCommits, _, cx| this.focus_panel(zones::Zone::Commits, cx)),
+        )
+        .on_action(
+            cx.listener(|this, _: &FocusFiles, _, cx| this.focus_panel(zones::Zone::Files, cx)),
+        )
+        .on_action(
+            cx.listener(|this, _: &FocusDiffZone, _, cx| this.set_zone(zones::Zone::Diff, cx)),
+        )
+        .on_action(
+            cx.listener(|this, _: &NewTab, _, cx| this.open_palette(palette::Kind::Projects, cx)),
+        )
+        .on_action(cx.listener(|this, _: &CloseItem, _, cx| this.close_shown(cx)))
+        .on_action(cx.listener(|this, _: &CloseTab, window, cx| {
+            this.with_shell(window, cx, |s, window, cx| {
+                let active = s.active_ix();
+                s.close(active, window, cx)
+            })
+        }))
+        .on_action(cx.listener(|this, _: &ReopenTab, window, cx| {
+            this.with_shell(window, cx, |s, window, cx| s.reopen(window, cx))
+        }))
+        .on_action(cx.listener(|this, _: &NextTab, window, cx| {
+            this.with_shell(window, cx, |s, window, cx| s.step(true, window, cx))
+        }))
+        .on_action(cx.listener(|this, _: &PreviousTab, window, cx| {
+            this.with_shell(window, cx, |s, window, cx| s.step(false, window, cx))
+        }))
+        .on_action(cx.listener(|this, _: &Tab1, window, cx| {
+            this.with_shell(window, cx, |s, window, cx| s.select(0, window, cx))
+        }))
+        .on_action(cx.listener(|this, _: &Tab2, window, cx| {
+            this.with_shell(window, cx, |s, window, cx| s.select(1, window, cx))
+        }))
+        .on_action(cx.listener(|this, _: &Tab3, window, cx| {
+            this.with_shell(window, cx, |s, window, cx| s.select(2, window, cx))
+        }))
+        .on_action(cx.listener(|this, _: &Tab4, window, cx| {
+            this.with_shell(window, cx, |s, window, cx| s.select(3, window, cx))
+        }))
+        .on_action(cx.listener(|this, _: &Tab5, window, cx| {
+            this.with_shell(window, cx, |s, window, cx| s.select(4, window, cx))
+        }))
+        .on_action(cx.listener(|this, _: &Tab6, window, cx| {
+            this.with_shell(window, cx, |s, window, cx| s.select(5, window, cx))
+        }))
+        .on_action(cx.listener(|this, _: &Tab7, window, cx| {
+            this.with_shell(window, cx, |s, window, cx| s.select(6, window, cx))
+        }))
+        .on_action(cx.listener(|this, _: &Tab8, window, cx| {
+            this.with_shell(window, cx, |s, window, cx| s.select(7, window, cx))
+        }))
+        .on_action(cx.listener(|this, _: &Tab9, window, cx| {
+            this.with_shell(window, cx, |s, window, cx| s.select(8, window, cx))
+        }))
+        .on_action(cx.listener(Self::open_palette_action))
+        .on_action(
+            cx.listener(|this, _: &SearchFiles, _, cx| this.search(palette::Scope::Files, cx)),
+        )
+        .on_action(
+            cx.listener(|this, _: &SearchCommits, _, cx| this.search(palette::Scope::Commits, cx)),
+        )
+        .on_action(
+            cx.listener(|this, _: &SearchBranches, _, cx| {
+                this.search(palette::Scope::Branches, cx)
+            }),
+        )
+        .on_action(
+            cx.listener(|this, _: &SearchRequests, _, cx| {
                 this.search(palette::Scope::Requests, cx)
-            }))
-            .on_action(cx.listener(|this, _: &SearchActions, _, cx| {
-                this.search(palette::Scope::Actions, cx)
-            }))
-            .on_action(cx.listener(Self::compare_action))
-            .on_action(cx.listener(Self::copy_link_action))
-            .on_action(cx.listener(Self::pin_tab_action))
-            .on_action(cx.listener(Self::palette_up))
-            .on_action(cx.listener(Self::palette_down))
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                if this.recording.is_some() {
-                    return this.record_key(event, cx);
-                }
-                this.find_key(event, window, cx)
-            }))
-            .on_action(cx.listener(Self::toggle_wrap))
-            .on_action(cx.listener(Self::toggle_full_context))
-            .on_action(cx.listener(Self::toggle_whitespace))
-            .on_action(cx.listener(Self::toggle_one_file))
-            .on_action(cx.listener(Self::toggle_expand_all_action))
-            .on_action(cx.listener(Self::toggle_rich_comments_action))
-            .on_action(cx.listener(|this, _: &LeaveRequest, _, cx| this.leave_request(cx)))
-            .on_action(
-                cx.listener(|this, _: &ToggleAllReviewed, _, cx| this.toggle_all_reviewed(cx)),
-            )
-            .on_action(cx.listener(|this, _: &NextRequest, _, cx| this.step_request(true, cx)))
-            .on_action(cx.listener(|this, _: &PreviousRequest, _, cx| this.step_request(false, cx)))
-            .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, _, cx| {
-                if let Some(path) = paths.paths().first() {
-                    this.request_open(path.clone(), None, cx);
-                }
-            }))
-            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
-                this.mention_pointer(event.position, cx);
-                this.drag_move(event, cx)
-            }))
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.selecting = false;
-                    this.end_drag(cx)
-                }),
-            )
-            .when_some(self.drag, |s, drag| {
-                s.cursor(if drag.split.vertical() {
-                    CursorStyle::ResizeUpDown
-                } else {
-                    CursorStyle::ResizeLeftRight
-                })
+            }),
+        )
+        .on_action(
+            cx.listener(|this, _: &SearchActions, _, cx| this.search(palette::Scope::Actions, cx)),
+        )
+        .on_action(cx.listener(Self::compare_action))
+        .on_action(cx.listener(Self::copy_link_action))
+        .on_action(cx.listener(Self::pin_tab_action))
+        .on_action(cx.listener(Self::palette_up))
+        .on_action(cx.listener(Self::palette_down))
+        .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+            if this.recording.is_some() {
+                return this.record_key(event, cx);
+            }
+            this.find_key(event, window, cx)
+        }))
+        .on_action(cx.listener(Self::toggle_wrap))
+        .on_action(cx.listener(Self::toggle_full_context))
+        .on_action(cx.listener(Self::toggle_whitespace))
+        .on_action(cx.listener(Self::toggle_one_file))
+        .on_action(cx.listener(Self::toggle_expand_all_action))
+        .on_action(cx.listener(Self::toggle_rich_comments_action))
+        .on_action(cx.listener(|this, _: &LeaveRequest, _, cx| this.leave_request(cx)))
+        .on_action(cx.listener(|this, _: &ToggleAllReviewed, _, cx| this.toggle_all_reviewed(cx)))
+        .on_action(cx.listener(|this, _: &NextRequest, _, cx| this.step_request(true, cx)))
+        .on_action(cx.listener(|this, _: &PreviousRequest, _, cx| this.step_request(false, cx)))
+        .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, _, cx| {
+            if let Some(path) = paths.paths().first() {
+                this.request_open(path.clone(), None, cx);
+            }
+        }))
+        .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+            this.mention_pointer(event.position, cx);
+            this.drag_move(event, cx)
+        }))
+        .on_mouse_up(
+            MouseButton::Left,
+            cx.listener(|this, _, _, cx| {
+                this.selecting = false;
+                this.end_drag(cx)
+            }),
+        )
+        .when_some(self.drag, |s, drag| {
+            s.cursor(if drag.split.vertical() {
+                CursorStyle::ResizeUpDown
+            } else {
+                CursorStyle::ResizeLeftRight
             })
-            .size_full()
-            .relative()
-            .flex()
-            .flex_col()
-            .bg(theme::base())
-            .text_color(theme::text())
-            .font_family(theme::ui_font())
-            .text_size(px(13.))
-            .child(self.render_title_bar(cx))
-            .children(self.render_toasts(cx))
-            .child(match self.root {
-                _ if self.setup.is_some() => self.render_setup(cx),
-                _ if self.settings_open => self.render_settings(cx).into_any_element(),
-                None => self.render_welcome(cx).into_any_element(),
-                Some(_) => div()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .pl(px(gap()))
-                    // The stripe sits on the window's right edge; zen has none.
-                    .pr(px(if self.zen.is_some() { gap() } else { 0. }))
-                    .pb(px(gap()))
-                    // Zen slides the rail away and back (#56, 16).
-                    .children(self.render_project_rail(cx).map(|rail| {
-                        motion::toward(
-                            div().flex_none().flex().overflow_hidden().child(rail),
-                            "rail-zen",
-                            self.zen.is_none(),
-                            self.motion.recent("zen"),
-                            motion::BASE,
-                            |rail, v| rail.max_w(px(48. * v)).opacity(v),
-                        )
-                    }))
-                    .children(self.render_spaces(cx))
-                    // The page of the space on screen (#71).
-                    .child(self.render_space(cx))
-                    .children(self.stripe_gap())
-                    .children(self.render_stripe(cx).map(|stripe| {
-                        motion::toward(
-                            div().flex_none().flex().overflow_hidden().child(stripe),
-                            "stripe-zen",
-                            self.zen.is_none(),
-                            self.motion.recent("zen"),
-                            motion::BASE,
-                            |stripe, v| stripe.max_w(px(44. * v)).opacity(v),
-                        )
-                    }))
-                    .into_any_element(),
-            })
-            // Last, so it paints over everything.
-            .children(self.render_ctx_menu(window.viewport_size(), cx))
-            .children(self.render_mention_card(cx))
-            .children(self.render_blame_tip())
-            .children(self.render_find_files(cx))
-            .children(self.render_open_ask(cx))
-            .children(self.render_beside_backdrop(cx))
-            .children(self.render_agent_pick(cx))
-            .children(self.render_label_card(cx))
-            .children(self.render_update_card(cx))
-            .children(self.render_merge_card(cx))
-            .children(self.render_create_quick(cx))
-            .children(self.render_shortcuts(cx))
-            .children(self.render_palette(cx))
+        })
+        .size_full()
+        .relative()
+        .flex()
+        .flex_col()
+        .bg(theme::base())
+        .text_color(theme::text())
+        .font_family(theme::ui_font())
+        .text_size(px(13.))
+        .child(self.render_title_bar(cx))
+        .children(self.render_toasts(cx))
+        .child(match self.root {
+            _ if self.setup.is_some() => self.render_setup(cx),
+            _ if self.settings_open => self.render_settings(cx).into_any_element(),
+            None => self.render_welcome(cx).into_any_element(),
+            Some(_) => div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .pl(px(gap()))
+                // The stripe sits on the window's right edge; zen has none.
+                .pr(px(if self.zen.is_some() { gap() } else { 0. }))
+                .pb(px(gap()))
+                // Zen slides the rail away and back (#56, 16).
+                .children(self.render_project_rail(cx).map(|rail| {
+                    motion::toward(
+                        div().flex_none().flex().overflow_hidden().child(rail),
+                        "rail-zen",
+                        self.zen.is_none(),
+                        self.motion.recent("zen"),
+                        motion::BASE,
+                        |rail, v| rail.max_w(px(48. * v)).opacity(v),
+                    )
+                }))
+                .children(self.render_spaces(cx))
+                // The page of the space on screen (#71).
+                .child(self.render_space(cx))
+                .children(self.stripe_gap())
+                .children(self.render_stripe(cx).map(|stripe| {
+                    motion::toward(
+                        div().flex_none().flex().overflow_hidden().child(stripe),
+                        "stripe-zen",
+                        self.zen.is_none(),
+                        self.motion.recent("zen"),
+                        motion::BASE,
+                        |stripe, v| stripe.max_w(px(44. * v)).opacity(v),
+                    )
+                }))
+                .into_any_element(),
+        })
+        // Last, so it paints over everything.
+        .children(self.render_ctx_menu(window.viewport_size(), cx))
+        .children(self.render_mention_card(cx))
+        .children(self.render_blame_tip())
+        .children(self.render_find_files(cx))
+        .children(self.render_open_ask(cx))
+        .children(self.render_beside_backdrop(cx))
+        .children(self.render_agent_pick(cx))
+        .children(self.render_label_card(cx))
+        .children(self.overlay_view())
+        .children(self.render_merge_card(cx))
+        .children(self.render_create_quick(cx))
+        .children(self.render_shortcuts(cx))
+        .children(self.render_palette(cx))
     }
 }
 

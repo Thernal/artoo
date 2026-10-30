@@ -21,7 +21,7 @@ independent of each other); the Rust form below waits for the developer's review
 |---|---|---|
 | `artoo-core` (`crates/core`) | what draws nothing and more than one crate needs: git, highlighting, storage, the platform layer, the diff's rows, a route as data (`Route`, `Place`) | nothing of Artoo's; no GPUI |
 | `artoo-ui-kit` (`crates/ui-kit`) | the design system — what draws and knows no feature: theme, icons, tooltips, the text field, markdown — and the ports its drawing needs (`Pictures`) | core |
-| `artoo-<x>-api` (`crates/<x>-api`) | feature x's contract: traits, the plain types they speak, the handle that reads them | core, GPUI |
+| `artoo-<x>-api` (`crates/<x>-api`) | feature x's contract: traits, the plain types they speak, the handle that reads them | core, the kit, GPUI |
 | `artoo-<x>` (`crates/<x>`) | feature x: its implementation, its views, its state; it shows the app functions only (`install`) | core, the kit, any `-api` |
 | `artoo-shell-api` / `artoo-shell` | the registries every feature contributes to (routes, pages, actions, settings sections, toasts) / the frame that shows them: window, tabs, rail, sidebar | as a feature |
 | `artoo` (the root package, `src/main.rs`) | the composition root: reads the mode, calls every `install`, opens the window | everything |
@@ -94,7 +94,11 @@ The target above is reached stage by stage; until then:
   (`tokens`, `fixture`, `json`). The connect panel still calls `connect::` for the token's ways until it
   moves with hosts' views. Markdown is the kit's, drawing web pictures through the kit's `Pictures` port
   (hosts provides it); a view that draws it passes `cx`.
-- `Page` (`src/ui/nav.rs`) is a closed enum the route registry replaces; `menu::Act` and `toast` know every
-  feature until `shell-api`'s registries. Meanwhile a new page, action or toast is added there in the shape the
-  registries will take: one variant, one id, one owner.
+- Stage 4 (under way): `artoo-shell-api` holds actions (the app menu and ⌘K list them), parts (a title-bar item,
+  a card over the window, Settings rows, snapshot views, made for each tab with its `Frame`) and `Frame` (a toast,
+  the error line, a redraw, the text selection); the tab draws them (`src/ui/parts.rs`). Updates is the first
+  feature on it: its card, mark and Settings line are `artoo-updates`' own (`card.rs`), its surface `install`.
+- `Page` (`src/ui/nav.rs`) is a closed enum the route registry replaces; `menu::Act` and `toast` still know the
+  other features. Meanwhile a new page, action or toast is added there in the shape the registries will take: one
+  variant, one id, one owner.
 - Every implementation's surface is wide (`OPEN`) until its views move with it.

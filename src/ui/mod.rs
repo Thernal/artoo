@@ -3,7 +3,8 @@
 use artoo_ui_kit::hover::{Tip, TipOwned};
 pub(crate) use artoo_ui_kit::{apply_ui_zoom, px, ui_zoom};
 mod hover;
-use artoo_ui_kit::{ROW_RADIUS, format, icons, keys, markdown, room, theme, words};
+use artoo_ui_kit::format::plural;
+use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, format, icons, keys, markdown, room, theme, words};
 mod agent;
 mod agent_events;
 mod agent_notes;
@@ -46,6 +47,7 @@ mod opening;
 mod outdated;
 mod pages;
 mod palette;
+mod parts;
 mod rail;
 mod reactions;
 mod recents;
@@ -69,7 +71,6 @@ mod system_notes;
 mod toast;
 mod tools;
 mod typing;
-mod updates;
 mod waiting;
 mod watch;
 mod welcome;
@@ -144,7 +145,6 @@ actions!(
         ReportProblem,
         SetUp,
         MergeRequest,
-        CheckForUpdates,
         CopySelection,
         SelectAll,
         NextChange,
@@ -287,7 +287,6 @@ fn share_settings(settings: &Settings) {
 fn gap() -> f32 {
     if flat() { 0. } else { GAP }
 }
-const ISLAND_RADIUS: f32 = 10.;
 
 /// The keys of the app as shipped; `keymap.txt` changes them (`keymap.rs`).
 fn default_bindings() -> Vec<KeyBinding> {
@@ -519,27 +518,11 @@ pub fn run(path: Option<PathBuf>, install: impl FnOnce(&mut App) + 'static) {
                 }
             })
             .detach();
-            // A newer Artoo (#135): asked at launch and every 6 hours while Settings says so —
-            // looked at each minute, so turning it on asks soon. A snapshot asks only its fixture.
-            cx.spawn(async move |cx| {
-                loop {
-                    if Settings::load().check_updates && crate::updates::due() {
-                        cx.background_executor()
-                            .spawn(async { crate::updates::check() })
-                            .await;
-                        cx.update(|cx| cx.refresh_windows());
-                    }
-                    cx.background_executor()
-                        .timer(std::time::Duration::from_secs(60))
-                        .await;
-                }
-            })
-            .detach();
             if !cfg!(feature = "snapshot") || std::env::var_os("ARTOO_SNAPSHOT").is_none() {
                 crate::platform::set_icon();
             }
             cx.on_action(|_: &Quit, cx| cx.quit());
-            cx.set_menus(menus(&ViewOptions::load(&Settings::load())));
+            cx.set_menus(menus(&ViewOptions::load(&Settings::load()), cx));
 
             // A snapshot renders offscreen: no window shown, no focus taken.
             let offscreen =
@@ -604,16 +587,34 @@ fn window_size() -> (f32, f32) {
     (1480., 920.)
 }
 
-/// The menu bar; View items carry a check mark for the options in effect.
-fn menus(options: &ViewOptions) -> Vec<Menu> {
+/// The menu bar; View items carry a check mark for the options in effect. Artoo's menu opens with the
+/// commands features put there (`artoo_shell_api::Menu::App`).
+fn menus(options: &ViewOptions, cx: &App) -> Vec<Menu> {
+    let offered = artoo_shell_api::actions(cx)
+        .iter()
+        .filter_map(|a| {
+            let (artoo_shell_api::Menu::App, words) = a.menu?;
+            Some(MenuItem::Action {
+                name: words.into(),
+                action: a.act.boxed_clone(),
+                os_action: None,
+                checked: false,
+                disabled: false,
+            })
+        })
+        .collect::<Vec<_>>();
+    let separated = !offered.is_empty();
     vec![
-        Menu::new("Artoo").items([
-            MenuItem::action("Check for Updates…", CheckForUpdates),
-            MenuItem::separator(),
-            MenuItem::action("Settings…", OpenSettings),
-            MenuItem::separator(),
-            MenuItem::action("Quit Artoo", Quit),
-        ]),
+        Menu::new("Artoo").items(
+            offered
+                .into_iter()
+                .chain(separated.then(MenuItem::separator))
+                .chain([
+                    MenuItem::action("Settings…", OpenSettings),
+                    MenuItem::separator(),
+                    MenuItem::action("Quit Artoo", Quit),
+                ]),
+        ),
         Menu::new("File").items([
             MenuItem::action("New Tab", NewTab),
             MenuItem::action("Close", CloseItem),
@@ -1002,15 +1003,6 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             this.settings_section = settings::Section::Repository;
                             continue;
                         }
-                        // A newer release's card (#135), from ARTOO_RELEASES_FIXTURE.
-                        "update" | "update-commits" => {
-                            crate::updates::check();
-                            this.open_update_card(cx);
-                            if name.trim() == "update-commits" {
-                                this.unfold_update_commits();
-                            }
-                            continue;
-                        }
                         "swipe" | "onion" => {
                             this.images.mode = if name.trim() == "swipe" {
                                 image_view::Mode::Swipe
@@ -1176,7 +1168,11 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         "all-lines" => Opt::FullContext,
                         "whitespace" => Opt::Whitespace,
                         "one-file" => Opt::OneFile,
-                        _ => continue,
+                        // A view a feature's part opens (`artoo_shell_api::Parts::snapshots`).
+                        other => {
+                            this.open_part_snapshot(other, cx);
+                            continue;
+                        }
                     };
                     // Not saved: a snapshot must not change the user's settings.
                     this.set_option_unsaved(opt, true, cx);
@@ -1893,9 +1889,10 @@ pub struct Workspace {
     /// The card naming a project or a chat (`labeling.rs`), and the name being typed.
     label_edit: Option<labeling::LabelEdit>,
     label_name: String,
-    /// The card of a newer Artoo (#135), and a check asked for by hand running.
-    update_card: Option<updates::UpdateCard>,
-    update_checking: bool,
+    /// What features draw in this tab (#165): title-bar items, cards over it, Settings rows.
+    parts: Vec<artoo_shell_api::Parts>,
+    /// The commands features offer (⌘K): their words and actions.
+    contributed: Vec<(&'static str, Box<dyn gpui::Action>)>,
     /// The card before a request is merged (#164).
     merging: Option<merging::MergeCard>,
     /// The tree folder opened last, and a count of openings: its rows fade in (`tree_row`).
@@ -2132,9 +2129,12 @@ impl Workspace {
             folds: Default::default(),
             label_edit: None,
             label_name: String::new(),
-            update_card: None,
             merging: None,
-            update_checking: false,
+            parts: Vec::new(),
+            contributed: artoo_shell_api::actions(cx)
+                .iter()
+                .map(|a| (a.words, a.act.boxed_clone()))
+                .collect(),
             tree_opened: None,
             narrowed: Default::default(),
             keyboard: Default::default(),
@@ -2150,6 +2150,8 @@ impl Workspace {
             diff_task: None,
             view_task: None,
         };
+        let frame = Rc::new(parts::TabFrame(cx.weak_entity()));
+        this.parts = artoo_shell_api::make_parts(frame, window, cx);
         if let Some(path) = start {
             this.open_repo(path, None, cx);
         }
@@ -2863,7 +2865,7 @@ impl Workspace {
             Opt::OneFile => self.options.one_file = value,
             Opt::FoldReviewed => self.options.fold_reviewed = value,
         }
-        cx.set_menus(menus(&self.options));
+        cx.set_menus(menus(&self.options, cx));
         match opt {
             Opt::Unified | Opt::FullContext => self.relayout_all(),
             Opt::FoldReviewed => self.refold(cx),
@@ -2881,7 +2883,7 @@ impl Workspace {
             return;
         }
         self.options.mode = mode;
-        cx.set_menus(menus(&self.options));
+        cx.set_menus(menus(&self.options, cx));
         if self.stack.is_some() {
             self.reopen_stack(cx);
         } else {
@@ -3448,11 +3450,6 @@ impl Workspace {
     /// ⌘K's Merge this merge request (#164): the card, or what is in the way.
     fn merge_request(&mut self, _: &MergeRequest, _: &mut Window, cx: &mut Context<Self>) {
         self.open_merge(cx);
-    }
-
-    /// Artoo → Check for Updates…, ⌘K (#135).
-    fn check_for_updates(&mut self, _: &CheckForUpdates, _: &mut Window, cx: &mut Context<Self>) {
-        self.check_updates_now(cx);
     }
 
     /// ⌥⌘.: zen with one file at a time, at a reading width (#55); outside zen it enters zen so.
@@ -5078,17 +5075,6 @@ fn button(
         )
 }
 
-fn plural(n: usize, noun: &str) -> String {
-    if n == 1 {
-        return format!("1 {noun}");
-    }
-    // "reply" → "replies", not "replys".
-    match noun.strip_suffix('y') {
-        Some(stem) if stem.ends_with(|c: char| !"aeiou".contains(c)) => format!("{n} {stem}ies"),
-        _ => format!("{n} {noun}s"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5100,14 +5086,6 @@ mod tests {
         assert!(!is_trailer("Fixes: the retry loop"));
         assert!(!is_trailer("A sentence: with a colon."));
         assert!(!is_trailer("no colon at all"));
-    }
-
-    #[test]
-    fn plurals_read_naturally() {
-        assert_eq!(plural(1, "file"), "1 file");
-        assert_eq!(plural(3, "commit"), "3 commits");
-        assert_eq!(plural(2, "reply"), "2 replies");
-        assert_eq!(plural(2, "day"), "2 days");
     }
 
     #[test]

@@ -1,5 +1,5 @@
-//! The commit a build is made from, for the version a report carries (#118): `ARTOO_COMMIT`,
-//! else `git rev-parse --short HEAD`, else "unknown".
+//! The commit a build is made from, for the version the app says (a report, Settings): `ARTOO_COMMIT`,
+//! else `git rev-parse --short HEAD`, else "unknown" (#118).
 
 fn main() {
     let commit = std::env::var("ARTOO_COMMIT").ok().or_else(|| {

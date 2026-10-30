@@ -22,12 +22,13 @@ fn role(name: &str) -> Role {
     }
 }
 
-/// The core depends on nothing of Artoo's, the kit and a contract on the core alone, an implementation on
-/// anything but another implementation.
+/// The core depends on nothing of Artoo's, the kit on the core alone, a contract on the core and the kit (its
+/// types may be the kit's: a part's selection), an implementation on anything but another implementation.
 fn may_depend(from: Role, to: Role) -> bool {
     match from {
         Role::Core => false,
-        Role::Kit | Role::Contract => to == Role::Core,
+        Role::Kit => to == Role::Core,
+        Role::Contract => matches!(to, Role::Core | Role::Kit),
         Role::Implementation => to != Role::Implementation,
     }
 }
@@ -40,8 +41,7 @@ const OPEN: &[&str] = &[
     // The app's views reach their modules: stage 3 gives hosts its contract, stage 4 moves the views.
     "artoo-hosts",
     "artoo-agents",
-    // The app's Updates and Report a problem read their types until their views move with them (stage 4).
-    "artoo-updates",
+    // The app's Report a problem reads its types until its view moves with it (stage 4).
     "artoo-reports",
 ];
 
@@ -166,7 +166,7 @@ fn a_crates_role_is_read_from_its_name() {
     assert!(may_depend(Role::Implementation, Role::Contract));
     assert!(!may_depend(Role::Implementation, Role::Implementation));
     assert!(!may_depend(Role::Contract, Role::Contract));
-    assert!(!may_depend(Role::Contract, Role::Kit));
+    assert!(may_depend(Role::Contract, Role::Kit));
     assert!(!may_depend(Role::Kit, Role::Contract));
 }
 

@@ -20,6 +20,9 @@ use artoo_core::{highlight, platform, storage, textedit, themes};
 /// The corner of a row, a field, a tooltip.
 pub const ROW_RADIUS: f32 = 6.;
 
+/// The corner of an island: a panel, a card over the window.
+pub const ISLAND_RADIUS: f32 = 10.;
+
 /// A length in logical pixels at the interface size the reader chose (⌘+ ⌘−): every size in the
 /// window goes through here, so the whole of it grows and shrinks together.
 pub fn px(value: f32) -> gpui::Pixels {

@@ -8,8 +8,12 @@ publish = false
 
 [dependencies]
 artoo-core = { path = "../core" }
+# The card, the mark and the Settings line: drawn with the kit, added to the window through the shell's contract.
+artoo-shell-api = { path = "../shell-api" }
+artoo-ui-kit = { path = "../ui-kit" }
 anyhow.workspace = true
 chrono.workspace = true
+gpui.workspace = true
 semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
