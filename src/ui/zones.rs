@@ -72,7 +72,7 @@ impl Workspace {
             if self.at_root_list() {
                 out.push(Zone::Branches);
             }
-            if self.tool_shown() && !self.settings_open {
+            if self.tool_shown(cx) && !self.settings_open {
                 out.push(Zone::Tool);
             }
             return out;
@@ -90,7 +90,7 @@ impl Workspace {
             }
             out.push(Zone::Diff);
         }
-        if self.tool_shown() && !self.settings_open {
+        if self.tool_shown(cx) && !self.settings_open {
             out.push(Zone::Tool);
         }
         out

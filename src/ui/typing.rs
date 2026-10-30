@@ -140,7 +140,7 @@ impl Workspace {
             Input::DiffFind => self.review.read(cx).dfind.is_some(),
             Input::CommitSearch => self.find.text.is_some(),
             Input::NewRequest => self.newreq.is_some(),
-            Input::Submit => self.submit.is_some(),
+            Input::Submit => self.submitting(cx),
             Input::Tool => self.tool_typing(),
         }
     }

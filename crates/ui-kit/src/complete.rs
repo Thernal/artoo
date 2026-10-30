@@ -1,8 +1,9 @@
 //! The token completed while writing a comment (#51 mentions, #9 `:name` emoji): `@` or `:` starting a word
 //! before the caret, a row of the list it opens and the list drawn. Who and which emoji it holds is the tab's.
 
+use crate::textedit::TextEdit;
 use crate::{ROW_RADIUS, discussion, hover, px, theme};
-use gpui::{Div, FontWeight, div, prelude::*};
+use gpui::{Div, FontWeight, Keystroke, div, prelude::*};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Trigger {
@@ -16,6 +17,39 @@ pub struct Choice {
     pub label: String,
     pub detail: String,
     pub insert: String,
+}
+
+/// ↑ ↓ ↵ ⇥ esc in a plain field showing `text` while its list (the token at `at`, `choices`) is
+/// open; whether it took the key. A choice put in changes `text`; esc closes the list for that
+/// token (`closed`).
+pub fn list_key(
+    key: &Keystroke,
+    text: &mut String,
+    edit: &mut TextEdit,
+    pick: &mut usize,
+    closed: &mut Option<usize>,
+    at: usize,
+    choices: &[Choice],
+) -> bool {
+    if key.modifiers.number_of_modifiers() > 0 {
+        return false;
+    }
+    match key.key.as_str() {
+        "down" => *pick = (*pick + 1).min(choices.len() - 1),
+        "up" => *pick = pick.saturating_sub(1),
+        "enter" | "tab" => {
+            crate::input::sync(text, edit);
+            let choice = &choices[(*pick).min(choices.len() - 1)];
+            let caret = edit.caret();
+            let end = at + choice.insert.len();
+            edit.replace(at..caret, &choice.insert, end..end);
+            *text = edit.text().to_owned();
+            *pick = 0;
+        }
+        "escape" => *closed = Some(at),
+        _ => return false,
+    }
+    true
 }
 
 /// The token being completed before `caret`: its trigger, where the trigger is, what follows it.

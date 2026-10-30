@@ -11,7 +11,7 @@ use super::waiting::Op;
 use super::{Header, Selection, Workspace, plural, theme};
 use crate::git::{RefKind, Repo};
 use crate::mr::{self, Mr};
-use artoo_requests::discussions::{self, Listing};
+use artoo_requests::discussions::Listing;
 use artoo_requests::reactions::Hovered;
 use artoo_requests::requests::{Act, Acts};
 pub(super) use artoo_requests::requests::{Past, Requests, Scope, Sides, sides};
@@ -1506,9 +1506,14 @@ impl Workspace {
         cx.notify();
     }
 
-    /// A pending comment in one line, an agent's after its name (#150).
-    pub(super) fn draft_line(&self, d: &mr::Draft, cx: &App) -> String {
-        discussions::draft_line(d, self.settings.rich_comments, self.draft_agent(d.id, cx))
+    /// The agent that wrote each pending comment an agent wrote, by its id (#150).
+    pub(super) fn draft_agents(&self, cx: &App) -> std::collections::HashMap<u64, String> {
+        self.requests
+            .read(cx)
+            .drafts
+            .iter()
+            .filter_map(|d| Some((d.id, self.draft_agent(d.id, cx)?.to_owned())))
+            .collect()
     }
 
     /// The pending comments on lines of the diff loaded, in its order: (file, line, index).
@@ -1570,16 +1575,6 @@ impl Workspace {
     /// whole review (#138).
     pub(super) fn sends_one_draft(&self) -> bool {
         self.web.as_ref().is_some_and(|w| !w.github)
-    }
-
-    /// Send now on a pending comment's row in a list (`discussions::send_now_chip`).
-    pub(super) fn send_now_chip(
-        &self,
-        id: u64,
-        group: &'static str,
-        cx: &Context<Self>,
-    ) -> Option<gpui::Stateful<gpui::Div>> {
-        discussions::send_now_chip(id, group, self.on_github(), self.request_acts(cx))
     }
 
     /// Delete on one's own note, then "Delete on GitLab?" with Delete and Cancel (#76).
@@ -1695,11 +1690,7 @@ impl Workspace {
             rich: self.settings.rich_comments,
             github: self.on_github(),
             latest: self.latest_version(),
-            agents: rq
-                .drafts
-                .iter()
-                .filter_map(|d| Some((d.id, self.draft_agent(d.id, cx)?.to_owned())))
-                .collect(),
+            agents: self.draft_agents(cx),
         };
         let window = rq.discussions_window(look, self.request_acts(cx));
         ToolView {
@@ -1929,6 +1920,7 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
             Act::CompareSince(ix) => this.compare_since(ix, cx),
             Act::JumpToLine { path, line, old } => this.jump_to_line(&path, line, old, cx),
             Act::OpenSubmit => this.open_submit(cx),
+            Act::RunSubmit => this.run_submit(cx),
             Act::SendNow(id) => this.send_draft_now(id, cx),
             Act::RunMerge => this.run_merge(cx),
             Act::ShowNewVersion => this.show_new_version(cx),

@@ -93,8 +93,8 @@ impl Workspace {
     }
 
     /// The window on the right is drawn: a tool, or Submit review.
-    pub(super) fn tool_shown(&self) -> bool {
-        self.zen.is_none() && (self.submit.is_some() || self.tool().is_some())
+    pub(super) fn tool_shown(&self, cx: &gpui::App) -> bool {
+        self.zen.is_none() && (self.submitting(cx) || self.tool().is_some())
     }
 
     /// Opens `tool` (and gives it the keyboard), or closes the one open.
@@ -271,7 +271,7 @@ impl Workspace {
     /// The tool window, after the splitter that resizes it.
     pub(super) fn render_tool(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         // Closed a moment ago, it is drawn on its way out (#56, 3).
-        let shown = self.tool_shown();
+        let shown = self.tool_shown(cx);
         let leaving = !shown && self.zen.is_none() && self.motion.recent("tool");
         if !shown && !leaving {
             return None;
@@ -285,7 +285,7 @@ impl Workspace {
                 Tool::Part(id) => self.part_tool_view(id)?,
             },
         };
-        let submitting = self.submit.is_some();
+        let submitting = self.submitting(cx);
         let close = div()
             .id("tool-close")
             .size(px(26.))

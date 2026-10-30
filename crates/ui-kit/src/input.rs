@@ -135,6 +135,44 @@ pub enum Drawn {
     End,
 }
 
+/// The move by drawn lines a key asks for: ↑ ↓, ⌘← ⌘→.
+pub fn drawn_motion(key: &Keystroke) -> Option<Drawn> {
+    let m = key.modifiers;
+    match (key.key.as_str(), crate::keys::line(&m), m.alt) {
+        ("up", false, false) => Some(Drawn::Up),
+        ("down", false, false) => Some(Drawn::Down),
+        ("left", true, false) => Some(Drawn::Start),
+        ("right", true, false) => Some(Drawn::End),
+        // Windows and Linux: Home and End by the lines as drawn, as ⌘← ⌘→ on macOS.
+        ("home", false, false) if !crate::platform::MAC && !m.secondary() => Some(Drawn::Start),
+        ("end", false, false) if !crate::platform::MAC && !m.secondary() => Some(Drawn::End),
+        _ => None,
+    }
+}
+
+/// ↑ ↓ and ⌘← ⌘→ (⇧ selecting) in a wrapped field showing `text`, by its lines as drawn
+/// (`lines`); whether it took the key. Any other key forgets the x ↑ ↓ keep (`goal`).
+pub fn vertical(
+    key: &Keystroke,
+    text: &str,
+    edit: &mut TextEdit,
+    lines: &Lines,
+    goal: &mut Option<Pixels>,
+) -> bool {
+    let Some(motion) = drawn_motion(key) else {
+        *goal = None;
+        return false;
+    };
+    if matches!(motion, Drawn::Start | Drawn::End) {
+        *goal = None;
+    }
+    let Some(layout) = lines.borrow().clone() else {
+        return false;
+    };
+    sync(text, edit);
+    drawn(edit, &layout, goal, motion, key.modifiers.shift)
+}
+
 /// Moves the caret of a wrapped field by drawn lines: ↑ ↓ to the line above or below at the x the
 /// first of these presses started from (`goal`), from the first or last line to the text's start
 /// or end; ⌘← ⌘→ to the ends of the caret's line. `false` when `layout` is not this text's (it was

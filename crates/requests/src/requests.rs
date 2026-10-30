@@ -109,6 +109,8 @@ pub enum Act {
     OpenSubmit,
     /// Pending comment `id` published alone (#138).
     SendNow(u64),
+    /// Submit review's card sends the review.
+    RunSubmit,
     /// Merge's card sends the merge.
     RunMerge,
     /// Merge was refused for a push after the version on the page: the card goes, the new one
@@ -170,6 +172,8 @@ pub struct Requests {
     pub merge_task: Option<Task<()>>,
     /// Merge's card, open.
     pub merging: Option<crate::merging::MergeCard>,
+    /// Submit review's card, while it is open.
+    pub submitting: Option<crate::submit::SubmitCard>,
     /// The host's last answer for them, and the tick the read that gave it began at.
     pub base: crate::waiting::Base,
     pub from: u64,

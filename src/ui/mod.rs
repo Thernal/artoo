@@ -1583,8 +1583,6 @@ pub struct Workspace {
     zen_one: bool,
     /// The window with no repository: the card one of its ways in opened (#54).
     welcome: welcome::Welcome,
-    /// The Submit review card (`submit.rs`).
-    submit: Option<submit::Submit>,
     /// The pending comment ⌥N / ⌥P is on.
     draft_at: Option<usize>,
     title: String,
@@ -1896,7 +1894,6 @@ impl Workspace {
             recent,
             error: None,
             toasts: Default::default(),
-            submit: None,
             draft_at: None,
             zen: None,
             zen_one: false,

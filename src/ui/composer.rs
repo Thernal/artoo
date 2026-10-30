@@ -667,24 +667,14 @@ impl Workspace {
         self.completion(c.edit.text(), c.edit.caret(), c.closed, cx)
     }
 
-    /// ↑ ↓ and ⌘← ⌘→ (⇧ selecting) in a wrapped field — the composer, a review's summary, a
-    /// description: by the lines as drawn. Any other key forgets the x ↑ ↓ keep. Returns whether
-    /// it took the key.
+    /// ↑ ↓ and ⌘← ⌘→ (⇧ selecting) in a wrapped field — the composer, a description: by the
+    /// lines as drawn. Any other key forgets the x ↑ ↓ keep. Returns whether it took the key.
     pub(super) fn vertical_key(&mut self, key: &gpui::Keystroke, cx: &mut Context<Self>) -> bool {
         use input::Drawn;
         let m = key.modifiers;
-        let motion = match (key.key.as_str(), super::keys::line(&m), m.alt) {
-            ("up", false, false) => Drawn::Up,
-            ("down", false, false) => Drawn::Down,
-            ("left", true, false) => Drawn::Start,
-            ("right", true, false) => Drawn::End,
-            // Windows and Linux: Home and End by the lines as drawn, as ⌘← ⌘→ on macOS.
-            ("home", false, false) if !crate::platform::MAC && !m.secondary() => Drawn::Start,
-            ("end", false, false) if !crate::platform::MAC && !m.secondary() => Drawn::End,
-            _ => {
-                self.field_goal = None;
-                return false;
-            }
+        let Some(motion) = input::drawn_motion(key) else {
+            self.field_goal = None;
+            return false;
         };
         if matches!(motion, Drawn::Start | Drawn::End) {
             self.field_goal = None;
@@ -692,8 +682,8 @@ impl Workspace {
         let Some(layout) = self.field_lines.borrow().clone() else {
             return false;
         };
-        // A card's field (the review summary, a description) is over the composer when both are open.
-        let moved = if let Some(text) = self.review_summary().or_else(|| self.description_text()) {
+        // A description is over the composer when both are open.
+        let moved = if let Some(text) = self.description_text() {
             input::sync(&text, &mut self.field_edit);
             input::drawn(
                 &mut self.field_edit,
@@ -1285,9 +1275,8 @@ impl Workspace {
             folded: self.compose_room(cx) == Room::S,
             // Without the keyboard it shows no caret (#168).
             focused: self.has_keyboard(Input::Compose, cx),
-            // A card over the diff (a review's summary, a description) owns the arrows while open.
-            lines: (self.submit.is_none() && self.newreq.is_none())
-                .then(|| self.field_lines.clone()),
+            // A card over the diff (a description) owns the arrows while open.
+            lines: self.newreq.is_none().then(|| self.field_lines.clone()),
             completion: self
                 .compose_completion(cx)
                 .filter(|_| live)

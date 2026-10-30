@@ -2,7 +2,7 @@
 //! ↵ or ⇥ puts it in, esc closes it. Who and which emoji it lists is the requests' (`complete`).
 
 use super::Workspace;
-pub(super) use artoo_ui_kit::complete::{Choice, render_list};
+pub(super) use artoo_ui_kit::complete::{Choice, list_key, render_list};
 use gpui::App;
 
 impl Workspace {
@@ -41,25 +41,15 @@ impl Workspace {
         let Some((at, choices)) = self.field_completion(text, cx) else {
             return false;
         };
-        if key.modifiers.number_of_modifiers() > 0 {
-            return false;
-        }
-        match key.key.as_str() {
-            "down" => self.field_pick = (self.field_pick + 1).min(choices.len() - 1),
-            "up" => self.field_pick = self.field_pick.saturating_sub(1),
-            "enter" | "tab" => {
-                super::input::sync(text, &mut self.field_edit);
-                let choice = &choices[self.field_pick.min(choices.len() - 1)];
-                let caret = self.field_edit.caret();
-                let end = at + choice.insert.len();
-                self.field_edit.replace(at..caret, &choice.insert, end..end);
-                *text = self.field_edit.text().to_owned();
-                self.field_pick = 0;
-            }
-            "escape" => self.field_closed = Some(at),
-            _ => return false,
-        }
-        true
+        list_key(
+            key,
+            text,
+            &mut self.field_edit,
+            &mut self.field_pick,
+            &mut self.field_closed,
+            at,
+            &choices,
+        )
     }
 
     /// The username of the person called `name`, as the request and the project know them.

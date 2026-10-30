@@ -3,20 +3,18 @@
 //! itself; the tab gives it the keyboard and answers what it asks (`Act`), and hears the host merged
 //! (`Event::Merged`).
 
+use crate::area::Area;
 use crate::merge::{self, Merge, Method, Squash};
 use crate::requests::{Act, Acts, Event, Requests};
 use crate::waiting::FADED;
-use artoo_core::textedit::TextEdit;
 use artoo_hosts_api::Host;
 use artoo_ui_kit::discussion::{Kind, button};
 use artoo_ui_kit::format::plural;
-use artoo_ui_kit::input::{self, Edit, Lines, Look};
+use artoo_ui_kit::input::{self, Edit};
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, icons, keys, px, theme};
 use gpui::{
     ClickEvent, Context, FontWeight, KeyDownEvent, MouseButton, SharedString, div, prelude::*,
 };
-use std::cell::Cell;
-use std::rc::Rc;
 use std::sync::Arc;
 
 /// The card before a merge goes.
@@ -30,9 +28,7 @@ pub struct MergeCard {
     /// Sent, and the host has not answered yet.
     pub busy: bool,
     /// The message's caret, selection and undo, its layout as drawn and its scroll.
-    edit: TextEdit,
-    lines: Lines,
-    scroll: Rc<Cell<f32>>,
+    area: Area,
 }
 
 /// What the card is drawn with that the tab knows.
@@ -68,9 +64,7 @@ impl Requests {
             error: None,
             moved: false,
             busy: false,
-            edit: TextEdit::new(message),
-            lines: Lines::default(),
-            scroll: Rc::new(Cell::new(0.)),
+            area: Area::new(message),
         });
         true
     }
@@ -94,11 +88,11 @@ impl Requests {
             return true;
         }
         if key.key == "enter" {
-            input::sync(&card.merge.message, &mut card.edit);
-            card.edit.insert("\n");
-            card.merge.message = card.edit.text().to_owned();
+            input::sync(&card.merge.message, &mut card.area.edit);
+            card.area.edit.insert("\n");
+            card.merge.message = card.area.edit.text().to_owned();
         } else {
-            match input::edit_area(&mut card.merge.message, &mut card.edit, key, cx) {
+            match input::edit_area(&mut card.merge.message, &mut card.area.edit, key, cx) {
                 Edit::Escape => self.close_merge(cx),
                 Edit::Changed => card.error = None,
                 Edit::Selected | Edit::Enter { .. } | Edit::Ignored => {}
@@ -379,7 +373,13 @@ impl Requests {
                     .child("A rebase keeps each commit and its message: none to write."),
             )
         } else {
-            let field = self.message_field(card, active, cx);
+            let field = card.area.field(
+                &card.merge.message,
+                active,
+                "Empty: the project's own message",
+                |rq| rq.merging.as_mut().map(|c| &mut c.area),
+                cx,
+            );
             field_row().child(label("Commit message")).child(
                 div()
                     .flex_1()
@@ -514,44 +514,6 @@ impl Requests {
                         )
                         .child(foot),
                 ),
-        )
-    }
-
-    /// The message's field: its text as edited while it has the keyboard, else as it stands; a
-    /// click places the caret, ⇧ or a drag selecting, a double click taking the word.
-    fn message_field(&self, card: &MergeCard, active: bool, cx: &Context<Self>) -> gpui::Div {
-        let look = Look {
-            wrap: true,
-            ..Default::default()
-        };
-        let text = &card.merge.message;
-        input::field(
-            text,
-            active,
-            "Empty: the project's own message",
-            &look,
-            || {
-                let this = cx.entity().downgrade();
-                let shown = text.to_owned();
-                let place: input::Place = Rc::new(move |at, shift, clicks, drag, lower, cx| {
-                    this.update(cx, |rq, cx| {
-                        if let Some(card) = rq.merging.as_mut() {
-                            input::sync(&shown, &mut card.edit);
-                            card.edit.click(at, clicks, shift || drag);
-                            if clicks == 1 && !shift && !drag {
-                                card.edit.set_downstream(lower);
-                            }
-                            cx.notify();
-                        }
-                    })
-                    .ok();
-                });
-                let look = Look {
-                    lines: Some(card.lines.clone()),
-                    ..look.clone()
-                };
-                input::text_body(text, &card.edit, look, card.scroll.clone(), Some(place))
-            },
         )
     }
 }
