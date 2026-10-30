@@ -1,6 +1,7 @@
-//! What the requests read from their host and keep (#165 R5c): the merged and closed pages, the open request's
-//! discussions again after a change, its versions, the reactions on its notes, where merging it stands. Each read
-//! is the entity's own task; what the tab does after one comes to it as an `Event`.
+//! What the requests read from their host and keep (#165 R5c): the open list, the requests gone from it, the
+//! merged and closed pages, the open request's discussions again after a change, its versions, the reactions on
+//! its notes, where merging it stands. Each read is the entity's own task; what the tab does after one comes to it
+//! as an `Event`.
 
 use crate::requests::{Event, HostSides, Requests, Scope};
 use crate::waiting::Base;
@@ -11,6 +12,79 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 impl Requests {
+    /// Reads the open requests of the repository's project, who the token is once (the menu counts
+    /// the requests asking for them), the project's members and who could not be reached.
+    /// `Event::Listed` tells the tab.
+    pub fn read_list(&mut self, host: Arc<dyn Host>, cx: &mut Context<Self>) {
+        self.loading = true;
+        let known = self.login.is_some();
+        self.task = Some(cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let login = if known { None } else { host.username().ok() };
+                    let members = host.members().unwrap_or_default();
+                    let unreached = host.unreached().unwrap_or_default();
+                    host.list().map(|list| (list, login, (members, unreached)))
+                })
+                .await;
+            this.update(cx, |rq, cx| {
+                rq.loading = false;
+                match result {
+                    Ok((list, login, (members, unreached))) => {
+                        rq.list = list;
+                        rq.listed_at = Some(artoo_ui_kit::format::now());
+                        if !members.is_empty() {
+                            rq.members = members;
+                        }
+                        rq.unreached = unreached;
+                        rq.error = None;
+                        if login.is_some() {
+                            rq.login = login;
+                        }
+                    }
+                    Err(e) => rq.error = Some(format!("{e:#}")),
+                }
+                cx.emit(Event::Listed);
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
+    /// What became of requests `iids`, open in the menu but gone from the open list, or a link's
+    /// that is not open: each read once, kept in `left`. `Event::Left` tells the tab.
+    pub fn read_left(&mut self, iids: Vec<u64>, host: Arc<dyn Host>, cx: &mut Context<Self>) {
+        let iids: Vec<u64> = iids
+            .into_iter()
+            .filter(|iid| self.tried.insert(*iid))
+            .collect();
+        if iids.is_empty() {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            let read = cx
+                .background_executor()
+                .spawn(async move {
+                    iids.into_iter()
+                        .filter_map(|iid| host.one(iid).ok())
+                        .collect::<Vec<_>>()
+                })
+                .await;
+            this.update(cx, |rq, cx| {
+                for m in read {
+                    if rq.find(m.iid).is_none() {
+                        rq.left.push(m);
+                    }
+                }
+                cx.emit(Event::Left);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// The next page of `scope`'s merged or closed requests, unless one is on its way or none
     /// follows.
     pub fn load_past_page(&mut self, scope: Scope, host: Arc<dyn Host>, cx: &mut Context<Self>) {

@@ -15,6 +15,7 @@ use super::notifications::{Kind, Notice};
 use super::{Workspace, chip, format, icons, island, markdown, px, theme, words};
 use crate::git::{DiffLine, DiffSettings, LineKind, Repo};
 use crate::mr::Thread;
+pub(super) use artoo_ui_kit::format::now;
 use gpui::{AnyElement, ClickEvent, Context, Div, FontWeight, Task, div, prelude::*};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -1259,12 +1260,6 @@ fn excerpt_view(path: &str, line: u32, ex: Option<Option<&Excerpt>>) -> Div {
         .bg(theme::panel())
         .child(head)
         .child(body)
-}
-
-pub(super) fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
 }
 
 /// The lines around line `new` (or `old`, a removed line) of `path`, as the request changes them:

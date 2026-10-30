@@ -54,38 +54,13 @@ impl Workspace {
             .update(cx, |rq, cx| rq.retry_past_page(host, cx));
     }
 
-    /// What became of requests `iids`, open in the menu but gone from the open list, or a link's
-    /// that is not open: each read once, kept in `left`; a link waiting for one goes on.
+    /// What became of requests `iids`, gone from the open list or a link's (`Requests::read_left`).
     pub(super) fn read_left(&mut self, iids: Vec<u64>, cx: &mut Context<Self>) {
-        let iids: Vec<u64> = iids
-            .into_iter()
-            .filter(|iid| self.requests.update(cx, |rq, _| rq.tried.insert(*iid)))
-            .collect();
-        let Some(remote) = self.web.clone().filter(|_| !iids.is_empty()) else {
+        let Some(host) = self.host(cx) else {
             return;
         };
-        let host = super::host_of(&remote, cx);
-        cx.spawn(async move |this, cx| {
-            let read = cx
-                .background_executor()
-                .spawn(async move {
-                    iids.into_iter()
-                        .filter_map(|iid| host.one(iid).ok())
-                        .collect::<Vec<_>>()
-                })
-                .await;
-            this.update(cx, |this, cx| {
-                for m in read {
-                    if this.requests.read(cx).find(m.iid).is_none() {
-                        this.requests.update(cx, |rq, _| rq.left.push(m));
-                    }
-                }
-                this.follow_pending_link(cx);
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
+        self.requests
+            .update(cx, |rq, cx| rq.read_left(iids, host, cx));
     }
 
     /// Reads the open merge requests of the repository's project, when a token is configured.
@@ -113,50 +88,7 @@ impl Workspace {
             return self.look_for_token(cx);
         }
         self.renew_ssh_token(cx);
-        self.requests.update(cx, |rq, _| rq.loading = true);
-        // Who the token is, once: the menu counts the requests asking for them.
-        let known = self.requests.read(cx).login.is_some();
-        let task = Some(cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    let login = if known { None } else { host.username().ok() };
-                    let members = host.members().unwrap_or_default();
-                    let unreached = host.unreached().unwrap_or_default();
-                    host.list().map(|list| (list, login, (members, unreached)))
-                })
-                .await;
-            this.update(cx, |this, cx| {
-                this.requests.update(cx, |rq, _| rq.loading = false);
-                match result {
-                    Ok((list, login, (members, unreached))) => {
-                        this.requests.update(cx, |rq, _| rq.list = list);
-                        this.requests
-                            .update(cx, |rq, _| rq.listed_at = Some(super::inbox::now()));
-                        if !members.is_empty() {
-                            this.requests.update(cx, |rq, _| rq.members = members);
-                        }
-                        this.requests.update(cx, |rq, _| rq.unreached = unreached);
-                        this.requests.update(cx, |rq, _| rq.error = None);
-                        if login.is_some() {
-                            this.requests.update(cx, |rq, _| rq.login = login);
-                        }
-                    }
-                    Err(e) => this
-                        .requests
-                        .update(cx, |rq, _| rq.error = Some(format!("{e:#}"))),
-                }
-                if let Some(ix) = this.branch {
-                    this.sync_request(ix, cx);
-                }
-                this.requests_listed(cx);
-                this.follow_pending_link(cx);
-                this.load_notices(cx);
-                cx.notify();
-            })
-            .ok();
-        }));
-        self.requests.update(cx, |rq, _| rq.task = task);
+        self.requests.update(cx, |rq, cx| rq.read_list(host, cx));
     }
 
     /// The request whose source branch is branch `ix` (`feat/x` and `origin/feat/x` alike), or
@@ -202,6 +134,16 @@ impl Workspace {
     ) {
         use artoo_requests::requests::Event;
         match event {
+            Event::Listed => {
+                if let Some(ix) = self.branch {
+                    self.sync_request(ix, cx);
+                }
+                self.requests_listed(cx);
+                self.follow_pending_link(cx);
+                self.load_notices(cx);
+            }
+            // A link waiting for one goes on.
+            Event::Left => self.follow_pending_link(cx),
             Event::Read(iid) => self.base_taken(*iid, cx),
             Event::Versions(iid) => {
                 self.follow_host_sides(*iid, cx);

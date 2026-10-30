@@ -53,6 +53,10 @@ pub struct Pages {
 
 /// What the requests tell the tab after a read of their own (`reading`).
 pub enum Event {
+    /// The open list was read, or could not be.
+    Listed,
+    /// Requests gone from the open list were read.
+    Left,
     /// The open request `iid`'s discussions, pending comments and approvals were read again: what
     /// shows is made again on them.
     Read(u64),

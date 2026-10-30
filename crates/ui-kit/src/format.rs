@@ -2,12 +2,16 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Now, in seconds since the epoch.
+pub fn now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
+}
+
 /// "just now", "5 min ago", "3 h ago", "2 d ago", then the date.
 pub fn ago(time: i64) -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64);
-    let secs = (now - time).max(0);
+    let secs = (now() - time).max(0);
     match secs {
         0..60 => "just now".to_owned(),
         60..3600 => format!("{} min ago", secs / 60),
