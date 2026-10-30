@@ -8,7 +8,7 @@
 //! answered before `t`, so when it arrives those stop applying and the rest go on top of it.
 
 use super::Workspace;
-pub(super) use artoo_requests::waiting::{At, Me, Op, Waiting, is_temp, is_temp_thread};
+pub(super) use artoo_requests::waiting::{At, FADED, Me, Op, Waiting, is_temp, is_temp_thread};
 use gpui::{App, Context};
 
 impl Workspace {
@@ -138,9 +138,6 @@ impl Workspace {
         });
     }
 }
-
-/// How faded a waiting item is.
-pub const FADED: f32 = 0.5;
 
 impl Workspace {
     /// The snapshot checks' changes on the request open: a reply in its first discussion on a line,

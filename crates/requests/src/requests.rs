@@ -74,6 +74,23 @@ pub enum Event {
 
 impl gpui::EventEmitter<Event> for Requests {}
 
+/// What a view of the requests asks the tab (`Acts`).
+pub enum Act {
+    /// `a`: approve the request open, or take one's approval back.
+    ToggleApproval,
+    /// The list of what is in the way of a merge, at a window position.
+    MergeReasons(gpui::Point<gpui::Pixels>),
+    /// The card before a merge goes.
+    OpenMerge,
+    /// The host puts the request's commits on top of its target.
+    Rebase,
+    /// Merging when the pipeline succeeds is cancelled.
+    CancelAutoMerge,
+}
+
+/// How the tab answers what the requests' views ask.
+pub type Acts = std::rc::Rc<dyn Fn(Act, &mut gpui::App)>;
+
 #[derive(Default)]
 pub struct Requests {
     pub scope: Scope,

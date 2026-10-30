@@ -34,7 +34,7 @@ const REASONS_WIDTH: f32 = 400.;
 impl Workspace {
     /// The open repository's host is GitHub: its words in what an action writes, before a frame
     /// has said them (`words::github` is the workspace drawn last).
-    fn on_github(&self) -> bool {
+    pub(super) fn on_github(&self) -> bool {
         self.web.as_ref().is_some_and(|w| w.github)
     }
 
@@ -49,121 +49,6 @@ impl Workspace {
             return;
         };
         self.requests.update(cx, |rq, cx| rq.reload_merge(host, cx));
-    }
-
-    /// Merge in the request's bar, as it stands; none while the host has not said.
-    pub(super) fn render_merge_control(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        let stand = self.requests.read(cx).merge_stand()?;
-        let m = self
-            .requests
-            .read(cx)
-            .find(self.requests.read(cx).current?)?;
-        let target = m.target.clone();
-        let row = || div().flex_none().flex().items_center().gap(px(6.));
-        let word = |text: String, color| {
-            div()
-                .flex_none()
-                .text_size(px(12.))
-                .text_color(color)
-                .child(text)
-        };
-        if let Some(busy) = self.requests.read(cx).merge_busy {
-            return Some(
-                word(busy.to_owned(), theme::muted())
-                    .opacity(super::waiting::FADED)
-                    .into_any_element(),
-            );
-        }
-        let merge_icon = |color| icons::icon("merge").size(px(14.)).text_color(color);
-        Some(match stand {
-            Stand::InTheWay(blocks) => {
-                let n = blocks.len();
-                let tip: SharedString = blocks
-                    .iter()
-                    .map(|b| format!("{}: {}", b.what, b.detail))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-                    .into();
-                div()
-                    .id("bar-merge")
-                    .flex_none()
-                    .h(px(28.))
-                    .px(px(10.))
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .rounded(px(ROW_RADIUS))
-                    .border_1()
-                    .border_color(theme::island_border())
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme::hover()))
-                    .text_size(px(13.))
-                    .text_color(theme::muted())
-                    .child(merge_icon(theme::muted()))
-                    .child("Merge")
-                    .child(word(format!("{n} in the way"), theme::faint()))
-                    .child(
-                        icons::icon("chevron")
-                            .size(px(13.))
-                            .text_color(theme::faint()),
-                    )
-                    .tooltip_show_delay(super::hover::LONG)
-                    .tooltip(move |_, cx| cx.new(|_| super::TipOwned(tip.clone())).into())
-                    .on_click(cx.listener(|this, e: &ClickEvent, _, cx| {
-                        let at = e.position();
-                        this.open_merge_reasons(Point::new(at.x - px(120.), at.y + px(18.)), cx)
-                    }))
-                    .into_any_element()
-            }
-            Stand::Checking => word(
-                format!(
-                    "Merge · {} is checking…",
-                    if self.on_github() { "GitHub" } else { "GitLab" }
-                ),
-                theme::faint(),
-            )
-            .into_any_element(),
-            Stand::Rebase(behind) => row()
-                .child(
-                    div()
-                        .id("merge-behind")
-                        .child(word(format!("{behind} behind {target}"), theme::muted()))
-                        .tooltip_show_delay(super::hover::LONG)
-                        .tooltip(move |_, cx| {
-                            let tip = format!(
-                                "{target} moved on since this branch left it. GitLab puts the commits on top of it; the pipeline runs again."
-                            );
-                            cx.new(|_| super::TipOwned(tip.into())).into()
-                        }),
-                )
-                .child(
-                    super::bar::bar_button("bar-rebase", "Rebase", "", true).on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| this.rebase_request(cx)),
-                    ),
-                )
-                .into_any_element(),
-            Stand::Auto => row()
-                .child(icons::icon("clock").size(px(14.)).text_color(theme::added()))
-                .child(word(
-                    "Merges when the pipeline succeeds".into(),
-                    theme::added(),
-                ))
-                .child(
-                    super::bar::bar_button("bar-merge-cancel", "Cancel", "", false).on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| this.cancel_auto_merge(cx)),
-                    ),
-                )
-                .into_any_element(),
-            Stand::Running | Stand::Ready => {
-                let label = match stand {
-                    Stand::Running if !self.compact() => "Merge when the pipeline succeeds…",
-                    _ => "Merge…",
-                };
-                super::bar::bar_button("bar-merge", label, "", true)
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_merge(cx)))
-                    .into_any_element()
-            }
-        })
     }
 
     /// Merge's ▾: each reason in the way, and where it is fixed.
@@ -377,12 +262,12 @@ impl Workspace {
     }
 
     /// Rebase: GitLab puts the commits on top of the target, and the pipeline runs again.
-    fn rebase_request(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn rebase_request(&mut self, cx: &mut Context<Self>) {
         self.merge_call("Rebasing…", |host, iid, _| host.rebase(iid), cx);
     }
 
     /// Cancel: it no longer merges when the pipeline succeeds.
-    fn cancel_auto_merge(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn cancel_auto_merge(&mut self, cx: &mut Context<Self>) {
         self.merge_call(
             "Cancelling…",
             |host, iid, node| host.cancel_auto_merge(iid, node),

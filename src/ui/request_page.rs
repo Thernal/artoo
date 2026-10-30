@@ -159,7 +159,7 @@ impl Workspace {
         let pipeline = self.requests.read(cx).pipeline.as_ref().map_or_else(
             || faint("—").into_any_element(),
             |p| {
-                let (glyph, word, color) = super::requests::pipeline_word(p);
+                let (glyph, word, color) = artoo_requests::bar::pipeline_word(p);
                 div()
                     .text_color(color)
                     .child(format!("{glyph} {word}"))
@@ -682,7 +682,7 @@ impl Workspace {
             })
             .child(state_chip(m))
             .child(div().flex_1())
-            .children(self.render_pipeline_pill(cx))
+            .children(self.requests.read(cx).render_pipeline_pill())
     }
 }
 

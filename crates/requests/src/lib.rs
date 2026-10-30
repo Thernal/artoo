@@ -3,6 +3,7 @@
 //! (`outdated`), the reactions on its notes, where merging it stands (`merge`) — and what they read from their host
 //! (`reading`). The app's views read and draw them for now.
 
+pub mod bar;
 pub mod group;
 pub mod merge;
 pub mod outdated;

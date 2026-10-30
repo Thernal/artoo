@@ -10,6 +10,9 @@
 use crate::requests::Requests;
 use artoo_hosts_api::{Approvals, Draft, Note, Thread};
 
+/// How faded a waiting item is.
+pub const FADED: f32 = 0.5;
+
 /// What a change does to a request's discussions, pending comments or approvals.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Op {

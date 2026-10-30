@@ -625,11 +625,13 @@ impl Workspace {
                     .map(|m| m.state)
                     .unwrap_or_default();
                 if state == crate::mr::MrState::Opened {
+                    let acts = self.request_acts(cx);
+                    let rq = self.requests.read(cx);
                     out.extend(
-                        self.render_approval_chip(cx)
+                        rq.render_approval_chip(acts.clone())
                             .map(IntoElement::into_any_element),
                     );
-                    out.extend(self.render_merge_control(cx));
+                    out.extend(rq.render_merge_control(self.compact(), self.on_github(), acts));
                 } else {
                     let color = if state == crate::mr::MrState::Merged {
                         theme::accent()

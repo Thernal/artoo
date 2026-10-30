@@ -1024,7 +1024,7 @@ impl Workspace {
                 theme::muted(),
             )),
         };
-        let verdict = pipeline.map(super::requests::pipeline_word);
+        let verdict = pipeline.map(artoo_requests::bar::pipeline_word);
         let threads = threads.filter(|&n| n > 0 && waiting.is_none_or(|w| w == 0));
         let mut tip = vec![
             format!("{} {}", words::number(iid), m.title),
@@ -1156,7 +1156,7 @@ impl Workspace {
         let preview = self.roots.previews.get(&iid);
         let mut pills: Vec<AnyElement> = Vec::new();
         if let Some(p) = preview.and_then(|p| p.pipeline.as_ref()) {
-            let (glyph, word, color) = super::requests::pipeline_word(p);
+            let (glyph, word, color) = artoo_requests::bar::pipeline_word(p);
             pills.push(pill(format!("{glyph} {word}"), color).into_any_element());
         }
         if let Some(a) = preview.and_then(|p| p.approvals.as_ref()) {

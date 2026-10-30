@@ -8,11 +8,13 @@ use super::px;
 use super::roots::Group;
 use super::tools::ToolView;
 use super::waiting::Op;
-use super::{Header, Selection, Workspace, format, plural, theme};
+use super::{Header, Selection, Workspace, plural, theme};
 use crate::git::{RefKind, Repo};
-use crate::mr::{self, Draft, Mr, Pipeline, Thread};
+use crate::mr::{self, Draft, Mr, Thread};
+use artoo_requests::requests::{Act, Acts};
 pub(super) use artoo_requests::requests::{Past, Requests, Scope, Sides, sides};
-use gpui::{App, ClickEvent, Context, FontWeight, SharedString, WeakEntity, div, prelude::*};
+use gpui::{App, ClickEvent, Context, FontWeight, WeakEntity, div, prelude::*};
+use std::rc::Rc;
 
 impl Workspace {
     /// The list shows the merged or the closed requests, or the open ones again (#114).
@@ -118,6 +120,21 @@ impl Workspace {
         };
         self.requests
             .update(cx, |rq, cx| rq.reload_threads(host, cx));
+    }
+
+    /// How the tab answers what the requests' views ask (`requests::Act`).
+    pub(super) fn request_acts(&self, cx: &Context<Self>) -> Acts {
+        let this = cx.weak_entity();
+        Rc::new(move |act, cx| {
+            this.update(cx, |this, cx| match act {
+                Act::ToggleApproval => this.toggle_approval(cx),
+                Act::MergeReasons(at) => this.open_merge_reasons(at, cx),
+                Act::OpenMerge => this.open_merge(cx),
+                Act::Rebase => this.rebase_request(cx),
+                Act::CancelAutoMerge => this.cancel_auto_merge(cx),
+            })
+            .ok();
+        })
     }
 
     /// The open repository's host, when it has one.
@@ -2110,152 +2127,6 @@ impl Workspace {
         self.render_ways(cx)
     }
 
-    /// The pipeline's pill: its state, and the job that failed; a click opens it.
-    pub(super) fn render_pipeline_pill(
-        &self,
-        cx: &mut Context<Self>,
-    ) -> Option<impl IntoElement + use<>> {
-        self.requests.read(cx).pipeline.clone().map(|p| {
-            let (glyph, word, color) = pipeline_word(&p);
-            // A failure opens the job that failed; the rest open the pipeline.
-            let url = p
-                .failed
-                .first()
-                .map(|(_, u)| u.clone())
-                .filter(|u| !u.is_empty())
-                .unwrap_or_else(|| p.url.clone());
-            let ago = (p.updated > 0).then(|| format::ago(p.updated));
-            // A long hover: every job that failed, and when (X59).
-            let host = super::words::say("GitLab").into_owned();
-            let tip: SharedString = {
-                let when = if p.updated > 0 {
-                    format!(" · {}", super::hover::full_date(p.updated))
-                } else {
-                    String::new()
-                };
-                let jobs: Vec<&str> = p.failed.iter().map(|(name, _)| name.as_str()).collect();
-                match (p.status.as_str(), jobs.is_empty()) {
-                    ("failed", false) => format!(
-                        "Pipeline failed{when}\nFailed: {}\nClick opens the first failed job on {host}",
-                        jobs.join(", ")
-                    ),
-                    _ => format!("Pipeline {word}{when}\nClick opens it on {host}"),
-                }
-            }
-            .into();
-            div()
-                .id("pipeline-pill")
-                .flex_none()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .px(px(8.))
-                .h(px(22.))
-                .rounded_full()
-                .border_1()
-                .border_color(color)
-                .text_size(px(12.))
-                .text_color(color)
-                .cursor_pointer()
-                .hover(|s| s.bg(theme::hover()))
-                .tooltip_show_delay(crate::ui::hover::LONG)
-                .tooltip(move |_, cx| cx.new(|_| super::TipOwned(tip.clone())).into())
-                .child(format!("{glyph} {word}"))
-                .children(ago.map(|a| div().text_color(theme::faint()).child(a)))
-                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.open_url(&url)))
-        })
-    }
-
-    /// Approve, or who approved: `a` toggles one's approval.
-    pub(super) fn render_approval_chip(
-        &self,
-        cx: &mut Context<Self>,
-    ) -> Option<impl IntoElement + use<>> {
-        let waits = self.requests.read(cx).approval_waits();
-        self.requests.read(cx).approvals.clone().map(|a| {
-            let count = if a.required > 0 {
-                format!(" {}/{}", a.required - a.left.min(a.required), a.required)
-            } else if !a.by.is_empty() && !a.mine {
-                format!(" {}", a.by.len())
-            } else {
-                String::new()
-            };
-            let action = match (a.mine, a.can) {
-                (true, _) => "a takes yours back",
-                (false, true) => "a approves",
-                (false, false) => "",
-            };
-            // A long hover: who approved, who asked for changes, who is still asked (X59).
-            let d = self.requests.read(cx).details.clone().unwrap_or_default();
-            let waiting: Vec<&str> = d
-                .reviewers
-                .iter()
-                .filter(|r| !a.by.contains(r) && !d.changes_requested.contains(r))
-                .map(String::as_str)
-                .collect();
-            let mut lines = vec![if a.by.is_empty() {
-                "No approvals yet".to_owned()
-            } else {
-                format!("Approved by {}", a.by.join(", "))
-            }];
-            if !d.changes_requested.is_empty() {
-                lines.push(format!(
-                    "Changes requested by {}",
-                    d.changes_requested.join(", ")
-                ));
-            }
-            if !waiting.is_empty() {
-                lines.push(format!("Still asked: {}", waiting.join(", ")));
-            }
-            if a.left > 0 {
-                lines.push(format!(
-                    "{} more needed",
-                    plural(a.left as usize, "approval")
-                ));
-            }
-            if !action.is_empty() {
-                lines.push(action.to_owned());
-            }
-            let tip: SharedString = super::words::say(&lines.join("\n")).into_owned().into();
-            let (label, color) = if a.mine {
-                ("✓ Approved", theme::added())
-            } else if a.can {
-                ("Approve", theme::text())
-            } else {
-                ("✓", theme::muted())
-            };
-            div()
-                .id("approval")
-                .flex_none()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .px(px(8.))
-                .h(px(22.))
-                .rounded_full()
-                .border_1()
-                .border_color(if a.mine {
-                    theme::added()
-                } else {
-                    theme::island_border()
-                })
-                .text_size(px(12.))
-                .text_color(color)
-                .when(a.mine || a.can, |s| {
-                    s.cursor_pointer().hover(|s| s.bg(theme::hover()))
-                })
-                // Counted at once, faded until the host answers (#139).
-                .when(waits, |s| s.opacity(super::waiting::FADED))
-                .child(format!("{label}{count}"))
-                .when(a.can && !a.mine, |s| {
-                    s.child(super::keys::caps("a", super::keys::On::Plain))
-                })
-                .tooltip_show_delay(crate::ui::hover::LONG)
-                .tooltip(move |_, cx| cx.new(|_| super::TipOwned(tip.clone())).into())
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_approval(cx)))
-        })
-    }
-
     /// Shows `line` of `path`: that file first when it is another one.
     pub(super) fn jump_to_line(
         &mut self,
@@ -2280,30 +2151,6 @@ impl Workspace {
             Some(ix) => self.select_file(ix, cx),
             None => self.review.update(cx, |rv, _| rv.jump_line = None),
         }
-    }
-}
-
-/// After position `at` in a list (none: before its start), the next item not reviewed, going round
-/// to the first item when the end is reached; never `at` itself.
-/// A pipeline as a glyph, a word and its colour: "✗ lint failed" in red.
-pub(super) fn pipeline_word(p: &Pipeline) -> (&'static str, String, gpui::Rgba) {
-    match p.status.as_str() {
-        "success" => ("✓", "passed".to_owned(), theme::added()),
-        "failed" => (
-            "✗",
-            match p.failed.as_slice() {
-                [] => "failed".to_owned(),
-                [(job, _)] => format!("{job} failed"),
-                [(job, _), rest @ ..] => format!("{job} +{} failed", rest.len()),
-            },
-            theme::removed(),
-        ),
-        "running" => ("●", "running".to_owned(), theme::warning()),
-        "pending" | "created" | "waiting_for_resource" | "preparing" => {
-            ("○", "pending".to_owned(), theme::muted())
-        }
-        "canceled" => ("⊘", "canceled".to_owned(), theme::muted()),
-        other => ("·", other.replace('_', " "), theme::muted()),
     }
 }
 
