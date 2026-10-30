@@ -231,7 +231,7 @@ impl Workspace {
                     .diff
                     .as_ref()
                     .and_then(|d| d.files.get(self.review.file))
-                    .filter(|f| self.generated_folded(f))
+                    .filter(|f| self.review.generated_folded(f))
                     .map(|f| f.path().to_owned())
                 {
                     self.review.unfolded.insert(path);

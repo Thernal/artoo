@@ -237,7 +237,7 @@ impl Workspace {
             self.mark_motion(&format!("file-{ix}"), cx);
             self.mark_motion(&format!("page-{ix}"), cx);
         }
-        self.sync_stack();
+        self.review.sync_stack();
         self.build_stack(cx);
         if self.review.stack.is_none() {
             self.relayout();
@@ -300,7 +300,7 @@ impl Workspace {
         if !self.review.page.notes_open.remove(&key) {
             self.review.page.notes_open.insert(key);
         }
-        self.remeasure_pages();
+        self.review.remeasure_pages();
         cx.notify();
     }
 
@@ -544,7 +544,8 @@ impl Workspace {
             .then_some(self.review.data.as_deref())
             .flatten();
         let notes: Vec<LineNote> = self
-            .line_notes_in(&path, data)
+            .pins_of(&path)
+            .marks(data)
             .into_iter()
             .filter(|n| n.tone != NoteTone::Bookmark)
             .collect();
@@ -939,7 +940,7 @@ fn fold_line(
                 if !this.review.page.open.remove(&key) {
                     this.review.page.open.insert(key.clone());
                 }
-                this.remeasure_pages();
+                this.review.remeasure_pages();
                 cx.notify();
             })
             .ok();

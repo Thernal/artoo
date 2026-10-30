@@ -689,6 +689,10 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        debug_assert_eq!(
+            self.review.settings, self.settings,
+            "a change of the settings did not reach the review's copy (save_settings)"
+        );
         // The host's words (pull requests on GitHub) for everything drawn from here.
         words::set(self.web.as_ref().is_some_and(|w| w.github));
         markdown::set_me(self.requests.login.as_deref());
@@ -742,12 +746,12 @@ impl Render for Workspace {
             self.relayout_all();
         }
         self.follow_scroll(cx);
-        if self.char_width == 0. || self.char_face != theme::code_font() {
+        if self.review.char_width == 0. || self.char_face != theme::code_font() {
             self.char_face = theme::code_font();
             let text = window.text_system();
             let id = text.resolve_font(&font(self.char_face.clone()));
-            self.char_width = text
-                .advance(id, px(self.code_size()), 'm')
+            self.review.char_width = text
+                .advance(id, px(self.review.code_size()), 'm')
                 .map_or(7.2, |size| f32::from(size.width));
         }
 

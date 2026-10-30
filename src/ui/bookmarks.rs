@@ -143,7 +143,8 @@ impl Workspace {
     }
 
     fn relayout_notes(&mut self) {
-        self.review.notes = self.line_notes();
+        let pins = self.open_pins();
+        self.review.notes = self.review.line_notes(&pins);
     }
 }
 

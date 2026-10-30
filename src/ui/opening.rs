@@ -102,7 +102,7 @@ impl Workspace {
                 OpenIn::ThisTab
             };
         }
-        self.settings.save();
+        self.save_settings();
         if new_tab {
             self.open_in_new_tab(ask.path, ask.then, cx);
         } else {

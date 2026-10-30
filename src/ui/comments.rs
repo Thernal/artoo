@@ -475,7 +475,7 @@ impl Workspace {
         });
         self.take_keyboard(Input::Compose);
         self.reset_field_edit();
-        self.remeasure_pages();
+        self.review.remeasure_pages();
         cx.notify();
     }
 
@@ -1135,7 +1135,7 @@ impl Workspace {
     pub(super) fn cancel_comment(&mut self, cx: &mut Context<Self>) {
         if self.compose.take().is_some() {
             self.refresh_rows();
-            self.remeasure_pages();
+            self.review.remeasure_pages();
             cx.notify();
         }
     }
@@ -1190,7 +1190,7 @@ impl Workspace {
         self.save_comments();
         self.copied = false;
         self.refresh_rows();
-        self.remeasure_pages();
+        self.review.remeasure_pages();
         cx.notify();
     }
 
@@ -1317,7 +1317,7 @@ impl Workspace {
             .and_then(|ix| self.requests.threads.get(ix))
             .map(|t| t.id.clone());
         self.refresh_rows();
-        self.remeasure_pages();
+        self.review.remeasure_pages();
         let refused = move |this: &mut Self, why: String, cx: &mut Context<Self>| {
             let place = match &thread {
                 Some(id) => this.requests.threads.iter().position(|t| &t.id == id),
@@ -1354,7 +1354,7 @@ impl Workspace {
                     this.take_keyboard(Input::Compose);
                     this.reset_field_edit();
                     this.refresh_rows();
-                    this.remeasure_pages();
+                    this.review.remeasure_pages();
                 }
                 _ => {
                     cx.write_to_clipboard(ClipboardItem::new_string(
@@ -1922,7 +1922,7 @@ impl Workspace {
     /// ⌥M: comments drawn as formatted markdown, or as the text written.
     pub(super) fn toggle_rich_comments(&mut self, cx: &mut Context<Self>) {
         self.settings.rich_comments = !self.settings.rich_comments;
-        self.settings.save();
+        self.save_settings();
         self.review.diff_list.remeasure();
         cx.notify();
     }

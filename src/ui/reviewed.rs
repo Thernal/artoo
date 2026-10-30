@@ -397,7 +397,7 @@ impl Workspace {
         } else {
             self.review.reviewed.clear(&scope, &path);
         }
-        self.review_changed(&[ix]);
+        self.review.review_changed(&[ix]);
         self.sync_complete();
         cx.notify();
     }
@@ -420,7 +420,7 @@ impl Workspace {
             .collect();
         let head = self.review.viewed_rev();
         self.review.reviewed.set_many(&scope, &files, done, head);
-        self.review_changed(ixs);
+        self.review.review_changed(ixs);
         self.sync_complete();
         cx.notify();
     }
@@ -642,11 +642,11 @@ impl Workspace {
                 .diff
                 .as_ref()
                 .and_then(|d| d.files.get(ix))
-                .filter(|f| self.generated_folded(f))
+                .filter(|f| self.review.generated_folded(f))
                 .map(|f| f.path().to_owned())
             {
                 self.review.unfolded.insert(path);
-                self.sync_stack();
+                self.review.sync_stack();
             }
             self.select_file(ix, cx);
             self.scroll_file_into_view(ix);

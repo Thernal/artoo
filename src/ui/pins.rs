@@ -5,8 +5,10 @@
 
 use super::Workspace;
 use super::diff_view::{LineNote, NoteTone};
+use super::review::Review;
 use super::rows::{self, FileData, Pin, Row};
 use crate::review::{self, Comment, Place};
+use std::collections::HashMap;
 
 /// What other features put on one file's lines.
 #[derive(Default)]
@@ -110,12 +112,45 @@ impl FilePins {
     }
 }
 
-/// The review's side: the rows and marks of a file with what others pinned on it.
+/// What others put on the lines of each file, by path: gathered by the tab for the files a layout lays out.
+pub(super) type Pins = HashMap<String, FilePins>;
+
+/// The tab's side: what is pinned on the files a layout lays out, gathered now.
 impl Workspace {
+    /// The pins of the open file.
+    pub(super) fn open_pins(&self) -> Pins {
+        self.pins_for(self.review.current_path())
+    }
+
+    /// The pins of every file of the diff.
+    pub(super) fn all_pins(&self) -> Pins {
+        let paths: Vec<String> = self
+            .review
+            .diff
+            .as_ref()
+            .map(|d| d.files.iter().map(|f| f.path().to_owned()).collect())
+            .unwrap_or_default();
+        self.pins_for(paths)
+    }
+
+    /// The pins of the files at `paths`.
+    pub(super) fn pins_for(&self, paths: impl IntoIterator<Item = String>) -> Pins {
+        paths
+            .into_iter()
+            .map(|path| {
+                let pins = self.pins_of(&path);
+                (path, pins)
+            })
+            .collect()
+    }
+}
+
+/// The review's side: the rows and marks of a file with what others pinned on it.
+impl Review {
     /// The open file's rows with what is pinned on its lines.
-    pub(super) fn with_pins(&self, rows: Vec<Row>) -> Vec<Row> {
-        match (self.review.current_path(), &self.review.data) {
-            (Some(path), Some(data)) => self.with_pins_in(&path, data, rows, true),
+    pub(super) fn with_pins(&self, rows: Vec<Row>, pins: &Pins) -> Vec<Row> {
+        match (self.current_path(), &self.data) {
+            (Some(path), Some(data)) => self.with_pins_in(&path, data, rows, true, pins),
             _ => rows,
         }
     }
@@ -128,11 +163,13 @@ impl Workspace {
         data: &FileData,
         rows: Vec<Row>,
         active: bool,
+        pins: &Pins,
     ) -> Vec<Row> {
-        let pins = self.pins_of(path);
+        let none = FilePins::default();
+        let pins = pins.get(path).unwrap_or(&none);
         // The prompt of `c` hangs under the marked line, like the composer that follows it.
-        let go = if active && !pins.composing && self.review.goline.is_some() {
-            self.review.goline_target()
+        let go = if active && !pins.composing && self.goline.is_some() {
+            self.goline_target()
         } else {
             None
         };
@@ -140,15 +177,19 @@ impl Workspace {
     }
 
     /// The comment marks of the open file's gutter.
-    pub(super) fn line_notes(&self) -> Vec<LineNote> {
-        self.review
-            .current_path()
-            .map(|path| self.line_notes_in(&path, self.review.data.as_deref()))
+    pub(super) fn line_notes(&self, pins: &Pins) -> Vec<LineNote> {
+        self.current_path()
+            .map(|path| self.line_notes_in(&path, self.data.as_deref(), pins))
             .unwrap_or_default()
     }
 
     /// The comment marks of file `path`'s gutter, `data` its built diff.
-    pub(super) fn line_notes_in(&self, path: &str, data: Option<&FileData>) -> Vec<LineNote> {
-        self.pins_of(path).marks(data)
+    pub(super) fn line_notes_in(
+        &self,
+        path: &str,
+        data: Option<&FileData>,
+        pins: &Pins,
+    ) -> Vec<LineNote> {
+        pins.get(path).map(|p| p.marks(data)).unwrap_or_default()
     }
 }

@@ -5,6 +5,11 @@
 use super::*;
 
 pub(super) struct Review {
+    /// The app's settings, a copy the tab keeps equal to its own (`Workspace::change_settings`): how code is
+    /// drawn (its zoom, the marks of changed words), generated files folded.
+    pub(super) settings: Settings,
+    /// Advance of one code character, measured on the first render and again in another face.
+    pub(super) char_width: f32,
     /// How the diff and its files are shown: split or unified, wrap, context, whitespace, the files as a list,
     /// one file at a time, reviewed files folded.
     pub(super) options: ViewOptions,

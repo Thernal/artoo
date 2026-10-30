@@ -8,6 +8,7 @@
 //! theirs here and are drawn as they are until a click or the scroll makes them active.
 
 use super::diff_view::LineNote;
+use super::pins::Pins;
 use super::reviewed::State;
 use super::rows::{self, FileData, Row};
 use super::{ROW_RADIUS, Workspace, px, theme};
@@ -167,136 +168,6 @@ impl Workspace {
             && self.review.diff.as_ref().is_some_and(|d| d.files.len() > 1)
     }
 
-    fn needs_rows(&self, file: &FileDiff) -> bool {
-        !file.hunks.is_empty()
-            && !self.generated_folded(file)
-            && !self.review.shows_image(file)
-            && !self.review.shows_page(file)
-    }
-
-    /// File `ix` folds by default: it is reviewed and View → Fold reviewed files is on.
-    fn folds_by_default(&self, ix: usize) -> bool {
-        self.review.options.fold_reviewed && self.review.review_state(ix) == Some(State::Done)
-    }
-
-    /// File `ix` shows its header alone: by default, unless the reader opened it (or the other
-    /// way round).
-    pub(super) fn folded(&self, ix: usize) -> bool {
-        self.folds_by_default(ix)
-            != self
-                .review
-                .stack
-                .as_ref()
-                .is_some_and(|s| s.flipped.contains(&ix))
-    }
-
-    pub(super) fn body(&self, b: usize) -> Body {
-        let (Some(stack), Some(diff)) = (&self.review.stack, &self.review.diff) else {
-            return Body::Note;
-        };
-        let block = &stack.blocks[b];
-        let Some(file) = diff.files.get(block.file) else {
-            return Body::Note;
-        };
-        let (built, rows) = if block.file == self.review.file {
-            (self.review.data.is_some(), self.review.rows.len())
-        } else {
-            (block.data.is_some(), block.rows.len())
-        };
-        if self.folded(block.file) {
-            Body::Folded
-        } else if !self.needs_rows(file) {
-            Body::Note
-        } else if !built {
-            Body::Waiting
-        } else if rows == 0 {
-            Body::Note
-        } else {
-            Body::Rows
-        }
-    }
-
-    fn body_len(&self, b: usize) -> usize {
-        match self.body(b) {
-            Body::Folded => 0,
-            Body::Waiting | Body::Note => 1,
-            Body::Rows
-                if self
-                    .review
-                    .stack
-                    .as_ref()
-                    .is_some_and(|s| s.blocks[b].file == self.review.file) =>
-            {
-                self.review.rows.len()
-            }
-            Body::Rows => self
-                .review
-                .stack
-                .as_ref()
-                .map_or(0, |s| s.blocks[b].rows.len()),
-        }
-    }
-
-    /// Block `b`'s rows as the list holds them, when it holds rows.
-    pub(super) fn shown_rows(&self, b: usize) -> Option<Vec<Row>> {
-        let stack = self.review.stack.as_ref()?;
-        (self.body(b) == Body::Rows).then(|| {
-            if stack.blocks[b].file == self.review.file {
-                self.review.rows.clone()
-            } else {
-                stack.blocks[b].rows.clone()
-            }
-        })
-    }
-
-    /// Tells the list that block `b` changed from `before` (its rows, when it showed rows): only
-    /// the rows that differ are replaced.
-    pub(super) fn stack_changed(&mut self, b: usize, before: Option<Vec<Row>>) {
-        let after = self.shown_rows(b);
-        let len = self.body_len(b);
-        let Some(stack) = self.review.stack.as_mut() else {
-            return;
-        };
-        let at = stack.starts[b] + 1;
-        match (before, after) {
-            (Some(old), Some(new)) => {
-                if let Some((head, gone, come)) = changed_span(&old, &new) {
-                    self.review
-                        .diff_list
-                        .splice(at + head..at + head + gone, come);
-                }
-            }
-            _ => {
-                let old = stack.blocks[b].len;
-                self.review.diff_list.splice(at..at + old, len);
-            }
-        }
-        stack.blocks[b].len = len;
-        stack.reindex();
-    }
-
-    /// Brings every block's length in the list in line with what it shows now (after files were
-    /// marked reviewed, folded or opened).
-    pub(super) fn sync_stack(&mut self) {
-        let Some(n) = self.review.stack.as_ref().map(|s| s.blocks.len()) else {
-            return;
-        };
-        let lens: Vec<usize> = (0..n).map(|b| self.body_len(b)).collect();
-        let Some(stack) = self.review.stack.as_mut() else {
-            return;
-        };
-        // From the last block up, so the list indexes of the blocks above stay right.
-        for b in (0..n).rev() {
-            let old = stack.blocks[b].len;
-            if old != lens[b] {
-                let at = stack.starts[b] + 1;
-                self.review.diff_list.splice(at..at + old, lens[b]);
-                stack.blocks[b].len = lens[b];
-            }
-        }
-        stack.reindex();
-    }
-
     /// Puts the files of the diff in one list and shows file `ix` at the top.
     fn open_stack(&mut self, ix: usize, cx: &mut Context<Self>) {
         let Some(diff) = &self.review.diff else {
@@ -329,7 +200,7 @@ impl Workspace {
         stack.anchor = anchor;
         self.review.stack = Some(stack);
         let n = order.len();
-        let lens: Vec<usize> = (0..n).map(|b| self.body_len(b)).collect();
+        let lens: Vec<usize> = (0..n).map(|b| self.review.body_len(b)).collect();
         if let Some(stack) = self.review.stack.as_mut() {
             for (block, len) in stack.blocks.iter_mut().zip(lens) {
                 block.len = len;
@@ -367,7 +238,7 @@ impl Workspace {
             return self.open_stack(ix, cx);
         }
         self.activate_file(ix, cx);
-        if self.folded(ix) {
+        if self.review.folded(ix) {
             self.flip_fold(ix, cx);
         }
         self.review.scroll_to_header(ix);
@@ -425,7 +296,7 @@ impl Workspace {
         if !stack.flipped.remove(&ix) {
             stack.flipped.insert(ix);
         }
-        self.sync_stack();
+        self.review.sync_stack();
         self.build_stack(cx);
         cx.notify();
     }
@@ -435,23 +306,8 @@ impl Workspace {
         if let Some(stack) = self.review.stack.as_mut() {
             stack.flipped.clear();
         }
-        self.sync_stack();
+        self.review.sync_stack();
         self.build_stack(cx);
-    }
-
-    /// Files marked or unmarked reviewed fold or open as their mark says again. Only with Fold
-    /// reviewed files on does the mark say anything: else a file the reader folded stays so (#144).
-    pub(super) fn review_changed(&mut self, ixs: &[usize]) {
-        if !self.review.options.fold_reviewed {
-            return;
-        }
-        let Some(stack) = self.review.stack.as_mut() else {
-            return;
-        };
-        for ix in ixs {
-            stack.flipped.remove(ix);
-        }
-        self.sync_stack();
     }
 
     /// The scroll moved the active file out of view: the file at the top takes over. With
@@ -519,7 +375,7 @@ impl Workspace {
             loop {
                 let next = this
                     .update(cx, |this, _| {
-                        let next = this.next_to_build();
+                        let next = this.review.next_to_build();
                         if next.is_none()
                             && let Some(stack) = this.review.stack.as_mut()
                         {
@@ -544,27 +400,6 @@ impl Workspace {
                 }
             }
         }));
-    }
-
-    fn next_to_build(&self) -> Option<(usize, FileDiff, crate::storage::DiffMode)> {
-        // A find looks into folded files too.
-        let finding = !self.review.dterms.is_empty();
-        let (stack, diff) = (self.review.stack.as_ref()?, self.review.diff.as_ref()?);
-        let here = stack.block_of(self.review.file).unwrap_or(0);
-        let n = stack.blocks.len();
-        let near =
-            (0..n).flat_map(|d| [here.checked_add(d), here.checked_sub(d).filter(|_| d > 0)]);
-        near.flatten().filter(|&b| b < n).find_map(|b| {
-            let ix = stack.blocks[b].file;
-            let built = if ix == self.review.file {
-                self.review.data.is_some()
-            } else {
-                stack.blocks[b].data.is_some()
-            };
-            let file = diff.files.get(ix)?;
-            (!built && (finding || !self.folded(ix)) && self.needs_rows(file))
-                .then(|| (ix, file.clone(), self.review.options.mode))
-        })
     }
 
     fn stack_built(&mut self, ix: usize, data: FileData, cx: &mut Context<Self>) {
@@ -592,108 +427,26 @@ impl Workspace {
             else {
                 return;
             };
-            let before = self.shown_rows(b);
-            self.lay_block(b, &path, data);
-            self.stack_changed(b, before);
+            let before = self.review.shown_rows(b);
+            let pins = self.pins_for([path.clone()]);
+            self.review.lay_block(b, &path, data, &pins);
+            self.review.stack_changed(b, before);
             self.review.recompute_stack_matches();
         }
         cx.notify();
     }
 
-    /// Lays block `b` (not the active one) out with `data`.
-    fn lay_block(&mut self, b: usize, path: &str, data: Arc<FileData>) {
-        let Some(stack) = self.review.stack.as_ref() else {
-            return;
-        };
-        let rows = rows::layout(
-            &data,
-            &self.review.view_options(),
-            &stack.blocks[b].expanded,
-        );
-        let rows = self.with_pins_in(path, &data, rows, false);
-        let notes = self.line_notes_in(path, Some(&data));
-        if let Some(block) = self.review.stack.as_mut().map(|s| &mut s.blocks[b]) {
-            block.data = Some(data);
-            block.rows = rows;
-            block.notes = notes;
-        }
-    }
-
-    /// Lays every file out again (an option changed, a comment came or went), changing in the list
-    /// only the rows that differ.
+    /// Lays every file out again (`Review::relayout_stack`) with what is pinned on their lines now.
     pub(super) fn relayout_stack(&mut self) {
-        let Some(n) = self.review.stack.as_ref().map(|s| s.blocks.len()) else {
-            return;
-        };
-        for b in 0..n {
-            let Some((ix, data)) = self
-                .review
-                .stack
-                .as_ref()
-                .map(|s| (s.blocks[b].file, s.blocks[b].data.clone()))
-            else {
-                return;
-            };
-            if ix == self.review.file {
-                self.relayout();
-                continue;
-            }
-            let (Some(data), Some(path)) = (
-                data,
-                self.review
-                    .diff
-                    .as_ref()
-                    .and_then(|d| d.files.get(ix))
-                    .map(|f| f.path().to_owned()),
-            ) else {
-                continue;
-            };
-            let before = self.shown_rows(b);
-            self.lay_block(b, &path, data);
-            self.stack_changed(b, before);
-        }
-        self.remeasure_pages();
-        // Files that now fold, or no longer do (Settings → Fold generated files).
-        self.sync_stack();
-        self.review.recompute_stack_matches();
-    }
-
-    /// A document drawn as a page is one item of the list: measured again after it changed
-    /// (Split or Unified, a section opened).
-    pub(super) fn remeasure_pages(&mut self) {
-        let (Some(stack), Some(diff)) = (&self.review.stack, &self.review.diff) else {
-            return;
-        };
-        let at: Vec<usize> = stack
-            .blocks
-            .iter()
-            .enumerate()
-            .filter(|(b, block)| {
-                diff.files
-                    .get(block.file)
-                    .is_some_and(|f| self.review.shows_page(f))
-                    && self.body(*b) == Body::Note
-            })
-            .map(|(b, _)| stack.starts[b] + 1)
-            .collect();
-        for at in at {
-            self.review.diff_list.splice(at..at + 1, 1);
-        }
+        let pins = self.all_pins();
+        self.review.relayout_stack(&pins);
     }
 
     // ---- folding all, finding in all ----------------------------------------------------------
 
-    /// Some file shows its header alone.
-    pub(super) fn any_folded(&self) -> bool {
-        self.review
-            .stack
-            .as_ref()
-            .is_some_and(|s| s.blocks.iter().any(|b| self.folded(b.file)))
-    }
-
     /// ⌥⇧A: every file open when some are folded, else every file folded.
     pub(super) fn toggle_expand_all(&mut self, cx: &mut Context<Self>) {
-        let open = self.any_folded();
+        let open = self.review.any_folded();
         self.expand_all(open, cx);
     }
 
@@ -711,12 +464,12 @@ impl Workspace {
         // The files whose default is the other way round.
         let flipped: HashSet<usize> = files
             .into_iter()
-            .filter(|&ix| self.folds_by_default(ix) == open)
+            .filter(|&ix| self.review.folds_by_default(ix) == open)
             .collect();
         if let Some(stack) = self.review.stack.as_mut() {
             stack.flipped = flipped;
         }
-        self.sync_stack();
+        self.review.sync_stack();
         self.build_stack(cx);
         cx.notify();
     }
@@ -732,18 +485,6 @@ impl Workspace {
         self.activate_file(file, cx);
         self.scroll_to_row(row);
         cx.notify();
-    }
-
-    /// Opens the active file when it is folded: something in it is about to be shown.
-    pub(super) fn open_active(&mut self) {
-        if self.review.stack.is_some() && self.folded(self.review.file) {
-            if let Some(stack) = self.review.stack.as_mut()
-                && !stack.flipped.remove(&self.review.file)
-            {
-                stack.flipped.insert(self.review.file);
-            }
-            self.sync_stack();
-        }
     }
 
     // ---- drawing ------------------------------------------------------------------------------
@@ -762,7 +503,7 @@ impl Workspace {
             (Some(old), Some(new)) if old != new => format!("{old} → {new}"),
             _ => file.path().to_owned(),
         };
-        let folded = self.folded(ix);
+        let folded = self.review.folded(ix);
         let state = self.review.review_state(ix);
         let active = ix == self.review.file;
         let first = self.review.stack.as_ref().and_then(|s| s.block_of(ix)) == Some(0);
@@ -949,11 +690,11 @@ impl Workspace {
                 .hover(|s| s.bg(theme::selected()))
                 .child(label)
         };
-        if self.body(b) == Body::Waiting {
+        if self.review.body(b) == Body::Waiting {
             let rows = (file.added + file.removed + 6).min(14) as f32;
             // Its rows are being built: a shimmer as tall as they will about be (#56, 18).
             return line(String::new())
-                .h(px(self.row_height() * rows))
+                .h(px(self.review.row_height() * rows))
                 .items_start()
                 .child(super::motion::shimmer(
                     ("card-loading", ix),
@@ -961,7 +702,7 @@ impl Workspace {
                 ))
                 .into_any_element();
         }
-        if self.generated_folded(file) {
+        if self.review.generated_folded(file) {
             let path = file.path().to_owned();
             return line(format!(
                 "Generated: {} changed lines are folded.",
@@ -1154,6 +895,254 @@ impl super::review::Review {
                     .child(row),
             )
             .into_any_element()
+    }
+
+    fn needs_rows(&self, file: &FileDiff) -> bool {
+        !file.hunks.is_empty()
+            && !self.generated_folded(file)
+            && !self.shows_image(file)
+            && !self.shows_page(file)
+    }
+
+    /// File `ix` folds by default: it is reviewed and View → Fold reviewed files is on.
+    fn folds_by_default(&self, ix: usize) -> bool {
+        self.options.fold_reviewed && self.review_state(ix) == Some(State::Done)
+    }
+
+    /// File `ix` shows its header alone: by default, unless the reader opened it (or the other
+    /// way round).
+    pub(super) fn folded(&self, ix: usize) -> bool {
+        self.folds_by_default(ix) != self.stack.as_ref().is_some_and(|s| s.flipped.contains(&ix))
+    }
+
+    pub(super) fn body(&self, b: usize) -> Body {
+        let (Some(stack), Some(diff)) = (&self.stack, &self.diff) else {
+            return Body::Note;
+        };
+        let block = &stack.blocks[b];
+        let Some(file) = diff.files.get(block.file) else {
+            return Body::Note;
+        };
+        let (built, rows) = if block.file == self.file {
+            (self.data.is_some(), self.rows.len())
+        } else {
+            (block.data.is_some(), block.rows.len())
+        };
+        if self.folded(block.file) {
+            Body::Folded
+        } else if !self.needs_rows(file) {
+            Body::Note
+        } else if !built {
+            Body::Waiting
+        } else if rows == 0 {
+            Body::Note
+        } else {
+            Body::Rows
+        }
+    }
+
+    fn body_len(&self, b: usize) -> usize {
+        match self.body(b) {
+            Body::Folded => 0,
+            Body::Waiting | Body::Note => 1,
+            Body::Rows
+                if self
+                    .stack
+                    .as_ref()
+                    .is_some_and(|s| s.blocks[b].file == self.file) =>
+            {
+                self.rows.len()
+            }
+            Body::Rows => self.stack.as_ref().map_or(0, |s| s.blocks[b].rows.len()),
+        }
+    }
+
+    /// Block `b`'s rows as the list holds them, when it holds rows.
+    pub(super) fn shown_rows(&self, b: usize) -> Option<Vec<Row>> {
+        let stack = self.stack.as_ref()?;
+        (self.body(b) == Body::Rows).then(|| {
+            if stack.blocks[b].file == self.file {
+                self.rows.clone()
+            } else {
+                stack.blocks[b].rows.clone()
+            }
+        })
+    }
+
+    /// Tells the list that block `b` changed from `before` (its rows, when it showed rows): only
+    /// the rows that differ are replaced.
+    pub(super) fn stack_changed(&mut self, b: usize, before: Option<Vec<Row>>) {
+        let after = self.shown_rows(b);
+        let len = self.body_len(b);
+        let Some(stack) = self.stack.as_mut() else {
+            return;
+        };
+        let at = stack.starts[b] + 1;
+        match (before, after) {
+            (Some(old), Some(new)) => {
+                if let Some((head, gone, come)) = changed_span(&old, &new) {
+                    self.diff_list.splice(at + head..at + head + gone, come);
+                }
+            }
+            _ => {
+                let old = stack.blocks[b].len;
+                self.diff_list.splice(at..at + old, len);
+            }
+        }
+        stack.blocks[b].len = len;
+        stack.reindex();
+    }
+
+    /// Brings every block's length in the list in line with what it shows now (after files were
+    /// marked reviewed, folded or opened).
+    pub(super) fn sync_stack(&mut self) {
+        let Some(n) = self.stack.as_ref().map(|s| s.blocks.len()) else {
+            return;
+        };
+        let lens: Vec<usize> = (0..n).map(|b| self.body_len(b)).collect();
+        let Some(stack) = self.stack.as_mut() else {
+            return;
+        };
+        // From the last block up, so the list indexes of the blocks above stay right.
+        for b in (0..n).rev() {
+            let old = stack.blocks[b].len;
+            if old != lens[b] {
+                let at = stack.starts[b] + 1;
+                self.diff_list.splice(at..at + old, lens[b]);
+                stack.blocks[b].len = lens[b];
+            }
+        }
+        stack.reindex();
+    }
+
+    /// Files marked or unmarked reviewed fold or open as their mark says again. Only with Fold
+    /// reviewed files on does the mark say anything: else a file the reader folded stays so (#144).
+    pub(super) fn review_changed(&mut self, ixs: &[usize]) {
+        if !self.options.fold_reviewed {
+            return;
+        }
+        let Some(stack) = self.stack.as_mut() else {
+            return;
+        };
+        for ix in ixs {
+            stack.flipped.remove(ix);
+        }
+        self.sync_stack();
+    }
+
+    fn next_to_build(&self) -> Option<(usize, FileDiff, crate::storage::DiffMode)> {
+        // A find looks into folded files too.
+        let finding = !self.dterms.is_empty();
+        let (stack, diff) = (self.stack.as_ref()?, self.diff.as_ref()?);
+        let here = stack.block_of(self.file).unwrap_or(0);
+        let n = stack.blocks.len();
+        let near =
+            (0..n).flat_map(|d| [here.checked_add(d), here.checked_sub(d).filter(|_| d > 0)]);
+        near.flatten().filter(|&b| b < n).find_map(|b| {
+            let ix = stack.blocks[b].file;
+            let built = if ix == self.file {
+                self.data.is_some()
+            } else {
+                stack.blocks[b].data.is_some()
+            };
+            let file = diff.files.get(ix)?;
+            (!built && (finding || !self.folded(ix)) && self.needs_rows(file))
+                .then(|| (ix, file.clone(), self.options.mode))
+        })
+    }
+
+    /// A document drawn as a page is one item of the list: measured again after it changed
+    /// (Split or Unified, a section opened).
+    pub(super) fn remeasure_pages(&mut self) {
+        let (Some(stack), Some(diff)) = (&self.stack, &self.diff) else {
+            return;
+        };
+        let at: Vec<usize> = stack
+            .blocks
+            .iter()
+            .enumerate()
+            .filter(|(b, block)| {
+                diff.files
+                    .get(block.file)
+                    .is_some_and(|f| self.shows_page(f))
+                    && self.body(*b) == Body::Note
+            })
+            .map(|(b, _)| stack.starts[b] + 1)
+            .collect();
+        for at in at {
+            self.diff_list.splice(at..at + 1, 1);
+        }
+    }
+
+    /// Some file shows its header alone.
+    pub(super) fn any_folded(&self) -> bool {
+        self.stack
+            .as_ref()
+            .is_some_and(|s| s.blocks.iter().any(|b| self.folded(b.file)))
+    }
+
+    /// Opens the active file when it is folded: something in it is about to be shown.
+    pub(super) fn open_active(&mut self) {
+        if self.stack.is_some() && self.folded(self.file) {
+            if let Some(stack) = self.stack.as_mut()
+                && !stack.flipped.remove(&self.file)
+            {
+                stack.flipped.insert(self.file);
+            }
+            self.sync_stack();
+        }
+    }
+
+    /// Lays block `b` (not the active one) out with `data`, `pins` under their lines.
+    pub(super) fn lay_block(&mut self, b: usize, path: &str, data: Arc<FileData>, pins: &Pins) {
+        let Some(stack) = self.stack.as_ref() else {
+            return;
+        };
+        let rows = rows::layout(&data, &self.view_options(), &stack.blocks[b].expanded);
+        let rows = self.with_pins_in(path, &data, rows, false, pins);
+        let notes = self.line_notes_in(path, Some(&data), pins);
+        if let Some(block) = self.stack.as_mut().map(|s| &mut s.blocks[b]) {
+            block.data = Some(data);
+            block.rows = rows;
+            block.notes = notes;
+        }
+    }
+
+    /// Lays every file out again (an option changed, a comment came or went) with `pins`, changing in
+    /// the list only the rows that differ.
+    pub(super) fn relayout_stack(&mut self, pins: &Pins) {
+        let Some(n) = self.stack.as_ref().map(|s| s.blocks.len()) else {
+            return;
+        };
+        for b in 0..n {
+            let Some((ix, data)) = self
+                .stack
+                .as_ref()
+                .map(|s| (s.blocks[b].file, s.blocks[b].data.clone()))
+            else {
+                return;
+            };
+            if ix == self.file {
+                self.relayout(pins);
+                continue;
+            }
+            let (Some(data), Some(path)) = (
+                data,
+                self.diff
+                    .as_ref()
+                    .and_then(|d| d.files.get(ix))
+                    .map(|f| f.path().to_owned()),
+            ) else {
+                continue;
+            };
+            let before = self.shown_rows(b);
+            self.lay_block(b, &path, data, pins);
+            self.stack_changed(b, before);
+        }
+        self.remeasure_pages();
+        // Files that now fold, or no longer do (Settings → Fold generated files).
+        self.sync_stack();
+        self.recompute_stack_matches();
     }
 }
 

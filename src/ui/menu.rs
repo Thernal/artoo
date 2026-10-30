@@ -232,7 +232,7 @@ impl Workspace {
             Act::Annotate => self.toggle_annotate(cx),
             Act::AutoReviewed => {
                 self.settings.auto_reviewed = !self.settings.auto_reviewed;
-                self.settings.save();
+                self.save_settings();
             }
             Act::FoldPlaces => self.toggle_menu(cx),
             Act::Tool(tool) => self.toggle_tool(tool, cx),

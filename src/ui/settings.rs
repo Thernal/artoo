@@ -47,9 +47,15 @@ impl Workspace {
         .detach();
     }
 
+    /// Saves the settings; the review's copy follows them (#165).
+    pub(super) fn save_settings(&mut self) {
+        self.settings.save();
+        self.review.settings = self.settings;
+    }
+
     fn change_settings(&mut self, change: impl FnOnce(&mut Self), cx: &mut Context<Self>) {
         change(self);
-        self.settings.save();
+        self.save_settings();
         super::share_settings(&self.settings);
         cx.notify();
     }

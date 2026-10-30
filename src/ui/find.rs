@@ -183,7 +183,7 @@ impl Workspace {
 
     /// Scrolls the diff so `row` sits a few lines below the top.
     pub(super) fn scroll_to_row(&mut self, row: usize) {
-        self.open_active();
+        self.review.open_active();
         let row = row + self.review.list_base();
         self.review.diff_list.scroll_to(gpui::ListOffset {
             item_ix: row.saturating_sub(3),
@@ -196,11 +196,11 @@ impl Workspace {
     /// relayout the list has not measured what lies below, so `scroll_to_reveal_item` cannot reach
     /// it.
     pub(super) fn reveal_rows(&mut self, rows: std::ops::Range<usize>) {
-        self.open_active();
+        self.review.open_active();
         let base = self.review.list_base();
         let rows = rows.start + base..rows.end + base;
         let height = f32::from(self.review.diff_list.viewport_bounds().size.height);
-        let fit = (height / f32::from(px(self.row_height()))).floor() as usize;
+        let fit = (height / f32::from(px(self.review.row_height()))).floor() as usize;
         let top = self.review.diff_list.logical_scroll_top().item_ix;
         // The top row may be cut, and threads are taller than a code row: keep a margin.
         if fit > 6 && rows.start > top && rows.end + 3 <= top + fit {

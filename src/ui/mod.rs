@@ -94,6 +94,7 @@ use gpui::{
 };
 use lists::Field;
 use menu::{Act, CtxMenu, Entry};
+use pins::Pins;
 use rows::{FileData, Row};
 use select::Sel;
 use std::cell::Cell as Shared;
@@ -849,6 +850,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         "underlined" => {
                             // Not saved either: only this frame.
                             this.settings.mark_style = crate::storage::MarkStyle::Underlined;
+                            this.review.settings = this.settings;
                             continue;
                         }
                         "comments" => {
@@ -1097,16 +1099,19 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         "rail-tabs" => {
                             this.settings.projects = crate::storage::Projects::Tabs;
                             share_settings(&this.settings);
+                            this.review.settings = this.settings;
                             continue;
                         }
                         "rail-menu" => {
                             this.settings.projects = crate::storage::Projects::Menu;
                             share_settings(&this.settings);
+                            this.review.settings = this.settings;
                             continue;
                         }
                         "flat" => {
                             this.settings.flat = true;
                             share_settings(&this.settings);
+                            this.review.settings = this.settings;
                             continue;
                         }
                         "appearance" => {
@@ -1869,8 +1874,6 @@ pub struct Workspace {
     file_jump: Option<(String, u32)>,
     /// Whether this is the tab on screen: one behind another polls its repository seldom.
     on_screen: Rc<Shared<bool>>,
-    /// Advance of one code character, measured on the first render and again in another face.
-    char_width: f32,
     /// The face `char_width` was measured in.
     char_face: SharedString,
     commit_scroll: UniformListScrollHandle,
@@ -1922,6 +1925,8 @@ impl Workspace {
             keys_exact: false,
             keys_changed_only: false,
             review: review::Review {
+                settings,
+                char_width: 0.,
                 options: ViewOptions::load(&settings),
                 notes: Vec::new(),
                 images: Default::default(),
@@ -2104,7 +2109,6 @@ impl Workspace {
             keyboard: Default::default(),
             file_jump: None,
             on_screen: Rc::new(Shared::new(true)),
-            char_width: 0.,
             char_face: theme::code_font(),
             commit_scroll: UniformListScrollHandle::new(),
             compare_scroll: UniformListScrollHandle::new(),
@@ -2662,75 +2666,24 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Lays the selected file out again for the current options; the diff scrolls to the top
-    /// (with all files in one scroll, only its rows that changed are replaced).
+    /// Lays the selected file out again (`Review::relayout`) with what is pinned on its lines now.
     fn relayout(&mut self) {
-        let block = self
-            .review
-            .stack
-            .as_ref()
-            .and_then(|s| s.block_of(self.review.file))
-            .map(|b| (b, self.shown_rows(b)));
-        let rows = self
-            .review
-            .data
-            .as_ref()
-            .map(|data| rows::layout(data, &self.review.view_options(), &self.review.expanded))
-            .unwrap_or_default();
-        self.review.rows = self.with_pins(rows);
-        self.review.notes = self.line_notes();
-        match block {
-            Some((b, before)) => self.stack_changed(b, before),
-            None => self.review.diff_list.reset(self.review.rows.len()),
-        }
-        self.review.offset = self.review.offset.min(self.max_offset());
-        self.review.recompute_matches();
+        let pins = self.open_pins();
+        self.review.relayout(&pins);
     }
 
-    /// Every file laid out again: the open one, or all of them in one scroll. The line at the top
-    /// stays there — a narrow window's unified diff and back has other rows above it (the
-    /// developer, 2026-10-23: the place seemed lost).
+    /// Every file laid out again (`Review::relayout_all`) with what is pinned on their lines now.
     fn relayout_all(&mut self) {
-        let anchor = self.review.scroll_anchor();
-        if self.review.stack.is_some() {
-            self.relayout_stack();
-        } else {
-            self.relayout();
-        }
-        if let Some(anchor) = anchor {
-            self.review.restore_anchor(anchor);
-        }
+        let pins = self.all_pins();
+        self.review.relayout_all(&pins);
     }
 
-    /// Shows the hidden lines of an unchanged run in place, keeping the scroll position.
+    /// Shows the hidden lines of an unchanged run in place (`Review::expand_gap`).
     fn expand_gap(&mut self, segment: usize, cx: &mut Context<Self>) {
-        let Some(data) = self.review.data.clone() else {
-            return;
-        };
-        if self.review.stack.is_some() {
-            self.review.expanded.insert(segment);
-            self.relayout();
-            return cx.notify();
+        let pins = self.open_pins();
+        if self.review.expand_gap(segment, &pins) {
+            cx.notify();
         }
-        let Some(at) = self
-            .review
-            .rows
-            .iter()
-            .position(|r| matches!(r, Row::Gap { segment: s, .. } if *s == segment))
-        else {
-            return;
-        };
-        self.review.expanded.insert(segment);
-        let rows = self.with_pins(rows::layout(
-            &data,
-            &self.review.view_options(),
-            &self.review.expanded,
-        ));
-        let inserted = rows.len() + 1 - self.review.rows.len();
-        self.review.rows = rows;
-        self.review.diff_list.splice(at..at + 1, inserted);
-        self.review.recompute_matches();
-        cx.notify();
     }
 
     fn set_option(&mut self, opt: Opt, value: bool, cx: &mut Context<Self>) {
@@ -3007,15 +2960,6 @@ impl Workspace {
         }
     }
 
-    /// The code's font size and line height with the zoom applied.
-    fn code_size(&self) -> f32 {
-        (CODE_SIZE * f32::from(self.settings.zoom) / 100.).round()
-    }
-
-    fn row_height(&self) -> f32 {
-        (DIFF_ROW * f32::from(self.settings.zoom) / 100.).round()
-    }
-
     /// ⌘+ and ⌘−: the whole interface one step bigger or smaller.
     pub(super) fn ui_zoom_by(&mut self, steps: i32, window: &mut Window, cx: &mut Context<Self>) {
         let next = i32::from(self.settings.ui_zoom) + steps * i32::from(Settings::ZOOM_STEP);
@@ -3033,9 +2977,9 @@ impl Workspace {
             return;
         }
         self.settings.ui_zoom = zoom;
-        self.settings.save();
+        self.save_settings();
         apply_ui_zoom(zoom, window);
-        self.char_width = 0.;
+        self.review.char_width = 0.;
         self.relayout_all();
         cx.notify();
     }
@@ -3047,9 +2991,9 @@ impl Workspace {
             return;
         }
         self.settings.zoom = zoom;
-        self.settings.save();
+        self.save_settings();
         // The width of a character is measured again at the new size; the rows change height.
-        self.char_width = 0.;
+        self.review.char_width = 0.;
         self.relayout_all();
         cx.notify();
     }
@@ -3061,86 +3005,22 @@ impl Workspace {
             && self.review.diff.as_ref().is_some_and(|d| d.files.len() > 1)
     }
 
-    /// A generated file with a long change starts folded; the reader can open it.
-    pub(super) fn generated_folded(&self, file: &FileDiff) -> bool {
-        self.settings.fold_generated
-            && crate::generated::is_generated(file.path())
-            && file.added + file.removed > crate::generated::FOLD_ABOVE
-            && !self.review.unfolded.contains(file.path())
-    }
-
     fn unfold(&mut self, path: &str, cx: &mut Context<Self>) {
         self.review.unfolded.insert(path.to_owned());
-        self.sync_stack();
+        self.review.sync_stack();
         self.build_stack(cx);
         cx.notify();
-    }
-
-    fn row_style(&self) -> RowStyle<'_> {
-        self.row_style_for(self.review.data.as_deref(), &self.review.notes, true)
-    }
-
-    /// How a row of a file built as `data` is drawn; the selection and blame only in the `active`
-    /// file.
-    fn row_style_for<'a>(
-        &'a self,
-        data: Option<&FileData>,
-        notes: &'a [diff_view::LineNote],
-        active: bool,
-    ) -> RowStyle<'a> {
-        let digits = data.map_or(3, |d| d.gutter_digits);
-        RowStyle {
-            wrap: self.review.options.wrap,
-            offset: self.review.offset,
-            marks: self.settings.mark_style,
-            terms: &self.review.dterms,
-            strong: false,
-            sel: self.review.sel.filter(|_| active),
-            notes,
-            annot: self.review.annotate.then_some(if active {
-                &self.review.annotations[..]
-            } else {
-                &[]
-            }),
-            row: self.row_height(),
-            // Room for the comment mark (16 px) left of the number.
-            gutter: digits.max(3) as f32 * self.char_width + 30.,
-        }
-    }
-
-    /// How far the longest line can scroll before its end reaches the right edge.
-    fn max_offset(&self) -> f32 {
-        let Some(widest) = self.review.widest() else {
-            return 0.;
-        };
-        let style = self.row_style();
-        let sides = if self.review.view_options().unified {
-            1.
-        } else {
-            2.
-        };
-        // A file's card is inset from the sides, and framed.
-        let card = if self.review.stack.is_some() {
-            2. * stack::CARD_MARGIN + 2.
-        } else {
-            0.
-        };
-        let visible = (self.review.body_width.get()
-            - card
-            - style.chrome(self.review.view_options().unified))
-            / sides;
-        (widest as f32 * self.char_width + 24. - visible).max(0.)
     }
 
     fn scroll_horizontally(&mut self, event: &ScrollWheelEvent, cx: &mut Context<Self>) {
         if self.review.options.wrap {
             return;
         }
-        let delta = f32::from(event.delta.pixel_delta(px(self.row_height())).x);
+        let delta = f32::from(event.delta.pixel_delta(px(self.review.row_height())).x);
         if delta == 0. {
             return;
         }
-        let offset = (self.review.offset - delta).clamp(0., self.max_offset());
+        let offset = (self.review.offset - delta).clamp(0., self.review.max_offset());
         if offset != self.review.offset {
             self.review.offset = offset;
             cx.notify();
@@ -3701,7 +3581,7 @@ impl Workspace {
                     .child(chip("unified", "Unified", o.unified).on_click(set(Opt::Unified, true))),
             )
             .children(self.review.stack.is_some().then(|| {
-                let folded = self.any_folded();
+                let folded = self.review.any_folded();
                 diff_view::group().child(
                     chip(
                         "expand-all",
@@ -4189,7 +4069,7 @@ impl Workspace {
         let file = diff.files.get(self.review.file);
         let body = match (file, &self.review.data) {
             _ if self.review.stack.is_some() => self.render_rows(cx).into_any_element(),
-            (Some(f), _) if self.generated_folded(f) => {
+            (Some(f), _) if self.review.generated_folded(f) => {
                 let path = f.path().to_owned();
                 div()
                     .flex_1()
@@ -4482,7 +4362,7 @@ impl Workspace {
                     if inside == 0 {
                         return workspace.render_block_header(file, this.clone());
                     }
-                    if workspace.body(b) != stack::Body::Rows {
+                    if workspace.review.body(b) != stack::Body::Rows {
                         return workspace.render_block_note(b, file, this.clone(), cx);
                     }
                     (Some((b, file)), inside - 1)
@@ -4500,7 +4380,9 @@ impl Workspace {
                     let (Some(data), Some(&row)) = (block.data.clone(), block.rows.get(ix)) else {
                         return div().into_any_element();
                     };
-                    let style = workspace.row_style_for(Some(&data), &block.notes, false);
+                    let style = workspace
+                        .review
+                        .row_style_for(Some(&data), &block.notes, false);
                     (data, row, style)
                 }
                 _ => {
@@ -4509,7 +4391,7 @@ impl Workspace {
                     else {
                         return div().into_any_element();
                     };
-                    (data, row, workspace.row_style())
+                    (data, row, workspace.review.row_style())
                 }
             };
             style.strong = match (&workspace.review.stack, file) {
@@ -4672,7 +4554,7 @@ impl Workspace {
         .flex_1();
 
         let width = self.review.body_width.clone();
-        let max = self.max_offset();
+        let max = self.review.max_offset();
         let thumb = (!self.review.options.wrap && max > 0.).then(|| {
             // Its track keeps clear of the island's round bottom corners.
             let inset = if flat() { 0. } else { ISLAND_RADIUS };
@@ -4699,8 +4581,8 @@ impl Workspace {
             .flex_col()
             .on_scroll_wheel(cx.listener(|this, event, _, cx| this.scroll_horizontally(event, cx)))
             .font_family(theme::code_font())
-            .text_size(px(self.code_size()))
-            .line_height(px(self.row_height()))
+            .text_size(px(self.review.code_size()))
+            .line_height(px(self.review.row_height()))
             .child(rows)
             .child(
                 canvas(
@@ -5079,6 +4961,139 @@ impl review::Review {
         let mut options = self.options;
         options.unified |= self.narrow;
         options
+    }
+
+    /// The code's font size and line height with the zoom applied.
+    fn code_size(&self) -> f32 {
+        (CODE_SIZE * f32::from(self.settings.zoom) / 100.).round()
+    }
+
+    fn row_height(&self) -> f32 {
+        (DIFF_ROW * f32::from(self.settings.zoom) / 100.).round()
+    }
+
+    /// A generated file with a long change starts folded; the reader can open it.
+    pub(super) fn generated_folded(&self, file: &FileDiff) -> bool {
+        self.settings.fold_generated
+            && crate::generated::is_generated(file.path())
+            && file.added + file.removed > crate::generated::FOLD_ABOVE
+            && !self.unfolded.contains(file.path())
+    }
+
+    fn row_style(&self) -> RowStyle<'_> {
+        self.row_style_for(self.data.as_deref(), &self.notes, true)
+    }
+
+    /// How a row of a file built as `data` is drawn; the selection and blame only in the `active`
+    /// file.
+    fn row_style_for<'a>(
+        &'a self,
+        data: Option<&FileData>,
+        notes: &'a [diff_view::LineNote],
+        active: bool,
+    ) -> RowStyle<'a> {
+        let digits = data.map_or(3, |d| d.gutter_digits);
+        RowStyle {
+            wrap: self.options.wrap,
+            offset: self.offset,
+            marks: self.settings.mark_style,
+            terms: &self.dterms,
+            strong: false,
+            sel: self.sel.filter(|_| active),
+            notes,
+            annot: self
+                .annotate
+                .then_some(if active { &self.annotations[..] } else { &[] }),
+            row: self.row_height(),
+            // Room for the comment mark (16 px) left of the number.
+            gutter: digits.max(3) as f32 * self.char_width + 30.,
+        }
+    }
+
+    /// How far the longest line can scroll before its end reaches the right edge.
+    fn max_offset(&self) -> f32 {
+        let Some(widest) = self.widest() else {
+            return 0.;
+        };
+        let style = self.row_style();
+        let sides = if self.view_options().unified { 1. } else { 2. };
+        // A file's card is inset from the sides, and framed.
+        let card = if self.stack.is_some() {
+            2. * stack::CARD_MARGIN + 2.
+        } else {
+            0.
+        };
+        let visible =
+            (self.body_width.get() - card - style.chrome(self.view_options().unified)) / sides;
+        (widest as f32 * self.char_width + 24. - visible).max(0.)
+    }
+
+    /// Lays the selected file out again for the current options, with `pins` under their lines; the diff
+    /// scrolls to the top (with all files in one scroll, only its rows that changed are replaced).
+    pub(super) fn relayout(&mut self, pins: &Pins) {
+        let block = self
+            .stack
+            .as_ref()
+            .and_then(|s| s.block_of(self.file))
+            .map(|b| (b, self.shown_rows(b)));
+        let rows = self
+            .data
+            .as_ref()
+            .map(|data| rows::layout(data, &self.view_options(), &self.expanded))
+            .unwrap_or_default();
+        self.rows = self.with_pins(rows, pins);
+        self.notes = self.line_notes(pins);
+        match block {
+            Some((b, before)) => self.stack_changed(b, before),
+            None => self.diff_list.reset(self.rows.len()),
+        }
+        self.offset = self.offset.min(self.max_offset());
+        self.recompute_matches();
+    }
+
+    /// Every file laid out again: the open one, or all of them in one scroll. The line at the top
+    /// stays there — a narrow window's unified diff and back has other rows above it (the
+    /// developer, 2026-10-23: the place seemed lost).
+    pub(super) fn relayout_all(&mut self, pins: &Pins) {
+        let anchor = self.scroll_anchor();
+        if self.stack.is_some() {
+            self.relayout_stack(pins);
+        } else {
+            self.relayout(pins);
+        }
+        if let Some(anchor) = anchor {
+            self.restore_anchor(anchor);
+        }
+    }
+
+    /// Shows the hidden lines of an unchanged run in place, keeping the scroll position; false when
+    /// there is nothing to show.
+    pub(super) fn expand_gap(&mut self, segment: usize, pins: &Pins) -> bool {
+        let Some(data) = self.data.clone() else {
+            return false;
+        };
+        if self.stack.is_some() {
+            self.expanded.insert(segment);
+            self.relayout(pins);
+            return true;
+        }
+        let Some(at) = self
+            .rows
+            .iter()
+            .position(|r| matches!(r, Row::Gap { segment: s, .. } if *s == segment))
+        else {
+            return false;
+        };
+        self.expanded.insert(segment);
+        let rows = self.with_pins(
+            rows::layout(&data, &self.view_options(), &self.expanded),
+            pins,
+        );
+        let inserted = rows.len() + 1 - self.rows.len();
+        self.rows = rows;
+        self.diff_list.splice(at..at + 1, inserted);
+        self.recompute_matches();
+        true
     }
 }
 

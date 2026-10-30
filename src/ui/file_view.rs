@@ -414,7 +414,7 @@ impl Workspace {
 
     /// The lines with their numbers; a number's click writes a note on its line.
     fn render_file_lines(&self, view: &FileView, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let size = self.code_size();
+        let size = self.review.code_size();
         let row = (size * 1.55).round();
         let digits = view.lines.len().max(1).to_string().len() as f32;
         // Room on its left for the + that writes a note (#104).
