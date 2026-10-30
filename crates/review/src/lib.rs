@@ -9,6 +9,7 @@ pub mod diff;
 pub mod diff_view;
 pub mod file_view;
 pub mod find;
+pub mod goline;
 pub mod image_view;
 pub mod lines;
 pub mod lists;

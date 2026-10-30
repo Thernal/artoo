@@ -1,12 +1,12 @@
-//! Going to a line (#7): `c` puts a marker on the diff, a line number typed moves it and ↵ opens the composer
-//! there, on the lines selected at once; a run of unchanged lines that holds it opens. And a comment's place
-//! shown: its file, its line in view, from the Agents window or the Inbox.
+//! Going to a line (#7), the tab's side: `c` opens the composer on the lines selected at once, on a folder's page
+//! or a file in Code its note, else the review's marker (`artoo_review::goline`), whose line has the keyboard here
+//! and is drawn as the tab's field. And a comment's place shown: its file, its line in view, from the Agents window
+//! or the Inbox.
 
-use super::input::{self, Edit};
-use super::px;
+use super::Workspace;
 use super::rows::Row;
 use super::typing::{self, Input};
-use super::{ROW_RADIUS, Workspace, theme};
+use artoo_review::goline::GoLineKey;
 use gpui::{App, Context, KeyDownEvent, WeakEntity, div, prelude::*};
 
 impl Workspace {
@@ -37,8 +37,7 @@ impl Workspace {
         // On a file read in Code: the number of the line to write a note on (#75).
         if self.code_file_shown(cx) && !self.settings_open && self.compose.is_none() {
             self.reset_field_edit();
-            self.review
-                .update(cx, |rv, _| rv.goline = Some(String::new()));
+            self.review.update(cx, |rv, _| rv.open_goline());
             self.take_keyboard(Input::GoLine, cx);
             return cx.notify();
         }
@@ -51,8 +50,7 @@ impl Workspace {
         }
         self.reset_field_edit();
         self.zone = super::zones::Zone::Diff;
-        self.review
-            .update(cx, |rv, _| rv.goline = Some(String::new()));
+        self.review.update(cx, |rv, _| rv.open_goline());
         self.take_keyboard(Input::GoLine, cx);
         self.move_marker(cx);
         cx.notify();
@@ -60,55 +58,21 @@ impl Workspace {
 
     /// The line marker goes, nothing written.
     pub(super) fn close_goline(&mut self, cx: &mut App) {
-        self.review.update(cx, |rv, _| {
-            rv.goline = None;
-            rv.goline_row = None;
-        });
+        self.review.update(cx, |rv, _| rv.close_goline());
         self.refresh_rows(cx);
     }
 
+    /// A key while the line after `c` has the keyboard.
     pub(super) fn goline_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
-        let Some(mut text) = self.review.read(cx).goline.clone() else {
-            return;
-        };
-        let key = event.keystroke.key.as_str();
-        if matches!(key, "up" | "down") {
-            let step: i64 = if key == "up" { -1 } else { 1 };
-            if let Some((old, line)) = self.review.read(cx).goline_target() {
-                let next = (i64::from(line) + step).max(1);
-                self.review.update(cx, |rv, _| {
-                    rv.goline = Some(format!("{}{next}", if old { "-" } else { "" }))
-                });
-                self.move_marker(cx);
-            }
-            return cx.notify();
-        }
-        let edit = input::edit(&mut text, &mut self.field_edit, &event.keystroke, cx);
-        self.review
-            .update(cx, |rv, _| rv.goline = Some(text.clone()));
-        match edit {
-            Edit::Escape => self.close_goline(cx),
-            // Digits, and a minus first for a removed line.
-            Edit::Changed => {
-                let keep = |(i, c): &(usize, char)| c.is_ascii_digit() || (*i == 0 && *c == '-');
-                let filtered: String = text
-                    .chars()
-                    .enumerate()
-                    .filter(keep)
-                    .map(|(_, c)| c)
-                    .collect();
-                if filtered != text {
-                    // The caret stays after the chars it followed.
-                    let caret = self.field_edit.caret();
-                    let before = text[..caret].chars().enumerate().filter(keep).count();
-                    self.field_edit = crate::textedit::TextEdit::new(filtered.as_str());
-                    self.field_edit.place(before, false);
-                    self.review.update(cx, |rv, _| rv.goline = Some(filtered));
-                }
-                self.move_marker(cx);
-            }
-            Edit::Enter { .. } => return self.finish_goline(cx),
-            Edit::Selected | Edit::Ignored => {}
+        let edit = &mut self.field_edit;
+        let done = self
+            .review
+            .update(cx, |rv, cx| rv.goline_key(&event.keystroke, edit, cx));
+        match done {
+            GoLineKey::Close => self.close_goline(cx),
+            GoLineKey::Moved => self.move_marker(cx),
+            GoLineKey::Finish => return self.finish_goline(cx),
+            GoLineKey::Kept => {}
         }
         cx.notify();
     }
@@ -117,99 +81,41 @@ impl Workspace {
     fn move_marker(&mut self, cx: &mut App) {
         // The prompt row moves with the marker, so the rows are laid out again first.
         self.refresh_rows(cx);
-        self.review.update(cx, |rv, _| {
-            rv.goline_row = rv
-                .goline_target()
-                .and_then(|(old, line)| rv.row_of_line(line, old))
-        });
-        if let Some(at) = self.review.read(cx).goline_row {
-            // The marked line and the prompt under it.
-            self.review.update(cx, |rv, _| rv.reveal_rows(at..at + 2));
-        } else if let Some(gap) = self
-            .review
-            .read(cx)
-            .goline_target()
-            .and_then(|(old, line)| self.review.read(cx).gap_of(line, old))
-        {
-            // Folded away: the run that holds it, which ↵ opens.
-            self.review.update(cx, |rv, _| rv.reveal_rows(gap..gap + 1));
-        }
+        self.review.update(cx, |rv, _| rv.place_marker());
     }
 
     /// Opens the composer under the marked line.
     fn finish_goline(&mut self, cx: &mut Context<Self>) {
-        if self.code_file_shown(cx) {
-            let line = self
-                .review
-                .read(cx)
-                .goline
-                .as_deref()
-                .and_then(|t| t.parse::<u32>().ok())
-                .unwrap_or(0);
-            let count = self
-                .review
-                .read(cx)
-                .file_view
-                .as_ref()
-                .map_or(0, |v| v.line_count());
-            if line == 0 || line as usize > count {
-                self.error = Some(format!("This file has {count} lines.").into());
-                return cx.notify();
+        let file = self.code_file_shown(cx);
+        match self.review.update(cx, |rv, _| rv.goline_at(file)) {
+            None => cx.notify(),
+            Some(Err(why)) => {
+                self.error = Some(why.into());
+                cx.notify();
             }
-            self.review.update(cx, |rv, _| rv.goline = None);
-            return self.start_file_comment(line, cx);
-        }
-        let Some(data) = self.review.read(cx).data.clone() else {
-            return;
-        };
-        let Some((old, line)) = self.review.read(cx).goline_target() else {
-            return cx.notify();
-        };
-        if line == 0 || line > data.side(old).count() {
-            self.error = Some(
-                format!(
-                    "This file has {} {} lines.",
-                    data.side(old).count(),
-                    if old { "old" } else { "new" }
-                )
-                .into(),
-            );
-            return cx.notify();
-        }
-        self.review.update(cx, |rv, _| {
-            rv.goline = None;
-            rv.goline_row = None;
-        });
-        self.reveal_line(line, old, cx);
-        self.start_comment(old, line, cx);
-        if let Some(at) = self.review.read(cx).row_of_line(line, old) {
-            self.review.update(cx, |rv, _| rv.reveal_rows(at..at + 2));
+            Some(Ok((_, line))) if file => self.start_file_comment(line, cx),
+            Some(Ok((old, line))) => {
+                self.reveal_line(line, old, cx);
+                self.start_comment(old, line, cx);
+                if let Some(at) = self.review.read(cx).row_of_line(line, old) {
+                    self.review.update(cx, |rv, _| rv.reveal_rows(at..at + 2));
+                }
+            }
         }
     }
 
     /// Opens the collapsed run of unchanged lines that holds `line`, if there is one.
     fn reveal_line(&mut self, line: u32, old: bool, cx: &mut App) {
-        if self.review.read(cx).row_of_line(line, old).is_some() {
-            return;
-        }
-        let Some(data) = &self.review.read(cx).data else {
-            return;
-        };
-        let hit = data.segments.iter().position(|s| match s {
-            super::rows::Segment::Same {
-                old: o,
-                new: n,
-                len,
-            } => {
-                let start = if old { *o } else { *n };
-                line >= start && line < start + len
-            }
-            super::rows::Segment::Change(_) => false,
-        });
-        if let Some(segment) = hit {
-            self.review.update(cx, |rv, _| rv.expanded.insert(segment));
+        if self.review.update(cx, |rv, _| rv.open_run_of(line, old)) {
             self.relayout(cx);
         }
+    }
+
+    /// The line typed after `c`, as a field: with its caret while it has the keyboard.
+    fn goline_field(&self, text: &str, this: WeakEntity<Self>, cx: &App) -> gpui::AnyElement {
+        let active = self.has_keyboard(Input::GoLine, cx);
+        self.field_look(text, active, "first change", Default::default(), this)
+            .into_any_element()
     }
 
     /// The prompt of `c` under the marked line.
@@ -219,117 +125,23 @@ impl Workspace {
         this: WeakEntity<Self>,
         cx: &App,
     ) -> gpui::AnyElement {
-        let Some(text) = self.review.read(cx).goline.as_ref() else {
+        let Some(text) = self.review.read(cx).goline.clone() else {
             return div().into_any_element();
         };
-        let active = self.has_keyboard(Input::GoLine, cx);
-        let row =
-            div().w_full().pl(px(indent)).pr(px(12.)).py(px(4.)).child(
-                div()
-                    .max_w(px(640.))
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .px_3()
-                    .py(px(6.))
-                    .rounded(px(ROW_RADIUS))
-                    .border_2()
-                    .border_color(theme::focus())
-                    .bg(theme::panel())
-                    .font_family(theme::ui_font())
-                    .text_size(px(12.))
-                    .child(div().text_color(theme::muted()).child("Comment on line"))
-                    .child(div().min_w(px(56.)).font_family(theme::code_font()).child(
-                        self.field_look(
-                            text,
-                            active,
-                            "first change",
-                            Default::default(),
-                            this.clone(),
-                        ),
-                    ))
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(theme::faint())
-                            .child("↵ write · ↑↓ step · −12 a removed line · esc"),
-                    ),
-            );
+        let field = self.goline_field(&text, this.clone(), cx);
+        let row = self.review.read(cx).render_goline_row(indent, field);
         typing::input_box_of(row, Input::GoLine, this).into_any_element()
     }
 
+    /// The prompt of `c` over the diff, while the line is on no row.
     pub(super) fn render_goline(
         &self,
         this: WeakEntity<Self>,
         cx: &App,
     ) -> Option<impl IntoElement + use<>> {
-        if self.review.read(cx).goline_row.is_some() {
-            return None;
-        }
-        let text = self.review.read(cx).goline.as_ref()?;
-        let target = self.review.read(cx).goline_target();
-        let preview = target.and_then(|(old, line)| {
-            let data = self.review.read(cx).data.as_ref()?;
-            (line >= 1 && line <= data.side(old).count())
-                .then(|| data.side(old).line(line).0.trim().to_owned())
-        });
-        let hint = match (target, &preview, self.review.read(cx).goline_row) {
-            (None, ..) if !text.is_empty() => "type a line number".to_owned(),
-            (None, ..) => "no changes in this file".to_owned(),
-            (Some(_), None, _) => "no such line in this file".to_owned(),
-            (Some(_), Some(_), None) => "inside unchanged lines · ↵ opens them".to_owned(),
-            _ => "↵ comment here".to_owned(),
-        };
-        let active = self.has_keyboard(Input::GoLine, cx);
-        let card = div()
-            .absolute()
-            .bottom(px(16.))
-            .left(px(16.))
-            .max_w(px(520.))
-            .flex()
-            .flex_col()
-            .gap_1()
-            .px_3()
-            .py_2()
-            .rounded(px(ROW_RADIUS))
-            .border_2()
-            .border_color(theme::focus())
-            .bg(theme::panel())
-            .shadow_lg()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(div().text_color(theme::muted()).child("Comment on line"))
-                    .child(div().min_w(px(60.)).font_family(theme::code_font()).child(
-                        self.field_look(
-                            text,
-                            active,
-                            "first change",
-                            Default::default(),
-                            this.clone(),
-                        ),
-                    ))
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(theme::faint())
-                            .child(hint),
-                    ),
-            )
-            .children(preview.map(|code| {
-                super::hover::cut("preview", code)
-                    .font_family(theme::code_font())
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-            }))
-            .child(
-                div()
-                    .text_size(px(11.))
-                    .text_color(theme::faint())
-                    .child("digits move the marker · ↑↓ step · −12 a removed line · ↵ open · esc"),
-            );
+        let text = self.review.read(cx).goline.clone()?;
+        let field = self.goline_field(&text, this.clone(), cx);
+        let card = self.review.read(cx).render_goline(field)?;
         Some(typing::input_box_of(card, Input::GoLine, this))
     }
 
