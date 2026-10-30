@@ -117,11 +117,15 @@ impl Workspace {
         self.notices.show(iid, &self.requests.read(cx).waiting, me);
     }
 
-    /// The host's answer for the open request `iid`, from a read begun at tick `from`: what shows
-    /// is made again on it, and the changes every reader holds are let go.
+    /// The host's answer for the open request `iid`, from a read begun at tick `from`.
     pub(super) fn take_base(&mut self, iid: u64, from: u64, base: Base, cx: &mut Context<Self>) {
-        self.requests.update(cx, |rq, _| rq.base = base);
-        self.requests.update(cx, |rq, _| rq.from = from);
+        self.requests.update(cx, |rq, _| rq.take_base(from, base));
+        self.base_taken(iid, cx);
+    }
+
+    /// What shows of the open request `iid` is made again on the host's answer just taken, and
+    /// the changes every reader holds are let go.
+    pub(super) fn base_taken(&mut self, iid: u64, cx: &mut Context<Self>) {
         self.settle_waiting(cx);
         self.show_waiting(iid, cx);
         // Both read the discussions just taken in.

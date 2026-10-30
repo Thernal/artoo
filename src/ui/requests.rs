@@ -36,80 +36,22 @@ impl Workspace {
         cx.notify();
     }
 
-    /// The next page of `scope`'s merged or closed requests, unless one is on its way or none
-    /// follows.
+    /// The next page of `scope`'s merged or closed requests (`Requests::load_past_page`).
     pub(super) fn load_past_page(&mut self, scope: Scope, cx: &mut Context<Self>) {
-        let state = self.requests.read(cx).past.of;
-        let login = self.requests.read(cx).login.clone();
-        let whose = match (scope, login) {
-            (Scope::All, _) => Some(mr::Whose::All),
-            (Scope::ReviewMe, Some(login)) => Some(mr::Whose::Reviewer(login)),
-            (Scope::Mine, Some(login)) => Some(mr::Whose::Author(login)),
-            _ => None,
-        };
-        // Who the token is not known yet: read once it is, as the list is drawn.
-        let (Some(remote), Some(whose)) = (self.web.clone(), whose) else {
+        let Some(host) = self.host(cx) else {
             return;
         };
-        let host = super::host_of(&remote, cx);
-        let Some(at) = self.requests.update(cx, |rq, _| {
-            let pages = rq.past.of_scope_mut(scope);
-            if pages.loading || !pages.more || state == mr::MrState::Opened {
-                return None;
-            }
-            pages.loading = true;
-            Some(pages.at.clone())
-        }) else {
-            return;
-        };
-        let task = cx.spawn(async move |this, cx| {
-            let read = cx
-                .background_executor()
-                .spawn(async move { host.list_past(state, &whose, at.as_deref()) })
-                .await;
-            this.update(cx, |this, cx| {
-                if this.requests.read(cx).past.of != state {
-                    return;
-                }
-                this.requests.update(cx, |rq, _| {
-                    let pages = rq.past.of_scope_mut(scope);
-                    pages.loading = false;
-                    match read {
-                        Ok(page) => {
-                            pages.more = page.next.is_some();
-                            pages.at = page.next;
-                            pages.total = page.total.or(pages.total);
-                            pages.error = None;
-                            let known: std::collections::HashSet<u64> =
-                                pages.list.iter().map(|m| m.iid).collect();
-                            pages
-                                .list
-                                .extend(page.list.into_iter().filter(|m| !known.contains(&m.iid)));
-                        }
-                        Err(e) => {
-                            pages.more = false;
-                            pages.error = Some(format!("{e:#}"));
-                        }
-                    }
-                });
-                cx.notify();
-            })
-            .ok();
-        });
         self.requests
-            .update(cx, |rq, _| rq.past.of_scope_mut(scope).task = Some(task));
+            .update(cx, |rq, cx| rq.load_past_page(scope, host, cx));
     }
 
     /// The page of the scope shown that could not be read, again.
     pub(super) fn retry_past_page(&mut self, cx: &mut Context<Self>) {
-        let scope = self.requests.read(cx).scope;
-        self.requests.update(cx, |rq, _| {
-            let pages = rq.past.of_scope_mut(scope);
-            pages.error = None;
-            pages.more = true;
-        });
-        self.load_past_page(scope, cx);
-        cx.notify();
+        let Some(host) = self.host(cx) else {
+            return;
+        };
+        self.requests
+            .update(cx, |rq, cx| rq.retry_past_page(host, cx));
     }
 
     /// What became of requests `iids`, open in the menu but gone from the open list, or a link's
@@ -236,43 +178,34 @@ impl Workspace {
             .find(|m| m.source == name)
     }
 
-    /// Reads the discussions, pending comments and approvals of the current request again (after
-    /// a change to it) and swaps them in, nothing cleared first; a read that fails leaves what
-    /// shows (#139).
+    /// Reads the current request's discussions, pending comments and approvals again
+    /// (`Requests::reload_threads`).
     pub(super) fn reload_threads(&mut self, cx: &mut Context<Self>) {
-        let (Some(iid), Some(remote)) = (self.requests.read(cx).current, self.web.clone()) else {
+        let Some(host) = self.host(cx) else {
             return;
         };
-        let host = super::host_of(&remote, cx);
-        let from = self.requests.read(cx).waiting.tick();
-        let task = Some(cx.spawn(async move |this, cx| {
-            let read = cx
-                .background_executor()
-                .spawn(async move {
-                    let drafts = host.drafts(iid).ok();
-                    let approvals = host.approvals(iid).ok();
-                    host.threads(iid).map(|t| (t, drafts, approvals))
-                })
-                .await;
-            this.update(cx, |this, cx| {
-                if this.requests.read(cx).current != Some(iid) {
-                    return;
-                }
-                if let Ok((threads, drafts, approvals)) = read {
-                    let base = super::waiting::Base {
-                        threads,
-                        drafts: drafts
-                            .unwrap_or_else(|| this.requests.read(cx).base.drafts.clone()),
-                        approvals: approvals
-                            .or_else(|| this.requests.read(cx).base.approvals.clone()),
-                    };
-                    this.take_base(iid, from, base, cx);
-                }
-                cx.notify();
-            })
-            .ok();
-        }));
-        self.requests.update(cx, |rq, _| rq.reload_task = task);
+        self.requests
+            .update(cx, |rq, cx| rq.reload_threads(host, cx));
+    }
+
+    /// The open repository's host, when it has one.
+    pub(super) fn host(&self, cx: &App) -> Option<std::sync::Arc<dyn artoo_hosts_api::Host>> {
+        self.web.as_ref().map(|remote| super::host_of(remote, cx))
+    }
+
+    /// What the requests tell the tab after a read of their own.
+    pub(super) fn requests_event(
+        &mut self,
+        _: gpui::Entity<artoo_requests::requests::Requests>,
+        event: &artoo_requests::requests::Event,
+        cx: &mut Context<Self>,
+    ) {
+        use artoo_requests::requests::Event;
+        match event {
+            Event::Read(iid) => self.base_taken(*iid, cx),
+            Event::Failed(e) => self.error = Some(e.clone().into()),
+        }
+        cx.notify();
     }
 
     /// Follows the branch selection: a request opened as one (or being opened) whose source

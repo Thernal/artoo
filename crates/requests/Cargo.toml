@@ -10,5 +10,6 @@ publish = false
 artoo-core = { path = "../core" }
 artoo-hosts-api = { path = "../hosts-api" }
 artoo-ui-kit = { path = "../ui-kit" }
+anyhow.workspace = true
 git2.workspace = true
 gpui.workspace = true

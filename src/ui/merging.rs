@@ -74,30 +74,12 @@ impl Workspace {
         ))
     }
 
-    /// Reads where merging the current request stands again: after a rebase, or auto-merge set
-    /// or cancelled.
+    /// Reads where merging the current request stands again (`Requests::reload_merge`).
     pub(super) fn reload_merge(&mut self, cx: &mut Context<Self>) {
-        let (Some(iid), Some(remote)) = (self.requests.read(cx).current, self.web.clone()) else {
+        let Some(host) = self.host(cx) else {
             return;
         };
-        let host = super::host_of(&remote, cx);
-        let task = Some(cx.spawn(async move |this, cx| {
-            let read = cx
-                .background_executor()
-                .spawn(async move { host.merge_state(iid) })
-                .await;
-            this.update(cx, |this, cx| {
-                if this.requests.read(cx).current == Some(iid) {
-                    this.requests.update(cx, |rq, _| rq.merge_busy = None);
-                    if let Ok(host) = read {
-                        this.requests.update(cx, |rq, _| rq.merge = Some(host));
-                    }
-                    cx.notify();
-                }
-            })
-            .ok();
-        }));
-        self.requests.update(cx, |rq, _| rq.merge_task = task);
+        self.requests.update(cx, |rq, cx| rq.reload_merge(host, cx));
     }
 
     /// Merge in the request's bar, as it stands; none while the host has not said.
@@ -439,43 +421,18 @@ impl Workspace {
         );
     }
 
-    /// A call about merging the current request, `busy` said in Merge's place until it answers;
-    /// then where it stands is read again.
+    /// A call about merging the current request (`Requests::merge_call`).
     fn merge_call(
         &mut self,
         busy: &'static str,
         call: impl FnOnce(&dyn artoo_hosts_api::Host, u64, &str) -> anyhow::Result<()> + Send + 'static,
         cx: &mut Context<Self>,
     ) {
-        let (Some(iid), Some(remote)) = (self.requests.read(cx).current, self.web.clone()) else {
+        let Some(host) = self.host(cx) else {
             return;
         };
-        let host = super::host_of(&remote, cx);
-        let node = self
-            .requests
-            .read(cx)
-            .merge
-            .as_ref()
-            .map(|h| h.node.clone())
-            .unwrap_or_default();
-        self.requests.update(cx, |rq, _| rq.merge_busy = Some(busy));
-        let task = Some(cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { call(&*host, iid, &node) })
-                .await;
-            this.update(cx, |this, cx| {
-                if let Err(e) = result {
-                    this.requests.update(cx, |rq, _| rq.merge_busy = None);
-                    this.error = Some(format!("{e:#}").into());
-                    return cx.notify();
-                }
-                this.reload_merge(cx);
-            })
-            .ok();
-        }));
-        self.requests.update(cx, |rq, _| rq.merge_task = task);
-        cx.notify();
+        self.requests
+            .update(cx, |rq, cx| rq.merge_call(busy, host, call, cx));
     }
 
     /// The card before a merge goes, over everything.

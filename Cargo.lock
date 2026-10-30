@@ -387,6 +387,7 @@ dependencies = [
 name = "artoo-requests"
 version = "1.3.0"
 dependencies = [
+ "anyhow",
  "artoo-core",
  "artoo-hosts-api",
  "artoo-ui-kit",

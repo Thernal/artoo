@@ -2060,6 +2060,8 @@ impl Workspace {
         }
         Self::start_watching(this.on_screen.clone(), cx);
         cx.subscribe(&this.review, Self::review_event).detach();
+        cx.observe(&this.requests, |_, _, cx| cx.notify()).detach();
+        cx.subscribe(&this.requests, Self::requests_event).detach();
         cx.observe_window_activation(window, |this, window, cx| {
             if window.is_window_active() {
                 this.window_activated(cx);
