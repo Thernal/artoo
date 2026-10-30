@@ -15,7 +15,9 @@ use super::{Selection, Workspace, format, theme};
 use crate::markdown::Helper;
 use crate::review::{Comment, State};
 use crate::textedit::TextEdit;
-pub(super) use artoo_review::composer::{Change, Compose, Short, Target, Typed};
+pub(super) use artoo_review::composer::{
+    Change, Compose, ComposeAct, ComposeActs, Look, Room, Short, Target, Typed, room_for,
+};
 use gpui::{App, Context, KeyDownEvent, WeakEntity, div, prelude::*};
 
 /// The quiet Edit on one's own note: a pencil, alone in a narrow diff (#69).
@@ -1256,8 +1258,8 @@ impl Workspace {
         ))
     }
 
-    /// The one input component, open: one outline in the audience's colour, the text (or its
-    /// preview), and along its bottom edge `lead`, the markdown `tools`, Preview, then `tail`.
+    /// The one input component, open (`Compose::render_input`), its presses answered here: the keyboard taken, the
+    /// caret placed, the folded helpers' menu.
     #[allow(clippy::too_many_arguments)]
     fn open_input(
         &self,
@@ -1270,346 +1272,71 @@ impl Workspace {
         this: WeakEntity<Self>,
         cx: &gpui::App,
     ) -> gpui::Div {
-        let keys = this.clone();
-        let text = if compose.preview {
-            div()
-                .min_h(px(66.))
-                .px(px(10.))
-                .py(px(7.))
-                .child(if compose.edit.text().trim().is_empty() {
-                    div().text_color(theme::muted()).child("Nothing to preview")
-                } else {
-                    div().child(markdown::body(
-                        compose.edit.text(),
-                        true,
-                        "md-compose",
-                        self.link_base(),
-                        None,
-                        cx,
-                    ))
-                })
-                .into_any_element()
-        } else {
-            self.render_edit_text(compose, placeholder, true, this.clone(), cx)
-        };
-        let tool = |h: Helper, this: WeakEntity<Self>| {
-            let (icon, tip) = markdown::helper_look(h);
-            div()
-                .id(("md-tool", h as usize))
-                .size(px(26.))
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_center()
-                .rounded(px(6.))
-                .cursor_pointer()
-                .hover(|s| s.bg(theme::hover()))
-                .child(
-                    super::icons::icon(icon)
-                        .size(px(15.))
-                        .text_color(theme::muted()),
-                )
-                .tooltip_show_delay(crate::ui::hover::LONG)
-                .tooltip(move |_, cx| cx.new(|_| super::Tip(tip)).into())
-                .on_click(move |_, _, cx| {
-                    this.update(cx, |this, cx| this.apply_helper(h, cx)).ok();
-                })
-        };
-        let preview = compose.preview;
-        let toggle = this.clone();
-        // One row at every width (Design shell round 6, #129): who sees it and the writing helpers
-        // on the left, the buttons on the right; at S the helpers fold into T, a menu of them.
-        let folded = self.compose_room(cx) == Room::S;
-        let format = {
-            use super::menu::{Act, Entry};
-            let helpers: Vec<Entry> = tools
-                .iter()
-                .map(|&h| {
-                    let (_, tip) = markdown::helper_look(h);
-                    let (name, key) = tip.split_once("  ").unwrap_or((tip, ""));
-                    let name = name.split(" — ").next().unwrap_or(name);
-                    Entry::new(name, Act::ComposeHelper(h)).key(key)
-                })
-                .collect();
-            vec![
-                helpers,
-                vec![
-                    Entry::new("Preview", Act::ComposePreview)
-                        .key("⌘⇧P")
-                        .checked(preview),
-                ],
-            ]
-        };
-        let open_format = this.clone();
-        let helpers = div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(2.))
-            .children(lead.map(|lead| {
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .mr(px(4.))
-                    .child(lead)
-                    .children((!folded).then(|| div().w(px(1.)).h(px(14.)).bg(theme::selected())))
-            }))
-            .children(folded.then(|| {
-                div()
-                    .id("md-format")
-                    .size(px(26.))
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(6.))
-                    .cursor_pointer()
-                    .when(preview, |s| s.bg(theme::selected()))
-                    .hover(|s| s.bg(theme::hover()))
-                    .child(
-                        super::icons::icon("type")
-                            .size(px(15.))
-                            .text_color(theme::muted()),
-                    )
-                    .tooltip_show_delay(crate::ui::hover::LONG)
-                    .tooltip(|_, cx| {
-                        cx.new(|_| super::Tip("Format: bold, code, link, list, preview"))
-                            .into()
-                    })
-                    .on_click(move |event, _, cx| {
-                        let (at, format) = (event.position(), format.clone());
-                        open_format
-                            .update(cx, |this, cx| this.open_menu(at, format, cx))
-                            .ok();
-                    })
-            }))
-            .children(
-                tools
-                    .iter()
-                    .filter(|_| !folded)
-                    .map(|&h| tool(h, this.clone())),
-            )
-            .when(!folded, |s| {
-                s.child(
-                    div()
-                        .id("md-preview")
-                        .size(px(26.))
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(6.))
-                        .cursor_pointer()
-                        .when(preview, |s| s.bg(theme::selected()))
-                        .hover(|s| s.bg(theme::hover()))
-                        .child(
-                            super::icons::icon("eye")
-                                .size(px(15.))
-                                .text_color(if preview {
-                                    theme::text()
-                                } else {
-                                    theme::muted()
-                                }),
-                        )
-                        .tooltip_show_delay(crate::ui::hover::LONG)
-                        .tooltip(|_, cx| cx.new(|_| super::Tip("Preview  ⌘⇧P")).into())
-                        .on_click(move |_, _, cx| {
-                            toggle.update(cx, |this, cx| this.toggle_preview(cx)).ok();
-                        }),
-                )
-            });
-        let edge = div()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .px(px(6.))
-            .pt(px(4.))
-            .pb(px(6.))
-            .child(helpers)
-            .child(div().flex_1().min_w_0())
-            .child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .gap(px(6.))
-                    .children(tail),
-            );
-        let el = div()
-            .relative()
-            .flex_1()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .rounded(px(8.))
-            .border_1()
-            .border_color(tone)
-            .bg(theme::base())
-            .overflow_hidden()
-            .font_family(theme::ui_font())
-            .text_size(px(13.))
-            .line_height(px(20.))
-            .text_color(theme::text())
+        let live = self
+            .compose
+            .as_ref()
+            .is_some_and(|c| std::ptr::eq(c, compose));
+        let look = Look {
+            tone,
+            placeholder,
+            lead,
+            tools: tools.to_vec(),
+            tail,
+            folded: self.compose_room(cx) == Room::S,
+            // Without the keyboard it shows no caret (#168).
+            focused: self.has_keyboard(Input::Compose, cx),
+            // A card over the diff (a review's summary, a description) owns the arrows while open.
+            lines: (self.submit.is_none() && self.newreq.is_none())
+                .then(|| self.field_lines.clone()),
+            completion: self
+                .compose_completion()
+                .filter(|_| live)
+                .map(|(_, choices)| super::complete::render_list(&choices, compose.pick)),
             // Its own width decides its buttons' (`compose_narrow`).
-            .child(self.widths.measure("composer"))
-            .child(text)
-            .children(
-                self.compose_completion()
-                    .filter(|_| {
-                        self.compose
-                            .as_ref()
-                            .is_some_and(|c| std::ptr::eq(c, compose))
-                    })
-                    .map(|(_, choices)| self.render_completion(&choices, compose.pick)),
-            )
-            .children(compose.error.clone().map(|e| {
-                div()
-                    .px(px(10.))
-                    .pb(px(4.))
-                    .text_size(px(12.))
-                    .text_color(theme::removed())
-                    .child(e)
-            }))
-            .child(edge);
-        typing::input_box_of(el, Input::Compose, keys)
-    }
-
-    /// The composer's text as a field: the text wrapping in its box, the selection tinted, the
-    /// caret drawn where the text's layout puts it; a click places the caret, a drag selects.
-    fn render_edit_text(
-        &self,
-        compose: &Compose,
-        placeholder: &'static str,
-        compact: bool,
-        this: WeakEntity<Self>,
-        cx: &App,
-    ) -> gpui::AnyElement {
-        // A reply grows out of its one-line field, so its text starts where the field's did.
-        let (pad_x, pad_y, min_h) = if compact {
-            (10., 6., 64.)
-        } else {
-            (12., 10., 88.)
+            measure: self.widths.measure("composer").into_any_element(),
+            link_base: self.link_base().map(str::to_owned),
         };
-        use gpui::{Bounds, HighlightStyle, MouseButton, StyledText, canvas, fill, point, size};
-        let text = compose.edit.text();
-        // A trailing space gives the caret a place on a last, empty line.
-        let styled = StyledText::new(format!("{text} ")).with_highlights(
-            compose.edit.selection().map(|sel| {
-                (
-                    sel,
-                    HighlightStyle {
-                        background_color: Some(theme::selection().into()),
-                        ..Default::default()
-                    },
-                )
-            }),
-        );
-        let layout = styled.layout().clone();
-        // A card over the diff (a review's summary, a description) owns the arrows while open.
-        if self.submit.is_none() && self.newreq.is_none() {
-            *self.field_lines.borrow_mut() = Some(layout.clone());
-        }
-        let (for_caret, for_down, for_move) = (layout.clone(), layout.clone(), layout);
-        let (caret, downstream) = (compose.edit.caret(), compose.edit.downstream());
-        // Without the keyboard it shows no caret (#168).
-        let focused = self.has_keyboard(Input::Compose, cx);
-        let (down, drag) = (this.clone(), this);
-        div()
-            .relative()
-            .min_h(px(min_h))
-            .px(px(pad_x))
-            .py(px(pad_y))
-            .bg(theme::base())
-            .cursor_text()
-            .child(div().w_full().min_w_0().child(styled))
-            .children(text.is_empty().then(|| {
-                div()
-                    .absolute()
-                    .top(px(pad_y))
-                    .left(px(pad_x + 2.))
-                    // Bounded on the right, so a long hint wraps rather than being cut (#129).
-                    .right(px(pad_x))
-                    .text_color(theme::muted())
-                    .child(placeholder)
-            }))
-            .child(
-                canvas(
-                    |_, _, _| (),
-                    move |bounds, _, window, _| {
-                        if !focused {
-                            return;
-                        }
-                        let at = input::caret_point(&for_caret, caret, downstream)
-                            .unwrap_or(bounds.origin + point(px(pad_x), px(pad_y)));
-                        window.paint_quad(fill(
-                            Bounds::new(at, size(px(2.), px(20.))),
-                            theme::accent(),
-                        ));
-                    },
-                )
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full(),
-            )
-            .on_mouse_down(MouseButton::Left, move |event, _, cx| {
-                let at = input::nearest_index(&for_down, event.position);
-                let (shift, clicks) = (event.modifiers.shift, event.click_count);
-                let lower = input::lower_line(&for_down, at, event.position.y);
-                down.update(cx, |this, cx| {
-                    this.compose_place(at, shift, clicks, false, lower, cx)
-                })
-                .ok();
-            })
-            .on_mouse_move(move |event, _, cx| {
-                if event.pressed_button == Some(MouseButton::Left) {
-                    let at = input::nearest_index(&for_move, event.position);
-                    drag.update(cx, |this, cx| {
-                        this.compose_place(at, true, 1, true, false, cx)
-                    })
-                    .ok();
+        let keys = this.clone();
+        let act: ComposeActs = std::rc::Rc::new(move |act, cx| {
+            this.update(cx, |this, cx| match act {
+                ComposeAct::Helper(h) => this.apply_helper(h, cx),
+                ComposeAct::Preview => this.toggle_preview(cx),
+                ComposeAct::Format { at, tools } => {
+                    let preview = this.compose.as_ref().is_some_and(|c| c.preview);
+                    this.open_menu(at, format_menu(&tools, preview), cx)
                 }
+                ComposeAct::Place {
+                    at,
+                    shift,
+                    clicks,
+                    drag,
+                    lower,
+                } => this.compose_place(at, shift, clicks, drag, lower, cx),
             })
-            .into_any_element()
+            .ok();
+        });
+        typing::input_box_of(compose.render_input(look, act, cx), Input::Compose, keys)
     }
 }
 
-/// What a composer's foot shows, by its box's width (Design shell round 6, 2026-10-24, #129). The
-/// foot is one row at each: what does not fit folds, nothing wraps and nothing is cut.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Room {
-    /// 720 px and up: who sees it in words, the helpers, every button with its label and keys.
-    L,
-    /// The secondary buttons are their icons, who sees it its dot, the keys go.
-    M,
-    /// Under 440 px: the helpers fold into T, Send and ▾ into the primary's own ▾; the hint is
-    /// short. (Drawn at 420; a request's audience chip with its ▾ needs 423 for M's row.)
-    S,
-}
-
-/// The room of a box `width` wide; 0 is not measured yet. A tight diff is never L.
-pub(super) fn room_for(width: f32, tight: bool) -> Room {
-    match width {
-        w if w > 0. && w < 440. => Room::S,
-        w if tight || (w > 0. && w < 720.) => Room::M,
-        _ => Room::L,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_composer_folds_its_foot_by_its_own_width() {
-        assert_eq!(room_for(0., false), Room::L);
-        assert_eq!(room_for(760., false), Room::L);
-        assert_eq!(room_for(630., false), Room::M);
-        assert_eq!(room_for(440., false), Room::M);
-        assert_eq!(room_for(439., false), Room::S);
-        assert_eq!(room_for(136., false), Room::S);
-        assert_eq!(room_for(900., true), Room::M);
-        assert_eq!(room_for(300., true), Room::S);
-    }
+/// The folded helpers' menu: `tools`, then Preview, on when `preview`.
+fn format_menu(tools: &[Helper], preview: bool) -> Vec<Vec<super::menu::Entry>> {
+    use super::menu::{Act, Entry};
+    let helpers: Vec<Entry> = tools
+        .iter()
+        .map(|&h| {
+            let (_, tip) = markdown::helper_look(h);
+            let (name, key) = tip.split_once("  ").unwrap_or((tip, ""));
+            let name = name.split(" — ").next().unwrap_or(name);
+            Entry::new(name, Act::ComposeHelper(h)).key(key)
+        })
+        .collect();
+    vec![
+        helpers,
+        vec![
+            Entry::new("Preview", Act::ComposePreview)
+                .key("⌘⇧P")
+                .checked(preview),
+        ],
+    ]
 }

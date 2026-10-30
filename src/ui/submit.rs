@@ -395,7 +395,7 @@ impl Workspace {
             )
             .children(
                 self.field_completion(&s.summary)
-                    .map(|(_, choices)| self.render_completion(&choices, self.field_pick)),
+                    .map(|(_, choices)| super::complete::render_list(&choices, self.field_pick)),
             )
             .children(s.error.clone().map(|e| {
                 div()

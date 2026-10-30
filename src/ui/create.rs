@@ -1403,7 +1403,7 @@ impl Workspace {
         let completion = (n.focus == Focus::Description && !n.preview)
             .then(|| self.field_completion(&n.description))
             .flatten()
-            .map(|(_, choices)| self.render_completion(&choices, self.field_pick));
+            .map(|(_, choices)| super::complete::render_list(&choices, self.field_pick));
         let label = |text: &'static str| {
             div()
                 .text_size(px(11.))
@@ -2015,10 +2015,9 @@ impl Workspace {
                                 cx.entity().downgrade(),
                             )),
                     )
-                    .children(
-                        self.field_completion(&n.description)
-                            .map(|(_, choices)| self.render_completion(&choices, self.field_pick)),
-                    )
+                    .children(self.field_completion(&n.description).map(|(_, choices)| {
+                        super::complete::render_list(&choices, self.field_pick)
+                    }))
                     .into_any_element(),
             ),
         };
