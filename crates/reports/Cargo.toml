@@ -8,6 +8,11 @@ publish = false
 
 [dependencies]
 artoo-core = { path = "../core" }
+# The drafts agents' chats leave (`report_problem`).
+artoo-agents-api = { path = "../agents-api" }
+artoo-shell-api = { path = "../shell-api" }
+artoo-ui-kit = { path = "../ui-kit" }
+gpui.workspace = true
 anyhow.workspace = true
 base64.workspace = true
 regex.workspace = true

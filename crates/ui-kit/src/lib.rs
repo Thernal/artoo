@@ -2,6 +2,7 @@
 //! keycaps, motion, how a row gives way as its list narrows, and the words and formats the window uses.
 //! A module draws with this and GPUI alone.
 
+pub mod controls;
 pub mod file_icons;
 pub mod format;
 pub mod hover;

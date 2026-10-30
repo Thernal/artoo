@@ -2,7 +2,8 @@
 //! window at a time beside the page — only what is about it (#76): Code Outline · Agents, Branches
 //! Agents, Merge requests Discussions · Agents, the Inbox nothing — and Submit review in the same
 //! place (the bell's Notifications window retired into the Inbox, #72). The same icon or esc closes it; which one is open and its width are kept in
-//! `layout.txt`. No stripe until a repository is open, none in zen.
+//! `layout.txt`. No stripe until a repository is open, none in zen. A feature's tool window
+//! (`artoo_shell_api::Tool`: Report a problem) is in every space, after these.
 
 use super::zones::Zone;
 use super::{ROW_RADIUS, Split, Tip, TipOwned, Workspace, icons, island, keys, px, theme};
@@ -14,8 +15,8 @@ pub enum Tool {
     Outline,
     Discussions,
     Agents,
-    /// Report a problem, in every space (#118).
-    Report,
+    /// A feature's, by its id (`report`: Report a problem, #118).
+    Part(&'static str),
 }
 
 impl Tool {
@@ -24,31 +25,7 @@ impl Tool {
             Tool::Outline => "outline",
             Tool::Discussions => "discussions",
             Tool::Agents => "agents",
-            Tool::Report => "report",
-        }
-    }
-
-    pub fn parse(name: &str) -> Option<Self> {
-        [Tool::Outline, Tool::Discussions, Tool::Agents, Tool::Report]
-            .into_iter()
-            .find(|t| t.name() == name)
-    }
-
-    fn icon(self) -> &'static str {
-        match self {
-            Tool::Outline => "list",
-            Tool::Discussions => "message",
-            Tool::Agents => "bot",
-            Tool::Report => "flag",
-        }
-    }
-
-    fn tip(self) -> &'static str {
-        match self {
-            Tool::Outline => "Outline",
-            Tool::Discussions => "Discussions  ⌘⇧D",
-            Tool::Agents => "Agents  ⇧⌘A",
-            Tool::Report => "Report a problem  ⌥⌘/",
+            Tool::Part(id) => id,
         }
     }
 }
@@ -65,27 +42,54 @@ pub struct ToolView {
 
 impl Workspace {
     /// The tool windows of the space on screen (#76): Code Outline · Agents, Branches Agents,
-    /// a request's page Discussions · Agents, the Inbox none.
-    fn space_tools(&self) -> &'static [Tool] {
+    /// a request's page Discussions · Agents, the Inbox none; the features' in every one, last.
+    fn space_tools(&self) -> Vec<Tool> {
         use super::spaces::Space;
-        // Report a problem is in every one, last (#118).
-        match self.nav.space {
-            Space::Inbox => &[Tool::Report],
-            Space::Code => &[Tool::Outline, Tool::Agents, Tool::Report],
-            Space::Branches => &[Tool::Agents, Tool::Report],
-            Space::Requests if self.nav_page().is_some() => {
-                &[Tool::Discussions, Tool::Agents, Tool::Report]
-            }
-            Space::Requests => &[Tool::Agents, Tool::Report],
-        }
+        let own: &[Tool] = match self.nav.space {
+            Space::Inbox => &[],
+            Space::Code => &[Tool::Outline, Tool::Agents],
+            Space::Branches => &[Tool::Agents],
+            Space::Requests if self.nav_page().is_some() => &[Tool::Discussions, Tool::Agents],
+            Space::Requests => &[Tool::Agents],
+        };
+        own.iter()
+            .copied()
+            .chain(self.part_tools().map(|t| Tool::Part(t.id)))
+            .collect()
+    }
+
+    /// The tool window named `name` (`layout.txt`'s word for it), whichever spaces have it.
+    pub(super) fn tool_named(&self, name: &str) -> Option<Tool> {
+        [Tool::Outline, Tool::Discussions, Tool::Agents]
+            .into_iter()
+            .chain(self.part_tools().map(|t| Tool::Part(t.id)))
+            .find(|t| t.name() == name)
     }
 
     /// The tool window open now, when its space has it; a request's details are its Overview
     /// (#73).
     pub(super) fn tool(&self) -> Option<Tool> {
         self.root.as_ref()?;
-        let tool = Tool::parse(&self.layout.tool)?;
+        let tool = self.tool_named(&self.layout.tool)?;
         self.space_tools().contains(&tool).then_some(tool)
+    }
+
+    fn tool_icon(&self, tool: Tool) -> &'static str {
+        match tool {
+            Tool::Outline => "list",
+            Tool::Discussions => "message",
+            Tool::Agents => "bot",
+            Tool::Part(id) => self.part_tool(id).map_or("", |t| t.icon),
+        }
+    }
+
+    fn tool_tip(&self, tool: Tool) -> &'static str {
+        match tool {
+            Tool::Outline => "Outline",
+            Tool::Discussions => "Discussions  ⌘⇧D",
+            Tool::Agents => "Agents  ⇧⌘A",
+            Tool::Part(id) => self.part_tool(id).map_or("", |t| t.tip),
+        }
     }
 
     /// The window on the right is drawn: a tool, or Submit review.
@@ -113,10 +117,11 @@ impl Workspace {
         if tool == Some(Tool::Agents) {
             self.refresh_chats();
         }
-        // The window's picture is taken before the report's window is drawn over it.
-        if tool == Some(Tool::Report) && was != Some(Tool::Report) {
-            self.prepare_report();
-            self.refresh_report_states(cx);
+        // A feature's window gets ready before it is drawn (the report takes the window's picture).
+        if let Some(Tool::Part(id)) = tool
+            && was != tool
+        {
+            self.tool_opened(id, cx);
         }
         if tool.is_some() {
             self.set_zone(Zone::Tool, cx);
@@ -131,6 +136,18 @@ impl Workspace {
             );
         }
         cx.notify();
+    }
+
+    /// A feature's tool window: its title, and its view under it (the body and its foot).
+    fn part_tool_view(&self, id: &str) -> Option<ToolView> {
+        let tool = self.part_tool(id)?;
+        Some(ToolView {
+            title: tool.title.into(),
+            count: None,
+            actions: Vec::new(),
+            body: tool.view.clone().into_any_element(),
+            foot: None,
+        })
     }
 
     /// Under 1 000 px the tool window floats over the diff instead of taking its width (#80).
@@ -153,6 +170,7 @@ impl Workspace {
         // The long hover says what the count is (#53): "Discussions · 3 comments".
         let button = |tool: Tool, badge: Option<(String, Rgba)>, what: String| {
             let id = tool.name();
+            let (icon, tip) = (self.tool_icon(tool), self.tool_tip(tool));
             let on = open == Some(tool);
             div()
                 .id(id)
@@ -167,7 +185,7 @@ impl Workspace {
                 .when(on, |s| s.bg(theme::selected()))
                 .hover(|s| s.bg(theme::hover()))
                 .child(
-                    icons::icon(tool.icon())
+                    icons::icon(icon)
                         .text_color(if on { theme::text() } else { theme::muted() })
                         .group_hover(id, |s| s.text_color(theme::text())),
                 )
@@ -191,7 +209,7 @@ impl Workspace {
                 }))
                 .tooltip_show_delay(crate::ui::hover::LONG)
                 .tooltip(move |_, cx| {
-                    let tip = keys::text(tool.tip()).into_owned();
+                    let tip = keys::text(tip).into_owned();
                     let tip = if what.is_empty() {
                         tip
                     } else {
@@ -214,9 +232,9 @@ impl Workspace {
                 .items_center()
                 .gap(px(4.))
                 .pt(px(2.))
-                .children(self.space_tools().iter().map(|&tool| {
+                .children(self.space_tools().into_iter().map(|tool| {
                     match tool {
-                        Tool::Outline | Tool::Report => {
+                        Tool::Outline | Tool::Part(_) => {
                             button(tool, None, String::new()).into_any_element()
                         }
                         Tool::Discussions => button(
@@ -264,7 +282,7 @@ impl Workspace {
                 Tool::Outline => self.outline_tool(cx),
                 Tool::Discussions => self.discussions_tool(cx),
                 Tool::Agents => self.agents_tool(cx),
-                Tool::Report => self.report_tool(cx),
+                Tool::Part(id) => self.part_tool_view(id)?,
             },
         };
         let submitting = self.submit.is_some();
@@ -351,15 +369,10 @@ impl Workspace {
                             .child(close),
                     )
                     .child(div().flex_1().min_h_0().flex().flex_col().child(view.body))
-                    .children(view.foot.map(|foot| {
-                        div()
-                            .flex_none()
-                            .px(px(14.))
-                            .py(px(10.))
-                            .border_t_1()
-                            .border_color(theme::island_border())
-                            .child(foot)
-                    })),
+                    .children(
+                        view.foot
+                            .map(|foot| artoo_ui_kit::controls::tool_foot().child(foot)),
+                    ),
             );
         // It comes out of the stripe and goes back into it; its content shows once it is half out.
         Some(super::motion::toward(

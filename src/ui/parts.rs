@@ -1,39 +1,120 @@
 //! The tab's side of the shell's contract (#165 stage 4, `artoo_shell_api`): the parts features made for it,
-//! drawn where the frame has room for them, the keys an open card takes, and the `Frame` they ask.
+//! drawn where the frame has room for them, the keys an open card or a tool window takes, and the `Frame` they
+//! ask.
 
 use super::Workspace;
-use artoo_shell_api::{Frame, Overlay, Run, Section};
+use super::tools::Tool;
+use super::zones::Zone;
+use artoo_shell_api::{Frame, Overlay, Places, Run, Section};
 use artoo_ui_kit::markdown::Selecting;
 use gpui::{AnyView, App, Context, KeyDownEvent, SharedString, WeakEntity, Window};
 
-/// A tab as its parts reach it.
+/// A tab as its parts reach it. What it changes waits until the update under way is over: a part asks from
+/// its own update, and the tab may be what called it.
 pub(super) struct TabFrame(pub WeakEntity<Workspace>);
+
+impl TabFrame {
+    fn later(
+        &self,
+        cx: &mut App,
+        f: impl FnOnce(&mut Workspace, &mut Context<Workspace>) + 'static,
+    ) {
+        let tab = self.0.clone();
+        cx.defer(move |cx| {
+            tab.update(cx, f).ok();
+        });
+    }
+}
 
 impl Frame for TabFrame {
     fn toast(&self, text: SharedString, cx: &mut App) {
-        self.0.update(cx, |this, cx| this.toast_info(text, cx)).ok();
+        self.later(cx, |this, cx| this.toast_info(text, cx));
     }
 
     fn error(&self, text: SharedString, cx: &mut App) {
-        self.0
-            .update(cx, |this, cx| {
-                this.error = Some(text);
-                cx.notify();
-            })
-            .ok();
+        self.later(cx, |this, cx| {
+            this.error = Some(text);
+            cx.notify();
+        });
     }
 
     fn redraw(&self, cx: &mut App) {
-        self.0.update(cx, |_, cx| cx.notify()).ok();
+        self.later(cx, |_, cx| cx.notify());
     }
 
     fn selecting(&self, cx: &App) -> Option<Selecting> {
         let tab = self.0.upgrade()?;
         Some(tab.read(cx).selecting(self.0.clone()))
     }
+
+    fn places(&self, cx: &App) -> Places {
+        let Some(tab) = self.0.upgrade() else {
+            return Places::default();
+        };
+        let this = tab.read(cx);
+        Places {
+            root: this.root.clone(),
+            project: this.project.clone(),
+            recent: this.recent.clone(),
+            web: this.web.clone(),
+            host: this.host.as_ref().map(|h| h.host()),
+        }
+    }
+
+    fn show_tool(&self, id: Option<&'static str>, cx: &mut App) {
+        self.later(cx, move |this, cx| this.set_tool(id.map(Tool::Part), cx));
+    }
+
+    fn tool_typing(&self, id: &str, cx: &App) -> bool {
+        self.0.upgrade().is_some_and(|tab| {
+            let this = tab.read(cx);
+            matches!(this.tool(), Some(Tool::Part(open)) if open == id)
+                && this.has_keyboard(super::typing::Input::Tool)
+        })
+    }
 }
 
 impl Workspace {
+    /// The parts' tool windows, in the order the features were installed.
+    pub(super) fn part_tools(&self) -> impl Iterator<Item = &artoo_shell_api::Tool> {
+        self.parts.iter().filter_map(|p| p.tool.as_ref())
+    }
+
+    pub(super) fn part_tool(&self, id: &str) -> Option<&artoo_shell_api::Tool> {
+        self.part_tools().find(|t| t.id == id)
+    }
+
+    /// A part's tool window is open, focused and being written in: typed keys go to it.
+    pub(super) fn tool_typing(&self) -> bool {
+        let Some(Tool::Part(id)) = self.tool() else {
+            return false;
+        };
+        self.zone == Zone::Tool && self.part_tool(id).is_some_and(|t| t.typing.get())
+    }
+
+    /// A key while a part's tool window has the keyboard: the window's.
+    pub(super) fn tool_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(Tool::Part(id)) = self.tool() else {
+            return;
+        };
+        if let Some(key) = self.part_tool(id).map(|t| t.key.clone()) {
+            key(event, window, cx);
+            cx.notify();
+        }
+    }
+
+    /// A part's tool window opened: it gets ready before it is drawn.
+    pub(super) fn tool_opened(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Some(opened) = self.part_tool(id).map(|t| t.opened.clone()) {
+            opened(cx);
+        }
+    }
+
     /// The parts' card that is open, if one is.
     fn open_overlay(&self) -> Option<&Overlay> {
         self.parts

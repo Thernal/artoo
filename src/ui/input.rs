@@ -2,10 +2,10 @@
 //! the caret placed by a click. The field itself — drawing, editing, the caret — is the kit's
 //! (`artoo_ui_kit::input`), re-exported here.
 
-use super::{Workspace, theme};
+use super::Workspace;
 use crate::textedit::TextEdit;
 pub(super) use artoo_ui_kit::input::*;
-use gpui::{Context, Div, WeakEntity, div, prelude::*};
+use gpui::{Context, Div, WeakEntity};
 use std::rc::Rc;
 
 /// Where a click in the field showing `text` goes: the caret to it, ⇧ or a drag selecting, a
@@ -54,35 +54,19 @@ impl Workspace {
         look: Look,
         this: WeakEntity<Self>,
     ) -> Div {
-        let row = div().flex_1().min_w_0().flex().items_center();
-        if text.is_empty() {
-            let shown = super::keys::text(placeholder).into_owned();
-            return row.children(active.then(caret)).child(
-                cut_unless_wrapped(look.wrap, placeholder, shown).text_color(theme::faint()),
-            );
-        }
-        // Left, its text stays, dimmed, without a caret (#168).
-        if !active {
-            let shown = if look.mask {
-                "•".repeat(text.chars().count())
-            } else {
-                text.to_owned()
+        field(text, active, placeholder, &look, || {
+            let look = Look {
+                lines: look.wrap.then(|| self.field_lines.clone()),
+                ..look.clone()
             };
-            return row.child(
-                cut_unless_wrapped(look.wrap, placeholder, shown).text_color(theme::muted()),
-            );
-        }
-        let look = Look {
-            lines: look.wrap.then(|| self.field_lines.clone()),
-            ..look
-        };
-        row.child(text_body(
-            text,
-            &self.field_edit,
-            look,
-            self.field_scroll.clone(),
-            Some(place_field(text, this)),
-        ))
+            text_body(
+                text,
+                &self.field_edit,
+                look,
+                self.field_scroll.clone(),
+                Some(place_field(text, this)),
+            )
+        })
     }
 
     /// A field takes the keyboard: its caret starts at the end of its text.

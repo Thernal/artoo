@@ -337,6 +337,17 @@ impl Keymap {
             .map(|keys| keys.first().map(|k| symbols(k)).unwrap_or_default())
     }
 
+    /// The key `action` has now, as the app writes keys: the user's or the preset's change, else the one it
+    /// ships with; `""` when it has none.
+    pub fn key_now(&self, action: &dyn gpui::Action) -> String {
+        self.shown(action).unwrap_or_else(|| {
+            self.shipped(short(action.name()))
+                .first()
+                .map(|k| symbols(k))
+                .unwrap_or_default()
+        })
+    }
+
     /// The keys the user changed: (label, keys).
     pub fn changes(&self) -> Vec<(String, Vec<String>)> {
         self.overrides

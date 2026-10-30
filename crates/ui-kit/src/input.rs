@@ -339,6 +339,34 @@ pub fn text_body(
         .into_any_element()
 }
 
+/// The inside of a field: `body` (its text as edited, `text_body`) while it has the keyboard (`active`), the text
+/// alone, dimmed and without a caret, while not (#168), or the placeholder.
+pub fn field(
+    text: &str,
+    active: bool,
+    placeholder: &'static str,
+    look: &Look,
+    body: impl FnOnce() -> AnyElement,
+) -> Div {
+    let row = div().flex_1().min_w_0().flex().items_center();
+    if text.is_empty() {
+        let shown = super::keys::text(placeholder).into_owned();
+        return row
+            .children(active.then(caret))
+            .child(cut_unless_wrapped(look.wrap, placeholder, shown).text_color(theme::faint()));
+    }
+    if !active {
+        let shown = if look.mask {
+            "•".repeat(text.chars().count())
+        } else {
+            text.to_owned()
+        };
+        return row
+            .child(cut_unless_wrapped(look.wrap, placeholder, shown).text_color(theme::muted()));
+    }
+    row.child(body())
+}
+
 /// A caret standing alone: in an empty field.
 pub fn caret() -> Div {
     div()

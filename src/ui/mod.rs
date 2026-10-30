@@ -51,7 +51,6 @@ mod parts;
 mod rail;
 mod reactions;
 mod recents;
-mod report;
 mod request_page;
 mod requests;
 mod reviewed;
@@ -142,7 +141,6 @@ actions!(
         ToggleRequests,
         FocusDiff,
         ZenOneFile,
-        ReportProblem,
         SetUp,
         MergeRequest,
         CopySelection,
@@ -294,6 +292,28 @@ fn default_bindings() -> Vec<KeyBinding> {
 }
 
 /// The shipped keys, written with macOS keys and put in this OS's terms by `k`.
+/// The keys the commands features offer ship with (`artoo_shell_api::Action::key`), in the tab.
+fn offered_bindings(k: fn(&str) -> String, cx: &App) -> Vec<KeyBinding> {
+    let tab: Option<std::rc::Rc<gpui::KeyBindingContextPredicate>> =
+        gpui::KeyBindingContextPredicate::parse("Workspace")
+            .ok()
+            .map(Into::into);
+    artoo_shell_api::actions(cx)
+        .iter()
+        .filter_map(|a| {
+            KeyBinding::load(
+                &k(a.key?),
+                a.act.boxed_clone(),
+                tab.clone(),
+                false,
+                None,
+                &gpui::DummyKeyboardMapper,
+            )
+            .ok()
+        })
+        .collect()
+}
+
 fn bindings(k: fn(&str) -> String) -> Vec<KeyBinding> {
     vec![
         KeyBinding::new(&k("cmd-o"), Open, None),
@@ -426,7 +446,6 @@ fn bindings(k: fn(&str) -> String) -> Vec<KeyBinding> {
         KeyBinding::new(&k("cmd-9"), Tab9, Some("Workspace")),
         KeyBinding::new(&k("cmd-."), FocusDiff, Some("Workspace")),
         KeyBinding::new(&k("cmd-alt-."), ZenOneFile, Some("Workspace")),
-        KeyBinding::new(&k("cmd-alt-/"), ReportProblem, Some("Workspace")),
         KeyBinding::new(&k("cmd-c"), CopySelection, Some("Workspace")),
         KeyBinding::new(&k("cmd-a"), SelectAll, Some("Workspace && !Typing")),
         KeyBinding::new(&k("f7"), NextChange, Some("Workspace")),
@@ -498,7 +517,9 @@ pub fn run(path: Option<PathBuf>, install: impl FnOnce(&mut App) + 'static) {
         .with_assets(icons::Icons)
         .run(move |cx: &mut App| {
             install(cx);
-            keymap::install(default_bindings(), cx);
+            let mut bindings = default_bindings();
+            bindings.extend(offered_bindings(crate::platform::keys, cx));
+            keymap::install(bindings, cx);
             // Before any window: who Artoo is to the system's notifications (#26).
             system_notes::install(cx);
             theme::load();
@@ -590,19 +611,24 @@ fn window_size() -> (f32, f32) {
 /// The menu bar; View items carry a check mark for the options in effect. Artoo's menu opens with the
 /// commands features put there (`artoo_shell_api::Menu::App`).
 fn menus(options: &ViewOptions, cx: &App) -> Vec<Menu> {
-    let offered = artoo_shell_api::actions(cx)
-        .iter()
-        .filter_map(|a| {
-            let (artoo_shell_api::Menu::App, words) = a.menu?;
-            Some(MenuItem::Action {
-                name: words.into(),
-                action: a.act.boxed_clone(),
-                os_action: None,
-                checked: false,
-                disabled: false,
+    // The commands features offer, in the menu each names (`artoo_shell_api::Action::menu`).
+    let offered = |menu: artoo_shell_api::Menu| {
+        artoo_shell_api::actions(cx)
+            .iter()
+            .filter_map(|a| {
+                let (to, words) = a.menu?;
+                (to == menu).then(|| MenuItem::Action {
+                    name: words.into(),
+                    action: a.act.boxed_clone(),
+                    os_action: None,
+                    checked: false,
+                    disabled: false,
+                })
             })
-        })
-        .collect::<Vec<_>>();
+            .collect::<Vec<_>>()
+    };
+    let help = offered(artoo_shell_api::Menu::Help);
+    let offered = offered(artoo_shell_api::Menu::App);
     let separated = !offered.is_empty();
     vec![
         Menu::new("Artoo").items(
@@ -674,11 +700,14 @@ fn menus(options: &ViewOptions, cx: &App) -> Vec<Menu> {
                 .checked(options.ignore_whitespace),
             MenuItem::action("One File at a Time", ToggleOneFile).checked(options.one_file),
         ]),
-        Menu::new("Help").items([
-            MenuItem::action("Set Up Artoo…", SetUp),
-            MenuItem::action("Keyboard Shortcuts", ShowShortcuts),
-            MenuItem::action("Report a Problem…", ReportProblem),
-        ]),
+        Menu::new("Help").items(
+            [
+                MenuItem::action("Set Up Artoo…", SetUp),
+                MenuItem::action("Keyboard Shortcuts", ShowShortcuts),
+            ]
+            .into_iter()
+            .chain(help),
+        ),
     ]
 }
 
@@ -1146,7 +1175,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         }
                         // A tool window on the right, without saving it as the open one.
                         tool if tool.starts_with("tool-") => {
-                            if let Some(t) = tools::Tool::parse(&tool[5..]) {
+                            if let Some(t) = this.tool_named(&tool[5..]) {
                                 this.set_tool(Some(t), cx);
                             }
                             continue;
@@ -1605,8 +1634,6 @@ pub struct Workspace {
     zen_one: bool,
     /// The window with no repository: the card one of its ways in opened (#54).
     welcome: welcome::Welcome,
-    /// Report a problem, the tool window (#118).
-    report: report::ReportView,
     /// The Submit review card (`submit.rs`).
     submit: Option<submit::Submit>,
     /// The pending comment ⌥N / ⌥P is on.
@@ -1955,7 +1982,6 @@ impl Workspace {
             zen: None,
             zen_one: false,
             welcome: Default::default(),
-            report: Default::default(),
             recording: None,
             note_sel: None,
             settings_section: Default::default(),
@@ -3435,11 +3461,6 @@ impl Workspace {
         self.mark_motion("side", cx);
         self.mark_motion("zen", cx);
         cx.notify();
-    }
-
-    /// ⌥⌘/, Help → Report a Problem…: the report's tool window (#118).
-    fn report_problem(&mut self, _: &ReportProblem, _: &mut Window, cx: &mut Context<Self>) {
-        self.open_report(cx);
     }
 
     /// Help → Set Up Artoo…, ⌘K (#143): every part again.

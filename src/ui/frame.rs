@@ -772,7 +772,7 @@ impl Render for Workspace {
                         Input::Compose
                         | Input::GoLine
                         | Input::Submit
-                        | Input::Report
+                        | Input::Tool
                         | Input::Overlay,
                     ) => "Workspace Typing Caret",
                     Some(Input::NewRequest) if self.typing_description() => {
@@ -812,7 +812,6 @@ impl Render for Workspace {
         .on_action(cx.listener(Self::toggle_requests))
         .on_action(cx.listener(Self::focus_diff))
         .on_action(cx.listener(Self::zen_one_file))
-        .on_action(cx.listener(Self::report_problem))
         .on_action(cx.listener(Self::set_up))
         .on_action(cx.listener(Self::merge_request))
         .on_action(cx.listener(Self::copy_selection))

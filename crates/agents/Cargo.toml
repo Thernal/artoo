@@ -8,9 +8,12 @@ publish = false
 
 [dependencies]
 artoo-core = { path = "../core" }
+# Its contract, which `install` provides.
+artoo-agents-api = { path = "../agents-api" }
 # `mcp` reads requests through the hosts' contract; the app hands it the implementation.
 artoo-hosts-api = { path = "../hosts-api" }
 git2.workspace = true
+gpui.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

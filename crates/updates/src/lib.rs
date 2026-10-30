@@ -32,6 +32,7 @@ pub fn install(cx: &mut App) {
         Action {
             id: "updates.check",
             words: "Check for updates",
+            key: None,
             menu: Some((Menu::App, "Check for Updates…")),
             act: Box::new(CheckForUpdates),
         },

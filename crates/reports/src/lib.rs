@@ -2,7 +2,10 @@
 //! system, the log's last lines and the window's picture while they are ticked —, said with nothing
 //! private (paths under `~`, hosts, project names, tokens and e-mail addresses named for what they
 //! are), and the two ways it goes: the relay, which files it in the project's private reports
-//! (the app holds no key), or GitHub's new-issue page of the project, filled in.
+//! (the app holds no key), or GitHub's new-issue page of the project, filled in. It is written in each tab's
+//! tool window (`tool.rs`), and an agent's chat may draft one (the agents' contract).
+
+mod tool;
 
 use anyhow::{Result, anyhow, bail};
 use artoo_core::{applog, platform};
@@ -13,17 +16,34 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
+gpui::actions!(artoo, [ReportProblem]);
+
+/// Wires Report a problem in: its action (Help, ⌘K, ⌥⌘/) and the tool window of every tab.
+pub fn install(cx: &mut gpui::App) {
+    artoo_shell_api::add_action(
+        cx,
+        artoo_shell_api::Action {
+            id: "reports.problem",
+            words: "Report a problem",
+            key: Some("cmd-alt-/"),
+            menu: Some((artoo_shell_api::Menu::Help, "Report a Problem…")),
+            act: Box::new(ReportProblem),
+        },
+    );
+    artoo_shell_api::add_parts(cx, tool::parts);
+}
+
 /// The relay's address (`relay/`); `ARTOO_REPORT_URL` stands in for it.
 const RELAY: &str = "https://artoo-reports.h-humbat0.workers.dev";
 /// Where a report goes when it is posted by hand.
 const NEW_ISSUE: &str = "https://github.com/Thernal/artoo-desktop/issues/new";
 /// The log lines a report carries.
-pub const LOG_LINES: usize = 200;
+pub(crate) const LOG_LINES: usize = 200;
 /// GitHub refuses longer new-issue addresses; the log is cut first to fit.
 const URL_MAX: usize = 7_500;
 
 /// The relay's address, when there is one.
-pub fn relay() -> Option<String> {
+pub(crate) fn relay() -> Option<String> {
     std::env::var("ARTOO_REPORT_URL")
         .ok()
         .or_else(|| (!RELAY.is_empty()).then(|| RELAY.to_owned()))
@@ -32,10 +52,10 @@ pub fn relay() -> Option<String> {
 }
 
 /// "Artoo 0.2.0 (7c5758f)": which build it is (the core's).
-pub use artoo_core::version;
+pub(crate) use artoo_core::version;
 
 /// The system and the machine: "macOS 15.1 · Mac15,3".
-pub fn system() -> String {
+pub(crate) fn system() -> String {
     let run = |program: &str, args: &[&str]| {
         Command::new(program)
             .args(args)
@@ -66,7 +86,7 @@ pub fn system() -> String {
 
 /// What a report must not carry, and what it says instead.
 #[derive(Clone, Debug, Default)]
-pub struct Scrub {
+pub(crate) struct Scrub {
     home: Option<String>,
     /// Private hosts (`gitlab.example.com`), longest first.
     hosts: Vec<String>,
@@ -76,7 +96,7 @@ pub struct Scrub {
 
 impl Scrub {
     /// `hosts` and `projects` as known here; the public hosts stay as they are.
-    pub fn new(hosts: Vec<String>, projects: Vec<String>) -> Self {
+    pub(crate) fn new(hosts: Vec<String>, projects: Vec<String>) -> Self {
         let mut hosts: Vec<String> = hosts
             .into_iter()
             .filter(|h| !h.is_empty() && h != "github.com" && h != "gitlab.com")
@@ -93,7 +113,7 @@ impl Scrub {
         }
     }
 
-    pub fn apply(&self, text: &str) -> String {
+    pub(crate) fn apply(&self, text: &str) -> String {
         let mut out = text.to_owned();
         if let Some(home) = self.home.as_deref().filter(|h| h.len() > 1) {
             out = out.replace(home, "~");
@@ -121,19 +141,19 @@ impl Scrub {
 
 /// A report as written, and what goes with it.
 #[derive(Clone, Debug, Default)]
-pub struct Draft {
-    pub title: String,
-    pub description: String,
-    pub system: bool,
-    pub log: bool,
-    pub picture: bool,
+pub(crate) struct Draft {
+    pub(crate) title: String,
+    pub(crate) description: String,
+    pub(crate) system: bool,
+    pub(crate) log: bool,
+    pub(crate) picture: bool,
     /// Drafted by an agent's chat (`report_problem`): who.
-    pub by: Option<String>,
+    pub(crate) by: Option<String>,
 }
 
 /// The issue's body as it goes: the description, then the build (and the system), the log folded.
 /// The picture is the relay's to add: it stores it beside the issue.
-pub fn body(draft: &Draft, scrub: &Scrub, system: &str, log: &[String]) -> String {
+pub(crate) fn body(draft: &Draft, scrub: &Scrub, system: &str, log: &[String]) -> String {
     let mut out = scrub.apply(draft.description.trim());
     out.push_str("\n\n---\n");
     out.push_str(&version());
@@ -158,7 +178,7 @@ pub fn body(draft: &Draft, scrub: &Scrub, system: &str, log: &[String]) -> Strin
 
 /// What makes two reports the same problem, for the relay to count them as one: the title's
 /// words and the version.
-pub fn fingerprint(title: &str) -> String {
+pub(crate) fn fingerprint(title: &str) -> String {
     let words: Vec<String> = title
         .split(|c: char| !c.is_alphanumeric())
         .filter(|w| !w.is_empty())
@@ -172,7 +192,7 @@ pub fn fingerprint(title: &str) -> String {
 
 /// GitHub's new-issue page of the project, filled in; a long log is cut from its start so the
 /// address stays one GitHub takes.
-pub fn new_issue_url(title: &str, body: &str) -> String {
+pub(crate) fn new_issue_url(title: &str, body: &str) -> String {
     let encode = |s: &str| -> String {
         s.bytes()
             .map(|b| match b {
@@ -211,7 +231,7 @@ pub fn new_issue_url(title: &str, body: &str) -> String {
 }
 
 /// This installation's id, made once: the relay counts reports by it, not by person.
-pub fn install_id() -> String {
+pub(crate) fn install_id() -> String {
     let Some(file) = crate::platform::data_dir().map(|d| d.join("install-id.txt")) else {
         return "unknown".to_owned();
     };
@@ -234,16 +254,16 @@ pub fn install_id() -> String {
 
 /// A report sent from here: its id at the relay, when, its title.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Sent {
-    pub id: String,
-    pub at: i64,
-    pub title: String,
+pub(crate) struct Sent {
+    pub(crate) id: String,
+    pub(crate) at: i64,
+    pub(crate) title: String,
     /// What became of it, as the relay last said: received, moved to the project, a duplicate.
     #[serde(default)]
-    pub state: String,
+    pub(crate) state: String,
     /// Where it is public, once it is.
     #[serde(default)]
-    pub url: String,
+    pub(crate) url: String,
 }
 
 fn sent_file() -> Option<PathBuf> {
@@ -251,14 +271,14 @@ fn sent_file() -> Option<PathBuf> {
 }
 
 /// The reports sent from here, newest first.
-pub fn sent() -> Vec<Sent> {
+pub(crate) fn sent() -> Vec<Sent> {
     sent_file()
         .and_then(|f| std::fs::read_to_string(f).ok())
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default()
 }
 
-pub fn keep_sent(list: &[Sent]) {
+pub(crate) fn keep_sent(list: &[Sent]) {
     if let (Some(file), Ok(text)) = (sent_file(), serde_json::to_string_pretty(list)) {
         if let Some(dir) = file.parent() {
             let _ = std::fs::create_dir_all(dir);
@@ -352,7 +372,7 @@ fn answer(out: std::process::Output) -> Result<Value> {
 }
 
 /// Hands the report to the relay; its id there.
-pub fn send(
+pub(crate) fn send(
     relay: &str,
     title: &str,
     body: &str,
@@ -377,7 +397,7 @@ pub fn send(
 }
 
 /// What became of report `id`: its state, and its public address once it has one.
-pub fn status(relay: &str, id: &str) -> Result<(String, String)> {
+pub(crate) fn status(relay: &str, id: &str) -> Result<(String, String)> {
     let value = get(&format!("{relay}/v1/report/{id}?install={}", install_id()))?;
     Ok((
         value["state"].as_str().unwrap_or_default().to_owned(),

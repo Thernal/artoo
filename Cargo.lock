@@ -255,13 +255,22 @@ dependencies = [
 name = "artoo-agents"
 version = "1.3.0"
 dependencies = [
+ "artoo-agents-api",
  "artoo-core",
  "artoo-hosts",
  "artoo-hosts-api",
  "git2",
+ "gpui-pre",
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "artoo-agents-api"
+version = "1.3.0"
+dependencies = [
+ "gpui-pre",
 ]
 
 [[package]]
@@ -334,8 +343,12 @@ name = "artoo-reports"
 version = "1.3.0"
 dependencies = [
  "anyhow",
+ "artoo-agents-api",
  "artoo-core",
+ "artoo-shell-api",
+ "artoo-ui-kit",
  "base64",
+ "gpui-pre",
  "regex",
  "serde",
  "serde_json",
@@ -346,6 +359,7 @@ dependencies = [
 name = "artoo-shell-api"
 version = "1.3.0"
 dependencies = [
+ "artoo-core",
  "artoo-ui-kit",
  "gpui-pre",
 ]

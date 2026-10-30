@@ -51,6 +51,7 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
                 }
             })),
         }),
+        tool: None,
         settings: vec![(Section::General, status.into())],
         actions: vec![(
             Box::new(CheckForUpdates),

@@ -308,7 +308,7 @@ impl Workspace {
             Some(Input::Submit) => return self.submit_key(event, cx),
             Some(Input::NewRequest) => return self.newreq_key(event, cx),
             Some(Input::GoLine) => return self.goline_key(event, cx),
-            Some(Input::Report) => return self.report_key(event, cx),
+            Some(Input::Tool) => return self.tool_key(event, window, cx),
             Some(Input::Compose) => return self.compose_key(event, cx),
             Some(Input::Field) => {
                 self.filter_key(event, cx);

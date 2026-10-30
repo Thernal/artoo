@@ -127,7 +127,6 @@ pub enum Cmd {
     ToggleRequests,
     FocusDiff,
     ZenOneFile,
-    ReportProblem,
     SetUp,
     Merge,
     Unified,
@@ -265,7 +264,6 @@ const COMMANDS: &[(&str, &str, Cmd)] = &[
     ("Branches or merge requests", "⌥⌘3", Cmd::ToggleRequests),
     ("Diff only", "⌘.", Cmd::FocusDiff),
     ("Diff only, one file at a time", "⌥⌘.", Cmd::ZenOneFile),
-    ("Report a problem", "⌥⌘/", Cmd::ReportProblem),
     ("Set up Artoo", "", Cmd::SetUp),
     ("Merge this merge request…", "", Cmd::Merge),
     ("New tab", "⌘T", Cmd::NewTab),
@@ -1447,8 +1445,8 @@ impl Workspace {
                             Pick::Offered(ix) => self
                                 .contributed
                                 .get(ix)
-                                .and_then(|(_, act)| {
-                                    cx.global::<super::keymap::Keymap>().shown(act.as_ref())
+                                .map(|(_, act)| {
+                                    cx.global::<super::keymap::Keymap>().key_now(act.as_ref())
                                 })
                                 .unwrap_or_default(),
                             _ => item.key.to_owned(),
@@ -1666,7 +1664,6 @@ fn command_action(cmd: Cmd) -> Box<dyn Action> {
         Cmd::ToggleRequests => Box::new(ToggleRequests),
         Cmd::FocusDiff => Box::new(FocusDiff),
         Cmd::ZenOneFile => Box::new(ZenOneFile),
-        Cmd::ReportProblem => Box::new(ReportProblem),
         Cmd::SetUp => Box::new(super::SetUp),
         Cmd::Merge => Box::new(super::MergeRequest),
         Cmd::Unified => Box::new(ToggleUnified),

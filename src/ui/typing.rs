@@ -45,8 +45,9 @@ pub(super) enum Input {
     NewRequest,
     /// Submit review's summary.
     Submit,
-    /// Report a problem's title and description.
-    Report,
+    /// A feature's tool window being written in (`artoo_shell_api::Tool`): Report a problem's title and
+    /// description.
+    Tool,
 }
 
 impl Input {
@@ -66,7 +67,7 @@ impl Input {
         Input::CommitSearch,
         Input::NewRequest,
         Input::Submit,
-        Input::Report,
+        Input::Tool,
     ];
 
     /// Over everything until it closes: it is never open without the keyboard, and closing it
@@ -85,10 +86,10 @@ impl Input {
         )
     }
 
-    /// Of the page it was opened on: elsewhere it keeps its text, not the keyboard. Submit and
-    /// Report are in the tool window, which stays from page to page.
+    /// Of the page it was opened on: elsewhere it keeps its text, not the keyboard. Submit and a
+    /// feature's tool window are in the tool window, which stays from page to page.
     fn local(self) -> bool {
-        !self.modal() && !matches!(self, Input::Submit | Input::Report)
+        !self.modal() && !matches!(self, Input::Submit | Input::Tool)
     }
 }
 
@@ -140,7 +141,7 @@ impl Workspace {
             Input::CommitSearch => self.find.text.is_some(),
             Input::NewRequest => self.newreq.is_some(),
             Input::Submit => self.submit.is_some(),
-            Input::Report => self.report_typing(),
+            Input::Tool => self.tool_typing(),
         }
     }
 
@@ -357,7 +358,7 @@ pub(super) fn field_box_out<E: InteractiveElement>(
 #[cfg(test)]
 mod tests {
     /// The key handlers `find_key` routes to by `Input`: the only places a key may edit a text.
-    const ROUTED: [&str; 13] = [
+    const ROUTED: [&str; 12] = [
         "ffind_key",
         "palette_key",
         "beside_key",
@@ -366,7 +367,6 @@ mod tests {
         "submit_key",
         "newreq_key",
         "goline_key",
-        "report_key",
         "compose_key",
         "filter_key",
         "dfind_key",

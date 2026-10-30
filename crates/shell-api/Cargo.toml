@@ -7,6 +7,8 @@ license.workspace = true
 publish = false
 
 [dependencies]
+# The places a frame names (`Places::web`).
+artoo-core = { path = "../core" }
 # A part draws with the kit: the text selection a frame hands it is the kit's markdown's.
 artoo-ui-kit = { path = "../ui-kit" }
 gpui.workspace = true

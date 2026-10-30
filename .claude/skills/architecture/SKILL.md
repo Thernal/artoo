@@ -94,10 +94,12 @@ The target above is reached stage by stage; until then:
   (`tokens`, `fixture`, `json`). The connect panel still calls `connect::` for the token's ways until it
   moves with hosts' views. Markdown is the kit's, drawing web pictures through the kit's `Pictures` port
   (hosts provides it); a view that draws it passes `cx`.
-- Stage 4 (under way): `artoo-shell-api` holds actions (the app menu and ⌘K list them), parts (a title-bar item,
-  a card over the window, Settings rows, snapshot views, made for each tab with its `Frame`) and `Frame` (a toast,
-  the error line, a redraw, the text selection); the tab draws them (`src/ui/parts.rs`). Updates is the first
-  feature on it: its card, mark and Settings line are `artoo-updates`' own (`card.rs`), its surface `install`.
+- Stage 4 (under way): `artoo-shell-api` holds actions (the app menu, ⌘K and the keymap list them), parts (a
+  title-bar item, a card over the window, a tool window on the right, Settings rows, snapshot views, made for each
+  tab with its `Frame`) and `Frame` (a toast, the error line, a redraw, the text selection, the places the tab has
+  open, a tool window shown); the tab draws them (`src/ui/parts.rs`). Updates' card, mark and Settings line are
+  `artoo-updates`' own (`card.rs`); Report a problem's window is `artoo-reports`' (`tool.rs`), the drafts agents
+  leave reaching it through `artoo-agents-api`. Each shows `install` alone.
 - `Page` (`src/ui/nav.rs`) is a closed enum the route registry replaces; `menu::Act` and `toast` still know the
   other features. Meanwhile a new page, action or toast is added there in the shape the registries will take: one
   variant, one id, one owner.

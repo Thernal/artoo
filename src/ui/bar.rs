@@ -5,7 +5,7 @@
 
 use super::nav::Page;
 use super::spaces::Space;
-use super::{Workspace, format, island, keys, px, theme, words};
+use super::{Workspace, format, island, px, theme, words};
 use gpui::{AnyElement, ClickEvent, Context, FontWeight, SharedString, div, prelude::*};
 
 /// A part of the path: its words, and the page it goes up to.
@@ -717,44 +717,5 @@ pub(super) fn bar_icon(
         .tip(tip)
 }
 
-/// A button of the bar: its label and its key as caps; the primary one filled.
-pub(super) fn bar_button(
-    id: &'static str,
-    label: &str,
-    key: &'static str,
-    primary: bool,
-) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .flex_none()
-        .h(px(28.))
-        .px(px(10.))
-        .flex()
-        .items_center()
-        .gap_2()
-        .rounded(px(super::ROW_RADIUS))
-        .cursor_pointer()
-        .text_size(px(13.))
-        .when(primary, |s| {
-            s.bg(theme::accent())
-                .text_color(theme::on_accent())
-                .font_weight(FontWeight::MEDIUM)
-                .hover(|s| s.opacity(0.9))
-        })
-        .when(!primary, |s| {
-            s.border_1()
-                .border_color(theme::island_border())
-                .hover(|s| s.bg(theme::hover()))
-        })
-        .child(words::say(label).into_owned())
-        .when(!key.is_empty(), |s| {
-            s.child(keys::caps(
-                key,
-                if primary {
-                    keys::On::Filled
-                } else {
-                    keys::On::Plain
-                },
-            ))
-        })
-}
+/// A button of the bar (the kit's).
+pub(super) use artoo_ui_kit::controls::bar_button;

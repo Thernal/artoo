@@ -14,7 +14,6 @@ use artoo_core::{
 use artoo_hosts::{avatars, connect, ide, merge, pictures, tokens};
 /// The hosts' models (a request, a thread, a draft…), by the name the views knew them by before #165.
 use artoo_hosts_api as mr;
-use artoo_reports as report;
 use artoo_ui_kit::file_icons;
 use std::path::PathBuf;
 
@@ -34,7 +33,9 @@ fn main() {
         .filter(|p| p.is_dir() || git::Repo::open(p).is_ok());
     ui::run(path, |cx| {
         artoo_hosts::install(cx);
+        artoo_agents::install(cx);
         artoo_updates::install(cx);
+        artoo_reports::install(cx);
     });
 }
 

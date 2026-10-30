@@ -41,8 +41,6 @@ const OPEN: &[&str] = &[
     // The app's views reach their modules: stage 3 gives hosts its contract, stage 4 moves the views.
     "artoo-hosts",
     "artoo-agents",
-    // The app's Report a problem reads its types until its view moves with it (stage 4).
-    "artoo-reports",
 ];
 
 /// The `artoo-*` crates `manifest` depends on, its dev-dependencies left out.

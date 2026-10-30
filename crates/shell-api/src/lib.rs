@@ -4,15 +4,21 @@
 //! - **Actions** (`add_action`): a command's words, the menu that shows it, its GPUI action. The app menu and ⌘K
 //!   list them; the tab that has the keys runs one through its parts (`Parts::actions`).
 //! - **Parts** (`add_parts`): what a feature draws in every tab — an item in the title bar, a card over the
-//!   window, rows in Settings, the views a snapshot run opens —, made for each tab with its `Frame`.
-//! - **`Frame`**: what a part asks of its tab: a toast, the error line, a redraw, the text selection.
+//!   window, a tool window on the right, rows in Settings, the views a snapshot run opens —, made for each tab
+//!   with its `Frame`.
+//! - **`Frame`**: what a part asks of its tab: a toast, the error line, a redraw, the text selection, the places
+//!   it has open, its tool window opened or closed.
 //!
-//! The shell calls a part from inside its own update: a part's `key`, `close`, `poll` and snapshot views never
-//! ask their `Frame` (the tab is busy then, and asking it would panic); the part's listeners and tasks do.
+//! What a `Frame` changes waits until the update under way is over, so a part asks for it from anywhere. What it
+//! reads needs the tab free: the shell calls a part's hooks (`key`, `close`, `poll`, `opened`, the snapshot views)
+//! from inside its own update, where reading the tab would panic, so a hook defers what reads it (`cx.defer`).
+//! The part's views, listeners and tasks read it as they like.
 
+use artoo_core::git::WebRemote;
 use artoo_ui_kit::markdown::Selecting;
 use gpui::{AnyView, App, Global, KeyDownEvent, SharedString, Window};
 use std::cell::Cell;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 /// A command a feature offers: in ⌘K by its words, in a menu when it says which.
@@ -21,6 +27,8 @@ pub struct Action {
     pub id: &'static str,
     /// What ⌘K lists ("Check for updates").
     pub words: &'static str,
+    /// The keys it ships with in a tab (`cmd-alt-/`, macOS's way); Settings → Keyboard changes them.
+    pub key: Option<&'static str>,
     /// The menu that shows it, with its words there ("Check for Updates…").
     pub menu: Option<(Menu, &'static str)>,
     /// What runs it: the feature answers it in each tab (`Parts::actions`).
@@ -32,10 +40,12 @@ pub struct Action {
 pub enum Menu {
     /// Artoo's own menu, above Settings….
     App,
+    /// Help, after its own items.
+    Help,
 }
 
-/// What a part asks of the tab it was made for. Each call reaches the tab, so none is made while the shell is
-/// calling the part (see the crate's doc).
+/// What a part asks of the tab it was made for. A change is made once the update under way is over; a read is
+/// never made from a hook (see the crate's doc).
 pub trait Frame {
     /// A short word at the foot of the window.
     fn toast(&self, text: SharedString, cx: &mut App);
@@ -49,6 +59,30 @@ pub trait Frame {
     /// The tab's text selection, for text a part draws with the kit's markdown, so it is selected and copied
     /// as a comment's is; `None` once the tab is gone.
     fn selecting(&self, cx: &App) -> Option<Selecting>;
+
+    /// What the tab has open, and had.
+    fn places(&self, cx: &App) -> Places;
+
+    /// Opens a part's tool window by its id, or gives the open one the keyboard; `None` closes the one open.
+    fn show_tool(&self, id: Option<&'static str>, cx: &mut App);
+
+    /// Whether tool window `id` has the keyboard: open, its zone the focused one, nothing over it, typing.
+    fn tool_typing(&self, id: &str, cx: &App) -> bool;
+}
+
+/// What a tab has open, and had: what a part names it by, or leaves out of what it sends.
+#[derive(Clone, Default)]
+pub struct Places {
+    /// The repository open in it.
+    pub root: Option<PathBuf>,
+    /// The project's main working tree, whatever worktree of it is open.
+    pub project: Option<PathBuf>,
+    /// The repositories opened before.
+    pub recent: Vec<PathBuf>,
+    /// The repository's address on the web.
+    pub web: Option<WebRemote>,
+    /// The host `web` is on, without the scheme.
+    pub host: Option<String>,
 }
 
 /// What a part does when the shell asks it (a card closed, polled, a snapshot view opened).
@@ -78,6 +112,28 @@ pub struct Overlay {
     pub poll: Option<Hook>,
 }
 
+/// A tool window on the right, in every space after the shell's own: its icon in the stripe, its window beside
+/// the page once opened. Typed keys go to it while it has the keyboard and says it is typing.
+pub struct Tool {
+    /// A stable id (`report`): the layout keeps the window open by it.
+    pub id: &'static str,
+    /// The stripe's icon (`flag`).
+    pub icon: &'static str,
+    /// The icon's long hover ("Report a problem  ⌥⌘/").
+    pub tip: &'static str,
+    /// The window's title; the shell draws it with the close button.
+    pub title: &'static str,
+    /// What is under the title: a body that scrolls itself and its foot, if it has one (the kit's
+    /// `controls::tool_foot`).
+    pub view: AnyView,
+    /// As it opens, before its window is drawn: a picture of the window taken now does not show it.
+    pub opened: Hook,
+    /// Whether it takes typed keys while it has the keyboard; the part sets it, the shell reads it.
+    pub typing: Rc<Cell<bool>>,
+    /// A typed key while it has the keyboard.
+    pub key: OnKey,
+}
+
 /// A section of Settings a part can add rows to.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Section {
@@ -92,6 +148,7 @@ pub type Run = Rc<dyn Fn(&mut Window, &mut App)>;
 pub struct Parts {
     pub title: Option<TitleItem>,
     pub overlay: Option<Overlay>,
+    pub tool: Option<Tool>,
     /// Rows under a section of Settings, in the order given.
     pub settings: Vec<(Section, AnyView)>,
     /// The feature's actions as this tab runs them.

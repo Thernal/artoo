@@ -1,0 +1,11 @@
+[package]
+name = "artoo-agents-api"
+description = "The agents' contract (#165): what another feature asks of the agents' chats."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# The handle every window reads (`provide` / `get`).
+gpui.workspace = true

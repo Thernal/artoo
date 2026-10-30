@@ -4,9 +4,16 @@
 
 pub mod agents;
 pub mod codex;
+mod contract;
 pub mod mcp;
 pub mod notes;
 pub mod review;
 pub mod watch;
 
 use artoo_core::{applog, generated, git, labels, platform, storage};
+use std::sync::Arc;
+
+/// Wires the agents in: the contract other features read them through (`artoo_agents_api`).
+pub fn install(cx: &mut gpui::App) {
+    artoo_agents_api::provide(cx, Arc::new(contract::ReportDraftsImpl));
+}
