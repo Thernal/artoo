@@ -200,6 +200,11 @@ pub fn readme<'a>(files: &'a [String], dir: &str) -> Option<&'a String> {
     .find_map(|name| files.iter().find(|f| **f == format!("{prefix}{name}")))
 }
 
+/// A NUL in the first 8000 bytes: binary, as git judges it.
+pub fn binary(bytes: &[u8]) -> bool {
+    bytes[..bytes.len().min(8000)].contains(&0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

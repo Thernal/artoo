@@ -262,7 +262,7 @@ impl super::review::Review {
                             .text_color(super::change_color(file, state == Some(State::Done))),
                     )
                     // The working tree's part it is (#22): staged, not staged, untracked.
-                    .children(super::working::file_tag(
+                    .children(super::file_tag(
                         self.diff.as_ref().and_then(|d| d.tags.word(ix)),
                     ))
                     // Another chat is changing it (#77).
@@ -828,7 +828,7 @@ impl super::review::Review {
         let Some(diff) = &self.diff else {
             return false;
         };
-        let order: Vec<usize> = super::lists::file_items(
+        let order: Vec<usize> = artoo_review::changes::file_items(
             &diff.files,
             self.options.list_files,
             "",
@@ -837,7 +837,7 @@ impl super::review::Review {
         )
         .into_iter()
         .filter_map(|item| match item {
-            super::lists::FileItem::File { ix, .. } => Some(ix),
+            artoo_review::changes::FileItem::File { ix, .. } => Some(ix),
             _ => None,
         })
         .collect();

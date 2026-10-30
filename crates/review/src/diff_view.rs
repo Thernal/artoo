@@ -1,7 +1,7 @@
 //! Drawing one row of a file diff, and the small controls above it.
 
 use crate::select::Sel;
-use artoo_core::git::LineKind;
+use artoo_core::git::{ChangeKind, FileDiff, LineKind};
 use artoo_core::rows::{self, Cell, FileData, Row, Side};
 use artoo_core::storage::MarkStyle;
 use artoo_ui_kit::hover::{CutInTip, TipOwned};
@@ -578,6 +578,44 @@ pub fn group() -> gpui::Div {
         .p(px(2.))
         .rounded(px(ROW_RADIUS + 2.))
         .bg(theme::base())
+}
+
+/// A file's change as the colour of its name, beside its icon (the developer, 2026-10-23: a letter
+/// there as well looked odd): added green, deleted red, modified the accent, renamed or copied
+/// their own, a type change the warning's; reviewed, a step fainter.
+pub fn change_color(file: &FileDiff, reviewed: bool) -> gpui::Rgba {
+    let color = match file.change {
+        ChangeKind::Added => theme::added(),
+        ChangeKind::Deleted => theme::removed(),
+        ChangeKind::Modified => theme::accent(),
+        ChangeKind::Renamed | ChangeKind::Copied => theme::renamed(),
+        ChangeKind::TypeChanged => theme::warning(),
+    };
+    if reviewed {
+        gpui::Rgba { a: 0.55, ..color }
+    } else {
+        color
+    }
+}
+
+/// How a working-tree file is tagged in the file list.
+pub fn tag_color(tag: &str) -> gpui::Rgba {
+    match tag {
+        "staged" => theme::added(),
+        "untracked" => theme::renamed(),
+        _ => theme::warning(),
+    }
+}
+
+/// The small word after a file's name.
+pub fn file_tag(tag: Option<&'static str>) -> Option<gpui::Div> {
+    tag.map(|t| {
+        div()
+            .flex_none()
+            .text_size(px(10.))
+            .text_color(tag_color(t))
+            .child(t)
+    })
 }
 
 #[cfg(test)]

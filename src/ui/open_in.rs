@@ -9,6 +9,7 @@ use super::nav::Page;
 use super::spaces::Space;
 use super::{Workspace, icons, px, theme};
 use crate::editor::{self, Editor};
+use crate::files::binary;
 use crate::platform;
 use gpui::{AnyElement, ClickEvent, Context, MouseButton, MouseDownEvent, div, prelude::*};
 use std::collections::HashMap;
@@ -137,11 +138,6 @@ fn kind_of(path: &Path) -> Kind {
     } else {
         Kind::Text
     }
-}
-
-/// A NUL in the first 8000 bytes: binary, as git judges it.
-pub fn binary(bytes: &[u8]) -> bool {
-    bytes[..bytes.len().min(8000)].contains(&0)
 }
 
 /// `path`'s extension as the kept choices are: lower case, with no dot.

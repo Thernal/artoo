@@ -41,5 +41,18 @@ pub fn apply_ui_zoom(percent: u16, window: &mut gpui::Window) {
     window.set_rem_size(gpui::px(16. * f32::from(percent) / 100.));
 }
 
+/// Flat panes (Settings → Appearance): hairlines, no gaps, square corners. Window-wide, like the interface
+/// size: every tab and window reads it.
+pub fn flat() -> bool {
+    FLAT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Makes panes flat or islands, for every tab and window; set when settings load or change.
+pub fn set_flat(on: bool) {
+    FLAT.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+static FLAT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// The interface size, in percent; read by `px`.
 static UI_ZOOM: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(100);

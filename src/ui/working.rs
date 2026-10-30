@@ -1,7 +1,6 @@
 //! The working tree against `HEAD`: a pinned entry above the commits, kept current while an agent
 //! works. Read-only — Artoo never stages or commits.
 
-use super::px;
 use super::{Diff, Header, Selection, WorkingState, Workspace, theme};
 use crate::git::Repo;
 use artoo_review::diff::FileTags;
@@ -183,24 +182,4 @@ impl Workspace {
                 }))
         })
     }
-}
-
-/// How a working-tree file is tagged in the file list.
-pub(super) fn tag_color(tag: &str) -> gpui::Rgba {
-    match tag {
-        "staged" => theme::added(),
-        "untracked" => theme::renamed(),
-        _ => theme::warning(),
-    }
-}
-
-/// The small word after a file's name.
-pub(super) fn file_tag(tag: Option<&'static str>) -> Option<gpui::Div> {
-    tag.map(|t| {
-        div()
-            .flex_none()
-            .text_size(px(10.))
-            .text_color(tag_color(t))
-            .child(t)
-    })
 }

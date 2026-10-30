@@ -5,8 +5,8 @@
 use super::diff_view::{chip, group};
 use super::px;
 use super::{Workspace, theme};
-use crate::git::{ChangeKind, FileDiff, ImageKind, ImageSide};
-use artoo_review::image_view::{MAX_H, MAX_W, Mode, change, describe, fit};
+use crate::git::{ChangeKind, FileDiff, ImageSide};
+use artoo_review::image_view::{MAX_H, MAX_W, Mode, change, describe, fit, frame, is_svg};
 use gpui::{ClickEvent, Context, FontWeight, MouseButton, ObjectFit, Pixels, div, img, prelude::*};
 
 impl Workspace {
@@ -190,23 +190,6 @@ impl Workspace {
                     .child("Drag across the image to move it"),
             )
     }
-}
-
-pub(super) fn is_svg(file: &FileDiff) -> bool {
-    [&file.old_image, &file.new_image]
-        .into_iter()
-        .flatten()
-        .any(|s| s.kind == ImageKind::Svg)
-}
-
-/// The border an image sits in, in its side's colour.
-fn frame(tone: gpui::Rgba) -> gpui::Div {
-    div()
-        .p(px(8.))
-        .rounded(px(6.))
-        .border_1()
-        .border_color(tone)
-        .bg(theme::panel())
 }
 
 /// Image | Source, for an SVG.

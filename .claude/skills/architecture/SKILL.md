@@ -105,6 +105,6 @@ The target above is reached stage by stage; until then:
   pages). `menu::Act` and `toast` still know the other features. Meanwhile a new page, action or toast is added there in the shape the registries will take: one
   variant, one id, one owner.
 - `artoo-review` (stage 4, R3) receives the review bottom up: the row drawing (`diff_view`) and the types the review
-  keeps (`select`, `reviewed`, `annotate`, `stack`, `pins`, `diff`, and the images', pages' and file view's state) first, the diff's rows having gone to the core (`artoo_core::rows`);
+  keeps (`select`, `reviewed`, `annotate`, `stack`, `pins`, `diff`, the images', pages' and file view's state, the Changes list's rows) first, the diff's rows having gone to the core (`artoo_core::rows`);
   the entity, its events and its host follow, then `artoo-review-api` for what pages speak.
 - Every implementation's surface is wide (`OPEN`) until its views move with it.

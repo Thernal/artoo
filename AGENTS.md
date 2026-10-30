@@ -17,7 +17,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   other features pin on a file's lines (`pins`: the agents' comments and notes as `Anchored` lines) and the diff shown
   (`diff`: what it is of, its files, the working tree's words, the notice of a change not asked for, its undo the
   versions compared before), with the state of images (`image_view`), pages (`md_page`) and Code's file
-  (`file_view`); the app's
+  (`file_view`), and the Changes list's rows (`changes`); the app's
   views read them as `ui::diff_view` and `artoo_review::…`. `crates/updates` (`artoo-updates`) asks for
   newer releases and draws what it found (its `install` alone is shown). `crates/shell-api` (`artoo-shell-api`): the
   shell's contract — actions (the app menu and ⌘K list them), parts each tab draws (title-bar items, cards over the

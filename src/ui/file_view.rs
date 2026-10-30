@@ -479,7 +479,7 @@ impl super::review::Review {
                         Some(rev) => Repo::open(&root).ok()?.bytes_at(rev, &file)?,
                         None => std::fs::read(root.join(&file)).ok()?,
                     };
-                    if super::open_in::binary(&bytes) {
+                    if crate::files::binary(&bytes) {
                         let size = Some(bytes.len() as u64);
                         return Some((Vec::new(), Vec::new(), at, None, size));
                     }

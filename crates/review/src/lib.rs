@@ -3,6 +3,7 @@
 //! entity, its events and its host follow.
 
 pub mod annotate;
+pub mod changes;
 pub mod diff;
 pub mod diff_view;
 pub mod file_view;

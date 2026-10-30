@@ -4,7 +4,9 @@
 //! the one that has it, and ↵ goes one step in.
 
 use super::px;
+use super::review::Review;
 use super::{Selection, Workspace, theme};
+use artoo_review::changes::FileItem;
 use gpui::{App, Context, Rgba};
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -358,7 +360,7 @@ impl Workspace {
 
     /// ↑ ↓ over what the files island shows, folders included.
     fn step_file_item(&mut self, down: bool, cx: &mut Context<Self>) {
-        let items = self.review.read(cx).item_keys();
+        let items = item_keys(self.review.read(cx));
         let here = match &self.review.read(cx).fcursor {
             Some(dir) => items
                 .iter()
@@ -402,10 +404,7 @@ impl Workspace {
         }
         // ← on a file: the folder it is in, or its group (#22).
         if let Some(path) = self.review.read(cx).file_key(self.review.read(cx).file) {
-            let parent = self
-                .review
-                .read(cx)
-                .item_keys()
+            let parent = item_keys(self.review.read(cx))
                 .into_iter()
                 .filter_map(|k| match k {
                     ItemKey::Dir(d) if path.starts_with(&format!("{d}/")) => Some(d),
@@ -424,4 +423,17 @@ impl Workspace {
 pub enum ItemKey {
     File(usize),
     Dir(String),
+}
+
+/// What the files island shows, as keys for keyboard movement.
+fn item_keys(review: &Review) -> Vec<ItemKey> {
+    review
+        .items()
+        .into_iter()
+        .map(|item| match item {
+            FileItem::File { ix, .. } => ItemKey::File(ix),
+            FileItem::Dir { path, .. } => ItemKey::Dir(path),
+            FileItem::Group { group, .. } => ItemKey::Dir(group.key().into()),
+        })
+        .collect()
 }

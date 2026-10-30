@@ -1,8 +1,9 @@
 //! How images are looked at in a diff — 2-up, swipe or onion skin —, each decoded once, and the words on what
 //! changed between the sides.
 
-use artoo_core::git::{ImageKind, ImageSide};
-use gpui::{Bounds, ImageFormat, Pixels};
+use artoo_core::git::{FileDiff, ImageKind, ImageSide};
+use artoo_ui_kit::{px, theme};
+use gpui::{Bounds, ImageFormat, Pixels, div, prelude::*};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -132,6 +133,24 @@ pub fn fit(size: Option<(u32, u32)>, max_w: f32, max_h: f32) -> (f32, f32) {
     let (w, h) = size.map_or((max_w, max_h), |(w, h)| (w.max(1) as f32, h.max(1) as f32));
     let scale = (max_w / w).min(max_h / h).min(1.);
     (w * scale, h * scale)
+}
+
+/// Whether either side of `file` is an SVG.
+pub fn is_svg(file: &FileDiff) -> bool {
+    [&file.old_image, &file.new_image]
+        .into_iter()
+        .flatten()
+        .any(|s| s.kind == ImageKind::Svg)
+}
+
+/// The border an image sits in, in its side's colour.
+pub fn frame(tone: gpui::Rgba) -> gpui::Div {
+    div()
+        .p(px(8.))
+        .rounded(px(6.))
+        .border_1()
+        .border_color(tone)
+        .bg(theme::panel())
 }
 
 #[cfg(test)]

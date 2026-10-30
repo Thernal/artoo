@@ -1,7 +1,7 @@
 //! The Artoo window: branches, versions and commits on the left, the diff on the right.
 
 use artoo_ui_kit::hover::{Tip, TipOwned};
-pub(crate) use artoo_ui_kit::{apply_ui_zoom, px, ui_zoom};
+pub(crate) use artoo_ui_kit::{apply_ui_zoom, flat, px, ui_zoom};
 mod hover;
 use artoo_ui_kit::format::plural;
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, format, icons, keys, markdown, room, theme, words};
@@ -77,13 +77,11 @@ mod welcome;
 mod working;
 mod zones;
 
-use crate::git::{
-    BranchRef, ChangeKind, CommitInfo, DiffSettings, FileDiff, PairKind, Repo, Version,
-};
+use crate::git::{BranchRef, CommitInfo, DiffSettings, FileDiff, PairKind, Repo, Version};
 use crate::rows::{self, FileData, Row};
 use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
 use artoo_review::diff::{Diff, Header, Notice};
-use artoo_review::diff_view::{self, CODE_SIZE, DIFF_ROW};
+use artoo_review::diff_view::{self, CODE_SIZE, DIFF_ROW, change_color, file_tag};
 use artoo_review::pins::Pins;
 use artoo_review::select::Sel;
 use diff_view::{RowStyle, chip};
@@ -257,15 +255,9 @@ const TITLE_BAR: f32 = 38.;
 /// Space between islands; the resize handles live in it. Flat panes have none (`gap`).
 const GAP: f32 = 8.;
 
-/// Flat panes (Settings → Appearance): hairlines, no gaps, square corners. With `PROJECTS`, the
+/// How several projects show: `storage::Projects::ALL[n]`. With flat panes (`artoo_ui_kit::flat`), the
 /// window-wide part of the settings: every tab and window reads it, set when settings load or change.
-static FLAT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-/// How several projects show: `storage::Projects::ALL[n]`.
 static PROJECTS: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-
-fn flat() -> bool {
-    FLAT.load(std::sync::atomic::Ordering::Relaxed)
-}
 
 fn projects() -> storage::Projects {
     let n = PROJECTS.load(std::sync::atomic::Ordering::Relaxed) as usize;
@@ -275,7 +267,7 @@ fn projects() -> storage::Projects {
 /// Makes `settings`' window-wide choices the ones every tab draws.
 fn share_settings(settings: &Settings) {
     use std::sync::atomic::Ordering::Relaxed;
-    FLAT.store(settings.flat, Relaxed);
+    artoo_ui_kit::set_flat(settings.flat);
     let n = storage::Projects::ALL
         .iter()
         .position(|p| *p == settings.projects)
@@ -4064,12 +4056,12 @@ impl Workspace {
                             .read(cx)
                             .stack
                             .is_none()
-                            .then(|| working::file_tag(diff.tags.word(self.review.read(cx).file)))
+                            .then(|| file_tag(diff.tags.word(self.review.read(cx).file)))
                             .flatten(),
                     )
                     // An SVG read as its source can go back to the picture.
                     .children(
-                        (self.review.read(cx).images.source && image_view::is_svg(f))
+                        (self.review.read(cx).images.source && artoo_review::image_view::is_svg(f))
                             .then(|| image_view::source_switch(true, cx)),
                     )
                     // With every file in one scroll the card's own header has it.
@@ -4607,24 +4599,6 @@ fn line_counts(added: usize, removed: usize) -> gpui::Div {
 /// Where the diff's top is: the file, the line (and whether on the old side) of the nearest row
 /// that has one, how far into that row.
 type Anchor = (usize, Option<(u32, bool)>, gpui::Pixels);
-
-/// A file's change as the colour of its name, beside its icon (the developer, 2026-10-23: a letter
-/// there as well looked odd): added green, deleted red, modified the accent, renamed or copied
-/// their own, a type change the warning's; reviewed, a step fainter.
-fn change_color(file: &FileDiff, reviewed: bool) -> gpui::Rgba {
-    let color = match file.change {
-        ChangeKind::Added => theme::added(),
-        ChangeKind::Deleted => theme::removed(),
-        ChangeKind::Modified => theme::accent(),
-        ChangeKind::Renamed | ChangeKind::Copied => theme::renamed(),
-        ChangeKind::TypeChanged => theme::warning(),
-    };
-    if reviewed {
-        gpui::Rgba { a: 0.55, ..color }
-    } else {
-        color
-    }
-}
 
 /// What a long hover on a file's name says: its change, its whole path, its +/−.
 fn change_tip(file: &FileDiff) -> String {
