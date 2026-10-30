@@ -6,7 +6,7 @@
 use super::nav::Page;
 use super::spaces::Space;
 use super::{Workspace, format, island, px, theme, words};
-use gpui::{AnyElement, ClickEvent, Context, FontWeight, SharedString, div, prelude::*};
+use gpui::{AnyElement, App, ClickEvent, Context, FontWeight, SharedString, div, prelude::*};
 
 /// A part of the path: its words, and the page it goes up to.
 struct Crumb {
@@ -59,7 +59,7 @@ impl Workspace {
             .then(|| path.iter().rev().find_map(|c| c.to.clone()))
             .flatten();
         let path = if self.compact() { Vec::new() } else { path };
-        let count = self.count_of(space, page.as_ref());
+        let count = self.count_of(space, page.as_ref(), cx);
         let public = space == Space::Requests && page.is_some();
         // Narrow, ‹ is one level up; ⌘[ and the title bar still go back (#80).
         let from = self.nav.from.filter(|_| page.is_some() && !self.compact());
@@ -171,7 +171,7 @@ impl Workspace {
                             }))
                     }))
                     .children(crumbs)
-                    .child(self.title_hover(page.as_ref(), words::say(&id).into_owned(), mono))
+                    .child(self.title_hover(page.as_ref(), words::say(&id).into_owned(), mono, cx))
                     .children(count.map(|n| {
                         div()
                             .flex_none()
@@ -245,7 +245,7 @@ impl Workspace {
     /// The page's title with what a long hover on it says (the developer, 2026-10-23: the header
     /// names no author): a request's identity, a commit's or a branch's card, a file's or a
     /// folder's whole path. Without one, its own long hover gives the whole title when it is cut.
-    fn title_hover(&self, page: Option<&Page>, text: String, mono: bool) -> AnyElement {
+    fn title_hover(&self, page: Option<&Page>, text: String, mono: bool, cx: &App) -> AnyElement {
         use super::hover::{CommitCard, CutInTip, Hover};
         let style = |title: gpui::Stateful<gpui::Div>| {
             title
@@ -296,6 +296,7 @@ impl Workspace {
             Some(Page::File(path)) => {
                 let at = self
                     .review
+                    .read(cx)
                     .file_view
                     .as_ref()
                     .filter(|v| &v.path == path)
@@ -471,7 +472,7 @@ impl Workspace {
     }
 
     /// The faint count after a root's name.
-    fn count_of(&self, space: Space, page: Option<&Page>) -> Option<String> {
+    fn count_of(&self, space: Space, page: Option<&Page>, cx: &App) -> Option<String> {
         match (space, page) {
             (Space::Inbox, _) => Some(match self.inbox_unread() {
                 0 => "Nothing new".to_owned(),
@@ -488,6 +489,7 @@ impl Workspace {
             (Space::Branches, None) => Some(self.branches_count()),
             (Space::Code, Some(Page::File(_))) => self
                 .review
+                .read(cx)
                 .file_view
                 .as_ref()
                 .map(|v| format!("as of {}", v.at())),
@@ -601,7 +603,7 @@ impl Workspace {
                         .into_any_element(),
                 );
             }
-            (Space::Requests, Some(Page::Request(_))) if self.showing_request() => {
+            (Space::Requests, Some(Page::Request(_))) if self.showing_request(cx) => {
                 let pending = self.requests.drafts.len();
                 let label = match pending {
                     0 => "Submit review".to_owned(),

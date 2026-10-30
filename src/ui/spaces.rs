@@ -11,7 +11,7 @@ use super::nav::{Item, Page};
 use super::requests::Scope;
 use super::{Workspace, icons, px, theme};
 use gpui::{
-    ClickEvent, Context, FontWeight, MouseButton, SharedString, canvas, div, point, prelude::*,
+    App, ClickEvent, Context, FontWeight, MouseButton, SharedString, canvas, div, point, prelude::*,
 };
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -215,7 +215,7 @@ impl Workspace {
     }
 
     /// The rows open under `space`: its requests or branches, Code's file.
-    fn open_rows(&self, space: Space) -> Vec<OpenRow> {
+    fn open_rows(&self, space: Space, cx: &App) -> Vec<OpenRow> {
         let here = self.space() == Some(space);
         if space == Space::Code {
             return match self.page_of(Space::Code) {
@@ -245,7 +245,7 @@ impl Workspace {
                 let on = here && self.is_shown(&open.item);
                 // The one loaded says its files as they are now.
                 let now: Vec<String>;
-                let paths = match &self.review.diff {
+                let paths = match &self.review.read(cx).diff {
                     Some(diff) if loaded.as_ref() == Some(&open.item) => {
                         now = diff.files.iter().map(|f| f.path().to_owned()).collect();
                         &now
@@ -429,7 +429,7 @@ impl Workspace {
             let id = space.id();
             let label = space.label();
             let missing = self.missing(space);
-            let opens = self.open_rows(space);
+            let opens = self.open_rows(space, cx);
             let shut = self.nav.folded[space.ix()];
             let call = opens
                 .iter()
@@ -596,7 +596,7 @@ impl Workspace {
                 }))
                 // A double click folds or opens what is open under it, as its chevron does.
                 .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
-                    if e.click_count() == 2 && !this.open_rows(space).is_empty() {
+                    if e.click_count() == 2 && !this.open_rows(space, cx).is_empty() {
                         this.toggle_open_items(space, cx)
                     } else {
                         this.go_space(space, cx)

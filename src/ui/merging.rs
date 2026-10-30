@@ -280,7 +280,7 @@ impl Workspace {
             moved: false,
             busy: false,
         });
-        self.take_keyboard(Input::Merge);
+        self.take_keyboard(Input::Merge, cx);
         cx.notify();
     }
 
@@ -678,7 +678,7 @@ impl Workspace {
                     .into_any_element(),
             );
         }
-        let active = self.has_keyboard(Input::Merge);
+        let active = self.has_keyboard(Input::Merge, cx);
         let message = if host.github && merge.method == Method::Rebase {
             field_row().child(label("Commit message")).child(
                 div()

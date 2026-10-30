@@ -78,35 +78,37 @@ impl Workspace {
         self.ctx_menu = None;
         self.note_sel = None;
         let at = Pos { line, byte };
-        let text = self.review.line_text(old, line);
-        self.review.selecting = true;
-        self.review.sel = match (self.review.sel, clicks, shift) {
-            (Some(sel), 1, true) if sel.old == old => Some(Sel { head: at, ..sel }),
-            (_, 2, _) => {
-                let w = word_at(&text, byte);
-                Some(Sel {
+        let text = self.review.read(cx).line_text(old, line);
+        self.review.update(cx, |rv, _| rv.selecting = true);
+        self.review.update(cx, |rv, _| {
+            rv.sel = match (rv.sel, clicks, shift) {
+                (Some(sel), 1, true) if sel.old == old => Some(Sel { head: at, ..sel }),
+                (_, 2, _) => {
+                    let w = word_at(&text, byte);
+                    Some(Sel {
+                        old,
+                        anchor: Pos {
+                            line,
+                            byte: w.start,
+                        },
+                        head: Pos { line, byte: w.end },
+                    })
+                }
+                (_, n, _) if n >= 3 => Some(Sel {
                     old,
-                    anchor: Pos {
+                    anchor: Pos { line, byte: 0 },
+                    head: Pos {
                         line,
-                        byte: w.start,
+                        byte: text.len(),
                     },
-                    head: Pos { line, byte: w.end },
-                })
+                }),
+                _ => Some(Sel {
+                    old,
+                    anchor: at,
+                    head: at,
+                }),
             }
-            (_, n, _) if n >= 3 => Some(Sel {
-                old,
-                anchor: Pos { line, byte: 0 },
-                head: Pos {
-                    line,
-                    byte: text.len(),
-                },
-            }),
-            _ => Some(Sel {
-                old,
-                anchor: at,
-                head: at,
-            }),
-        };
+        });
         cx.notify();
     }
 
@@ -118,17 +120,22 @@ impl Workspace {
         byte: usize,
         cx: &mut Context<Self>,
     ) {
-        if !self.review.selecting {
+        if !self.review.read(cx).selecting {
             return;
         }
-        if let Some(sel) = &mut self.review.sel
-            && sel.old == old
-        {
-            let head = Pos { line, byte };
-            if sel.head != head {
+        let head = Pos { line, byte };
+        let moved = self.review.update(cx, |rv, _| {
+            if let Some(sel) = &mut rv.sel
+                && sel.old == old
+                && sel.head != head
+            {
                 sel.head = head;
-                cx.notify();
+                return true;
             }
+            false
+        });
+        if moved {
+            cx.notify();
         }
     }
 
@@ -142,18 +149,18 @@ impl Workspace {
         // A selection in the field being typed in wins; then one in a comment's text; then the
         // diff's.
         let text = self
-            .field_selection()
+            .field_selection(cx)
             .or_else(|| self.note_sel.as_ref().and_then(|s| s.text()))
-            .or_else(|| self.review.selected_text());
+            .or_else(|| self.review.read(cx).selected_text());
         if let Some(text) = text {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
         }
     }
 
     /// The text selected in the field that has the keyboard (never in the token's).
-    fn field_selection(&self) -> Option<String> {
+    fn field_selection(&self, cx: &App) -> Option<String> {
         use super::typing::Input;
-        let shared = match self.typing()? {
+        let shared = match self.typing(cx)? {
             Input::Compose => {
                 return self
                     .compose
@@ -179,20 +186,21 @@ impl Workspace {
 
     /// ⌘A: the whole side of the diff that is being read (the new one, unless the old is selected).
     pub(super) fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(data) = &self.review.data else {
+        let Some(data) = &self.review.read(cx).data else {
             return;
         };
-        let old = self.review.sel.is_some_and(|s| s.old);
+        let old = self.review.read(cx).sel.is_some_and(|s| s.old);
         let side = data.side(old);
         let last = side.count().max(1);
-        self.review.sel = Some(Sel {
+        let sel = Sel {
             old,
             anchor: Pos { line: 1, byte: 0 },
             head: Pos {
                 line: last,
                 byte: side.line(last).0.len(),
             },
-        });
+        };
+        self.review.update(cx, |rv, _| rv.sel = Some(sel));
         cx.notify();
     }
 }
@@ -244,7 +252,7 @@ impl Workspace {
                 shift,
                 texts,
             } => {
-                self.review.sel = None;
+                self.review.update(cx, |rv, _| rv.sel = None);
                 self.ctx_menu = None;
                 let text = texts.borrow().get(block).cloned().unwrap_or_default();
                 let same = self.note_sel.as_ref().is_some_and(|s| s.note == note);

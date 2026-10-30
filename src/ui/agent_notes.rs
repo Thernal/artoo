@@ -53,7 +53,7 @@ impl Workspace {
         );
         self.save_agent_notes();
         self.map_agent_notes(cx);
-        self.refresh_rows();
+        self.refresh_rows(cx);
         if open {
             return self.agent_changes(agent, page, unstaged, count, cx);
         }
@@ -84,7 +84,7 @@ impl Workspace {
         let Some(item) = page.item() else {
             return;
         };
-        self.open_quietly(page);
+        self.open_quietly(page, cx);
         self.save_nav();
         self.show_changes(&item, unstaged, cx);
     }
@@ -97,11 +97,11 @@ impl Workspace {
 
     /// The notes on the changes the diff shows: the working tree's on the working tree; a head's
     /// where the diff's head is its commit or bears its name.
-    pub(super) fn notes_shown(&self) -> Vec<&Notes> {
-        let Some(header) = self.review.diff.as_ref().map(|d| &d.header) else {
+    pub(super) fn notes_shown(&self, cx: &App) -> Vec<&Notes> {
+        let Some(header) = self.review.read(cx).diff.as_ref().map(|d| &d.header) else {
             return Vec::new();
         };
-        let head = self.review.shown_head().map(|h| h.to_string());
+        let head = self.review.read(cx).shown_head().map(|h| h.to_string());
         let named = match header {
             Header::Compare { head, .. } => Some(head.0.clone()),
             _ => None,
@@ -120,9 +120,9 @@ impl Workspace {
     }
 
     /// The notes shown on lines of file `path`, built as `data`: (id, line on the new side).
-    pub(super) fn notes_in(&self, path: &str, data: &FileData) -> Vec<(u64, u32)> {
+    pub(super) fn notes_in(&self, path: &str, data: &FileData, cx: &App) -> Vec<(u64, u32)> {
         let side = data.side(false);
-        self.notes_shown()
+        self.notes_shown(cx)
             .into_iter()
             .flat_map(|n| n.notes.iter())
             .filter(|n| n.path == path)
@@ -139,11 +139,12 @@ impl Workspace {
     /// written on to the one shown, in the background (#46).
     pub(super) fn map_agent_notes(&mut self, cx: &mut Context<Self>) {
         self.note_lines.clear();
-        let (Some(root), Some(head)) = (self.root.clone(), self.review.shown_head()) else {
+        let (Some(root), Some(head)) = (self.root.clone(), self.review.read(cx).shown_head())
+        else {
             return;
         };
         let asks: Vec<(u64, String, String, u32)> = self
-            .notes_shown()
+            .notes_shown(cx)
             .into_iter()
             .filter_map(|n| match &n.on {
                 On::Head { commit, .. } if !head.to_string().starts_with(commit.as_str()) => Some(
@@ -180,7 +181,7 @@ impl Workspace {
                 .await;
             this.update(cx, |this, cx| {
                 this.note_lines = found;
-                this.refresh_rows();
+                this.refresh_rows(cx);
                 cx.notify();
             })
             .ok();
@@ -206,18 +207,24 @@ impl Workspace {
         // In one scroll of all the files, its file becomes the one the keyboard works in.
         if let Some(file) = self
             .review
+            .read(cx)
             .diff
             .as_ref()
             .and_then(|d| d.files.iter().position(|f| f.path() == path))
-            && self.review.stack.is_some()
+            && self.review.read(cx).stack.is_some()
         {
             self.activate_file(file, cx);
         }
         let Some(line) = self
             .review
+            .read(cx)
             .data
             .as_ref()
-            .and_then(|data| self.notes_in(&path, data).into_iter().find(|n| n.0 == id))
+            .and_then(|data| {
+                self.notes_in(&path, data, cx)
+                    .into_iter()
+                    .find(|n| n.0 == id)
+            })
             .map(|(_, line)| line)
         else {
             return;
@@ -235,12 +242,13 @@ impl Workspace {
     pub(super) fn snapshot_answer_note(&mut self, cx: &mut Context<Self>) {
         let path = self
             .review
+            .read(cx)
             .diff
             .as_ref()
-            .and_then(|d| d.files.get(self.review.file))
+            .and_then(|d| d.files.get(self.review.read(cx).file))
             .map(|f| f.path().to_owned());
-        let first = match (&self.review.data, path) {
-            (Some(data), Some(path)) => self.notes_in(&path, data).first().map(|&(id, _)| id),
+        let first = match (&self.review.read(cx).data, path) {
+            (Some(data), Some(path)) => self.notes_in(&path, data, cx).first().map(|&(id, _)| id),
             _ => None,
         };
         if let Some(id) = first {
@@ -256,7 +264,7 @@ impl Workspace {
         self.agent_notes
             .retain(|n| !n.notes.is_empty() || !n.summary.is_empty());
         self.save_agent_notes();
-        self.refresh_rows();
+        self.refresh_rows(cx);
         cx.notify();
     }
 
@@ -264,7 +272,7 @@ impl Workspace {
     pub(super) fn dismiss_agent_notes(&mut self, uid: &str, cx: &mut Context<Self>) {
         self.agent_notes.retain(|n| n.uid != uid);
         self.save_agent_notes();
-        self.refresh_rows();
+        self.refresh_rows(cx);
         cx.notify();
     }
 
@@ -306,7 +314,7 @@ impl Workspace {
                     None,
                     Some("A comment for the agent on this line"),
                     Kind::Plain,
-                    self.review.tight,
+                    self.review.read(cx).tight,
                 )
                 .h(px(24.))
                 .px(px(8.))
@@ -353,7 +361,7 @@ impl Workspace {
     /// Over the diff, the summary of each agent's notes on these changes: its mark, how many notes
     /// on how many files, the summary, Dismiss all.
     pub(super) fn render_notes_summary(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        let shown = self.notes_shown();
+        let shown = self.notes_shown(cx);
         if shown.is_empty() {
             return None;
         }

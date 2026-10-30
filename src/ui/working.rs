@@ -104,7 +104,7 @@ impl Workspace {
         if !changed {
             return;
         }
-        self.review.blames.working_changed();
+        self.review.update(cx, |rv, _| rv.blames.working_changed());
         if self.nav.space == super::spaces::Space::Branches && self.at_root_list() {
             self.read_tree_files(cx);
         }
@@ -114,14 +114,14 @@ impl Workspace {
         }
         if self.selection == Selection::WorkingTree {
             // Reload in place: the selected file stays.
-            let keep = self.review.current_path();
+            let keep = self.review.read(cx).current_path();
             self.load_working_tree(keep, cx);
         }
         cx.notify();
     }
 
     pub(super) fn select_working_tree(&mut self, cx: &mut Context<Self>) {
-        self.arrive(super::nav::Page::WorkingTree);
+        self.arrive(super::nav::Page::WorkingTree, cx);
         self.load_working_tree(None, cx);
     }
 
@@ -130,12 +130,12 @@ impl Workspace {
             return;
         };
         let only_unstaged = self.wt.only_unstaged;
-        let at = self.review.file;
-        self.clear_diff();
+        let at = self.review.read(cx).file;
+        self.clear_diff(cx);
         // A reload finds a file partly staged at its place, in the group it was in (#22).
-        self.review.file = at;
+        self.review.update(cx, |rv, _| rv.file = at);
         self.selection = Selection::WorkingTree;
-        let settings = self.settings();
+        let settings = self.settings(cx);
         self.load_diff(keep, cx, move || {
             // All changes as `git status` groups them (#22); Not staged only is that group alone.
             let repo = Repo::open(&root)?;
@@ -158,7 +158,7 @@ impl Workspace {
 
     pub(super) fn set_only_unstaged(&mut self, on: bool, cx: &mut Context<Self>) {
         self.wt.only_unstaged = on;
-        let keep = self.review.current_path();
+        let keep = self.review.read(cx).current_path();
         self.load_working_tree(keep, cx);
     }
 

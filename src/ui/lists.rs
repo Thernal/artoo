@@ -9,7 +9,8 @@ use super::typing::{self, Input};
 use super::{Workspace, change_color, change_tip, plural, row, theme};
 use crate::git::{Deco, DecoKind, FileDiff};
 use gpui::{
-    ClickEvent, Context, KeyDownEvent, MouseButton, MouseDownEvent, ScrollStrategy, div, prelude::*,
+    App, ClickEvent, Context, KeyDownEvent, MouseButton, MouseDownEvent, ScrollStrategy, div,
+    prelude::*,
 };
 use std::collections::{BTreeMap, HashSet};
 
@@ -87,7 +88,7 @@ impl Workspace {
         let active = self.field == Some(field);
         let (text, look) = match field {
             Field::Branches => (&self.bfilter, input::Look::default()),
-            Field::Files => (&self.review.pfilter, input::Look::default()),
+            Field::Files => (&self.review.read(cx).pfilter, input::Look::default()),
             Field::Token => (
                 &self.token_input,
                 input::Look {
@@ -136,7 +137,7 @@ impl Workspace {
             self.layout.show_files = true;
         }
         // A composer or a find open beside it keeps its text, not the keyboard (#168).
-        self.take_keyboard(Input::Field);
+        self.take_keyboard(Input::Field, cx);
         self.field = Some(field);
         cx.notify();
     }
@@ -197,9 +198,14 @@ impl Workspace {
         if field == Field::Keys {
             self.keys_exact = false;
         }
+        // The Changes list's filter is the review's: typed into a copy, put back.
+        let mut files = String::new();
         let text = match field {
             Field::Branches => &mut self.bfilter,
-            Field::Files => &mut self.review.pfilter,
+            Field::Files => {
+                files = self.review.read(cx).pfilter.clone();
+                &mut files
+            }
             Field::Token => &mut self.token_input,
             Field::Keys => &mut self.keys_filter,
             Field::ThemeValue => &mut self.theme_value,
@@ -208,7 +214,11 @@ impl Workspace {
             Field::Label => &mut self.label_name,
         };
         let welcome = self.root.is_none() && self.welcome.card.is_some();
-        match input::edit(text, &mut self.field_edit, &event.keystroke, cx) {
+        let edit = input::edit(text, &mut self.field_edit, &event.keystroke, cx);
+        if field == Field::Files {
+            self.review.update(cx, |rv, _| rv.pfilter = files);
+        }
+        match edit {
             // In the welcome's card, esc goes back to its choices, what was typed kept.
             Edit::Escape if welcome => {
                 self.welcome.card = None;
@@ -484,25 +494,26 @@ fn file_rows(
 
 impl Workspace {
     pub(super) fn set_file_view(&mut self, list: bool, cx: &mut Context<Self>) {
-        if self.review.options.list_files != list {
-            self.review.options.list_files = list;
-            self.review.options.save();
+        if self.review.read(cx).options.list_files != list {
+            self.review.update(cx, |rv, _| rv.options.list_files = list);
+            self.review.read(cx).options.save();
             cx.notify();
         }
     }
 
     pub(super) fn toggle_dir(&mut self, path: &str, cx: &mut Context<Self>) {
-        if self.review.collapsed.remove(path) {
+        if self.review.update(cx, |rv, _| rv.collapsed.remove(path)) {
             self.tree_opening(path, cx);
         } else {
-            self.review.collapsed.insert(path.to_owned());
+            self.review
+                .update(cx, |rv, _| rv.collapsed.insert(path.to_owned()));
         }
         cx.notify();
     }
 
     /// The Changes section's body: how far the review is, the path filter, the files.
     pub(super) fn render_changes(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let count = self.review.items().len();
+        let count = self.review.read(cx).items().len();
         div()
             .relative()
             .flex_1()
@@ -512,7 +523,7 @@ impl Workspace {
             .child(self.widths.measure("changes"))
             .children(self.render_review_progress(cx))
             .child(self.render_field("file-filter", Field::Files, "Filter by path  ⌥⌘P", cx))
-            .children(self.render_changes_total())
+            .children(self.render_changes_total(cx))
             .child(if count == 0 {
                 div()
                     .flex_1()
@@ -536,16 +547,16 @@ impl Workspace {
 
     /// Over the files: how many, and their lines' total in the column of each file's own + and −
     /// (#157); with a path typed, the files shown of all, and theirs.
-    fn render_changes_total(&self) -> Option<gpui::Div> {
-        let diff = self.review.diff.as_ref()?;
+    fn render_changes_total(&self, cx: &App) -> Option<gpui::Div> {
+        let diff = self.review.read(cx).diff.as_ref()?;
         let all = diff.files.len();
         if all == 0 {
             return None;
         }
-        let shown: Vec<usize> = if self.review.pfilter.trim().is_empty() {
+        let shown: Vec<usize> = if self.review.read(cx).pfilter.trim().is_empty() {
             (0..all).collect()
         } else {
-            self.review.file_order()
+            self.review.read(cx).file_order()
         };
         let (added, removed) = shown.iter().fold((0, 0), |(a, r), &ix| {
             (a + diff.files[ix].added, r + diff.files[ix].removed)
@@ -580,10 +591,11 @@ impl Workspace {
     }
 
     fn render_file_item(&self, item: &FileItem, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let Some(diff) = &self.review.diff else {
+        let Some(diff) = &self.review.read(cx).diff else {
             return div().into_any_element();
         };
-        let tree = !self.review.options.list_files && self.review.pfilter.trim().is_empty();
+        let tree = !self.review.read(cx).options.list_files
+            && self.review.read(cx).pfilter.trim().is_empty();
         // A file's row: its status and name always, its +/− while the list has 240 px (#79); its
         // tooltip the whole path.
         let counts = self.counts_fit();
@@ -597,14 +609,15 @@ impl Workspace {
                     .next()
                     .unwrap_or_default()
                     .to_owned();
-                let done = self.review.review_state(ix) == Some(super::reviewed::State::Done);
+                let done =
+                    self.review.read(cx).review_state(ix) == Some(super::reviewed::State::Done);
                 div()
                     .w_full()
                     .h(px(28.))
                     .px(px(6.))
                     .py(px(1.))
                     .child(
-                        row(("file", ix), self.review.file == ix)
+                        row(("file", ix), self.review.read(cx).file == ix)
                             .h(px(26.))
                             .gap_2()
                             .pl(px(8. + *depth as f32 * 14.))
@@ -619,7 +632,7 @@ impl Workspace {
                                     .text_color(change_color(file, done))
                                     .child(name),
                             )
-                            .children(self.draft_mark(file.path()))
+                            .children(self.draft_mark(file.path(), cx))
                             .children(super::generated_tag(file))
                             .children(super::working::file_tag(diff.tags.row_word(ix)))
                             .when(counts, |s| s.child(super::stats(file)))
@@ -660,7 +673,7 @@ impl Workspace {
                     .child(
                         row(
                             ("dir", path.len() * 31 + *depth),
-                            self.review.fcursor.as_deref() == Some(path.as_str()),
+                            self.review.read(cx).fcursor.as_deref() == Some(path.as_str()),
                         )
                         .h(px(26.))
                         .gap_2()
@@ -727,7 +740,7 @@ impl Workspace {
             .child(
                 row(
                     ("group", group as usize),
-                    self.review.fcursor.as_deref() == Some(key),
+                    self.review.read(cx).fcursor.as_deref() == Some(key),
                 )
                 .h(px(26.))
                 .gap(px(6.))
@@ -775,17 +788,28 @@ impl Workspace {
 
     /// A file of the flat list: its name over its folder, its +/− when `counts`.
     fn render_file_row(&self, ix: usize, counts: bool, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let Some(file) = self.review.diff.as_ref().and_then(|d| d.files.get(ix)) else {
+        let Some(file) = self
+            .review
+            .read(cx)
+            .diff
+            .as_ref()
+            .and_then(|d| d.files.get(ix))
+        else {
             return div().into_any_element();
         };
-        let tag = self.review.diff.as_ref().and_then(|d| d.tags.row_word(ix));
-        let done = self.review.review_state(ix) == Some(super::reviewed::State::Done);
+        let tag = self
+            .review
+            .read(cx)
+            .diff
+            .as_ref()
+            .and_then(|d| d.tags.row_word(ix));
+        let done = self.review.read(cx).review_state(ix) == Some(super::reviewed::State::Done);
         let path = file.path();
         let (dir, name) = match path.rsplit_once('/') {
             Some((dir, name)) => (Some(dir.to_owned()), name.to_owned()),
             None => (None, path.to_owned()),
         };
-        let item = row(("file", ix), self.review.file == ix)
+        let item = row(("file", ix), self.review.read(cx).file == ix)
             .h(px(40.))
             .gap_2()
             .when(done, |s| s.text_color(theme::muted()))
@@ -811,7 +835,7 @@ impl Workspace {
                             .child(d)
                     })),
             )
-            .children(self.draft_mark(path))
+            .children(self.draft_mark(path, cx))
             .children(super::generated_tag(file))
             .children(super::working::file_tag(tag))
             .when(counts, |s| s.child(super::stats(file)))
@@ -847,12 +871,14 @@ fn uniform_list_files(
         "files",
         count,
         cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
-            let items = this.review.items();
+            let items = this.review.read(cx).items();
             range
                 .filter_map(|i| items.get(i))
                 .map(|item| {
                     let path = match item {
-                        FileItem::File { ix, .. } => this.review.file_key(*ix).unwrap_or_default(),
+                        FileItem::File { ix, .. } => {
+                            this.review.read(cx).file_key(*ix).unwrap_or_default()
+                        }
                         FileItem::Dir { path, .. } => path.clone(),
                         FileItem::Group { group, .. } => group.key().to_owned(),
                     };
@@ -862,7 +888,7 @@ fn uniform_list_files(
                 .collect::<Vec<_>>()
         }),
     )
-    .track_scroll(&this.review.file_scroll)
+    .track_scroll(&this.review.read(cx).file_scroll)
     .flex_1()
     .pb(px(6.))
     .into_any_element()

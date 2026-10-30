@@ -7,7 +7,7 @@ use super::nav::Page;
 use super::zones::Zone;
 use super::{Selection, Tip, Workspace, chip, commit_chip, icons, island, plural, px, theme};
 use gpui::{
-    AnyElement, ClickEvent, Context, FontWeight, MouseButton, SharedString, div, prelude::*,
+    AnyElement, App, ClickEvent, Context, FontWeight, MouseButton, SharedString, div, prelude::*,
     uniform_list,
 };
 
@@ -50,10 +50,10 @@ impl Workspace {
         // A folded section gives the keyboard back to the diff.
         let gone = match self.zone {
             Zone::Commits => self.layout.fold_commits,
-            Zone::Files => !self.files_zone(),
+            Zone::Files => !self.files_zone(cx),
             _ => false,
         };
-        if gone && self.review.diff.is_some() {
+        if gone && self.review.read(cx).diff.is_some() {
             self.set_zone(Zone::Diff, cx);
         }
         cx.notify();
@@ -173,7 +173,7 @@ impl Workspace {
 
     /// The panel's sections on this page as icons, where it folds into the menu's column (#80):
     /// its icon, its name, and the zone it gives the keyboard to.
-    pub(super) fn side_icons(&self) -> Vec<(&'static str, &'static str, Option<Zone>)> {
+    pub(super) fn side_icons(&self, cx: &App) -> Vec<(&'static str, &'static str, Option<Zone>)> {
         if self.settings_open || self.zen.is_some() {
             return Vec::new();
         }
@@ -199,6 +199,7 @@ impl Workspace {
                 }
                 if self
                     .review
+                    .read(cx)
                     .diff
                     .as_ref()
                     .is_some_and(|d| !d.files.is_empty())
@@ -406,18 +407,24 @@ impl Workspace {
             );
         }
 
-        if let Some(diff) = self.review.diff.as_ref().filter(|d| !d.files.is_empty()) {
+        if let Some(diff) = self
+            .review
+            .read(cx)
+            .diff
+            .as_ref()
+            .filter(|d| !d.files.is_empty())
+        {
             let one = diff.files.len() == 1;
             let folded = one || self.section_folded(Section::Changes);
             let summary = if one {
                 Some(diff.files[0].path().to_owned())
             } else {
-                Some(match self.review.review_progress() {
+                Some(match self.review.read(cx).review_progress() {
                     Some((done, total)) => format!("{done} / {total} reviewed"),
                     None => plural(diff.file_count(), "file"),
                 })
             };
-            let list = self.review.options.list_files;
+            let list = self.review.read(cx).options.list_files;
             let mut end: Vec<AnyElement> = Vec::new();
             if !folded {
                 end.push(
@@ -439,7 +446,7 @@ impl Workspace {
                 );
             }
             end.push(count(diff.file_count().to_string()));
-            let done = self.review.all_reviewed();
+            let done = self.review.read(cx).all_reviewed();
             if !folded {
                 open_lists += 1;
             }
@@ -452,7 +459,7 @@ impl Workspace {
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _, _, cx| {
-                        if this.files_zone() {
+                        if this.files_zone(cx) {
                             this.set_zone(Zone::Files, cx)
                         }
                     }),

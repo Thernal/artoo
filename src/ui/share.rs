@@ -8,7 +8,7 @@ use super::nav::{Item, Page};
 use super::spaces::Space;
 use super::{Workspace, format, words};
 use crate::git::{RefKind, WebRemote};
-use gpui::{Context, Pixels, Point};
+use gpui::{App, Context, Pixels, Point};
 
 /// No GitLab or GitHub remote: nothing here has a link.
 const NO_HOST: &str = "No GitLab or GitHub remote: nothing here has a link";
@@ -382,9 +382,9 @@ impl Workspace {
     }
 
     /// The link of file `path` in the diff on screen, where the host anchors its files.
-    pub(super) fn diff_file_link(&self, path: &str) -> Option<Link> {
+    pub(super) fn diff_file_link(&self, path: &str, cx: &App) -> Option<Link> {
         let web = self.web.as_ref()?;
-        let page = match self.loaded_page()? {
+        let page = match self.loaded_page(cx)? {
             Page::Request(iid) => self.request_diff_link(web, iid, None),
             page @ (Page::RequestCommit(..)
             | Page::RequestCommits(..)

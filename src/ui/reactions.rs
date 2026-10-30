@@ -59,7 +59,7 @@ impl Workspace {
                         }
                     }
                     this.requests.awards = awards;
-                    this.refresh_rows();
+                    this.refresh_rows(cx);
                     cx.notify();
                 }
             })
@@ -153,7 +153,7 @@ impl Workspace {
             }
         }
         self.reaction_grid = None;
-        self.refresh_rows();
+        self.refresh_rows(cx);
         cx.notify();
     }
 
@@ -183,7 +183,7 @@ impl Workspace {
                     Err(e) => {
                         this.requests.awards.insert(note, undo);
                         this.error = Some(format!("{e:#}").into());
-                        this.refresh_rows();
+                        this.refresh_rows(cx);
                     }
                 }
                 cx.notify();
@@ -426,8 +426,8 @@ impl Workspace {
     /// ⇧E: ☺+ on the newest note of the selected discussion, its search taking the keyboard.
     pub(super) fn react_focused(&mut self, cx: &mut Context<Self>) {
         let Some(ix) = self
-            .acting_thread()
-            .filter(|_| self.request_target().is_some())
+            .acting_thread(cx)
+            .filter(|_| self.request_target(cx).is_some())
         else {
             return;
         };
@@ -445,14 +445,14 @@ impl Workspace {
         self.reaction_scroll
             .scroll_to_item(0, gpui::ScrollStrategy::Top);
         self.reset_field_edit();
-        self.refresh_rows();
+        self.refresh_rows(cx);
         cx.notify();
     }
 
     fn close_reaction_grid(&mut self, cx: &mut Context<Self>) {
         self.reaction_grid = None;
         self.reaction_query.clear();
-        self.refresh_rows();
+        self.refresh_rows(cx);
         cx.notify();
     }
 

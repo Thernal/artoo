@@ -18,7 +18,7 @@ use crate::codeowners;
 use crate::git::{RefKind, Repo};
 use crate::mr;
 use git2::Oid;
-use gpui::{AnyElement, ClickEvent, Context, FontWeight, KeyDownEvent, div, prelude::*};
+use gpui::{AnyElement, App, ClickEvent, Context, FontWeight, KeyDownEvent, div, prelude::*};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Focus {
@@ -232,7 +232,7 @@ impl Workspace {
             error: None,
             posting: false,
         });
-        self.take_keyboard(Input::NewRequest);
+        self.take_keyboard(Input::NewRequest, cx);
         self.refresh_create(cx);
         // The description: the target's template, else the one commit's message body.
         let target_tip = self
@@ -323,7 +323,7 @@ impl Workspace {
     /// Templates ▾: the description becomes template `ix`.
     fn use_template(&mut self, ix: usize, cx: &mut Context<Self>) {
         // Chosen from a list over the form: the form has the keyboard again.
-        self.take_keyboard(Input::NewRequest);
+        self.take_keyboard(Input::NewRequest, cx);
         if let Some(n) = self.newreq.as_mut()
             && let Some((name, text)) = n.templates.get(ix).cloned()
         {
@@ -540,7 +540,7 @@ impl Workspace {
     /// From's list picked: the request is made from that branch, what is written kept (#159).
     fn pick_source(&mut self, name: String, cx: &mut Context<Self>) {
         // Chosen from a list over the form: the form has the keyboard again.
-        self.take_keyboard(Input::NewRequest);
+        self.take_keyboard(Input::NewRequest, cx);
         let on_origin = self.remote_tip(&name).is_some();
         if let Some(n) = self.newreq.as_mut() {
             n.source = name;
@@ -585,7 +585,7 @@ impl Workspace {
 
     fn pick_target(&mut self, name: String, cx: &mut Context<Self>) {
         // Chosen from a list over the form: the form has the keyboard again.
-        self.take_keyboard(Input::NewRequest);
+        self.take_keyboard(Input::NewRequest, cx);
         if let Some(n) = self.newreq.as_mut() {
             n.target = name;
             n.focus = Focus::Title;
@@ -850,7 +850,7 @@ impl Workspace {
                             .text_color(theme::muted()),
                         ),
                 )
-                .children(self.render_create_totals())
+                .children(self.render_create_totals(cx))
                 .child(
                     div()
                         .id("create-cancel")
@@ -893,10 +893,11 @@ impl Workspace {
     }
 
     /// "3 commits · 8 files · +46 −12" from the diff of the pair.
-    fn render_create_totals(&self) -> Option<gpui::Div> {
+    fn render_create_totals(&self, cx: &App) -> Option<gpui::Div> {
         let n = self.newreq.as_ref()?;
         let d = self
             .review
+            .read(cx)
             .diff
             .as_ref()
             .filter(|d| matches!(d.header, super::Header::Compare { .. }))?;
@@ -924,7 +925,12 @@ impl Workspace {
     /// The Request | Changes switch at the top of the pane.
     pub(super) fn render_create_switch(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let n = self.newreq.as_ref().filter(|n| !n.quick)?;
-        let files = self.review.diff.as_ref().map_or(0, |d| d.files.len());
+        let files = self
+            .review
+            .read(cx)
+            .diff
+            .as_ref()
+            .map_or(0, |d| d.files.len());
         let set = |changes: bool| {
             cx.listener(move |this: &mut Self, _: &ClickEvent, _, cx| {
                 if let Some(n) = this.newreq.as_mut() {
@@ -1385,7 +1391,7 @@ impl Workspace {
     pub(super) fn render_create_form(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let n = self.newreq.as_ref()?;
         // The fields show their caret only while the form has the keyboard (#168).
-        let typing = self.has_keyboard(Input::NewRequest);
+        let typing = self.has_keyboard(Input::NewRequest, cx);
         let github = self.web.as_ref().is_some_and(|w| w.github);
         // Built first: they need the context to themselves.
         let template_menu =
@@ -1959,7 +1965,7 @@ impl Workspace {
                                 .flex_1()
                                 .font_family(theme::code_font()),
                             )
-                            .children(self.render_create_totals()),
+                            .children(self.render_create_totals(cx)),
                     )
                     .child(
                         div()

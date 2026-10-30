@@ -14,7 +14,8 @@ use super::rows::{self, FileData, Row};
 use super::{ROW_RADIUS, Workspace, px, theme};
 use crate::git::FileDiff;
 use gpui::{
-    ClickEvent, Context, FontWeight, ListOffset, MouseButton, Task, WeakEntity, div, prelude::*,
+    App, ClickEvent, Context, FontWeight, ListOffset, MouseButton, Task, WeakEntity, div,
+    prelude::*,
 };
 use std::collections::HashSet;
 use std::ops::Range;
@@ -162,23 +163,28 @@ fn changed_span(old: &[Row], new: &[Row]) -> Option<(usize, usize, usize)> {
 
 impl Workspace {
     /// Every file in one scroll: the option is on and the diff has more than one file.
-    pub(super) fn wants_stack(&self) -> bool {
-        !self.review.options.one_file
+    pub(super) fn wants_stack(&self, cx: &App) -> bool {
+        !self.review.read(cx).options.one_file
             && !(self.zen_one && self.zen.is_some())
-            && self.review.diff.as_ref().is_some_and(|d| d.files.len() > 1)
+            && self
+                .review
+                .read(cx)
+                .diff
+                .as_ref()
+                .is_some_and(|d| d.files.len() > 1)
     }
 
     /// Puts the files of the diff in one list and shows file `ix` at the top (`Review::open_stack`), then
     /// builds them.
     fn open_stack(&mut self, ix: usize, cx: &mut Context<Self>) {
-        if self.review.open_stack(ix) {
+        if self.review.update(cx, |rv, _| rv.open_stack(ix)) {
             self.build_stack(cx);
         }
     }
 
     /// Builds the stack again (a new diff mode), keeping the place.
     pub(super) fn reopen_stack(&mut self, cx: &mut Context<Self>) {
-        if self.review.reopen_stack() {
+        if self.review.update(cx, |rv, _| rv.reopen_stack()) {
             self.build_stack(cx);
         }
     }
@@ -186,15 +192,15 @@ impl Workspace {
     /// Picking file `ix` (the files island, ← →, `v`, a link): it becomes active, opens when it
     /// was folded, and its header comes to the top.
     pub(super) fn stack_select(&mut self, ix: usize, cx: &mut Context<Self>) {
-        if self.review.stack.is_none() {
+        if self.review.read(cx).stack.is_none() {
             return self.open_stack(ix, cx);
         }
         self.activate_file(ix, cx);
-        if self.review.folded(ix) {
+        if self.review.read(cx).folded(ix) {
             self.flip_fold(ix, cx);
         }
-        self.review.scroll_to_header(ix);
-        if self.review.data.is_some() {
+        self.review.update(cx, |rv, _| rv.scroll_to_header(ix));
+        if self.review.read(cx).data.is_some() {
             self.apply_jump(cx);
         }
         self.build_stack(cx);
@@ -204,8 +210,8 @@ impl Workspace {
     /// Makes file `ix` the one the keyboard and the header above the diff work on
     /// (`Review::activate_file`).
     pub(super) fn activate_file(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let pins = self.open_pins();
-        if self.review.activate_file(ix, &pins) {
+        let pins = self.open_pins(cx);
+        if self.review.update(cx, |rv, _| rv.activate_file(ix, &pins)) {
             self.refresh_annotations(cx);
             cx.notify();
         }
@@ -215,7 +221,7 @@ impl Workspace {
     pub(super) fn flip_fold(&mut self, ix: usize, cx: &mut Context<Self>) {
         // Its rows fade in as it opens (#56, 9).
         self.mark_motion(&format!("file-{ix}"), cx);
-        if self.review.flip_fold(ix) {
+        if self.review.update(cx, |rv, _| rv.flip_fold(ix)) {
             self.build_stack(cx);
             cx.notify();
         }
@@ -223,7 +229,7 @@ impl Workspace {
 
     /// View → Fold reviewed files changed: every file goes back to its default.
     pub(super) fn refold(&mut self, cx: &mut Context<Self>) {
-        self.review.refold();
+        self.review.update(cx, |rv, _| rv.refold());
         self.build_stack(cx);
     }
 
@@ -231,16 +237,16 @@ impl Workspace {
     /// scrolled past are marked reviewed when Settings says so (`Review::scrolled_to`).
     pub(super) fn follow_scroll(&mut self, cx: &mut Context<Self>) {
         // The file being written in stays while the diff scrolls; one left does not (#168).
-        if self.has_keyboard(super::typing::Input::Compose) {
+        if self.has_keyboard(super::typing::Input::Compose, cx) {
             return;
         }
-        let Some((to, passed)) = self.review.scrolled_to() else {
+        let Some((to, passed)) = self.review.read(cx).scrolled_to() else {
             return;
         };
         self.activate_file(to, cx);
         let passed: Vec<usize> = passed
             .into_iter()
-            .filter(|&ix| self.review.review_state(ix) == Some(State::Open))
+            .filter(|&ix| self.review.read(cx).review_state(ix) == Some(State::Open))
             .collect();
         if !passed.is_empty() {
             self.set_reviewed_many(&passed, true, cx);
@@ -252,24 +258,29 @@ impl Workspace {
     /// Builds the files' rows in the background, one at a time: the active file first, then the
     /// files nearest to it.
     pub(super) fn build_stack(&mut self, cx: &mut Context<Self>) {
-        let Some(stack) = self.review.stack.as_mut() else {
-            return;
-        };
-        if stack.building {
+        let starts = self.review.update(cx, |rv, _| match rv.stack.as_mut() {
+            Some(stack) if !stack.building => {
+                stack.building = true;
+                true
+            }
+            _ => false,
+        });
+        if !starts {
             return;
         }
-        stack.building = true;
-        stack.task = Some(cx.spawn(async move |this, cx| {
+        let task = cx.spawn(async move |this, cx| {
             loop {
                 let next = this
-                    .update(cx, |this, _| {
-                        let next = this.review.next_to_build();
-                        if next.is_none()
-                            && let Some(stack) = this.review.stack.as_mut()
-                        {
-                            stack.building = false;
-                        }
-                        next
+                    .update(cx, |this, cx| {
+                        this.review.update(cx, |rv, _| {
+                            let next = rv.next_to_build();
+                            if next.is_none()
+                                && let Some(stack) = rv.stack.as_mut()
+                            {
+                                stack.building = false;
+                            }
+                            next
+                        })
                     })
                     .ok()
                     .flatten();
@@ -287,19 +298,25 @@ impl Workspace {
                     break;
                 }
             }
-        }));
+        });
+        self.review.update(cx, |rv, _| {
+            if let Some(stack) = rv.stack.as_mut() {
+                stack.task = Some(task);
+            }
+        });
     }
 
     /// File `ix`'s rows were built (`Review::built`); the active file's blame and jump follow.
     fn stack_built(&mut self, ix: usize, data: FileData, cx: &mut Context<Self>) {
         let path = self
             .review
+            .read(cx)
             .diff
             .as_ref()
             .and_then(|d| d.files.get(ix))
             .map(|f| f.path().to_owned());
-        let pins = self.pins_for(path);
-        if self.review.built(ix, data, &pins) {
+        let pins = self.pins_for(path, cx);
+        if self.review.update(cx, |rv, _| rv.built(ix, data, &pins)) {
             self.refresh_annotations(cx);
             self.apply_jump(cx);
         }
@@ -307,23 +324,23 @@ impl Workspace {
     }
 
     /// Lays every file out again (`Review::relayout_stack`) with what is pinned on their lines now.
-    pub(super) fn relayout_stack(&mut self) {
-        let pins = self.all_pins();
-        self.review.relayout_stack(&pins);
+    pub(super) fn relayout_stack(&mut self, cx: &mut App) {
+        let pins = self.all_pins(cx);
+        self.review.update(cx, |rv, _| rv.relayout_stack(&pins));
     }
 
     // ---- folding all, finding in all ----------------------------------------------------------
 
     /// ⌥⇧A: every file open when some are folded, else every file folded.
     pub(super) fn toggle_expand_all(&mut self, cx: &mut Context<Self>) {
-        let open = self.review.any_folded();
+        let open = self.review.read(cx).any_folded();
         self.expand_all(open, cx);
     }
 
     /// Opens every file (`open`), or folds every file to its header.
     pub(super) fn expand_all(&mut self, open: bool, cx: &mut Context<Self>) {
         self.mark_motion("files", cx);
-        if self.review.expand_all(open) {
+        if self.review.update(cx, |rv, _| rv.expand_all(open)) {
             self.build_stack(cx);
             cx.notify();
         }
@@ -331,11 +348,11 @@ impl Workspace {
 
     /// The match `at` of every file's: its file becomes active and opens, the row comes into view.
     pub(super) fn go_to_stack_match(&mut self, at: usize, cx: &mut Context<Self>) {
-        let Some((file, row)) = self.review.stack_match(at) else {
+        let Some((file, row)) = self.review.update(cx, |rv, _| rv.stack_match(at)) else {
             return;
         };
         self.activate_file(file, cx);
-        self.review.scroll_to_row(row);
+        self.review.update(cx, |rv, _| rv.scroll_to_row(row));
         cx.notify();
     }
 
@@ -347,18 +364,31 @@ impl Workspace {
         &self,
         ix: usize,
         this: WeakEntity<Self>,
+        cx: &App,
     ) -> gpui::AnyElement {
-        let Some(file) = self.review.diff.as_ref().and_then(|d| d.files.get(ix)) else {
+        let Some(file) = self
+            .review
+            .read(cx)
+            .diff
+            .as_ref()
+            .and_then(|d| d.files.get(ix))
+        else {
             return div().into_any_element();
         };
         let path = match (&file.old_path, &file.new_path) {
             (Some(old), Some(new)) if old != new => format!("{old} → {new}"),
             _ => file.path().to_owned(),
         };
-        let folded = self.review.folded(ix);
-        let state = self.review.review_state(ix);
-        let active = ix == self.review.file;
-        let first = self.review.stack.as_ref().and_then(|s| s.block_of(ix)) == Some(0);
+        let folded = self.review.read(cx).folded(ix);
+        let state = self.review.read(cx).review_state(ix);
+        let active = ix == self.review.read(cx).file;
+        let first = self
+            .review
+            .read(cx)
+            .stack
+            .as_ref()
+            .and_then(|s| s.block_of(ix))
+            == Some(0);
         let (fold, mark) = (this.clone(), this.clone());
         div()
             .id(("file-header", ix))
@@ -421,7 +451,11 @@ impl Workspace {
                     )
                     // The working tree's part it is (#22): staged, not staged, untracked.
                     .children(super::working::file_tag(
-                        self.review.diff.as_ref().and_then(|d| d.tags.word(ix)),
+                        self.review
+                            .read(cx)
+                            .diff
+                            .as_ref()
+                            .and_then(|d| d.tags.word(ix)),
                     ))
                     // Another chat is changing it (#77).
                     .children(self.changing(file.path()).map(|(name, letter, hue)| {
@@ -435,7 +469,7 @@ impl Workspace {
                             .child(super::agent::chat_badge(letter, hue, false))
                             .child(format!("{name} is changing it"))
                     }))
-                    .children(self.page_switch(file, true, this))
+                    .children(self.page_switch(file, true, this, cx))
                     .child(
                         div()
                             .flex_none()
@@ -483,7 +517,8 @@ impl Workspace {
                             .on_click(move |_: &ClickEvent, _, cx| {
                                 cx.stop_propagation();
                                 mark.update(cx, |this, cx| {
-                                    let done = this.review.review_state(ix) == Some(State::Done);
+                                    let done =
+                                        this.review.read(cx).review_state(ix) == Some(State::Done);
                                     this.set_reviewed(ix, !done, cx);
                                 })
                                 .ok();
@@ -512,7 +547,13 @@ impl Workspace {
         this: WeakEntity<Self>,
         cx: &gpui::App,
     ) -> gpui::AnyElement {
-        let Some(file) = self.review.diff.as_ref().and_then(|d| d.files.get(ix)) else {
+        let Some(file) = self
+            .review
+            .read(cx)
+            .diff
+            .as_ref()
+            .and_then(|d| d.files.get(ix))
+        else {
             return div().into_any_element();
         };
         let line = |text: String| {
@@ -542,11 +583,11 @@ impl Workspace {
                 .hover(|s| s.bg(theme::selected()))
                 .child(label)
         };
-        if self.review.body(b) == Body::Waiting {
+        if self.review.read(cx).body(b) == Body::Waiting {
             let rows = (file.added + file.removed + 6).min(14) as f32;
             // Its rows are being built: a shimmer as tall as they will about be (#56, 18).
             return line(String::new())
-                .h(px(self.review.row_height() * rows))
+                .h(px(self.review.read(cx).row_height() * rows))
                 .items_start()
                 .child(super::motion::shimmer(
                     ("card-loading", ix),
@@ -554,7 +595,7 @@ impl Workspace {
                 ))
                 .into_any_element();
         }
-        if self.review.generated_folded(file) {
+        if self.review.read(cx).generated_folded(file) {
             let path = file.path().to_owned();
             return line(format!(
                 "Generated: {} changed lines are folded.",
@@ -567,12 +608,13 @@ impl Workspace {
             ))
             .into_any_element();
         }
-        if self.review.shows_page(file) {
+        if self.review.read(cx).shows_page(file) {
             return self
                 .review
+                .read(cx)
                 .card_row(self.render_page(ix, this, cx), ix, true);
         }
-        if self.review.shows_image(file) {
+        if self.review.read(cx).shows_image(file) {
             return line("An image.".to_owned())
                 .child(action("image-alone", "View it on its own").on_click(
                     move |_: &ClickEvent, _, cx| {

@@ -36,13 +36,14 @@ impl Workspace {
             Key::File(path) => {
                 let ix = self
                     .review
+                    .read(cx)
                     .diff
                     .as_ref()
                     .and_then(|d| d.files.iter().position(|f| f.path() == path));
                 match ix {
                     Some(ix) => {
                         self.select_file(ix, cx);
-                        self.follow_loaded();
+                        self.follow_loaded(cx);
                     }
                     // Not in the diff on screen: read in Code (#71).
                     None => self.open_file_view(path, cx),
@@ -51,7 +52,7 @@ impl Workspace {
             Key::Commit(id) => match self.commits.iter().position(|c| c.id == id) {
                 Some(ix) => {
                     self.select_commit(ix, cx);
-                    self.follow_loaded();
+                    self.follow_loaded(cx);
                 }
                 None => {
                     self.error = Some(

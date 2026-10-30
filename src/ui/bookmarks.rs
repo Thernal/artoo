@@ -4,7 +4,7 @@
 
 use super::Workspace;
 use crate::storage;
-use gpui::Context;
+use gpui::{App, Context};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -85,8 +85,8 @@ impl Store {
 
 impl Workspace {
     /// The marked lines of file `path` (new side).
-    pub(super) fn bookmarks_in(&self, path: &str) -> Vec<u32> {
-        let Some(scope) = self.review.review_scope.as_deref() else {
+    pub(super) fn bookmarks_in(&self, path: &str, cx: &App) -> Vec<u32> {
+        let Some(scope) = self.review.read(cx).review_scope.as_deref() else {
             return Vec::new();
         };
         self.bookmarks
@@ -101,26 +101,27 @@ impl Workspace {
     pub(super) fn toggle_bookmark(&mut self, cx: &mut Context<Self>) {
         let line = self
             .review
+            .read(cx)
             .sel
             .filter(|s| !s.old)
             .map(|s| s.ends().0.line)
-            .or_else(|| self.bookmark_fallback_line());
+            .or_else(|| self.bookmark_fallback_line(cx));
         if let Some(line) = line {
             self.toggle_bookmark_at(line, cx);
         }
     }
 
     /// With nothing clicked: the first changed line shown.
-    fn bookmark_fallback_line(&self) -> Option<u32> {
-        let row = *self.review.changes.first()?;
-        self.review.new_line_of_row(row)
+    fn bookmark_fallback_line(&self, cx: &App) -> Option<u32> {
+        let row = *self.review.read(cx).changes.first()?;
+        self.review.read(cx).new_line_of_row(row)
     }
 
     pub(super) fn toggle_bookmark_at(&mut self, line: u32, cx: &mut Context<Self>) {
         let (Some(scope), Some(path), Some(data)) = (
-            self.review.review_scope.clone(),
-            self.review.current_path(),
-            self.review.data.clone(),
+            self.review.read(cx).review_scope.clone(),
+            self.review.read(cx).current_path(),
+            self.review.read(cx).data.clone(),
         ) else {
             return;
         };
@@ -129,22 +130,24 @@ impl Workspace {
         }
         let text = data.side(false).line(line).0.trim().to_owned();
         self.bookmarks.toggle(&scope, Bookmark { path, line, text });
-        self.relayout_notes();
+        self.relayout_notes(cx);
         cx.notify();
     }
 
     /// The marks of the open diff, for the list.
-    pub(super) fn bookmark_list(&self) -> Vec<Bookmark> {
+    pub(super) fn bookmark_list(&self, cx: &App) -> Vec<Bookmark> {
         self.review
+            .read(cx)
             .review_scope
             .as_deref()
             .map(|s| self.bookmarks.of(s).to_vec())
             .unwrap_or_default()
     }
 
-    fn relayout_notes(&mut self) {
-        let pins = self.open_pins();
-        self.review.notes = self.review.line_notes(&pins);
+    fn relayout_notes(&mut self, cx: &mut App) {
+        let pins = self.open_pins(cx);
+        self.review
+            .update(cx, |rv, _| rv.notes = rv.line_notes(&pins));
     }
 }
 

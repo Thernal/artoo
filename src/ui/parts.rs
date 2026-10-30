@@ -69,7 +69,7 @@ impl Frame for TabFrame {
         self.0.upgrade().is_some_and(|tab| {
             let this = tab.read(cx);
             matches!(this.tool(), Some(Tool::Part(open)) if open == id)
-                && this.has_keyboard(super::typing::Input::Tool)
+                && this.has_keyboard(super::typing::Input::Tool, cx)
         })
     }
 }
@@ -155,7 +155,7 @@ impl Workspace {
 
     /// Each frame: a card that opens on its own may, unless something is being written or a card is up.
     pub(super) fn poll_parts(&mut self, cx: &mut Context<Self>) {
-        let busy = self.shortcuts || self.label_edit.is_some() || self.typing().is_some();
+        let busy = self.shortcuts || self.label_edit.is_some() || self.typing(cx).is_some();
         if busy {
             return;
         }

@@ -78,8 +78,8 @@ impl Workspace {
                 }
                 self.spot = note.map(Spot::Note).or(line.map(Spot::Line));
                 // Loaded under another page: it only comes on screen (#71).
-                if self.request_loaded(iid) {
-                    self.arrive(super::nav::Page::Request(iid));
+                if self.request_loaded(iid, cx) {
+                    self.arrive(super::nav::Page::Request(iid), cx);
                     self.resolve_spot(true, cx);
                 } else {
                     self.select_request(iid, cx);
@@ -93,7 +93,7 @@ impl Workspace {
                 {
                     Some(ix) => {
                         self.select_commit(ix, cx);
-                        self.follow_loaded();
+                        self.follow_loaded(cx);
                     }
                     // Elsewhere in the repository: the first branch that has it, at that commit.
                     None => match self.branch_with(&sha) {
@@ -177,7 +177,7 @@ impl Workspace {
                 })
                 .map(|(ix, path, line, old)| (Some(ix), None, path, line, old)),
             Spot::Drafts(ids) => self
-                .draft_order()
+                .draft_order(cx)
                 .into_iter()
                 .map(|(.., ix)| ix)
                 .find(|&ix| ids.contains(&self.requests.drafts[ix].id))
@@ -185,7 +185,7 @@ impl Workspace {
                     let (path, new, old) = self.draft_place(&self.requests.drafts[ix])?;
                     Some((None, Some(ix), path, new.or(old)?, new.is_none()))
                 }),
-            Spot::Line(l) => self.review.diff.as_ref().and_then(|d| {
+            Spot::Line(l) => self.review.read(cx).diff.as_ref().and_then(|d| {
                 let file = d
                     .files
                     .iter()

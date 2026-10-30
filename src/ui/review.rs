@@ -1,13 +1,13 @@
 //! The review's state (#165 stage 4): the diff on screen and how it is read (its files and rows, the find over
-//! it, the marks of files read, the annotations), gathered from the tab's fields on its way to an entity of its
-//! own and then to `artoo-review`.
+//! it, the marks of files read, the annotations), an entity the tab holds (`Workspace::review`) on its way to
+//! `artoo-review`.
 
 use super::*;
 
 pub(super) struct Review {
     /// The repository's folder, a copy of the tab's (`Workspace::root`): the marks' keys, blame.
     pub(super) root: Option<PathBuf>,
-    /// The app's settings, a copy the tab keeps equal to its own (`Workspace::change_settings`): how code is
+    /// The app's settings, a copy the tab keeps equal to its own (`Workspace::save_settings`): how code is
     /// drawn (its zoom, the marks of changed words), generated files folded.
     pub(super) settings: Settings,
     /// Advance of one code character, measured on the first render and again in another face.
@@ -55,7 +55,7 @@ pub(super) struct Review {
     pub(super) jump_line: Option<(u32, bool)>,
     /// The jump shows the whole function around its line (#46 C).
     pub(super) jump_whole: bool,
-    pub(super) diff: Option<Diff>,
+    pub(super) diff: Option<Arc<Diff>>,
     pub(super) file: usize,
     /// Folders closed in the file tree.
     pub(super) collapsed: HashSet<String>,

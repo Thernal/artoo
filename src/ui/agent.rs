@@ -13,7 +13,7 @@ use super::{ISLAND_RADIUS, ROW_RADIUS, Workspace, theme};
 use crate::agents::{self, Bus};
 use crate::review::State;
 use gpui::{
-    ClickEvent, ClipboardItem, Context, FontWeight, KeyDownEvent, MouseButton, div, prelude::*,
+    App, ClickEvent, ClipboardItem, Context, FontWeight, KeyDownEvent, MouseButton, div, prelude::*,
 };
 
 /// The chats the Agents window shows before "N more" (#94).
@@ -249,7 +249,7 @@ impl Workspace {
             self.save_comments();
             // A Codex session is handed them now, not on the next beat (#18).
             self.codex_beat(cx);
-            self.refresh_rows();
+            self.refresh_rows(cx);
             cx.notify();
         }
         if !nowhere.is_empty() {
@@ -337,7 +337,7 @@ impl Workspace {
         }
         c.state = State::Draft;
         self.save_comments();
-        self.refresh_rows();
+        self.refresh_rows(cx);
         cx.notify();
     }
 
@@ -360,7 +360,7 @@ impl Workspace {
             a.picks.swap(at, to);
             c.state = State::Draft;
             self.save_comments();
-            self.refresh_rows();
+            self.refresh_rows(cx);
             cx.notify();
         }
     }
@@ -452,6 +452,7 @@ impl Workspace {
         &self,
         id: u64,
         this: gpui::WeakEntity<Self>,
+        cx: &App,
     ) -> Option<gpui::AnyElement> {
         use crate::review::FormKind;
         let c = self.comments.iter().find(|c| c.id == id)?;
@@ -485,7 +486,7 @@ impl Workspace {
         };
         let rows: Vec<gpui::AnyElement> = match form {
             Some(f) if f.kind == FormKind::Line => {
-                self.render_line_choices(c, f, &answer, this.clone())
+                self.render_line_choices(c, f, &answer, this.clone(), cx)
             }
             _ => self.render_option_rows(id, form, &order, &answer, answered, &mark, this.clone()),
         };
@@ -644,6 +645,7 @@ impl Workspace {
         f: &crate::review::Form,
         answer: &crate::review::Answered,
         this: gpui::WeakEntity<Self>,
+        cx: &App,
     ) -> Vec<gpui::AnyElement> {
         let id = c.id;
         let choices = f.choices();
@@ -671,11 +673,10 @@ impl Workspace {
             (lo.min(*n), hi.max(*n))
         });
         // The file's own lines fill the gaps when it is the open one.
-        let open = self
-            .review
-            .data
-            .as_ref()
-            .filter(|_| self.review.current_path().as_deref() == Some(c.path.as_str()));
+        let open =
+            self.review.read(cx).data.as_ref().filter(|_| {
+                self.review.read(cx).current_path().as_deref() == Some(c.path.as_str())
+            });
         let text_of = |n: u32| -> Option<String> {
             suggested
                 .iter()
@@ -778,25 +779,30 @@ impl Workspace {
 
     /// The asked comment the form keys act on: the first one with a form from the top of the
     /// view (#10 C: 1…9 pick, 0 your call, ⇧N a note).
-    pub(super) fn acting_agent_form(&self) -> Option<u64> {
-        let top = self.review.local_top();
-        self.review.rows.iter().skip(top).find_map(|row| match row {
-            super::rows::Row::Thread(id) => self
-                .comments
-                .iter()
-                .find(|c| c.id == *id)
-                .filter(|c| matches!(c.state, State::Sent | State::Draft))
-                .filter(|c| c.replies.last().is_some_and(|r| r.form.is_some()))
-                .map(|c| c.id),
-            _ => None,
-        })
+    pub(super) fn acting_agent_form(&self, cx: &App) -> Option<u64> {
+        let top = self.review.read(cx).local_top();
+        self.review
+            .read(cx)
+            .rows
+            .iter()
+            .skip(top)
+            .find_map(|row| match row {
+                super::rows::Row::Thread(id) => self
+                    .comments
+                    .iter()
+                    .find(|c| c.id == *id)
+                    .filter(|c| matches!(c.state, State::Sent | State::Draft))
+                    .filter(|c| c.replies.last().is_some_and(|r| r.form.is_some()))
+                    .map(|c| c.id),
+                _ => None,
+            })
     }
 
     /// A digit on the acting form: 0 is your call, 1…9 the option drawn with that number (Line:
     /// the suggestion in order). Whether it took the key.
     pub(super) fn answer_by_key(&mut self, digit: usize, cx: &mut Context<Self>) -> bool {
         use crate::review::FormKind;
-        let Some(id) = self.acting_agent_form() else {
+        let Some(id) = self.acting_agent_form(cx) else {
             return false;
         };
         if digit == 0 {
@@ -986,7 +992,7 @@ impl Workspace {
                     Some(format!("Could not open a terminal for the new chat: {e}").into());
             }
         }
-        self.refresh_rows();
+        self.refresh_rows(cx);
         cx.notify();
     }
 
@@ -1118,7 +1124,7 @@ impl Workspace {
             .collect();
         if agents::apply(&mut self.comments, &bus.answers(&root)) {
             self.save_comments();
-            self.refresh_rows();
+            self.refresh_rows(cx);
             self.notify_answers(&before, cx);
             cx.notify();
         }
@@ -1921,7 +1927,7 @@ impl Workspace {
             c.state = State::Draft;
             c.sent = None;
             self.save_comments();
-            self.refresh_rows();
+            self.refresh_rows(cx);
             cx.notify();
         }
     }
@@ -1930,7 +1936,7 @@ impl Workspace {
         if let Some(c) = self.comments.iter_mut().find(|c| c.id == id) {
             c.archived = on;
             self.save_comments();
-            self.refresh_rows();
+            self.refresh_rows(cx);
             cx.notify();
         }
     }
@@ -1945,7 +1951,7 @@ impl Workspace {
             c.archived = true;
         }
         self.save_comments();
-        self.refresh_rows();
+        self.refresh_rows(cx);
         cx.notify();
     }
 
@@ -1963,7 +1969,7 @@ impl Workspace {
         if let Some(c) = self.comments.iter_mut().find(|c| c.id == id) {
             c.state = state;
             self.save_comments();
-            self.refresh_rows();
+            self.refresh_rows(cx);
             cx.notify();
         }
     }

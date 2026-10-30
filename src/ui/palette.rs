@@ -11,7 +11,7 @@ use super::{
 };
 use crate::git::{NamedRef, Repo};
 use git2::Oid;
-use gpui::{Action, Context, KeyDownEvent, MouseButton, Window, div, prelude::*};
+use gpui::{Action, App, Context, KeyDownEvent, MouseButton, Window, div, prelude::*};
 use std::sync::Arc;
 
 /// What the palette is for.
@@ -415,10 +415,10 @@ fn matches(words: &[String], hay: &str) -> bool {
 impl Workspace {
     /// ⌘B's list: the merge requests (when the project has them), then the local branches; each
     /// says how far its review got.
-    fn switch_items(&self, query: &str, open_only: bool) -> Vec<Item> {
+    fn switch_items(&self, query: &str, open_only: bool, cx: &App) -> Vec<Item> {
         let state = |head: Option<Oid>| match head {
-            Some(h) if self.review.head_reviewed(h) => (true, "✓ reviewed".to_owned()),
-            Some(h) => match self.review.head_part(h) {
+            Some(h) if self.review.read(cx).head_reviewed(h) => (true, "✓ reviewed".to_owned()),
+            Some(h) => match self.review.read(cx).head_part(h) {
                 Some((done, total)) => (false, format!("{done}/{total} reviewed")),
                 None => (false, "not reviewed".to_owned()),
             },
@@ -486,7 +486,7 @@ impl Workspace {
                 .unwrap_or_default(),
         };
         self.field = None;
-        self.review.dfind = None;
+        self.review.update(cx, |rv, _| rv.dfind = None);
         self.find.text = None;
         self.ctx_menu = None;
         self.reset_field_edit();
@@ -526,7 +526,7 @@ impl Workspace {
             items: Vec::new(),
             refs,
         });
-        self.refresh_palette();
+        self.refresh_palette(cx);
         // The themes open on the one in use.
         if theme && let Some(p) = &mut self.palette {
             let current = theme::choice().window;
@@ -575,18 +575,18 @@ impl Workspace {
         }
     }
 
-    fn refresh_palette(&mut self) {
+    fn refresh_palette(&mut self, cx: &App) {
         let Some(palette) = &self.palette else {
             return;
         };
-        let items = self.palette_items(palette);
+        let items = self.palette_items(palette, cx);
         // Every tab's count, while something is typed; All's is what the others found (X56).
         let counts = match palette.kind {
             Kind::Search(_) if !palette.query.trim().is_empty() => {
                 let mut counts = [0; 6];
                 for (i, scope) in Scope::ALL.into_iter().enumerate() {
                     if scope != Scope::All {
-                        counts[i] = self.scope_items(scope, palette).len();
+                        counts[i] = self.scope_items(scope, palette, cx).len();
                     }
                 }
                 let all = Scope::ALL
@@ -614,7 +614,7 @@ impl Workspace {
                 p.kind = Kind::Search(scope);
                 p.from = None;
                 p.at = 0;
-                self.refresh_palette();
+                self.refresh_palette(cx);
                 cx.notify();
             }
             _ => self.open_palette(Kind::Search(scope), cx),
@@ -634,7 +634,7 @@ impl Workspace {
         p.kind = Kind::Search(Scope::ALL[if back { (at + n - 1) % n } else { (at + 1) % n }]);
         p.from = None;
         p.at = 0;
-        self.refresh_palette();
+        self.refresh_palette(cx);
         cx.notify();
     }
 
@@ -664,11 +664,11 @@ impl Workspace {
     }
 
     /// What tab `scope` lists for the palette's text.
-    fn scope_items(&self, scope: Scope, p: &Palette) -> Vec<Item> {
+    fn scope_items(&self, scope: Scope, p: &Palette, cx: &App) -> Vec<Item> {
         let query = p.query.trim();
         let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
         match scope {
-            Scope::All => self.all_items(query, &p.files),
+            Scope::All => self.all_items(query, &p.files, cx),
             Scope::Actions => COMMANDS
                 .iter()
                 .filter(|(label, ..)| matches(&words, label))
@@ -731,11 +731,11 @@ impl Workspace {
                     })
                     .collect()
             }
-            Scope::Files => self.file_items(query, &p.files),
+            Scope::Files => self.file_items(query, &p.files, cx),
         }
     }
 
-    fn palette_items(&self, p: &Palette) -> Vec<Item> {
+    fn palette_items(&self, p: &Palette, cx: &App) -> Vec<Item> {
         let query = p.query.trim_start();
         if matches!(p.kind, Kind::Projects) {
             return project_items(query, &crate::storage::recent(), self.root.as_deref());
@@ -789,7 +789,7 @@ impl Workspace {
         if matches!(p.kind, Kind::Bookmarks) {
             let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
             return self
-                .bookmark_list()
+                .bookmark_list(cx)
                 .into_iter()
                 .filter(|m| matches(&words, &format!("{} {}", m.path, m.text)))
                 .map(|m| Item {
@@ -812,9 +812,10 @@ impl Workspace {
             let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
             let Some(file) = self
                 .review
+                .read(cx)
                 .diff
                 .as_ref()
-                .and_then(|d| d.files.get(self.review.file))
+                .and_then(|d| d.files.get(self.review.read(cx).file))
             else {
                 return Vec::new();
             };
@@ -841,7 +842,7 @@ impl Workspace {
                 .collect();
         }
         if matches!(p.kind, Kind::Switch) {
-            return self.switch_items(query, p.open_only);
+            return self.switch_items(query, p.open_only, cx);
         }
         if matches!(p.kind, Kind::Recent) {
             let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
@@ -860,7 +861,7 @@ impl Workspace {
                 .collect();
         }
         if let Kind::Search(scope) = p.kind {
-            return self.scope_items(scope, p);
+            return self.scope_items(scope, p, cx);
         }
         let group = if matches!(p.kind, Kind::Base) {
             "Base"
@@ -926,12 +927,12 @@ impl Workspace {
 
     /// The All tab: a few of every kind, a pasted link as one place, `#` `@` narrowing.
     /// The Files tab's finds: this diff's files first, then the repository's.
-    fn file_items(&self, query: &str, files: &[String]) -> Vec<Item> {
+    fn file_items(&self, query: &str, files: &[String], cx: &App) -> Vec<Item> {
         let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
         let name = |path: &str| path.rsplit('/').next().unwrap_or_default().to_owned();
         let mut items: Vec<Item> = Vec::new();
         let mut seen = std::collections::HashSet::new();
-        if let Some(diff) = &self.review.diff {
+        if let Some(diff) = &self.review.read(cx).diff {
             for (ix, f) in crate::rank::rank(diff.files.iter().enumerate(), query, |(_, f)| {
                 f.path().rsplit('/').next().unwrap_or_default()
             })
@@ -980,7 +981,7 @@ impl Workspace {
         items
     }
 
-    fn all_items(&self, query: &str, files: &[String]) -> Vec<Item> {
+    fn all_items(&self, query: &str, files: &[String], cx: &App) -> Vec<Item> {
         // A pasted GitLab link is one place to go.
         if let Some(link) = crate::links::parse(query) {
             return vec![Item {
@@ -1031,7 +1032,7 @@ impl Workspace {
         // The Files tab's first finds: this diff's, then the repository's (X56).
         if scope.is_none_or(|s| s == '@') && !words.is_empty() | scope.is_some() {
             items.extend(
-                self.file_items(rest, files)
+                self.file_items(rest, files, cx)
                     .into_iter()
                     .take(cap(3))
                     .map(|i| Item {
@@ -1097,13 +1098,13 @@ impl Workspace {
             && let Some(from) = palette.from.take()
         {
             palette.kind = Kind::Search(from);
-            self.refresh_palette();
+            self.refresh_palette(cx);
             return cx.notify();
         }
         if event.keystroke.key == "tab" && matches!(palette.kind, Kind::Switch) {
             palette.open_only = !palette.open_only;
             palette.at = 0;
-            self.refresh_palette();
+            self.refresh_palette(cx);
             return cx.notify();
         }
         match input::edit(
@@ -1124,7 +1125,7 @@ impl Workspace {
                     palette.from = Some(scope);
                     self.reset_field_edit();
                 }
-                self.refresh_palette();
+                self.refresh_palette(cx);
                 if matches!(self.palette.as_ref().map(|p| &p.kind), Some(Kind::Theme)) {
                     self.try_theme(cx);
                 }
@@ -1139,7 +1140,7 @@ impl Workspace {
                 if matches!(palette.kind, Kind::Head(_)) {
                     palette.kind = Kind::Base;
                     palette.query.clear();
-                    self.refresh_palette();
+                    self.refresh_palette(cx);
                 } else {
                     return self.close_palette(cx);
                 }
@@ -1151,11 +1152,11 @@ impl Workspace {
 
     /// Sets the field's text, as typing it would (UI checks).
     #[cfg(feature = "snapshot")]
-    pub(super) fn type_in_palette(&mut self, text: &str) {
+    pub(super) fn type_in_palette(&mut self, text: &str, cx: &App) {
         if let Some(p) = &mut self.palette {
             p.query = text.to_owned();
         }
-        self.refresh_palette();
+        self.refresh_palette(cx);
     }
 
     pub(super) fn palette_step(&mut self, down: bool, cx: &mut Context<Self>) {
@@ -1194,12 +1195,15 @@ impl Workspace {
                             p.query.clear();
                             p.at = 0;
                         }
-                        self.refresh_palette();
+                        self.refresh_palette(cx);
                     }
                     Some(Kind::Head(base)) => {
                         self.palette = None;
                         let head = (name, id);
-                        self.arrive(super::nav::Page::Compare(base.clone(), head.clone(), true));
+                        self.arrive(
+                            super::nav::Page::Compare(base.clone(), head.clone(), true),
+                            cx,
+                        );
                         self.run_compare(base, head, true, None, cx);
                     }
                     _ => self.palette = None,
@@ -1215,7 +1219,7 @@ impl Workspace {
             }
             Pick::Symbol { old, line } => {
                 self.palette = None;
-                if let Some(path) = self.review.current_path() {
+                if let Some(path) = self.review.read(cx).current_path() {
                     self.jump_to_line(&path, line, old, cx);
                 }
             }
@@ -1224,7 +1228,7 @@ impl Workspace {
                 self.palette = None;
                 if let Some(ix) = self.commits.iter().position(|c| c.id == id) {
                     self.select_commit(ix, cx);
-                    self.follow_loaded();
+                    self.follow_loaded(cx);
                 }
             }
             // In Code a file opens there, as a tab, changed or not (#75).
@@ -1232,6 +1236,7 @@ impl Workspace {
                 self.palette = None;
                 if let Some(path) = self
                     .review
+                    .read(cx)
                     .diff
                     .as_ref()
                     .and_then(|d| d.files.get(ix))
@@ -1243,7 +1248,7 @@ impl Workspace {
             Pick::File(ix) => {
                 self.palette = None;
                 self.select_file(ix, cx);
-                self.follow_loaded();
+                self.follow_loaded(cx);
             }
             Pick::Branch(ix) => {
                 self.palette = None;
@@ -1312,11 +1317,11 @@ impl Workspace {
         let Some(root) = self.root.clone() else {
             return;
         };
-        self.clear_diff();
+        self.clear_diff(cx);
         self.selection = Selection::None;
         // The whole request is its page; a commit or versions of it were (#71).
         if request.is_some() {
-            self.record();
+            self.record(cx);
         }
         // A comparison on screen is what it shows: Swap, Direct and Use <upstream> write it, so
         // coming back to it, ⌘[ ⌘] and nav.txt have it as it was left (#147).
@@ -1325,12 +1330,12 @@ impl Workspace {
             && matches!(self.nav_page(), Some(super::nav::Page::Compare(..)))
             && self.nav_page() != Some(&page)
         {
-            self.arrive(page.clone());
+            self.arrive(page.clone(), cx);
         }
         // A comparison's own page lists its commits (#21); a request's or a branch's has its own.
         let own = request.is_none() && self.nav_page() == Some(&page);
         self.read_compare_commits(own.then_some(page), cx);
-        let settings = self.settings();
+        let settings = self.settings(cx);
         self.load_diff(None, cx, move || {
             let repo = Repo::open(&root)?;
             let c = repo.compare(base.1, head.1, since_merge_base, settings)?;
@@ -1413,6 +1418,7 @@ impl Workspace {
             let path = match &item.pick {
                 Pick::File(f) => self
                     .review
+                    .read(cx)
                     .diff
                     .as_ref()
                     .and_then(|d| d.files.get(*f))

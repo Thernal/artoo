@@ -9,7 +9,7 @@
 
 use super::Workspace;
 use crate::mr::{Approvals, Draft, Note, Thread};
-use gpui::Context;
+use gpui::{App, Context};
 
 /// What a change does to a request's discussions, pending comments or approvals.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -332,7 +332,7 @@ impl Workspace {
         };
         let host = super::host_of(&remote, cx);
         let key = self.requests.waiting.send(iid, ops, super::inbox::now());
-        self.show_waiting(iid);
+        self.show_waiting(iid, cx);
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -344,7 +344,7 @@ impl Workspace {
                     Ok(()) => this.requests.waiting.took(key),
                     Err(e) => {
                         this.requests.waiting.refused(key);
-                        this.show_waiting(iid);
+                        this.show_waiting(iid, cx);
                         refused(this, format!("{e:#}"), cx);
                     }
                 }
@@ -372,7 +372,7 @@ impl Workspace {
     /// What shows of request `iid` made again: the host's last answer with the changes still
     /// waiting on it. The folds, the keyboard's discussion and pending comment, and a reply being
     /// written follow theirs wherever it moved.
-    pub(super) fn show_waiting(&mut self, iid: u64) {
+    pub(super) fn show_waiting(&mut self, iid: u64, cx: &mut App) {
         let me = (
             self.me.clone(),
             self.requests.login.clone().unwrap_or_default(),
@@ -412,7 +412,7 @@ impl Workspace {
             self.requests.threads = threads;
             self.requests.drafts = drafts;
             self.requests.approvals = approvals;
-            self.refresh_rows();
+            self.refresh_rows(cx);
         }
         self.notices.show(iid, &self.requests.waiting, me);
     }
@@ -423,7 +423,7 @@ impl Workspace {
         self.requests.base = base;
         self.requests.from = from;
         self.settle_waiting();
-        self.show_waiting(iid);
+        self.show_waiting(iid, cx);
         // Both read the discussions just taken in.
         self.compute_histories(cx);
         self.load_awards(cx);

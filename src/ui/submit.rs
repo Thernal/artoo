@@ -50,7 +50,7 @@ pub struct Submit {
 impl Workspace {
     /// ⇧⌘↵ or "Submit review": the card, on Comment.
     pub(super) fn open_submit(&mut self, cx: &mut Context<Self>) {
-        if self.requests.current.is_none() || !self.showing_request() {
+        if self.requests.current.is_none() || !self.showing_request(cx) {
             return;
         }
         self.reset_field_edit();
@@ -59,7 +59,7 @@ impl Workspace {
             verdict: Verdict::Comment,
             error: None,
         });
-        self.take_keyboard(Input::Submit);
+        self.take_keyboard(Input::Submit, cx);
         cx.notify();
     }
 
@@ -316,7 +316,7 @@ impl Workspace {
             Verdict::Approve => "Submit and approve",
             Verdict::RequestChanges => "Submit, request changes",
         };
-        let active = self.has_keyboard(Input::Submit);
+        let active = self.has_keyboard(Input::Submit, cx);
         let field = self.field_look(
             &s.summary,
             active,

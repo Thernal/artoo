@@ -65,7 +65,7 @@ impl Workspace {
             self.reload_threads(cx);
         }
         // Its row under Merge requests, quietly, with a dot (#160).
-        if self.open_quietly(Page::Request(iid)) {
+        if self.open_quietly(Page::Request(iid), cx) {
             self.save_nav();
         }
         self.call_reviewer(
@@ -91,8 +91,8 @@ impl Workspace {
             return;
         };
         for &iid in &iids {
-            self.open_quietly(Page::Request(iid));
-            if !self.request_loaded(iid) {
+            self.open_quietly(Page::Request(iid), cx);
+            if !self.request_loaded(iid, cx) {
                 self.agent_fresh.insert(iid);
             }
             self.call_reviewer(Item::Request(iid), format!("{agent} gathered it"));
@@ -125,7 +125,7 @@ impl Workspace {
             return;
         };
         let what = changes_said(&page);
-        self.open_quietly(page);
+        self.open_quietly(page, cx);
         self.save_nav();
         self.call_reviewer(
             item.clone(),
@@ -165,7 +165,7 @@ impl Workspace {
             if let Some(item) = page.item() {
                 self.call_reviewer(item, format!("{agent} drafted a merge request: {said}"));
             }
-            self.open_quietly(page);
+            self.open_quietly(page, cx);
             self.save_nav();
         }
         let act = Act::Drafted {
@@ -193,10 +193,11 @@ impl Workspace {
             Place::File { path, line } => {
                 let diff_shown = self.nav_page().is_some_and(|p| {
                     !matches!(p, Page::File(_) | Page::Folder(_))
-                        && self.loaded_page().as_ref() == Some(p)
+                        && self.loaded_page(cx).as_ref() == Some(p)
                 });
                 let ix = self
                     .review
+                    .read(cx)
                     .diff
                     .as_ref()
                     .filter(|_| diff_shown)
@@ -221,7 +222,7 @@ impl Workspace {
                 self.go_to(crate::links::Target::Request { iid, note, line }, cx);
                 if let Some(id) = draft {
                     self.spot = Some(Spot::Drafts(vec![id]));
-                    if self.request_loaded(iid) && !self.requests.reading {
+                    if self.request_loaded(iid, cx) && !self.requests.reading {
                         self.resolve_spot(true, cx);
                     }
                 }
@@ -259,7 +260,7 @@ impl Workspace {
         let Some(item) = page.item() else {
             return;
         };
-        self.open_quietly(page);
+        self.open_quietly(page, cx);
         self.save_nav();
         self.show_open(&item, cx);
         self.create_waiting = Some(source);
@@ -314,7 +315,7 @@ impl Workspace {
         // On screen already, it is read again as asked.
         if let Some(on) = unstaged
             && matches!(
-                self.review.diff.as_ref().map(|d| &d.header),
+                self.review.read(cx).diff.as_ref().map(|d| &d.header),
                 Some(super::Header::WorkingTree { only_unstaged }) if *only_unstaged != on
             )
         {
@@ -346,7 +347,7 @@ impl Workspace {
         }
         self.spot = Some(Spot::Drafts(ids));
         // Loaded with its comments in: now; else as they come in (`sync_request`).
-        if self.request_loaded(iid) && !self.requests.reading {
+        if self.request_loaded(iid, cx) && !self.requests.reading {
             self.resolve_spot(true, cx);
         }
         cx.notify();

@@ -6,7 +6,7 @@ use super::px;
 use super::{GAP, ISLAND_RADIUS, Workspace, button, island, theme};
 use crate::editor::{self, Editor};
 use crate::storage::{DiffMode, MarkStyle};
-use gpui::{ClickEvent, Context, FontWeight, SharedString, div, prelude::*};
+use gpui::{App, ClickEvent, Context, FontWeight, SharedString, div, prelude::*};
 
 impl Workspace {
     pub(super) fn open_settings(&mut self, cx: &mut Context<Self>) {
@@ -48,14 +48,14 @@ impl Workspace {
     }
 
     /// Saves the settings; the review's copy follows them (#165).
-    pub(super) fn save_settings(&mut self) {
+    pub(super) fn save_settings(&mut self, cx: &mut App) {
         self.settings.save();
-        self.review.settings = self.settings;
+        self.review.update(cx, |rv, _| rv.settings = self.settings);
     }
 
     fn change_settings(&mut self, change: impl FnOnce(&mut Self), cx: &mut Context<Self>) {
         change(self);
-        self.save_settings();
+        self.save_settings(cx);
         super::share_settings(&self.settings);
         cx.notify();
     }
@@ -122,14 +122,12 @@ impl Workspace {
 
         let fold = switch("fold-generated", s.fold_generated).on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {
+                this.review.update(cx, |rv, _| rv.unfolded.clear());
                 this.change_settings(
-                    |this| {
-                        this.settings.fold_generated = !this.settings.fold_generated;
-                        this.review.unfolded.clear();
-                    },
+                    |this| this.settings.fold_generated = !this.settings.fold_generated,
                     cx,
                 );
-                this.refresh_rows();
+                this.refresh_rows(cx);
                 this.build_stack(cx);
             },
         ));
@@ -869,7 +867,7 @@ impl Workspace {
     /// against the new menus at once, and the action it fires must not find the workspace still
     /// being updated (a crash when a recorded key was also a new menu shortcut).
     pub(super) fn refresh_menus(&self, cx: &mut Context<Self>) {
-        let menus = super::menus(&self.review.options, cx);
+        let menus = super::menus(&self.review.read(cx).options, cx);
         cx.spawn(async move |_, cx| {
             cx.background_executor()
                 .timer(std::time::Duration::from_millis(50))

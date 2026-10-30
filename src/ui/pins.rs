@@ -8,6 +8,7 @@ use super::diff_view::{LineNote, NoteTone};
 use super::review::Review;
 use super::rows::{self, FileData, Pin, Row};
 use crate::review::{self, Comment, Place};
+use gpui::App;
 use std::collections::HashMap;
 
 /// What other features put on one file's lines.
@@ -118,27 +119,28 @@ pub(super) type Pins = HashMap<String, FilePins>;
 /// The tab's side: what is pinned on the files a layout lays out, gathered now.
 impl Workspace {
     /// The pins of the open file.
-    pub(super) fn open_pins(&self) -> Pins {
-        self.pins_for(self.review.current_path())
+    pub(super) fn open_pins(&self, cx: &App) -> Pins {
+        self.pins_for(self.review.read(cx).current_path(), cx)
     }
 
     /// The pins of every file of the diff.
-    pub(super) fn all_pins(&self) -> Pins {
+    pub(super) fn all_pins(&self, cx: &App) -> Pins {
         let paths: Vec<String> = self
             .review
+            .read(cx)
             .diff
             .as_ref()
             .map(|d| d.files.iter().map(|f| f.path().to_owned()).collect())
             .unwrap_or_default();
-        self.pins_for(paths)
+        self.pins_for(paths, cx)
     }
 
     /// The pins of the files at `paths`.
-    pub(super) fn pins_for(&self, paths: impl IntoIterator<Item = String>) -> Pins {
+    pub(super) fn pins_for(&self, paths: impl IntoIterator<Item = String>, cx: &App) -> Pins {
         paths
             .into_iter()
             .map(|path| {
-                let pins = self.pins_of(&path);
+                let pins = self.pins_of(&path, cx);
                 (path, pins)
             })
             .collect()

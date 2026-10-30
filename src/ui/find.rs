@@ -11,7 +11,7 @@ use crate::search::{self, Query};
 use crate::ui::rows::Row;
 use git2::Oid;
 use gpui::{
-    ClickEvent, Context, HighlightStyle, KeyDownEvent, SharedString, StyledText, Task, div,
+    App, ClickEvent, Context, HighlightStyle, KeyDownEvent, SharedString, StyledText, Task, div,
     prelude::*,
 };
 use std::collections::HashMap;
@@ -153,7 +153,7 @@ impl Workspace {
         if self.find.text.is_none() {
             self.find.text = Some(String::new());
         }
-        self.take_keyboard(Input::CommitSearch);
+        self.take_keyboard(Input::CommitSearch, cx);
         cx.notify();
     }
 
@@ -182,13 +182,13 @@ impl Workspace {
     }
 
     pub(super) fn step_match(&mut self, forward: bool, cx: &mut Context<Self>) {
-        if self.review.stack.is_some() {
-            if let Some(at) = self.review.next_stack_match(forward) {
+        if self.review.read(cx).stack.is_some() {
+            if let Some(at) = self.review.read(cx).next_stack_match(forward) {
                 self.go_to_stack_match(at, cx);
             }
             return;
         }
-        if self.review.step_match(forward) {
+        if self.review.update(cx, |rv, _| rv.step_match(forward)) {
             cx.notify();
         }
     }
@@ -199,7 +199,7 @@ impl Workspace {
         if self.step_page(forward, cx) {
             return;
         }
-        if self.review.step_change(forward) {
+        if self.review.update(cx, |rv, _| rv.step_change(forward)) {
             cx.notify();
         }
     }
@@ -211,8 +211,8 @@ impl Workspace {
         window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) {
-        self.sync_keyboard();
-        match self.typing() {
+        self.sync_keyboard(cx);
+        match self.typing(cx) {
             Some(Input::FindFiles) => return self.ffind_key(event, cx),
             Some(Input::Palette) => return self.palette_key(event, window, cx),
             Some(Input::OpenAsk) => return self.open_ask_key(event, cx),
@@ -249,8 +249,8 @@ impl Workspace {
         // Esc closes the innermost thing — a card, menu or popover, the find bar, a filter, the
         // tool window with the keyboard — then goes one page up (#71).
         if key.key == "escape" {
-            if self.review.done_card {
-                self.review.done_card = false;
+            if self.review.read(cx).done_card {
+                self.review.update(cx, |rv, _| rv.done_card = false);
                 cx.notify();
             } else if self.label_edit.is_some() {
                 self.close_label(cx);
@@ -261,10 +261,10 @@ impl Workspace {
                 cx.notify();
             } else if self.ctx_menu.is_some() {
                 self.close_menu(cx);
-            } else if self.review.goline.is_some() {
-                self.close_goline();
+            } else if self.review.read(cx).goline.is_some() {
+                self.close_goline(cx);
                 cx.notify();
-            } else if self.review.dfind.is_some() {
+            } else if self.review.read(cx).dfind.is_some() {
                 self.close_dfind(cx);
             } else if self.find.text.is_some() {
                 self.close_find(cx);
@@ -277,11 +277,13 @@ impl Workspace {
             } else if self.settings_open {
                 self.settings_open = false;
                 cx.notify();
-            } else if self.note_sel.take().is_some() || self.review.sel.take().is_some() {
+            } else if self.note_sel.take().is_some()
+                || self.review.update(cx, |rv, _| rv.sel.take().is_some())
+            {
                 cx.notify();
             } else if self.tool().is_some() && self.zone == super::zones::Zone::Tool {
                 self.set_tool(None, cx);
-            } else if self.clear_filter() {
+            } else if self.clear_filter(cx) {
                 cx.notify();
             } else if self.unpick_compare(cx) {
             } else {
@@ -298,14 +300,14 @@ impl Workspace {
     }
 
     /// Esc after esc: the filter that was left with text, of the list on screen, is cleared.
-    fn clear_filter(&mut self) -> bool {
-        if !self.review.pfilter.is_empty()
-            && self.review.diff.is_some()
+    fn clear_filter(&mut self, cx: &mut App) -> bool {
+        if !self.review.read(cx).pfilter.is_empty()
+            && self.review.read(cx).diff.is_some()
             && self
                 .space()
                 .is_some_and(|s| s != super::spaces::Space::Code)
         {
-            self.review.pfilter.clear();
+            self.review.update(cx, |rv, _| rv.pfilter.clear());
             return true;
         }
         if !self.bfilter.is_empty() && self.at_root_list() {
@@ -318,7 +320,7 @@ impl Workspace {
     /// Typing into the find bar over the diff; esc lets the keyboard go, what was typed kept.
     fn dfind_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
         let key = &event.keystroke;
-        let Some(mut text) = self.review.dfind.clone() else {
+        let Some(mut text) = self.review.read(cx).dfind.clone() else {
             return;
         };
         // ⌥R: the text as a regular expression, or as typed again (#113).
@@ -356,35 +358,37 @@ impl Workspace {
 
     /// ⌘F: a find bar over the open diff, like the page find of a browser or an IDE.
     pub(super) fn start_dfind(&mut self, cx: &mut Context<Self>) {
-        if self.review.dfind.is_none() {
+        if self.review.read(cx).dfind.is_none() {
             self.reset_field_edit();
         }
         self.settings_open = false;
-        if self.review.dfind.is_none() {
-            self.review.dfind = Some(String::new());
+        if self.review.read(cx).dfind.is_none() {
+            self.review
+                .update(cx, |rv, _| rv.dfind = Some(String::new()));
         }
-        self.take_keyboard(Input::DiffFind);
+        self.take_keyboard(Input::DiffFind, cx);
         cx.notify();
     }
 
     /// `.*` in ⌘F's bar: its text read as a regular expression, or as typed.
     pub(super) fn toggle_dfind_regex(&mut self, cx: &mut Context<Self>) {
-        self.review.dfind_regex = !self.review.dfind_regex;
-        let text = self.review.dfind.clone().unwrap_or_default();
+        self.review
+            .update(cx, |rv, _| rv.dfind_regex = !rv.dfind_regex);
+        let text = self.review.read(cx).dfind.clone().unwrap_or_default();
         self.set_dfind(text, cx);
     }
 
     pub(super) fn close_dfind(&mut self, cx: &mut Context<Self>) {
-        self.review.close_find();
+        self.review.update(cx, |rv, _| rv.close_find());
         cx.notify();
     }
 
     pub(super) fn set_dfind(&mut self, text: String, cx: &mut Context<Self>) {
-        self.review.set_find(text);
-        if self.review.stack.is_some() {
+        self.review.update(cx, |rv, _| rv.set_find(text));
+        if self.review.read(cx).stack.is_some() {
             // The folded files are built to be searched too.
             self.build_stack(cx);
-            if let Some(at) = self.review.first_stack_match() {
+            if let Some(at) = self.review.read(cx).first_stack_match() {
                 self.go_to_stack_match(at, cx);
             }
         }
@@ -393,21 +397,21 @@ impl Workspace {
 
     /// The find bar above the diff: the text, "2 of 4 lines", previous, next, close.
     pub(super) fn render_dfind(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
-        let text = self.review.dfind.clone()?;
-        let active = self.has_keyboard(Input::DiffFind);
-        let count = if let Some(error) = &self.review.dfind_error {
+        let text = self.review.read(cx).dfind.clone()?;
+        let active = self.has_keyboard(Input::DiffFind, cx);
+        let count = if let Some(error) = &self.review.read(cx).dfind_error {
             format!("Not a regular expression: {error}")
-        } else if self.review.dterms.is_empty() {
+        } else if self.review.read(cx).dterms.is_empty() {
             String::new()
-        } else if let Some(count) = self.review.stack_match_count() {
+        } else if let Some(count) = self.review.read(cx).stack_match_count() {
             count
-        } else if self.review.matches.is_empty() {
+        } else if self.review.read(cx).matches.is_empty() {
             "No matches".to_owned()
         } else {
             format!(
                 "{} of {} lines",
-                self.review.match_at + 1,
-                self.review.matches.len()
+                self.review.read(cx).match_at + 1,
+                self.review.read(cx).matches.len()
             )
         };
         let step = |id: &'static str, label: &'static str, forward: bool| {
@@ -449,7 +453,7 @@ impl Workspace {
                     .child(self.field_text(&text, active, "Find in this diff", cx))
                     .child({
                         use super::hover::Hover;
-                        chip("dfind-regex", ".*", self.review.dfind_regex)
+                        chip("dfind-regex", ".*", self.review.read(cx).dfind_regex)
                             .tip("Regular expression  ⌥R")
                             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.toggle_dfind_regex(cx)
@@ -460,7 +464,7 @@ impl Workspace {
                 super::hover::cut("find-count", count.clone())
                     .text_size(px(12.))
                     .text_color(
-                        if count == "No matches" || self.review.dfind_error.is_some() {
+                        if count == "No matches" || self.review.read(cx).dfind_error.is_some() {
                             theme::removed()
                         } else {
                             theme::muted()
@@ -525,7 +529,7 @@ impl Workspace {
 
     /// The search field, its qualifier tags and the count line.
     pub(super) fn render_find(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let active = self.has_keyboard(Input::CommitSearch);
+        let active = self.has_keyboard(Input::CommitSearch, cx);
         let text = self.find.text.clone().unwrap_or_default();
         let field = div()
             .id("find")

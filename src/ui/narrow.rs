@@ -118,7 +118,7 @@ impl Workspace {
     /// ⌃2 ⌃3: the keyboard to a section of the side panel; while it is folded, its drawer opens
     /// there, or closes when it is open.
     pub(super) fn focus_panel(&mut self, zone: Zone, cx: &mut Context<Self>) {
-        if self.compact() && !self.side_icons().is_empty() {
+        if self.compact() && !self.side_icons(cx).is_empty() {
             return self.toggle_drawer(Some(zone), cx);
         }
         self.set_zone(zone, cx)
@@ -142,7 +142,7 @@ impl Workspace {
         if !narrow && self.layout.show_sidebar {
             return None;
         }
-        let panels = self.side_icons();
+        let panels = self.side_icons(cx);
         if panels.is_empty() {
             return None;
         }

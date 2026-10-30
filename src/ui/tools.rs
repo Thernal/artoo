@@ -127,7 +127,7 @@ impl Workspace {
             self.set_zone(Zone::Tool, cx);
         } else if self.zone == Zone::Tool {
             self.set_zone(
-                if self.review.diff.is_some() {
+                if self.review.read(cx).diff.is_some() {
                     Zone::Diff
                 } else {
                     Zone::Commits
@@ -239,8 +239,8 @@ impl Workspace {
                         }
                         Tool::Discussions => button(
                             tool,
-                            count(self.comments_total(), theme::accent()),
-                            super::plural(self.comments_total(), "comment"),
+                            count(self.comments_total(cx), theme::accent()),
+                            super::plural(self.comments_total(cx), "comment"),
                         )
                         .into_any_element(),
                         // A dot per chat that listens, on its own hue (#77).

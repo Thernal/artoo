@@ -103,7 +103,7 @@ impl Workspace {
         if !span || c.anchor.is_none() {
             c.anchor = Some(ix);
         }
-        let keep = self.review.current_path();
+        let keep = self.review.read(cx).current_path();
         self.load_compare_pick(keep, cx);
     }
 
@@ -129,8 +129,8 @@ impl Workspace {
         ) else {
             return;
         };
-        self.clear_diff();
-        let settings = self.settings();
+        self.clear_diff(cx);
+        let settings = self.settings(cx);
         self.load_diff(keep, cx, move || {
             let repo = Repo::open(&root)?;
             // A first commit has no parent: its diff is all it adds.

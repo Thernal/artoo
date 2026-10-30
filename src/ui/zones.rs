@@ -5,7 +5,7 @@
 
 use super::px;
 use super::{Selection, Workspace, theme};
-use gpui::{Context, Rgba};
+use gpui::{App, Context, Rgba};
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum Zone {
@@ -54,7 +54,7 @@ impl Workspace {
     }
 
     /// The zones that exist right now, in Tab order.
-    fn zones(&self) -> Vec<Zone> {
+    fn zones(&self, cx: &App) -> Vec<Zone> {
         let mut out = Vec::new();
         // A page with no side panel and no diff: a space's list, the Inbox, Code (#71).
         let item = matches!(
@@ -82,8 +82,8 @@ impl Workspace {
         {
             out.push(Zone::Commits);
         }
-        if self.review.diff.is_some() && !self.settings_open {
-            if self.files_zone() {
+        if self.review.read(cx).diff.is_some() && !self.settings_open {
+            if self.files_zone(cx) {
                 out.push(Zone::Files);
             }
             out.push(Zone::Diff);
@@ -95,7 +95,7 @@ impl Workspace {
     }
 
     pub(super) fn step_zone(&mut self, forward: bool, cx: &mut Context<Self>) {
-        let zones = self.zones();
+        let zones = self.zones(cx);
         if zones.is_empty() {
             return;
         }
@@ -135,10 +135,12 @@ impl Workspace {
             Zone::Commits => self.step_commit_row(down, cx),
             Zone::Branches => self.step_pick(down, cx),
             Zone::Files => self.step_file_item(down, cx),
-            Zone::Diff => self
-                .review
-                .diff_list
-                .scroll_by(px(if down { LINE } else { -LINE })),
+            Zone::Diff => {
+                self.review
+                    .read(cx)
+                    .diff_list
+                    .scroll_by(px(if down { LINE } else { -LINE }))
+            }
             Zone::Tool => match self.tool() {
                 Some(super::tools::Tool::Discussions) => return self.step_thread(down, cx),
                 Some(super::tools::Tool::Agents) => return self.step_agent_row(down, cx),
@@ -152,7 +154,8 @@ impl Workspace {
     pub(super) fn zone_horizontal(&mut self, forward: bool, cx: &mut Context<Self>) {
         match self.zone {
             Zone::Files
-                if !self.review.options.list_files && self.review.pfilter.trim().is_empty() =>
+                if !self.review.read(cx).options.list_files
+                    && self.review.read(cx).pfilter.trim().is_empty() =>
             {
                 self.tree_horizontal(forward, cx)
             }
@@ -160,7 +163,7 @@ impl Workspace {
             Zone::Tool if !forward => self.set_zone(Zone::Diff, cx),
             Zone::Tool => {}
             Zone::Diff if !forward => self.set_zone(
-                if self.files_zone() {
+                if self.files_zone(cx) {
                     Zone::Files
                 } else {
                     Zone::Commits
@@ -172,8 +175,8 @@ impl Workspace {
     }
 
     pub(super) fn step_file(&mut self, forward: bool, cx: &mut Context<Self>) {
-        let order = self.review.file_order();
-        let Some(at) = order.iter().position(|&ix| ix == self.review.file) else {
+        let order = self.review.read(cx).file_order();
+        let Some(at) = order.iter().position(|&ix| ix == self.review.read(cx).file) else {
             return;
         };
         let to = if forward {
@@ -208,9 +211,9 @@ impl Workspace {
             }
             Zone::Tool | Zone::Branches => {}
             Zone::Commits => {
-                if self.review.diff.is_some() {
+                if self.review.read(cx).diff.is_some() {
                     self.set_zone(
-                        if self.files_zone() {
+                        if self.files_zone(cx) {
                             Zone::Files
                         } else {
                             Zone::Diff
@@ -220,7 +223,7 @@ impl Workspace {
                 }
             }
             Zone::Files => {
-                if let Some(dir) = self.review.fcursor.clone() {
+                if let Some(dir) = self.review.read(cx).fcursor.clone() {
                     self.toggle_dir(&dir, cx);
                 } else {
                     self.set_zone(Zone::Diff, cx);
@@ -230,13 +233,14 @@ impl Workspace {
                 // A folded generated file opens on ↵.
                 if let Some(path) = self
                     .review
+                    .read(cx)
                     .diff
                     .as_ref()
-                    .and_then(|d| d.files.get(self.review.file))
-                    .filter(|f| self.review.generated_folded(f))
+                    .and_then(|d| d.files.get(self.review.read(cx).file))
+                    .filter(|f| self.review.read(cx).generated_folded(f))
                     .map(|f| f.path().to_owned())
                 {
-                    self.review.unfolded.insert(path);
+                    self.review.update(cx, |rv, _| rv.unfolded.insert(path));
                     cx.notify();
                 }
             }
@@ -249,6 +253,7 @@ impl Workspace {
             return;
         }
         self.review
+            .read(cx)
             .diff_list
             .scroll_by(px(if down { PAGE } else { -PAGE }));
         cx.notify();
@@ -257,9 +262,9 @@ impl Workspace {
     /// Home and End: the top or the bottom of the diff.
     pub(super) fn diff_edge(&mut self, end: bool, cx: &mut Context<Self>) {
         if end {
-            self.review.diff_list.scroll_to_end();
+            self.review.read(cx).diff_list.scroll_to_end();
         } else {
-            self.review.diff_list.scroll_to(gpui::ListOffset {
+            self.review.read(cx).diff_list.scroll_to(gpui::ListOffset {
                 item_ix: 0,
                 offset_in_item: px(0.),
             });
@@ -307,7 +312,7 @@ impl Workspace {
             (None, _) => (n > 0).then_some(0),
         };
         if self.nav.space == super::spaces::Space::Requests {
-            let shown: Vec<u64> = self.listed_requests().iter().map(|m| m.iid).collect();
+            let shown: Vec<u64> = self.listed_requests(cx).iter().map(|m| m.iid).collect();
             let at = self
                 .nav
                 .pick_request
@@ -333,7 +338,7 @@ impl Workspace {
     /// ↵ in a space's list: the row selected opens.
     pub(super) fn open_pick(&mut self, cx: &mut Context<Self>) {
         if self.nav.space == super::spaces::Space::Requests {
-            let shown: Vec<u64> = self.listed_requests().iter().map(|m| m.iid).collect();
+            let shown: Vec<u64> = self.listed_requests(cx).iter().map(|m| m.iid).collect();
             let pick = self.nav.pick_request.filter(|iid| shown.contains(iid));
             if let Some(iid) = pick.or(shown.first().copied()) {
                 self.open_picked_request(iid, cx);
@@ -353,14 +358,14 @@ impl Workspace {
 
     /// ↑ ↓ over what the files island shows, folders included.
     fn step_file_item(&mut self, down: bool, cx: &mut Context<Self>) {
-        let items = self.review.item_keys();
-        let here = match &self.review.fcursor {
+        let items = self.review.read(cx).item_keys();
+        let here = match &self.review.read(cx).fcursor {
             Some(dir) => items
                 .iter()
                 .position(|k| matches!(k, ItemKey::Dir(d) if d == dir)),
             None => items
                 .iter()
-                .position(|k| matches!(k, ItemKey::File(ix) if *ix == self.review.file)),
+                .position(|k| matches!(k, ItemKey::File(ix) if *ix == self.review.read(cx).file)),
         };
         let to = match (here, down) {
             (Some(i), true) => (i + 1 < items.len()).then(|| i + 1),
@@ -369,11 +374,11 @@ impl Workspace {
         };
         match to.map(|i| items[i].clone()) {
             Some(ItemKey::File(ix)) => {
-                self.review.fcursor = None;
+                self.review.update(cx, |rv, _| rv.fcursor = None);
                 self.select_file(ix, cx);
             }
             Some(ItemKey::Dir(path)) => {
-                self.review.fcursor = Some(path);
+                self.review.update(cx, |rv, _| rv.fcursor = Some(path));
                 cx.notify();
             }
             None => {}
@@ -382,8 +387,8 @@ impl Workspace {
 
     /// In the tree: → opens a folder or goes into the diff, ← closes a folder or goes up to it.
     fn tree_horizontal(&mut self, forward: bool, cx: &mut Context<Self>) {
-        if let Some(dir) = self.review.fcursor.clone() {
-            let open = !self.review.collapsed.contains(&dir);
+        if let Some(dir) = self.review.read(cx).fcursor.clone() {
+            let open = !self.review.read(cx).collapsed.contains(&dir);
             match (forward, open) {
                 (true, false) | (false, true) => self.toggle_dir(&dir, cx),
                 (true, true) => self.step_file_item(true, cx),
@@ -396,9 +401,10 @@ impl Workspace {
             return;
         }
         // ← on a file: the folder it is in, or its group (#22).
-        if let Some(path) = self.review.file_key(self.review.file) {
+        if let Some(path) = self.review.read(cx).file_key(self.review.read(cx).file) {
             let parent = self
                 .review
+                .read(cx)
                 .item_keys()
                 .into_iter()
                 .filter_map(|k| match k {
@@ -407,7 +413,7 @@ impl Workspace {
                 })
                 .next_back();
             if parent.is_some() {
-                self.review.fcursor = parent;
+                self.review.update(cx, |rv, _| rv.fcursor = parent);
                 cx.notify();
             }
         }

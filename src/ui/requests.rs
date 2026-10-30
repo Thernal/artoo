@@ -469,7 +469,7 @@ impl Workspace {
             if self.requests.walk.is_none_or(|(walked, _)| walked != iid)
                 && let Some(m) = self.requests.find(iid)
             {
-                self.requests.walk = Some((iid, self.group_of(m)));
+                self.requests.walk = Some((iid, self.group_of(m, cx)));
             }
             self.mark_opened(iid);
         }
@@ -519,12 +519,12 @@ impl Workspace {
                             this.take_base(iid, from, base, cx);
                             // A link to a comment waits for the discussions; the diff is in by now
                             // or comes later and tries again.
-                            let diff_in = this.showing_request();
+                            let diff_in = this.showing_request(cx);
                             this.resolve_spot(diff_in, cx);
                         }
                         Err(e) => this.requests.error = Some(format!("{e:#}")),
                     }
-                    this.refresh_rows();
+                    this.refresh_rows(cx);
                     cx.notify();
                 }
             })
@@ -589,7 +589,7 @@ impl Workspace {
         self.error = None;
         let tgt = pick(&target);
         // Its page now, before the branch it is read from replaces what is loaded (#71).
-        self.arrive(super::nav::Page::Request(iid));
+        self.arrive(super::nav::Page::Request(iid), cx);
         if let Some(tgt) = tgt {
             let side = |ix: usize| (self.branches[ix].name.clone(), self.branches[ix].tip);
             let mut base = side(tgt);
@@ -675,13 +675,13 @@ impl Workspace {
     /// ⌥↓: the next merge request to review (`next_request`); ⌥↑: the previous one in the list,
     /// reviewed or not (to look again at what was just done).
     pub(super) fn step_request(&mut self, forward: bool, cx: &mut Context<Self>) {
-        let shown = self.shown_requests();
+        let shown = self.shown_requests(cx);
         let n = shown.len();
         if n == 0 {
             return;
         }
         let next = if forward {
-            self.next_request()
+            self.next_request(cx)
         } else {
             let at = shown
                 .iter()
@@ -693,15 +693,15 @@ impl Workspace {
                 Some("Every other merge request in the list is reviewed, or yours.".into());
             return cx.notify();
         };
-        self.review.done_card = false;
+        self.review.update(cx, |rv, _| rv.done_card = false);
         self.select_request(next, cx);
     }
 
     /// The next request to review below the open one, going round the list once: the first that
     /// is not reviewed at its head and not yours (#81). Counted from where the open one was when
     /// it was opened — reviewed to the end, it has moved down to Reviewed (#136).
-    fn next_request(&self) -> Option<&Mr> {
-        let mut shown = self.shown_requests();
+    fn next_request(&self, cx: &App) -> Option<&Mr> {
+        let mut shown = self.shown_requests(cx);
         let walk = self
             .requests
             .walk
@@ -713,7 +713,7 @@ impl Workspace {
                 let group = if m.iid == walked {
                     was
                 } else {
-                    self.group_of(m)
+                    self.group_of(m, cx)
                 };
                 (group, std::cmp::Reverse(m.updated))
             });
@@ -723,20 +723,25 @@ impl Workspace {
             .position(|m| Some(m.iid) == self.requests.current);
         let open: Vec<bool> = shown
             .iter()
-            .map(|m| matches!(self.group_of(m), Group::Asks | Group::Updated | Group::New))
+            .map(|m| {
+                matches!(
+                    self.group_of(m, cx),
+                    Group::Asks | Group::Updated | Group::New
+                )
+            })
             .collect();
         next_to_review(&open, at).map(|ix| shown[ix])
     }
 
     /// After branch `self.branch` in the branch list, the next branch of the same kind (local or
     /// remote) whose review is not done, going round; never the checked-out one.
-    fn next_unreviewed_branch(&self) -> Option<usize> {
+    fn next_unreviewed_branch(&self, cx: &App) -> Option<usize> {
         let at = self.branch?;
         let kind = self.branches.get(at)?.kind;
         let n = self.branches.len();
         (1..n).map(|step| (at + step) % n).find(|&ix| {
             let b = &self.branches[ix];
-            b.kind == kind && !b.is_head && !self.review.head_reviewed(b.tip)
+            b.kind == kind && !b.is_head && !self.review.read(cx).head_reviewed(b.tip)
         })
     }
 
@@ -745,18 +750,18 @@ impl Workspace {
         &self,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
-        if !self.review.done_card {
+        if !self.review.read(cx).done_card {
             return None;
         }
-        let total = self.review.diff.as_ref()?.files.len();
+        let total = self.review.read(cx).diff.as_ref()?.files.len();
         let current = self.requests.current;
         // The next merge request in request mode, else the next branch.
         let next = match current {
             Some(_) => self
-                .next_request()
+                .next_request(cx)
                 .map(|m| (format!("Next: !{} {}", m.iid, m.title), Err(m.iid))),
             None => self
-                .next_unreviewed_branch()
+                .next_unreviewed_branch(cx)
                 .map(|ix| (format!("Next: {}", self.branches[ix].name), Ok(ix))),
         };
         let button = |id: &'static str, label: String, key: &'static str, primary: bool| {
@@ -827,7 +832,7 @@ impl Workspace {
                                 .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
                                 .child("esc")
                                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                    this.review.done_card = false;
+                                    this.review.update(cx, |rv, _| rv.done_card = false);
                                     cx.notify();
                                 })),
                         ),
@@ -858,7 +863,7 @@ impl Workspace {
                     )
                     .on_click(cx.listener(
                         move |this, _: &ClickEvent, _, cx| {
-                            this.review.done_card = false;
+                            this.review.update(cx, |rv, _| rv.done_card = false);
                             match to {
                                 Err(iid) => this.select_request(iid, cx),
                                 Ok(ix) => this.open_branch(ix, None, cx),
@@ -869,7 +874,7 @@ impl Workspace {
                 .children(current.map(|_| {
                     button("done-leave", "Back to your branch".to_owned(), "⌥⌘L", false).on_click(
                         cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.review.done_card = false;
+                            this.review.update(cx, |rv, _| rv.done_card = false);
                             this.leave_request(cx);
                         }),
                     )
@@ -990,8 +995,9 @@ impl Workspace {
                         },
                     };
                 }
-                let whole = self.request_loaded(iid)
-                    || (self.review.diff.is_none() && self.nav_page() == Some(&Page::Request(iid)));
+                let whole = self.request_loaded(iid, cx)
+                    || (self.review.read(cx).diff.is_none()
+                        && self.nav_page() == Some(&Page::Request(iid)));
                 if self.selection == Selection::None && whole {
                     self.run_compare(base, head, true, Some(iid), cx);
                 }
@@ -1090,26 +1096,27 @@ impl Workspace {
 
     /// Is the whole request whose discussions are loaded on screen, as its page (#71)? Its keys
     /// (`a`, ⇧N, Submit review) act only then, never on one loaded under another page.
-    pub(super) fn showing_request(&self) -> bool {
+    pub(super) fn showing_request(&self, cx: &App) -> bool {
         self.requests.current.is_some_and(|iid| {
-            self.request_loaded(iid)
+            self.request_loaded(iid, cx)
                 && self.nav.space == super::spaces::Space::Requests
                 && self.nav_page() == Some(&super::nav::Page::Request(iid))
         })
     }
 
     /// The diff loaded is the whole of request `iid`, whatever page is on screen.
-    pub(super) fn request_loaded(&self, iid: u64) -> bool {
+    pub(super) fn request_loaded(&self, iid: u64, cx: &App) -> bool {
         self.requests.current == Some(iid)
             && matches!(
-                self.review.diff.as_ref().map(|d| &d.header),
+                self.review.read(cx).diff.as_ref().map(|d| &d.header),
                 Some(Header::Compare { request: Some(i), .. }) if *i == iid
             )
     }
 
     /// The discussions on lines of the open file: (index, old side, line).
-    pub(super) fn request_threads_here(&self) -> Vec<(usize, bool, u32)> {
+    pub(super) fn request_threads_here(&self, cx: &App) -> Vec<(usize, bool, u32)> {
         self.review
+            .read(cx)
             .current_path()
             .map(|path| self.request_threads_in(&path))
             .unwrap_or_default()
@@ -1195,7 +1202,7 @@ impl Workspace {
         // On its way to the host: faded, and nothing to act on until it has an id (#139).
         let waits = self.thread_waits(&t.id);
         let sending = super::waiting::is_temp_thread(&t.id);
-        let can_act = self.request_target().is_some() && !sending;
+        let can_act = self.request_target(cx).is_some() && !sending;
         let (fold, pick, reply, resolve, raw, edit) = (
             this.clone(),
             this.clone(),
@@ -1303,7 +1310,7 @@ impl Workspace {
             )
         });
         let last = t.notes.len() - 1;
-        let mine = self.my_note_in(ix);
+        let mine = self.my_note_in(ix, cx);
         let notes = t.notes.iter().enumerate().map(|(n, note)| {
             let change = super::comments::Change::Note {
                 thread: ix,
@@ -1352,14 +1359,15 @@ impl Workspace {
                             super::comments::edit_button(
                                 ("edit-note", note.id as usize),
                                 key,
-                                self.review.tight,
+                                self.review.read(cx).tight,
                                 change,
                                 edit.clone(),
                             )
                         }))
                         // One's own note goes from GitLab too, after a confirm (#76).
                         .children(
-                            editable.then(|| self.delete_note_button(ix, note_id, edit.clone())),
+                            editable
+                                .then(|| self.delete_note_button(ix, note_id, edit.clone(), cx)),
                         )
                         .into_any_element()
                 }),
@@ -1439,7 +1447,7 @@ impl Workspace {
                             .hover(|s| s.border_color(theme::muted()))
                             .child(div().flex_1().child("Reply…"))
                             .children(
-                                (!self.review.tight)
+                                (!self.review.read(cx).tight)
                                     .then(|| super::keys::caps("r", super::keys::On::Plain)),
                             )
                             .on_click(move |_, _, cx| {
@@ -1459,7 +1467,7 @@ impl Workspace {
                             Some("x"),
                             None,
                             Kind::Plain,
-                            self.review.tight,
+                            self.review.read(cx).tight,
                         )
                         .h(px(34.))
                         .on_click(move |_, _, cx| {
@@ -1513,8 +1521,8 @@ impl Workspace {
     }
 
     /// The discussions on lines of the files of this diff, in reading order.
-    fn thread_order(&self) -> Vec<usize> {
-        let Some(diff) = &self.review.diff else {
+    fn thread_order(&self, cx: &App) -> Vec<usize> {
+        let Some(diff) = &self.review.read(cx).diff else {
             return Vec::new();
         };
         let mut order: Vec<(usize, u32, usize)> = self
@@ -1536,10 +1544,10 @@ impl Workspace {
 
     /// ⇧n / ⇧p: the next or previous discussion of the request, shown in the diff.
     pub(super) fn step_thread(&mut self, forward: bool, cx: &mut Context<Self>) {
-        if !self.showing_request() {
+        if !self.showing_request(cx) {
             return;
         }
-        let order = self.thread_order();
+        let order = self.thread_order(cx);
         if order.is_empty() {
             return;
         }
@@ -1567,13 +1575,18 @@ impl Workspace {
 
     /// The discussion `r` `x` `o` act on: the one with the keyboard (a click or ⇧N gave it), else
     /// the first open one from the top of the view.
-    pub(super) fn acting_thread(&self) -> Option<usize> {
+    pub(super) fn acting_thread(&self, cx: &App) -> Option<usize> {
         self.thread_at.or_else(|| {
-            let top = self.review.local_top();
-            self.review.rows.iter().skip(top).find_map(|row| match row {
-                super::rows::Row::Request(ix) if self.mr_open(*ix) => Some(*ix),
-                _ => None,
-            })
+            let top = self.review.read(cx).local_top();
+            self.review
+                .read(cx)
+                .rows
+                .iter()
+                .skip(top)
+                .find_map(|row| match row {
+                    super::rows::Row::Request(ix) if self.mr_open(*ix) => Some(*ix),
+                    _ => None,
+                })
         })
     }
 
@@ -1583,8 +1596,8 @@ impl Workspace {
             return self.reply_in_inbox(cx);
         }
         if let Some(ix) = self
-            .acting_thread()
-            .filter(|_| self.request_target().is_some())
+            .acting_thread(cx)
+            .filter(|_| self.request_target(cx).is_some())
         {
             self.thread_at = Some(ix);
             self.start_reply(ix, cx);
@@ -1593,8 +1606,8 @@ impl Workspace {
 
     pub(super) fn resolve_focused(&mut self, cx: &mut Context<Self>) {
         if let Some(ix) = self
-            .acting_thread()
-            .filter(|_| self.request_target().is_some())
+            .acting_thread(cx)
+            .filter(|_| self.request_target(cx).is_some())
         {
             self.thread_at = Some(ix);
             self.toggle_resolved(ix, cx);
@@ -1614,13 +1627,13 @@ impl Workspace {
         if self.mr_open(ix) != open && !self.toggled_mr.remove(&ix) {
             self.toggled_mr.insert(ix);
         }
-        self.refresh_rows();
+        self.refresh_rows(cx);
         cx.notify();
     }
 
     /// `o`: folds or opens the discussion the keyboard is on.
     pub(super) fn toggle_focused(&mut self, cx: &mut Context<Self>) {
-        if let Some(ix) = self.acting_thread() {
+        if let Some(ix) = self.acting_thread(cx) {
             self.thread_at = Some(ix);
             let open = self.mr_open(ix);
             self.set_thread_open(ix, !open, cx);
@@ -1684,7 +1697,7 @@ impl Workspace {
                 "GitHub sends a pending comment only with its review: Submit review sends it"
             }),
             Kind::Plain,
-            self.review.tight,
+            self.review.read(cx).tight,
         )
         .h(px(24.))
         .px(px(8.))
@@ -1737,7 +1750,7 @@ impl Workspace {
                     None,
                     None,
                     Kind::Danger,
-                    self.review.tight,
+                    self.review.read(cx).tight,
                 )
                 .h(px(24.))
                 .px(px(8.))
@@ -1819,7 +1832,7 @@ impl Workspace {
         let (Some(iid), Some(a)) = (self.requests.current, self.requests.approvals.clone()) else {
             return;
         };
-        if !self.showing_request() {
+        if !self.showing_request(cx) {
             return;
         }
         let op = vec![Op::Approve { mine: !a.mine }];
@@ -1840,10 +1853,10 @@ impl Workspace {
 
     /// ⌥N / ⌥P: the next or previous of one's pending comments, across the files of the request.
     pub(super) fn step_draft(&mut self, forward: bool, cx: &mut Context<Self>) {
-        if !self.showing_request() {
+        if !self.showing_request(cx) {
             return;
         }
-        let order = self.draft_order();
+        let order = self.draft_order(cx);
         if order.is_empty() {
             return;
         }
@@ -1876,8 +1889,8 @@ impl Workspace {
     }
 
     /// The pending comments on lines of the diff loaded, in its order: (file, line, index).
-    pub(super) fn draft_order(&self) -> Vec<(usize, u32, usize)> {
-        let Some(diff) = self.review.diff.as_ref() else {
+    pub(super) fn draft_order(&self, cx: &App) -> Vec<(usize, u32, usize)> {
+        let Some(diff) = self.review.read(cx).diff.as_ref() else {
             return Vec::new();
         };
         let mut order: Vec<(usize, u32, usize)> = self
@@ -1976,6 +1989,7 @@ impl Workspace {
         thread: usize,
         note: u64,
         this: gpui::WeakEntity<Self>,
+        cx: &App,
     ) -> gpui::AnyElement {
         use super::discussion::{Kind, icon_button};
         if self.confirm_note != Some(note) {
@@ -1987,7 +2001,7 @@ impl Workspace {
                 None,
                 None,
                 Kind::Quiet,
-                self.review.tight,
+                self.review.read(cx).tight,
             )
             .h(px(22.))
             .px(px(6.))
@@ -2073,12 +2087,12 @@ impl Workspace {
     /// The Discussions tool window: the request's discussions and pending notes — public ones only,
     /// the agent's are the Agents window's (#76); a click shows one in the diff.
     pub(super) fn discussions_tool(&self, cx: &mut Context<Self>) -> ToolView {
-        let theirs: Vec<(usize, &Thread)> = if self.showing_request() {
+        let theirs: Vec<(usize, &Thread)> = if self.showing_request(cx) {
             self.requests.threads.iter().enumerate().collect()
         } else {
             Vec::new()
         };
-        let drafts: Vec<(usize, &Draft)> = if self.showing_request() {
+        let drafts: Vec<(usize, &Draft)> = if self.showing_request(cx) {
             self.requests.drafts.iter().enumerate().collect()
         } else {
             Vec::new()
@@ -2091,7 +2105,7 @@ impl Workspace {
         // says they are pending, and how to walk them.
         let grouped = [discussions, pending].iter().filter(|&&n| n > 0).count() > 1;
         // Written on an earlier version: listed apart, grouped by that version (#46).
-        let outdated = if self.showing_request() {
+        let outdated = if self.showing_request(cx) {
             self.outdated_by_version()
         } else {
             Vec::new()
@@ -2299,8 +2313,8 @@ impl Workspace {
 
     /// Every comment of the open diff: the request's discussions and pending ones, and the agent's.
     /// The Discussions window's count: the request's own discussions and pending notes (#76).
-    pub(super) fn comments_total(&self) -> usize {
-        if self.showing_request() {
+    pub(super) fn comments_total(&self, cx: &App) -> usize {
+        if self.showing_request(cx) {
             self.requests.threads.len() + self.requests.drafts.len()
         } else {
             0
@@ -2308,7 +2322,7 @@ impl Workspace {
     }
 
     /// The requests the scope and filter let through, in the order the list shows them.
-    pub(super) fn shown_requests(&self) -> Vec<&Mr> {
+    pub(super) fn shown_requests(&self, cx: &App) -> Vec<&Mr> {
         let filter = self.bfilter.to_lowercase();
         let words: Vec<&str> = filter.split_whitespace().collect();
         // The merged or the closed as read, newest first, the host having picked the scope's
@@ -2337,7 +2351,7 @@ impl Workspace {
             .collect();
         // By what each needs from you, as the list groups them; the latest activity first.
         if !past {
-            shown.sort_by_key(|m| (self.group_of(m), std::cmp::Reverse(m.updated)));
+            shown.sort_by_key(|m| (self.group_of(m, cx), std::cmp::Reverse(m.updated)));
         }
         shown
     }
@@ -2630,19 +2644,21 @@ impl Workspace {
         old: bool,
         cx: &mut Context<Self>,
     ) {
-        self.review.jump_line = Some((line, old));
-        if self.review.current_path().as_deref() == Some(path) {
+        self.review
+            .update(cx, |rv, _| rv.jump_line = Some((line, old)));
+        if self.review.read(cx).current_path().as_deref() == Some(path) {
             self.apply_jump(cx);
             return;
         }
         let ix = self
             .review
+            .read(cx)
             .diff
             .as_ref()
             .and_then(|d| d.files.iter().position(|f| f.path() == path));
         match ix {
             Some(ix) => self.select_file(ix, cx),
-            None => self.review.jump_line = None,
+            None => self.review.update(cx, |rv, _| rv.jump_line = None),
         }
     }
 }

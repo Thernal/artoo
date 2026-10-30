@@ -231,7 +231,7 @@ impl Workspace {
                 .iter()
                 .position(|b| b.is_head)
                 .or((!self.branches.is_empty()).then_some(0));
-            self.clear_branch();
+            self.clear_branch(cx);
             if let Some(ix) = ix {
                 self.select_branch(ix, None, cx);
             }
@@ -307,7 +307,7 @@ impl Workspace {
                 self.selection = Selection::Versions { from, to };
             }
             (Selection::WorkingTree, _) => {}
-            _ => self.clear_diff(),
+            _ => self.clear_diff(cx),
         }
         self.follow_latest_version(seen, cx);
         self.set_status(Status::Reloaded, cx);
@@ -324,35 +324,41 @@ impl Workspace {
         if seen == 0 || to + 1 != seen || latest <= to {
             return;
         }
-        self.review.restore_scroll = self.review.scroll_place();
+        self.review
+            .update(cx, |rv, _| rv.restore_scroll = rv.scroll_place());
         let file = self
             .review
+            .read(cx)
             .restore_scroll
             .as_ref()
             .map(|(path, _)| path.clone());
         let undo = self.selection;
         self.load_versions(from, latest, file, cx);
         // `load_versions` clears the notice of the diff it replaces; this one belongs to the new.
-        self.review.notice = Some(super::Notice {
-            text: format!(
-                "v{} arrived — this comparison now ends at v{}.",
-                self.versions[latest].number, self.versions[latest].number
-            ),
-            undo,
+        self.review.update(cx, |rv, _| {
+            rv.notice = Some(super::Notice {
+                text: format!(
+                    "v{} arrived — this comparison now ends at v{}.",
+                    self.versions[latest].number, self.versions[latest].number
+                ),
+                undo,
+            })
         });
     }
 
     /// Goes back to the comparison a notice replaced, at the same place in the file.
     pub(super) fn undo_notice(&mut self, cx: &mut Context<Self>) {
-        let Some(notice) = self.review.notice.take() else {
+        let Some(notice) = self.review.update(cx, |rv, _| rv.notice.take()) else {
             return;
         };
         let Selection::Versions { from, to } = notice.undo else {
             return;
         };
-        self.review.restore_scroll = self.review.scroll_place();
+        self.review
+            .update(cx, |rv, _| rv.restore_scroll = rv.scroll_place());
         let file = self
             .review
+            .read(cx)
             .restore_scroll
             .as_ref()
             .map(|(path, _)| path.clone());

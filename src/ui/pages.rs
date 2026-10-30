@@ -60,6 +60,7 @@ impl Workspace {
             }))
             .children(
                 self.review
+                    .read(cx)
                     .diff
                     .as_ref()
                     .filter(|_| self.zen.is_some() || self.motion.recent("zen"))
@@ -71,7 +72,7 @@ impl Workspace {
                             div()
                                 .flex()
                                 .flex_col()
-                                .child(self.render_zen_head(diff))
+                                .child(self.render_zen_head(diff, cx))
                                 .child(div().h(px(gap()))),
                         )
                     }),
@@ -85,8 +86,9 @@ impl Workspace {
     fn render_item(&self, cx: &mut Context<Self>) -> gpui::Div {
         let identity = self
             .review
+            .read(cx)
             .diff
-            .as_ref()
+            .clone()
             .filter(|_| self.zen.is_none() || self.motion.recent("zen"))
             .map(|diff| {
                 if let Some(head) = self.render_create_header(cx) {
@@ -96,7 +98,7 @@ impl Workspace {
                 } else if let Some(head) = self.render_branch_line(cx) {
                     head
                 } else {
-                    self.render_header(diff, cx).into_any_element()
+                    self.render_header(&diff, cx).into_any_element()
                 }
             });
         div()

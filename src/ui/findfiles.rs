@@ -7,7 +7,7 @@ use super::px;
 use super::{ISLAND_RADIUS, ROW_RADIUS, Workspace, plural, theme};
 use crate::git::LineKind;
 use gpui::{
-    ClickEvent, Context, FontWeight, HighlightStyle, KeyDownEvent, MouseButton, ScrollHandle,
+    App, ClickEvent, Context, FontWeight, HighlightStyle, KeyDownEvent, MouseButton, ScrollHandle,
     StyledText, div, prelude::*,
 };
 use std::ops::Range;
@@ -66,13 +66,13 @@ fn find_in(hay: &str, needle: &str, case: bool, word: bool) -> Option<Range<usiz
 
 impl Workspace {
     pub(super) fn open_find_files(&mut self, cx: &mut Context<Self>) {
-        if self.review.diff.is_none() || self.settings_open {
+        if self.review.read(cx).diff.is_none() || self.settings_open {
             return;
         }
         self.palette = None;
         self.field = None;
         self.reset_field_edit();
-        let query = self.review.dfind.clone().unwrap_or_default();
+        let query = self.review.read(cx).dfind.clone().unwrap_or_default();
         self.ffind = Some(FindFiles {
             query,
             at: 0,
@@ -85,7 +85,7 @@ impl Workspace {
             capped: false,
             scroll: ScrollHandle::new(),
         });
-        self.refresh_ffind();
+        self.refresh_ffind(cx);
         cx.notify();
     }
 
@@ -95,8 +95,8 @@ impl Workspace {
         }
     }
 
-    fn refresh_ffind(&mut self) {
-        let (Some(f), Some(diff)) = (&self.ffind, &self.review.diff) else {
+    fn refresh_ffind(&mut self, cx: &App) {
+        let (Some(f), Some(diff)) = (&self.ffind, &self.review.read(cx).diff) else {
             return;
         };
         let (query, case, word) = (f.query.clone(), f.case, f.word);
@@ -195,13 +195,13 @@ impl Workspace {
                 "w" => f.word = !f.word,
                 _ => f.regex = !f.regex,
             }
-            self.refresh_ffind();
+            self.refresh_ffind(cx);
             return cx.notify();
         }
         match input::edit(&mut f.query, &mut self.field_edit, key, cx) {
             Edit::Changed => {
                 f.at = 0;
-                self.refresh_ffind();
+                self.refresh_ffind(cx);
             }
             Edit::Enter { .. } => {
                 let at = f.at;
@@ -249,6 +249,7 @@ impl Workspace {
         };
         let path = self
             .review
+            .read(cx)
             .diff
             .as_ref()
             .and_then(|d| d.files.get(hit.file))
@@ -265,7 +266,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
         let f = self.ffind.as_ref()?;
-        let diff = self.review.diff.as_ref()?;
+        let diff = self.review.read(cx).diff.as_ref()?;
         let toggle = |id: &'static str, label: &'static str, on: bool, tip: &'static str| {
             div()
                 .id(id)
@@ -414,7 +415,7 @@ impl Workspace {
                                             if let Some(f) = this.ffind.as_mut() {
                                                 f.case = !f.case;
                                             }
-                                            this.refresh_ffind();
+                                            this.refresh_ffind(cx);
                                             cx.notify();
                                         }),
                                     ),
@@ -425,7 +426,7 @@ impl Workspace {
                                             if let Some(f) = this.ffind.as_mut() {
                                                 f.word = !f.word;
                                             }
-                                            this.refresh_ffind();
+                                            this.refresh_ffind(cx);
                                             cx.notify();
                                         }),
                                     ),
@@ -436,7 +437,7 @@ impl Workspace {
                                             if let Some(f) = this.ffind.as_mut() {
                                                 f.regex = !f.regex;
                                             }
-                                            this.refresh_ffind();
+                                            this.refresh_ffind(cx);
                                             cx.notify();
                                         })),
                                 ),

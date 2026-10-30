@@ -16,7 +16,7 @@ use super::{Selection, Workspace, px, theme};
 use crate::git::FileDiff;
 use crate::markdown::{self, Block};
 use crate::mddiff::{self, Change, Row};
-use gpui::{AnyElement, ClickEvent, Context, FontWeight, Rgba, WeakEntity, div, prelude::*};
+use gpui::{AnyElement, App, ClickEvent, Context, FontWeight, Rgba, WeakEntity, div, prelude::*};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -150,11 +150,12 @@ impl Workspace {
         file: &FileDiff,
         legend: bool,
         this: WeakEntity<Self>,
+        cx: &App,
     ) -> Option<AnyElement> {
         if !markdown::is_document(file.path()) || file.note.is_some() || file.hunks.is_empty() {
             return None;
         }
-        let source = self.review.page.is_source(file.path());
+        let source = self.review.read(cx).page.is_source(file.path());
         let set = |to: bool| {
             let this = this.clone();
             let path = file.path().to_owned();
@@ -221,15 +222,20 @@ impl Workspace {
     /// Document `path` read Rendered or as Source.
     pub(super) fn set_page_source(&mut self, path: &str, source: bool, cx: &mut Context<Self>) {
         if let Some(root) = &self.root {
-            self.review.page.load(&crate::review::key(root));
+            self.review
+                .update(cx, |rv, _| rv.page.load(&crate::review::key(root)));
         }
-        if !self.review.page.set_source(path, source) {
+        if !self
+            .review
+            .update(cx, |rv, _| rv.page.set_source(path, source))
+        {
             return;
         }
         // The other form fades in: Source's rows as a file just opened, the page as a page
         // (#56, 15).
         if let Some(ix) = self
             .review
+            .read(cx)
             .diff
             .as_ref()
             .and_then(|d| d.files.iter().position(|f| f.path() == path))
@@ -237,10 +243,10 @@ impl Workspace {
             self.mark_motion(&format!("file-{ix}"), cx);
             self.mark_motion(&format!("page-{ix}"), cx);
         }
-        self.review.sync_stack();
+        self.review.update(cx, |rv, _| rv.sync_stack());
         self.build_stack(cx);
-        if self.review.stack.is_none() {
-            self.relayout();
+        if self.review.read(cx).stack.is_none() {
+            self.relayout(cx);
         }
         cx.notify();
     }
@@ -249,25 +255,32 @@ impl Workspace {
     pub(super) fn toggle_page_source(&mut self, cx: &mut Context<Self>) {
         let Some(path) = self
             .review
+            .read(cx)
             .diff
             .as_ref()
-            .and_then(|d| d.files.get(self.review.file))
+            .and_then(|d| d.files.get(self.review.read(cx).file))
             .map(|f| f.path().to_owned())
             .filter(|p| markdown::is_document(p))
         else {
             return;
         };
-        let source = self.review.page.is_source(&path);
+        let source = self.review.read(cx).page.is_source(&path);
         self.set_page_source(&path, !source, cx);
     }
 
     /// The comment button of file `ix`'s third block (a snapshot's way in).
     #[cfg(feature = "snapshot")]
     pub(super) fn page_block_comment(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let Some(file) = self.review.diff.as_ref().and_then(|d| d.files.get(ix)) else {
+        let Some(file) = self
+            .review
+            .read(cx)
+            .diff
+            .as_ref()
+            .and_then(|d| d.files.get(ix))
+        else {
             return;
         };
-        let rows = self.review.page.rows(file);
+        let rows = self.review.read(cx).page.rows(file);
         if let Some((_, (line, _))) = rows.get(2).and_then(|r| r.new.clone()) {
             self.start_page_comment(ix, false, line, cx);
         }
@@ -276,10 +289,16 @@ impl Workspace {
     /// The count of file `ix`'s third block opened (a snapshot's way in).
     #[cfg(feature = "snapshot")]
     pub(super) fn page_block_notes(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let Some(file) = self.review.diff.as_ref().and_then(|d| d.files.get(ix)) else {
+        let Some(file) = self
+            .review
+            .read(cx)
+            .diff
+            .as_ref()
+            .and_then(|d| d.files.get(ix))
+        else {
             return;
         };
-        let rows = self.review.page.rows(file);
+        let rows = self.review.read(cx).page.rows(file);
         if let Some((_, (line, _))) = rows.get(2).and_then(|r| r.new.clone()) {
             self.toggle_page_notes(ix, false, line, cx);
         }
@@ -289,6 +308,7 @@ impl Workspace {
     fn toggle_page_notes(&mut self, ix: usize, old: bool, first: u32, cx: &mut Context<Self>) {
         let Some(path) = self
             .review
+            .read(cx)
             .diff
             .as_ref()
             .and_then(|d| d.files.get(ix))
@@ -297,10 +317,14 @@ impl Workspace {
             return;
         };
         let key = (path, old, first);
-        if !self.review.page.notes_open.remove(&key) {
-            self.review.page.notes_open.insert(key);
+        if !self
+            .review
+            .update(cx, |rv, _| rv.page.notes_open.remove(&key))
+        {
+            self.review
+                .update(cx, |rv, _| rv.page.notes_open.insert(key));
         }
-        self.review.remeasure_pages();
+        self.review.update(cx, |rv, _| rv.remeasure_pages());
         cx.notify();
     }
 
@@ -330,13 +354,13 @@ impl Workspace {
                 .or_default()
                 .push(div().mt(px(8.)).child(composer).into_any_element());
         }
-        for (p, old, first) in &self.review.page.notes_open {
+        for (p, old, first) in &self.review.read(cx).page.notes_open {
             let Some((first, last)) = span(*old, *first).filter(|_| p == path) else {
                 continue;
             };
             let here = |o: bool, n: u32| o == *old && (first..=last).contains(&n);
             let mut notes: Vec<AnyElement> = Vec::new();
-            if self.showing_request() {
+            if self.showing_request(cx) {
                 notes.extend(
                     self.request_threads_in(path)
                         .into_iter()
@@ -402,7 +426,7 @@ impl Workspace {
         let blocks = self.page_blocks(ix, this, cx);
         let page = page_text(div().w_full().py(px(16.)).pl(px(44.)).pr(px(24.))).child(
             div()
-                .when(self.review.options.unified, |s| s.max_w(px(880.)))
+                .when(self.review.read(cx).options.unified, |s| s.max_w(px(880.)))
                 .flex()
                 .flex_col()
                 .gap(px(12.))
@@ -427,19 +451,19 @@ impl Workspace {
         cx: &gpui::App,
     ) -> AnyElement {
         let blocks = self.page_blocks(ix, this, cx);
-        *self.review.page.changes.borrow_mut() = blocks
+        *self.review.read(cx).page.changes.borrow_mut() = blocks
             .iter()
             .enumerate()
             .filter(|(_, (_, changed))| *changed)
             .map(|(k, _)| k)
             .collect();
-        let unified = self.review.options.unified;
+        let unified = self.review.read(cx).options.unified;
         // Laid over its place rather than in it: its blocks never make the pane taller than the
         // window, so it scrolls.
         let page = page_text(
             div()
                 .id("page")
-                .track_scroll(&self.review.page.scroll)
+                .track_scroll(&self.review.read(cx).page.scroll)
                 .absolute()
                 .top_0()
                 .left_0()
@@ -469,12 +493,12 @@ impl Workspace {
     /// n / p on a page viewed alone: the next (or previous) changed block, from the last one gone
     /// to, else from the top of the view. Whether the page took the keys.
     pub(super) fn step_page(&mut self, forward: bool, cx: &mut Context<Self>) -> bool {
-        if !self.review.page_alone() {
+        if !self.review.read(cx).page_alone() {
             return false;
         }
-        let changes = self.review.page.changes.borrow().clone();
-        let top = self.review.page.scroll.top_item();
-        let from = self.review.page.at.filter(|&at| at + 1 >= top);
+        let changes = self.review.read(cx).page.changes.borrow().clone();
+        let top = self.review.read(cx).page.scroll.top_item();
+        let from = self.review.read(cx).page.at.filter(|&at| at + 1 >= top);
         let to = if forward {
             changes
                 .iter()
@@ -488,8 +512,8 @@ impl Workspace {
                 .find(|&c| c < from.unwrap_or(top))
         };
         if let Some(to) = to {
-            self.review.page.at = Some(to);
-            self.review.page.scroll.scroll_to_top_of_item(to);
+            self.review.update(cx, |rv, _| rv.page.at = Some(to));
+            self.review.read(cx).page.scroll.scroll_to_top_of_item(to);
             cx.notify();
         }
         true
@@ -497,10 +521,10 @@ impl Workspace {
 
     /// Space and ⇧space on a page viewed alone: a screen down or up. Whether the page took it.
     pub(super) fn scroll_page(&mut self, down: bool, cx: &mut Context<Self>) -> bool {
-        if !self.review.page_alone() {
+        if !self.review.read(cx).page_alone() {
             return false;
         }
-        let s = &self.review.page.scroll;
+        let s = &self.review.read(cx).page.scroll;
         let step = s.bounds().size.height * 0.85;
         let y = if down {
             (s.offset().y - step).max(-s.max_offset().y)
@@ -508,7 +532,7 @@ impl Workspace {
             (s.offset().y + step).min(px(0.))
         };
         s.set_offset(gpui::point(s.offset().x, y));
-        self.review.page.at = None;
+        self.review.update(cx, |rv, _| rv.page.at = None);
         cx.notify();
         true
     }
@@ -520,10 +544,16 @@ impl Workspace {
         this: WeakEntity<Self>,
         cx: &gpui::App,
     ) -> Vec<(AnyElement, bool)> {
-        let Some(file) = self.review.diff.as_ref().and_then(|d| d.files.get(ix)) else {
+        let Some(file) = self
+            .review
+            .read(cx)
+            .diff
+            .as_ref()
+            .and_then(|d| d.files.get(ix))
+        else {
             return Vec::new();
         };
-        let rows = self.review.page.rows(file);
+        let rows = self.review.read(cx).page.rows(file);
         let path = file.path().to_owned();
         let side = |old: bool| {
             let pictures: DocPictures = file
@@ -533,18 +563,18 @@ impl Workspace {
                 .map(|p| {
                     (
                         p.src.clone(),
-                        (self.review.images.image(&p.image), p.image.size),
+                        (self.review.read(cx).images.image(&p.image), p.image.size),
                     )
                 })
                 .collect();
             Rc::new(pictures)
         };
         let (old_pics, new_pics) = (side(true), side(false));
-        let data = (ix == self.review.file)
-            .then_some(self.review.data.as_deref())
+        let data = (ix == self.review.read(cx).file)
+            .then_some(self.review.read(cx).data.as_deref())
             .flatten();
         let notes: Vec<LineNote> = self
-            .pins_of(&path)
+            .pins_of(&path, cx)
             .marks(data)
             .into_iter()
             .filter(|n| n.tone != NoteTone::Bookmark)
@@ -557,7 +587,7 @@ impl Workspace {
             notes: Rc::new(notes),
             under: RefCell::new(under),
         };
-        if self.review.options.unified {
+        if self.review.read(cx).options.unified {
             self.unified(&rows, &path, &ctx, &old_pics, &new_pics, cx)
         } else {
             self.split(&rows, &ctx, &old_pics, &new_pics, cx)
@@ -592,7 +622,7 @@ impl Workspace {
                     .filter_map(|r| r.old.as_ref().and_then(|(b, _)| heading(b)))
                     .collect();
                 let key = (path.to_owned(), *line);
-                let open = self.review.page.open.contains(&key);
+                let open = self.review.read(cx).page.open.contains(&key);
                 out.push((fold_line(&names, open, key, ctx.this.clone(), k), true));
                 if open {
                     // Opened, its blocks fade in (#56, 15).
@@ -937,10 +967,11 @@ fn fold_line(
         )
         .on_click(move |_: &ClickEvent, _, cx| {
             this.update(cx, |this, cx| {
-                if !this.review.page.open.remove(&key) {
-                    this.review.page.open.insert(key.clone());
+                if !this.review.update(cx, |rv, _| rv.page.open.remove(&key)) {
+                    this.review
+                        .update(cx, |rv, _| rv.page.open.insert(key.clone()));
                 }
-                this.review.remeasure_pages();
+                this.review.update(cx, |rv, _| rv.remeasure_pages());
                 cx.notify();
             })
             .ok();

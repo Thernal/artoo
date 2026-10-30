@@ -186,11 +186,11 @@ type Named = (PathBuf, Option<Editor>, Option<App>);
 impl Workspace {
     /// What the page shows, to open, and at which line: Code's file at the top line shown, or its
     /// folder; a diff's file at its change.
-    pub(super) fn open_target(&self) -> Option<(PathBuf, u32)> {
+    pub(super) fn open_target(&self, cx: &gpui::App) -> Option<(PathBuf, u32)> {
         let root = self.root.clone()?;
         match (self.nav.space, self.nav_page()) {
             (Space::Code, Some(Page::File(path))) => {
-                Some((root.join(path), self.file_top_line(path)))
+                Some((root.join(path), self.file_top_line(path, cx)))
             }
             (Space::Code, Some(Page::Folder(path))) => Some((root.join(path), 1)),
             (Space::Code, _) => Some((root, 1)),
@@ -200,11 +200,12 @@ impl Workspace {
             {
                 let line = self
                     .review
+                    .read(cx)
                     .changes
-                    .get(self.review.change_at.unwrap_or(0))
-                    .and_then(|&row| self.review.new_line_of_row(row))
+                    .get(self.review.read(cx).change_at.unwrap_or(0))
+                    .and_then(|&row| self.review.read(cx).new_line_of_row(row))
                     .unwrap_or(1);
-                Some((root.join(self.review.current_path()?), line))
+                Some((root.join(self.review.read(cx).current_path()?), line))
             }
             _ => None,
         }
@@ -252,7 +253,7 @@ impl Workspace {
 
     /// ⌥⌘O: the page's file or folder in its app; with none, it says to choose one.
     pub(super) fn open_in(&mut self, cx: &mut Context<Self>) {
-        let Some((path, line)) = self.open_target() else {
+        let Some((path, line)) = self.open_target(cx) else {
             return;
         };
         match self.open_app(&path) {
@@ -267,7 +268,7 @@ impl Workspace {
 
     /// ⌥⌘R: the page's file or folder in Finder.
     pub(super) fn reveal_target(&mut self, cx: &mut Context<Self>) {
-        if let Some((path, _)) = self.open_target() {
+        if let Some((path, _)) = self.open_target(cx) {
             cx.reveal_path(&path);
         }
     }
@@ -275,7 +276,7 @@ impl Workspace {
     /// Open in's ▾: the apps that open it, the current one ticked; Reveal in Finder, Copy path;
     /// the choice to keep for its extension; Editor settings.
     pub(super) fn open_in_menu(&mut self, at: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
-        let Some((path, _)) = self.open_target() else {
+        let Some((path, _)) = self.open_target(cx) else {
             return;
         };
         let now = self.open_app(&path);
@@ -342,8 +343,8 @@ impl Workspace {
 
     /// A pick in the ▾: the target opens in `app`, and the button names it for the target until
     /// another is picked or the session ends.
-    pub(super) fn open_with_app(&mut self, app: App) {
-        if let Some((path, line)) = self.open_target() {
+    pub(super) fn open_with_app(&mut self, app: App, cx: &gpui::App) {
+        if let Some((path, line)) = self.open_target(cx) {
             self.error = app.open(&path, line).err().map(Into::into);
             self.open_cache.picked = Some((path, app));
         }
@@ -355,8 +356,8 @@ impl Workspace {
     }
 
     /// "Always open .ext files in …": kept, or let go when it was.
-    pub(super) fn always_open(&mut self, ext: String) {
-        let Some((path, _)) = self.open_target() else {
+    pub(super) fn always_open(&mut self, ext: String, cx: &gpui::App) {
+        let Some((path, _)) = self.open_target(cx) else {
             return;
         };
         match self.open_app(&path) {
@@ -374,7 +375,7 @@ impl Workspace {
     /// The bar's Open in: the button naming the app with ⌥⌘O, and its ▾; "Choose an app…" when
     /// nothing opens it, which opens the ▾.
     pub(super) fn open_in_button(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let (path, _) = self.open_target()?;
+        let (path, _) = self.open_target(cx)?;
         let main = match self.open_app(&path) {
             Some(app) => self
                 .bar_action(
@@ -429,7 +430,7 @@ impl Workspace {
     /// A file Code cannot show as text: so it says, with Open in and Reveal in Finder.
     pub(super) fn render_binary(&self, size: u64, cx: &mut Context<Self>) -> AnyElement {
         let app = self
-            .open_target()
+            .open_target(cx)
             .and_then(|(path, _)| self.open_app(&path));
         let label = app.as_ref().map_or_else(
             || "Choose an app…".to_owned(),

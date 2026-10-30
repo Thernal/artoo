@@ -8,7 +8,7 @@
 use super::nav::Page;
 use super::{Header, NamedTip, Workspace, island, plural, px, theme};
 use git2::Oid;
-use gpui::{AnyElement, Context, div, prelude::*};
+use gpui::{AnyElement, App, Context, div, prelude::*};
 
 /// What a branch's page says of it, read when the branch loads.
 #[derive(Clone, Debug, Default)]
@@ -63,12 +63,12 @@ impl Workspace {
     }
 
     /// The diff loaded is the branch page's own: the branch against the main line.
-    pub(super) fn branch_compare(&self) -> bool {
+    pub(super) fn branch_compare(&self, cx: &App) -> bool {
         let (Some(f), Some(ix)) = (self.branch_page.as_ref(), self.branch) else {
             return false;
         };
         matches!(
-            (self.review.diff.as_ref().map(|d| &d.header), &f.base, self.branches.get(ix)),
+            (self.review.read(cx).diff.as_ref().map(|d| &d.header), &f.base, self.branches.get(ix)),
             (
                 Some(Header::Compare { base, head, request: None, .. }),
                 Some(main),

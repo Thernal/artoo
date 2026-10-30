@@ -14,7 +14,7 @@ use super::spaces::Space;
 use super::{Header, Selection, Workspace, zones};
 use artoo_core::route::Route;
 use git2::Oid;
-use gpui::{Context, ListOffset};
+use gpui::{App, Context, ListOffset};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Page {
@@ -428,7 +428,7 @@ impl Workspace {
     }
 
     /// What is loaded, as a page of Branches or Merge requests.
-    pub(super) fn loaded_page(&self) -> Option<Page> {
+    pub(super) fn loaded_page(&self, cx: &App) -> Option<Page> {
         let refname = self.branches.get(self.branch?)?.refname.clone();
         if let Some((_, _, iid)) = &self.open_request
             && self.requests.current == Some(*iid)
@@ -451,7 +451,10 @@ impl Workspace {
         }
         let tabbed = self.branch_tabbed(&refname);
         Some(
-            match (self.selection, self.review.diff.as_ref().map(|d| &d.header)) {
+            match (
+                self.selection,
+                self.review.read(cx).diff.as_ref().map(|d| &d.header),
+            ) {
                 (Selection::WorkingTree, _) => Page::WorkingTree,
                 (Selection::Versions { from, to }, _) => Page::Versions(refname, from, to),
                 (Selection::Commit(ix), _) if tabbed => {
@@ -462,7 +465,7 @@ impl Workspace {
                     self.commits.get(newest)?.id,
                     self.commits.get(oldest)?.id,
                 ),
-                (Selection::None, Some(Header::Compare { .. })) if self.branch_compare() => {
+                (Selection::None, Some(Header::Compare { .. })) if self.branch_compare(cx) => {
                     Page::Branch(refname)
                 }
                 (
@@ -489,21 +492,21 @@ impl Workspace {
 
     /// Something was opened: its space and page come on screen, over the Inbox or Settings. From
     /// another space it was a link, and the page says where it came from.
-    pub(super) fn arrive(&mut self, page: Page) {
+    pub(super) fn arrive(&mut self, page: Page, cx: &App) {
         let space = page.space();
         if !self.nav.restoring && space != self.nav.space {
             self.nav.from = Some(self.nav.space);
         }
         self.inbox = space == Space::Inbox;
         self.settings_open = false;
-        self.set_page(page);
+        self.set_page(page, cx);
     }
 
     /// The section a request opened anew starts on: Overview when you have never been inside it,
     /// else Changes (#73).
-    fn first_section(&self, item: &Item) -> Section {
+    fn first_section(&self, item: &Item, cx: &App) -> Section {
         match item {
-            Item::Request(iid) if !self.opened_before(*iid) => Section::Overview,
+            Item::Request(iid) if !self.opened_before(*iid, cx) => Section::Overview,
             _ => Section::Changes,
         }
     }
@@ -585,23 +588,23 @@ impl Workspace {
 
     /// `page` becomes its space's and the space the one on screen; the request or branch it is of
     /// stays open in the menu; a moment of time.
-    fn set_page(&mut self, page: Page) {
+    fn set_page(&mut self, page: Page, cx: &App) {
         let space = page.space();
-        self.keep_place();
+        self.keep_place(cx);
         self.nav.space = space;
         self.nav.pages[space.ix()] = Some(page.clone());
         if let Some(item) = page.item() {
             // The commit shown is this item's only when it is the one loaded.
             let commit = self
                 .shown_commit()
-                .filter(|_| self.loaded_page().and_then(|p| p.item()).as_ref() == Some(&item));
+                .filter(|_| self.loaded_page(cx).and_then(|p| p.item()).as_ref() == Some(&item));
             match self.nav.opened_mut(&item) {
                 Some(open) => {
                     open.page = page.clone();
                     open.commit = commit.or(open.commit);
                 }
                 None => {
-                    let section = self.first_section(&item);
+                    let section = self.first_section(&item, cx);
                     self.nav.open.push(Opened {
                         item: item.clone(),
                         page: page.clone(),
@@ -642,23 +645,23 @@ impl Workspace {
 
     /// What is loaded comes on screen as its page, from wherever the window was (a ⌘K result, a
     /// link to a commit).
-    pub(super) fn follow_loaded(&mut self) {
-        if let Some(page) = self.loaded_page() {
-            self.arrive(page);
+    pub(super) fn follow_loaded(&mut self, cx: &App) {
+        if let Some(page) = self.loaded_page(cx) {
+            self.arrive(page, cx);
         }
     }
 
     /// What is selected inside the open request or branch changed (a commit, versions): the page
     /// follows. Not while a request is still loading, nor while a page is being put back.
-    pub(super) fn record(&mut self) {
+    pub(super) fn record(&mut self, cx: &App) {
         if self.pending_compare.is_some() || self.nav.restoring {
             return;
         }
-        let Some(page) = self.loaded_page() else {
+        let Some(page) = self.loaded_page(cx) else {
             return;
         };
         if page.space() == self.nav.space && page.item() == self.nav_page().and_then(Page::item) {
-            self.set_page(page);
+            self.set_page(page, cx);
         }
     }
 
@@ -677,17 +680,18 @@ impl Workspace {
     }
 
     /// Before the loaded request or branch makes way: where it was, for coming back to it.
-    fn keep_place(&mut self) {
-        let Some(page) = self.loaded_page() else {
+    fn keep_place(&mut self, cx: &App) {
+        let Some(page) = self.loaded_page(cx) else {
             return;
         };
         let Some(item) = page.item() else {
             return;
         };
-        let place = self.review.scroll_place();
+        let place = self.review.read(cx).scroll_place();
         let commit = self.shown_commit();
         let paths: Vec<String> = self
             .review
+            .read(cx)
             .diff
             .as_ref()
             .map(|d| d.files.iter().map(|f| f.path().to_owned()).collect())
@@ -707,7 +711,7 @@ impl Workspace {
     /// Shows `page` of `space`, loading what it needs. The menu, esc, ⌘[ ⌘] and the open items
     /// come here.
     pub(super) fn show(&mut self, space: Space, page: Option<Page>, cx: &mut Context<Self>) {
-        self.keep_place();
+        self.keep_place(cx);
         self.nav.space = space;
         self.nav.pages[space.ix()] = page.clone();
         self.nav.pending = None;
@@ -748,7 +752,7 @@ impl Workspace {
             }
             Space::Requests => {
                 if self.nav.pick_request.is_none() {
-                    self.nav.pick_request = self.listed_requests().first().map(|m| m.iid);
+                    self.nav.pick_request = self.listed_requests(cx).first().map(|m| m.iid);
                 }
                 self.read_preview(cx);
                 self.zone = zones::Zone::Branches;
@@ -762,11 +766,11 @@ impl Workspace {
 
     /// Loads what `page` shows, unless it is what is loaded.
     fn load_page(&mut self, page: Page, cx: &mut Context<Self>) {
-        let loaded = self.loaded_page();
+        let loaded = self.loaded_page(cx);
         if page.space() == Space::Code {
             match page {
                 Page::File(path)
-                    if self.review.file_view.as_ref().map(|v| &v.path) != Some(&path) =>
+                    if self.review.read(cx).file_view.as_ref().map(|v| &v.path) != Some(&path) =>
                 {
                     self.open_file_view(path, cx)
                 }
@@ -786,7 +790,9 @@ impl Workspace {
         let same_item =
             loaded.as_ref().and_then(Page::item) == page.item() && page.item().is_some();
         if !same_item {
-            self.review.restore_scroll = opened.as_ref().and_then(|o| o.place.clone());
+            self.review.update(cx, |rv, _| {
+                rv.restore_scroll = opened.as_ref().and_then(|o| o.place.clone())
+            });
         }
         match page.clone() {
             Page::File(_) | Page::Folder(_) => {}
@@ -960,7 +966,7 @@ impl Workspace {
             if let Some(open) = self.nav.opened_mut(&item) {
                 open.commit = Some(id);
             }
-            let loaded = self.loaded_page().and_then(|p| p.item()) == Some(item);
+            let loaded = self.loaded_page(cx).and_then(|p| p.item()) == Some(item);
             if loaded && self.page_of(Space::Branches) == moment.page.as_ref() {
                 self.nav.space = Space::Branches;
                 self.nav.restoring = true;
@@ -1008,11 +1014,11 @@ impl Workspace {
     /// `page`'s request, comparison or working tree open under its space without loading it, on
     /// Changes, after the others (#148, #149). One open already keeps its place; a comparison not
     /// on screen goes to the commits `page` has. Whether it was added.
-    pub(super) fn open_quietly(&mut self, page: Page) -> bool {
+    pub(super) fn open_quietly(&mut self, page: Page, cx: &App) -> bool {
         let Some(item) = page.item() else {
             return false;
         };
-        let loaded = self.loaded_page().and_then(|p| p.item()).as_ref() == Some(&item);
+        let loaded = self.loaded_page(cx).and_then(|p| p.item()).as_ref() == Some(&item);
         if let Some(open) = self.nav.opened_mut(&item) {
             if !loaded && matches!(item, Item::Compare(..)) {
                 open.page = page;
@@ -1093,7 +1099,7 @@ impl Workspace {
         // The list came in under its root: the first request is picked and previewed (#72).
         if self.nav.space == Space::Requests && self.at_root_list() {
             if self.nav.pick_request.is_none() {
-                self.nav.pick_request = self.listed_requests().first().map(|m| m.iid);
+                self.nav.pick_request = self.listed_requests(cx).first().map(|m| m.iid);
             }
             self.read_preview(cx);
         }
@@ -1270,8 +1276,8 @@ impl Workspace {
         let place = (!self.is_shown(&item))
             .then(|| self.nav.opened(&item).and_then(|o| o.place.clone()))
             .flatten();
-        self.arrive(Page::Branch(refname));
-        self.review.restore_scroll = place;
+        self.arrive(Page::Branch(refname), cx);
+        self.review.update(cx, |rv, _| rv.restore_scroll = place);
         self.select_branch(ix, keep, cx);
     }
 }

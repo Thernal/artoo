@@ -232,7 +232,7 @@ impl Workspace {
             Act::Annotate => self.toggle_annotate(cx),
             Act::AutoReviewed => {
                 self.settings.auto_reviewed = !self.settings.auto_reviewed;
-                self.save_settings();
+                self.save_settings(cx);
             }
             Act::FoldPlaces => self.toggle_menu(cx),
             Act::Tool(tool) => self.toggle_tool(tool, cx),
@@ -247,7 +247,7 @@ impl Workspace {
             Act::ComposePreview => self.toggle_preview(cx),
             Act::ThemeBase(id) => self.set_theme_base(&id, cx),
             Act::CodeRevision(rev) => self.set_code_revision(rev, cx),
-            Act::OpenWith(app) => self.open_with_app(app),
+            Act::OpenWith(app) => self.open_with_app(app, cx),
             Act::OpenPathWith(path, app) => self.open_path_with(&path, app),
             Act::RequestView(state) => self.set_request_view(state, cx),
             Act::FolderNote(path) => {
@@ -264,7 +264,7 @@ impl Workspace {
             Act::NameChat { session, agent } => {
                 self.open_label(super::labeling::Target::Chat { session, agent }, cx)
             }
-            Act::AlwaysOpen(ext) => self.always_open(ext),
+            Act::AlwaysOpen(ext) => self.always_open(ext, cx),
             Act::EditorSettings => self.open_settings(cx),
             Act::Face { code, face } => self.choose_face(code, face, cx),
             Act::OtherFaces(code) => self.open_all_faces(code, cx),

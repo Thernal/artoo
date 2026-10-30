@@ -13,7 +13,7 @@ use crate::git::Repo;
 use crate::highlight::{self, Span};
 use git2::Oid;
 use gpui::{
-    ClickEvent, Context, FontStyle, HighlightStyle, ListAlignment, ListState, SharedString,
+    App, ClickEvent, Context, FontStyle, HighlightStyle, ListAlignment, ListState, SharedString,
     StyledText, Task, div, img, list, prelude::*,
 };
 use std::rc::Rc;
@@ -94,10 +94,11 @@ fn place_note(lines: &[String], line: u32, code: &str) -> Option<usize> {
 
 impl Workspace {
     /// A file's lines are on screen in Code: `c` writes a note on one of them.
-    pub(super) fn code_file_shown(&self) -> bool {
+    pub(super) fn code_file_shown(&self, cx: &App) -> bool {
         self.nav.space == Space::Code
             && self
                 .review
+                .read(cx)
                 .file_view
                 .as_ref()
                 .is_some_and(|v| v.image.is_none() && !(v.markdown() && v.rendered))
@@ -110,10 +111,10 @@ impl Workspace {
             return;
         };
         if self.nav.space != Space::Code && !self.plain {
-            match self.review.diff.as_ref().map(|d| &d.header) {
+            match self.review.read(cx).diff.as_ref().map(|d| &d.header) {
                 Some(Header::WorkingTree { .. }) => self.code.rev = None,
                 Some(_) => {
-                    if let Some(rev) = self.review.viewed_rev() {
+                    if let Some(rev) = self.review.read(cx).viewed_rev() {
                         self.code.rev = Some((format::short(rev), rev));
                     }
                 }
@@ -124,7 +125,7 @@ impl Workspace {
             self.code.tabs.push(path.clone());
         }
         self.code.reveal(&path);
-        self.arrive(super::nav::Page::File(path.clone()));
+        self.arrive(super::nav::Page::File(path.clone()), cx);
         self.scroll_to_code_tab();
         self.read_code_files(false, cx);
         self.remember_place(
@@ -134,7 +135,7 @@ impl Workspace {
         );
         let rev = self.code.at().filter(|_| !self.plain);
         let file = path.clone();
-        self.review.file_reading = Some(cx.spawn(async move |this, cx| {
+        let task = Some(cx.spawn(async move |this, cx| {
             let read = cx
                 .background_executor()
                 .spawn(async move {
@@ -165,7 +166,7 @@ impl Workspace {
                 })
                 .await;
             this.update(cx, |this, cx| {
-                this.review.file_reading = None;
+                this.review.update(cx, |rv, _| rv.file_reading = None);
                 match read {
                     Some((lines, spans, at, image, binary)) => {
                         let text: Vec<_> = lines
@@ -174,23 +175,29 @@ impl Workspace {
                             .map(|(n, l)| widen(l, spans.get(n).map_or(&[][..], Vec::as_slice)))
                             .collect();
                         let plain = text.iter().map(|(l, _)| l.to_string()).collect();
-                        this.review.file_view = Some(FileView {
-                            path,
-                            at,
-                            rev,
-                            lines,
-                            text: Rc::new(text),
-                            plain: Rc::new(std::cell::RefCell::new(plain)),
-                            list: ListState::new(0, ListAlignment::Top, px(400.)),
-                            rendered: true,
-                            image,
-                            binary,
+                        this.review.update(cx, |rv, _| {
+                            rv.file_view = Some(FileView {
+                                path,
+                                at,
+                                rev,
+                                lines,
+                                text: Rc::new(text),
+                                plain: Rc::new(std::cell::RefCell::new(plain)),
+                                list: ListState::new(0, ListAlignment::Top, px(400.)),
+                                rendered: true,
+                                image,
+                                binary,
+                            })
                         });
                         // A note shown from the Agents window: its line comes into view.
                         if let Some(line) = this
                             .file_jump
                             .take_if(|(p, _)| {
-                                this.review.file_view.as_ref().is_some_and(|v| &v.path == p)
+                                this.review
+                                    .read(cx)
+                                    .file_view
+                                    .as_ref()
+                                    .is_some_and(|v| &v.path == p)
                             })
                             .map(|(_, line)| line)
                         {
@@ -205,15 +212,17 @@ impl Workspace {
             })
             .ok();
         }));
+        self.review.update(cx, |rv, _| rv.file_reading = task);
     }
 
     /// Line `line` of the file comes into view, its source shown.
     pub(super) fn reveal_file_line(&mut self, line: u32, cx: &mut Context<Self>) {
-        let Some(view) = self.review.file_view.as_mut() else {
-            return;
-        };
-        view.rendered = false;
-        let Some(view) = self.review.file_view.as_ref() else {
+        self.review.update(cx, |rv, _| {
+            if let Some(view) = rv.file_view.as_mut() {
+                view.rendered = false;
+            }
+        });
+        let Some(view) = self.review.read(cx).file_view.as_ref() else {
             return;
         };
         let rows = self.file_rows(view);
@@ -272,8 +281,14 @@ impl Workspace {
     }
 
     /// The line at the top of `path`'s view as it is scrolled: where Open in opens it (#78).
-    pub(super) fn file_top_line(&self, path: &str) -> u32 {
-        let Some(view) = self.review.file_view.as_ref().filter(|v| v.path == path) else {
+    pub(super) fn file_top_line(&self, path: &str, cx: &App) -> u32 {
+        let Some(view) = self
+            .review
+            .read(cx)
+            .file_view
+            .as_ref()
+            .filter(|v| v.path == path)
+        else {
             return 1;
         };
         let top = view.list.logical_scroll_top().item_ix;
@@ -289,7 +304,7 @@ impl Workspace {
     }
 
     pub(super) fn render_file_view(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        let view = self.review.file_view.as_ref()?;
+        let view = self.review.read(cx).file_view.as_ref()?;
         let head = self.render_file_head(view, cx);
         let body = if let Some(size) = view.binary {
             self.render_binary(size, cx)
@@ -337,7 +352,7 @@ impl Workspace {
 
     /// The file's line over it: its path, language, lines and revision; Rendered | Source for a
     /// Markdown file; read only.
-    fn render_file_head(&self, view: &FileView, cx: &mut Context<Self>) -> gpui::Div {
+    fn render_file_head(&self, view: &FileView, cx: &Context<Self>) -> gpui::Div {
         let markdown = view.markdown() && view.image.is_none();
         let facts = if view.image.is_some() {
             format!("image · {}", view.at)
@@ -362,9 +377,10 @@ impl Workspace {
             // `c` asks which line the note goes on.
             .children(
                 self.review
+                    .read(cx)
                     .goline
                     .as_ref()
-                    .filter(|_| self.code_file_shown())
+                    .filter(|_| self.code_file_shown(cx))
                     .map(|typed| {
                         div()
                             .flex()
@@ -406,15 +422,17 @@ impl Workspace {
     }
 
     fn set_rendered(&mut self, on: bool, cx: &mut Context<Self>) {
-        if let Some(view) = &mut self.review.file_view {
-            view.rendered = on;
-        }
+        self.review.update(cx, |rv, _| {
+            if let Some(view) = &mut rv.file_view {
+                view.rendered = on;
+            }
+        });
         cx.notify();
     }
 
     /// The lines with their numbers; a number's click writes a note on its line.
-    fn render_file_lines(&self, view: &FileView, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let size = self.review.code_size();
+    fn render_file_lines(&self, view: &FileView, cx: &Context<Self>) -> gpui::AnyElement {
+        let size = self.review.read(cx).code_size();
         let row = (size * 1.55).round();
         let digits = view.lines.len().max(1).to_string().len() as f32;
         // Room on its left for the + that writes a note (#104).

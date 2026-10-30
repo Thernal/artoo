@@ -247,7 +247,7 @@ impl Workspace {
             self.tree_opening(&path, cx);
         }
         self.nav.space = Space::Code;
-        self.arrive(Page::Folder(path.clone()));
+        self.arrive(Page::Folder(path.clone()), cx);
         self.read_folder_readme(&path, cx);
         cx.notify();
     }
@@ -421,7 +421,7 @@ impl Workspace {
         match next {
             Some((next, _)) => self.open_code_tab(&next, cx),
             None => {
-                self.review.file_view = None;
+                self.review.update(cx, |rv, _| rv.file_view = None);
                 self.show(Space::Code, None, cx);
             }
         }
@@ -469,7 +469,7 @@ impl Workspace {
             _ if left => cx.notify(),
             Some(key) => self.open_code_tab(&key, cx),
             None => {
-                self.review.file_view = None;
+                self.review.update(cx, |rv, _| rv.file_view = None);
                 self.show(Space::Code, None, cx);
             }
         }
@@ -497,9 +497,10 @@ impl Workspace {
         let page = match self.nav_page() {
             // A file being read that is not on screen yet: a shimmer of lines, not the one before.
             Some(Page::File(path))
-                if self.review.file_reading.is_some()
+                if self.review.read(cx).file_reading.is_some()
                     && self
                         .review
+                        .read(cx)
                         .file_view
                         .as_ref()
                         .is_none_or(|v| &v.path != path) =>
@@ -843,7 +844,7 @@ impl Workspace {
 
     /// The Outline tool window: the declarations of the file read in Code; a click goes to one.
     pub(super) fn outline_tool(&self, cx: &mut Context<Self>) -> super::tools::ToolView {
-        let outline = self.review.file_outline();
+        let outline = self.review.read(cx).file_outline();
         let n = outline.len();
         let rows = outline.into_iter().map(|(line, depth, kind, name)| {
             super::row(SharedString::from(format!("outline-{line}")), false)
@@ -870,7 +871,7 @@ impl Workspace {
                     cx.listener(move |this, _: &ClickEvent, _, cx| this.reveal_file_line(line, cx)),
                 )
         });
-        let empty = match &self.review.file_view {
+        let empty = match &self.review.read(cx).file_view {
             None => "Open a file to see what it declares.",
             Some(_) => "Nothing declared here that Artoo reads.",
         };

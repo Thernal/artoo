@@ -9,7 +9,7 @@ use super::Workspace;
 use super::lists::Field;
 use super::nav::Page;
 use super::spaces::Space;
-use gpui::{Context, MouseButton, MouseDownEvent, WeakEntity, prelude::*};
+use gpui::{App, Context, MouseButton, MouseDownEvent, WeakEntity, prelude::*};
 
 /// Every input that takes typed keys.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -124,7 +124,7 @@ pub(super) struct Keyboard {
 
 impl Workspace {
     /// Whether `input` is open, with the keyboard or not.
-    fn input_open(&self, input: Input) -> bool {
+    fn input_open(&self, input: Input, cx: &App) -> bool {
         match input {
             Input::Palette => self.palette.is_some(),
             Input::FindFiles => self.ffind.is_some(),
@@ -136,8 +136,8 @@ impl Workspace {
             Input::Merge => self.merging.is_some(),
             Input::Field => self.field.is_some(),
             Input::Compose => self.compose.is_some(),
-            Input::GoLine => self.review.goline.is_some(),
-            Input::DiffFind => self.review.dfind.is_some(),
+            Input::GoLine => self.review.read(cx).goline.is_some(),
+            Input::DiffFind => self.review.read(cx).dfind.is_some(),
             Input::CommitSearch => self.find.text.is_some(),
             Input::NewRequest => self.newreq.is_some(),
             Input::Submit => self.submit.is_some(),
@@ -146,39 +146,39 @@ impl Workspace {
     }
 
     /// The input with the keyboard: keys go to it, and single-key actions wait.
-    pub(super) fn typing(&self) -> Option<Input> {
+    pub(super) fn typing(&self, cx: &App) -> Option<Input> {
         // A card over everything, also one opened since the last look.
         if let Some(h) = &self.keyboard.holder
             && h.input.modal()
-            && self.input_open(h.input)
+            && self.input_open(h.input, cx)
         {
             return Some(h.input);
         }
         if let Some(card) = Input::ALL
             .into_iter()
-            .find(|i| i.modal() && self.input_open(*i))
+            .find(|i| i.modal() && self.input_open(*i, cx))
         {
             return Some(card);
         }
         let h = self.keyboard.holder.as_ref()?;
-        (self.input_open(h.input) && self.here(h)).then_some(h.input)
+        (self.input_open(h.input, cx) && self.here(h, cx)).then_some(h.input)
     }
 
-    pub(super) fn has_keyboard(&self, input: Input) -> bool {
-        self.typing() == Some(input)
+    pub(super) fn has_keyboard(&self, input: Input, cx: &App) -> bool {
+        self.typing(cx) == Some(input)
     }
 
-    fn spot(&self) -> Spot {
+    fn spot(&self, cx: &App) -> Spot {
         Spot {
             settings: self.settings_open,
             space: self.space(),
             page: self.nav_page().cloned(),
-            file: self.review.current_path(),
+            file: self.review.read(cx).current_path(),
         }
     }
 
     /// Whether `h` is on screen where it took the keyboard: a composer on its page and file.
-    fn here(&self, h: &Holder) -> bool {
+    fn here(&self, h: &Holder, cx: &App) -> bool {
         let Some(at) = &h.at else {
             return true;
         };
@@ -187,9 +187,10 @@ impl Workspace {
         }
         let file = self
             .review
+            .read(cx)
             .diff
             .as_ref()
-            .and_then(|d| d.files.get(self.review.file))
+            .and_then(|d| d.files.get(self.review.read(cx).file))
             .map(|f| f.path());
         at.settings == self.settings_open
             && at.space == self.space()
@@ -198,13 +199,13 @@ impl Workspace {
     }
 
     /// `input` takes the keyboard: from a press in its box, or the action that opens it.
-    pub(super) fn take_keyboard(&mut self, input: Input) {
+    pub(super) fn take_keyboard(&mut self, input: Input, cx: &App) {
         if self
             .keyboard
             .holder
             .as_ref()
             .is_some_and(|h| h.input == input)
-            && self.typing() == Some(input)
+            && self.typing(cx) == Some(input)
         {
             return;
         }
@@ -226,7 +227,7 @@ impl Workspace {
     /// The input with the keyboard lets it go, its text kept: nothing has it. One left empty
     /// closes — a find, a filter, the line number.
     pub(super) fn leave_input(&mut self, cx: &mut Context<Self>) {
-        if self.typing().is_none_or(Input::modal) {
+        if self.typing(cx).is_none_or(Input::modal) {
             return;
         }
         let Some(h) = self.keyboard.holder.take() else {
@@ -234,9 +235,11 @@ impl Workspace {
         };
         match h.input {
             Input::Field => self.field = None,
-            Input::DiffFind if self.review.dfind.as_deref() == Some("") => self.close_dfind(cx),
+            Input::DiffFind if self.review.read(cx).dfind.as_deref() == Some("") => {
+                self.close_dfind(cx)
+            }
             Input::CommitSearch if self.find.text.as_deref() == Some("") => self.close_find(cx),
-            Input::GoLine => self.close_goline(),
+            Input::GoLine => self.close_goline(cx),
             _ => {}
         }
         self.keyboard.left = Some(h);
@@ -245,9 +248,9 @@ impl Workspace {
     }
 
     /// `input`, the last to let the keyboard go and on screen where it had it, takes it back.
-    pub(super) fn give_back(&mut self, input: Input) -> bool {
+    pub(super) fn give_back(&mut self, input: Input, cx: &App) -> bool {
         match self.keyboard.left.take() {
-            Some(h) if h.input == input && self.input_open(input) && self.here(&h) => {
+            Some(h) if h.input == input && self.input_open(input, cx) && self.here(&h, cx) => {
                 self.keyboard.holder = Some(h);
                 true
             }
@@ -260,10 +263,10 @@ impl Workspace {
 
     /// Each frame and each key: an input opened since the last look takes the keyboard; a card
     /// closed gives it back; a page left takes it from its inputs, a page come back to returns it.
-    pub(super) fn sync_keyboard(&mut self) {
+    pub(super) fn sync_keyboard(&mut self, cx: &App) {
         let mut open = 0u16;
         for (i, input) in Input::ALL.into_iter().enumerate() {
-            if self.input_open(input) {
+            if self.input_open(input, cx) {
                 open |= 1 << i;
             }
         }
@@ -277,22 +280,22 @@ impl Workspace {
             .map(|(_, input)| input)
             .min_by_key(|input| !input.modal())
         {
-            self.take_keyboard(input);
+            self.take_keyboard(input, cx);
         }
-        let spot = self.spot();
+        let spot = self.spot(cx);
         if let Some(h) = self.keyboard.holder.as_mut()
             && h.at.is_none()
         {
             h.at = Some(spot);
         }
         if let Some(h) = self.keyboard.holder.clone() {
-            if !self.input_open(h.input) {
+            if !self.input_open(h.input, cx) {
                 self.keyboard.holder = if h.input.modal() {
                     self.keyboard.before.take()
                 } else {
                     None
                 };
-            } else if !self.here(&h) {
+            } else if !self.here(&h, cx) {
                 self.keyboard.holder = None;
                 if h.input == Input::Field {
                     self.field = None;
@@ -306,7 +309,7 @@ impl Workspace {
             && self.keyboard.left_away
             && let Some(input) = self.keyboard.left.as_ref().map(|h| h.input)
         {
-            self.give_back(input);
+            self.give_back(input, cx);
         }
     }
 }
@@ -325,14 +328,14 @@ pub(super) fn input_box_of<E: InteractiveElement>(
     let out = this.clone();
     el.on_mouse_down(MouseButton::Left, move |_, _, cx| {
         this.update(cx, |this, cx| {
-            this.take_keyboard(input);
+            this.take_keyboard(input, cx);
             cx.notify();
         })
         .ok();
     })
     .on_mouse_down_out(move |_, _, cx| {
         out.update(cx, |this, cx| {
-            if this.has_keyboard(input) {
+            if this.has_keyboard(input, cx) {
                 this.leave_input(cx);
             }
         })
@@ -349,7 +352,7 @@ pub(super) fn field_box_out<E: InteractiveElement>(
 ) -> E {
     el.on_mouse_down_out(
         cx.listener(move |this: &mut Workspace, _: &MouseDownEvent, _, cx| {
-            if this.field == Some(field) && this.has_keyboard(Input::Field) {
+            if this.field == Some(field) && this.has_keyboard(Input::Field, cx) {
                 this.leave_input(cx);
             }
         }),

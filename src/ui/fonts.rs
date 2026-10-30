@@ -278,7 +278,7 @@ impl Workspace {
         }
         theme::choose_faces(&faces);
         // The code's width is measured again in the new face as the window draws.
-        self.relayout_all();
+        self.relayout_all(cx);
         cx.refresh_windows();
     }
 }

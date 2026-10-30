@@ -13,7 +13,8 @@ use super::{Workspace, discussion, format, icons, island, keys, plural, px, them
 use crate::git::{BranchRef, ChangeKind, RefKind, Repo};
 use crate::mr::{Approvals, Mr, MrState, Pipeline, Thread};
 use gpui::{
-    AnyElement, ClickEvent, Context, Div, FontWeight, Rgba, SharedString, Task, div, prelude::*,
+    AnyElement, App, ClickEvent, Context, Div, FontWeight, Rgba, SharedString, Task, div,
+    prelude::*,
 };
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
@@ -326,7 +327,7 @@ impl Workspace {
         let Some(root) = self.root.clone() else {
             return;
         };
-        let settings = self.settings();
+        let settings = self.settings(cx);
         self.roots.tree_task = Some(cx.spawn(async move |this, cx| {
             let files = cx
                 .background_executor()
@@ -379,11 +380,11 @@ impl Workspace {
         let host = super::host_of(&remote, cx);
         // Pushed since your review: what changed since the push you viewed.
         let head = git2::Oid::from_str(&m.head).ok();
-        let viewed = match self.review.request_seen(iid, head) {
-            Seen::Earlier => head.zip(self.review.reviewed_head(iid, head)),
+        let viewed = match self.review.read(cx).request_seen(iid, head) {
+            Seen::Earlier => head.zip(self.review.read(cx).reviewed_head(iid, head)),
             _ => None,
         };
-        let settings = self.settings();
+        let settings = self.settings(cx);
         self.roots.preview_task = Some(cx.spawn(async move |this, cx| {
             let (pipeline, approvals, since) = cx
                 .background_executor()
@@ -434,13 +435,13 @@ impl Workspace {
     // ---- what the lists hold ---------------------------------------------------------------
 
     /// Request `m`'s group in the list.
-    pub(super) fn group_of(&self, m: &Mr) -> Group {
+    pub(super) fn group_of(&self, m: &Mr, cx: &App) -> Group {
         let me = self.requests.login.as_deref().unwrap_or_default();
         let head = git2::Oid::from_str(&m.head).ok();
         group(
             !me.is_empty() && m.author_login == me,
             !me.is_empty() && m.reviewers.iter().any(|r| r == me),
-            self.review.request_seen(m.iid, head),
+            self.review.read(cx).request_seen(m.iid, head),
         )
     }
 
@@ -558,24 +559,24 @@ impl Workspace {
 
     /// The requests the list has a row for, in its order: those of folded groups left out, but
     /// the picked one, which stays under its band.
-    pub(super) fn listed_requests(&self) -> Vec<&Mr> {
+    pub(super) fn listed_requests(&self, cx: &App) -> Vec<&Mr> {
         let past = self.requests.view != MrState::Opened;
-        self.shown_requests()
+        self.shown_requests(cx)
             .into_iter()
             .filter(|m| {
-                past || self.nav.pick_request == Some(m.iid) || !self.folds(self.group_of(m))
+                past || self.nav.pick_request == Some(m.iid) || !self.folds(self.group_of(m, cx))
             })
             .collect()
     }
 
     /// Whether you have been inside request `iid`: opened here, or files of it marked (#81).
-    pub(super) fn opened_before(&self, iid: u64) -> bool {
+    pub(super) fn opened_before(&self, iid: u64, cx: &App) -> bool {
         let head = self
             .requests
             .find(iid)
             .and_then(|m| git2::Oid::from_str(&m.head).ok());
         self.roots.opened.contains(&iid)
-            || !matches!(self.review.request_seen(iid, head), Seen::Never)
+            || !matches!(self.review.read(cx).request_seen(iid, head), Seen::Never)
     }
 
     /// Request `iid` opened: its row's dot goes for good. Requests no longer open are forgotten.
@@ -604,7 +605,7 @@ impl Workspace {
                 .child(self.render_connect(cx))
                 .into_any_element();
         }
-        let shown = self.shown_requests();
+        let shown = self.shown_requests(cx);
         // The merged or the closed (#114): a flat list, newest first, read as it is scrolled.
         let past = (self.requests.view != MrState::Opened)
             .then(|| self.requests.past.of_scope(self.requests.scope));
@@ -643,7 +644,7 @@ impl Workspace {
         } else {
             let groups: Vec<Group> = match past {
                 Some(_) => vec![Group::New; shown.len()],
-                None => shown.iter().map(|m| self.group_of(m)).collect(),
+                None => shown.iter().map(|m| self.group_of(m, cx)).collect(),
             };
             let picked = self
                 .nav
@@ -1018,7 +1019,7 @@ impl Workspace {
         let iid = m.iid;
         let picked = self.nav.pick_request == Some(iid);
         let head = git2::Oid::from_str(&m.head).ok();
-        let part = head.and_then(|h| self.review.head_part(h));
+        let part = head.and_then(|h| self.review.read(cx).head_part(h));
         let pipeline = self
             .roots
             .previews
@@ -1031,7 +1032,7 @@ impl Workspace {
         let unread = m.state == MrState::Opened
             && match waiting {
                 Some(n) => n > 0,
-                None => !self.opened_before(iid),
+                None => !self.opened_before(iid, cx),
             };
         // Its anatomy (#79): the number, the title and the pipeline's verdict always; who (or
         // what waits for you) and when while the list has 260 px; the threads and how far your
@@ -1258,8 +1259,8 @@ impl Workspace {
         let head = git2::Oid::from_str(&m.head).ok();
         let mut facts: Vec<String> = Vec::new();
         match (
-            self.review.request_seen(iid, head),
-            head.and_then(|h| self.review.head_part(h)),
+            self.review.read(cx).request_seen(iid, head),
+            head.and_then(|h| self.review.read(cx).head_part(h)),
         ) {
             (Seen::Done, _) => facts.push("Reviewed at this push".to_owned()),
             (Seen::Earlier, _) => facts.push(match preview.and_then(|p| p.since) {
@@ -1710,16 +1711,21 @@ impl Workspace {
                         )
                         .children(
                             self.review
+                                .read(cx)
                                 .head_part(b.tip)
                                 .filter(|_| room.third())
                                 .map(|(done, total)| super::lists::progress_badge(done, total)),
                         )
-                        .children((room.third() && self.review.head_reviewed(b.tip)).then(|| {
-                            div()
-                                .text_size(px(11.))
-                                .text_color(theme::added())
-                                .child("✓ reviewed")
-                        }))
+                        .children(
+                            (room.third() && self.review.read(cx).head_reviewed(b.tip)).then(
+                                || {
+                                    div()
+                                        .text_size(px(11.))
+                                        .text_color(theme::added())
+                                        .child("✓ reviewed")
+                                },
+                            ),
+                        )
                         .children(fact.filter(|_| room.second()).map(|f| {
                             div()
                                 .flex_none()

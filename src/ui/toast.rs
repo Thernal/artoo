@@ -212,7 +212,7 @@ impl Workspace {
         self.comments.push(comment);
         self.comments.sort_by_key(|c| c.id);
         self.save_comments();
-        self.refresh_rows();
+        self.refresh_rows(cx);
         self.dismiss(id, cx);
     }
 

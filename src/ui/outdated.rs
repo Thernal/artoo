@@ -11,8 +11,8 @@ use crate::git::{Fate, Repo};
 use crate::mr::Thread;
 use crate::worddiff::Piece;
 use gpui::{
-    AnyElement, Context, FontWeight, HighlightStyle, StrikethroughStyle, StyledText, WeakEntity,
-    div, prelude::*,
+    AnyElement, App, Context, FontWeight, HighlightStyle, StrikethroughStyle, StyledText,
+    WeakEntity, div, prelude::*,
 };
 use std::collections::HashMap;
 
@@ -159,7 +159,7 @@ impl Workspace {
             this.update(cx, |this, cx| {
                 if this.requests.current == Some(iid) {
                     this.requests.histories = histories;
-                    this.refresh_rows();
+                    this.refresh_rows(cx);
                     this.open_since_on_arrival(cx);
                     cx.notify();
                 }
@@ -402,8 +402,10 @@ impl Workspace {
         // The comment's file once the comparison is in, at its line: where it is in `b`, or gone
         // there, where it was in `a` on the old side; the whole function around it.
         let at = lb.map(|l| (l, false)).or(la.map(|l| (l, true)));
-        self.review.jump_line = at;
-        self.review.jump_whole = at.is_some();
+        self.review.update(cx, |rv, _| {
+            rv.jump_line = at;
+            rv.jump_whole = at.is_some();
+        });
         self.version_tab = super::VersionTab::Files;
         self.load_versions(from, to, Some(since.path.clone()), cx);
     }
@@ -505,8 +507,8 @@ impl Workspace {
 
     /// Shows the unchanged lines of the function around `line` (the side `old`), so a comparison
     /// reads the whole function (#46 C).
-    pub(super) fn reveal_function(&mut self, line: u32, old: bool) {
-        let Some(data) = self.review.data.clone() else {
+    pub(super) fn reveal_function(&mut self, line: u32, old: bool, cx: &mut App) {
+        let Some(data) = self.review.read(cx).data.clone() else {
             return;
         };
         let side = data.side(old);
@@ -524,12 +526,12 @@ impl Workspace {
             {
                 let first = if old { o } else { n };
                 if first <= end && first + len > start {
-                    grew |= self.review.expanded.insert(ix);
+                    grew |= self.review.update(cx, |rv, _| rv.expanded.insert(ix));
                 }
             }
         }
         if grew {
-            self.relayout();
+            self.relayout(cx);
         }
     }
 

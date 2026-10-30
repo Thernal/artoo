@@ -7,7 +7,7 @@ use super::px;
 use super::{Header, ROW_RADIUS, Workspace, theme};
 use crate::git::FileDiff;
 use crate::storage;
-use gpui::{ClickEvent, Context, FontWeight, IntoElement, MouseButton, div, prelude::*};
+use gpui::{App, ClickEvent, Context, FontWeight, IntoElement, MouseButton, div, prelude::*};
 use std::collections::HashMap;
 
 /// How a file stands in the review.
@@ -338,40 +338,47 @@ pub fn fingerprint(file: &FileDiff) -> u64 {
 impl Workspace {
     /// Called when a diff arrives: the review indexes it (`Review::index`); a request's and a branch's
     /// pages learn how many files it has.
-    pub(super) fn index_review(&mut self) {
-        self.review.index();
-        if let Some(d) = &self.review.diff
+    pub(super) fn index_review(&mut self, cx: &mut App) {
+        self.review.update(cx, |rv, _| rv.index());
+        if let Some(d) = &self.review.read(cx).diff
             && let Header::Compare {
                 request: Some(iid), ..
             } = d.header
         {
             self.requests.files = Some((iid, d.files.len()));
         }
-        if self.branch_compare()
-            && let (Some(f), Some(d)) = (self.branch_page.as_mut(), self.review.diff.as_ref())
+        if self.branch_compare(cx)
+            && let (Some(f), Some(d)) = (
+                self.branch_page.as_mut(),
+                self.review.read(cx).diff.as_ref(),
+            )
         {
             f.files = Some(d.files.len());
         }
     }
 
     pub(super) fn set_reviewed(&mut self, ix: usize, done: bool, cx: &mut Context<Self>) {
-        if self.review.set_reviewed(ix, done) {
+        if self.review.update(cx, |rv, _| rv.set_reviewed(ix, done)) {
             cx.notify();
         }
     }
 
     /// Marks or unmarks files `ixs` at once (all of them, a folder).
     pub(super) fn set_reviewed_many(&mut self, ixs: &[usize], done: bool, cx: &mut Context<Self>) {
-        if self.review.set_reviewed_many(ixs, done) {
+        if self
+            .review
+            .update(cx, |rv, _| rv.set_reviewed_many(ixs, done))
+        {
             cx.notify();
         }
     }
 
     /// The version of request `iid` your marks were last made at, by the versions loaded (#73).
-    pub(super) fn marked_version(&self, iid: u64) -> Option<usize> {
+    pub(super) fn marked_version(&self, iid: u64, cx: &App) -> Option<usize> {
         let root = self.root.as_ref()?.display().to_string();
         let heads = self
             .review
+            .read(cx)
             .reviewed
             .marked_heads(&format!("{root}|mr:{iid}"));
         self.versions
@@ -383,10 +390,10 @@ impl Workspace {
 
     /// ⌥⇧V and the buttons: every file the list shows marked, or (when all are) unmarked.
     pub(super) fn toggle_all_reviewed(&mut self, cx: &mut Context<Self>) {
-        let shown = self.review.file_order();
+        let shown = self.review.read(cx).file_order();
         let done = shown
             .iter()
-            .all(|&ix| self.review.review_state(ix) == Some(State::Done));
+            .all(|&ix| self.review.read(cx).review_state(ix) == Some(State::Done));
         self.set_reviewed_many(&shown, !done, cx);
     }
 
@@ -396,11 +403,11 @@ impl Workspace {
         path: &str,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
-        self.review.review_scope.as_ref()?;
-        let ixs = self.review.files_under(path);
+        self.review.read(cx).review_scope.as_ref()?;
+        let ixs = self.review.read(cx).files_under(path);
         let done = ixs
             .iter()
-            .filter(|&&ix| self.review.review_state(ix) == Some(State::Done))
+            .filter(|&&ix| self.review.read(cx).review_state(ix) == Some(State::Done))
             .count();
         let all = done == ixs.len() && done > 0;
         let (border, fill, glyph) = if all {
@@ -442,7 +449,7 @@ impl Workspace {
                 .child(glyph)
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let ixs = this.review.files_under(&target);
+                    let ixs = this.review.read(cx).files_under(&target);
                     this.set_reviewed_many(&ixs, !all, cx);
                 })),
         )
@@ -450,36 +457,43 @@ impl Workspace {
 
     /// `⇧V`: marks or unmarks the open file.
     pub(super) fn toggle_reviewed(&mut self, cx: &mut Context<Self>) {
-        let ix = self.review.file;
-        let done = self.review.review_state(ix) == Some(State::Done);
+        let ix = self.review.read(cx).file;
+        let done = self.review.read(cx).review_state(ix) == Some(State::Done);
         self.set_reviewed(ix, !done, cx);
     }
 
     /// `v`: marks the open file read and opens the next one that is not.
     pub(super) fn mark_and_advance(&mut self, cx: &mut Context<Self>) {
-        if self.review.review_scope.is_none() {
+        if self.review.read(cx).review_scope.is_none() {
             return;
         }
-        self.set_reviewed(self.review.file, true, cx);
+        self.set_reviewed(self.review.read(cx).file, true, cx);
         self.next_unreviewed(cx);
     }
 
     /// Opens the next file, in the tree's order, that is not marked read (`Review::next_unreviewed`).
     pub(super) fn next_unreviewed(&mut self, cx: &mut Context<Self>) {
-        if let Some(ix) = self.review.next_unreviewed() {
+        if let Some(ix) = self.review.update(cx, |rv, _| rv.next_unreviewed()) {
             self.select_file(ix, cx);
-            self.review.scroll_file_into_view(ix);
+            self.review.read(cx).scroll_file_into_view(ix);
         }
     }
 
     /// What a file's box says on a long hover: when it was marked, at which version (X59).
-    fn review_said(&self, ix: usize, state: State) -> String {
+    fn review_said(&self, ix: usize, state: State, cx: &App) -> String {
         let when = self
             .review
+            .read(cx)
             .review_scope
             .as_deref()
-            .zip(self.review.diff.as_ref().and_then(|d| d.files.get(ix)))
-            .and_then(|(scope, f)| self.review.reviewed.when(scope, f.path()));
+            .zip(
+                self.review
+                    .read(cx)
+                    .diff
+                    .as_ref()
+                    .and_then(|d| d.files.get(ix)),
+            )
+            .and_then(|(scope, f)| self.review.read(cx).reviewed.when(scope, f.path()));
         let at = when.map(|(time, head)| {
             let version = head
                 .and_then(|h| self.versions.iter().find(|v| v.tip == h))
@@ -502,10 +516,10 @@ impl Workspace {
     pub(super) fn review_box(
         &self,
         ix: usize,
-        cx: &mut Context<Self>,
+        cx: &Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
-        let state = self.review.review_state(ix)?;
-        let said: gpui::SharedString = self.review_said(ix, state).into();
+        let state = self.review.read(cx).review_state(ix)?;
+        let said: gpui::SharedString = self.review_said(ix, state, cx).into();
         let (border, fill, glyph) = match state {
             State::Open => (theme::faint(), None, ""),
             State::Done => (theme::added(), Some(theme::added()), "✓"),
@@ -543,7 +557,7 @@ impl Workspace {
                 ))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let done = this.review.review_state(ix) == Some(State::Done);
+                    let done = this.review.read(cx).review_state(ix) == Some(State::Done);
                     this.set_reviewed(ix, !done, cx);
                 })),
         )
@@ -554,12 +568,12 @@ impl Workspace {
         &self,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
-        let (done, total) = self.review.review_progress()?;
-        let filtered = !self.review.pfilter.trim().is_empty();
-        let shown = self.review.file_order();
+        let (done, total) = self.review.read(cx).review_progress()?;
+        let filtered = !self.review.read(cx).pfilter.trim().is_empty();
+        let shown = self.review.read(cx).file_order();
         let shown_done = shown
             .iter()
-            .all(|&ix| self.review.review_state(ix) == Some(State::Done));
+            .all(|&ix| self.review.read(cx).review_state(ix) == Some(State::Done));
         let action = |id: &'static str, label: String| {
             div()
                 .id(id)
@@ -640,7 +654,10 @@ impl Workspace {
 
     /// The chip in the file header: mark it read, and the key.
     pub(super) fn render_review_chip(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let state = self.review.review_state(self.review.file)?;
+        let state = self
+            .review
+            .read(cx)
+            .review_state(self.review.read(cx).file)?;
         Some(
             div()
                 .id("review-chip")
@@ -669,7 +686,9 @@ impl Workspace {
                     super::keys::On::Plain,
                 ))
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    if this.review.review_state(this.review.file) == Some(State::Done) {
+                    if this.review.read(cx).review_state(this.review.read(cx).file)
+                        == Some(State::Done)
+                    {
                         this.toggle_reviewed(cx)
                     } else {
                         this.mark_and_advance(cx)

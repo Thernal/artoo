@@ -145,7 +145,7 @@ impl Workspace {
     pub(super) fn render_image(&self, file: &FileDiff, cx: &mut Context<Self>) -> gpui::AnyElement {
         let both = file.old_image.is_some() && file.new_image.is_some();
         let mode = if both {
-            self.review.images.mode
+            self.review.read(cx).images.mode
         } else {
             Mode::TwoUp
         };
@@ -153,7 +153,7 @@ impl Workspace {
             chip(m.label(), m.label(), mode == m)
                 .when(!both && m != Mode::TwoUp, |s| s.opacity(0.4))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.review.images.mode = m;
+                    this.review.update(cx, |rv, _| rv.images.mode = m);
                     cx.notify();
                 }))
         }));
@@ -185,7 +185,7 @@ impl Workspace {
             (Mode::Swipe | Mode::Onion, Some(old), Some(new)) => {
                 self.render_overlay(mode, old, new, cx).into_any_element()
             }
-            _ => self.review.render_two_up(file).into_any_element(),
+            _ => self.review.read(cx).render_two_up(file).into_any_element(),
         };
         div()
             .flex_1()
@@ -222,9 +222,9 @@ impl Workspace {
             (a, b) => a.or(b),
         };
         let (w, h) = fit(size, MAX_W, MAX_H);
-        let mix = self.review.images.mix;
+        let mix = self.review.read(cx).images.mix;
         let picture = |side: &ImageSide| {
-            img(self.review.images.image(side))
+            img(self.review.read(cx).images.image(side))
                 .absolute()
                 .top_0()
                 .left_0()
@@ -232,12 +232,13 @@ impl Workspace {
                 .h(px(h))
                 .object_fit(ObjectFit::Contain)
         };
-        let area = self.review.images.area.clone();
+        let area = self.review.read(cx).images.area.clone();
         let (down, drag) = (cx.entity().downgrade(), cx.entity().downgrade());
         let set = |this: &mut Workspace, x: Pixels, cx: &mut Context<Workspace>| {
-            if let Some(b) = this.review.images.area.get() {
+            if let Some(b) = this.review.read(cx).images.area.get() {
                 let at = f32::from(x - b.origin.x) / f32::from(b.size.width).max(1.);
-                this.review.images.mix = at.clamp(0., 1.);
+                this.review
+                    .update(cx, |rv, _| rv.images.mix = at.clamp(0., 1.));
                 cx.notify();
             }
         };
@@ -345,13 +346,13 @@ pub(super) fn source_switch(source: bool, cx: &mut Context<Workspace>) -> impl I
     group()
         .child(chip("svg-image", "Image", !source).on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {
-                this.review.images.source = false;
+                this.review.update(cx, |rv, _| rv.images.source = false);
                 cx.notify();
             },
         )))
         .child(chip("svg-source", "Source", source).on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {
-                this.review.images.source = true;
+                this.review.update(cx, |rv, _| rv.images.source = true);
                 cx.notify();
             },
         )))

@@ -775,6 +775,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             ws.update(cx, |this, cx| {
                 let found = this
                     .review
+                    .read(cx)
                     .diff
                     .as_ref()
                     .and_then(|d| d.files.iter().position(|f| f.path() == path));
@@ -850,25 +851,27 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         "underlined" => {
                             // Not saved either: only this frame.
                             this.settings.mark_style = crate::storage::MarkStyle::Underlined;
-                            this.review.settings = this.settings;
+                            this.review.update(cx, |rv, _| rv.settings = this.settings);
                             continue;
                         }
                         "comments" => {
                             // Unsaved sample comments on the first changed line, one being written.
-                            let (Some(data), Some(path)) =
-                                (&this.review.data, this.review.current_path())
-                            else {
+                            let (Some(data), Some(path)) = (
+                                &this.review.read(cx).data,
+                                this.review.read(cx).current_path(),
+                            ) else {
                                 continue;
                             };
-                            let target = this.review.rows.iter().find_map(|row| match row {
-                                Row::Split { right: Some(c), .. }
-                                | Row::Unified {
-                                    cell: c,
-                                    old: false,
-                                    ..
-                                } if c.kind == crate::git::LineKind::Added => Some(c.line),
-                                _ => None,
-                            });
+                            let target =
+                                this.review.read(cx).rows.iter().find_map(|row| match row {
+                                    Row::Split { right: Some(c), .. }
+                                    | Row::Unified {
+                                        cell: c,
+                                        old: false,
+                                        ..
+                                    } if c.kind == crate::git::LineKind::Added => Some(c.line),
+                                    _ => None,
+                                });
                             if let Some(line) = target {
                                 let code = data.side(false).line(line).0.to_owned();
                                 this.comments.push(crate::review::Comment {
@@ -888,18 +891,19 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                                         "Name this after what it holds.",
                                     );
                                 }
-                                this.refresh_rows();
+                                this.refresh_rows(cx);
                             }
                             continue;
                         }
                         // An agent comment sent, and the agent asking back with a plan (#10).
                         "agent-form" => {
-                            let (Some(data), Some(path)) =
-                                (&this.review.data, this.review.current_path())
-                            else {
+                            let (Some(data), Some(path)) = (
+                                &this.review.read(cx).data,
+                                this.review.read(cx).current_path(),
+                            ) else {
                                 continue;
                             };
-                            let line = this.review.rows.iter().find_map(|row| match row {
+                            let line = this.review.read(cx).rows.iter().find_map(|row| match row {
                                 Row::Split { right: Some(c), .. }
                                 | Row::Unified {
                                     cell: c,
@@ -972,27 +976,31 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                                     ],
                                     ..Default::default()
                                 });
-                                this.refresh_rows();
+                                this.refresh_rows(cx);
                             }
                             continue;
                         }
                         "notice" => {
-                            this.review.notice = Some(Notice {
-                                text: "v3 arrived — this comparison now ends at v3.".into(),
-                                undo: Selection::None,
+                            this.review.update(cx, |rv, _| {
+                                rv.notice = Some(Notice {
+                                    text: "v3 arrived — this comparison now ends at v3.".into(),
+                                    undo: Selection::None,
+                                })
                             });
                             continue;
                         }
                         "viewmenu" => {
-                            let groups = this.view_menu();
+                            let groups = this.view_menu(cx);
                             this.open_titled(Point::new(px(1090.), px(78.)), groups, cx);
                             continue;
                         }
                         "linemenu" => {
-                            this.review.sel = Some(Sel {
-                                old: false,
-                                anchor: select::Pos { line: 66, byte: 4 },
-                                head: select::Pos { line: 68, byte: 12 },
+                            this.review.update(cx, |rv, _| {
+                                rv.sel = Some(Sel {
+                                    old: false,
+                                    anchor: select::Pos { line: 66, byte: 4 },
+                                    head: select::Pos { line: 68, byte: 12 },
+                                })
                             });
                             this.line_context(false, 67, Point::new(px(900.), px(520.)), cx);
                             continue;
@@ -1043,11 +1051,13 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             continue;
                         }
                         "swipe" | "onion" => {
-                            this.review.images.mode = if name.trim() == "swipe" {
-                                image_view::Mode::Swipe
-                            } else {
-                                image_view::Mode::Onion
-                            };
+                            this.review.update(cx, |rv, _| {
+                                rv.images.mode = if name.trim() == "swipe" {
+                                    image_view::Mode::Swipe
+                                } else {
+                                    image_view::Mode::Onion
+                                }
+                            });
                             continue;
                         }
                         "agents" => {
@@ -1061,13 +1071,13 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         }
                         // A comment on the rendered document's third block (#11).
                         "page-comment" => {
-                            let ix = this.review.file;
+                            let ix = this.review.read(cx).file;
                             this.page_block_comment(ix, cx);
                             continue;
                         }
                         // The comments of the rendered document's third block, opened.
                         "page-notes" => {
-                            let ix = this.review.file;
+                            let ix = this.review.read(cx).file;
                             this.page_block_notes(ix, cx);
                             continue;
                         }
@@ -1099,19 +1109,19 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         "rail-tabs" => {
                             this.settings.projects = crate::storage::Projects::Tabs;
                             share_settings(&this.settings);
-                            this.review.settings = this.settings;
+                            this.review.update(cx, |rv, _| rv.settings = this.settings);
                             continue;
                         }
                         "rail-menu" => {
                             this.settings.projects = crate::storage::Projects::Menu;
                             share_settings(&this.settings);
-                            this.review.settings = this.settings;
+                            this.review.update(cx, |rv, _| rv.settings = this.settings);
                             continue;
                         }
                         "flat" => {
                             this.settings.flat = true;
                             share_settings(&this.settings);
-                            this.review.settings = this.settings;
+                            this.review.update(cx, |rv, _| rv.settings = this.settings);
                             continue;
                         }
                         "appearance" => {
@@ -1234,7 +1244,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             ws.update(cx, |this, cx| {
                 this.find.text = Some(text);
                 this.refilter();
-                this.review.recompute_matches();
+                this.review.update(cx, |rv, _| rv.recompute_matches());
                 cx.notify();
             });
             wait(800).await;
@@ -1263,7 +1273,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                     .filter_map(|s| Some((s.to_owned(), repo.as_ref()?.resolve(s).ok()?)));
                 if let (Some(base), Some(head)) = (sides.next(), sides.next()) {
                     // As ⌥⌘C opens it: a comparison page of Branches.
-                    this.arrive(nav::Page::Compare(base.clone(), head.clone(), true));
+                    this.arrive(nav::Page::Compare(base.clone(), head.clone(), true), cx);
                     this.run_compare(base, head, true, None, cx);
                 }
             });
@@ -1284,6 +1294,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                     query
                         .trim_start_matches("compare:")
                         .trim_start_matches("faces:"),
+                    cx,
                 );
             });
             wait(500).await;
@@ -1441,7 +1452,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                 if view.contains("reaction-grid") {
                     this.reaction_grid = note;
                 }
-                this.refresh_rows();
+                this.refresh_rows(cx);
                 cx.notify();
             });
             wait(500).await;
@@ -1623,7 +1634,7 @@ pub struct Workspace {
     spot: Option<goto::Spot>,
     /// The diff on screen and how it is read: its files and rows, the find over it, the marks of files read, the
     /// annotations (#165 stage 4: the review's state, on its way out of the tab).
-    review: review::Review,
+    review: gpui::Entity<review::Review>,
     /// The theme open in Settings → Appearance's editor (`appearance.rs`).
     theme_edit: Option<appearance::ThemeEdit>,
     /// The value of its selected token, as typed.
@@ -1922,7 +1933,7 @@ impl Workspace {
             keys_filter: String::new(),
             keys_exact: false,
             keys_changed_only: false,
-            review: review::Review {
+            review: cx.new(|_| review::Review {
                 root: None,
                 pfilter: String::new(),
                 fcursor: None,
@@ -1975,7 +1986,7 @@ impl Workspace {
                 file_scroll: UniformListScrollHandle::new(),
                 diff_task: None,
                 view_task: None,
-            },
+            }),
             theme_edit: None,
             theme_value: String::new(),
             pending_link: None,
@@ -2193,12 +2204,13 @@ impl Workspace {
                         this.start_working_poll(cx);
                         this.load_requests(cx);
                         // The documents this repository reads as Source (#11).
-                        this.review.page.load(&crate::review::key(&root));
+                        this.review
+                            .update(cx, |rv, _| rv.page.load(&crate::review::key(&root)));
                         // Its requests list's folds and the requests opened (#81).
                         this.roots.load(&crate::review::key(&root));
                         // Code's pinned tabs (#20).
                         this.code.load_pins(&crate::review::key(&root));
-                        this.review.root = Some(root.clone());
+                        this.review.update(cx, |rv, _| rv.root = Some(root.clone()));
                         this.root = Some(root);
                         // Once the root is this repository's: it reads whether fetch is off for it (#141).
                         this.start_fetching(cx);
@@ -2209,7 +2221,7 @@ impl Workspace {
                             .and_then(|r| this.branches.iter().position(|b| b.refname == r))
                             .or_else(|| this.branches.iter().position(|b| b.is_head))
                             .or((!this.branches.is_empty()).then_some(0));
-                        this.clear_branch();
+                        this.clear_branch(cx);
                         if !refresh {
                             // Opened: the space and pages it was left on (#71).
                             this.restore_nav(ix, cx);
@@ -2256,31 +2268,32 @@ impl Workspace {
         self.fetch = Default::default();
         self.start_working_poll(cx);
         self.load_requests(cx);
-        self.review.page.load(&crate::review::key(&root));
+        self.review
+            .update(cx, |rv, _| rv.page.load(&crate::review::key(&root)));
         self.roots.load(&crate::review::key(&root));
         self.code.load_pins(&crate::review::key(&root));
-        self.review.root = Some(root.clone());
+        self.review.update(cx, |rv, _| rv.root = Some(root.clone()));
         self.root = Some(root);
         self.branches.clear();
-        self.clear_branch();
+        self.clear_branch(cx);
         self.nav = nav::Nav::default();
         self.show(spaces::Space::Code, None, cx);
     }
 
-    fn clear_branch(&mut self) {
+    fn clear_branch(&mut self, cx: &mut App) {
         self.watch.forget();
         self.branch = None;
         self.branch_page = None;
         self.versions.clear();
         self.commits.clear();
         self.older = None;
-        self.clear_diff();
+        self.clear_diff(cx);
     }
 
-    fn clear_diff(&mut self) {
+    fn clear_diff(&mut self, cx: &mut App) {
         self.body_expanded = false;
         self.selection = Selection::None;
-        self.review.clear();
+        self.review.update(cx, |rv, _| rv.clear());
     }
 
     fn select_branch(&mut self, ix: usize, keep: Option<git2::Oid>, cx: &mut Context<Self>) {
@@ -2290,7 +2303,7 @@ impl Workspace {
             return;
         };
         let (refname, name, tip) = (branch.refname.clone(), branch.name.clone(), branch.tip);
-        self.clear_branch();
+        self.clear_branch(cx);
         self.branch = Some(ix);
         self.branch_task = Some(cx.spawn(async move |this, cx| {
             let loaded = cx
@@ -2386,9 +2399,9 @@ impl Workspace {
         let (Some(root), Some(commit)) = (self.root.clone(), self.commits.get(ix).cloned()) else {
             return;
         };
-        self.clear_diff();
+        self.clear_diff(cx);
         self.selection = Selection::Commit(ix);
-        self.record();
+        self.record(cx);
         self.remember_place(
             recents::Key::Commit(commit.id),
             commit.summary.clone(),
@@ -2399,7 +2412,7 @@ impl Workspace {
                 .scroll_to_item(row, ScrollStrategy::Nearest);
         }
         let id = commit.id;
-        let settings = self.settings();
+        let settings = self.settings(cx);
         self.load_diff(keep, cx, move || {
             let files = Repo::open(&root)?.commit_diff(id, settings)?;
             Ok(Diff {
@@ -2435,10 +2448,10 @@ impl Workspace {
         ) else {
             return;
         };
-        self.clear_diff();
+        self.clear_diff(cx);
         self.selection = Selection::Commits { newest, oldest };
-        self.record();
-        let settings = self.settings();
+        self.record(cx);
+        let settings = self.settings(cx);
         self.load_diff(keep, cx, move || {
             let repo = Repo::open(&root)?;
             // A first commit has no parent: the run is then from it.
@@ -2486,10 +2499,10 @@ impl Workspace {
                 VersionTab::Files
             };
         }
-        self.clear_diff();
+        self.clear_diff(cx);
         self.selection = Selection::Versions { from, to };
-        self.record();
-        let settings = self.settings();
+        self.record(cx);
+        let settings = self.settings(cx);
         self.load_diff(keep, cx, move || {
             let repo = Repo::open(&root)?;
             let diff = repo.version_diff(&a, &b, settings)?;
@@ -2516,6 +2529,7 @@ impl Workspace {
         };
         let Some((old, new)) = self
             .review
+            .read(cx)
             .diff
             .as_ref()
             .and_then(|d| d.pairs.get(pair))
@@ -2523,9 +2537,9 @@ impl Workspace {
         else {
             return;
         };
-        self.clear_diff();
+        self.clear_diff(cx);
         self.selection = Selection::Versions { from, to };
-        let settings = self.settings();
+        let settings = self.settings(cx);
         self.load_diff(None, cx, move || {
             let diff = Repo::open(&root)?.interdiff(old.id, new.id, settings)?;
             Ok(Diff {
@@ -2537,9 +2551,9 @@ impl Workspace {
         });
     }
 
-    fn settings(&self) -> DiffSettings {
+    fn settings(&self, cx: &App) -> DiffSettings {
         DiffSettings {
-            ignore_whitespace: self.review.options.ignore_whitespace,
+            ignore_whitespace: self.review.read(cx).options.ignore_whitespace,
         }
     }
 
@@ -2549,7 +2563,7 @@ impl Workspace {
         cx: &mut Context<Self>,
         load: impl FnOnce() -> anyhow::Result<Diff> + Send + 'static,
     ) {
-        self.review.diff_task = Some(cx.spawn(async move |this, cx| {
+        let task = Some(cx.spawn(async move |this, cx| {
             let loaded = cx.background_executor().spawn(async move { load() }).await;
             this.update(cx, |this, cx| {
                 match loaded {
@@ -2559,42 +2573,45 @@ impl Workspace {
                         // listed twice (#22) —, else the first with its path.
                         let keep = keep.or_else(|| {
                             this.review
+                                .read(cx)
                                 .restore_scroll
                                 .as_ref()
                                 .map(|(path, _)| path.clone())
                         });
                         let ix = keep.and_then(|path| {
-                            let at = this.review.file;
+                            let at = this.review.read(cx).file;
                             (diff.files.get(at).map(|f| f.path()) == Some(path.as_str()))
                                 .then_some(at)
                                 .or_else(|| diff.files.iter().position(|f| f.path() == path))
                         });
                         let empty = diff.files.is_empty();
-                        this.review.diff = Some(diff);
+                        this.review
+                            .update(cx, |rv, _| rv.diff = Some(Arc::new(diff)));
                         // The files of the diff it replaces are gone.
-                        this.review.stack = None;
+                        this.review.update(cx, |rv, _| rv.stack = None);
                         this.map_agent_comments(cx);
                         this.map_agent_notes(cx);
-                        this.index_review();
+                        this.index_review(cx);
                         // A request opens at its first file not reviewed (#72); anything else at
                         // the first file as the island lists it (a tree sorts folders first), so
                         // → walks on from the top.
                         let request = matches!(
-                            this.review.diff.as_ref().map(|d| &d.header),
+                            this.review.read(cx).diff.as_ref().map(|d| &d.header),
                             Some(Header::Compare {
                                 request: Some(_),
                                 ..
                             })
                         );
-                        let order = this.review.file_order();
+                        let order = this.review.read(cx).file_order();
                         let unread = order.iter().copied().find(|&ix| {
-                            this.review.review_state(ix) != Some(reviewed::State::Done)
+                            this.review.read(cx).review_state(ix) != Some(reviewed::State::Done)
                         });
                         let ix = ix
                             .or(unread.filter(|_| request))
                             .or_else(|| order.first().copied())
                             .unwrap_or(0);
                         this.review
+                            .read(cx)
                             .file_scroll
                             .scroll_to_item(0, ScrollStrategy::Top);
                         if !empty {
@@ -2608,12 +2625,14 @@ impl Workspace {
             })
             .ok();
         }));
+        self.review.update(cx, |rv, _| rv.diff_task = task);
         cx.notify();
     }
 
     fn select_file(&mut self, ix: usize, cx: &mut Context<Self>) {
         let Some(file) = self
             .review
+            .read(cx)
             .diff
             .as_ref()
             .and_then(|d| d.files.get(ix))
@@ -2626,66 +2645,70 @@ impl Workspace {
             file.path().to_owned(),
             "file".to_owned(),
         );
-        if self.wants_stack() {
+        if self.wants_stack(cx) {
             return self.stack_select(ix, cx);
         }
-        let mode = self.review.show_file(ix);
-        self.review.view_task = Some(cx.spawn(async move |this, cx| {
+        let mode = self.review.update(cx, |rv, _| rv.show_file(ix));
+        let task = Some(cx.spawn(async move |this, cx| {
             let data = cx
                 .background_executor()
                 .spawn(async move { FileData::build(&file, mode) })
                 .await;
             this.update(cx, |this, cx| {
-                let pins = this.open_pins();
-                this.review.file_built(data, &pins);
+                let pins = this.open_pins(cx);
+                this.review.update(cx, |rv, _| rv.file_built(data, &pins));
                 this.refresh_annotations(cx);
                 this.apply_jump(cx);
-                this.review.restore_file_scroll();
+                this.review.update(cx, |rv, _| rv.restore_file_scroll());
                 cx.notify();
             })
             .ok();
         }));
+        self.review.update(cx, |rv, _| rv.view_task = task);
         cx.notify();
     }
 
     /// Lays the selected file out again (`Review::relayout`) with what is pinned on its lines now.
-    fn relayout(&mut self) {
-        let pins = self.open_pins();
-        self.review.relayout(&pins);
+    fn relayout(&mut self, cx: &mut App) {
+        let pins = self.open_pins(cx);
+        self.review.update(cx, |rv, _| rv.relayout(&pins));
     }
 
     /// Every file laid out again (`Review::relayout_all`) with what is pinned on their lines now.
-    fn relayout_all(&mut self) {
-        let pins = self.all_pins();
-        self.review.relayout_all(&pins);
+    fn relayout_all(&mut self, cx: &mut App) {
+        let pins = self.all_pins(cx);
+        self.review.update(cx, |rv, _| rv.relayout_all(&pins));
     }
 
     /// Shows the hidden lines of an unchanged run in place (`Review::expand_gap`).
     fn expand_gap(&mut self, segment: usize, cx: &mut Context<Self>) {
-        let pins = self.open_pins();
-        if self.review.expand_gap(segment, &pins) {
+        let pins = self.open_pins(cx);
+        if self
+            .review
+            .update(cx, |rv, _| rv.expand_gap(segment, &pins))
+        {
             cx.notify();
         }
     }
 
     fn set_option(&mut self, opt: Opt, value: bool, cx: &mut Context<Self>) {
-        if self.review.option(opt) != value {
+        if self.review.read(cx).option(opt) != value {
             self.set_option_unsaved(opt, value, cx);
-            self.review.options.save();
+            self.review.read(cx).options.save();
         }
     }
 
     fn set_option_unsaved(&mut self, opt: Opt, value: bool, cx: &mut Context<Self>) {
-        if !self.review.set_option(opt, value) {
+        if !self.review.update(cx, |rv, _| rv.set_option(opt, value)) {
             return;
         }
-        cx.set_menus(menus(&self.review.options, cx));
+        cx.set_menus(menus(&self.review.read(cx).options, cx));
         match opt {
-            Opt::Unified | Opt::FullContext => self.relayout_all(),
+            Opt::Unified | Opt::FullContext => self.relayout_all(cx),
             Opt::FoldReviewed => self.refold(cx),
             Opt::OneFile => self.show_files_anew(cx),
             // Same rows, new heights.
-            Opt::Wrap => self.review.diff_list.remeasure(),
+            Opt::Wrap => self.review.read(cx).diff_list.remeasure(),
             Opt::Whitespace => self.reload_diff(cx),
         }
         cx.notify();
@@ -2693,22 +2716,22 @@ impl Workspace {
 
     /// Changes what a diff marks inside changed lines. Not remembered: Settings holds the default.
     fn set_mode(&mut self, mode: DiffMode, cx: &mut Context<Self>) {
-        if !self.review.set_mode(mode) {
+        if !self.review.update(cx, |rv, _| rv.set_mode(mode)) {
             return;
         }
-        cx.set_menus(menus(&self.review.options, cx));
-        if self.review.stack.is_some() {
+        cx.set_menus(menus(&self.review.read(cx).options, cx));
+        if self.review.read(cx).stack.is_some() {
             self.reopen_stack(cx);
         } else {
-            self.select_file(self.review.file, cx);
+            self.select_file(self.review.read(cx).file, cx);
         }
         cx.notify();
     }
 
     /// The View menu: the diff mode, then the options that are on or off.
     /// The View ▾ menu (#48 A): one flat list of what the toolbar does not show, in groups.
-    fn view_menu(&self) -> Vec<(Option<&'static str>, Vec<Entry>)> {
-        let o = self.review.options;
+    fn view_menu(&self, cx: &App) -> Vec<(Option<&'static str>, Vec<Entry>)> {
+        let o = self.review.read(cx).options;
         let tool = self.tool();
         vec![
             (
@@ -2734,7 +2757,7 @@ impl Workspace {
                         .checked(o.wrap),
                     Entry::new("Annotate (blame)", Act::Annotate)
                         .key("⌥⌘B")
-                        .checked(self.review.annotate),
+                        .checked(self.review.read(cx).annotate),
                 ],
             ),
             (
@@ -2776,14 +2799,14 @@ impl Workspace {
         at: Point<gpui::Pixels>,
         cx: &mut Context<Self>,
     ) {
-        let Some(data) = &self.review.data else {
+        let Some(data) = &self.review.read(cx).data else {
             return;
         };
-        let in_selection = self.review.sel.is_some_and(|s| {
+        let in_selection = self.review.read(cx).sel.is_some_and(|s| {
             let (start, end) = s.ends();
             !s.is_empty() && s.old == old && (start.line..=end.line).contains(&line)
         });
-        let copy = match self.review.selected_text() {
+        let copy = match self.review.read(cx).selected_text() {
             Some(text) if in_selection => Entry::new("Copy selection", Act::Copy(text)).key("⌘C"),
             _ => Entry::new(
                 "Copy line",
@@ -2796,7 +2819,7 @@ impl Workspace {
         )];
         if let (false, Some(path), Some(editor)) = (
             old,
-            self.review.current_path(),
+            self.review.read(cx).current_path(),
             crate::editor::pick(self.settings.editor),
         ) {
             second.push(Entry::new(
@@ -2806,7 +2829,10 @@ impl Workspace {
         }
         // What a reviewer pastes into a chat: a link to the line, its place, the command.
         let mut share = Vec::new();
-        if let (Some(path), Some(rev)) = (self.review.current_path(), self.review.viewed_rev()) {
+        if let (Some(path), Some(rev)) = (
+            self.review.read(cx).current_path(),
+            self.review.read(cx).viewed_rev(),
+        ) {
             if let (false, Some(web)) = (old, &self.web) {
                 share.push(
                     Entry::new(
@@ -2854,6 +2880,7 @@ impl Workspace {
     fn file_context(&mut self, ix: usize, at: Point<gpui::Pixels>, cx: &mut Context<Self>) {
         let Some(path) = self
             .review
+            .read(cx)
             .diff
             .as_ref()
             .and_then(|d| d.files.get(ix))
@@ -2867,7 +2894,7 @@ impl Workspace {
             Entry::new("Copy file name", Act::Copy(name)),
         ]];
         // Where the host anchors the diff's files: this one in it (#162).
-        if let Some(link) = self.diff_file_link(&path) {
+        if let Some(link) = self.diff_file_link(&path, cx) {
             groups[0].push(Entry::new("Copy link", link.act()).key("↗"));
         }
         if let Some(editor) = crate::editor::pick(self.settings.editor) {
@@ -2910,16 +2937,17 @@ impl Workspace {
     }
 
     fn toggle(&mut self, opt: Opt, cx: &mut Context<Self>) {
-        self.set_option(opt, !self.review.option(opt), cx);
+        self.set_option(opt, !self.review.read(cx).option(opt), cx);
     }
 
     /// Recomputes the selected commit's or versions' diff, staying on the same file.
     fn reload_diff(&mut self, cx: &mut Context<Self>) {
         let keep = self
             .review
+            .read(cx)
             .diff
             .as_ref()
-            .and_then(|d| d.files.get(self.review.file))
+            .and_then(|d| d.files.get(self.review.read(cx).file))
             .map(|f| f.path().to_owned());
         match self.selection {
             Selection::Commit(ix) => self.load_commit(ix, keep, cx),
@@ -2950,10 +2978,10 @@ impl Workspace {
             return;
         }
         self.settings.ui_zoom = zoom;
-        self.save_settings();
+        self.save_settings(cx);
         apply_ui_zoom(zoom, window);
-        self.review.char_width = 0.;
-        self.relayout_all();
+        self.review.update(cx, |rv, _| rv.char_width = 0.);
+        self.relayout_all(cx);
         cx.notify();
     }
 
@@ -2964,29 +2992,38 @@ impl Workspace {
             return;
         }
         self.settings.zoom = zoom;
-        self.save_settings();
+        self.save_settings(cx);
         // The width of a character is measured again at the new size; the rows change height.
-        self.review.char_width = 0.;
-        self.relayout_all();
+        self.review.update(cx, |rv, _| rv.char_width = 0.);
+        self.relayout_all(cx);
         cx.notify();
     }
 
     /// The side panel's Changes is open and has the files as a zone.
-    pub(super) fn files_zone(&self) -> bool {
+    pub(super) fn files_zone(&self, cx: &App) -> bool {
         self.side_open()
             && self.layout.show_files
-            && self.review.diff.as_ref().is_some_and(|d| d.files.len() > 1)
+            && self
+                .review
+                .read(cx)
+                .diff
+                .as_ref()
+                .is_some_and(|d| d.files.len() > 1)
     }
 
     fn unfold(&mut self, path: &str, cx: &mut Context<Self>) {
-        self.review.unfolded.insert(path.to_owned());
-        self.review.sync_stack();
+        self.review
+            .update(cx, |rv, _| rv.unfolded.insert(path.to_owned()));
+        self.review.update(cx, |rv, _| rv.sync_stack());
         self.build_stack(cx);
         cx.notify();
     }
 
     fn scroll_horizontally(&mut self, event: &ScrollWheelEvent, cx: &mut Context<Self>) {
-        if self.review.scroll_horizontally(event) {
+        if self
+            .review
+            .update(cx, |rv, _| rv.scroll_horizontally(event))
+        {
             cx.notify();
         }
     }
@@ -3082,7 +3119,7 @@ impl Workspace {
 
     fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {
         // A narrow window has it folded into the menu: it opens as the drawer (#80).
-        if self.compact() && !self.side_icons().is_empty() {
+        if self.compact() && !self.side_icons(cx).is_empty() {
             return self.toggle_drawer(None, cx);
         }
         self.layout.show_sidebar = !self.layout.show_sidebar;
@@ -3175,9 +3212,10 @@ impl Workspace {
     /// The files shown again as they now should be, one at a time or in one scroll, the file and
     /// the place in it kept.
     fn show_files_anew(&mut self, cx: &mut Context<Self>) {
-        self.review.restore_scroll = self.review.scroll_place();
-        self.review.clear_file();
-        self.select_file(self.review.file, cx);
+        self.review
+            .update(cx, |rv, _| rv.restore_scroll = rv.scroll_place());
+        self.review.update(cx, |rv, _| rv.clear_file());
+        self.select_file(self.review.read(cx).file, cx);
     }
 
     fn toggle_unified(&mut self, _: &ToggleUnified, _: &mut Window, cx: &mut Context<Self>) {
@@ -3185,7 +3223,7 @@ impl Workspace {
     }
 
     fn cycle_mode(&mut self, _: &CycleMode, _: &mut Window, cx: &mut Context<Self>) {
-        self.set_mode(self.review.options.mode.next(), cx);
+        self.set_mode(self.review.read(cx).options.mode.next(), cx);
     }
 
     fn set_lines(&mut self, _: &SetLines, _: &mut Window, cx: &mut Context<Self>) {
@@ -3263,7 +3301,7 @@ impl Workspace {
     fn find_action(&mut self, _: &Find, _: &mut Window, cx: &mut Context<Self>) {
         if self.at_root_list() && !self.settings_open {
             self.start_field(lists::Field::Branches, cx);
-        } else if self.review.diff.is_some() && !self.settings_open {
+        } else if self.review.read(cx).diff.is_some() && !self.settings_open {
             self.start_dfind(cx);
         } else {
             self.start_find(cx);
@@ -3345,9 +3383,9 @@ impl Workspace {
                 .children(self.render_create_form(cx))
                 .into_any_element();
         }
-        let Some(diff) = &self.review.diff else {
+        let Some(diff) = self.review.read(cx).diff.clone() else {
             // Loading: a shimmer of lines where the diff will be (#56, 18).
-            if self.review.diff_task.is_some() {
+            if self.review.read(cx).diff_task.is_some() {
                 return island()
                     .flex_1()
                     .bg(theme::editor())
@@ -3378,7 +3416,7 @@ impl Workspace {
                     .min_h_0()
                     .flex()
                     .when(!commits_tab, |s| {
-                        let file = self.render_file(diff, cx);
+                        let file = self.render_file(&diff, cx);
                         if self.zen_one && self.zen.is_some() {
                             // One file at a reading width, the next one sliding in as it comes
                             // (#55).
@@ -3390,7 +3428,7 @@ impl Workspace {
                                     .max_w(px(READING_WIDTH))
                                     .flex()
                                     .child(file),
-                                ("zen-file", self.review.file),
+                                ("zen-file", self.review.read(cx).file),
                                 motion::BASE,
                                 |d, v| d.top(px(16. * (1. - v))).opacity(v),
                             ))
@@ -3398,17 +3436,17 @@ impl Workspace {
                             s.child(file)
                         }
                     })
-                    .when(commits_tab, |s| s.child(self.render_pairs(diff, cx))),
+                    .when(commits_tab, |s| s.child(self.render_pairs(&diff, cx))),
             )
             .into_any_element()
     }
 
     /// What the screen shows, in a few words: zen's one line on top.
-    fn header_title(&self, diff: &Diff) -> String {
+    fn header_title(&self, diff: &Diff, cx: &App) -> String {
         if let Some(m) = self
             .requests
             .current
-            .filter(|_| self.showing_request())
+            .filter(|_| self.showing_request(cx))
             .and_then(|iid| self.requests.find(iid))
         {
             return format!("{} {}", words::number(m.iid), m.title);
@@ -3427,27 +3465,27 @@ impl Workspace {
     /// Zen's header: one line — what is shown, the file, how far the review is. One file at a
     /// time: the file's name and folder, where it is among the files ("file 3 of 8") and a bar
     /// per file — reviewed, the one shown, the rest (#55).
-    fn render_zen_head(&self, diff: &Diff) -> impl IntoElement + use<> {
+    fn render_zen_head(&self, diff: &Diff, cx: &App) -> impl IntoElement + use<> {
         let file = diff
             .files
-            .get(self.review.file)
+            .get(self.review.read(cx).file)
             .map(|f| f.path().to_owned());
         if self.zen_one
             && let Some(path) = &file
         {
-            let order = self.review.file_order();
+            let order = self.review.read(cx).file_order();
             let at = order
                 .iter()
-                .position(|&ix| ix == self.review.file)
+                .position(|&ix| ix == self.review.read(cx).file)
                 .unwrap_or(0);
             let (dir, name) = match path.rsplit_once('/') {
                 Some((dir, name)) => (format!("{dir}/"), name.to_owned()),
                 None => (String::new(), path.clone()),
             };
             let bars = order.iter().map(|&ix| {
-                let color = if ix == self.review.file {
+                let color = if ix == self.review.read(cx).file {
                     theme::accent()
-                } else if self.review.review_state(ix) == Some(reviewed::State::Done) {
+                } else if self.review.read(cx).review_state(ix) == Some(reviewed::State::Done) {
                     theme::added()
                 } else {
                     theme::hover()
@@ -3494,7 +3532,7 @@ impl Workspace {
             .h(px(36.))
             .px_4()
             .child(
-                hover::cut("header-title", self.header_title(diff))
+                hover::cut("header-title", self.header_title(diff, cx))
                     .max_w(px(520.))
                     .font_weight(FontWeight::SEMIBOLD),
             )
@@ -3505,7 +3543,7 @@ impl Workspace {
                     .text_size(px(12.))
                     .text_color(theme::muted())
             }))
-            .children(self.review.review_progress().map(|(done, total)| {
+            .children(self.review.read(cx).review_progress().map(|(done, total)| {
                 div()
                     .flex_none()
                     .text_size(px(12.))
@@ -3533,7 +3571,7 @@ impl Workspace {
                 this.set_option(opt, value, cx)
             })
         };
-        let o = self.review.options;
+        let o = self.review.read(cx).options;
         div()
             .flex_none()
             .flex()
@@ -3544,8 +3582,8 @@ impl Workspace {
                     .child(chip("split", "Split", !o.unified).on_click(set(Opt::Unified, false)))
                     .child(chip("unified", "Unified", o.unified).on_click(set(Opt::Unified, true))),
             )
-            .children(self.review.stack.is_some().then(|| {
-                let folded = self.review.any_folded();
+            .children(self.review.read(cx).stack.is_some().then(|| {
+                let folded = self.review.read(cx).any_folded();
                 diff_view::group().child(
                     chip(
                         "expand-all",
@@ -3576,7 +3614,7 @@ impl Workspace {
                                 };
                                 let at =
                                     Point::new(b.right() - px(menu::WIDTH), b.bottom() + px(6.));
-                                let groups = this.view_menu();
+                                let groups = this.view_menu(cx);
                                 this.open_titled(at, groups, cx);
                             }),
                         ),
@@ -4030,10 +4068,10 @@ impl Workspace {
     }
 
     fn render_file(&self, diff: &Diff, cx: &mut Context<Self>) -> impl IntoElement {
-        let file = diff.files.get(self.review.file);
-        let body = match (file, &self.review.data) {
-            _ if self.review.stack.is_some() => self.render_rows(cx).into_any_element(),
-            (Some(f), _) if self.review.generated_folded(f) => {
+        let file = diff.files.get(self.review.read(cx).file);
+        let body = match (file, &self.review.read(cx).data) {
+            _ if self.review.read(cx).stack.is_some() => self.render_rows(cx).into_any_element(),
+            (Some(f), _) if self.review.read(cx).generated_folded(f) => {
                 let path = f.path().to_owned();
                 div()
                     .flex_1()
@@ -4075,10 +4113,12 @@ impl Workspace {
                 .text_color(theme::muted())
                 .child("No changes")
                 .into_any_element(),
-            (Some(file), _) if self.review.shows_page(file) => {
-                self.render_page_alone(self.review.file, cx.entity().downgrade(), cx)
+            (Some(file), _) if self.review.read(cx).shows_page(file) => {
+                self.render_page_alone(self.review.read(cx).file, cx.entity().downgrade(), cx)
             }
-            (Some(file), _) if self.review.shows_image(file) => self.render_image(file, cx),
+            (Some(file), _) if self.review.read(cx).shows_image(file) => {
+                self.render_image(file, cx)
+            }
             (Some(file), _) if file.hunks.is_empty() => div()
                 .flex_1()
                 .flex()
@@ -4094,7 +4134,12 @@ impl Workspace {
             (Some(_), None) => div().flex_1().into_any_element(),
             (Some(_), Some(_)) => self.render_rows(cx).into_any_element(),
         };
-        let mode_note = self.review.data.as_ref().and_then(|d| d.mode_note.clone());
+        let mode_note = self
+            .review
+            .read(cx)
+            .data
+            .as_ref()
+            .and_then(|d| d.mode_note.clone());
         island()
             .relative()
             .flex_1()
@@ -4135,22 +4180,24 @@ impl Workspace {
                     // every file in one scroll the card's own header has it.
                     .children(
                         self.review
+                            .read(cx)
                             .stack
                             .is_none()
-                            .then(|| working::file_tag(diff.tags.word(self.review.file)))
+                            .then(|| working::file_tag(diff.tags.word(self.review.read(cx).file)))
                             .flatten(),
                     )
                     // An SVG read as its source can go back to the picture.
                     .children(
-                        (self.review.images.source && image_view::is_svg(f))
+                        (self.review.read(cx).images.source && image_view::is_svg(f))
                             .then(|| image_view::source_switch(true, cx)),
                     )
                     // With every file in one scroll the card's own header has it.
                     .children(
                         self.review
+                            .read(cx)
                             .stack
                             .is_none()
-                            .then(|| self.page_switch(f, false, cx.entity().downgrade()))
+                            .then(|| self.page_switch(f, false, cx.entity().downgrade(), cx))
                             .flatten(),
                     )
                     .children(self.render_review_chip(cx))
@@ -4160,24 +4207,26 @@ impl Workspace {
                             .flatten()
                             .map(|n| div().text_color(theme::warning()).child(n)),
                     )
-                    .children((!self.review.changes.is_empty()).then(|| {
+                    .children((!self.review.read(cx).changes.is_empty()).then(|| {
                         div()
                             .flex_none()
                             .flex()
                             .items_center()
                             .gap_2()
                             // A diff under 600 px keeps the arrows (#80).
-                            .when(!self.review.tight, |s| {
+                            .when(!self.review.read(cx).tight, |s| {
                                 s.child(div().text_size(px(12.)).text_color(theme::muted()).child(
-                                    match self.review.change_at {
+                                    match self.review.read(cx).change_at {
                                         Some(at) => {
                                             format!(
                                                 "change {} of {}",
                                                 at + 1,
-                                                self.review.changes.len()
+                                                self.review.read(cx).changes.len()
                                             )
                                         }
-                                        None => plural(self.review.changes.len(), "change"),
+                                        None => {
+                                            plural(self.review.read(cx).changes.len(), "change")
+                                        }
                                     },
                                 ))
                             })
@@ -4193,11 +4242,11 @@ impl Workspace {
                     }))
                     // The file in the app it belongs to, at the change (#78); ▾ the others.
                     .children(
-                        self.open_target()
+                        self.open_target(cx)
                             .and_then(|(path, _)| self.open_app(&path))
                             .map(|app| {
                                 // A diff under 600 px keeps its ↗, the app in its tooltip (#80).
-                                let label = if self.review.tight {
+                                let label = if self.review.read(cx).tight {
                                     "↗".to_owned()
                                 } else {
                                     format!("Open in {} ↗", app.name())
@@ -4243,14 +4292,14 @@ impl Workspace {
             .children(self.render_dfind(cx))
             // Painted last, over the rows that come after it.
             .children(
-                self.render_goline(cx.entity().downgrade())
+                self.render_goline(cx.entity().downgrade(), cx)
                     .map(|prompt| gpui::deferred(prompt).with_priority(1)),
             )
             .children(
                 self.render_done_card(cx)
                     .map(|card| gpui::deferred(card).with_priority(1)),
             )
-            .children(self.review.notice.as_ref().map(|notice| {
+            .children(self.review.read(cx).notice.as_ref().map(|notice| {
                 div()
                     .flex_none()
                     .flex()
@@ -4285,7 +4334,7 @@ impl Workspace {
                             .hover(|s| s.bg(theme::hover()))
                             .child("✕")
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.review.notice = None;
+                                this.review.update(cx, |rv, _| rv.notice = None);
                                 cx.notify();
                             })),
                     )
@@ -4296,10 +4345,10 @@ impl Workspace {
                     .min_h_0()
                     .flex()
                     .flex_col()
-                    .when(self.review.stack.is_none(), |s| {
+                    .when(self.review.read(cx).stack.is_none(), |s| {
                         s.px(px(4.)).pt(px(4.)).pb(px(6.))
                     })
-                    .when(self.review.stack.is_some(), |s| {
+                    .when(self.review.read(cx).stack.is_some(), |s| {
                         s.bg(theme::base()).rounded_b(px(ISLAND_RADIUS))
                     })
                     .child(body),
@@ -4319,50 +4368,60 @@ impl Workspace {
             let workspace = workspace.read(cx);
             // With all files in one scroll: the file of the row, and its place among the file's
             // rows (the active file's are the workspace's own).
-            let (file, ix) = match &workspace.review.stack {
+            let (file, ix) = match &workspace.review.read(cx).stack {
                 Some(stack) => {
                     let (b, inside) = stack.locate(ix);
                     let file = stack.blocks[b].file;
                     if inside == 0 {
-                        return workspace.render_block_header(file, this.clone());
+                        return workspace.render_block_header(file, this.clone(), cx);
                     }
-                    if workspace.review.body(b) != stack::Body::Rows {
+                    if workspace.review.read(cx).body(b) != stack::Body::Rows {
                         return workspace.render_block_note(b, file, this.clone(), cx);
                     }
                     (Some((b, file)), inside - 1)
                 }
                 None => (None, ix),
             };
-            let active = file.is_none_or(|(_, f)| f == workspace.review.file);
-            let file_ix = file.map_or(workspace.review.file, |(_, f)| f);
+            let active = file.is_none_or(|(_, f)| f == workspace.review.read(cx).file);
+            let file_ix = file.map_or(workspace.review.read(cx).file, |(_, f)| f);
             let (data, row, mut style) = match file {
                 Some((b, _)) if !active => {
-                    let Some(stack) = &workspace.review.stack else {
+                    let Some(stack) = &workspace.review.read(cx).stack else {
                         return div().into_any_element();
                     };
                     let block = &stack.blocks[b];
                     let (Some(data), Some(&row)) = (block.data.clone(), block.rows.get(ix)) else {
                         return div().into_any_element();
                     };
-                    let style = workspace
-                        .review
-                        .row_style_for(Some(&data), &block.notes, false);
+                    let style =
+                        workspace
+                            .review
+                            .read(cx)
+                            .row_style_for(Some(&data), &block.notes, false);
                     (data, row, style)
                 }
                 _ => {
-                    let (Some(data), Some(&row)) =
-                        (workspace.review.data.clone(), workspace.review.rows.get(ix))
-                    else {
+                    let (Some(data), Some(&row)) = (
+                        workspace.review.read(cx).data.clone(),
+                        workspace.review.read(cx).rows.get(ix),
+                    ) else {
                         return div().into_any_element();
                     };
-                    (data, row, workspace.review.row_style())
+                    (data, row, workspace.review.read(cx).row_style())
                 }
             };
-            style.strong = match (&workspace.review.stack, file) {
+            style.strong = match (&workspace.review.read(cx).stack, file) {
                 (Some(stack), Some((_, f))) => stack.matches.get(stack.match_at) == Some(&(f, ix)),
-                _ => workspace.review.matches.get(workspace.review.match_at) == Some(&ix),
+                _ => {
+                    workspace
+                        .review
+                        .read(cx)
+                        .matches
+                        .get(workspace.review.read(cx).match_at)
+                        == Some(&ix)
+                }
             };
-            let indent = if workspace.review.tight {
+            let indent = if workspace.review.read(cx).tight {
                 24.
             } else {
                 style.gutter + 8.
@@ -4375,15 +4434,15 @@ impl Workspace {
                 Row::Draft(ix) => return workspace.render_draft(ix, indent, this.clone(), cx),
                 Row::Note(id) => return workspace.render_agent_note(id, indent, this.clone(), cx),
                 Row::Composer if workspace.compose.is_none() && active => {
-                    return workspace.render_goline_row(indent, this.clone());
+                    return workspace.render_goline_row(indent, this.clone(), cx);
                 }
                 Row::Composer if workspace.compose.is_none() => return div().into_any_element(),
                 Row::Composer => return workspace.render_composer(indent, this.clone(), cx),
                 _ => {}
             }
             let marked = active
-                && workspace.review.goline.is_some()
-                && workspace.review.goline_row == Some(ix);
+                && workspace.review.read(cx).goline.is_some()
+                && workspace.review.read(cx).goline_row == Some(ix);
             // A press in another file makes it the active one first.
             let file = file.map(|(_, f)| f).filter(|_| !active);
             let touch = move |this: &mut Self, cx: &mut Context<Self>| {
@@ -4480,7 +4539,7 @@ impl Workspace {
             element
         };
         // With all files in one scroll, a file's rows are framed as its card.
-        let rows = list(self.review.diff_list.clone(), move |ix, _, cx| {
+        let rows = list(self.review.read(cx).diff_list.clone(), move |ix, _, cx| {
             // Its own id: the ids inside a row (a line number's, its +) repeat from file to file.
             let element = div()
                 .id(("list-row", ix))
@@ -4491,7 +4550,7 @@ impl Workspace {
                 return element;
             };
             let workspace = workspace.read(cx);
-            match &workspace.review.stack {
+            match &workspace.review.read(cx).stack {
                 Some(stack) if stack.locate(ix).1 > 0 => {
                     let file = stack.blocks[stack.locate(ix).0].file;
                     // A file just opened: its rows fade in (#56, 9).
@@ -4510,6 +4569,7 @@ impl Workspace {
                     };
                     workspace
                         .review
+                        .read(cx)
                         .card_row(element, file, stack.last_of_block(ix))
                 }
                 _ => element,
@@ -4517,12 +4577,12 @@ impl Workspace {
         })
         .flex_1();
 
-        let width = self.review.body_width.clone();
-        let max = self.review.max_offset();
-        let thumb = (!self.review.options.wrap && max > 0.).then(|| {
+        let width = self.review.read(cx).body_width.clone();
+        let max = self.review.read(cx).max_offset();
+        let thumb = (!self.review.read(cx).options.wrap && max > 0.).then(|| {
             // Its track keeps clear of the island's round bottom corners.
             let inset = if flat() { 0. } else { ISLAND_RADIUS };
-            let track = (self.review.body_width.get() - 2. * inset).max(0.);
+            let track = (self.review.read(cx).body_width.get() - 2. * inset).max(0.);
             let share = track / (track + max);
             let thumb = (track * share).max(32.).min(track);
             div()
@@ -4530,7 +4590,9 @@ impl Workspace {
                 .bottom(px(2.))
                 .h(px(4.))
                 .w(px(thumb))
-                .left(px(inset + (track - thumb) * self.review.offset / max))
+                .left(px(
+                    inset + (track - thumb) * self.review.read(cx).offset / max
+                ))
                 .rounded_full()
                 .bg(theme::scrollbar())
         });
@@ -4538,15 +4600,17 @@ impl Workspace {
             .id("diff-body")
             .relative()
             // The ground between the files' cards.
-            .when(self.review.stack.is_some(), |s| s.bg(theme::base()))
+            .when(self.review.read(cx).stack.is_some(), |s| {
+                s.bg(theme::base())
+            })
             .flex_1()
             .min_h_0()
             .flex()
             .flex_col()
             .on_scroll_wheel(cx.listener(|this, event, _, cx| this.scroll_horizontally(event, cx)))
             .font_family(theme::code_font())
-            .text_size(px(self.review.code_size()))
-            .line_height(px(self.review.row_height()))
+            .text_size(px(self.review.read(cx).code_size()))
+            .line_height(px(self.review.read(cx).row_height()))
             .child(rows)
             .child(
                 canvas(

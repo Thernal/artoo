@@ -66,8 +66,10 @@ fn blame_text(lines: &[Option<BlameLine>], line: u32) -> SharedString {
 
 impl Workspace {
     pub(super) fn toggle_annotate(&mut self, cx: &mut Context<Self>) {
-        self.review.annotate = !self.review.annotate;
-        self.review.annotations.clear();
+        self.review.update(cx, |rv, _| {
+            rv.annotate = !rv.annotate;
+            rv.annotations.clear();
+        });
         self.refresh_annotations(cx);
         cx.notify();
     }
@@ -75,22 +77,23 @@ impl Workspace {
     /// The annotation column of the open file read again: blame in the background
     /// (`Review::annotation_job`, `Review::annotated`).
     pub(super) fn refresh_annotations(&mut self, cx: &mut Context<Self>) {
-        let Some((root, rev, path)) = self.review.annotation_job() else {
+        let Some((root, rev, path)) = self.review.update(cx, |rv, _| rv.annotation_job()) else {
             return;
         };
-        self.review.annot_task = Some(cx.spawn(async move |this, cx| {
+        let task = Some(cx.spawn(async move |this, cx| {
             let lines = cx
                 .background_executor()
                 .spawn(async move { Repo::open(&root)?.blame(rev, &path) })
                 .await;
             this.update(cx, |this, cx| {
                 if let Ok(lines) = lines {
-                    this.review.annotated(lines, rev);
+                    this.review.update(cx, |rv, _| rv.annotated(lines, rev));
                     cx.notify();
                 }
             })
             .ok();
         }));
+        self.review.update(cx, |rv, _| rv.annot_task = task);
     }
 
     /// The pointer came on line number `line` of file `ix` (`at`), or went off it: after a long rest
@@ -105,8 +108,14 @@ impl Workspace {
     ) {
         let key = (ix, old, line);
         let Some(at) = at else {
-            if self.review.blame_tip.as_ref().is_some_and(|t| t.key == key) {
-                self.review.blame_tip = None;
+            if self
+                .review
+                .read(cx)
+                .blame_tip
+                .as_ref()
+                .is_some_and(|t| t.key == key)
+            {
+                self.review.update(cx, |rv, _| rv.blame_tip = None);
                 cx.notify();
             }
             return;
@@ -115,18 +124,23 @@ impl Workspace {
             cx.background_executor().timer(super::hover::LONG).await;
             this.update(cx, |this, cx| {
                 let view = this.blame_view(ix, old, line, cx);
-                if let Some(tip) = this.review.blame_tip.as_mut().filter(|t| t.key == key) {
-                    tip.view = Some(view);
+                let shown = this.review.update(cx, |rv, _| {
+                    let tip = rv.blame_tip.as_mut().filter(|t| t.key == key);
+                    tip.map(|tip| tip.view = Some(view)).is_some()
+                });
+                if shown {
                     cx.notify();
                 }
             })
             .ok();
         });
-        self.review.blame_tip = Some(BlameTip {
-            key,
-            at,
-            view: None,
-            _wait: wait,
+        self.review.update(cx, |rv, _| {
+            rv.blame_tip = Some(BlameTip {
+                key,
+                at,
+                view: None,
+                _wait: wait,
+            })
         });
     }
 
@@ -139,17 +153,21 @@ impl Workspace {
         line: u32,
         cx: &mut Context<Self>,
     ) -> AnyView {
-        let (Some(root), Some(key)) = (self.root.clone(), self.review.blame_at(ix, old)) else {
+        let (Some(root), Some(key)) = (self.root.clone(), self.review.read(cx).blame_at(ix, old))
+        else {
             return cx.new(|_| NoTip).into();
         };
-        if let Some(lines) = self.review.blames.read.get(&key) {
+        if let Some(lines) = self.review.read(cx).blames.read.get(&key) {
             let text = blame_text(lines, line);
             return cx.new(|_| TipOwned(text)).into();
         }
         let tip = cx.new(|_| TipOwned("Reading who wrote this line…".into()));
-        let waiting = self.review.blames.waiting.entry(key.clone()).or_default();
-        waiting.push((tip.downgrade(), line));
-        if waiting.len() == 1 {
+        let first = self.review.update(cx, |rv, _| {
+            let waiting = rv.blames.waiting.entry(key.clone()).or_default();
+            waiting.push((tip.downgrade(), line));
+            waiting.len() == 1
+        });
+        if first {
             cx.spawn(async move |this, cx| {
                 let (at, path) = key.clone();
                 let lines = cx
@@ -166,7 +184,9 @@ impl Workspace {
                     .await;
                 this.update(cx, |this, cx| {
                     let lines = Rc::new(lines.unwrap_or_default());
-                    for (tip, line) in this.review.blames.waiting.remove(&key).unwrap_or_default() {
+                    for (tip, line) in this.review.update(cx, |rv, _| {
+                        rv.blames.waiting.remove(&key).unwrap_or_default()
+                    }) {
                         let text = blame_text(&lines, line);
                         tip.update(cx, |tip, cx| {
                             tip.0 = text;
@@ -174,7 +194,8 @@ impl Workspace {
                         })
                         .ok();
                     }
-                    this.review.blames.read.insert(key, lines);
+                    this.review
+                        .update(cx, |rv, _| rv.blames.read.insert(key, lines));
                 })
                 .ok();
             })
@@ -187,7 +208,7 @@ impl Workspace {
     pub(super) fn open_annotated_commit(&mut self, line: u32, cx: &mut Context<Self>) {
         let Some(id) = line
             .checked_sub(1)
-            .and_then(|i| self.review.annotations.get(i as usize))
+            .and_then(|i| self.review.read(cx).annotations.get(i as usize))
             .map(|c| c.id)
         else {
             return;

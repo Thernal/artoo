@@ -173,15 +173,16 @@ impl Workspace {
         let head = git2::Oid::from_str(&m.head).ok();
         let reviewed = self
             .review
+            .read(cx)
             .review_progress()
             .map(|(done, total)| (done as u32, total as u32))
-            .or_else(|| head.and_then(|h| self.review.head_part(h)))
+            .or_else(|| head.and_then(|h| self.review.read(cx).head_part(h)))
             .map_or_else(
                 || "—".to_owned(),
                 |(done, total)| format!("{done} of {}", plural(total as usize, "file")),
             );
         let latest = self.versions.last().map(|v| v.number);
-        let versions = match (self.marked_version(m.iid), latest) {
+        let versions = match (self.marked_version(m.iid, cx), latest) {
             (Some(at), Some(latest)) if at < latest => format!("v{at} → v{latest}"),
             (_, Some(latest)) => format!("v{latest}"),
             _ => "—".to_owned(),
@@ -627,7 +628,7 @@ impl Workspace {
         let m = self
             .requests
             .current
-            .filter(|_| self.showing_request())
+            .filter(|_| self.showing_request(cx))
             .and_then(|iid| self.requests.find(iid))?;
         Some(self.request_line(m, cx).into_any_element())
     }

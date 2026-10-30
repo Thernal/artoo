@@ -690,11 +690,13 @@ impl Workspace {
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         debug_assert_eq!(
-            self.review.settings, self.settings,
+            self.review.read(cx).settings,
+            self.settings,
             "a change of the settings did not reach the review's copy (save_settings)"
         );
         debug_assert_eq!(
-            self.review.root, self.root,
+            self.review.read(cx).root,
+            self.root,
             "the review's root is not the tab's"
         );
         // The host's words (pull requests on GitHub) for everything drawn from here.
@@ -707,7 +709,7 @@ impl Render for Workspace {
             self.close_theme_edit(cx);
         }
         // Before anything is drawn: which input has the keyboard now (#168).
-        self.sync_keyboard();
+        self.sync_keyboard(cx);
         let title = match &self.root {
             Some(root) => format!(
                 "Artoo — {} · {}",
@@ -733,30 +735,34 @@ impl Render for Workspace {
         // A folded section has no keyboard: it goes to the diff.
         let folded_zone = match self.zone {
             zones::Zone::Commits => self.layout.fold_commits || !self.side_open(),
-            zones::Zone::Files => !self.files_zone(),
+            zones::Zone::Files => !self.files_zone(cx),
             _ => false,
         };
-        if folded_zone && self.review.diff.is_some() {
+        if folded_zone && self.review.read(cx).diff.is_some() {
             self.zone = zones::Zone::Diff;
         }
-        let body = self.review.body_width.get();
+        let body = self.review.read(cx).body_width.get();
         // Under 1280 px of window too (#80).
         let narrow = (body > 0. && body < 700.) || self.menu_narrow();
         // At the interface size chosen: 600 px of the design is more at 150 %.
         let tight = body > 0. && body < f32::from(px(600.));
-        if narrow != self.review.narrow || tight != self.review.tight {
-            self.review.narrow = narrow;
-            self.review.tight = tight;
-            self.relayout_all();
+        if narrow != self.review.read(cx).narrow || tight != self.review.read(cx).tight {
+            self.review.update(cx, |rv, _| {
+                rv.narrow = narrow;
+                rv.tight = tight;
+            });
+            self.relayout_all(cx);
         }
         self.follow_scroll(cx);
-        if self.review.char_width == 0. || self.char_face != theme::code_font() {
+        if self.review.read(cx).char_width == 0. || self.char_face != theme::code_font() {
             self.char_face = theme::code_font();
             let text = window.text_system();
             let id = text.resolve_font(&font(self.char_face.clone()));
-            self.review.char_width = text
-                .advance(id, px(self.review.code_size()), 'm')
-                .map_or(7.2, |size| f32::from(size.width));
+            self.review.update(cx, |rv, _| {
+                rv.char_width = text
+                    .advance(id, px(rv.code_size()), 'm')
+                    .map_or(7.2, |size| f32::from(size.width))
+            });
         }
 
         let mut root = div().id("workspace");
@@ -769,7 +775,7 @@ impl Render for Workspace {
             if self.recording.is_some() {
                 "Recording"
             } else {
-                match self.typing() {
+                match self.typing(cx) {
                     None => "Workspace",
                     Some(Input::Palette | Input::FindFiles | Input::Beside) => {
                         "Workspace Typing Palette"
@@ -858,7 +864,7 @@ impl Render for Workspace {
         }))
         .on_action(cx.listener(|this, _: &NextThread, _, cx| {
             // ⇧N: a note on the agent's form in view, else the next discussion (#10 C).
-            match this.acting_agent_form() {
+            match this.acting_agent_form(cx) {
                 Some(id) => this.start_answer(id, cx),
                 None => this.step_thread(true, cx),
             }
@@ -881,7 +887,7 @@ impl Render for Workspace {
         .on_action(cx.listener(|this, _: &ShowBookmarks, _, cx| {
             if this.palette.is_some() {
                 this.close_palette(cx);
-            } else if this.review.diff.is_some() {
+            } else if this.review.read(cx).diff.is_some() {
                 this.open_palette(palette::Kind::Bookmarks, cx);
             }
         }))
@@ -891,7 +897,7 @@ impl Render for Workspace {
         .on_action(cx.listener(|this, _: &ShowStructure, _, cx| {
             if this.palette.is_some() {
                 this.close_palette(cx);
-            } else if this.review.diff.is_some() {
+            } else if this.review.read(cx).diff.is_some() {
                 this.open_palette(palette::Kind::Structure, cx);
             }
         }))
@@ -1051,7 +1057,7 @@ impl Render for Workspace {
         .on_mouse_up(
             MouseButton::Left,
             cx.listener(|this, _, _, cx| {
-                this.review.selecting = false;
+                this.review.update(cx, |rv, _| rv.selecting = false);
                 this.end_drag(cx)
             }),
         )
@@ -1114,7 +1120,7 @@ impl Render for Workspace {
         // Last, so it paints over everything.
         .children(self.render_ctx_menu(window.viewport_size(), cx))
         .children(self.render_mention_card(cx))
-        .children(self.review.render_blame_tip())
+        .children(self.review.read(cx).render_blame_tip())
         .children(self.render_find_files(cx))
         .children(self.render_open_ask(cx))
         .children(self.render_beside_backdrop(cx))
