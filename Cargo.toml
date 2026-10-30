@@ -78,6 +78,7 @@ artoo-hosts-api = { path = "crates/hosts-api" }
 artoo-shell-api = { path = "crates/shell-api" }
 artoo-agents = { path = "crates/agents" }
 artoo-reports = { path = "crates/reports" }
+artoo-review = { path = "crates/review" }
 artoo-ui-kit = { path = "crates/ui-kit" }
 anyhow.workspace = true
 imagesize.workspace = true

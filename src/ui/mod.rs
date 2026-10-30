@@ -20,7 +20,6 @@ mod compare;
 mod complete;
 mod connecting;
 mod create;
-mod diff_view;
 mod discussion;
 mod fetch;
 mod file_view;
@@ -84,6 +83,8 @@ use crate::git::{
 };
 use crate::rows::{self, FileData, Row};
 use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
+use artoo_review::diff_view::{self, CODE_SIZE, DIFF_ROW};
+use artoo_review::select::Sel;
 use diff_view::{RowStyle, chip};
 use gpui::{
     App, ClickEvent, Context, CursorStyle, FocusHandle, FontWeight, KeyBinding, KeyDownEvent,
@@ -96,7 +97,6 @@ use lists::Field;
 use menu::{Act, CtxMenu, Entry};
 use pins::Pins;
 use review::ReviewEvent;
-use select::Sel;
 use std::cell::Cell as Shared;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -251,8 +251,6 @@ struct Older {
     tip: git2::Oid,
     task: Option<Task<()>>,
 }
-const DIFF_ROW: f32 = 20.;
-const CODE_SIZE: f32 = 12.;
 /// The most a file shown alone in zen is wide: a reading width (#55).
 const READING_WIDTH: f32 = 1100.;
 const TITLE_BAR: f32 = 38.;
@@ -998,8 +996,8 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             this.review.update(cx, |rv, _| {
                                 rv.sel = Some(Sel {
                                     old: false,
-                                    anchor: select::Pos { line: 66, byte: 4 },
-                                    head: select::Pos { line: 68, byte: 12 },
+                                    anchor: artoo_review::select::Pos { line: 66, byte: 4 },
+                                    head: artoo_review::select::Pos { line: 68, byte: 12 },
                                 })
                             });
                             this.line_context(false, 67, Point::new(px(900.), px(520.)), cx);

@@ -10,7 +10,9 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
 - **A Cargo workspace (#165).** The root package is the app (`src/main.rs`, `src/ui/`);
   `crates/core` (`artoo-core`) holds what draws nothing — it has no GPUI — and depends on no feature: git, highlighting, the platform
   layer, storage, themes, markdown and the diff helpers, among them the diff's rows (`rows`: a file built to rows in
-  the background, laid out for the view options, with what is pinned on its lines merged in); its `build.rs` gives a build its commit (`artoo_core::version`). `crates/updates` (`artoo-updates`) asks for
+  the background, laid out for the view options, with what is pinned on its lines merged in); its `build.rs` gives a build its commit (`artoo_core::version`). `crates/review` (`artoo-review`, #165 stage 4,
+  moving in bottom up): the review — so far the row drawing (`diff_view`) and the selection's types (`select`); the
+  app's views read them as `ui::diff_view` and `artoo_review::select`. `crates/updates` (`artoo-updates`) asks for
   newer releases and draws what it found (its `install` alone is shown). `crates/shell-api` (`artoo-shell-api`): the
   shell's contract — actions (the app menu and ⌘K list them), parts each tab draws (title-bar items, cards over the
   window, Settings rows, snapshot views) and the `Frame` a part asks; `src/ui/parts.rs` is the tab's side. `crates/hosts-api` (`artoo-hosts-api`): the hosts' contract — the models GitLab and GitHub answer

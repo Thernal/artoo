@@ -1,17 +1,20 @@
 //! Drawing one row of a file diff, and the small controls above it.
 
-use super::hover::CutInTip;
-use super::px;
-use super::rows::{self, Cell, FileData, Row, Side};
-use super::select::Sel;
-use super::{DIFF_ROW, ROW_RADIUS, theme};
-use crate::git::LineKind;
-use crate::storage::MarkStyle;
+use crate::select::Sel;
+use artoo_core::git::LineKind;
+use artoo_core::rows::{self, Cell, FileData, Row, Side};
+use artoo_core::storage::MarkStyle;
+use artoo_ui_kit::hover::{CutInTip, TipOwned};
+use artoo_ui_kit::{ROW_RADIUS, icons, px, theme};
 use gpui::{
     AnyElement, App, FontStyle, HighlightStyle, MouseButton, Pixels, Point, Rgba, SharedString,
     StyledText, UnderlineStyle, div, prelude::*,
 };
 use std::rc::Rc;
+
+/// A diff row's height and its code's size at 100 %.
+pub const DIFF_ROW: f32 = 20.;
+pub const CODE_SIZE: f32 = 12.;
 
 const TAB_WIDTH: usize = 4;
 /// Width of the `+`/`−` column in a unified diff.
@@ -28,7 +31,7 @@ pub struct RowStyle<'a> {
     /// How changed words are drawn.
     pub marks: MarkStyle,
     /// Words the commit search is looking for; highlighted wherever they appear.
-    pub terms: &'a crate::search::Terms,
+    pub terms: &'a artoo_core::search::Terms,
     /// This row is the one the find bar is on: its matches are drawn solid, not tinted.
     pub strong: bool,
     /// The selected text.
@@ -261,8 +264,8 @@ fn annot_col(style: RowStyle<'_>, line: Option<u32>, events: OnEvents) -> Option
             })
             .cursor_pointer()
             .hover(|s| s.text_color(theme::text()))
-            .tooltip_show_delay(crate::ui::hover::LONG)
-            .tooltip(move |_, cx| cx.new(|_| super::TipOwned(tip.clone())).into())
+            .tooltip_show_delay(artoo_ui_kit::hover::LONG)
+            .tooltip(move |_, cx| cx.new(|_| TipOwned(tip.clone())).into())
             .children(cell.label.clone())
             .on_click(move |_, _, cx| (events.annotate)(false, n, cx))
             .into_any_element(),
@@ -326,7 +329,7 @@ fn gutter(
                     .cursor_pointer()
                     .hover(|s| s.bg(theme::hover()))
                     .child(
-                        super::icons::icon(if note.tone == NoteTone::Bookmark {
+                        icons::icon(if note.tone == NoteTone::Bookmark {
                             "bookmark"
                         } else {
                             "message"
@@ -364,11 +367,7 @@ fn gutter(
                     .cursor_pointer()
                     .invisible()
                     .group_hover("diff-row", |s| s.visible())
-                    .child(
-                        super::icons::icon("plus")
-                            .size(px(13.))
-                            .text_color(theme::base()),
-                    )
+                    .child(icons::icon("plus").size(px(13.)).text_color(theme::base()))
                     .on_click(move |_, _, cx| (events.comment)(old, line, cx)),
             )
         }))
@@ -526,7 +525,7 @@ pub fn mark_preview(marks: MarkStyle) -> impl IntoElement {
             .px_3()
             .when_some(line_bg, |s, bg| s.bg(bg))
             .font_family(theme::code_font())
-            .text_size(px(super::CODE_SIZE))
+            .text_size(px(CODE_SIZE))
             .line_height(px(DIFF_ROW))
             .child(
                 StyledText::new(text)

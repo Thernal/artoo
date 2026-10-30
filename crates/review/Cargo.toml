@@ -1,0 +1,13 @@
+[package]
+name = "artoo-review"
+description = "The review (#165 stage 4): a diff read file by file or in one scroll, its rows drawn, what is marked read."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+artoo-core = { path = "../core" }
+artoo-ui-kit = { path = "../ui-kit" }
+git2.workspace = true
+gpui.workspace = true
