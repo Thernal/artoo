@@ -80,16 +80,21 @@ pub fn picture(who: &str) -> Option<std::sync::Arc<gpui::Image>> {
     crate::pictures::get(&url).map(|(image, _)| image)
 }
 
-/// The username of `who` (a name or a username), lower case, once a host named them; else `who`
-/// itself, lower case.
-pub fn login_of(who: &str) -> String {
-    let key = who.to_lowercase();
-    LOGINS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(&key)
-        .cloned()
-        .unwrap_or(key)
+/// What the kit's avatars ask (`artoo_ui_kit::people`).
+pub(crate) struct Avatars;
+
+impl artoo_ui_kit::people::People for Avatars {
+    fn picture(&self, who: &str) -> Option<std::sync::Arc<gpui::Image>> {
+        picture(who)
+    }
+
+    fn login(&self, who: &str) -> Option<String> {
+        LOGINS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&who.to_lowercase())
+            .cloned()
+    }
 }
 
 #[cfg(test)]
@@ -118,9 +123,17 @@ mod tests {
         }]);
         harvest(&answer);
         // An initial's colour comes from the username, by name or by username alike.
-        assert_eq!(login_of("Ember Avatars"), "ember-avatars-test");
-        assert_eq!(login_of("EMBER-AVATARS-TEST"), "ember-avatars-test");
-        assert_eq!(login_of("Nobody Known"), "nobody known");
+        use artoo_ui_kit::people::People;
+        let login = |who| Avatars.login(who);
+        assert_eq!(
+            login("Ember Avatars").as_deref(),
+            Some("ember-avatars-test")
+        );
+        assert_eq!(
+            login("EMBER-AVATARS-TEST").as_deref(),
+            Some("ember-avatars-test")
+        );
+        assert_eq!(login("Nobody Known"), None);
         let who = WHO.lock().unwrap();
         assert!(!who.contains_key("ember-avatars-test"));
         assert_eq!(

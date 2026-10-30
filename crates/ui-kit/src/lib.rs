@@ -3,6 +3,7 @@
 //! A module draws with this and GPUI alone.
 
 pub mod controls;
+pub mod discussion;
 pub mod file_icons;
 pub mod format;
 pub mod hover;
@@ -11,6 +12,7 @@ pub mod input;
 pub mod keys;
 pub mod markdown;
 pub mod motion;
+pub mod people;
 pub mod pictures;
 pub mod room;
 pub mod theme;

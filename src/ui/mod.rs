@@ -5,7 +5,8 @@ pub(crate) use artoo_ui_kit::{apply_ui_zoom, flat, px, ui_zoom};
 mod hover;
 use artoo_ui_kit::format::plural;
 use artoo_ui_kit::{
-    ISLAND_RADIUS, ROW_RADIUS, format, icons, island, keys, markdown, room, row, theme, words,
+    ISLAND_RADIUS, ROW_RADIUS, discussion, format, icons, island, keys, markdown, room, row, theme,
+    words,
 };
 mod agent;
 mod agent_comments;
@@ -23,7 +24,6 @@ mod complete;
 mod composer;
 mod connecting;
 mod create;
-mod discussion;
 mod fetch;
 mod file_view;
 mod find;

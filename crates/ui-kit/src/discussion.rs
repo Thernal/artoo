@@ -1,11 +1,10 @@
 //! The pieces of a discussion under a diff line, as designed in
 //! `../Design/mockups/line-comments/c-conversation.html` (chosen 2026-10-12): a frame with a header
 //! bar and a footer, notes laid out avatar | header | body on a timeline, buttons whose keys are
-//! keycaps (`super::keys`).
+//! keycaps (`crate::keys`).
 
-use super::keys::{self, On};
-use super::px;
-use super::theme;
+use crate::keys::{self, On};
+use crate::{px, theme};
 use gpui::{AnyElement, Div, ElementId, FontWeight, Rgba, SharedString, Stateful, div, prelude::*};
 
 /// Where a discussion lives, which decides its colour.
@@ -87,7 +86,7 @@ pub fn source_pill(source: Source) -> Div {
             s.border_1().border_color(theme::warning())
         })
         .text_color(source.color())
-        .child(super::words::say(source.label()).into_owned())
+        .child(crate::words::say(source.label()).into_owned())
 }
 
 /// The head of a discussion: a chevron that folds it, then whatever the caller puts in. The whole
@@ -115,14 +114,14 @@ pub fn bar(id: impl Into<ElementId>, open: bool) -> Stateful<Div> {
                 .rounded(px(6.))
                 .hover(|s| s.bg(theme::hover()))
                 // The chevron turns as it opens or folds (#56, 10).
-                .child(super::motion::toward(
-                    super::icons::icon("chevron")
+                .child(crate::motion::toward(
+                    crate::icons::icon("chevron")
                         .size(px(16.))
                         .text_color(theme::muted()),
                     "bar-chevron",
                     open,
                     false,
-                    super::motion::FAST,
+                    crate::motion::FAST,
                     |chevron, v| {
                         chevron.with_transformation(gpui::Transformation::rotate(gpui::radians(
                             -std::f32::consts::FRAC_PI_2 * (1. - v),
@@ -156,7 +155,7 @@ pub fn state(resolved: bool) -> Div {
 /// A round avatar with the name's first letter, coloured by the name.
 pub fn avatar(name: &str, me: bool, size: f32) -> Div {
     // Their picture once it is in (#89).
-    if let Some(picture) = crate::avatars::picture(name) {
+    if let Some(picture) = crate::people::picture(name) {
         return div()
             .size(px(size))
             .flex_none()
@@ -170,7 +169,7 @@ pub fn avatar(name: &str, me: bool, size: f32) -> Div {
     let color = if me {
         theme::accent()
     } else {
-        let h = crate::avatars::login_of(name)
+        let h = crate::people::login_of(name)
             .bytes()
             .fold(7u32, |h, b| h.wrapping_mul(31).wrapping_add(u32::from(b)));
         gpui::rgb(HUES[h as usize % HUES.len()])
@@ -212,7 +211,7 @@ pub fn note(
     action: Option<AnyElement>,
     who: Option<Who>,
 ) -> Div {
-    use super::hover::Hover;
+    use crate::hover::Hover;
     let key = format!("{author}-{time}");
     let (card, when) = match who {
         Some((card, when)) => (Some(card), Some(when)),
@@ -243,7 +242,7 @@ pub fn note(
             .text_size(px(12.))
             .text_color(theme::muted())
             .child(format!("· {time}"))
-            .when_some(when, |s, t| s.tip(super::hover::full_date(t)))
+            .when_some(when, |s, t| s.tip(crate::hover::full_date(t)))
     });
     div()
         .relative()
@@ -349,7 +348,7 @@ pub fn icon_button(
         Kind::Danger => theme::removed(),
         Kind::Primary(_) => theme::base(),
     };
-    let glyph = super::icons::icon(icon)
+    let glyph = crate::icons::icon(icon)
         .size(px(if bare { 15. } else { 14. }))
         .text_color(ink)
         .when(matches!(kind, Kind::Quiet), |s| {
@@ -380,8 +379,8 @@ pub fn icon_button(
     });
     match tip {
         Some(tip) => button
-            .tooltip_show_delay(super::hover::LONG)
-            .tooltip(move |_, cx| cx.new(|_| super::TipOwned(tip.clone())).into()),
+            .tooltip_show_delay(crate::hover::LONG)
+            .tooltip(move |_, cx| cx.new(|_| crate::hover::TipOwned(tip.clone())).into()),
         None => button,
     }
 }
