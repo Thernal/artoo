@@ -1,6 +1,6 @@
 //! What the requests read from their host and keep (#165 R5c): the open list, the requests gone from it, the
-//! merged and closed pages, the open request's discussions again after a change, its versions, the reactions on
-//! its notes, where merging it stands. Each read is the entity's own task; what the tab does after one comes to it
+//! merged and closed pages, the request opened and its discussions again after a change, its versions, the
+//! reactions on its notes, where merging it stands. Each read is the entity's own task; what the tab does after one comes to it
 //! as an `Event`.
 
 use crate::requests::{Event, HostSides, Requests, Scope};
@@ -145,6 +145,79 @@ impl Requests {
         pages.more = true;
         self.load_past_page(scope, host, cx);
         cx.notify();
+    }
+
+    /// Reads request `iid`, just opened: its discussions, pending comments, pipeline, approvals and
+    /// details, where merging it stands while it is open, and who the token is once.
+    /// `Event::Opened` tells the tab.
+    pub fn read_open(&mut self, iid: u64, host: Arc<dyn Host>, cx: &mut Context<Self>) {
+        let known = self.login.is_some();
+        let open = self
+            .find(iid)
+            .is_some_and(|m| m.state == mr::MrState::Opened);
+        self.reading = true;
+        let from = self.waiting.tick();
+        self.thread_task = Some(cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    // Drafts need a recent GitLab; without them the rest still works.
+                    let drafts = host.drafts(iid).unwrap_or_default();
+                    let pipeline = host.pipeline(iid).ok().flatten();
+                    let approvals = host.approvals(iid).ok();
+                    let details = host.details(iid).ok();
+                    let merge = open.then(|| host.merge_state(iid).ok()).flatten();
+                    let login = if known { None } else { host.username().ok() };
+                    host.threads(iid)
+                        .map(|t| (t, drafts, pipeline, approvals, login, (details, merge)))
+                })
+                .await;
+            this.update(cx, |rq, cx| {
+                if rq.current != Some(iid) {
+                    return;
+                }
+                rq.reading = false;
+                let read = match result {
+                    Ok((threads, drafts, pipeline, approvals, login, (details, merge))) => {
+                        if login.is_some() {
+                            rq.login = login;
+                        }
+                        rq.details = details;
+                        rq.merge = merge;
+                        rq.pipeline = pipeline;
+                        let base = Base {
+                            threads,
+                            drafts,
+                            approvals,
+                        };
+                        rq.take_base(from, base);
+                        true
+                    }
+                    Err(e) => {
+                        rq.error = Some(format!("{e:#}"));
+                        false
+                    }
+                };
+                cx.emit(Event::Opened { iid, read });
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
+    /// What was read of the request open is let go: another one comes, or none.
+    pub fn forget_open(&mut self) {
+        self.threads.clear();
+        self.drafts.clear();
+        self.base = Default::default();
+        self.reload_task = None;
+        self.pipeline = None;
+        self.approvals = None;
+        self.merge = None;
+        self.merge_busy = None;
+        self.details = None;
+        self.histories.clear();
+        self.awards.clear();
     }
 
     /// Reads the discussions, pending comments and approvals of the open request again (after a

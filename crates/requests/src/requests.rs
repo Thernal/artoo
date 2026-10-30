@@ -57,6 +57,8 @@ pub enum Event {
     Listed,
     /// Requests gone from the open list were read.
     Left,
+    /// Request `iid`, opened, was read (`read`), or could not be.
+    Opened { iid: u64, read: bool },
     /// The open request `iid`'s discussions, pending comments and approvals were read again: what
     /// shows is made again on them.
     Read(u64),

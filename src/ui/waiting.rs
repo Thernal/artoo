@@ -8,7 +8,7 @@
 //! answered before `t`, so when it arrives those stop applying and the rest go on top of it.
 
 use super::Workspace;
-pub(super) use artoo_requests::waiting::{At, Base, Me, Op, Waiting, is_temp, is_temp_thread};
+pub(super) use artoo_requests::waiting::{At, Me, Op, Waiting, is_temp, is_temp_thread};
 use gpui::{App, Context};
 
 impl Workspace {
@@ -115,12 +115,6 @@ impl Workspace {
             self.refresh_rows(cx);
         }
         self.notices.show(iid, &self.requests.read(cx).waiting, me);
-    }
-
-    /// The host's answer for the open request `iid`, from a read begun at tick `from`.
-    pub(super) fn take_base(&mut self, iid: u64, from: u64, base: Base, cx: &mut Context<Self>) {
-        self.requests.update(cx, |rq, _| rq.take_base(from, base));
-        self.base_taken(iid, cx);
     }
 
     /// What shows of the open request `iid` is made again on the host's answer just taken, and

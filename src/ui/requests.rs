@@ -144,6 +144,16 @@ impl Workspace {
             }
             // A link waiting for one goes on.
             Event::Left => self.follow_pending_link(cx),
+            Event::Opened { iid, read } => {
+                if *read {
+                    self.base_taken(*iid, cx);
+                    // A link to a comment waits for the discussions; the diff is in by now or
+                    // comes later and tries again.
+                    let diff_in = self.showing_request(cx);
+                    self.resolve_spot(diff_in, cx);
+                }
+                self.refresh_rows(cx);
+            }
             Event::Read(iid) => self.base_taken(*iid, cx),
             Event::Versions(iid) => {
                 self.follow_host_sides(*iid, cx);
@@ -188,22 +198,11 @@ impl Workspace {
             return;
         }
         if iid != self.requests.read(cx).current {
-            self.requests.update(cx, |rq, _| rq.threads.clear());
-            self.requests.update(cx, |rq, _| rq.drafts.clear());
-            self.requests
-                .update(cx, |rq, _| rq.base = Default::default());
-            self.requests.update(cx, |rq, _| rq.reload_task = None);
-            self.requests.update(cx, |rq, _| rq.pipeline = None);
-            self.requests.update(cx, |rq, _| rq.approvals = None);
-            self.requests.update(cx, |rq, _| rq.merge = None);
-            self.requests.update(cx, |rq, _| rq.merge_busy = None);
+            self.requests.update(cx, |rq, _| rq.forget_open());
             // A merge's card is of the request it was opened on (#164).
             if self.merging.as_ref().is_some_and(|c| !c.busy) {
                 self.merging = None;
             }
-            self.requests.update(cx, |rq, _| rq.details = None);
-            self.requests.update(cx, |rq, _| rq.histories.clear());
-            self.requests.update(cx, |rq, _| rq.awards.clear());
             self.draft_at = None;
         }
         self.requests.update(cx, |rq, _| rq.current = iid);
@@ -221,66 +220,11 @@ impl Workspace {
             self.mark_opened(iid, cx);
         }
         self.requests.update(cx, |rq, _| rq.reading = false);
-        let (Some(iid), Some(remote)) = (iid, self.web.clone()) else {
+        let (Some(iid), Some(host)) = (iid, self.host(cx)) else {
             return;
         };
-        let host = super::host_of(&remote, cx);
-        let known = self.requests.read(cx).login.is_some();
-        let open = self
-            .requests
-            .read(cx)
-            .find(iid)
-            .is_some_and(|m| m.state == mr::MrState::Opened);
-        self.requests.update(cx, |rq, _| rq.reading = true);
-        let from = self.requests.read(cx).waiting.tick();
-        let task = Some(cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    // Drafts need a recent GitLab; without them the rest still works.
-                    let drafts = host.drafts(iid).unwrap_or_default();
-                    let pipeline = host.pipeline(iid).ok().flatten();
-                    let approvals = host.approvals(iid).ok();
-                    let details = host.details(iid).ok();
-                    let merge = open.then(|| host.merge_state(iid).ok()).flatten();
-                    let login = if known { None } else { host.username().ok() };
-                    host.threads(iid)
-                        .map(|t| (t, drafts, pipeline, approvals, login, (details, merge)))
-                })
-                .await;
-            this.update(cx, |this, cx| {
-                if this.requests.read(cx).current == Some(iid) {
-                    this.requests.update(cx, |rq, _| rq.reading = false);
-                    match result {
-                        Ok((threads, drafts, pipeline, approvals, login, (details, merge))) => {
-                            if login.is_some() {
-                                this.requests.update(cx, |rq, _| rq.login = login);
-                            }
-                            this.requests.update(cx, |rq, _| rq.details = details);
-                            this.requests.update(cx, |rq, _| rq.merge = merge);
-                            this.requests.update(cx, |rq, _| rq.pipeline = pipeline);
-                            let base = super::waiting::Base {
-                                threads,
-                                drafts,
-                                approvals,
-                            };
-                            this.take_base(iid, from, base, cx);
-                            // A link to a comment waits for the discussions; the diff is in by now
-                            // or comes later and tries again.
-                            let diff_in = this.showing_request(cx);
-                            this.resolve_spot(diff_in, cx);
-                        }
-                        Err(e) => this
-                            .requests
-                            .update(cx, |rq, _| rq.error = Some(format!("{e:#}"))),
-                    }
-                    this.refresh_rows(cx);
-                    cx.notify();
-                }
-            })
-            .ok();
-        }));
-        self.requests.update(cx, |rq, _| rq.thread_task = task);
+        self.requests
+            .update(cx, |rq, cx| rq.read_open(iid, host, cx));
     }
 
     /// Opens merge request `iid`: its branch in the lists and, as the diff, what the branch adds to
