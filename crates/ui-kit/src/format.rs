@@ -109,6 +109,15 @@ pub fn home_relative(path: &std::path::Path) -> String {
     }
 }
 
+/// A comment on one line, for a folded thread or a list: without its markdown when `rich`.
+pub fn one_line(body: &str, rich: bool) -> String {
+    if rich {
+        artoo_core::markdown::plain(body)
+    } else {
+        body.replace('\n', " ")
+    }
+}
+
 /// "1 file", "3 commits", "2 replies".
 pub fn plural(n: usize, noun: &str) -> String {
     if n == 1 {

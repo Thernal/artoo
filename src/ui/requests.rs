@@ -10,11 +10,12 @@ use super::tools::ToolView;
 use super::waiting::Op;
 use super::{Header, Selection, Workspace, plural, theme};
 use crate::git::{RefKind, Repo};
-use crate::mr::{self, Draft, Mr, Thread};
+use crate::mr::{self, Mr};
+use artoo_requests::discussions::{self, Listing};
 use artoo_requests::reactions::Hovered;
 use artoo_requests::requests::{Act, Acts};
 pub(super) use artoo_requests::requests::{Past, Requests, Scope, Sides, sides};
-pub(super) use artoo_ui_kit::controls::{comment_item, group_heading};
+pub(super) use artoo_ui_kit::controls::group_heading;
 use gpui::{App, ClickEvent, Context, FontWeight, WeakEntity, div, prelude::*};
 use std::rc::Rc;
 
@@ -1507,10 +1508,7 @@ impl Workspace {
 
     /// A pending comment in one line, an agent's after its name (#150).
     pub(super) fn draft_line(&self, d: &mr::Draft, cx: &App) -> String {
-        match self.draft_agent(d.id, cx) {
-            Some(agent) => format!("{agent}: {}", self.one_line(&d.body)),
-            None => self.one_line(&d.body),
-        }
+        discussions::draft_line(d, self.settings.rich_comments, self.draft_agent(d.id, cx))
     }
 
     /// The pending comments on lines of the diff loaded, in its order: (file, line, index).
@@ -1574,43 +1572,14 @@ impl Workspace {
         self.web.as_ref().is_some_and(|w| !w.github)
     }
 
-    /// Send now on a pending comment's row in a list (the Discussions window, Submit review),
-    /// shown while the row is under the pointer; none on GitHub (#138).
+    /// Send now on a pending comment's row in a list (`discussions::send_now_chip`).
     pub(super) fn send_now_chip(
         &self,
         id: u64,
         group: &'static str,
         cx: &Context<Self>,
     ) -> Option<gpui::Stateful<gpui::Div>> {
-        self.sends_one_draft().then(|| {
-            div()
-                .id(("send-now", id as usize))
-                .flex_none()
-                .px(px(6.))
-                .h(px(20.))
-                .flex()
-                .items_center()
-                .rounded(px(super::ROW_RADIUS))
-                .border_1()
-                .border_color(theme::island_border())
-                .bg(theme::panel())
-                .text_size(px(11.))
-                .text_color(theme::text())
-                .cursor_pointer()
-                .hover(|s| s.bg(theme::selected()))
-                .invisible()
-                .group_hover(group, |s| s.visible())
-                .child("Send now")
-                .tooltip_show_delay(super::hover::LONG)
-                .tooltip(|_, cx| {
-                    cx.new(|_| super::Tip("Publishes this comment alone; the others stay pending"))
-                        .into()
-                })
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    cx.stop_propagation();
-                    this.send_draft_now(id, cx);
-                }))
-        })
+        discussions::send_now_chip(id, group, self.on_github(), self.request_acts(cx))
     }
 
     /// Delete on one's own note, then "Delete on GitLab?" with Delete and Cancel (#76).
@@ -1718,252 +1687,28 @@ impl Workspace {
         );
     }
 
-    /// The Discussions tool window: the request's discussions and pending notes — public ones only,
-    /// the agent's are the Agents window's (#76); a click shows one in the diff.
+    /// The Discussions tool window (`Requests::discussions_window`).
     pub(super) fn discussions_tool(&self, cx: &mut Context<Self>) -> ToolView {
-        // Copied: drawing an item needs the tab's context.
-        let (threads, all_drafts) = if self.showing_request(cx) {
-            let rq = self.requests.read(cx);
-            (rq.threads.clone(), rq.drafts.clone())
-        } else {
-            Default::default()
+        let rq = self.requests.read(cx);
+        let look = Listing {
+            showing: self.showing_request(cx),
+            rich: self.settings.rich_comments,
+            github: self.on_github(),
+            latest: self.latest_version(),
+            agents: rq
+                .drafts
+                .iter()
+                .filter_map(|d| Some((d.id, self.draft_agent(d.id, cx)?.to_owned())))
+                .collect(),
         };
-        let theirs: Vec<(usize, &Thread)> = threads.iter().enumerate().collect();
-        let drafts: Vec<(usize, &Draft)> = all_drafts.iter().enumerate().collect();
-        let pending = drafts.len();
-        // Public only: the agent's comments are the Agents window's (#76).
-        let discussions = theirs.len();
-        let total = discussions + pending;
-        // Group headings once there is more than one kind. Pending ones always have theirs: it is what
-        // says they are pending, and how to walk them.
-        let grouped = [discussions, pending].iter().filter(|&&n| n > 0).count() > 1;
-        // Written on an earlier version: listed apart, grouped by that version (#46).
-        let outdated = if self.showing_request(cx) {
-            self.requests.read(cx).outdated_by_version()
-        } else {
-            Vec::new()
-        };
-        let old: Vec<usize> = outdated.iter().flat_map(|(_, l)| l.clone()).collect();
-        let theirs: Vec<(usize, &Thread)> = theirs
-            .into_iter()
-            .filter(|(ix, _)| !old.contains(ix))
-            .collect();
-        let discussions = theirs.len();
-        let mut outdated_items = Vec::new();
-        for (version, list) in outdated {
-            let items: Vec<gpui::AnyElement> =
-                list.iter().map(|&ix| self.outdated_item(ix, cx)).collect();
-            outdated_items.push(
-                div()
-                    .flex()
-                    .flex_col()
-                    .child(group_heading(
-                        match version {
-                            Some(v) => format!("Written on v{v} · {}", list.len()),
-                            None => format!("An earlier version · {}", list.len()),
-                        },
-                        None,
-                    ))
-                    .children(items),
-            );
-        }
-        let request_items = theirs.into_iter().map(|(ix, t)| {
-            let target = t.path.clone().zip(t.new_line.or(t.old_line));
-            let old = t.new_line.is_none();
-            let where_ = match &target {
-                Some((p, n)) => format!("{}:{n}", p.rsplit('/').next().unwrap_or(p)),
-                None => "General".to_owned(),
-            };
-            let first = &t.notes[0];
-            // Faded while a change to it waits on the host (#139).
-            let waits = self.requests.read(cx).thread_waits(&t.id).is_some()
-                || t.notes
-                    .iter()
-                    .any(|n| self.requests.read(cx).note_time(n.id, n.created).1);
-            comment_item(
-                ("comment-mr", ix),
-                theme::warning(),
-                where_,
-                format!("{}: {}", first.author, self.one_line(&first.body)),
-            )
-            .when(waits, |s| s.opacity(super::waiting::FADED))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                if let Some((path, line)) = target.clone() {
-                    this.jump_to_line(&path, line, old, cx)
-                }
-            }))
-        });
-        let draft_items = drafts.into_iter().map(|(ix, d)| {
-            let (where_, target, old) = self.requests.read(cx).draft_where(d);
-            comment_item(
-                ("comment-draft", ix),
-                theme::warning(),
-                where_,
-                self.draft_line(d, cx),
-            )
-            .relative()
-            .group("pending-row")
-            .when(self.requests.read(cx).draft_waits(d.id).is_some(), |s| {
-                s.opacity(super::waiting::FADED)
-            })
-            .children(
-                self.send_now_chip(d.id, "pending-row", cx)
-                    .filter(|_| {
-                        self.requests.read(cx).draft_waits(d.id).is_none()
-                            && !super::waiting::is_temp(d.id)
-                    })
-                    .map(|chip| chip.absolute().top(px(3.)).right(px(6.))),
-            )
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                if let Some((path, line)) = target.clone() {
-                    this.jump_to_line(&path, line, old, cx)
-                }
-            }))
-        });
-        let submit = (pending > 0).then(|| {
-            div()
-                .id("submit-review")
-                .px_2()
-                .h(px(24.))
-                .flex()
-                .items_center()
-                .rounded(px(super::ROW_RADIUS))
-                .bg(theme::warning())
-                .text_color(theme::base())
-                .text_size(px(12.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .cursor_pointer()
-                .child(format!("Submit review · {pending}"))
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_submit(cx)))
-        });
+        let window = rq.discussions_window(look, self.request_acts(cx));
         ToolView {
             title: "Discussions".into(),
-            count: (total > 0).then(|| total.to_string()),
+            count: window.count,
             actions: Vec::new(),
-            body: div()
-                .id("comments-list")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scroll()
-                .py(px(6.))
-                .children(
-                    (pending > 0)
-                        .then(|| group_heading(format!("Pending · {pending}"), Some("⌥N"))),
-                )
-                .children(draft_items)
-                .children(
-                    (grouped && discussions > 0)
-                        .then(|| group_heading(format!("Discussions · {discussions}"), None)),
-                )
-                .children(request_items)
-                .children((!old.is_empty()).then(|| {
-                    div()
-                        .px(px(14.))
-                        .pt(px(14.))
-                        .pb(px(2.))
-                        .text_size(px(12.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::text())
-                        .child("Outdated")
-                        .child(
-                            div()
-                                .text_size(px(11.))
-                                .font_weight(FontWeight::NORMAL)
-                                .text_color(theme::faint())
-                                .child("by the version they were written on"),
-                        )
-                }))
-                .children(outdated_items)
-                .children((total == 0 && self.requests.read(cx).reading).then(|| {
-                    div()
-                        .px(px(14.))
-                        .py(px(12.))
-                        .child(super::roots::skeleton("discussions-loading", 3))
-                }))
-                .children((total == 0 && !self.requests.read(cx).reading).then(|| {
-                    div()
-                        .px(px(14.))
-                        .py(px(10.))
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child("No comments yet")
-                }))
-                .into_any_element(),
-            foot: submit.map(IntoElement::into_any_element),
+            body: window.body,
+            foot: window.foot,
         }
-    }
-
-    /// An outdated discussion in the Discussions window: where, its first words, whether its line
-    /// changed. A click shows it — its line where it is now, else the versions compared since —,
-    /// and it is resolved or reopened there, where it is read (the developer, 2026-10-23: no Show
-    /// or Reopen on the row).
-    fn outdated_item(&self, ix: usize, cx: &mut Context<Self>) -> gpui::AnyElement {
-        use super::hover::Hover;
-        let t = &self.requests.read(cx).threads[ix];
-        let line_now = self
-            .requests
-            .read(cx)
-            .histories
-            .get(&t.id)
-            .and_then(|h| h.line_now);
-        let path = t.path.clone().unwrap_or_default();
-        let place = format!(
-            "{}:{}",
-            path.rsplit('/').next().unwrap_or(&path),
-            t.new_line.or(t.old_line).unwrap_or(0)
-        );
-        let first = &t.notes[0];
-        let written = self
-            .requests
-            .read(cx)
-            .histories
-            .get(&t.id)
-            .map(|h| h.written);
-        // What a click does: the line where it is now, or (gone) the versions compared.
-        let shows = match (
-            line_now,
-            self.requests
-                .read(cx)
-                .compare_label(ix, self.latest_version()),
-        ) {
-            (Some(_), _) => "Show its line now".to_owned(),
-            (None, Some(compare)) => compare,
-            (None, None) => String::new(),
-        };
-        div()
-            .id(("comment-old-item", ix))
-            .flex()
-            .flex_col()
-            .cursor_pointer()
-            .child(comment_item(
-                ("comment-old", ix),
-                theme::faint(),
-                place,
-                format!("{}: {}", first.author, self.one_line(&first.body)),
-            ))
-            .child(
-                div()
-                    .pl(px(28.))
-                    .pr(px(14.))
-                    .pb(px(6.))
-                    .text_size(px(11.))
-                    .text_color(theme::warning())
-                    .child(
-                        self.requests
-                            .read(cx)
-                            .since_comment(ix)
-                            .unwrap_or_else(|| "Written on an earlier version".to_owned()),
-                    ),
-            )
-            .when(!shows.is_empty(), |s| s.tip(shows))
-            .on_click(
-                cx.listener(move |this, _: &ClickEvent, _, cx| match line_now {
-                    Some(line) => this.jump_to_line(&path, line, false, cx),
-                    None if written.is_some() => this.compare_since(ix, cx),
-                    None => {}
-                }),
-            )
-            .into_any_element()
     }
 
     /// Every comment of the open diff: the request's discussions and pending ones, and the agent's.
@@ -2182,6 +1927,9 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
             Act::ThreadNote(thread) => this.start_thread_note(thread, cx),
             Act::ReplyMentioning { thread, login } => this.reply_mentioning(thread, &login, cx),
             Act::CompareSince(ix) => this.compare_since(ix, cx),
+            Act::JumpToLine { path, line, old } => this.jump_to_line(&path, line, old, cx),
+            Act::OpenSubmit => this.open_submit(cx),
+            Act::SendNow(id) => this.send_draft_now(id, cx),
             Act::RunMerge => this.run_merge(cx),
             Act::ShowNewVersion => this.show_new_version(cx),
         })

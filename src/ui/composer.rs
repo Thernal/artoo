@@ -777,11 +777,7 @@ impl Workspace {
 
     /// A comment on one line, for a folded thread or a tool window: without its markdown when Rich.
     pub(super) fn one_line(&self, body: &str) -> String {
-        if self.settings.rich_comments {
-            crate::markdown::plain(body)
-        } else {
-            body.replace('\n', " ")
-        }
+        artoo_ui_kit::format::one_line(body, self.settings.rich_comments)
     }
 
     /// The project's web address, which relative links in a comment are relative to.

@@ -103,6 +103,12 @@ pub enum Act {
     ReplyMentioning { thread: usize, login: String },
     /// Outdated discussion `ix`'s version compared with the latest.
     CompareSince(usize),
+    /// The diff shows line `line` of file `path` (`old`: the removed side).
+    JumpToLine { path: String, line: u32, old: bool },
+    /// Submit review's card.
+    OpenSubmit,
+    /// Pending comment `id` published alone (#138).
+    SendNow(u64),
     /// Merge's card sends the merge.
     RunMerge,
     /// Merge was refused for a push after the version on the page: the card goes, the new one
