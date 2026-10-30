@@ -31,10 +31,14 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   (`artoo-review-api`): what a page asks of the tab's review, for now the file Code reads (`FileView`). `crates/requests`
   (`artoo-requests`, #165 stage 4): what the tab keeps of merge requests — the lists and their groups (`group`),
   the request open (`requests`), the changes sent to its host and not read back (`waiting`), what became of an
-  outdated discussion's line (`outdated`), the reactions on its notes, where merging it stands (`merge`) — and
-  what they read from their host
-  (`reading`), each read the entity's own task, the tab hearing what follows as a `requests::Event`; the app's
-  views read and draw them.
+  outdated discussion's line (`outdated`, its history drawn), the reactions on its notes (`reactions`: the pills,
+  the hover bar, ☺+'s grid), where merging it stands (`merge`) — and what they read from their host
+  (`reading`), each read the entity's own task, the tab hearing what follows as a `requests::Event`. Its views draw
+  from it, a click asking the tab an `requests::Act`: the request's bar pieces (`bar`), Overview and the line over
+  Commits and Changes (`page`), the Discussions window (`discussions`), Merge's card (`merging`), Submit review
+  (`submit`), the New merge request form (`create`), who and which emoji a token completes to (`complete`); a
+  card's text keeps its own caret (`area`). The tab gives each what it knows (a `…Look`) and puts it in its
+  frame; the list, the Inbox and a thread drawn on the diff's lines are still the app's.
   `crates/shell-api` (`artoo-shell-api`): the
   shell's contract — actions (the app menu and ⌘K list them), parts each tab draws (title-bar items, cards over the
   window, Settings rows, snapshot views, a space's pages), the `Frame` a part asks and the tab's `Services`;

@@ -114,5 +114,8 @@ The target above is reached stage by stage; until then:
   `artoo-review-api` holds what a page asks of the tab's review: for now the file Code reads (`FileView`), offered
   in the tab's services. A discussion's pieces are the kit's (`discussion`, with the `People` port hosts provide).
 - `artoo-requests` (stage 4, R5) holds what the tab keeps of merge requests (the lists, the request open, the
-  changes waiting); the app's views read and draw it until they move into it.
+  changes waiting) and draws most of its views — the bar's pieces, Overview, Discussions, Merge's card, Submit
+  review, the New merge request form, reactions —, a click asking the tab an `Act` and what a view needs of the tab
+  given as a `…Look`. The list and the Inbox follow with its pages through the registry (R5e); a thread on the
+  diff's lines with the composer as an entity (R4d).
 - Every implementation's surface is wide (`OPEN`) until its views move with it.
