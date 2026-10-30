@@ -205,8 +205,12 @@ impl Requests {
         }));
     }
 
-    /// What was read of the request open is let go: another one comes, or none.
+    /// What was read of the request open is let go: another one comes, or none. A merge's card is
+    /// of the request it was opened on (#164).
     pub fn forget_open(&mut self) {
+        if self.merging.as_ref().is_some_and(|c| !c.busy) {
+            self.merging = None;
+        }
         self.threads.clear();
         self.drafts.clear();
         self.base = Default::default();

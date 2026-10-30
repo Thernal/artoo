@@ -6,6 +6,7 @@
 pub mod bar;
 pub mod group;
 pub mod merge;
+pub mod merging;
 pub mod outdated;
 pub mod reactions;
 pub mod reading;

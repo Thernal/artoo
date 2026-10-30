@@ -68,6 +68,11 @@ pub enum Event {
     Histories,
     /// The reactions on the open request's notes were read.
     Awards,
+    /// The host merged request `iid`, or set it to merge when the pipeline succeeds (`merge`).
+    Merged {
+        iid: u64,
+        merge: crate::merge::Merge,
+    },
     /// A call to the host was refused, and why.
     Failed(String),
 }
@@ -86,6 +91,11 @@ pub enum Act {
     Rebase,
     /// Merging when the pipeline succeeds is cancelled.
     CancelAutoMerge,
+    /// Merge's card sends the merge.
+    RunMerge,
+    /// Merge was refused for a push after the version on the page: the card goes, the new one
+    /// comes.
+    ShowNewVersion,
 }
 
 /// How the tab answers what the requests' views ask.
@@ -140,6 +150,8 @@ pub struct Requests {
     pub merge: Option<mr::MergeState>,
     pub merge_busy: Option<&'static str>,
     pub merge_task: Option<Task<()>>,
+    /// Merge's card, open.
+    pub merging: Option<crate::merging::MergeCard>,
     /// The host's last answer for them, and the tick the read that gave it began at.
     pub base: crate::waiting::Base,
     pub from: u64,

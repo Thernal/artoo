@@ -1793,8 +1793,6 @@ pub struct Workspace {
     parts: Vec<artoo_shell_api::Parts>,
     /// The commands features offer (⌘K): their words and actions.
     contributed: Vec<(&'static str, Box<dyn gpui::Action>)>,
-    /// The card before a request is merged (#164).
-    merging: Option<merging::MergeCard>,
     /// The tree folder opened last, and a count of openings: its rows fade in (`tree_row`).
     tree_opened: Option<(String, usize)>,
     /// What a narrow window folded, for the session (#80).
@@ -2033,7 +2031,6 @@ impl Workspace {
             folds: Default::default(),
             label_edit: None,
             label_name: String::new(),
-            merging: None,
             parts: Vec::new(),
             contributed: artoo_shell_api::actions(cx)
                 .iter()

@@ -132,6 +132,8 @@ impl Workspace {
                 Act::OpenMerge => this.open_merge(cx),
                 Act::Rebase => this.rebase_request(cx),
                 Act::CancelAutoMerge => this.cancel_auto_merge(cx),
+                Act::RunMerge => this.run_merge(cx),
+                Act::ShowNewVersion => this.show_new_version(cx),
             })
             .ok();
         })
@@ -184,6 +186,7 @@ impl Workspace {
                 self.open_since_on_arrival(cx);
             }
             Event::Awards => self.refresh_rows(cx),
+            Event::Merged { iid, merge } => self.merged(*iid, merge, cx),
             Event::Failed(e) => self.error = Some(e.clone().into()),
         }
         cx.notify();
@@ -216,10 +219,6 @@ impl Workspace {
         }
         if iid != self.requests.read(cx).current {
             self.requests.update(cx, |rq, _| rq.forget_open());
-            // A merge's card is of the request it was opened on (#164).
-            if self.merging.as_ref().is_some_and(|c| !c.busy) {
-                self.merging = None;
-            }
             self.draft_at = None;
         }
         self.requests.update(cx, |rq, _| rq.current = iid);

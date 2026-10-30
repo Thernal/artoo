@@ -133,7 +133,7 @@ impl Workspace {
             Input::Reactions => self.reaction_grid.is_some(),
             Input::Overlay => self.overlay_open(),
             Input::Beside => self.beside.is_some(),
-            Input::Merge => self.merging.is_some(),
+            Input::Merge => self.requests.read(cx).merging.is_some(),
             Input::Field => self.field.is_some(),
             Input::Compose => self.compose.is_some(),
             Input::GoLine => self.review.read(cx).goline.is_some(),

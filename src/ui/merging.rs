@@ -1,32 +1,13 @@
-//! Merge, from the request's page (#164 B): in its bar beside Approve — quiet, with "N in the way",
-//! while something is, its ▾ listing each reason with where it is fixed; Rebase where a rebase is
-//! what is missing; "Merge when the pipeline succeeds…" while it runs, and Cancel once that is
-//! set. Merge… opens the card before it goes: From → Into, what the host allows, the message. What
-//! goes is the head this page shows, so a push nobody has seen is refused (`crate::merge`).
+//! Merge, from the request's page (#164 B), the tab's side: what is in the way, listed in a menu with where each
+//! is fixed; Merge's card opened with the keyboard (`artoo_requests::merging` draws it and keeps its message);
+//! Rebase and Cancel asked of the host; and what follows a merge — a toast, the list read again.
 
-use super::discussion::{Kind, button};
-use super::input::{self, Edit};
-use super::keys;
 use super::menu::{Act, Entry};
 use super::typing::Input;
-use super::{ISLAND_RADIUS, ROW_RADIUS, Workspace, icons, plural, px, theme};
-use crate::merge::{self, Fix, Merge, Method, Squash, Stand};
-use gpui::{
-    ClickEvent, Context, FontWeight, KeyDownEvent, MouseButton, Pixels, Point, SharedString, div,
-    prelude::*,
-};
-
-/// The card before a merge goes.
-pub struct MergeCard {
-    /// The request it merges: never another one that came on the page meanwhile.
-    pub iid: u64,
-    pub merge: Merge,
-    pub error: Option<String>,
-    /// Refused for a push after the version on the page: the card offers the new one.
-    pub moved: bool,
-    /// Sent, and the host has not answered yet.
-    pub busy: bool,
-}
+use super::{Workspace, px};
+use crate::merge::{Fix, Merge, Stand};
+use artoo_requests::merging::CardLook;
+use gpui::{Context, KeyDownEvent, Pixels, Point, prelude::*};
 
 /// The width of the list of reasons: each says what and why on one line.
 const REASONS_WIDTH: f32 = 400.;
@@ -40,7 +21,7 @@ impl Workspace {
 
     /// A request's number as this repository's host writes it.
     fn reference(&self, iid: u64) -> String {
-        format!("{}{iid}", if self.on_github() { '#' } else { '!' })
+        artoo_requests::merging::reference(iid, self.on_github())
     }
 
     /// Reads where merging the current request stands again (`Requests::reload_merge`).
@@ -110,117 +91,38 @@ impl Workspace {
             }
             _ => return,
         };
-        let (Some(iid), Some(host)) = (
-            self.requests.read(cx).current,
-            self.requests.read(cx).merge.as_ref(),
-        ) else {
-            return;
-        };
-        let Some(m) = self.requests.read(cx).find(iid) else {
-            return;
-        };
-        let message = format!("{} ({})", m.title, self.reference(iid));
-        let merge = Merge::defaults(host, &m.head, message.clone(), when);
-        self.reset_field_edit();
-        self.field_edit = crate::textedit::TextEdit::new(message);
-        self.merging = Some(MergeCard {
-            iid,
-            merge,
-            error: None,
-            moved: false,
-            busy: false,
-        });
-        self.take_keyboard(Input::Merge, cx);
-        cx.notify();
-    }
-
-    /// Esc, Cancel or ×; not while the merge is on its way.
-    pub(super) fn close_merge(&mut self, cx: &mut Context<Self>) {
-        if self.merging.as_ref().is_some_and(|c| !c.busy) {
-            self.merging = None;
+        let github = self.on_github();
+        if self
+            .requests
+            .update(cx, |rq, _| rq.open_merge_card(when, github))
+        {
+            self.take_keyboard(Input::Merge, cx);
             cx.notify();
         }
     }
 
-    /// The card's keys: the message takes them, ↵ a new line; ⌘↵ merges.
+    /// The card's keys (`Requests::merge_key`); ⌘↵ merges.
     pub(super) fn merge_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
-        let key = &event.keystroke;
-        let Some(card) = self.merging.as_mut() else {
-            return;
-        };
-        if card.busy {
-            return;
+        if self.requests.update(cx, |rq, cx| rq.merge_key(event, cx)) {
+            self.run_merge(cx);
         }
-        if key.key == "enter" && key.modifiers.secondary() {
-            return self.run_merge(cx);
-        }
-        if key.key == "enter" {
-            input::sync(&card.merge.message, &mut self.field_edit);
-            self.field_edit.insert("\n");
-            card.merge.message = self.field_edit.text().to_owned();
-            return cx.notify();
-        }
-        if self.vertical_key(key, cx) {
-            return;
-        }
-        let Some(card) = self.merging.as_mut() else {
-            return;
-        };
-        match input::edit_area(&mut card.merge.message, &mut self.field_edit, key, cx) {
-            Edit::Escape => return self.close_merge(cx),
-            Edit::Changed => card.error = None,
-            Edit::Selected | Edit::Enter { .. } | Edit::Ignored => {}
-        }
-        cx.notify();
     }
 
-    /// Sends the merge; the card stays until the host answers, and says why it refused.
-    fn run_merge(&mut self, cx: &mut Context<Self>) {
-        let Some(remote) = self.web.clone() else {
+    /// Sends the merge (`Requests::run_merge`).
+    pub(super) fn run_merge(&mut self, cx: &mut Context<Self>) {
+        let Some(host) = self.host(cx) else {
             return;
         };
-        let host = super::host_of(&remote, cx);
-        let Some(card) = self.merging.as_mut().filter(|c| !c.busy) else {
-            return;
-        };
-        let iid = card.iid;
-        card.busy = true;
-        card.error = None;
-        let merge = card.merge.clone();
-        let task = Some(cx.spawn(async move |this, cx| {
-            let sent = merge.clone();
-            let result = cx
-                .background_executor()
-                .spawn(async move { host.merge(iid, &sent) })
-                .await;
-            this.update(cx, |this, cx| {
-                match result {
-                    Ok(()) => {
-                        this.merging = None;
-                        this.merged(iid, &merge, cx);
-                    }
-                    Err(e) => {
-                        if let Some(card) = this.merging.as_mut() {
-                            let e = format!("{e:#}");
-                            card.busy = false;
-                            card.moved = merge::moved_on(&e);
-                            card.error = Some(merge::refusal(&e));
-                        }
-                    }
-                }
-                cx.notify();
-            })
-            .ok();
-        }));
-        self.requests.update(cx, |rq, _| rq.merge_task = task);
-        cx.notify();
+        self.requests.update(cx, |rq, cx| rq.run_merge(host, cx));
     }
 
     /// A push came after the version on the page: the card goes, the request is read again and
     /// its branch fetched, so the new head shows as its version.
-    fn show_new_version(&mut self, cx: &mut Context<Self>) {
-        self.merging = None;
-        self.requests.update(cx, |rq, _| rq.merge = None);
+    pub(super) fn show_new_version(&mut self, cx: &mut Context<Self>) {
+        self.requests.update(cx, |rq, _| {
+            rq.merging = None;
+            rq.merge = None;
+        });
         self.load_requests(cx);
         self.fetch_now(cx);
         cx.notify();
@@ -228,7 +130,7 @@ impl Workspace {
 
     /// The host merged it, or set it to merge when the pipeline succeeds: a toast says which, and
     /// the list is read again — a request merged moves to Merged, as one merged elsewhere does.
-    fn merged(&mut self, iid: u64, merge: &Merge, cx: &mut Context<Self>) {
+    pub(super) fn merged(&mut self, iid: u64, merge: &Merge, cx: &mut Context<Self>) {
         let here = self.requests.read(cx).current == Some(iid);
         if merge.when_pipeline_succeeds {
             let text = format!("{} merges when the pipeline succeeds", self.reference(iid));
@@ -289,435 +191,17 @@ impl Workspace {
             .update(cx, |rq, cx| rq.merge_call(busy, host, call, cx));
     }
 
-    /// The card before a merge goes, over everything.
-    pub(super) fn render_merge_card(
-        &self,
-        cx: &mut Context<Self>,
-    ) -> Option<impl IntoElement + use<>> {
-        let card = self.merging.as_ref()?;
-        let iid = card.iid;
-        let m = self.requests.read(cx).find(iid)?;
-        let host = self.requests.read(cx).merge.clone().unwrap_or_default();
-        let merge = &card.merge;
-        let reference = self.reference(iid);
-        let version = self
-            .requests
-            .read(cx)
-            .versions
-            .as_ref()
-            .filter(|(of, _)| *of == iid)
-            .and_then(|(_, v)| v.iter().find(|v| v.tip.to_string() == m.head))
-            .map(|v| format!("v{}", v.number));
-        let commits = self.commits.len();
-        let seen = match &version {
-            Some(v) => format!(" · {v}, the latest you have"),
-            None => " · the latest you have".to_owned(),
+    /// The card before a merge goes, over everything (`Requests::render_merge_card`).
+    pub(super) fn render_merge_card(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        let look = CardLook {
+            commits: self.commits.len(),
+            github: self.on_github(),
+            active: self.has_keyboard(Input::Merge, cx),
         };
-        let head = div()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .px(px(16.))
-            .py(px(12.))
-            .border_b_1()
-            .border_color(theme::island_border())
-            .child(icons::icon("merge").size(px(16.)).text_color(theme::text()))
-            .child(
-                div()
-                    .flex_1()
-                    .text_size(px(15.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(if merge.when_pipeline_succeeds {
-                        format!("Merge {reference} when the pipeline succeeds")
-                    } else {
-                        format!("Merge {reference}")
-                    }),
-            )
-            .child(
-                div()
-                    .id("merge-close")
-                    .size(px(24.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(ROW_RADIUS))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme::hover()))
-                    .child(icons::icon("x").size(px(14.)).text_color(theme::muted()))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_merge(cx))),
-            );
-        let route = div()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap(px(6.))
-            .child(mono(&m.source).text_color(theme::accent()))
-            .child(
-                icons::icon("forward")
-                    .size(px(14.))
-                    .text_color(theme::faint()),
-            )
-            .child(mono(&m.target))
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .text_color(theme::faint())
-                    .child(format!("{}{seen}", plural(commits, "commit"))),
-            );
-        let label = |text: &'static str| {
-            div()
-                .w(px(112.))
-                .flex_none()
-                .pt(px(2.))
-                .text_size(px(12.))
-                .text_color(theme::muted())
-                .child(text)
-        };
-        let field_row = || div().flex().items_start().gap(px(8.));
-        let mut options = Vec::new();
-        if host.github {
-            let default = host.methods.first().copied();
-            let chips = host.methods.iter().map(|&way| {
-                let on = merge.method == way;
-                div()
-                    .id(SharedString::from(format!("merge-way-{}", way.key())))
-                    .px(px(10.))
-                    .h(px(24.))
-                    .flex()
-                    .items_center()
-                    .rounded(px(ROW_RADIUS))
-                    .cursor_pointer()
-                    .text_size(px(12.))
-                    .when(on, |s| {
-                        s.bg(theme::selected())
-                            .text_color(theme::text())
-                            .font_weight(FontWeight::MEDIUM)
-                    })
-                    .when(!on, |s| {
-                        s.text_color(theme::muted()).hover(|s| s.bg(theme::hover()))
-                    })
-                    .child(way.label())
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        if let Some(card) = this.merging.as_mut() {
-                            card.merge.method = way;
-                            cx.notify();
-                        }
-                    }))
-            });
-            options.push(
-                field_row()
-                    .child(label("How"))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(6.))
-                            .child(
-                                div()
-                                    .flex()
-                                    .gap(px(2.))
-                                    .p(px(2.))
-                                    .rounded(px(ROW_RADIUS + 2.))
-                                    .border_1()
-                                    .border_color(theme::island_border())
-                                    .children(chips),
-                            )
-                            .children(default.map(|way| {
-                                div()
-                                    .text_size(px(11.))
-                                    .text_color(theme::faint())
-                                    .child(format!(
-                                        "The ways this repository allows; {} is first",
-                                        way.label()
-                                    ))
-                            })),
-                    )
-                    .into_any_element(),
-            );
-        }
-        let mut checks = Vec::new();
-        if !host.github {
-            let n = plural(commits.max(1), "commit");
-            let squash = match host.squash {
-                Squash::Never => None,
-                Squash::Always => Some((true, true, "the project always squashes".to_owned())),
-                Squash::Choose(default) => Some((
-                    merge.squash,
-                    false,
-                    if merge.squash == default {
-                        "the project's default".to_owned()
-                    } else {
-                        String::new()
-                    },
-                )),
-            };
-            if let Some((on, fixed, sub)) = squash {
-                checks.push(
-                    check(
-                        "merge-squash",
-                        on,
-                        fixed,
-                        format!("Squash the {n} into one"),
-                        sub,
-                    )
-                    .when(!fixed, |s| {
-                        s.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            if let Some(card) = this.merging.as_mut() {
-                                card.merge.squash = !card.merge.squash;
-                                cx.notify();
-                            }
-                        }))
-                    })
-                    .into_any_element(),
-                );
-            }
-        }
-        // GitHub's auto-merge deletes nothing unless the repository does.
-        if !(host.github && merge.when_pipeline_succeeds && !host.deletes_itself) {
-            let fixed = host.deletes_itself;
-            let on = merge.delete_branch || fixed;
-            let sub = if fixed {
-                "the repository deletes it".to_owned()
-            } else if !host.github && merge.delete_branch == host.delete_branch {
-                "the project's default".to_owned()
-            } else {
-                String::new()
-            };
-            checks.push(
-                check(
-                    "merge-delete",
-                    on,
-                    fixed,
-                    format!("Delete {} after", m.source),
-                    sub,
-                )
-                .when(!fixed, |s| {
-                    s.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        if let Some(card) = this.merging.as_mut() {
-                            card.merge.delete_branch = !card.merge.delete_branch;
-                            cx.notify();
-                        }
-                    }))
-                })
-                .into_any_element(),
-            );
-        }
-        if !checks.is_empty() {
-            options.push(
-                field_row()
-                    .child(label(if host.github { "" } else { "Options" }))
-                    .child(div().flex().flex_col().gap(px(8.)).children(checks))
-                    .into_any_element(),
-            );
-        }
-        let active = self.has_keyboard(Input::Merge, cx);
-        let message = if host.github && merge.method == Method::Rebase {
-            field_row().child(label("Commit message")).child(
-                div()
-                    .flex_1()
-                    .pt(px(2.))
-                    .text_size(px(12.))
-                    .text_color(theme::faint())
-                    .child("A rebase keeps each commit and its message: none to write."),
-            )
-        } else {
-            let field = self.field_look(
-                &merge.message,
-                active,
-                "Empty: the project's own message",
-                input::Look {
-                    wrap: true,
-                    ..Default::default()
-                },
-                cx.entity().downgrade(),
-            );
-            field_row().child(label("Commit message")).child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .px_2()
-                    .py(px(5.))
-                    .min_h(px(84.))
-                    .flex()
-                    .items_start()
-                    .rounded(px(ROW_RADIUS))
-                    .border_2()
-                    .border_color(if active {
-                        theme::focus()
-                    } else {
-                        theme::island_border()
-                    })
-                    .bg(theme::base())
-                    .cursor_text()
-                    .child(field),
-            )
-        };
-        let body =
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(14.))
-                .px(px(16.))
-                .py(px(14.))
-                .child(route)
-                .children(options)
-                .child(message)
-                .children(card.error.clone().map(|e| {
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_3()
-                        .px_3()
-                        .py_2()
-                        .rounded(px(ROW_RADIUS))
-                        .border_1()
-                        .border_color(theme::removed())
-                        .text_size(px(12.))
-                        .text_color(theme::removed())
-                        .child(div().flex_1().min_w_0().child(e))
-                        .when(card.moved, |s| {
-                            s.child(
-                                button(
-                                    "merge-new-version",
-                                    "Show the new version",
-                                    None,
-                                    Kind::Plain,
-                                )
-                                .on_click(cx.listener(
-                                    |this, _: &ClickEvent, _, cx| this.show_new_version(cx),
-                                )),
-                            )
-                        })
-                }));
-        let after = version.unwrap_or_else(|| "this version".to_owned());
-        let go = match (card.busy, merge.when_pipeline_succeeds) {
-            (true, _) => "Merging…",
-            (false, true) => "Merge when it succeeds",
-            (false, false) => "Merge",
-        };
-        let foot = div()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .px(px(16.))
-            .py(px(12.))
-            .border_t_1()
-            .border_color(theme::island_border())
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_size(px(12.))
-                    .text_color(theme::faint())
-                    .child(format!(
-                        "Everyone sees it, and it cannot be undone. A push after {after} makes it refuse."
-                    )),
-            )
-            .child(
-                button("merge-cancel", "Cancel", Some("esc"), Kind::Quiet)
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_merge(cx))),
-            )
-            .child(
-                button(
-                    "merge-go",
-                    go,
-                    (!card.busy).then_some("⌘↵"),
-                    Kind::Primary(theme::accent()),
-                )
-                .when(card.busy, |s| s.opacity(super::waiting::FADED))
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.run_merge(cx))),
-            );
-        Some(
-            div()
-                .id("merge-backdrop")
-                .absolute()
-                .size_full()
-                .flex()
-                .justify_center()
-                .items_start()
-                .pt(px(72.))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, cx| this.close_merge(cx)),
-                )
-                .child(
-                    div()
-                        .id("merge-card")
-                        .occlude()
-                        .w(px(600.))
-                        .max_h(gpui::relative(0.86))
-                        .flex()
-                        .flex_col()
-                        .rounded(px(ISLAND_RADIUS))
-                        .border_1()
-                        .border_color(theme::island_border())
-                        .bg(theme::panel())
-                        .shadow_lg()
-                        .text_size(px(13.))
-                        .child(head)
-                        .child(
-                            div()
-                                .id("merge-body")
-                                .flex_1()
-                                .min_h_0()
-                                .overflow_y_scroll()
-                                .child(body),
-                        )
-                        .child(foot),
-                ),
-        )
-    }
-}
-
-/// A checkbox with its label and, faint, what it is (`the project's default`); `fixed` the host's
-/// rule, taking no click.
-fn check(
-    id: &'static str,
-    on: bool,
-    fixed: bool,
-    text: String,
-    sub: String,
-) -> gpui::Stateful<gpui::Div> {
-    let ink = if fixed {
-        theme::faint()
-    } else {
-        theme::accent()
-    };
-    div()
-        .id(id)
-        .flex()
-        .items_center()
-        .gap_2()
-        .when(!fixed, |s| s.cursor_pointer())
-        .child(
-            div()
-                .flex_none()
-                .size(px(14.))
-                .rounded(px(3.))
-                .border_2()
-                .border_color(if on { ink } else { theme::faint() })
-                .when(on, |s| s.bg(ink))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_size(px(10.))
-                .text_color(theme::base())
-                .child(if on { "✓" } else { "" }),
-        )
-        .child(div().child(keys::text(&text).into_owned()))
-        .when(!sub.is_empty(), |s| {
-            s.child(
-                div()
-                    .text_size(px(12.))
-                    .text_color(theme::faint())
-                    .child(format!("· {sub}")),
-            )
+        let acts = self.request_acts(cx);
+        self.requests.update(cx, |rq, cx| {
+            rq.render_merge_card(look, acts, cx)
+                .map(IntoElement::into_any_element)
         })
-}
-
-fn mono(text: &str) -> gpui::Div {
-    div()
-        .font_family(super::theme::code_font())
-        .text_size(px(12.))
-        .child(text.to_owned())
+    }
 }
