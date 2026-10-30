@@ -1,0 +1,11 @@
+[package]
+name = "artoo-review-api"
+description = "The review's contract (#165): what a page asks of the tab's review."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+git2.workspace = true
+gpui.workspace = true

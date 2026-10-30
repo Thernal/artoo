@@ -8,9 +8,10 @@ use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::{ROW_RADIUS, format, icons, keys, px, theme};
 use git2::Oid;
 use gpui::{
-    AnyElement, ClickEvent, Context, FontStyle, HighlightStyle, ListAlignment, ListState,
-    SharedString, StyledText, Task, div, img, list, prelude::*,
+    AnyElement, App, ClickEvent, Context, Entity, FontStyle, HighlightStyle, ListAlignment,
+    ListState, SharedString, StyledText, Task, WeakEntity, div, img, list, prelude::*,
 };
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -548,6 +549,29 @@ impl Review {
         .font_family(theme::code_font())
         .text_size(px(size))
         .into_any_element()
+    }
+}
+
+/// What a page asks of `review` for the file it reads (`artoo_review_api::FileView`), as the tab offers it.
+pub fn file_view(review: &Entity<Review>) -> Rc<dyn artoo_review_api::FileView> {
+    Rc::new(FileViewImpl(review.downgrade()))
+}
+
+struct FileViewImpl(WeakEntity<Review>);
+
+impl artoo_review_api::FileView for FileViewImpl {
+    fn read(&self, root: PathBuf, path: String, rev: Option<Oid>, cx: &mut App) {
+        self.0
+            .update(cx, |rv, cx| rv.read_file(root, path, rev, cx))
+            .ok();
+    }
+
+    fn path(&self, cx: &App) -> Option<String> {
+        Some(self.0.upgrade()?.read(cx).file_view.as_ref()?.path.clone())
+    }
+
+    fn close(&self, cx: &mut App) {
+        self.0.update(cx, |rv, _| rv.file_view = None).ok();
     }
 }
 

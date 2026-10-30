@@ -11,7 +11,7 @@ use crate::files;
 use crate::git::{BranchRef, Repo};
 use artoo_code_api::{FileRoute, FolderRoute};
 use artoo_core::route::{Place, Route};
-use artoo_review::review::Review;
+use artoo_review_api::FileView;
 use artoo_shell_api::{Frame, MenuItem, Pages};
 use git2::Oid;
 use gpui::{
@@ -194,12 +194,10 @@ pub struct CodeSpace {
     shown: Option<Page>,
     host: Rc<dyn Host>,
     frame: Rc<dyn Frame>,
-    /// The tab's review, which reads and draws the file shown.
-    review: Entity<Review>,
 }
 
 impl CodeSpace {
-    pub fn new(host: Rc<dyn Host>, frame: Rc<dyn Frame>, review: Entity<Review>) -> Self {
+    pub fn new(host: Rc<dyn Host>, frame: Rc<dyn Frame>) -> Self {
         Self {
             code: Code::default(),
             root: None,
@@ -207,7 +205,6 @@ impl CodeSpace {
             shown: None,
             host,
             frame,
-            review,
         }
     }
 
@@ -227,6 +224,11 @@ impl CodeSpace {
         }
     }
 
+    /// The tab's review, which reads and draws the file shown.
+    fn file_view(&self) -> Option<Rc<dyn FileView>> {
+        self.frame.services().get()
+    }
+
     /// What is on screen (`Pages::show`): a file read at Code's revision — anew when `opened`, else unless it
     /// is the one read —, a folder's page in the preview tab, or the project's page.
     fn show(&mut self, route: Option<&Route>, opened: bool, cx: &mut Context<Self>) {
@@ -234,7 +236,8 @@ impl CodeSpace {
         match self.shown.clone() {
             None => self.read_files(false, cx),
             Some(Page::File(path)) => {
-                let read = self.review.read(cx).file_view.as_ref().map(|v| &v.path) == Some(&path);
+                let file = self.file_view();
+                let read = file.as_ref().and_then(|f| f.path(cx)).as_ref() == Some(&path);
                 if read && !opened {
                     return;
                 }
@@ -250,8 +253,9 @@ impl CodeSpace {
                 self.frame
                     .remember(FileRoute { path: path.clone() }.route(), cx);
                 let rev = self.code.at().filter(|_| !self.plain);
-                self.review
-                    .update(cx, |rv, cx| rv.read_file(root, path, rev, cx));
+                if let Some(file) = file {
+                    file.read(root, path, rev, cx);
+                }
             }
             Some(Page::Folder(path)) => {
                 // A folder reached by the path, back or forward, is in the preview tab too.
@@ -355,7 +359,9 @@ impl CodeSpace {
 
     /// The last tab gone: the project's page.
     fn close_all(&mut self, cx: &mut Context<Self>) {
-        self.review.update(cx, |rv, _| rv.file_view = None);
+        if let Some(file) = self.file_view() {
+            file.close(cx);
+        }
         self.frame.open_space("code", cx);
     }
 

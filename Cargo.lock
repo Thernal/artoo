@@ -211,6 +211,7 @@ dependencies = [
  "artoo-hosts-api",
  "artoo-reports",
  "artoo-review",
+ "artoo-review-api",
  "artoo-shell-api",
  "artoo-ui-kit",
  "artoo-updates",
@@ -373,7 +374,16 @@ version = "1.3.0"
 dependencies = [
  "anyhow",
  "artoo-core",
+ "artoo-review-api",
  "artoo-ui-kit",
+ "git2",
+ "gpui-pre",
+]
+
+[[package]]
+name = "artoo-review-api"
+version = "1.3.0"
+dependencies = [
  "git2",
  "gpui-pre",
 ]

@@ -2041,11 +2041,13 @@ impl Workspace {
             repo_task: None,
             branch_task: None,
         };
+        // The tab's review, as its pages ask it.
+        services.set(artoo_review::file_view::file_view(&review));
         let frame = Rc::new(parts::TabFrame(cx.weak_entity(), services.clone()));
         this.parts = artoo_shell_api::make_parts(frame.clone(), window, cx);
         // Code, the app's own until it is a crate (#165): its pages, and what the tab asks of it.
         let host = Rc::new(code::CodeHost(cx.weak_entity()));
-        let code = cx.new(|_| code::CodeSpace::new(host, frame, review.clone()));
+        let code = cx.new(|_| code::CodeSpace::new(host, frame));
         this.parts.push(artoo_shell_api::Parts {
             pages: Some(code::CodeSpace::pages(&code)),
             ..Default::default()
