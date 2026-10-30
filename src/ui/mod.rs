@@ -2976,15 +2976,6 @@ impl Workspace {
         cx.notify();
     }
 
-    fn scroll_horizontally(&mut self, event: &ScrollWheelEvent, cx: &mut Context<Self>) {
-        if self
-            .review
-            .update(cx, |rv, _| rv.scroll_horizontally(event))
-        {
-            cx.notify();
-        }
-    }
-
     // ---- actions -------------------------------------------------------------------------
 
     fn open(&mut self, _: &Open, _: &mut Window, cx: &mut Context<Self>) {
@@ -4314,175 +4305,220 @@ impl Workspace {
 }
 
 impl Workspace {
-    /// The selected file's rows, scrolled vertically by the list and horizontally by `offset`.
-    fn render_rows(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The selected file's rows, drawn by the review (`Review::render_rows`) with the tab as its host.
+    fn render_rows(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let host = Rc::new(TabHost(cx.entity().downgrade()));
+        self.review.update(cx, |rv, cx| rv.render_rows(host, cx))
+    }
+}
+
+/// The tab as the review's host (`review::Host`): it draws what its features pin on lines and the stack's
+/// headers and notes, and follows what a line's events ask.
+struct TabHost(gpui::WeakEntity<Workspace>);
+
+impl review::Host for TabHost {
+    fn pin(&self, row: Row, active: bool, indent: f32, cx: &App) -> gpui::AnyElement {
+        let Some(workspace) = self.0.upgrade() else {
+            return div().into_any_element();
+        };
+        let workspace = workspace.read(cx);
+        let this = self.0.clone();
+        match row {
+            Row::Thread(id) => workspace.render_thread(id, indent, this, cx),
+            Row::Request(ix) => workspace.render_request_thread(ix, indent, this, cx),
+            Row::Draft(ix) => workspace.render_draft(ix, indent, this, cx),
+            Row::Note(id) => workspace.render_agent_note(id, indent, this, cx),
+            Row::Composer if workspace.compose.is_none() && active => {
+                workspace.render_goline_row(indent, this, cx)
+            }
+            Row::Composer if workspace.compose.is_some() => {
+                workspace.render_composer(indent, this, cx)
+            }
+            _ => div().into_any_element(),
+        }
+    }
+
+    fn header(&self, file: usize, cx: &App) -> gpui::AnyElement {
+        match self.0.upgrade() {
+            Some(workspace) => workspace
+                .read(cx)
+                .render_block_header(file, self.0.clone(), cx),
+            None => div().into_any_element(),
+        }
+    }
+
+    fn note(&self, b: usize, file: usize, cx: &App) -> gpui::AnyElement {
+        match self.0.upgrade() {
+            Some(workspace) => workspace
+                .read(cx)
+                .render_block_note(b, file, self.0.clone(), cx),
+            None => div().into_any_element(),
+        }
+    }
+
+    fn opening(&self, file: usize, cx: &App) -> bool {
+        self.0.upgrade().is_some_and(|workspace| {
+            let motion = &workspace.read(cx).motion;
+            motion.recent(&format!("file-{file}")) || motion.recent("files")
+        })
+    }
+
+    fn line(&self, file: usize, active: bool, event: review::LineEvent, cx: &mut App) {
+        use review::LineEvent;
+        self.0
+            .update(cx, |this, cx| {
+                // A press in another file makes it the active one first.
+                if !active && !matches!(event, LineEvent::Number { .. } | LineEvent::Drag { .. }) {
+                    this.activate_file(file, cx);
+                }
+                match event {
+                    LineEvent::Comment { old, line } => this.start_comment(old, line, cx),
+                    LineEvent::Toggle { old, line } => this.toggle_notes_at(old, line, cx),
+                    LineEvent::Annotation { line } => this.open_annotated_commit(line, cx),
+                    LineEvent::Press {
+                        old,
+                        line,
+                        byte,
+                        clicks,
+                        shift,
+                    } => this.select_press(old, line, byte, clicks, shift, cx),
+                    LineEvent::Drag { old, line, byte } => this.select_drag(old, line, byte, cx),
+                    LineEvent::Context { old, line, at } => this.line_context(old, line, at, cx),
+                    LineEvent::Number { old, line, at } => {
+                        this.hover_line_number(file, old, line, at, cx)
+                    }
+                    LineEvent::Expand { segment } => this.expand_gap(segment, cx),
+                }
+            })
+            .ok();
+    }
+}
+
+impl review::Review {
+    /// The rows in the diff's list (the selected file's, or every file's in one scroll), scrolled
+    /// vertically by the list and horizontally by `offset`; what other features pin on lines, the
+    /// stack's headers and notes, and what a line's events do come from `host`.
+    pub(super) fn render_rows(
+        &self,
+        host: Rc<dyn review::Host>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        use review::LineEvent;
         let this = cx.entity().downgrade();
         let outer = this.clone();
+        let (row_host, list_host) = (host.clone(), host);
         let row = move |ix: usize, cx: &mut App| -> gpui::AnyElement {
-            let Some(workspace) = this.upgrade() else {
+            let host = &row_host;
+            let Some(review) = this.upgrade() else {
                 return div().into_any_element();
             };
-            let workspace = workspace.read(cx);
+            let review = review.read(cx);
             // With all files in one scroll: the file of the row, and its place among the file's
-            // rows (the active file's are the workspace's own).
-            let (file, ix) = match &workspace.review.read(cx).stack {
+            // rows (the active file's are the review's own).
+            let (file, ix) = match &review.stack {
                 Some(stack) => {
                     let (b, inside) = stack.locate(ix);
                     let file = stack.blocks[b].file;
                     if inside == 0 {
-                        return workspace.render_block_header(file, this.clone(), cx);
+                        return host.header(file, cx);
                     }
-                    if workspace.review.read(cx).body(b) != stack::Body::Rows {
-                        return workspace.render_block_note(b, file, this.clone(), cx);
+                    if review.body(b) != stack::Body::Rows {
+                        return host.note(b, file, cx);
                     }
                     (Some((b, file)), inside - 1)
                 }
                 None => (None, ix),
             };
-            let active = file.is_none_or(|(_, f)| f == workspace.review.read(cx).file);
-            let file_ix = file.map_or(workspace.review.read(cx).file, |(_, f)| f);
+            let active = file.is_none_or(|(_, f)| f == review.file);
+            let file_ix = file.map_or(review.file, |(_, f)| f);
             let (data, row, mut style) = match file {
                 Some((b, _)) if !active => {
-                    let Some(stack) = &workspace.review.read(cx).stack else {
+                    let Some(stack) = &review.stack else {
                         return div().into_any_element();
                     };
                     let block = &stack.blocks[b];
                     let (Some(data), Some(&row)) = (block.data.clone(), block.rows.get(ix)) else {
                         return div().into_any_element();
                     };
-                    let style =
-                        workspace
-                            .review
-                            .read(cx)
-                            .row_style_for(Some(&data), &block.notes, false);
+                    let style = review.row_style_for(Some(&data), &block.notes, false);
                     (data, row, style)
                 }
                 _ => {
-                    let (Some(data), Some(&row)) = (
-                        workspace.review.read(cx).data.clone(),
-                        workspace.review.read(cx).rows.get(ix),
-                    ) else {
+                    let (Some(data), Some(&row)) = (review.data.clone(), review.rows.get(ix))
+                    else {
                         return div().into_any_element();
                     };
-                    (data, row, workspace.review.read(cx).row_style())
+                    (data, row, review.row_style())
                 }
             };
-            style.strong = match (&workspace.review.read(cx).stack, file) {
+            style.strong = match (&review.stack, file) {
                 (Some(stack), Some((_, f))) => stack.matches.get(stack.match_at) == Some(&(f, ix)),
-                _ => {
-                    workspace
-                        .review
-                        .read(cx)
-                        .matches
-                        .get(workspace.review.read(cx).match_at)
-                        == Some(&ix)
-                }
+                _ => review.matches.get(review.match_at) == Some(&ix),
             };
-            let indent = if workspace.review.read(cx).tight {
-                24.
-            } else {
-                style.gutter + 8.
-            };
-            match row {
-                Row::Thread(id) => return workspace.render_thread(id, indent, this.clone(), cx),
-                Row::Request(ix) => {
-                    return workspace.render_request_thread(ix, indent, this.clone(), cx);
-                }
-                Row::Draft(ix) => return workspace.render_draft(ix, indent, this.clone(), cx),
-                Row::Note(id) => return workspace.render_agent_note(id, indent, this.clone(), cx),
-                Row::Composer if workspace.compose.is_none() && active => {
-                    return workspace.render_goline_row(indent, this.clone(), cx);
-                }
-                Row::Composer if workspace.compose.is_none() => return div().into_any_element(),
-                Row::Composer => return workspace.render_composer(indent, this.clone(), cx),
-                _ => {}
+            let indent = if review.tight { 24. } else { style.gutter + 8. };
+            if matches!(
+                row,
+                Row::Thread(_) | Row::Request(_) | Row::Draft(_) | Row::Note(_) | Row::Composer
+            ) {
+                return host.pin(row, active, indent, cx);
             }
-            let marked = active
-                && workspace.review.read(cx).goline.is_some()
-                && workspace.review.read(cx).goline_row == Some(ix);
-            // A press in another file makes it the active one first.
-            let file = file.map(|(_, f)| f).filter(|_| !active);
-            let touch = move |this: &mut Self, cx: &mut Context<Self>| {
-                if let Some(file) = file {
-                    this.activate_file(file, cx);
-                }
+            let marked = active && review.goline.is_some() && review.goline_row == Some(ix);
+            let send = {
+                let host = host.clone();
+                move |event, cx: &mut App| host.line(file_ix, active, event, cx)
             };
-            let (expand, comment, press, drag, context) = (
-                this.clone(),
-                this.clone(),
-                this.clone(),
-                this.clone(),
-                this.clone(),
-            );
-            let toggle = this.clone();
-            let annotate = this.clone();
-            let blame = this.clone();
+            let on = || send.clone();
             let events = diff_view::Events {
-                blame: Box::new(move |old, line, at, cx| {
-                    blame
-                        .update(cx, |this, cx| {
-                            this.hover_line_number(file_ix, old, line, at, cx)
-                        })
-                        .ok();
-                }),
-                annotate: Box::new(move |_, line, cx| {
-                    annotate
-                        .update(cx, |this, cx| {
-                            touch(this, cx);
-                            this.open_annotated_commit(line, cx)
-                        })
-                        .ok();
-                }),
-                toggle: Box::new(move |old, line, cx| {
-                    toggle
-                        .update(cx, |this, cx| {
-                            touch(this, cx);
-                            this.toggle_notes_at(old, line, cx)
-                        })
-                        .ok();
-                }),
-                comment: Box::new(move |old, line, cx| {
-                    comment
-                        .update(cx, |this, cx| {
-                            touch(this, cx);
-                            this.start_comment(old, line, cx)
-                        })
-                        .ok();
-                }),
-                press: Box::new(move |old, line, byte, clicks, shift, cx| {
-                    press
-                        .update(cx, |this, cx| {
-                            touch(this, cx);
-                            this.select_press(old, line, byte, clicks, shift, cx)
-                        })
-                        .ok();
-                }),
-                drag: Box::new(move |old, line, byte, cx| {
-                    drag.update(cx, |this, cx| this.select_drag(old, line, byte, cx))
-                        .ok();
-                }),
-                context: Box::new(move |old, line, at, cx| {
-                    context
-                        .update(cx, |this, cx| {
-                            touch(this, cx);
-                            this.line_context(old, line, at, cx)
-                        })
-                        .ok();
-                }),
+                blame: {
+                    let send = on();
+                    Box::new(move |old, line, at, cx| send(LineEvent::Number { old, line, at }, cx))
+                },
+                annotate: {
+                    let send = on();
+                    Box::new(move |_, line, cx| send(LineEvent::Annotation { line }, cx))
+                },
+                toggle: {
+                    let send = on();
+                    Box::new(move |old, line, cx| send(LineEvent::Toggle { old, line }, cx))
+                },
+                comment: {
+                    let send = on();
+                    Box::new(move |old, line, cx| send(LineEvent::Comment { old, line }, cx))
+                },
+                press: {
+                    let send = on();
+                    Box::new(move |old, line, byte, clicks, shift, cx| {
+                        send(
+                            LineEvent::Press {
+                                old,
+                                line,
+                                byte,
+                                clicks,
+                                shift,
+                            },
+                            cx,
+                        )
+                    })
+                },
+                drag: {
+                    let send = on();
+                    Box::new(move |old, line, byte, cx| {
+                        send(LineEvent::Drag { old, line, byte }, cx)
+                    })
+                },
+                context: {
+                    let send = on();
+                    Box::new(move |old, line, at, cx| {
+                        send(LineEvent::Context { old, line, at }, cx)
+                    })
+                },
             };
             let element = diff_view::row(
                 &data,
                 row,
                 style,
-                move |segment, cx| {
-                    expand
-                        .update(cx, |this, cx| {
-                            touch(this, cx);
-                            this.expand_gap(segment, cx)
-                        })
-                        .ok();
-                },
-                std::rc::Rc::new(events),
+                move |segment, cx| send(LineEvent::Expand { segment }, cx),
+                Rc::new(events),
             );
             if marked {
                 return div()
@@ -4496,24 +4532,22 @@ impl Workspace {
             element
         };
         // With all files in one scroll, a file's rows are framed as its card.
-        let rows = list(self.review.read(cx).diff_list.clone(), move |ix, _, cx| {
+        let rows = list(self.diff_list.clone(), move |ix, _, cx| {
             // Its own id: the ids inside a row (a line number's, its +) repeat from file to file.
             let element = div()
                 .id(("list-row", ix))
                 .w_full()
                 .child(row(ix, cx))
                 .into_any_element();
-            let Some(workspace) = outer.upgrade() else {
+            let Some(review) = outer.upgrade() else {
                 return element;
             };
-            let workspace = workspace.read(cx);
-            match &workspace.review.read(cx).stack {
+            let review = review.read(cx);
+            match &review.stack {
                 Some(stack) if stack.locate(ix).1 > 0 => {
                     let file = stack.blocks[stack.locate(ix).0].file;
                     // A file just opened: its rows fade in (#56, 9).
-                    let element = if workspace.motion.recent(&format!("file-{file}"))
-                        || workspace.motion.recent("files")
-                    {
+                    let element = if list_host.opening(file, cx) {
                         motion::appear(
                             div().w_full().child(element),
                             ("row-opening", ix),
@@ -4524,22 +4558,19 @@ impl Workspace {
                     } else {
                         element
                     };
-                    workspace
-                        .review
-                        .read(cx)
-                        .card_row(element, file, stack.last_of_block(ix))
+                    review.card_row(element, file, stack.last_of_block(ix))
                 }
                 _ => element,
             }
         })
         .flex_1();
 
-        let width = self.review.read(cx).body_width.clone();
-        let max = self.review.read(cx).max_offset();
-        let thumb = (!self.review.read(cx).options.wrap && max > 0.).then(|| {
+        let width = self.body_width.clone();
+        let max = self.max_offset();
+        let thumb = (!self.options.wrap && max > 0.).then(|| {
             // Its track keeps clear of the island's round bottom corners.
             let inset = if flat() { 0. } else { ISLAND_RADIUS };
-            let track = (self.review.read(cx).body_width.get() - 2. * inset).max(0.);
+            let track = (self.body_width.get() - 2. * inset).max(0.);
             let share = track / (track + max);
             let thumb = (track * share).max(32.).min(track);
             div()
@@ -4547,9 +4578,7 @@ impl Workspace {
                 .bottom(px(2.))
                 .h(px(4.))
                 .w(px(thumb))
-                .left(px(
-                    inset + (track - thumb) * self.review.read(cx).offset / max
-                ))
+                .left(px(inset + (track - thumb) * self.offset / max))
                 .rounded_full()
                 .bg(theme::scrollbar())
         });
@@ -4557,17 +4586,19 @@ impl Workspace {
             .id("diff-body")
             .relative()
             // The ground between the files' cards.
-            .when(self.review.read(cx).stack.is_some(), |s| {
-                s.bg(theme::base())
-            })
+            .when(self.stack.is_some(), |s| s.bg(theme::base()))
             .flex_1()
             .min_h_0()
             .flex()
             .flex_col()
-            .on_scroll_wheel(cx.listener(|this, event, _, cx| this.scroll_horizontally(event, cx)))
+            .on_scroll_wheel(cx.listener(|rv, event, _, cx| {
+                if rv.scroll_horizontally(event) {
+                    cx.emit(ReviewEvent::Changed);
+                }
+            }))
             .font_family(theme::code_font())
-            .text_size(px(self.review.read(cx).code_size()))
-            .line_height(px(self.review.read(cx).row_height()))
+            .text_size(px(self.code_size()))
+            .line_height(px(self.row_height()))
             .child(rows)
             .child(
                 canvas(

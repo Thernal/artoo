@@ -1,6 +1,7 @@
 //! The review's state (#165 stage 4): the diff on screen and how it is read (its files and rows, the find over
 //! it, the marks of files read, the annotations), an entity the tab holds (`Workspace::review`) on its way to
-//! `artoo-review`. It loads and builds in its own tasks and says what came (`ReviewEvent`); the tab follows.
+//! `artoo-review`. It loads and builds in its own tasks and says what came (`ReviewEvent`); the tab follows. It
+//! draws its rows itself, with what the tab gives it (`Host`): the rows other features pin, what a line's events do.
 
 use super::*;
 
@@ -114,3 +115,53 @@ pub(super) enum ReviewEvent {
 }
 
 impl gpui::EventEmitter<ReviewEvent> for Review {}
+
+/// What a press, a hover or a drag on a diff line asks (`Host::line`); `old` is the removed side.
+pub(super) enum LineEvent {
+    /// The gutter's + was clicked: a comment on the line.
+    Comment { old: bool, line: u32 },
+    /// The gutter's comment mark was clicked: open or fold what is on the line.
+    Toggle { old: bool, line: u32 },
+    /// An annotation was clicked: the commit that wrote the line.
+    Annotation { line: u32 },
+    /// The mouse went down at byte `byte`, `clicks` times, with ⇧ or without.
+    Press {
+        old: bool,
+        line: u32,
+        byte: usize,
+        clicks: usize,
+        shift: bool,
+    },
+    /// The pointer moved over byte `byte` with the button down.
+    Drag { old: bool, line: u32, byte: usize },
+    /// A right click, at a window position.
+    Context {
+        old: bool,
+        line: u32,
+        at: gpui::Point<gpui::Pixels>,
+    },
+    /// The pointer came to rest on the line's number (at a window position), or went off it.
+    Number {
+        old: bool,
+        line: u32,
+        at: Option<gpui::Point<gpui::Pixels>>,
+    },
+    /// The hidden lines of unchanged run `segment` were asked for.
+    Expand { segment: usize },
+}
+
+/// What the tab gives the review to draw its rows with (`TabHost`): the rows other features pin on lines, the
+/// stack's file headers and notes, whether a file's rows fade in, and what a line's events do.
+pub(super) trait Host {
+    /// Pinned row `row` (a discussion, a pending comment, an agent's note, the composer, the `c` prompt),
+    /// `indent` from the left; `active` in the file the keyboard works in.
+    fn pin(&self, row: Row, active: bool, indent: f32, cx: &App) -> gpui::AnyElement;
+    /// File `file`'s header in the stack.
+    fn header(&self, file: usize, cx: &App) -> gpui::AnyElement;
+    /// What block `b` (file `file`) shows when it shows no rows.
+    fn note(&self, b: usize, file: usize, cx: &App) -> gpui::AnyElement;
+    /// File `file` just opened: its rows fade in (#56, 9).
+    fn opening(&self, file: usize, cx: &App) -> bool;
+    /// Event `event` on a line of file `file`; `active` false when the keyboard works in another file.
+    fn line(&self, file: usize, active: bool, event: LineEvent, cx: &mut App);
+}
