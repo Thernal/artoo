@@ -13,6 +13,10 @@ pub(super) struct Review {
     /// How the diff and its files are shown: split or unified, wrap, context, whitespace, the files as a list,
     /// one file at a time, reviewed files folded.
     pub(super) options: ViewOptions,
+    /// The Changes list's path filter.
+    pub(super) pfilter: String,
+    /// The Changes list's keyboard cursor: the key of the file or folder it is on.
+    pub(super) fcursor: Option<String>,
     /// The comment marks of the open file's gutter (`pins.rs`).
     pub(super) notes: Vec<diff_view::LineNote>,
     /// How changed images are shown (`image_view.rs`).

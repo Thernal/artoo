@@ -439,7 +439,7 @@ impl Workspace {
                 );
             }
             end.push(count(diff.file_count().to_string()));
-            let done = self.all_reviewed();
+            let done = self.review.all_reviewed();
             if !folded {
                 open_lists += 1;
             }

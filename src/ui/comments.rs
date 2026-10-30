@@ -1475,14 +1475,14 @@ impl Workspace {
             .and_then(|(old, line)| self.review.row_of_line(line, old));
         if let Some(at) = self.review.goline_row {
             // The marked line and the prompt under it.
-            self.reveal_rows(at..at + 2);
+            self.review.reveal_rows(at..at + 2);
         } else if let Some(gap) = self
             .review
             .goline_target()
             .and_then(|(old, line)| self.review.gap_of(line, old))
         {
             // Folded away: the run that holds it, which ↵ opens.
-            self.reveal_rows(gap..gap + 1);
+            self.review.reveal_rows(gap..gap + 1);
         }
     }
 
@@ -1525,7 +1525,7 @@ impl Workspace {
         self.reveal_line(line, old);
         self.start_comment(old, line, cx);
         if let Some(at) = self.review.row_of_line(line, old) {
-            self.reveal_rows(at..at + 2);
+            self.review.reveal_rows(at..at + 2);
         }
     }
 
@@ -3051,7 +3051,7 @@ impl Workspace {
                         )
                     })
                     .count();
-                self.reveal_rows(at..at + 1 + under);
+                self.review.reveal_rows(at..at + 1 + under);
                 cx.notify();
             }
         }
@@ -3059,7 +3059,7 @@ impl Workspace {
             return;
         };
         if let Some(at) = self.review.rows.iter().position(|r| *r == Row::Thread(id)) {
-            self.reveal_rows(at.saturating_sub(1)..at + 1);
+            self.review.reveal_rows(at.saturating_sub(1)..at + 1);
             cx.notify();
         }
     }

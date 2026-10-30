@@ -181,37 +181,6 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Scrolls the diff so `row` sits a few lines below the top.
-    pub(super) fn scroll_to_row(&mut self, row: usize) {
-        self.review.open_active();
-        let row = row + self.review.list_base();
-        self.review.diff_list.scroll_to(gpui::ListOffset {
-            item_ix: row.saturating_sub(3),
-            offset_in_item: px(0.),
-        });
-    }
-
-    /// Brings `rows` into view when they are not, the first a third of the view from the top; rows
-    /// already in view stay where they are. The view is counted in code rows: right after a
-    /// relayout the list has not measured what lies below, so `scroll_to_reveal_item` cannot reach
-    /// it.
-    pub(super) fn reveal_rows(&mut self, rows: std::ops::Range<usize>) {
-        self.review.open_active();
-        let base = self.review.list_base();
-        let rows = rows.start + base..rows.end + base;
-        let height = f32::from(self.review.diff_list.viewport_bounds().size.height);
-        let fit = (height / f32::from(px(self.review.row_height()))).floor() as usize;
-        let top = self.review.diff_list.logical_scroll_top().item_ix;
-        // The top row may be cut, and threads are taller than a code row: keep a margin.
-        if fit > 6 && rows.start > top && rows.end + 3 <= top + fit {
-            return;
-        }
-        self.review.diff_list.scroll_to(gpui::ListOffset {
-            item_ix: rows.start.saturating_sub(fit / 3),
-            offset_in_item: px(0.),
-        });
-    }
-
     /// Steps to the next (or previous) matching line.
     pub(super) fn step_match(&mut self, forward: bool, cx: &mut Context<Self>) {
         if let Some(stack) = &self.review.stack {
@@ -235,7 +204,8 @@ impl Workspace {
         } else {
             (self.review.match_at + n - 1) % n
         };
-        self.scroll_to_row(self.review.matches[self.review.match_at]);
+        self.review
+            .scroll_to_row(self.review.matches[self.review.match_at]);
         cx.notify();
     }
 
@@ -256,7 +226,7 @@ impl Workspace {
             (Some(at), false) => (at + n - 1) % n,
         };
         self.review.change_at = Some(at);
-        self.scroll_to_row(self.review.changes[at]);
+        self.review.scroll_to_row(self.review.changes[at]);
         cx.notify();
     }
 
@@ -355,13 +325,13 @@ impl Workspace {
 
     /// Esc after esc: the filter that was left with text, of the list on screen, is cleared.
     fn clear_filter(&mut self) -> bool {
-        if !self.pfilter.is_empty()
+        if !self.review.pfilter.is_empty()
             && self.review.diff.is_some()
             && self
                 .space()
                 .is_some_and(|s| s != super::spaces::Space::Code)
         {
-            self.pfilter.clear();
+            self.review.pfilter.clear();
             return true;
         }
         if !self.bfilter.is_empty() && self.at_root_list() {
@@ -455,7 +425,7 @@ impl Workspace {
                 self.go_to_stack_match(at, cx);
             }
         } else if let Some(&row) = self.review.matches.first() {
-            self.scroll_to_row(row);
+            self.review.scroll_to_row(row);
         }
         cx.notify();
     }
@@ -751,5 +721,38 @@ impl super::review::Review {
         self.changes = changes;
         self.change_at = self.change_at.filter(|&at| at < self.changes.len());
         self.recompute_stack_matches();
+    }
+}
+
+impl super::review::Review {
+    /// Scrolls the diff so `row` sits a few lines below the top.
+    pub(super) fn scroll_to_row(&mut self, row: usize) {
+        self.open_active();
+        let row = row + self.list_base();
+        self.diff_list.scroll_to(gpui::ListOffset {
+            item_ix: row.saturating_sub(3),
+            offset_in_item: px(0.),
+        });
+    }
+
+    /// Brings `rows` into view when they are not, the first a third of the view from the top; rows
+    /// already in view stay where they are. The view is counted in code rows: right after a
+    /// relayout the list has not measured what lies below, so `scroll_to_reveal_item` cannot reach
+    /// it.
+    pub(super) fn reveal_rows(&mut self, rows: std::ops::Range<usize>) {
+        self.open_active();
+        let base = self.list_base();
+        let rows = rows.start + base..rows.end + base;
+        let height = f32::from(self.diff_list.viewport_bounds().size.height);
+        let fit = (height / f32::from(px(self.row_height()))).floor() as usize;
+        let top = self.diff_list.logical_scroll_top().item_ix;
+        // The top row may be cut, and threads are taller than a code row: keep a margin.
+        if fit > 6 && rows.start > top && rows.end + 3 <= top + fit {
+            return;
+        }
+        self.diff_list.scroll_to(gpui::ListOffset {
+            item_ix: rows.start.saturating_sub(fit / 3),
+            offset_in_item: px(0.),
+        });
     }
 }

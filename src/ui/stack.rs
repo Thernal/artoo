@@ -168,67 +168,19 @@ impl Workspace {
             && self.review.diff.as_ref().is_some_and(|d| d.files.len() > 1)
     }
 
-    /// Puts the files of the diff in one list and shows file `ix` at the top.
+    /// Puts the files of the diff in one list and shows file `ix` at the top (`Review::open_stack`), then
+    /// builds them.
     fn open_stack(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let Some(diff) = &self.review.diff else {
-            return;
-        };
-        let order: Vec<usize> = super::lists::file_items(
-            &diff.files,
-            self.review.options.list_files,
-            "",
-            &HashSet::new(),
-            diff.tags.staged,
-        )
-        .into_iter()
-        .filter_map(|item| match item {
-            super::lists::FileItem::File { ix, .. } => Some(ix),
-            _ => None,
-        })
-        .collect();
-        let files = diff.files.len();
-        // The place a reload keeps: rows below the header of the file it was in.
-        let anchor = self
-            .review
-            .restore_scroll
-            .take()
-            .filter(|(path, _)| diff.files.get(ix).is_some_and(|f| f.path() == path))
-            .map(|(_, offset)| offset);
-        self.review.clear_file();
-        self.review.file = ix;
-        let mut stack = Stack::new(&order, files);
-        stack.anchor = anchor;
-        self.review.stack = Some(stack);
-        let n = order.len();
-        let lens: Vec<usize> = (0..n).map(|b| self.review.body_len(b)).collect();
-        if let Some(stack) = self.review.stack.as_mut() {
-            for (block, len) in stack.blocks.iter_mut().zip(lens) {
-                block.len = len;
-            }
-            stack.reindex();
-            self.review.diff_list.reset(stack.total());
+        if self.review.open_stack(ix) {
+            self.build_stack(cx);
         }
-        self.review.scroll_to_header(ix);
-        self.build_stack(cx);
     }
 
     /// Builds the stack again (a new diff mode), keeping the place.
     pub(super) fn reopen_stack(&mut self, cx: &mut Context<Self>) {
-        self.review.restore_scroll = self.review.scroll_place();
-        let ix = self
-            .review
-            .restore_scroll
-            .as_ref()
-            .and_then(|(path, _)| {
-                self.review
-                    .diff
-                    .as_ref()?
-                    .files
-                    .iter()
-                    .position(|f| f.path() == path)
-            })
-            .unwrap_or(self.review.file);
-        self.open_stack(ix, cx);
+        if self.review.reopen_stack() {
+            self.build_stack(cx);
+        }
     }
 
     /// Picking file `ix` (the files island, ← →, `v`, a link): it becomes active, opens when it
@@ -249,105 +201,41 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Makes file `ix` the one the keyboard and the header above the diff work on.
+    /// Makes file `ix` the one the keyboard and the header above the diff work on
+    /// (`Review::activate_file`).
     pub(super) fn activate_file(&mut self, ix: usize, cx: &mut Context<Self>) {
-        if self.review.file == ix || self.review.stack.is_none() {
-            return;
+        let pins = self.open_pins();
+        if self.review.activate_file(ix, &pins) {
+            self.refresh_annotations(cx);
+            cx.notify();
         }
-        // The prompt of `c` belongs to the file it was opened in.
-        if self.review.goline.take().is_some() {
-            self.review.goline_row = None;
-            self.relayout();
-        }
-        let Some(stack) = self.review.stack.as_mut() else {
-            return;
-        };
-        let (Some(from), Some(to)) = (stack.block_of(self.review.file), stack.block_of(ix)) else {
-            return;
-        };
-        let block = &mut stack.blocks[from];
-        block.data = self.review.data.take();
-        block.rows = std::mem::take(&mut self.review.rows);
-        block.expanded = std::mem::take(&mut self.review.expanded);
-        block.notes = std::mem::take(&mut self.review.notes);
-        let block = &mut stack.blocks[to];
-        self.review.data = block.data.take();
-        self.review.rows = std::mem::take(&mut block.rows);
-        self.review.expanded = std::mem::take(&mut block.expanded);
-        self.review.notes = std::mem::take(&mut block.notes);
-        self.review.file = ix;
-        self.fcursor = None;
-        self.review.sel = None;
-        self.review.change_at = None;
-        self.review.match_at = 0;
-        self.review.recompute_matches();
-        self.refresh_annotations(cx);
-        self.scroll_file_into_view(ix);
-        cx.notify();
     }
 
     /// Folds file `ix` to its header, or opens it.
     pub(super) fn flip_fold(&mut self, ix: usize, cx: &mut Context<Self>) {
         // Its rows fade in as it opens (#56, 9).
         self.mark_motion(&format!("file-{ix}"), cx);
-        let Some(stack) = self.review.stack.as_mut() else {
-            return;
-        };
-        if !stack.flipped.remove(&ix) {
-            stack.flipped.insert(ix);
+        if self.review.flip_fold(ix) {
+            self.build_stack(cx);
+            cx.notify();
         }
-        self.review.sync_stack();
-        self.build_stack(cx);
-        cx.notify();
     }
 
     /// View → Fold reviewed files changed: every file goes back to its default.
     pub(super) fn refold(&mut self, cx: &mut Context<Self>) {
-        if let Some(stack) = self.review.stack.as_mut() {
-            stack.flipped.clear();
-        }
-        self.review.sync_stack();
+        self.review.refold();
         self.build_stack(cx);
     }
 
-    /// The scroll moved the active file out of view: the file at the top takes over. With
-    /// Settings → Diff → *Mark reviewed as I scroll past*, a file left above while scrolling down
-    /// is marked reviewed.
+    /// The scroll moved the active file out of view: the file at the top takes over, and the files
+    /// scrolled past are marked reviewed when Settings says so (`Review::scrolled_to`).
     pub(super) fn follow_scroll(&mut self, cx: &mut Context<Self>) {
         // The file being written in stays while the diff scrolls; one left does not (#168).
-        if self.has_keyboard(super::typing::Input::Compose)
-            || self.review.goline.is_some()
-            || self.review.selecting
-        {
+        if self.has_keyboard(super::typing::Input::Compose) {
             return;
         }
-        let Some(stack) = &self.review.stack else {
+        let Some((to, passed)) = self.review.scrolled_to() else {
             return;
-        };
-        let Some(b) = stack.block_of(self.review.file) else {
-            return;
-        };
-        let span = stack.span(b);
-        let above = self.review.diff_list.item_is_above_viewport(span.end - 1) == Some(true);
-        let below =
-            !above && self.review.diff_list.item_is_below_viewport(span.start) == Some(true);
-        if !above && !below {
-            return;
-        }
-        let (top, _) = stack.locate(self.review.diff_list.logical_scroll_top().item_ix);
-        let to = stack.blocks[top].file;
-        if to == self.review.file {
-            return;
-        }
-        // Every file from the one left to the one now at the top was scrolled past, also those a
-        // page skipped over.
-        let passed: Vec<usize> = if above && self.settings.auto_reviewed {
-            stack.blocks[b..top]
-                .iter()
-                .map(|block| block.file)
-                .collect()
-        } else {
-            Vec::new()
         };
         self.activate_file(to, cx);
         let passed: Vec<usize> = passed
@@ -402,36 +290,18 @@ impl Workspace {
         }));
     }
 
+    /// File `ix`'s rows were built (`Review::built`); the active file's blame and jump follow.
     fn stack_built(&mut self, ix: usize, data: FileData, cx: &mut Context<Self>) {
-        let data = Arc::new(data);
-        if ix == self.review.file {
-            self.review.data = Some(data);
+        let path = self
+            .review
+            .diff
+            .as_ref()
+            .and_then(|d| d.files.get(ix))
+            .map(|f| f.path().to_owned());
+        let pins = self.pins_for(path);
+        if self.review.built(ix, data, &pins) {
             self.refresh_annotations(cx);
-            self.relayout();
-            if let Some(anchor) = self.review.stack.as_mut().and_then(|s| s.anchor.take())
-                && let Some(header) = self.review.stack.as_ref().and_then(|s| s.header(ix))
-            {
-                self.review.diff_list.scroll_to(ListOffset {
-                    item_ix: header + 1 + anchor.item_ix,
-                    ..anchor
-                });
-            }
             self.apply_jump(cx);
-        } else if let Some(b) = self.review.stack.as_ref().and_then(|s| s.block_of(ix)) {
-            let Some(path) = self
-                .review
-                .diff
-                .as_ref()
-                .and_then(|d| d.files.get(ix))
-                .map(|f| f.path().to_owned())
-            else {
-                return;
-            };
-            let before = self.review.shown_rows(b);
-            let pins = self.pins_for([path.clone()]);
-            self.review.lay_block(b, &path, data, &pins);
-            self.review.stack_changed(b, before);
-            self.review.recompute_stack_matches();
         }
         cx.notify();
     }
@@ -453,37 +323,19 @@ impl Workspace {
     /// Opens every file (`open`), or folds every file to its header.
     pub(super) fn expand_all(&mut self, open: bool, cx: &mut Context<Self>) {
         self.mark_motion("files", cx);
-        let Some(files) = self
-            .review
-            .stack
-            .as_ref()
-            .map(|s| s.blocks.iter().map(|b| b.file).collect::<Vec<_>>())
-        else {
-            return;
-        };
-        // The files whose default is the other way round.
-        let flipped: HashSet<usize> = files
-            .into_iter()
-            .filter(|&ix| self.review.folds_by_default(ix) == open)
-            .collect();
-        if let Some(stack) = self.review.stack.as_mut() {
-            stack.flipped = flipped;
+        if self.review.expand_all(open) {
+            self.build_stack(cx);
+            cx.notify();
         }
-        self.review.sync_stack();
-        self.build_stack(cx);
-        cx.notify();
     }
 
     /// The match `at` of every file's: its file becomes active and opens, the row comes into view.
     pub(super) fn go_to_stack_match(&mut self, at: usize, cx: &mut Context<Self>) {
-        let Some(&(file, row)) = self.review.stack.as_ref().and_then(|s| s.matches.get(at)) else {
+        let Some((file, row)) = self.review.stack_match(at) else {
             return;
         };
-        if let Some(stack) = self.review.stack.as_mut() {
-            stack.match_at = at;
-        }
         self.activate_file(file, cx);
-        self.scroll_to_row(row);
+        self.review.scroll_to_row(row);
         cx.notify();
     }
 
@@ -1143,6 +995,220 @@ impl super::review::Review {
         // Files that now fold, or no longer do (Settings → Fold generated files).
         self.sync_stack();
         self.recompute_stack_matches();
+    }
+
+    /// Puts the files of the diff in one list and shows file `ix` at the top; false without a diff.
+    pub(super) fn open_stack(&mut self, ix: usize) -> bool {
+        let Some(diff) = &self.diff else {
+            return false;
+        };
+        let order: Vec<usize> = super::lists::file_items(
+            &diff.files,
+            self.options.list_files,
+            "",
+            &HashSet::new(),
+            diff.tags.staged,
+        )
+        .into_iter()
+        .filter_map(|item| match item {
+            super::lists::FileItem::File { ix, .. } => Some(ix),
+            _ => None,
+        })
+        .collect();
+        let files = diff.files.len();
+        // The place a reload keeps: rows below the header of the file it was in.
+        let anchor = self
+            .restore_scroll
+            .take()
+            .filter(|(path, _)| diff.files.get(ix).is_some_and(|f| f.path() == path))
+            .map(|(_, offset)| offset);
+        self.clear_file();
+        self.file = ix;
+        let mut stack = Stack::new(&order, files);
+        stack.anchor = anchor;
+        self.stack = Some(stack);
+        let n = order.len();
+        let lens: Vec<usize> = (0..n).map(|b| self.body_len(b)).collect();
+        if let Some(stack) = self.stack.as_mut() {
+            for (block, len) in stack.blocks.iter_mut().zip(lens) {
+                block.len = len;
+            }
+            stack.reindex();
+            self.diff_list.reset(stack.total());
+        }
+        self.scroll_to_header(ix);
+        true
+    }
+
+    /// Puts the files in one list again (a new diff mode), keeping the place; false without a diff.
+    pub(super) fn reopen_stack(&mut self) -> bool {
+        self.restore_scroll = self.scroll_place();
+        let ix = self
+            .restore_scroll
+            .as_ref()
+            .and_then(|(path, _)| {
+                self.diff
+                    .as_ref()?
+                    .files
+                    .iter()
+                    .position(|f| f.path() == path)
+            })
+            .unwrap_or(self.file);
+        self.open_stack(ix)
+    }
+
+    /// Makes file `ix` the one the keyboard and the header above the diff work on, `pins` laying out
+    /// the file it leaves when the `c` prompt goes; false when it already is, or is not in the stack.
+    pub(super) fn activate_file(&mut self, ix: usize, pins: &Pins) -> bool {
+        if self.file == ix || self.stack.is_none() {
+            return false;
+        }
+        // The prompt of `c` belongs to the file it was opened in.
+        if self.goline.take().is_some() {
+            self.goline_row = None;
+            self.relayout(pins);
+        }
+        let Some(stack) = self.stack.as_mut() else {
+            return false;
+        };
+        let (Some(from), Some(to)) = (stack.block_of(self.file), stack.block_of(ix)) else {
+            return false;
+        };
+        let block = &mut stack.blocks[from];
+        block.data = self.data.take();
+        block.rows = std::mem::take(&mut self.rows);
+        block.expanded = std::mem::take(&mut self.expanded);
+        block.notes = std::mem::take(&mut self.notes);
+        let block = &mut stack.blocks[to];
+        self.data = block.data.take();
+        self.rows = std::mem::take(&mut block.rows);
+        self.expanded = std::mem::take(&mut block.expanded);
+        self.notes = std::mem::take(&mut block.notes);
+        self.file = ix;
+        self.fcursor = None;
+        self.sel = None;
+        self.change_at = None;
+        self.match_at = 0;
+        self.recompute_matches();
+        self.scroll_file_into_view(ix);
+        true
+    }
+
+    /// Folds file `ix` to its header, or opens it; false without a stack.
+    pub(super) fn flip_fold(&mut self, ix: usize) -> bool {
+        let Some(stack) = self.stack.as_mut() else {
+            return false;
+        };
+        if !stack.flipped.remove(&ix) {
+            stack.flipped.insert(ix);
+        }
+        self.sync_stack();
+        true
+    }
+
+    /// Every file back to its default fold.
+    pub(super) fn refold(&mut self) {
+        if let Some(stack) = self.stack.as_mut() {
+            stack.flipped.clear();
+        }
+        self.sync_stack();
+    }
+
+    /// When the scroll moved the active file out of view: the file at the top, which takes over, and the
+    /// files scrolled past downwards to mark reviewed (Settings → Diff → *Mark reviewed as I scroll
+    /// past*). Nothing while the `c` prompt is open or text is being selected.
+    pub(super) fn scrolled_to(&self) -> Option<(usize, Vec<usize>)> {
+        if self.goline.is_some() || self.selecting {
+            return None;
+        }
+        let stack = self.stack.as_ref()?;
+        let b = stack.block_of(self.file)?;
+        let span = stack.span(b);
+        let above = self.diff_list.item_is_above_viewport(span.end - 1) == Some(true);
+        let below = !above && self.diff_list.item_is_below_viewport(span.start) == Some(true);
+        if !above && !below {
+            return None;
+        }
+        let (top, _) = stack.locate(self.diff_list.logical_scroll_top().item_ix);
+        let to = stack.blocks[top].file;
+        if to == self.file {
+            return None;
+        }
+        // Every file from the one left to the one now at the top was scrolled past, also those a
+        // page skipped over.
+        let passed: Vec<usize> = if above && self.settings.auto_reviewed {
+            stack.blocks[b..top]
+                .iter()
+                .map(|block| block.file)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        Some((to, passed))
+    }
+
+    /// File `ix`'s rows were built as `data`: laid out with `pins`, the active file scrolled to the
+    /// place a reload kept. True when it is the active file.
+    pub(super) fn built(&mut self, ix: usize, data: FileData, pins: &Pins) -> bool {
+        let data = Arc::new(data);
+        if ix == self.file {
+            self.data = Some(data);
+            self.relayout(pins);
+            if let Some(anchor) = self.stack.as_mut().and_then(|s| s.anchor.take())
+                && let Some(header) = self.stack.as_ref().and_then(|s| s.header(ix))
+            {
+                self.diff_list.scroll_to(ListOffset {
+                    item_ix: header + 1 + anchor.item_ix,
+                    ..anchor
+                });
+            }
+            return true;
+        }
+        if let Some(b) = self.stack.as_ref().and_then(|s| s.block_of(ix)) {
+            let Some(path) = self
+                .diff
+                .as_ref()
+                .and_then(|d| d.files.get(ix))
+                .map(|f| f.path().to_owned())
+            else {
+                return false;
+            };
+            let before = self.shown_rows(b);
+            self.lay_block(b, &path, data, pins);
+            self.stack_changed(b, before);
+            self.recompute_stack_matches();
+        }
+        false
+    }
+
+    /// Opens every file (`open`), or folds every file to its header; false without a stack.
+    pub(super) fn expand_all(&mut self, open: bool) -> bool {
+        let Some(files) = self
+            .stack
+            .as_ref()
+            .map(|s| s.blocks.iter().map(|b| b.file).collect::<Vec<_>>())
+        else {
+            return false;
+        };
+        // The files whose default is the other way round.
+        let flipped: HashSet<usize> = files
+            .into_iter()
+            .filter(|&ix| self.folds_by_default(ix) == open)
+            .collect();
+        if let Some(stack) = self.stack.as_mut() {
+            stack.flipped = flipped;
+        }
+        self.sync_stack();
+        true
+    }
+
+    /// Match `at` of every file's becomes the current one: its file and row.
+    pub(super) fn stack_match(&mut self, at: usize) -> Option<(usize, usize)> {
+        let &(file, row) = self.stack.as_ref()?.matches.get(at)?;
+        if let Some(stack) = self.stack.as_mut() {
+            stack.match_at = at;
+        }
+        Some((file, row))
     }
 }
 

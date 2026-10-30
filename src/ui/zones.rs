@@ -151,7 +151,9 @@ impl Workspace {
     /// ← and → : the neighbouring file, or in the file tree open and close folders.
     pub(super) fn zone_horizontal(&mut self, forward: bool, cx: &mut Context<Self>) {
         match self.zone {
-            Zone::Files if !self.review.options.list_files && self.pfilter.trim().is_empty() => {
+            Zone::Files
+                if !self.review.options.list_files && self.review.pfilter.trim().is_empty() =>
+            {
                 self.tree_horizontal(forward, cx)
             }
             Zone::Branches if forward => self.set_zone(Zone::Commits, cx),
@@ -170,7 +172,7 @@ impl Workspace {
     }
 
     pub(super) fn step_file(&mut self, forward: bool, cx: &mut Context<Self>) {
-        let order = self.file_order();
+        let order = self.review.file_order();
         let Some(at) = order.iter().position(|&ix| ix == self.review.file) else {
             return;
         };
@@ -218,7 +220,7 @@ impl Workspace {
                 }
             }
             Zone::Files => {
-                if let Some(dir) = self.fcursor.clone() {
+                if let Some(dir) = self.review.fcursor.clone() {
                     self.toggle_dir(&dir, cx);
                 } else {
                     self.set_zone(Zone::Diff, cx);
@@ -351,8 +353,8 @@ impl Workspace {
 
     /// ↑ ↓ over what the files island shows, folders included.
     fn step_file_item(&mut self, down: bool, cx: &mut Context<Self>) {
-        let items = self.item_keys();
-        let here = match &self.fcursor {
+        let items = self.review.item_keys();
+        let here = match &self.review.fcursor {
             Some(dir) => items
                 .iter()
                 .position(|k| matches!(k, ItemKey::Dir(d) if d == dir)),
@@ -367,11 +369,11 @@ impl Workspace {
         };
         match to.map(|i| items[i].clone()) {
             Some(ItemKey::File(ix)) => {
-                self.fcursor = None;
+                self.review.fcursor = None;
                 self.select_file(ix, cx);
             }
             Some(ItemKey::Dir(path)) => {
-                self.fcursor = Some(path);
+                self.review.fcursor = Some(path);
                 cx.notify();
             }
             None => {}
@@ -380,7 +382,7 @@ impl Workspace {
 
     /// In the tree: → opens a folder or goes into the diff, ← closes a folder or goes up to it.
     fn tree_horizontal(&mut self, forward: bool, cx: &mut Context<Self>) {
-        if let Some(dir) = self.fcursor.clone() {
+        if let Some(dir) = self.review.fcursor.clone() {
             let open = !self.review.collapsed.contains(&dir);
             match (forward, open) {
                 (true, false) | (false, true) => self.toggle_dir(&dir, cx),
@@ -396,6 +398,7 @@ impl Workspace {
         // ← on a file: the folder it is in, or its group (#22).
         if let Some(path) = self.review.file_key(self.review.file) {
             let parent = self
+                .review
                 .item_keys()
                 .into_iter()
                 .filter_map(|k| match k {
@@ -404,7 +407,7 @@ impl Workspace {
                 })
                 .next_back();
             if parent.is_some() {
-                self.fcursor = parent;
+                self.review.fcursor = parent;
                 cx.notify();
             }
         }

@@ -87,7 +87,7 @@ impl Workspace {
         let active = self.field == Some(field);
         let (text, look) = match field {
             Field::Branches => (&self.bfilter, input::Look::default()),
-            Field::Files => (&self.pfilter, input::Look::default()),
+            Field::Files => (&self.review.pfilter, input::Look::default()),
             Field::Token => (
                 &self.token_input,
                 input::Look {
@@ -199,7 +199,7 @@ impl Workspace {
         }
         let text = match field {
             Field::Branches => &mut self.bfilter,
-            Field::Files => &mut self.pfilter,
+            Field::Files => &mut self.review.pfilter,
             Field::Token => &mut self.token_input,
             Field::Keys => &mut self.keys_filter,
             Field::ThemeValue => &mut self.theme_value,
@@ -483,64 +483,6 @@ fn file_rows(
 }
 
 impl Workspace {
-    pub(super) fn items(&self) -> Vec<FileItem> {
-        match &self.review.diff {
-            Some(diff) => file_items(
-                &diff.files,
-                self.review.options.list_files,
-                &self.pfilter,
-                &self.review.collapsed,
-                diff.tags.staged,
-            ),
-            None => Vec::new(),
-        }
-    }
-
-    /// File indexes in the order the island shows them: what ← and → walk through.
-    pub(super) fn file_order(&self) -> Vec<usize> {
-        files_of(self.items())
-    }
-
-    /// File indexes in the tree's order with every folder open: what `v` walks, so a collapsed
-    /// folder's files are not passed over (#167). A filter still narrows it.
-    pub(super) fn file_order_all(&self) -> Vec<usize> {
-        match &self.review.diff {
-            Some(diff) => files_of(file_items(
-                &diff.files,
-                self.review.options.list_files,
-                &self.pfilter,
-                &HashSet::new(),
-                diff.tags.staged,
-            )),
-            None => Vec::new(),
-        }
-    }
-
-    /// What the files island shows, as keys for keyboard movement.
-    pub(super) fn item_keys(&self) -> Vec<super::zones::ItemKey> {
-        self.items()
-            .into_iter()
-            .map(|item| match item {
-                FileItem::File { ix, .. } => super::zones::ItemKey::File(ix),
-                FileItem::Dir { path, .. } => super::zones::ItemKey::Dir(path),
-                FileItem::Group { group, .. } => super::zones::ItemKey::Dir(group.key().into()),
-            })
-            .collect()
-    }
-
-    /// Scrolls the files island to show file `ix`.
-    pub(super) fn scroll_file_into_view(&self, ix: usize) {
-        let at = self
-            .items()
-            .iter()
-            .position(|item| matches!(item, FileItem::File { ix: i, .. } if *i == ix));
-        if let Some(at) = at {
-            self.review
-                .file_scroll
-                .scroll_to_item(at, ScrollStrategy::Nearest);
-        }
-    }
-
     pub(super) fn set_file_view(&mut self, list: bool, cx: &mut Context<Self>) {
         if self.review.options.list_files != list {
             self.review.options.list_files = list;
@@ -560,7 +502,7 @@ impl Workspace {
 
     /// The Changes section's body: how far the review is, the path filter, the files.
     pub(super) fn render_changes(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let count = self.items().len();
+        let count = self.review.items().len();
         div()
             .relative()
             .flex_1()
@@ -600,10 +542,10 @@ impl Workspace {
         if all == 0 {
             return None;
         }
-        let shown: Vec<usize> = if self.pfilter.trim().is_empty() {
+        let shown: Vec<usize> = if self.review.pfilter.trim().is_empty() {
             (0..all).collect()
         } else {
-            self.file_order()
+            self.review.file_order()
         };
         let (added, removed) = shown.iter().fold((0, 0), |(a, r), &ix| {
             (a + diff.files[ix].added, r + diff.files[ix].removed)
@@ -641,7 +583,7 @@ impl Workspace {
         let Some(diff) = &self.review.diff else {
             return div().into_any_element();
         };
-        let tree = !self.review.options.list_files && self.pfilter.trim().is_empty();
+        let tree = !self.review.options.list_files && self.review.pfilter.trim().is_empty();
         // A file's row: its status and name always, its +/− while the list has 240 px (#79); its
         // tooltip the whole path.
         let counts = self.counts_fit();
@@ -718,7 +660,7 @@ impl Workspace {
                     .child(
                         row(
                             ("dir", path.len() * 31 + *depth),
-                            self.fcursor.as_deref() == Some(path.as_str()),
+                            self.review.fcursor.as_deref() == Some(path.as_str()),
                         )
                         .h(px(26.))
                         .gap_2()
@@ -785,7 +727,7 @@ impl Workspace {
             .child(
                 row(
                     ("group", group as usize),
-                    self.fcursor.as_deref() == Some(key),
+                    self.review.fcursor.as_deref() == Some(key),
                 )
                 .h(px(26.))
                 .gap(px(6.))
@@ -905,7 +847,7 @@ fn uniform_list_files(
         "files",
         count,
         cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
-            let items = this.items();
+            let items = this.review.items();
             range
                 .filter_map(|i| items.get(i))
                 .map(|item| {
@@ -949,6 +891,64 @@ impl super::review::Review {
     pub(super) fn open_folders_of(&mut self, ix: usize) {
         if let Some(key) = self.file_key(ix) {
             self.collapsed.retain(|dir| !inside(&key, dir));
+        }
+    }
+}
+
+impl super::review::Review {
+    pub(super) fn items(&self) -> Vec<FileItem> {
+        match &self.diff {
+            Some(diff) => file_items(
+                &diff.files,
+                self.options.list_files,
+                &self.pfilter,
+                &self.collapsed,
+                diff.tags.staged,
+            ),
+            None => Vec::new(),
+        }
+    }
+
+    /// File indexes in the order the island shows them: what ← and → walk through.
+    pub(super) fn file_order(&self) -> Vec<usize> {
+        files_of(self.items())
+    }
+
+    /// File indexes in the tree's order with every folder open: what `v` walks, so a collapsed
+    /// folder's files are not passed over (#167). A filter still narrows it.
+    pub(super) fn file_order_all(&self) -> Vec<usize> {
+        match &self.diff {
+            Some(diff) => files_of(file_items(
+                &diff.files,
+                self.options.list_files,
+                &self.pfilter,
+                &HashSet::new(),
+                diff.tags.staged,
+            )),
+            None => Vec::new(),
+        }
+    }
+
+    /// What the files island shows, as keys for keyboard movement.
+    pub(super) fn item_keys(&self) -> Vec<super::zones::ItemKey> {
+        self.items()
+            .into_iter()
+            .map(|item| match item {
+                FileItem::File { ix, .. } => super::zones::ItemKey::File(ix),
+                FileItem::Dir { path, .. } => super::zones::ItemKey::Dir(path),
+                FileItem::Group { group, .. } => super::zones::ItemKey::Dir(group.key().into()),
+            })
+            .collect()
+    }
+
+    /// Scrolls the files island to show file `ix`.
+    pub(super) fn scroll_file_into_view(&self, ix: usize) {
+        let at = self
+            .items()
+            .iter()
+            .position(|item| matches!(item, FileItem::File { ix: i, .. } if *i == ix));
+        if let Some(at) = at {
+            self.file_scroll.scroll_to_item(at, ScrollStrategy::Nearest);
         }
     }
 }

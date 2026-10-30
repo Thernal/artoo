@@ -65,14 +65,6 @@ pub fn word_at(text: &str, byte: usize) -> Range<usize> {
 }
 
 impl Workspace {
-    fn line_text(&self, old: bool, line: u32) -> String {
-        self.review
-            .data
-            .as_ref()
-            .map(|d| d.side(old).line(line).0.to_owned())
-            .unwrap_or_default()
-    }
-
     /// A press on a line at byte `byte`: the caret, a word or the line, by click count; ⇧ extends.
     pub(super) fn select_press(
         &mut self,
@@ -86,7 +78,7 @@ impl Workspace {
         self.ctx_menu = None;
         self.note_sel = None;
         let at = Pos { line, byte };
-        let text = self.line_text(old, line);
+        let text = self.review.line_text(old, line);
         self.review.selecting = true;
         self.review.sel = match (self.review.sel, clicks, shift) {
             (Some(sel), 1, true) if sel.old == old => Some(Sel { head: at, ..sel }),
@@ -318,6 +310,15 @@ impl super::review::Review {
             })
             .collect();
         Some(lines.join("\n"))
+    }
+}
+
+impl super::review::Review {
+    fn line_text(&self, old: bool, line: u32) -> String {
+        self.data
+            .as_ref()
+            .map(|d| d.side(old).line(line).0.to_owned())
+            .unwrap_or_default()
     }
 }
 

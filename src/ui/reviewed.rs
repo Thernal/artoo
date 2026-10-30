@@ -425,13 +425,6 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Every file of the open diff is reviewed.
-    pub(super) fn all_reviewed(&self) -> bool {
-        self.review
-            .review_progress()
-            .is_some_and(|(done, total)| total > 0 && done == total)
-    }
-
     /// Records whether the head of the open diff is fully reviewed; the card offering what is next
     /// comes up the moment it becomes so.
     fn sync_complete(&mut self) {
@@ -439,7 +432,7 @@ impl Workspace {
             return;
         };
         let root = root.display().to_string();
-        let done = self.all_reviewed();
+        let done = self.review.all_reviewed();
         // Only a whole branch or request (a compare, versions) makes its head count as reviewed;
         // one commit read is not its branch read.
         let whole = matches!(
@@ -527,26 +520,9 @@ impl Workspace {
         })
     }
 
-    /// The files under folder `path` of the tree.
-    pub(super) fn files_under(&self, path: &str) -> Vec<usize> {
-        let prefix = format!("{path}/");
-        self.review
-            .diff
-            .as_ref()
-            .map(|d| {
-                d.files
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, f)| f.path().starts_with(&prefix))
-                    .map(|(ix, _)| ix)
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
     /// ⌥⇧V and the buttons: every file the list shows marked, or (when all are) unmarked.
     pub(super) fn toggle_all_reviewed(&mut self, cx: &mut Context<Self>) {
-        let shown = self.file_order();
+        let shown = self.review.file_order();
         let done = shown
             .iter()
             .all(|&ix| self.review.review_state(ix) == Some(State::Done));
@@ -560,7 +536,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
         self.review.review_scope.as_ref()?;
-        let ixs = self.files_under(path);
+        let ixs = self.review.files_under(path);
         let done = ixs
             .iter()
             .filter(|&&ix| self.review.review_state(ix) == Some(State::Done))
@@ -605,7 +581,7 @@ impl Workspace {
                 .child(glyph)
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let ixs = this.files_under(&target);
+                    let ixs = this.review.files_under(&target);
                     this.set_reviewed_many(&ixs, !all, cx);
                 })),
         )
@@ -630,7 +606,7 @@ impl Workspace {
     /// Opens the next file, in the tree's order, that is not marked read: one in a collapsed folder
     /// too, which then opens (#167).
     pub(super) fn next_unreviewed(&mut self, cx: &mut Context<Self>) {
-        let order = self.file_order_all();
+        let order = self.review.file_order_all();
         let next = next_open(&order, self.review.file, |ix| {
             self.review.review_state(ix) == Some(State::Done)
         });
@@ -649,7 +625,7 @@ impl Workspace {
                 self.review.sync_stack();
             }
             self.select_file(ix, cx);
-            self.scroll_file_into_view(ix);
+            self.review.scroll_file_into_view(ix);
         }
     }
 
@@ -736,8 +712,8 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
         let (done, total) = self.review.review_progress()?;
-        let filtered = !self.pfilter.trim().is_empty();
-        let shown = self.file_order();
+        let filtered = !self.review.pfilter.trim().is_empty();
+        let shown = self.review.file_order();
         let shown_done = shown
             .iter()
             .all(|&ix| self.review.review_state(ix) == Some(State::Done));
@@ -879,6 +855,30 @@ impl super::review::Review {
             .filter(|&ix| self.review_state(ix) == Some(State::Done))
             .count();
         Some((done, total))
+    }
+}
+
+impl super::review::Review {
+    /// Every file of the open diff is reviewed.
+    pub(super) fn all_reviewed(&self) -> bool {
+        self.review_progress()
+            .is_some_and(|(done, total)| total > 0 && done == total)
+    }
+
+    /// The files under folder `path` of the tree.
+    pub(super) fn files_under(&self, path: &str) -> Vec<usize> {
+        let prefix = format!("{path}/");
+        self.diff
+            .as_ref()
+            .map(|d| {
+                d.files
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, f)| f.path().starts_with(&prefix))
+                    .map(|(ix, _)| ix)
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 }
 

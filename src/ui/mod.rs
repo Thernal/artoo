@@ -1672,7 +1672,6 @@ pub struct Workspace {
     version_tab: VersionTab,
     palette: Option<palette::Palette>,
     zone: zones::Zone,
-    fcursor: Option<String>,
     wt: WorkingState,
     fetch: fetch::Fetch,
     shell: Option<gpui::WeakEntity<shell::Shell>>,
@@ -1835,9 +1834,8 @@ pub struct Workspace {
     nav: nav::Nav,
     /// Where the View button was painted, so its menu hangs from it.
     view_bounds: Rc<Shared<Option<gpui::Bounds<gpui::Pixels>>>>,
-    /// The branch and path filters, and which of them (if any) takes the keyboard.
+    /// The branch filter, and which filter (if any) takes the keyboard.
     bfilter: String,
-    pfilter: String,
     field: Option<Field>,
     /// Labels on commits: where branches, remote branches and tags point.
     decor: std::collections::HashMap<git2::Oid, Vec<crate::git::Deco>>,
@@ -1925,6 +1923,8 @@ impl Workspace {
             keys_exact: false,
             keys_changed_only: false,
             review: review::Review {
+                pfilter: String::new(),
+                fcursor: None,
                 settings,
                 char_width: 0.,
                 options: ViewOptions::load(&settings),
@@ -2025,7 +2025,6 @@ impl Workspace {
             version_tab: VersionTab::Files,
             palette: None,
             zone: zones::Zone::default(),
-            fcursor: None,
             wt: WorkingState::default(),
             fetch: fetch::Fetch::default(),
             shell: None,
@@ -2086,7 +2085,6 @@ impl Workspace {
             nav: nav::Nav::default(),
             view_bounds: Rc::new(Shared::new(None)),
             bfilter: String::new(),
-            pfilter: String::new(),
             field: None,
             decor: Default::default(),
             ctx_menu: None,
@@ -2590,7 +2588,7 @@ impl Workspace {
                                 ..
                             })
                         );
-                        let order = this.file_order();
+                        let order = this.review.file_order();
                         let unread = order.iter().copied().find(|&ix| {
                             this.review.review_state(ix) != Some(reviewed::State::Done)
                         });
@@ -2634,9 +2632,9 @@ impl Workspace {
             return self.stack_select(ix, cx);
         }
         self.review.file = ix;
-        self.fcursor = None;
+        self.review.fcursor = None;
         self.review.clear_file();
-        self.scroll_file_into_view(ix);
+        self.review.scroll_file_into_view(ix);
         let mode = self.review.options.mode;
         self.review.view_task = Some(cx.spawn(async move |this, cx| {
             let data = cx
@@ -3471,7 +3469,7 @@ impl Workspace {
         if self.zen_one
             && let Some(path) = &file
         {
-            let order = self.file_order();
+            let order = self.review.file_order();
             let at = order
                 .iter()
                 .position(|&ix| ix == self.review.file)
