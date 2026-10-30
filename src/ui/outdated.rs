@@ -8,7 +8,6 @@
 
 use super::{Selection, Workspace, format, px, theme};
 use crate::git::{Fate, Repo};
-use crate::mr::Thread;
 use crate::worddiff::Piece;
 pub(super) use artoo_requests::outdated::{LineHistory, Since, Step};
 use gpui::{
@@ -18,45 +17,6 @@ use gpui::{
 use std::collections::HashMap;
 
 impl Workspace {
-    /// The latest version's head of the open request.
-    fn latest_head(&self, cx: &App) -> Option<String> {
-        self.requests
-            .read(cx)
-            .current
-            .and_then(|iid| self.requests.read(cx).find(iid))
-            .map(|m| m.head.clone())
-            .filter(|h| !h.is_empty())
-    }
-
-    /// The commit discussion `t` was written on: the host's word, else (an older GitLab answer
-    /// without `head_sha`) the version pushed last before its first note.
-    fn written_commit(&self, t: &Thread, cx: &App) -> Option<String> {
-        if let Some(c) = &t.commit {
-            return Some(c.clone());
-        }
-        let iid = self.requests.read(cx).current?;
-        let when = t.notes.first()?.created;
-        match &self.requests.read(cx).versions {
-            Some((for_iid, list)) if *for_iid == iid && list.len() > 1 => list
-                .iter()
-                .rev()
-                .find(|v| v.time <= when)
-                .map(|v| v.tip.to_string()),
-            _ => None,
-        }
-    }
-
-    /// Written on an earlier version than the one shown: its line number is that version's.
-    pub(super) fn thread_is_old(&self, t: &Thread, cx: &App) -> bool {
-        if t.outdated {
-            return true;
-        }
-        match (self.written_commit(t, cx), self.latest_head(cx)) {
-            (Some(c), Some(head)) => !head.starts_with(c.as_str()) && !c.starts_with(&head),
-            _ => false,
-        }
-    }
-
     /// Follows the line of every discussion written on an earlier version to the latest, in the
     /// background; the threads and the versions must both be in.
     pub(super) fn compute_histories(&mut self, cx: &mut Context<Self>) {
@@ -74,11 +34,11 @@ impl Workspace {
             .read(cx)
             .threads
             .iter()
-            .filter(|t| self.thread_is_old(t, cx))
+            .filter(|t| self.requests.read(cx).thread_is_old(t))
             .filter_map(|t| {
                 Some((
                     t.id.clone(),
-                    self.written_commit(t, cx)?,
+                    self.requests.read(cx).written_commit(t)?,
                     t.path.clone()?,
                     t.new_line?,
                 ))
@@ -116,51 +76,6 @@ impl Workspace {
             .ok();
         }));
         self.requests.update(cx, |rq, _| rq.history_task = task);
-    }
-
-    /// The outdated discussions by the version they were written on, newest version first.
-    pub(super) fn outdated_by_version(&self, cx: &App) -> Vec<(Option<usize>, Vec<usize>)> {
-        let mut groups: Vec<(Option<usize>, Vec<usize>)> = Vec::new();
-        for (ix, t) in self.requests.read(cx).threads.iter().enumerate() {
-            if t.path.is_none() || !self.thread_is_old(t, cx) {
-                continue;
-            }
-            let version = self
-                .requests
-                .read(cx)
-                .histories
-                .get(&t.id)
-                .map(|h| h.written);
-            match groups.iter_mut().find(|(v, _)| *v == version) {
-                Some((_, list)) => list.push(ix),
-                None => groups.push((version, vec![ix])),
-            }
-        }
-        groups.sort_by_key(|(v, _)| std::cmp::Reverse(*v));
-        groups
-    }
-
-    /// Whether thread `t` began with a comment of yours: only then is it "your comment".
-    fn yours(&self, t: &Thread, cx: &App) -> bool {
-        let me = self.requests.read(cx).login.as_deref().unwrap_or_default();
-        !me.is_empty() && t.notes.first().is_some_and(|n| n.login == me)
-    }
-
-    /// "Changed since your comment" (or this comment, another's), or not, for thread `ix`; None
-    /// while it is not known.
-    pub(super) fn since_comment(&self, ix: usize, cx: &App) -> Option<String> {
-        let t = self.requests.read(cx).threads.get(ix)?;
-        let h = self.requests.read(cx).histories.get(&t.id)?;
-        let whose = if self.yours(t, cx) {
-            "your comment"
-        } else {
-            "this comment"
-        };
-        Some(match (h.changed(), h.line_now) {
-            (_, None) => format!("Line removed since {whose}"),
-            (true, _) => format!("Changed since {whose}"),
-            (false, _) => format!("Unchanged since {whose}"),
-        })
     }
 
     /// The button that compares thread `ix`'s version with the latest: "Compare v1 → v3".
@@ -222,7 +137,7 @@ impl Workspace {
                 )
         };
         // Who wrote the comment, named unless it is you.
-        let who = if self.yours(t, cx) {
+        let who = if self.requests.read(cx).yours(t) {
             "you commented on".to_owned()
         } else {
             let author = t.notes.first().map_or("", |n| n.author.as_str());
@@ -290,7 +205,9 @@ impl Workspace {
                                 .rounded_full()
                                 .bg(theme::warning_bg())
                                 .text_color(theme::warning())
-                                .child(self.since_comment(ix, cx).unwrap_or_default()),
+                                .child(
+                                    self.requests.read(cx).since_comment(ix).unwrap_or_default(),
+                                ),
                         )
                         .child(
                             div()
@@ -427,7 +344,7 @@ impl Workspace {
             .threads
             .iter()
             .find(|t| t.id == since.thread)
-            .is_some_and(|t| self.yours(t, cx));
+            .is_some_and(|t| self.requests.read(cx).yours(t));
         let (line, whose) = if yours {
             ("Your comment's line", "your comment")
         } else {

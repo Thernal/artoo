@@ -185,8 +185,8 @@ impl Workspace {
                 .map(|(.., ix)| ix)
                 .find(|&ix| ids.contains(&self.requests.read(cx).drafts[ix].id))
                 .and_then(|ix| {
-                    let (path, new, old) =
-                        self.draft_place(&self.requests.read(cx).drafts[ix], cx)?;
+                    let rq = self.requests.read(cx);
+                    let (path, new, old) = rq.draft_place(&rq.drafts[ix])?;
                     Some((None, Some(ix), path, new.or(old)?, new.is_none()))
                 }),
             Spot::Line(l) => self.review.read(cx).diff.as_ref().and_then(|d| {

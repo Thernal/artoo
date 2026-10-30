@@ -125,12 +125,12 @@ impl Workspace {
             .filter(|c| c.path == path && c.file.is_none());
         let showing = self.showing_request(cx);
         let theirs = if showing {
-            self.request_threads_in(path, cx)
+            self.requests.read(cx).request_threads_in(path)
         } else {
             self.since_thread_in(path, cx)
         };
         let drafts = if showing {
-            self.drafts_in(path, cx)
+            self.requests.read(cx).drafts_in(path)
         } else {
             Vec::new()
         };
@@ -139,7 +139,7 @@ impl Workspace {
                 .read(cx)
                 .drafts
                 .get(ix)
-                .and_then(|d| self.draft_thread(d, cx))
+                .and_then(|d| self.requests.read(cx).draft_thread(d))
         };
         let mut fixed = Vec::new();
         // A reply waiting to be sent comes right under its own discussion (#166).

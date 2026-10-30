@@ -997,85 +997,8 @@ impl Workspace {
         self.review
             .read(cx)
             .current_path()
-            .map(|path| self.request_threads_in(&path, cx))
+            .map(|path| self.requests.read(cx).request_threads_in(&path))
             .unwrap_or_default()
-    }
-
-    /// The discussions on lines of file `path`.
-    pub(super) fn request_threads_in(&self, path: &str, cx: &App) -> Vec<(usize, bool, u32)> {
-        self.requests
-            .read(cx)
-            .threads
-            .iter()
-            .enumerate()
-            .filter(|(_, t)| t.path.as_deref() == Some(path))
-            .filter_map(|(ix, t)| {
-                let (old, line) = self.thread_line_now(t, cx)?;
-                Some((ix, old, line))
-            })
-            .collect()
-    }
-
-    /// Where discussion `t` is drawn in the diff on screen: (old side, line).
-    fn thread_line_now(&self, t: &mr::Thread, cx: &App) -> Option<(bool, u32)> {
-        // Written on an earlier version: drawn at its line now, or not at all (#46).
-        if self.thread_is_old(t, cx) {
-            let h = self.requests.read(cx).histories.get(&t.id)?;
-            return h.line_now.map(|n| (false, n));
-        }
-        match (t.new_line, t.old_line) {
-            (Some(n), _) => Some((false, n)),
-            (None, Some(o)) => Some((true, o)),
-            _ => None,
-        }
-    }
-
-    /// The discussion pending comment `d` replies to, when it is one of the request's.
-    pub(super) fn draft_thread(&self, d: &mr::Draft, cx: &App) -> Option<usize> {
-        let id = d.reply_to.as_deref()?;
-        self.requests
-            .read(cx)
-            .threads
-            .iter()
-            .position(|t| t.id == id)
-    }
-
-    /// Where pending comment `d` is: its own place, or for a reply its discussion's (#166) —
-    /// (path, new line, old line); the path alone for a file's, nothing for the request's.
-    pub(super) fn draft_place(
-        &self,
-        d: &mr::Draft,
-        cx: &App,
-    ) -> Option<(String, Option<u32>, Option<u32>)> {
-        match self
-            .draft_thread(d, cx)
-            .map(|ix| &self.requests.read(cx).threads[ix])
-        {
-            Some(t) => Some((t.path.clone()?, t.new_line, t.old_line)),
-            None => Some((d.path.clone()?, d.new_line, d.old_line)),
-        }
-    }
-
-    /// Where pending comment `d` is, said in a list: `file.rs:12`, or why it has no line.
-    pub(super) fn draft_where(
-        &self,
-        d: &mr::Draft,
-        cx: &App,
-    ) -> (String, Option<(String, u32)>, bool) {
-        let place = self.draft_place(d, cx);
-        let target = place
-            .as_ref()
-            .and_then(|(p, new, old)| Some((p.clone(), new.or(*old)?)));
-        let old = place.as_ref().is_some_and(|(_, new, _)| new.is_none());
-        let said = match &target {
-            Some((p, n)) => format!("{}:{n}", p.rsplit('/').next().unwrap_or(p)),
-            // A reply whose discussion is not among the request's: not General, it was in one.
-            None if d.reply_to.is_some() && self.draft_thread(d, cx).is_none() => {
-                "A reply to a discussion not here".to_owned()
-            }
-            None => "General".to_owned(),
-        };
-        (said, target, old)
     }
 
     /// A discussion of the request, drawn under its line: a frame with a header bar (it folds the
@@ -1095,7 +1018,7 @@ impl Workspace {
         let open = self.mr_open(ix, cx);
         let focused = self.thread_at == Some(ix);
         // On its way to the host: faded, and nothing to act on until it has an id (#139).
-        let waits = self.thread_waits(&t.id, cx);
+        let waits = self.requests.read(cx).thread_waits(&t.id);
         let sending = super::waiting::is_temp_thread(&t.id);
         let can_act = self.request_target(cx).is_some() && !sending;
         let (fold, pick, reply, resolve, raw, edit) = (
@@ -1215,7 +1138,7 @@ impl Workspace {
             let edit_box = self.edit_box(change, edit.clone(), cx);
             let own = self.requests.read(cx).login.as_deref() == Some(note.login.as_str());
             // Waiting on the host: faded, its time saying what for; a new one takes no actions.
-            let (time, note_waits) = self.note_time(note.id, note.created, cx);
+            let (time, note_waits) = self.requests.read(cx).note_time(note.id, note.created);
             let can_act = can_act && !super::waiting::is_temp(note.id);
             let editable = can_act && self.compose.is_none() && own && !note_waits;
             let (hover, pills) = (edit.clone(), self.reaction_pills(note.id, edit.clone(), cx));
@@ -1546,36 +1469,6 @@ impl Workspace {
         }
     }
 
-    /// The pending comments of file `path`: (index, old side, line).
-    pub(super) fn drafts_in(&self, path: &str, cx: &App) -> Vec<(usize, bool, u32)> {
-        self.requests
-            .read(cx)
-            .drafts
-            .iter()
-            .enumerate()
-            .filter_map(|(ix, d)| {
-                // A reply is drawn under its discussion, wherever that is now (#166).
-                if let Some(t) = self
-                    .draft_thread(d, cx)
-                    .map(|t| &self.requests.read(cx).threads[t])
-                {
-                    let (old, line) = self
-                        .thread_line_now(t, cx)
-                        .filter(|_| t.path.as_deref() == Some(path))?;
-                    return Some((ix, old, line));
-                }
-                if d.path.as_deref() != Some(path) {
-                    return None;
-                }
-                match (d.new_line, d.old_line) {
-                    (Some(n), _) => Some((ix, false, n)),
-                    (None, Some(o)) => Some((ix, true, o)),
-                    _ => None,
-                }
-            })
-            .collect()
-    }
-
     /// A pending comment: a dashed frame, only its author sees it until the review is submitted.
     pub(super) fn render_draft(
         &self,
@@ -1592,7 +1485,7 @@ impl Workspace {
         let selecting = self.selecting(this.clone());
         let (delete, raw, send) = (this.clone(), this.clone(), this);
         // Waiting on the host: faded, saying what for, nothing to act on (#139).
-        let waits = self.draft_waits(id, cx);
+        let waits = self.requests.read(cx).draft_waits(id);
         let acts = waits.is_none() && !super::waiting::is_temp(id);
         let one = self.sends_one_draft();
         // GitHub publishes a pending comment only with its review: there it says so (#138).
@@ -1630,7 +1523,9 @@ impl Workspace {
                     .flex()
                     // A reply says whose discussion it goes into (#166).
                     .children(
-                        self.draft_thread(d, cx)
+                        self.requests
+                            .read(cx)
+                            .draft_thread(d)
                             .and_then(|t| self.requests.read(cx).threads[t].notes.first())
                             .map(|n| {
                                 super::hover::cut(
@@ -1814,7 +1709,7 @@ impl Workspace {
             .iter()
             .enumerate()
             .filter_map(|(ix, d)| {
-                let (path, new, old) = self.draft_place(d, cx)?;
+                let (path, new, old) = self.requests.read(cx).draft_place(d)?;
                 let file = diff.files.iter().position(|f| f.path() == path)?;
                 Some((file, new.or(old)?, ix))
             })
@@ -2028,7 +1923,7 @@ impl Workspace {
         let grouped = [discussions, pending].iter().filter(|&&n| n > 0).count() > 1;
         // Written on an earlier version: listed apart, grouped by that version (#46).
         let outdated = if self.showing_request(cx) {
-            self.outdated_by_version(cx)
+            self.requests.read(cx).outdated_by_version()
         } else {
             Vec::new()
         };
@@ -2065,10 +1960,10 @@ impl Workspace {
             };
             let first = &t.notes[0];
             // Faded while a change to it waits on the host (#139).
-            let waits = self.thread_waits(&t.id, cx).is_some()
+            let waits = self.requests.read(cx).thread_waits(&t.id).is_some()
                 || t.notes
                     .iter()
-                    .any(|n| self.note_time(n.id, n.created, cx).1);
+                    .any(|n| self.requests.read(cx).note_time(n.id, n.created).1);
             comment_item(
                 ("comment-mr", ix),
                 theme::warning(),
@@ -2083,7 +1978,7 @@ impl Workspace {
             }))
         });
         let draft_items = drafts.into_iter().map(|(ix, d)| {
-            let (where_, target, old) = self.draft_where(d, cx);
+            let (where_, target, old) = self.requests.read(cx).draft_where(d);
             comment_item(
                 ("comment-draft", ix),
                 theme::warning(),
@@ -2092,13 +1987,14 @@ impl Workspace {
             )
             .relative()
             .group("pending-row")
-            .when(self.draft_waits(d.id, cx).is_some(), |s| {
+            .when(self.requests.read(cx).draft_waits(d.id).is_some(), |s| {
                 s.opacity(super::waiting::FADED)
             })
             .children(
                 self.send_now_chip(d.id, "pending-row", cx)
                     .filter(|_| {
-                        self.draft_waits(d.id, cx).is_none() && !super::waiting::is_temp(d.id)
+                        self.requests.read(cx).draft_waits(d.id).is_none()
+                            && !super::waiting::is_temp(d.id)
                     })
                     .map(|chip| chip.absolute().top(px(3.)).right(px(6.))),
             )
@@ -2232,7 +2128,9 @@ impl Workspace {
                     .text_size(px(11.))
                     .text_color(theme::warning())
                     .child(
-                        self.since_comment(ix, cx)
+                        self.requests
+                            .read(cx)
+                            .since_comment(ix)
                             .unwrap_or_else(|| "Written on an earlier version".to_owned()),
                     ),
             )
@@ -2273,7 +2171,7 @@ impl Workspace {
         };
         let mut shown: Vec<&Mr> = list
             .iter()
-            .filter(|m| past || self.in_scope(m, scope, cx))
+            .filter(|m| past || self.requests.read(cx).in_scope(m, scope))
             .filter(|m| {
                 let hay = format!(
                     "{} {} {} {}",
@@ -2291,16 +2189,6 @@ impl Workspace {
             shown.sort_by_key(|m| (self.group_of(m, cx), std::cmp::Reverse(m.updated)));
         }
         shown.into_iter().cloned().collect()
-    }
-
-    /// Whether `m` is one the scope lists, by the token's user.
-    pub(super) fn in_scope(&self, m: &Mr, scope: Scope, cx: &App) -> bool {
-        let me = self.requests.read(cx).login.as_deref().unwrap_or_default();
-        match scope {
-            Scope::All => true,
-            Scope::ReviewMe => !me.is_empty() && m.reviewers.iter().any(|r| r == me),
-            Scope::Mine => !me.is_empty() && m.author_login == me,
-        }
     }
 
     /// All · To review · Mine with their counts, in Merge requests' bar, once the token's user is
@@ -2321,7 +2209,7 @@ impl Workspace {
                 let list = &self.requests.read(cx).list;
                 return list
                     .iter()
-                    .filter(|m| self.in_scope(m, scope, cx))
+                    .filter(|m| self.requests.read(cx).in_scope(m, scope))
                     .count()
                     .to_string();
             }
@@ -2488,7 +2376,7 @@ impl Workspace {
         &self,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
-        let waits = self.approval_waits(cx);
+        let waits = self.requests.read(cx).approval_waits();
         self.requests.read(cx).approvals.clone().map(|a| {
             let count = if a.required > 0 {
                 format!(" {}/{}", a.required - a.left.min(a.required), a.required)

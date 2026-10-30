@@ -7,6 +7,7 @@
 //! The host's answer to a change stamps it with a tick; a read begun at tick `t` holds every change
 //! answered before `t`, so when it arrives those stop applying and the rest go on top of it.
 
+use crate::requests::Requests;
 use artoo_hosts_api::{Approvals, Draft, Note, Thread};
 
 /// What a change does to a request's discussions, pending comments or approvals.
@@ -309,6 +310,37 @@ pub struct Base {
     pub threads: Vec<Thread>,
     pub drafts: Vec<Draft>,
     pub approvals: Option<Approvals>,
+}
+
+impl Requests {
+    /// A note's time, or what it waits for; and whether it waits.
+    pub fn note_time(&self, id: u64, created: i64) -> (String, bool) {
+        match self
+            .current
+            .and_then(|iid| self.waiting.note(iid, self.from, id))
+        {
+            Some(word) => (word.to_owned(), true),
+            None => (artoo_ui_kit::format::ago(created), false),
+        }
+    }
+
+    /// What the open request's discussion `id` waits for.
+    pub fn thread_waits(&self, id: &str) -> Option<&'static str> {
+        let iid = self.current?;
+        self.waiting.thread(iid, self.from, id)
+    }
+
+    /// What the open request's pending comment `id` waits for.
+    pub fn draft_waits(&self, id: u64) -> Option<&'static str> {
+        let iid = self.current?;
+        self.waiting.draft(iid, self.from, id)
+    }
+
+    /// Whether the open request's approval waits.
+    pub fn approval_waits(&self) -> bool {
+        self.current
+            .is_some_and(|iid| self.waiting.approving(iid, self.from))
+    }
 }
 
 #[cfg(test)]

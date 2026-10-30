@@ -11,7 +11,7 @@ use super::typing::{self, Input};
 use super::waiting::Op;
 use super::{ROW_RADIUS, Workspace, plural, theme};
 use crate::mr;
-use gpui::{App, ClickEvent, Context, FontWeight, KeyDownEvent, div, prelude::*};
+use gpui::{ClickEvent, Context, FontWeight, KeyDownEvent, div, prelude::*};
 
 /// What the review says besides its comments.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -72,15 +72,6 @@ impl Workspace {
     /// The summary's text while the card is open.
     pub(super) fn review_summary(&self) -> Option<String> {
         self.submit.as_ref().map(|s| s.summary.clone())
-    }
-
-    /// Whether the token's user approved the current request already.
-    fn approved_already(&self, cx: &App) -> bool {
-        self.requests
-            .read(cx)
-            .approvals
-            .as_ref()
-            .is_some_and(|a| a.mine)
     }
 
     pub(super) fn submit_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
@@ -149,10 +140,12 @@ impl Workspace {
             .drafts
             .iter()
             .map(|d| d.id)
-            .filter(|id| !super::waiting::is_temp(*id) && self.draft_waits(*id, cx).is_none())
+            .filter(|id| {
+                !super::waiting::is_temp(*id) && self.requests.read(cx).draft_waits(*id).is_none()
+            })
             .collect();
         let drafts = !sent.is_empty();
-        let approve_already = self.approved_already(cx);
+        let approve_already = self.requests.read(cx).approved_already();
         let Some(s) = self.submit.as_mut() else {
             return;
         };
@@ -288,7 +281,7 @@ impl Workspace {
             .iter()
             .enumerate()
             .map(|(ix, d)| {
-                let (place, target, old) = self.draft_where(d, cx);
+                let (place, target, old) = self.requests.read(cx).draft_where(d);
                 div()
                     .id(("submit-draft", ix))
                     .flex()

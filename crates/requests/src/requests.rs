@@ -175,4 +175,104 @@ impl Requests {
             .chain(&self.left)
             .find(|m| m.iid == iid)
     }
+
+    /// The discussions on lines of file `path`.
+    pub fn request_threads_in(&self, path: &str) -> Vec<(usize, bool, u32)> {
+        self.threads
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.path.as_deref() == Some(path))
+            .filter_map(|(ix, t)| {
+                let (old, line) = self.thread_line_now(t)?;
+                Some((ix, old, line))
+            })
+            .collect()
+    }
+
+    /// Where discussion `t` is drawn in the diff on screen: (old side, line).
+    fn thread_line_now(&self, t: &Thread) -> Option<(bool, u32)> {
+        // Written on an earlier version: drawn at its line now, or not at all (#46).
+        if self.thread_is_old(t) {
+            let h = self.histories.get(&t.id)?;
+            return h.line_now.map(|n| (false, n));
+        }
+        match (t.new_line, t.old_line) {
+            (Some(n), _) => Some((false, n)),
+            (None, Some(o)) => Some((true, o)),
+            _ => None,
+        }
+    }
+
+    /// The discussion pending comment `d` replies to, when it is one of the request's.
+    pub fn draft_thread(&self, d: &Draft) -> Option<usize> {
+        let id = d.reply_to.as_deref()?;
+        self.threads.iter().position(|t| t.id == id)
+    }
+
+    /// Where pending comment `d` is: its own place, or for a reply its discussion's (#166) —
+    /// (path, new line, old line); the path alone for a file's, nothing for the request's.
+    pub fn draft_place(&self, d: &Draft) -> Option<(String, Option<u32>, Option<u32>)> {
+        match self.draft_thread(d).map(|ix| &self.threads[ix]) {
+            Some(t) => Some((t.path.clone()?, t.new_line, t.old_line)),
+            None => Some((d.path.clone()?, d.new_line, d.old_line)),
+        }
+    }
+
+    /// Where pending comment `d` is, said in a list: `file.rs:12`, or why it has no line.
+    pub fn draft_where(&self, d: &Draft) -> (String, Option<(String, u32)>, bool) {
+        let place = self.draft_place(d);
+        let target = place
+            .as_ref()
+            .and_then(|(p, new, old)| Some((p.clone(), new.or(*old)?)));
+        let old = place.as_ref().is_some_and(|(_, new, _)| new.is_none());
+        let said = match &target {
+            Some((p, n)) => format!("{}:{n}", p.rsplit('/').next().unwrap_or(p)),
+            // A reply whose discussion is not among the request's: not General, it was in one.
+            None if d.reply_to.is_some() && self.draft_thread(d).is_none() => {
+                "A reply to a discussion not here".to_owned()
+            }
+            None => "General".to_owned(),
+        };
+        (said, target, old)
+    }
+
+    /// The pending comments of file `path`: (index, old side, line).
+    pub fn drafts_in(&self, path: &str) -> Vec<(usize, bool, u32)> {
+        self.drafts
+            .iter()
+            .enumerate()
+            .filter_map(|(ix, d)| {
+                // A reply is drawn under its discussion, wherever that is now (#166).
+                if let Some(t) = self.draft_thread(d).map(|t| &self.threads[t]) {
+                    let (old, line) = self
+                        .thread_line_now(t)
+                        .filter(|_| t.path.as_deref() == Some(path))?;
+                    return Some((ix, old, line));
+                }
+                if d.path.as_deref() != Some(path) {
+                    return None;
+                }
+                match (d.new_line, d.old_line) {
+                    (Some(n), _) => Some((ix, false, n)),
+                    (None, Some(o)) => Some((ix, true, o)),
+                    _ => None,
+                }
+            })
+            .collect()
+    }
+
+    /// Whether `m` is one the scope lists, by the token's user.
+    pub fn in_scope(&self, m: &Mr, scope: Scope) -> bool {
+        let me = self.login.as_deref().unwrap_or_default();
+        match scope {
+            Scope::All => true,
+            Scope::ReviewMe => !me.is_empty() && m.reviewers.iter().any(|r| r == me),
+            Scope::Mine => !me.is_empty() && m.author_login == me,
+        }
+    }
+
+    /// Whether the token's user approved the current request already.
+    pub fn approved_already(&self) -> bool {
+        self.approvals.as_ref().is_some_and(|a| a.mine)
+    }
 }

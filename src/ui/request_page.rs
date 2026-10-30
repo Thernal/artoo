@@ -293,7 +293,7 @@ impl Workspace {
                     .child(fact(
                         "Approvals",
                         div()
-                            .when(self.approval_waits(cx), |s| {
+                            .when(self.requests.read(cx).approval_waits(), |s| {
                                 s.opacity(super::waiting::FADED)
                             })
                             .child(approvals)

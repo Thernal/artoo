@@ -139,47 +139,6 @@ impl Workspace {
             })
         });
     }
-
-    /// A note's time, or what it waits for; and whether it waits.
-    pub(super) fn note_time(&self, id: u64, created: i64, cx: &App) -> (String, bool) {
-        match self.requests.read(cx).current.and_then(|iid| {
-            self.requests
-                .read(cx)
-                .waiting
-                .note(iid, self.requests.read(cx).from, id)
-        }) {
-            Some(word) => (word.to_owned(), true),
-            None => (super::format::ago(created), false),
-        }
-    }
-
-    /// What the open request's discussion `id` waits for.
-    pub(super) fn thread_waits(&self, id: &str, cx: &App) -> Option<&'static str> {
-        let iid = self.requests.read(cx).current?;
-        self.requests
-            .read(cx)
-            .waiting
-            .thread(iid, self.requests.read(cx).from, id)
-    }
-
-    /// What the open request's pending comment `id` waits for.
-    pub(super) fn draft_waits(&self, id: u64, cx: &App) -> Option<&'static str> {
-        let iid = self.requests.read(cx).current?;
-        self.requests
-            .read(cx)
-            .waiting
-            .draft(iid, self.requests.read(cx).from, id)
-    }
-
-    /// Whether the open request's approval waits.
-    pub(super) fn approval_waits(&self, cx: &App) -> bool {
-        self.requests.read(cx).current.is_some_and(|iid| {
-            self.requests
-                .read(cx)
-                .waiting
-                .approving(iid, self.requests.read(cx).from)
-        })
-    }
 }
 
 /// How faded a waiting item is.

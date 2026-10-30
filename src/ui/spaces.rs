@@ -198,7 +198,7 @@ impl Workspace {
                 .read(cx)
                 .list
                 .iter()
-                .filter(|m| self.in_scope(m, Scope::ReviewMe, cx))
+                .filter(|m| self.requests.read(cx).in_scope(m, Scope::ReviewMe))
                 .count(),
             Space::Code | Space::Branches => 0,
         }
