@@ -58,7 +58,6 @@ mod review;
 mod reviewed;
 mod roots;
 mod routes;
-mod rows;
 mod select;
 mod settings;
 mod setup;
@@ -83,6 +82,7 @@ use crate::git::{
     BranchRef, ChangeKind, CommitInfo, DiffSettings, FileDiff, PairCommit, PairKind, RangePair,
     Repo, Version,
 };
+use crate::rows::{self, FileData, Row};
 use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
 use diff_view::{RowStyle, chip};
 use gpui::{
@@ -96,7 +96,6 @@ use lists::Field;
 use menu::{Act, CtxMenu, Entry};
 use pins::Pins;
 use review::ReviewEvent;
-use rows::{FileData, Row};
 use select::Sel;
 use std::cell::Cell as Shared;
 use std::collections::HashSet;
