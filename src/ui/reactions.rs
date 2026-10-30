@@ -11,7 +11,6 @@ use super::{ROW_RADIUS, Workspace, px, theme};
 use crate::{emoji, mr, storage};
 use gpui::{AnyElement, Context, Rgba, WeakEntity, div, prelude::*};
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -756,9 +755,6 @@ fn grid_cell(
         })
         .into_any_element()
 }
-
-/// Keeps the map type named once.
-pub type Awards = HashMap<u64, Vec<mr::Award>>;
 
 #[cfg(test)]
 mod tests {

@@ -211,6 +211,7 @@ dependencies = [
  "artoo-hosts",
  "artoo-hosts-api",
  "artoo-reports",
+ "artoo-requests",
  "artoo-review",
  "artoo-review-api",
  "artoo-shell-api",
@@ -380,6 +381,17 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1_smol",
+]
+
+[[package]]
+name = "artoo-requests"
+version = "1.3.0"
+dependencies = [
+ "artoo-core",
+ "artoo-hosts-api",
+ "artoo-ui-kit",
+ "git2",
+ "gpui-pre",
 ]
 
 [[package]]

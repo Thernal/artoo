@@ -11,6 +11,7 @@ use super::nav::BranchRow;
 use super::{Workspace, discussion, format, icons, island, keys, plural, px, theme, words};
 use crate::git::{BranchRef, ChangeKind, RefKind, Repo};
 use crate::mr::{Approvals, Mr, MrState, Pipeline, Thread};
+pub(super) use artoo_requests::group::Group;
 use artoo_review::reviewed::Seen;
 use gpui::{
     AnyElement, App, ClickEvent, Context, Div, FontWeight, Rgba, SharedString, Task, div,
@@ -42,69 +43,6 @@ pub(super) fn list_width(width: f32) -> f32 {
         return w;
     }
     width
-}
-
-/// What a request needs from you: the list's groups, in their order.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub enum Group {
-    /// You are asked to review it, or started at its head.
-    Asks,
-    /// You marked files of it, and it was pushed since.
-    Updated,
-    /// Not asked of you, and nothing of it reviewed yet: new to you; after what changed, before
-    /// what is reviewed.
-    New,
-    /// Its head is reviewed.
-    Reviewed,
-    Yours,
-}
-
-impl Group {
-    fn heading(self) -> &'static str {
-        match self {
-            Group::Asks => "Needs your review",
-            Group::Updated => "Updated since your review",
-            Group::New => "New",
-            Group::Reviewed => "Reviewed, nothing new",
-            Group::Yours => "Yours",
-        }
-    }
-
-    /// The icon and colour its band opens with: the group says how far your review is, its rows
-    /// do not (#81).
-    fn icon(self) -> (&'static str, Rgba) {
-        match self {
-            Group::Asks => ("eye", theme::accent()),
-            Group::Updated => ("refresh", theme::warning()),
-            Group::New => ("pull-request", theme::muted()),
-            Group::Reviewed => ("check", theme::added()),
-            Group::Yours => ("user", theme::faint()),
-        }
-    }
-
-    /// As `requests-list.txt` writes it.
-    fn key(self) -> &'static str {
-        match self {
-            Group::Asks => "asks",
-            Group::Updated => "updated",
-            // "others", its name before.
-            Group::New => "others",
-            Group::Reviewed => "reviewed",
-            Group::Yours => "yours",
-        }
-    }
-
-    fn parse(key: &str) -> Option<Group> {
-        [
-            Group::Asks,
-            Group::Updated,
-            Group::New,
-            Group::Reviewed,
-            Group::Yours,
-        ]
-        .into_iter()
-        .find(|g| g.key() == key)
-    }
 }
 
 /// What the requests list keeps per project (`<repo>\t<folded groups>\t<requests opened>`, both

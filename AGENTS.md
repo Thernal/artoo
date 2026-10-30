@@ -29,7 +29,10 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   shown); `src/ui/code.rs` is the tab's side: what the tab asks of it, the Outline tool window, the tab as its host.
   `crates/code-api` (`artoo-code-api`): Code's contract — its routes (`code.file`, `code.folder`), `Code` (what the
   tab asks of it, offered in the tab's services) and `Host` (what it asks of the tab). `crates/review-api`
-  (`artoo-review-api`): what a page asks of the tab's review, for now the file Code reads (`FileView`).
+  (`artoo-review-api`): what a page asks of the tab's review, for now the file Code reads (`FileView`). `crates/requests`
+  (`artoo-requests`, #165 stage 4): what the tab keeps of merge requests — the lists and their groups (`group`),
+  the request open (`requests`), the changes sent to its host and not read back (`waiting`), what became of an
+  outdated discussion's line (`outdated`), the reactions on its notes; the app's views read and draw them.
   `crates/shell-api` (`artoo-shell-api`): the
   shell's contract — actions (the app menu and ⌘K list them), parts each tab draws (title-bar items, cards over the
   window, Settings rows, snapshot views, a space's pages), the `Frame` a part asks and the tab's `Services`;

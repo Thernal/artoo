@@ -80,6 +80,7 @@ artoo-code = { path = "crates/code" }
 artoo-code-api = { path = "crates/code-api" }
 artoo-agents = { path = "crates/agents" }
 artoo-reports = { path = "crates/reports" }
+artoo-requests = { path = "crates/requests" }
 artoo-review = { path = "crates/review" }
 artoo-review-api = { path = "crates/review-api" }
 artoo-ui-kit = { path = "crates/ui-kit" }
