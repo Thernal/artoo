@@ -1948,7 +1948,7 @@ impl Workspace {
                 blame_tip: None,
                 file_view: None,
                 file_reading: None,
-                reviewed: reviewed::Store::load(),
+                reviewed: artoo_review::reviewed::Store::load(),
                 done_card: false,
                 review_scope: None,
                 fps: Vec::new(),
@@ -3427,7 +3427,9 @@ impl Workspace {
             let bars = order.iter().map(|&ix| {
                 let color = if ix == self.review.read(cx).file {
                     theme::accent()
-                } else if self.review.read(cx).review_state(ix) == Some(reviewed::State::Done) {
+                } else if self.review.read(cx).review_state(ix)
+                    == Some(artoo_review::reviewed::State::Done)
+                {
                     theme::added()
                 } else {
                     theme::hover()
@@ -4441,7 +4443,7 @@ impl review::Review {
                     if inside == 0 {
                         return review.render_header(file, this.clone(), host, cx);
                     }
-                    if review.body(b) != stack::Body::Rows {
+                    if review.body(b) != artoo_review::stack::Body::Rows {
                         return review.render_note(b, file, this.clone(), host, cx);
                     }
                     (Some((b, file)), inside - 1)
@@ -5061,7 +5063,7 @@ impl review::Review {
         let sides = if self.view_options().unified { 1. } else { 2. };
         // A file's card is inset from the sides, and framed.
         let card = if self.stack.is_some() {
-            2. * stack::CARD_MARGIN + 2.
+            2. * artoo_review::stack::CARD_MARGIN + 2.
         } else {
             0.
         };
@@ -5199,7 +5201,7 @@ impl review::Review {
         let unread = order
             .iter()
             .copied()
-            .find(|&ix| self.review_state(ix) != Some(reviewed::State::Done));
+            .find(|&ix| self.review_state(ix) != Some(artoo_review::reviewed::State::Done));
         let ix = ix
             .or(unread.filter(|_| request))
             .or_else(|| order.first().copied())

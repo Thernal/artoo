@@ -8,10 +8,10 @@
 use super::hover::{CutInTip, Hover};
 use super::lists::Field;
 use super::nav::BranchRow;
-use super::reviewed::Seen;
 use super::{Workspace, discussion, format, icons, island, keys, plural, px, theme, words};
 use crate::git::{BranchRef, ChangeKind, RefKind, Repo};
 use crate::mr::{Approvals, Mr, MrState, Pipeline, Thread};
+use artoo_review::reviewed::Seen;
 use gpui::{
     AnyElement, App, ClickEvent, Context, Div, FontWeight, Rgba, SharedString, Task, div,
     prelude::*,

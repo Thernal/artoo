@@ -609,8 +609,8 @@ impl Workspace {
                     .next()
                     .unwrap_or_default()
                     .to_owned();
-                let done =
-                    self.review.read(cx).review_state(ix) == Some(super::reviewed::State::Done);
+                let done = self.review.read(cx).review_state(ix)
+                    == Some(artoo_review::reviewed::State::Done);
                 div()
                     .w_full()
                     .h(px(28.))
@@ -803,7 +803,8 @@ impl Workspace {
             .diff
             .as_ref()
             .and_then(|d| d.tags.row_word(ix));
-        let done = self.review.read(cx).review_state(ix) == Some(super::reviewed::State::Done);
+        let done =
+            self.review.read(cx).review_state(ix) == Some(artoo_review::reviewed::State::Done);
         let path = file.path();
         let (dir, name) = match path.rsplit_once('/') {
             Some((dir, name)) => (Some(dir.to_owned()), name.to_owned()),

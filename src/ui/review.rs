@@ -32,13 +32,13 @@ pub(super) struct Review {
     pub(super) annotations: Vec<diff_view::AnnCell>,
     pub(super) annot_task: Option<Task<()>>,
     /// Blame for a long hover on a line number (D19), and the tip shown.
-    pub(super) blames: annotate::Blames,
-    pub(super) blame_tip: Option<annotate::BlameTip>,
+    pub(super) blames: artoo_review::annotate::Blames,
+    pub(super) blame_tip: Option<artoo_review::annotate::BlameTip>,
     /// A file the diff does not change, shown in its place (D18), and its read.
     pub(super) file_view: Option<file_view::FileView>,
     pub(super) file_reading: file_view::Reading,
     /// The marks of files read, and the scope and file fingerprints of the open diff.
-    pub(super) reviewed: reviewed::Store,
+    pub(super) reviewed: artoo_review::reviewed::Store,
     /// The card that comes up when the last file of a diff is marked reviewed.
     pub(super) done_card: bool,
     pub(super) review_scope: Option<String>,
@@ -86,7 +86,7 @@ pub(super) struct Review {
     pub(super) rows: Vec<Row>,
     /// Every file of the diff in one scroll (`stack.rs`); `None` while files are shown one at a
     /// time.
-    pub(super) stack: Option<stack::Stack>,
+    pub(super) stack: Option<artoo_review::stack::Stack>,
     /// Unchanged runs of the selected file the user opened.
     pub(super) expanded: HashSet<usize>,
     pub(super) diff_list: ListState,
