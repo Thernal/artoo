@@ -275,7 +275,7 @@ impl Workspace {
     pub(super) fn open_waiting_draft(&mut self, cx: &mut Context<Self>) {
         // A draft whose card has not opened yet opens with its branch, however the branch was
         // opened: from its row, a link, the toast (#159).
-        if self.newreq.is_none()
+        if !self.creating(cx)
             && self.branch_task.is_none()
             && let Some(ix) = self.branch
             && let Some(branch) = self.branches.get(ix)

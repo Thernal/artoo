@@ -377,6 +377,7 @@ impl Requests {
                 &card.merge.message,
                 active,
                 "Empty: the project's own message",
+                true,
                 |rq| rq.merging.as_mut().map(|c| &mut c.area),
                 cx,
             );

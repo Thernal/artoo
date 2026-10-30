@@ -6,6 +6,7 @@
 mod area;
 pub mod bar;
 pub mod complete;
+pub mod create;
 pub mod discussions;
 pub mod group;
 pub mod merge;

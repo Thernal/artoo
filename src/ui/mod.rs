@@ -1674,7 +1674,6 @@ pub struct Workspace {
     /// A host without a token connected without a paste (#142).
     connecting: connecting::Connecting,
     /// The card for a new merge request, while it is open.
-    newreq: Option<create::NewRequest>,
     /// The keyboard card is open.
     shortcuts: bool,
     zoom_applied: bool,
@@ -1751,13 +1750,9 @@ pub struct Workspace {
     copied: bool,
     /// The caret, selection and undo of the field that has the keyboard (`input`).
     field_edit: crate::textedit::TextEdit,
-    /// The completion list of a plain field (a description, a summary): its pick, and where one
-    /// was closed with esc (#51, #9).
-    field_pick: usize,
-    field_closed: Option<usize>,
     /// How far the one-line field with the keyboard is scrolled sideways.
     field_scroll: Rc<Shared<f32>>,
-    /// The last layout of the wrapped field (the composer, a description) and the x ↑ ↓ keep.
+    /// The last layout of the composer's text and the x ↑ ↓ keep.
     field_lines: input::Lines,
     field_goal: Option<gpui::Pixels>,
     /// Where the window is: each space's page, back and forward, the open items (#71).
@@ -1961,7 +1956,6 @@ impl Workspace {
             open_request: None,
             gitlab_check: None,
             connecting: Default::default(),
-            newreq: None,
             shortcuts: greet,
             zoom_applied: false,
             bookmarks: bookmarks::Store::load(),
@@ -2003,8 +1997,6 @@ impl Workspace {
             jump: None,
             copied: false,
             field_edit: Default::default(),
-            field_pick: 0,
-            field_closed: None,
             field_scroll: Rc::default(),
             field_lines: Rc::default(),
             field_goal: None,
@@ -3241,7 +3233,7 @@ impl Workspace {
 
     fn render_diff(&self, cx: &mut Context<Self>) -> impl IntoElement {
         // A new merge request is written in the diff's place; Changes shows the diff again.
-        if self.create_in_place() && !self.create_shows_changes() {
+        if self.create_in_place(cx) && !self.create_shows_changes(cx) {
             return island()
                 .flex_1()
                 .min_w_0()

@@ -667,8 +667,8 @@ impl Workspace {
         self.completion(c.edit.text(), c.edit.caret(), c.closed, cx)
     }
 
-    /// ↑ ↓ and ⌘← ⌘→ (⇧ selecting) in a wrapped field — the composer, a description: by the
-    /// lines as drawn. Any other key forgets the x ↑ ↓ keep. Returns whether it took the key.
+    /// ↑ ↓ and ⌘← ⌘→ (⇧ selecting) in the composer: by the lines as drawn. Any other key forgets
+    /// the x ↑ ↓ keep. Returns whether it took the key.
     pub(super) fn vertical_key(&mut self, key: &gpui::Keystroke, cx: &mut Context<Self>) -> bool {
         use input::Drawn;
         let m = key.modifiers;
@@ -682,17 +682,7 @@ impl Workspace {
         let Some(layout) = self.field_lines.borrow().clone() else {
             return false;
         };
-        // A description is over the composer when both are open.
-        let moved = if let Some(text) = self.description_text() {
-            input::sync(&text, &mut self.field_edit);
-            input::drawn(
-                &mut self.field_edit,
-                &layout,
-                &mut self.field_goal,
-                motion,
-                m.shift,
-            )
-        } else if let Some(compose) = self.compose.as_mut() {
+        let moved = if let Some(compose) = self.compose.as_mut() {
             input::drawn(
                 &mut compose.edit,
                 &layout,
@@ -1275,8 +1265,7 @@ impl Workspace {
             folded: self.compose_room(cx) == Room::S,
             // Without the keyboard it shows no caret (#168).
             focused: self.has_keyboard(Input::Compose, cx),
-            // A card over the diff (a description) owns the arrows while open.
-            lines: self.newreq.is_none().then(|| self.field_lines.clone()),
+            lines: Some(self.field_lines.clone()),
             completion: self
                 .compose_completion(cx)
                 .filter(|_| live)

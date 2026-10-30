@@ -178,6 +178,7 @@ impl Workspace {
             }
             Event::Awards => self.refresh_rows(cx),
             Event::Merged { iid, merge } => self.merged(*iid, merge, cx),
+            Event::Created { iid, source } => self.created(*iid, source, cx),
             Event::Failed(e) => self.error = Some(e.clone().into()),
         }
         cx.notify();
@@ -1922,6 +1923,10 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
             Act::JumpToLine { path, line, old } => this.jump_to_line(&path, line, old, cx),
             Act::OpenSubmit => this.open_submit(cx),
             Act::RunSubmit => this.run_submit(cx),
+            Act::CreateGo => this.submit_create(cx),
+            Act::UseTemplate(ix) => this.use_template(ix, cx),
+            Act::PickSource(name) => this.pick_branch(name, true, cx),
+            Act::PickTarget(name) => this.pick_branch(name, false, cx),
             Act::SendNow(id) => this.send_draft_now(id, cx),
             Act::RunMerge => this.run_merge(cx),
             Act::ShowNewVersion => this.show_new_version(cx),

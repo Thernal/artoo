@@ -63,11 +63,7 @@ impl SubmitCard {
 
     /// The summary's caret; at its end until the field is edited.
     fn caret(&self) -> usize {
-        if self.area.edit.text() == self.summary {
-            self.area.edit.caret()
-        } else {
-            self.summary.len()
-        }
+        self.area.caret(&self.summary)
     }
 }
 
@@ -356,6 +352,7 @@ impl Requests {
             &s.summary,
             active,
             "A summary, if you want one…",
+            true,
             |rq| rq.submitting.as_mut().map(|s| &mut s.area),
             cx,
         );

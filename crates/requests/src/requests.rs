@@ -73,6 +73,8 @@ pub enum Event {
         iid: u64,
         merge: crate::merge::Merge,
     },
+    /// The host created request `iid` from branch `source`.
+    Created { iid: u64, source: String },
     /// A call to the host was refused, and why.
     Failed(String),
 }
@@ -111,6 +113,14 @@ pub enum Act {
     SendNow(u64),
     /// Submit review's card sends the review.
     RunSubmit,
+    /// The New merge request form creates the request, or opens the one there is.
+    CreateGo,
+    /// Templates ▾ chose template `ix` for the description.
+    UseTemplate(usize),
+    /// From's list chose a branch.
+    PickSource(String),
+    /// Into's list chose a branch.
+    PickTarget(String),
     /// Merge's card sends the merge.
     RunMerge,
     /// Merge was refused for a push after the version on the page: the card goes, the new one
@@ -174,6 +184,8 @@ pub struct Requests {
     pub merging: Option<crate::merging::MergeCard>,
     /// Submit review's card, while it is open.
     pub submitting: Option<crate::submit::SubmitCard>,
+    /// The New merge request form, while it is open.
+    pub creating: Option<crate::create::NewRequest>,
     /// The host's last answer for them, and the tick the read that gave it began at.
     pub base: crate::waiting::Base,
     pub from: u64,

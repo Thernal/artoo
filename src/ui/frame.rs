@@ -789,7 +789,7 @@ impl Render for Workspace {
                         | Input::Tool
                         | Input::Overlay,
                     ) => "Workspace Typing Caret",
-                    Some(Input::NewRequest) if self.typing_description() => {
+                    Some(Input::NewRequest) if self.typing_description(cx) => {
                         "Workspace Typing Caret"
                     }
                     Some(_) => "Workspace Typing",

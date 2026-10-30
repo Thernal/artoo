@@ -578,7 +578,7 @@ impl Workspace {
                         .into_any_element(),
                     ),
                     // Not while one is being written: its own Create is the primary then.
-                    None if self.requests.read(cx).available && self.newreq.is_none() => out.push(
+                    None if self.requests.read(cx).available && !self.creating(cx) => out.push(
                         bar_button("bar-create", "Create merge request", "⌥⌘M", true)
                             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 this.open_create(ix, cx)
