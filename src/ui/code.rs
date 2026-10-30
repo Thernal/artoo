@@ -4,16 +4,16 @@
 //! this space, its files as they are on disk.
 
 use super::hover::CutInTip;
-use super::menu::{Act, Entry};
 use super::nav::Page;
 use super::spaces::Space;
 use super::{Workspace, icons, island, keys, markdown, px, theme};
 use crate::files;
 use crate::git::{BranchRef, Repo};
+use artoo_shell_api::{Frame, MenuItem};
 use git2::Oid;
 use gpui::{
-    AnyElement, App, ClickEvent, Context, Div, MouseButton, MouseDownEvent, SharedString, Task,
-    WeakEntity, div, prelude::*, uniform_list,
+    AnyElement, App, ClickEvent, ClipboardItem, Context, Div, MouseButton, MouseDownEvent,
+    SharedString, Task, WeakEntity, div, prelude::*, uniform_list,
 };
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -184,22 +184,25 @@ pub fn tab_page(key: &str) -> Page {
 }
 
 /// The Code space of one tab (#75): what it reads and holds (`Code`), the project it reads, its tree and
-/// its pages, drawn as its own view. What it asks of the tab goes through `host`.
+/// its pages, drawn as its own view. What it asks of the tab goes through `host`, and what any part asks
+/// (a menu, the drawer) through `frame`.
 pub struct CodeSpace {
     pub code: Code,
     /// The project read, and whether it is a plain folder rather than a git repository.
     pub root: Option<PathBuf>,
     pub plain: bool,
     host: Rc<dyn Host>,
+    frame: Rc<dyn Frame>,
 }
 
 impl CodeSpace {
-    pub fn new(host: Rc<dyn Host>) -> Self {
+    pub fn new(host: Rc<dyn Host>, frame: Rc<dyn Frame>) -> Self {
         Self {
             code: Code::default(),
             root: None,
             plain: false,
             host,
+            frame,
         }
     }
 
@@ -543,7 +546,7 @@ impl CodeSpace {
                 // A folder: one click its page, unfolded; a double click folds one that was
                 // open already (the developer, 2026-10-23: everything that folds folds so).
                 if row.folder.is_some() {
-                    this.host.close_drawer(cx);
+                    this.frame.close_drawer(cx);
                     if e.click_count() > 1 {
                         if this.code.unfolded_now.take().as_deref() != Some(path.as_str()) {
                             this.code.open.remove(&path);
@@ -556,7 +559,7 @@ impl CodeSpace {
                     return this.host.open_folder(path.clone(), cx);
                 }
                 // A second click keeps it as a tab; picked in the drawer, it goes (#80).
-                this.host.close_drawer(cx);
+                this.frame.close_drawer(cx);
                 this.host.open_file(path.clone(), e.click_count() < 2, cx)
             }))
             .into_any_element()
@@ -575,36 +578,37 @@ impl CodeSpace {
         };
         let full = root.join(&path);
         let mut groups = vec![vec![
-            Entry::new(super::open_in::REVEAL, Act::Reveal(full.clone())),
-            Entry::new("Copy path", Act::Copy(path.clone())),
-            Entry::new("Copy full path", Act::Copy(full.display().to_string())),
+            reveal(full.clone()),
+            copy("Copy path", path.clone()),
+            copy("Copy full path", full.display().to_string()),
         ]];
-        if let Some(app) = self.host.open_app(&full, cx) {
-            groups.push(vec![Entry::new(
-                format!("Open in {}", app.name()),
-                Act::OpenPathWith(full, app),
-            )]);
-        }
+        groups.extend(self.host.open_in(&full, cx).map(|item| vec![item]));
         if folder {
-            groups.insert(
-                0,
-                vec![Entry::new("Note for your agent…", Act::FolderNote(path)).key("C")],
-            );
+            let host = self.host.clone();
+            let note = MenuItem::new("Note for your agent…", move |_, cx| {
+                host.open_folder(path.clone(), cx);
+                host.note_folder(path.clone(), cx);
+            });
+            groups.insert(0, vec![note.key("C")]);
         }
-        self.host.menu(at, groups, cx);
+        self.frame.menu(at, groups, cx);
     }
 
     /// The chip's menu: the working tree, HEAD, the local branches.
     fn open_revision_menu(&mut self, at: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
         let now = self.code.at();
         let all = self.host.branches(cx);
-        let mut entries =
-            vec![Entry::new("Working tree", Act::CodeRevision(None)).checked(now.is_none())];
+        let host = self.host.clone();
+        let read_at = move |label: String, rev: Option<(String, Oid)>| {
+            let host = host.clone();
+            MenuItem::new(label, move |_, cx| host.set_revision(rev.clone(), cx))
+        };
+        let mut entries = vec![read_at("Working tree".to_owned(), None).checked(now.is_none())];
         if let Some(head) = all.iter().find(|b| b.is_head) {
             entries.push(
-                Entry::new(
+                read_at(
                     format!("HEAD · {}", head.name),
-                    Act::CodeRevision(Some((head.name.clone(), head.tip))),
+                    Some((head.name.clone(), head.tip)),
                 )
                 .checked(
                     now == Some(head.tip)
@@ -612,18 +616,68 @@ impl CodeSpace {
                 ),
             );
         }
-        let branches: Vec<Entry> = all
+        let branches: Vec<MenuItem> = all
             .iter()
             .filter(|b| b.kind == crate::git::RefKind::Local && !b.is_head)
             .map(|b| {
-                Entry::new(
-                    b.name.clone(),
-                    Act::CodeRevision(Some((b.name.clone(), b.tip))),
-                )
-                .checked(self.code.rev.as_ref().is_some_and(|r| r.0 == b.name))
+                read_at(b.name.clone(), Some((b.name.clone(), b.tip)))
+                    .checked(self.code.rev.as_ref().is_some_and(|r| r.0 == b.name))
             })
             .collect();
-        self.host.menu(at, vec![entries, branches], cx);
+        self.frame.menu(at, vec![entries, branches], cx);
+    }
+
+    /// Tab `key`'s menu: keep a preview, pin it, close it or others, copy its path, show it in Finder.
+    fn tab_menu(
+        &self,
+        key: &str,
+        preview: bool,
+        pinned: bool,
+        full: Option<PathBuf>,
+        cx: &Context<Self>,
+    ) -> Vec<Vec<MenuItem>> {
+        let this = cx.entity().downgrade();
+        let mut keep = Vec::new();
+        if preview {
+            let (this, key) = (this.clone(), key.to_owned());
+            keep.push(MenuItem::new("Keep it open", move |_, cx| {
+                this.update(cx, |c, cx| c.keep_tab(&key, cx)).ok();
+            }));
+        }
+        let pin = key.to_owned();
+        keep.push(
+            MenuItem::new(
+                if pinned { "Unpin tab" } else { "Pin tab" },
+                move |_, cx| {
+                    this.update(cx, |c, cx| c.pin(&pin, cx)).ok();
+                },
+            )
+            .key("⌥⌘P"),
+        );
+        let close = if pinned {
+            MenuItem::off("Close — pinned")
+        } else {
+            let (host, key) = (self.host.clone(), key.to_owned());
+            MenuItem::new("Close", move |_, cx| host.close_tab(key.clone(), cx)).key("⌘W")
+        };
+        let (others, right, all) = (self.host.clone(), self.host.clone(), self.host.clone());
+        let (other, after) = (key.to_owned(), key.to_owned());
+        let mut place = vec![copy("Copy path", key.trim_end_matches('/').to_owned())];
+        place.extend(full.map(reveal));
+        vec![
+            keep,
+            vec![
+                close,
+                MenuItem::new("Close others", move |_, cx| {
+                    others.close_tabs(Some(other.clone()), cx)
+                }),
+                MenuItem::new("Close to the right", move |_, cx| {
+                    right.close_tabs_right(after.clone(), cx)
+                }),
+                MenuItem::new("Close all", move |_, cx| all.close_tabs(None, cx)),
+            ],
+            place,
+        ]
     }
 
     /// The island every Code page is drawn in, its tabs on top (the developer, 2026-10-23, A):
@@ -750,47 +804,8 @@ impl CodeSpace {
                     .on_mouse_down(
                         MouseButton::Right,
                         cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
-                            let mut keep = Vec::new();
-                            if preview {
-                                keep.push(Entry::new(
-                                    "Keep it open",
-                                    Act::KeepCodeTab(menu.clone()),
-                                ));
-                            }
-                            keep.push(
-                                Entry::new(
-                                    if pinned { "Unpin tab" } else { "Pin tab" },
-                                    Act::PinCodeTab(menu.clone()),
-                                )
-                                .key("⌥⌘P"),
-                            );
-                            let close = if pinned {
-                                Entry::off("Close — pinned")
-                            } else {
-                                Entry::new("Close", Act::CloseCodeTab(menu.clone())).key("⌘W")
-                            };
-                            let mut groups = vec![keep];
-                            groups.push(vec![
-                                close,
-                                Entry::new("Close others", Act::CloseCodeTabs(Some(menu.clone()))),
-                                Entry::new(
-                                    "Close to the right",
-                                    Act::CloseCodeTabsRight(menu.clone()),
-                                ),
-                                Entry::new("Close all", Act::CloseCodeTabs(None)),
-                            ]);
-                            let mut place = vec![Entry::new(
-                                "Copy path",
-                                Act::Copy(menu.trim_end_matches('/').to_owned()),
-                            )];
-                            if let Some(full) = &full {
-                                place.push(Entry::new(
-                                    super::open_in::REVEAL,
-                                    Act::Reveal(full.clone()),
-                                ));
-                            }
-                            groups.push(place);
-                            this.host.menu(e.position, groups, cx)
+                            let groups = this.tab_menu(&menu, preview, pinned, full.clone(), cx);
+                            this.frame.menu(e.position, groups, cx)
                         }),
                     );
                 let line = parted.then(|| {
@@ -839,17 +854,21 @@ impl CodeSpace {
                     .shown_tabs()
                     .into_iter()
                     .map(|(key, _)| {
-                        Entry::new(key.clone(), Act::CodeTab(key.clone()))
+                        let (host, open) = (this.host.clone(), key.clone());
+                        MenuItem::new(key.clone(), move |_, cx| host.open_tab(open.clone(), cx))
                             .checked(on.as_ref() == Some(&key))
                     })
                     .collect();
-                this.host.menu(
+                let (others, all) = (this.host.clone(), this.host.clone());
+                this.frame.menu(
                     e.position(),
                     vec![
                         listed,
                         vec![
-                            Entry::new("Close others", Act::CloseCodeTabs(on)),
-                            Entry::new("Close all", Act::CloseCodeTabs(None)),
+                            MenuItem::new("Close others", move |_, cx| {
+                                others.close_tabs(on.clone(), cx)
+                            }),
+                            MenuItem::new("Close all", move |_, cx| all.close_tabs(None, cx)),
                         ],
                     ],
                     cx,
@@ -1234,8 +1253,8 @@ pub trait Host {
     fn tree_row(&self, path: &str, row: AnyElement, cx: &App) -> AnyElement;
     /// The repository's branches, for the revision's menu.
     fn branches(&self, cx: &App) -> Vec<BranchRef>;
-    /// The app `path` opens in.
-    fn open_app(&self, path: &Path, cx: &App) -> Option<super::open_in::App>;
+    /// Open in the app `path` opens in, when there is one.
+    fn open_in(&self, path: &Path, cx: &App) -> Option<MenuItem>;
     /// File `path` opened in a tab: the preview one (`preview`) or kept.
     fn open_file(&self, path: String, preview: bool, cx: &mut App);
     /// File `path` shown as Code shows a file opened from elsewhere.
@@ -1246,16 +1265,30 @@ pub trait Host {
     fn open_tab(&self, key: String, cx: &mut App);
     /// Tab `key` closed.
     fn close_tab(&self, key: String, cx: &mut App);
+    /// Every tab closed but `keep` (or all), the pinned ones staying.
+    fn close_tabs(&self, keep: Option<String>, cx: &mut App);
+    /// The tabs after `key` closed, the pinned ones staying.
+    fn close_tabs_right(&self, key: String, cx: &mut App);
+    /// Code read at `rev`, by name; None the working tree.
+    fn set_revision(&self, rev: Option<(String, Oid)>, cx: &mut App);
     /// A note for the agent on folder `folder` started.
     fn note_folder(&self, folder: String, cx: &mut App);
-    /// Menu `groups` opened at `at`.
-    fn menu(&self, at: gpui::Point<gpui::Pixels>, groups: Vec<Vec<Entry>>, cx: &mut App);
     /// Go to file (⌘P).
     fn go_to_file(&self, cx: &mut App);
-    /// The tree's drawer closed, when narrow (#80).
-    fn close_drawer(&self, cx: &mut App);
     /// Folder `folder` of the tree opened: its rows fade in.
     fn tree_opening(&self, folder: String, cx: &mut App);
+}
+
+/// An item copying `text`.
+fn copy(label: &str, text: String) -> MenuItem {
+    MenuItem::new(label, move |_, cx| {
+        cx.write_to_clipboard(ClipboardItem::new_string(text.clone()))
+    })
+}
+
+/// An item showing `path` in Finder.
+fn reveal(path: PathBuf) -> MenuItem {
+    MenuItem::new(super::open_in::REVEAL, move |_, cx| cx.reveal_path(&path))
 }
 
 /// The tab of page `page`: a file's path, a folder's with its slash.
@@ -1377,11 +1410,6 @@ impl Workspace {
     pub(super) fn scroll_to_code_tab(&self, cx: &App) {
         let shown = self.shown_tab();
         self.code.read(cx).scroll_to_tab(shown.as_deref());
-    }
-
-    /// The preview tab `key` kept: a double click on it, as on a file in the tree.
-    pub(super) fn keep_code_tab(&mut self, key: &str, cx: &mut Context<Self>) {
-        self.code.update(cx, |c, cx| c.keep_tab(key, cx));
     }
 
     /// ⌘W in Code: the tab on screen closes, its neighbour shows, else the project's page. A
@@ -1700,8 +1728,16 @@ impl Host for CodeHost {
             .unwrap_or_default()
     }
 
-    fn open_app(&self, path: &Path, cx: &App) -> Option<super::open_in::App> {
-        self.0.upgrade()?.read(cx).open_app(path)
+    fn open_in(&self, path: &Path, cx: &App) -> Option<MenuItem> {
+        let app = self.0.upgrade()?.read(cx).open_app(path)?;
+        let (tab, path) = (self.0.clone(), path.to_owned());
+        Some(MenuItem::new(
+            format!("Open in {}", app.name()),
+            move |_, cx| {
+                tab.update(cx, |tab, _| tab.open_path_with(&path, app.clone()))
+                    .ok();
+            },
+        ))
     }
 
     fn open_file(&self, path: String, preview: bool, cx: &mut App) {
@@ -1724,20 +1760,24 @@ impl Host for CodeHost {
         self.later(cx, move |tab, cx| tab.close_code_tab(&key, cx));
     }
 
+    fn close_tabs(&self, keep: Option<String>, cx: &mut App) {
+        self.later(cx, move |tab, cx| tab.close_code_tabs(keep, cx));
+    }
+
+    fn close_tabs_right(&self, key: String, cx: &mut App) {
+        self.later(cx, move |tab, cx| tab.close_code_tabs_right(key, cx));
+    }
+
+    fn set_revision(&self, rev: Option<(String, Oid)>, cx: &mut App) {
+        self.later(cx, move |tab, cx| tab.set_code_revision(rev, cx));
+    }
+
     fn note_folder(&self, folder: String, cx: &mut App) {
         self.later(cx, move |tab, cx| tab.start_folder_comment(&folder, cx));
     }
 
-    fn menu(&self, at: gpui::Point<gpui::Pixels>, groups: Vec<Vec<Entry>>, cx: &mut App) {
-        self.later(cx, move |tab, cx| tab.open_menu(at, groups, cx));
-    }
-
     fn go_to_file(&self, cx: &mut App) {
         self.later(cx, |tab, cx| tab.search(super::palette::Scope::Files, cx));
-    }
-
-    fn close_drawer(&self, cx: &mut App) {
-        self.later(cx, |tab, cx| tab.close_drawer(cx));
     }
 
     fn tree_opening(&self, folder: String, cx: &mut App) {

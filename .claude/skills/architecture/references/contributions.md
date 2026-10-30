@@ -12,10 +12,11 @@ title-bar item with when it shows, an `Overlay` — a card that is drawn and has
 Escape, polled each frame the tab is not busy —, a `Tool` — a tool window in every space after the shell's own,
 readied as it opens, given typed keys while it has the keyboard and says it is typing —, Settings rows by section,
 the tab's handlers of the feature's actions, the snapshot views it opens). What the `Frame` changes (a toast, the
-error line, a redraw, a tool window shown) waits until the update under way is over, so a part may ask it from its
-own update and from a hook. What it reads (the selection, the `Places` the tab has open, whether a tool window
-types) needs the tab free: the shell calls a part's key, close, poll, opened and snapshot hooks from inside its own
-update, so a hook defers what reads it (`cx.defer`); the part's views, listeners and tasks read it as they like.
+error line, a redraw, a tool window shown, a menu at the pointer — `MenuItem`s, each running its own closure —, the
+narrow tab's drawer closed) waits until the update under way is over, so a part may ask it from its own update and
+from a hook. What it reads (the selection, the `Places` the tab has open, whether a tool window types) needs the tab
+free: the shell calls a part's key, close, poll, opened and snapshot hooks from inside its own update, so a hook
+defers what reads it (`cx.defer`); the part's views, listeners and tasks read it as they like.
 
 ## Rule
 

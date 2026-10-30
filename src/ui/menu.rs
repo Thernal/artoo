@@ -54,13 +54,9 @@ pub enum Act {
     ComposePreview,
     /// The theme being edited is built on this one (its extends ▾).
     ThemeBase(String),
-    /// Code reads at a branch or commit, by name; None the working tree (#75).
-    CodeRevision(Option<(String, git2::Oid)>),
     /// Open in's ▾ (#78): the page's file in this app, this once; its app kept for files with
     /// this extension (or let go); Settings, where the editor is chosen.
     OpenWith(super::open_in::App),
-    /// A file or folder of Code's tree in this app (its right click).
-    OpenPathWith(std::path::PathBuf, super::open_in::App),
     /// A note for the agent on a folder of Code's tree (its right click, #97).
     FolderNote(String),
     /// The card naming a project and giving it a hue, or naming a chat (`labeling.rs`).
@@ -69,14 +65,6 @@ pub enum Act {
         session: String,
         agent: String,
     },
-    /// Code's tabs (A, 2026-10-23), by key — a folder's ends with a slash: one shown, a preview
-    /// kept, one closed, every one but one (or all) closed.
-    CodeTab(String),
-    KeepCodeTab(String),
-    CloseCodeTab(String),
-    CloseCodeTabs(Option<String>),
-    CloseCodeTabsRight(String),
-    PinCodeTab(String),
     /// The requests list shows the open, the merged or the closed (#114).
     RequestView(crate::mr::MrState),
     AlwaysOpen(String),
@@ -92,6 +80,8 @@ pub enum Act {
     CodeTheme(Option<String>),
     /// A reason a request cannot merge, where it is fixed (#164).
     MergeFix(crate::merge::Fix),
+    /// A part's item (`artoo_shell_api::MenuItem`), run once the menu has closed.
+    Part(artoo_shell_api::Run),
 }
 
 #[derive(Clone)]
@@ -246,20 +236,12 @@ impl Workspace {
             Act::ComposeHelper(helper) => self.apply_helper(helper, cx),
             Act::ComposePreview => self.toggle_preview(cx),
             Act::ThemeBase(id) => self.set_theme_base(&id, cx),
-            Act::CodeRevision(rev) => self.set_code_revision(rev, cx),
             Act::OpenWith(app) => self.open_with_app(app, cx),
-            Act::OpenPathWith(path, app) => self.open_path_with(&path, app),
             Act::RequestView(state) => self.set_request_view(state, cx),
             Act::FolderNote(path) => {
                 self.open_folder_page(path.clone(), cx);
                 self.start_folder_comment(&path, cx);
             }
-            Act::CodeTab(key) => self.open_code_tab(&key, cx),
-            Act::KeepCodeTab(key) => self.keep_code_tab(&key, cx),
-            Act::CloseCodeTab(key) => self.close_code_tab(&key, cx),
-            Act::CloseCodeTabs(keep) => self.close_code_tabs(keep, cx),
-            Act::CloseCodeTabsRight(key) => self.close_code_tabs_right(key, cx),
-            Act::PinCodeTab(key) => self.toggle_pin(&key, cx),
             Act::NameProject(path) => self.open_label(super::labeling::Target::Project(path), cx),
             Act::NameChat { session, agent } => {
                 self.open_label(super::labeling::Target::Chat { session, agent }, cx)
@@ -271,7 +253,7 @@ impl Workspace {
             Act::CodeTheme(id) => self.choose_code_theme(id, cx),
             Act::MergeFix(fix) => self.go_fix(fix, cx),
             // Need the window: `run_act_in` runs them.
-            Act::MoveProject { .. } | Act::CloseProject(_) => {}
+            Act::MoveProject { .. } | Act::CloseProject(_) | Act::Part(_) => {}
         }
         cx.notify();
     }
@@ -292,6 +274,11 @@ impl Workspace {
             Act::CloseProject(ix) => {
                 self.let_menu_go(cx);
                 self.with_shell(window, cx, move |s, window, cx| s.close(ix, window, cx));
+                cx.notify();
+            }
+            Act::Part(run) => {
+                self.let_menu_go(cx);
+                window.defer(cx, move |window, cx| run(window, cx));
                 cx.notify();
             }
             act => self.run_act(act, cx),

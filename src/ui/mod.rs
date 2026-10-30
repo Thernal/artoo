@@ -1943,7 +1943,8 @@ impl Workspace {
             compare_commits: None,
             code: {
                 let host = Rc::new(code::CodeHost(cx.weak_entity()));
-                cx.new(|_| code::CodeSpace::new(host))
+                let frame = Rc::new(parts::TabFrame(cx.weak_entity()));
+                cx.new(|_| code::CodeSpace::new(host, frame))
             },
             plain: false,
             project: None,

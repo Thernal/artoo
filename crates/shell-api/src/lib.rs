@@ -7,7 +7,7 @@
 //!   window, a tool window on the right, rows in Settings, the views a snapshot run opens —, made for each tab
 //!   with its `Frame`.
 //! - **`Frame`**: what a part asks of its tab: a toast, the error line, a redraw, the text selection, the places
-//!   it has open, its tool window opened or closed.
+//!   it has open, its tool window opened or closed, a menu at the pointer, the narrow tab's drawer closed.
 //!
 //! What a `Frame` changes waits until the update under way is over, so a part asks for it from anywhere. What it
 //! reads needs the tab free: the shell calls a part's hooks (`key`, `close`, `poll`, `opened`, the snapshot views)
@@ -16,7 +16,7 @@
 
 use artoo_core::git::WebRemote;
 use artoo_ui_kit::markdown::Selecting;
-use gpui::{AnyView, App, Global, KeyDownEvent, SharedString, Window};
+use gpui::{AnyView, App, Global, KeyDownEvent, Pixels, Point, SharedString, Window};
 use std::cell::Cell;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -68,6 +68,55 @@ pub trait Frame {
 
     /// Whether tool window `id` has the keyboard: open, its zone the focused one, nothing over it, typing.
     fn tool_typing(&self, id: &str, cx: &App) -> bool;
+
+    /// A menu at `at`, a rule between its groups; an item picked runs once the menu has closed.
+    fn menu(&self, at: Point<Pixels>, groups: Vec<Vec<MenuItem>>, cx: &mut App);
+
+    /// The side panel's drawer closed, when the tab is narrow and it is open.
+    fn close_drawer(&self, cx: &mut App);
+}
+
+/// An item of a menu a part opens (`Frame::menu`).
+pub struct MenuItem {
+    pub label: String,
+    /// Its keys, said at its end (`⌘W`).
+    pub key: &'static str,
+    /// `Some` for a choice: whether it is on.
+    pub checked: Option<bool>,
+    /// What it does; `None` for one shown dimmed, its label saying why.
+    pub run: Option<Run>,
+}
+
+impl MenuItem {
+    pub fn new(label: impl Into<String>, run: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        Self {
+            label: label.into(),
+            key: "",
+            checked: None,
+            run: Some(Rc::new(run)),
+        }
+    }
+
+    /// One that cannot be picked here, its label saying why (`Close — pinned`).
+    pub fn off(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            key: "",
+            checked: None,
+            run: None,
+        }
+    }
+
+    pub fn key(self, key: &'static str) -> Self {
+        Self { key, ..self }
+    }
+
+    pub fn checked(self, on: bool) -> Self {
+        Self {
+            checked: Some(on),
+            ..self
+        }
+    }
 }
 
 /// What a tab has open, and had: what a part names it by, or leaves out of what it sends.

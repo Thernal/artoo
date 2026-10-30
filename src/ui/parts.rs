@@ -3,11 +3,12 @@
 //! ask.
 
 use super::Workspace;
+use super::menu::{Act, Entry};
 use super::tools::Tool;
 use super::zones::Zone;
-use artoo_shell_api::{Frame, Overlay, Places, Run, Section};
+use artoo_shell_api::{Frame, MenuItem, Overlay, Places, Run, Section};
 use artoo_ui_kit::markdown::Selecting;
-use gpui::{AnyView, App, Context, KeyDownEvent, SharedString, WeakEntity, Window};
+use gpui::{AnyView, App, Context, KeyDownEvent, Pixels, Point, SharedString, WeakEntity, Window};
 
 /// A tab as its parts reach it. What it changes waits until the update under way is over: a part asks from
 /// its own update, and the tab may be what called it.
@@ -71,6 +72,33 @@ impl Frame for TabFrame {
             matches!(this.tool(), Some(Tool::Part(open)) if open == id)
                 && this.has_keyboard(super::typing::Input::Tool, cx)
         })
+    }
+
+    fn menu(&self, at: Point<Pixels>, groups: Vec<Vec<MenuItem>>, cx: &mut App) {
+        let groups = groups
+            .into_iter()
+            .map(|group| {
+                group
+                    .into_iter()
+                    .map(|item| {
+                        let entry = match item.run {
+                            Some(run) => Entry::new(item.label, Act::Part(run)),
+                            None => Entry::off(item.label),
+                        };
+                        let entry = entry.key(item.key);
+                        match item.checked {
+                            Some(on) => entry.checked(on),
+                            None => entry,
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+        self.later(cx, move |this, cx| this.open_menu(at, groups, cx));
+    }
+
+    fn close_drawer(&self, cx: &mut App) {
+        self.later(cx, |this, cx| this.close_drawer(cx));
     }
 }
 
