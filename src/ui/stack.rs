@@ -2,13 +2,14 @@
 //! block per file, a header row and the file's rows under it.
 //!
 //! One file is *active* — the one in view, or the one last clicked. Its data, rows, opened runs and
-//! comment marks are `Workspace::data`, `rows`, `expanded` and `notes`, numbered from its first
+//! comment marks are `Review::data`, `rows`, `expanded` and `notes`, numbered from its first
 //! row, so everything that works on one file (find, F7, `c`, selections, annotate, bookmarks)
 //! works on it unchanged; `list_base` turns its row numbers into the list's. The other blocks keep
 //! theirs here and are drawn as they are until a click or the scroll makes them active.
 
 use super::diff_view::LineNote;
 use super::pins::Pins;
+use super::review::ReviewEvent;
 use super::reviewed::State;
 use super::rows::{self, FileData, Row};
 use super::{ROW_RADIUS, Workspace, px, theme};
@@ -255,59 +256,14 @@ impl Workspace {
 
     // ---- building -----------------------------------------------------------------------------
 
-    /// Builds the files' rows in the background, one at a time: the active file first, then the
-    /// files nearest to it.
+    /// Builds the files' rows in the review's task (`Review::build_stack`).
     pub(super) fn build_stack(&mut self, cx: &mut Context<Self>) {
-        let starts = self.review.update(cx, |rv, _| match rv.stack.as_mut() {
-            Some(stack) if !stack.building => {
-                stack.building = true;
-                true
-            }
-            _ => false,
-        });
-        if !starts {
-            return;
-        }
-        let task = cx.spawn(async move |this, cx| {
-            loop {
-                let next = this
-                    .update(cx, |this, cx| {
-                        this.review.update(cx, |rv, _| {
-                            let next = rv.next_to_build();
-                            if next.is_none()
-                                && let Some(stack) = rv.stack.as_mut()
-                            {
-                                stack.building = false;
-                            }
-                            next
-                        })
-                    })
-                    .ok()
-                    .flatten();
-                let Some((ix, file, mode)) = next else {
-                    break;
-                };
-                let data = cx
-                    .background_executor()
-                    .spawn(async move { FileData::build(&file, mode) })
-                    .await;
-                if this
-                    .update(cx, |this, cx| this.stack_built(ix, data, cx))
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        });
-        self.review.update(cx, |rv, _| {
-            if let Some(stack) = rv.stack.as_mut() {
-                stack.task = Some(task);
-            }
-        });
+        self.review.update(cx, |rv, cx| rv.build_stack(cx));
     }
 
-    /// File `ix`'s rows were built (`Review::built`); the active file's blame and jump follow.
-    fn stack_built(&mut self, ix: usize, data: FileData, cx: &mut Context<Self>) {
+    /// File `ix`'s rows were built (`ReviewEvent::StackBuilt`): laid out with what is pinned on its lines
+    /// (`Review::built`); the active file's blame and jump follow.
+    pub(super) fn stack_built(&mut self, ix: usize, cx: &mut Context<Self>) {
         let path = self
             .review
             .read(cx)
@@ -316,11 +272,10 @@ impl Workspace {
             .and_then(|d| d.files.get(ix))
             .map(|f| f.path().to_owned());
         let pins = self.pins_for(path, cx);
-        if self.review.update(cx, |rv, _| rv.built(ix, data, &pins)) {
+        if self.review.update(cx, |rv, _| rv.built(ix, &pins)) {
             self.refresh_annotations(cx);
             self.apply_jump(cx);
         }
-        cx.notify();
     }
 
     /// Lays every file out again (`Review::relayout_stack`) with what is pinned on their lines now.
@@ -1189,12 +1144,63 @@ impl super::review::Review {
         Some((to, passed))
     }
 
-    /// File `ix`'s rows were built as `data`: laid out with `pins`, the active file scrolled to the
-    /// place a reload kept. True when it is the active file.
-    pub(super) fn built(&mut self, ix: usize, data: FileData, pins: &Pins) -> bool {
-        let data = Arc::new(data);
+    /// Builds the files' rows in the background, one at a time: the active file first, then the
+    /// files nearest to it. Each is kept and said when built (`ReviewEvent::StackBuilt`).
+    pub(super) fn build_stack(&mut self, cx: &mut Context<Self>) {
+        let Some(stack) = self.stack.as_mut().filter(|s| !s.building) else {
+            return;
+        };
+        stack.building = true;
+        stack.task = Some(cx.spawn(async move |this, cx| {
+            loop {
+                let next = this
+                    .update(cx, |rv, _| {
+                        let next = rv.next_to_build();
+                        if next.is_none()
+                            && let Some(stack) = rv.stack.as_mut()
+                        {
+                            stack.building = false;
+                        }
+                        next
+                    })
+                    .ok()
+                    .flatten();
+                let Some((ix, file, mode)) = next else {
+                    break;
+                };
+                let data = cx
+                    .background_executor()
+                    .spawn(async move { FileData::build(&file, mode) })
+                    .await;
+                if this
+                    .update(cx, |rv, cx| {
+                        rv.keep_built(ix, data);
+                        cx.emit(ReviewEvent::StackBuilt(ix));
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        }));
+    }
+
+    /// File `ix`'s rows were built as `data`: kept until they are laid out (`Review::built`).
+    fn keep_built(&mut self, ix: usize, data: FileData) {
+        let data = Some(Arc::new(data));
         if ix == self.file {
-            self.data = Some(data);
+            self.data = data;
+        } else if let Some(stack) = self.stack.as_mut()
+            && let Some(b) = stack.block_of(ix)
+        {
+            stack.blocks[b].data = data;
+        }
+    }
+
+    /// File `ix`'s rows, built and kept, are laid out with `pins`, the active file scrolled to the
+    /// place a reload kept. True when it is the active file.
+    pub(super) fn built(&mut self, ix: usize, pins: &Pins) -> bool {
+        if ix == self.file {
             self.relayout(pins);
             if let Some(anchor) = self.stack.as_mut().and_then(|s| s.anchor.take())
                 && let Some(header) = self.stack.as_ref().and_then(|s| s.header(ix))
@@ -1207,12 +1213,13 @@ impl super::review::Review {
             return true;
         }
         if let Some(b) = self.stack.as_ref().and_then(|s| s.block_of(ix)) {
-            let Some(path) = self
-                .diff
-                .as_ref()
-                .and_then(|d| d.files.get(ix))
-                .map(|f| f.path().to_owned())
-            else {
+            let (Some(path), Some(data)) = (
+                self.diff
+                    .as_ref()
+                    .and_then(|d| d.files.get(ix))
+                    .map(|f| f.path().to_owned()),
+                self.stack.as_ref().and_then(|s| s.blocks[b].data.clone()),
+            ) else {
                 return false;
             };
             let before = self.shown_rows(b);

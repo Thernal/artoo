@@ -1,6 +1,6 @@
 //! The review's state (#165 stage 4): the diff on screen and how it is read (its files and rows, the find over
 //! it, the marks of files read, the annotations), an entity the tab holds (`Workspace::review`) on its way to
-//! `artoo-review`.
+//! `artoo-review`. It loads and builds in its own tasks and says what came (`ReviewEvent`); the tab follows.
 
 use super::*;
 
@@ -96,3 +96,21 @@ pub(super) struct Review {
     pub(super) diff_task: Option<Task<()>>,
     pub(super) view_task: Option<Task<()>>,
 }
+
+/// What the review says to the tab that holds it, which follows (`Workspace::review_event`).
+pub(super) enum ReviewEvent {
+    /// A diff came, and the file to open in it; `None` when it has no files.
+    Loaded(Option<usize>),
+    /// A diff or a file could not be read: why.
+    Failed(String),
+    /// The rows of the file shown alone were built: the tab lays them out with what is pinned on its lines.
+    FileBuilt,
+    /// The rows of file `ix` of the stack were built: the tab lays them out with what is pinned on its lines.
+    StackBuilt(usize),
+    /// A file the diff does not change was read and is shown in its place (`Review::read_file`).
+    FileRead,
+    /// What is drawn changed (blame came, a tip to show): the tab draws again.
+    Changed,
+}
+
+impl gpui::EventEmitter<ReviewEvent> for Review {}

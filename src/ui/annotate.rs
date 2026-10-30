@@ -5,6 +5,7 @@
 
 use super::diff_view::AnnCell;
 use super::hover::NoTip;
+use super::review::ReviewEvent;
 use super::{Header, TipOwned, Workspace, format};
 use crate::git::{BlameLine, Repo};
 use gpui::{AnyView, AppContext as _, Context, SharedString, WeakEntity, prelude::*};
@@ -74,30 +75,14 @@ impl Workspace {
         cx.notify();
     }
 
-    /// The annotation column of the open file read again: blame in the background
-    /// (`Review::annotation_job`, `Review::annotated`).
+    /// The annotation column of the open file read again, in the review's task
+    /// (`Review::refresh_annotations`).
     pub(super) fn refresh_annotations(&mut self, cx: &mut Context<Self>) {
-        let Some((root, rev, path)) = self.review.update(cx, |rv, _| rv.annotation_job()) else {
-            return;
-        };
-        let task = Some(cx.spawn(async move |this, cx| {
-            let lines = cx
-                .background_executor()
-                .spawn(async move { Repo::open(&root)?.blame(rev, &path) })
-                .await;
-            this.update(cx, |this, cx| {
-                if let Ok(lines) = lines {
-                    this.review.update(cx, |rv, _| rv.annotated(lines, rev));
-                    cx.notify();
-                }
-            })
-            .ok();
-        }));
-        self.review.update(cx, |rv, _| rv.annot_task = task);
+        self.review.update(cx, |rv, cx| rv.refresh_annotations(cx));
     }
 
-    /// The pointer came on line number `line` of file `ix` (`at`), or went off it: after a long rest
-    /// its tip says who wrote the line.
+    /// The pointer came on line number `line` of file `ix` (`at`), or went off it
+    /// (`Review::hover_line_number`).
     pub(super) fn hover_line_number(
         &mut self,
         ix: usize,
@@ -106,102 +91,12 @@ impl Workspace {
         at: Option<gpui::Point<gpui::Pixels>>,
         cx: &mut Context<Self>,
     ) {
-        let key = (ix, old, line);
-        let Some(at) = at else {
-            if self
-                .review
-                .read(cx)
-                .blame_tip
-                .as_ref()
-                .is_some_and(|t| t.key == key)
-            {
-                self.review.update(cx, |rv, _| rv.blame_tip = None);
-                cx.notify();
-            }
-            return;
-        };
-        let wait = cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(super::hover::LONG).await;
-            this.update(cx, |this, cx| {
-                let view = this.blame_view(ix, old, line, cx);
-                let shown = this.review.update(cx, |rv, _| {
-                    let tip = rv.blame_tip.as_mut().filter(|t| t.key == key);
-                    tip.map(|tip| tip.view = Some(view)).is_some()
-                });
-                if shown {
-                    cx.notify();
-                }
-            })
-            .ok();
-        });
-        self.review.update(cx, |rv, _| {
-            rv.blame_tip = Some(BlameTip {
-                key,
-                at,
-                view: None,
-                _wait: wait,
-            })
-        });
-    }
-
-    /// Who wrote line `line` of file `ix`, read in the background the first time a side of a file
-    /// is asked about.
-    pub(super) fn blame_view(
-        &mut self,
-        ix: usize,
-        old: bool,
-        line: u32,
-        cx: &mut Context<Self>,
-    ) -> AnyView {
-        let (Some(root), Some(key)) = (self.root.clone(), self.review.read(cx).blame_at(ix, old))
-        else {
-            return cx.new(|_| NoTip).into();
-        };
-        if let Some(lines) = self.review.read(cx).blames.read.get(&key) {
-            let text = blame_text(lines, line);
-            return cx.new(|_| TipOwned(text)).into();
+        if self
+            .review
+            .update(cx, |rv, cx| rv.hover_line_number(ix, old, line, at, cx))
+        {
+            cx.notify();
         }
-        let tip = cx.new(|_| TipOwned("Reading who wrote this line…".into()));
-        let first = self.review.update(cx, |rv, _| {
-            let waiting = rv.blames.waiting.entry(key.clone()).or_default();
-            waiting.push((tip.downgrade(), line));
-            waiting.len() == 1
-        });
-        if first {
-            cx.spawn(async move |this, cx| {
-                let (at, path) = key.clone();
-                let lines = cx
-                    .background_executor()
-                    .spawn(async move {
-                        let repo = Repo::open(&root)?;
-                        match at {
-                            BlameAt::Rev(rev) => repo.blame(rev, &path),
-                            BlameAt::ParentOf(id) => repo.blame(repo.parent_of(id)?, &path),
-                            BlameAt::Head => repo.blame(repo.resolve("HEAD")?, &path),
-                            BlameAt::Working => repo.blame_working(&path),
-                        }
-                    })
-                    .await;
-                this.update(cx, |this, cx| {
-                    let lines = Rc::new(lines.unwrap_or_default());
-                    for (tip, line) in this.review.update(cx, |rv, _| {
-                        rv.blames.waiting.remove(&key).unwrap_or_default()
-                    }) {
-                        let text = blame_text(&lines, line);
-                        tip.update(cx, |tip, cx| {
-                            tip.0 = text;
-                            cx.notify();
-                        })
-                        .ok();
-                    }
-                    this.review
-                        .update(cx, |rv, _| rv.blames.read.insert(key, lines));
-                })
-                .ok();
-            })
-            .detach();
-        }
-        tip.into()
     }
 
     /// A click on an annotation: the commit that wrote line `line`, opened in the commits list.
@@ -233,6 +128,112 @@ impl Workspace {
 }
 
 impl super::review::Review {
+    /// The annotation column of the open file read again: blame in the background (`annotation_job`,
+    /// `annotated`), said when it came (`ReviewEvent::Changed`).
+    pub(super) fn refresh_annotations(&mut self, cx: &mut Context<Self>) {
+        let Some((root, rev, path)) = self.annotation_job() else {
+            return;
+        };
+        self.annot_task = Some(cx.spawn(async move |this, cx| {
+            let lines = cx
+                .background_executor()
+                .spawn(async move { Repo::open(&root)?.blame(rev, &path) })
+                .await;
+            this.update(cx, |rv, cx| {
+                if let Ok(lines) = lines {
+                    rv.annotated(lines, rev);
+                    cx.emit(ReviewEvent::Changed);
+                }
+            })
+            .ok();
+        }));
+    }
+
+    /// The pointer came on line number `line` of file `ix` (`at`), or went off it: after a long rest
+    /// its tip says who wrote the line. True when the tip shown went.
+    pub(super) fn hover_line_number(
+        &mut self,
+        ix: usize,
+        old: bool,
+        line: u32,
+        at: Option<gpui::Point<gpui::Pixels>>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let key = (ix, old, line);
+        let Some(at) = at else {
+            let shown = self.blame_tip.as_ref().is_some_and(|t| t.key == key);
+            if shown {
+                self.blame_tip = None;
+            }
+            return shown;
+        };
+        let wait = cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(super::hover::LONG).await;
+            this.update(cx, |rv, cx| {
+                let view = rv.blame_view(ix, old, line, cx);
+                if let Some(tip) = rv.blame_tip.as_mut().filter(|t| t.key == key) {
+                    tip.view = Some(view);
+                    cx.emit(ReviewEvent::Changed);
+                }
+            })
+            .ok();
+        });
+        self.blame_tip = Some(BlameTip {
+            key,
+            at,
+            view: None,
+            _wait: wait,
+        });
+        false
+    }
+
+    /// Who wrote line `line` of file `ix`, read in the background the first time a side of a file
+    /// is asked about.
+    fn blame_view(&mut self, ix: usize, old: bool, line: u32, cx: &mut Context<Self>) -> AnyView {
+        let (Some(root), Some(key)) = (self.root.clone(), self.blame_at(ix, old)) else {
+            return cx.new(|_| NoTip).into();
+        };
+        if let Some(lines) = self.blames.read.get(&key) {
+            let text = blame_text(lines, line);
+            return cx.new(|_| TipOwned(text)).into();
+        }
+        let tip = cx.new(|_| TipOwned("Reading who wrote this line…".into()));
+        let waiting = self.blames.waiting.entry(key.clone()).or_default();
+        waiting.push((tip.downgrade(), line));
+        if waiting.len() == 1 {
+            cx.spawn(async move |this, cx| {
+                let (at, path) = key.clone();
+                let lines = cx
+                    .background_executor()
+                    .spawn(async move {
+                        let repo = Repo::open(&root)?;
+                        match at {
+                            BlameAt::Rev(rev) => repo.blame(rev, &path),
+                            BlameAt::ParentOf(id) => repo.blame(repo.parent_of(id)?, &path),
+                            BlameAt::Head => repo.blame(repo.resolve("HEAD")?, &path),
+                            BlameAt::Working => repo.blame_working(&path),
+                        }
+                    })
+                    .await;
+                this.update(cx, |rv, cx| {
+                    let lines = Rc::new(lines.unwrap_or_default());
+                    for (tip, line) in rv.blames.waiting.remove(&key).unwrap_or_default() {
+                        let text = blame_text(&lines, line);
+                        tip.update(cx, |tip, cx| {
+                            tip.0 = text;
+                            cx.notify();
+                        })
+                        .ok();
+                    }
+                    rv.blames.read.insert(key, lines);
+                })
+                .ok();
+            })
+            .detach();
+        }
+        tip.into()
+    }
+
     /// Where file `ix`'s side is read for its blame, and its path there.
     fn blame_at(&self, ix: usize, old: bool) -> Option<Side> {
         let diff = self.diff.as_ref()?;

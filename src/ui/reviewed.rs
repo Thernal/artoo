@@ -336,10 +336,9 @@ pub fn fingerprint(file: &FileDiff) -> u64 {
 }
 
 impl Workspace {
-    /// Called when a diff arrives: the review indexes it (`Review::index`); a request's and a branch's
-    /// pages learn how many files it has.
-    pub(super) fn index_review(&mut self, cx: &mut App) {
-        self.review.update(cx, |rv, _| rv.index());
+    /// Called when a diff arrives (the review indexed it, `Review::index`): a request's and a branch's pages
+    /// learn how many files it has.
+    pub(super) fn count_files(&mut self, cx: &mut App) {
         if let Some(d) = &self.review.read(cx).diff
             && let Header::Compare {
                 request: Some(iid), ..

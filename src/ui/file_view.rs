@@ -6,6 +6,7 @@
 //! read as that page shows the project. A binary file says so, with Open in (#78); ⌘W closes its
 //! tab, esc goes up to Code.
 
+use super::review::ReviewEvent;
 use super::spaces::Space;
 use super::{Header, Workspace, format, markdown, px, theme};
 use crate::git::ImageKind;
@@ -134,85 +135,26 @@ impl Workspace {
             "file".to_owned(),
         );
         let rev = self.code.at().filter(|_| !self.plain);
-        let file = path.clone();
-        let task = Some(cx.spawn(async move |this, cx| {
-            let read = cx
-                .background_executor()
-                .spawn(async move {
-                    let at = match rev {
-                        Some(rev) => format::short(rev),
-                        None => "the working tree".to_owned(),
-                    };
-                    if let Some(kind) = ImageKind::of(&file) {
-                        let bytes = match rev {
-                            Some(rev) => Repo::open(&root).ok()?.bytes_at(rev, &file)?,
-                            None => std::fs::read(root.join(&file)).ok()?,
-                        };
-                        let image = gpui::Image::from_bytes(super::image_view::format(kind), bytes);
-                        return Some((Vec::new(), Vec::new(), at, Some(Arc::new(image)), None));
-                    }
-                    let bytes = match rev {
-                        Some(rev) => Repo::open(&root).ok()?.bytes_at(rev, &file)?,
-                        None => std::fs::read(root.join(&file)).ok()?,
-                    };
-                    if super::open_in::binary(&bytes) {
-                        let size = Some(bytes.len() as u64);
-                        return Some((Vec::new(), Vec::new(), at, None, size));
-                    }
-                    let text = String::from_utf8_lossy(&bytes);
-                    let spans = highlight::highlight(&file, &text);
-                    let lines: Vec<String> = text.lines().map(str::to_owned).collect();
-                    Some((lines, spans, at, None, None))
-                })
-                .await;
-            this.update(cx, |this, cx| {
-                this.review.update(cx, |rv, _| rv.file_reading = None);
-                match read {
-                    Some((lines, spans, at, image, binary)) => {
-                        let text: Vec<_> = lines
-                            .iter()
-                            .enumerate()
-                            .map(|(n, l)| widen(l, spans.get(n).map_or(&[][..], Vec::as_slice)))
-                            .collect();
-                        let plain = text.iter().map(|(l, _)| l.to_string()).collect();
-                        this.review.update(cx, |rv, _| {
-                            rv.file_view = Some(FileView {
-                                path,
-                                at,
-                                rev,
-                                lines,
-                                text: Rc::new(text),
-                                plain: Rc::new(std::cell::RefCell::new(plain)),
-                                list: ListState::new(0, ListAlignment::Top, px(400.)),
-                                rendered: true,
-                                image,
-                                binary,
-                            })
-                        });
-                        // A note shown from the Agents window: its line comes into view.
-                        if let Some(line) = this
-                            .file_jump
-                            .take_if(|(p, _)| {
-                                this.review
-                                    .read(cx)
-                                    .file_view
-                                    .as_ref()
-                                    .is_some_and(|v| &v.path == p)
-                            })
-                            .map(|(_, line)| line)
-                        {
-                            this.reveal_file_line(line, cx);
-                        }
-                    }
-                    None => {
-                        this.error = Some(format!("{path} is not in this version.").into());
-                    }
-                }
-                cx.notify();
+        self.review
+            .update(cx, |rv, cx| rv.read_file(root, path, rev, cx));
+    }
+
+    /// The file read came (`ReviewEvent::FileRead`): a note shown from the Agents window has its line come
+    /// into view.
+    pub(super) fn file_read(&mut self, cx: &mut Context<Self>) {
+        if let Some(line) = self
+            .file_jump
+            .take_if(|(p, _)| {
+                self.review
+                    .read(cx)
+                    .file_view
+                    .as_ref()
+                    .is_some_and(|v| &v.path == p)
             })
-            .ok();
-        }));
-        self.review.update(cx, |rv, _| rv.file_reading = task);
+            .map(|(_, line)| line)
+        {
+            self.reveal_file_line(line, cx);
+        }
     }
 
     /// Line `line` of the file comes into view, its source shown.
@@ -602,6 +544,77 @@ fn widen(line: &str, spans: &[Span]) -> (SharedString, Vec<Span>) {
 }
 
 impl super::review::Review {
+    /// Reads `path` at `rev` (the working tree when `None`) in the background; once read it is the file
+    /// shown (`ReviewEvent::FileRead`), or why it could not be.
+    pub(super) fn read_file(
+        &mut self,
+        root: std::path::PathBuf,
+        path: String,
+        rev: Option<Oid>,
+        cx: &mut Context<Self>,
+    ) {
+        let file = path.clone();
+        self.file_reading = Some(cx.spawn(async move |this, cx| {
+            let read = cx
+                .background_executor()
+                .spawn(async move {
+                    let at = match rev {
+                        Some(rev) => format::short(rev),
+                        None => "the working tree".to_owned(),
+                    };
+                    if let Some(kind) = ImageKind::of(&file) {
+                        let bytes = match rev {
+                            Some(rev) => Repo::open(&root).ok()?.bytes_at(rev, &file)?,
+                            None => std::fs::read(root.join(&file)).ok()?,
+                        };
+                        let image = gpui::Image::from_bytes(super::image_view::format(kind), bytes);
+                        return Some((Vec::new(), Vec::new(), at, Some(Arc::new(image)), None));
+                    }
+                    let bytes = match rev {
+                        Some(rev) => Repo::open(&root).ok()?.bytes_at(rev, &file)?,
+                        None => std::fs::read(root.join(&file)).ok()?,
+                    };
+                    if super::open_in::binary(&bytes) {
+                        let size = Some(bytes.len() as u64);
+                        return Some((Vec::new(), Vec::new(), at, None, size));
+                    }
+                    let text = String::from_utf8_lossy(&bytes);
+                    let spans = highlight::highlight(&file, &text);
+                    let lines: Vec<String> = text.lines().map(str::to_owned).collect();
+                    Some((lines, spans, at, None, None))
+                })
+                .await;
+            this.update(cx, |rv, cx| {
+                rv.file_reading = None;
+                cx.emit(match read {
+                    Some((lines, spans, at, image, binary)) => {
+                        let text: Vec<_> = lines
+                            .iter()
+                            .enumerate()
+                            .map(|(n, l)| widen(l, spans.get(n).map_or(&[][..], Vec::as_slice)))
+                            .collect();
+                        let plain = text.iter().map(|(l, _)| l.to_string()).collect();
+                        rv.file_view = Some(FileView {
+                            path,
+                            at,
+                            rev,
+                            lines,
+                            text: Rc::new(text),
+                            plain: Rc::new(std::cell::RefCell::new(plain)),
+                            list: ListState::new(0, ListAlignment::Top, px(400.)),
+                            rendered: true,
+                            image,
+                            binary,
+                        });
+                        ReviewEvent::FileRead
+                    }
+                    None => ReviewEvent::Failed(format!("{path} is not in this version.")),
+                });
+            })
+            .ok();
+        }));
+    }
+
     /// The file's declarations, by keyword: (1-based line, depth, kind, name) — its Outline (#76).
     pub(super) fn file_outline(&self) -> Vec<(u32, usize, &'static str, String)> {
         let Some(view) = self.file_view.as_ref().filter(|v| v.image.is_none()) else {

@@ -95,6 +95,7 @@ use gpui::{
 use lists::Field;
 use menu::{Act, CtxMenu, Entry};
 use pins::Pins;
+use review::ReviewEvent;
 use rows::{FileData, Row};
 use select::Sel;
 use std::cell::Cell as Shared;
@@ -2131,6 +2132,7 @@ impl Workspace {
             this.open_repo(path, None, cx);
         }
         Self::start_watching(this.on_screen.clone(), cx);
+        cx.subscribe(&this.review, Self::review_event).detach();
         cx.observe_window_activation(window, |this, window, cx| {
             if window.is_window_active() {
                 this.window_activated(cx);
@@ -2557,75 +2559,46 @@ impl Workspace {
         }
     }
 
+    /// Loads a diff with `load` in the review's task (`Review::load`); `keep` is the file to open in it.
     fn load_diff(
         &mut self,
         keep: Option<String>,
         cx: &mut Context<Self>,
         load: impl FnOnce() -> anyhow::Result<Diff> + Send + 'static,
     ) {
-        let task = Some(cx.spawn(async move |this, cx| {
-            let loaded = cx.background_executor().spawn(async move { load() }).await;
-            this.update(cx, |this, cx| {
-                match loaded {
-                    Ok(diff) => {
-                        // The file asked for, else the one a page comes back to (#71): the one
-                        // at the same place while it is still there — a file partly staged is
-                        // listed twice (#22) —, else the first with its path.
-                        let keep = keep.or_else(|| {
-                            this.review
-                                .read(cx)
-                                .restore_scroll
-                                .as_ref()
-                                .map(|(path, _)| path.clone())
-                        });
-                        let ix = keep.and_then(|path| {
-                            let at = this.review.read(cx).file;
-                            (diff.files.get(at).map(|f| f.path()) == Some(path.as_str()))
-                                .then_some(at)
-                                .or_else(|| diff.files.iter().position(|f| f.path() == path))
-                        });
-                        let empty = diff.files.is_empty();
-                        this.review
-                            .update(cx, |rv, _| rv.diff = Some(Arc::new(diff)));
-                        // The files of the diff it replaces are gone.
-                        this.review.update(cx, |rv, _| rv.stack = None);
-                        this.map_agent_comments(cx);
-                        this.map_agent_notes(cx);
-                        this.index_review(cx);
-                        // A request opens at its first file not reviewed (#72); anything else at
-                        // the first file as the island lists it (a tree sorts folders first), so
-                        // → walks on from the top.
-                        let request = matches!(
-                            this.review.read(cx).diff.as_ref().map(|d| &d.header),
-                            Some(Header::Compare {
-                                request: Some(_),
-                                ..
-                            })
-                        );
-                        let order = this.review.read(cx).file_order();
-                        let unread = order.iter().copied().find(|&ix| {
-                            this.review.read(cx).review_state(ix) != Some(reviewed::State::Done)
-                        });
-                        let ix = ix
-                            .or(unread.filter(|_| request))
-                            .or_else(|| order.first().copied())
-                            .unwrap_or(0);
-                        this.review
-                            .read(cx)
-                            .file_scroll
-                            .scroll_to_item(0, ScrollStrategy::Top);
-                        if !empty {
-                            this.select_file(ix, cx);
-                        }
-                        this.resolve_spot(false, cx);
-                    }
-                    Err(err) => this.error = Some(format!("{err:#}").into()),
+        self.review.update(cx, |rv, cx| rv.load(keep, load, cx));
+        cx.notify();
+    }
+
+    /// What the review said: the tab follows a diff that came (the agents' lines on it, the pages' counts, its
+    /// first file, the spot asked for), lays out what was built with what is pinned on it, and draws again.
+    fn review_event(
+        &mut self,
+        _: gpui::Entity<review::Review>,
+        event: &ReviewEvent,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            ReviewEvent::Loaded(file) => {
+                self.map_agent_comments(cx);
+                self.map_agent_notes(cx);
+                self.count_files(cx);
+                if let Some(ix) = *file {
+                    self.select_file(ix, cx);
                 }
-                cx.notify();
-            })
-            .ok();
-        }));
-        self.review.update(cx, |rv, _| rv.diff_task = task);
+                self.resolve_spot(false, cx);
+            }
+            ReviewEvent::Failed(err) => self.error = Some(err.clone().into()),
+            ReviewEvent::FileBuilt => {
+                self.relayout(cx);
+                self.refresh_annotations(cx);
+                self.apply_jump(cx);
+                self.review.update(cx, |rv, _| rv.restore_file_scroll());
+            }
+            ReviewEvent::StackBuilt(ix) => self.stack_built(*ix, cx),
+            ReviewEvent::FileRead => self.file_read(cx),
+            ReviewEvent::Changed => {}
+        }
         cx.notify();
     }
 
@@ -2648,23 +2621,7 @@ impl Workspace {
         if self.wants_stack(cx) {
             return self.stack_select(ix, cx);
         }
-        let mode = self.review.update(cx, |rv, _| rv.show_file(ix));
-        let task = Some(cx.spawn(async move |this, cx| {
-            let data = cx
-                .background_executor()
-                .spawn(async move { FileData::build(&file, mode) })
-                .await;
-            this.update(cx, |this, cx| {
-                let pins = this.open_pins(cx);
-                this.review.update(cx, |rv, _| rv.file_built(data, &pins));
-                this.refresh_annotations(cx);
-                this.apply_jump(cx);
-                this.review.update(cx, |rv, _| rv.restore_file_scroll());
-                cx.notify();
-            })
-            .ok();
-        }));
-        self.review.update(cx, |rv, _| rv.view_task = task);
+        self.review.update(cx, |rv, cx| rv.show_file(ix, file, cx));
         cx.notify();
     }
 
@@ -5134,19 +5091,85 @@ impl review::Review {
         self.file = 0;
     }
 
-    /// File `ix` alone becomes the one shown, its rows to be built in the diff mode returned.
-    pub(super) fn show_file(&mut self, ix: usize) -> DiffMode {
+    /// Loads a diff with `load` in the background; once it came, it is shown (`Review::loaded`) and said
+    /// (`ReviewEvent::Loaded`), or why it could not be read.
+    pub(super) fn load(
+        &mut self,
+        keep: Option<String>,
+        load: impl FnOnce() -> anyhow::Result<Diff> + Send + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        self.diff_task = Some(cx.spawn(async move |this, cx| {
+            let loaded = cx.background_executor().spawn(async move { load() }).await;
+            this.update(cx, |rv, cx| {
+                cx.emit(match loaded {
+                    Ok(diff) => ReviewEvent::Loaded(rv.loaded(diff, keep)),
+                    Err(err) => ReviewEvent::Failed(format!("{err:#}")),
+                });
+            })
+            .ok();
+        }));
+    }
+
+    /// Diff `diff` came: it replaces the one shown and is indexed. The file to open in it is returned (`keep`
+    /// while it is there), `None` when it has no files.
+    fn loaded(&mut self, diff: Diff, keep: Option<String>) -> Option<usize> {
+        // The file asked for, else the one a page comes back to (#71): the one at the same place
+        // while it is still there — a file partly staged is listed twice (#22) —, else the first
+        // with its path.
+        let keep = keep.or_else(|| self.restore_scroll.as_ref().map(|(path, _)| path.clone()));
+        let ix = keep.and_then(|path| {
+            let at = self.file;
+            (diff.files.get(at).map(|f| f.path()) == Some(path.as_str()))
+                .then_some(at)
+                .or_else(|| diff.files.iter().position(|f| f.path() == path))
+        });
+        let empty = diff.files.is_empty();
+        self.diff = Some(Arc::new(diff));
+        // The files of the diff it replaces are gone.
+        self.stack = None;
+        self.index();
+        // A request opens at its first file not reviewed (#72); anything else at the first file as
+        // the island lists it (a tree sorts folders first), so → walks on from the top.
+        let request = matches!(
+            self.diff.as_ref().map(|d| &d.header),
+            Some(Header::Compare {
+                request: Some(_),
+                ..
+            })
+        );
+        let order = self.file_order();
+        let unread = order
+            .iter()
+            .copied()
+            .find(|&ix| self.review_state(ix) != Some(reviewed::State::Done));
+        let ix = ix
+            .or(unread.filter(|_| request))
+            .or_else(|| order.first().copied())
+            .unwrap_or(0);
+        self.file_scroll.scroll_to_item(0, ScrollStrategy::Top);
+        (!empty).then_some(ix)
+    }
+
+    /// File `ix` (`file`) alone becomes the one shown; its rows are built in the background, then said
+    /// (`ReviewEvent::FileBuilt`).
+    pub(super) fn show_file(&mut self, ix: usize, file: FileDiff, cx: &mut Context<Self>) {
         self.file = ix;
         self.fcursor = None;
         self.clear_file();
         self.scroll_file_into_view(ix);
-        self.options.mode
-    }
-
-    /// The rows of the file shown alone were built as `data`: laid out with `pins`.
-    pub(super) fn file_built(&mut self, data: FileData, pins: &Pins) {
-        self.data = Some(Arc::new(data));
-        self.relayout(pins);
+        let mode = self.options.mode;
+        self.view_task = Some(cx.spawn(async move |this, cx| {
+            let data = cx
+                .background_executor()
+                .spawn(async move { FileData::build(&file, mode) })
+                .await;
+            this.update(cx, |rv, cx| {
+                rv.data = Some(Arc::new(data));
+                cx.emit(ReviewEvent::FileBuilt);
+            })
+            .ok();
+        }));
     }
 
     /// The place a reload kept, when it was in the file shown alone.
