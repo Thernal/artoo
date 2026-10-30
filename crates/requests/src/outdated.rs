@@ -1,8 +1,12 @@
-//! What became of the line an outdated discussion was written on, version by version (#46), and the comparison
-//! opened from one to step through them.
+//! What became of the line an outdated discussion was written on, version by version (#46), followed in the
+//! background, and the comparison opened from one to step through them.
 
-use crate::requests::Requests;
+use crate::requests::{Event, Requests};
+use artoo_core::git::{Fate, Repo};
 use artoo_hosts_api::Thread;
+use gpui::Context;
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 /// One later version that changed the line.
 #[derive(Clone, Debug)]
@@ -96,6 +100,64 @@ impl Requests {
         }
     }
 
+    /// Follows the line of every discussion written on an earlier version to the latest, in the
+    /// background, in the repository at `root`; the threads and the versions must both be in.
+    /// `Event::Histories` tells the tab.
+    pub fn compute_histories(&mut self, root: PathBuf, cx: &mut Context<Self>) {
+        let Some(iid) = self.current else {
+            return;
+        };
+        let versions: Vec<(usize, git2::Oid)> = match &self.versions {
+            Some((for_iid, list)) if *for_iid == iid => {
+                list.iter().map(|v| (v.number, v.tip)).collect()
+            }
+            _ => return,
+        };
+        let old: Vec<(String, String, String, u32)> = self
+            .threads
+            .iter()
+            .filter(|t| self.thread_is_old(t))
+            .filter_map(|t| {
+                Some((
+                    t.id.clone(),
+                    self.written_commit(t)?,
+                    t.path.clone()?,
+                    t.new_line?,
+                ))
+            })
+            .collect();
+        if old.is_empty() {
+            self.histories.clear();
+            return;
+        }
+        self.history_task = Some(cx.spawn(async move |this, cx| {
+            let histories = cx
+                .background_executor()
+                .spawn(async move {
+                    let Ok(repo) = Repo::open(&root) else {
+                        return HashMap::new();
+                    };
+                    old.into_iter()
+                        .filter_map(|(id, commit, path, line)| {
+                            let at = versions
+                                .iter()
+                                .position(|(_, tip)| tip.to_string().starts_with(&commit))?;
+                            Some((id, history(&repo, &versions, at, &path, line)))
+                        })
+                        .collect::<HashMap<_, _>>()
+                })
+                .await;
+            this.update(cx, |rq, cx| {
+                if rq.current == Some(iid) {
+                    rq.histories = histories;
+                    cx.emit(Event::Histories);
+                    cx.notify();
+                }
+            })
+            .ok();
+        }));
+    }
+
     /// The outdated discussions by the version they were written on, newest version first.
     pub fn outdated_by_version(&self) -> Vec<(Option<usize>, Vec<usize>)> {
         let mut groups: Vec<(Option<usize>, Vec<usize>)> = Vec::new();
@@ -134,5 +196,68 @@ impl Requests {
             (true, _) => format!("Changed since {whose}"),
             (false, _) => format!("Unchanged since {whose}"),
         })
+    }
+}
+
+/// Follows `line` of `path` from version `at` to the last of `versions`.
+fn history(
+    repo: &Repo,
+    versions: &[(usize, git2::Oid)],
+    at: usize,
+    path: &str,
+    line: u32,
+) -> LineHistory {
+    let (written, tip) = versions[at];
+    let then = repo
+        .file_at(tip, path)
+        .and_then(|t| {
+            t.lines()
+                .nth(line as usize - 1)
+                .map(|l| l.trim_end().to_owned())
+        })
+        .unwrap_or_default();
+    let mut steps = Vec::new();
+    let mut now = Some(line);
+    for pair in versions[at..].windows(2) {
+        let ((_, old), (number, new)) = (pair[0], pair[1]);
+        let Some(cur) = now else { break };
+        let who = || {
+            repo.last_change(old, new, path)
+                .map(|c| (c.author, artoo_ui_kit::format::short(c.id), c.summary))
+                .unwrap_or_default()
+        };
+        match repo.follow_line(old, new, path, cur) {
+            Fate::Same(n) => now = Some(n),
+            Fate::Changed(n, text) => {
+                let (who, sha, summary) = who();
+                steps.push(Step {
+                    version: number,
+                    who,
+                    summary,
+                    sha,
+                    now: Some(text),
+                    line: Some(n),
+                });
+                now = Some(n);
+            }
+            Fate::Gone => {
+                let (who, sha, summary) = who();
+                steps.push(Step {
+                    version: number,
+                    who,
+                    summary,
+                    sha,
+                    now: None,
+                    line: None,
+                });
+                now = None;
+            }
+        }
+    }
+    LineHistory {
+        written,
+        then,
+        steps,
+        line_now: now,
     }
 }

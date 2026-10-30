@@ -1,11 +1,13 @@
 //! What the requests read from their host and keep (#165 R5c): the merged and closed pages, the open request's
-//! discussions again after a change, where merging it stands. Each read is the entity's own task; what the tab
-//! does after one comes to it as an `Event`.
+//! discussions again after a change, its versions, the reactions on its notes, where merging it stands. Each read
+//! is the entity's own task; what the tab does after one comes to it as an `Event`.
 
-use crate::requests::{Event, Requests, Scope};
+use crate::requests::{Event, HostSides, Requests, Scope};
 use crate::waiting::Base;
+use artoo_core::git::Repo;
 use artoo_hosts_api::{self as mr, Host};
 use gpui::Context;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 impl Requests {
@@ -111,6 +113,89 @@ impl Requests {
     pub fn take_base(&mut self, from: u64, base: Base) {
         self.base = base;
         self.from = from;
+    }
+
+    /// Reads the pushes the host kept for request `iid` and makes them versions in the repository
+    /// at `root`: the versions timeline once the request's diff is open, the latest one's base and
+    /// head what it is compared from (#145). `Event::Versions` tells the tab.
+    pub fn load_versions(
+        &mut self,
+        iid: u64,
+        host: Arc<dyn Host>,
+        root: PathBuf,
+        cx: &mut Context<Self>,
+    ) {
+        self.version_task = Some(cx.spawn(async move |this, cx| {
+            let built = cx
+                .background_executor()
+                .spawn(async move {
+                    let read = host.versions(iid)?;
+                    let oid = |sha: &str| git2::Oid::from_str(sha).ok();
+                    let host: Option<HostSides> = read.last().map(|p| (oid(&p.base), oid(&p.head)));
+                    let pushes: Vec<_> = read
+                        .iter()
+                        .filter_map(|p| Some((oid(&p.head)?, oid(&p.base), p.created)))
+                        .collect();
+                    let ids: Vec<_> = read
+                        .iter()
+                        .filter_map(|p| Some((oid(&p.head)?, p.id)))
+                        .collect();
+                    let list = Repo::open(&root)?.versions_from_pushes(&pushes);
+                    anyhow::Ok((list, host, ids))
+                })
+                .await;
+            this.update(cx, |rq, cx| {
+                if let Ok((list, host, ids)) = built {
+                    rq.versions = Some((iid, list));
+                    rq.version_ids = Some((iid, ids));
+                    rq.host = host.map(|h| (iid, h));
+                    cx.emit(Event::Versions(iid));
+                    cx.notify();
+                }
+            })
+            .ok();
+        }));
+    }
+
+    /// Reads the reactions on every note of the open request, in the background. `Event::Awards`
+    /// tells the tab.
+    pub fn load_awards(&mut self, host: Arc<dyn Host>, cx: &mut Context<Self>) {
+        let Some(iid) = self.current else {
+            return;
+        };
+        let notes: Vec<(u64, bool)> = self
+            .threads
+            .iter()
+            .flat_map(|t| {
+                let issue = t.id.starts_with("issue|");
+                t.notes.iter().map(move |n| (n.id, issue))
+            })
+            .collect();
+        self.award_task = Some(cx.spawn(async move |this, cx| {
+            let awards = cx
+                .background_executor()
+                .spawn(async move { host.awards(iid, &notes) })
+                .await;
+            this.update(cx, |rq, cx| {
+                if rq.current == Some(iid)
+                    && let Ok(mut awards) = awards
+                {
+                    // One's own still on its way stays (#139).
+                    for (note, list) in &rq.awards {
+                        for a in list.iter().filter(|a| a.id == 0) {
+                            let fresh = awards.entry(*note).or_default();
+                            if !fresh.iter().any(|f| f.name == a.name && f.user == a.user) {
+                                fresh.push(a.clone());
+                            }
+                        }
+                    }
+                    rq.awards = awards;
+                    cx.emit(Event::Awards);
+                    cx.notify();
+                }
+            })
+            .ok();
+        }));
     }
 
     /// Reads where merging the open request stands again: after a rebase, or auto-merge set or

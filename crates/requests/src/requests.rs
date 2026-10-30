@@ -56,6 +56,12 @@ pub enum Event {
     /// The open request `iid`'s discussions, pending comments and approvals were read again: what
     /// shows is made again on them.
     Read(u64),
+    /// Request `iid`'s versions were read: its diff follows them.
+    Versions(u64),
+    /// The lines of the outdated discussions were followed to the latest version.
+    Histories,
+    /// The reactions on the open request's notes were read.
+    Awards,
     /// A call to the host was refused, and why.
     Failed(String),
 }

@@ -6,76 +6,23 @@
 //! history, and Compare v1 → v3; a thread whose line is gone stays only in the Discussions window,
 //! grouped by the version it was written on.
 
-use super::{Selection, Workspace, format, px, theme};
-use crate::git::{Fate, Repo};
+use super::{Selection, Workspace, px, theme};
 use crate::worddiff::Piece;
-pub(super) use artoo_requests::outdated::{LineHistory, Since, Step};
+pub(super) use artoo_requests::outdated::{LineHistory, Since};
 use gpui::{
     AnyElement, App, Context, FontWeight, HighlightStyle, StrikethroughStyle, StyledText,
     WeakEntity, div, prelude::*,
 };
-use std::collections::HashMap;
 
 impl Workspace {
-    /// Follows the line of every discussion written on an earlier version to the latest, in the
-    /// background; the threads and the versions must both be in.
+    /// Follows the line of every discussion written on an earlier version to the latest
+    /// (`Requests::compute_histories`).
     pub(super) fn compute_histories(&mut self, cx: &mut Context<Self>) {
-        let (Some(root), Some(iid)) = (self.root.clone(), self.requests.read(cx).current) else {
+        let Some(root) = self.root.clone() else {
             return;
         };
-        let versions: Vec<(usize, git2::Oid)> = match &self.requests.read(cx).versions {
-            Some((for_iid, list)) if *for_iid == iid => {
-                list.iter().map(|v| (v.number, v.tip)).collect()
-            }
-            _ => return,
-        };
-        let old: Vec<(String, String, String, u32)> = self
-            .requests
-            .read(cx)
-            .threads
-            .iter()
-            .filter(|t| self.requests.read(cx).thread_is_old(t))
-            .filter_map(|t| {
-                Some((
-                    t.id.clone(),
-                    self.requests.read(cx).written_commit(t)?,
-                    t.path.clone()?,
-                    t.new_line?,
-                ))
-            })
-            .collect();
-        if old.is_empty() {
-            self.requests.update(cx, |rq, _| rq.histories.clear());
-            return;
-        }
-        let task = Some(cx.spawn(async move |this, cx| {
-            let histories = cx
-                .background_executor()
-                .spawn(async move {
-                    let Ok(repo) = Repo::open(&root) else {
-                        return HashMap::new();
-                    };
-                    old.into_iter()
-                        .filter_map(|(id, commit, path, line)| {
-                            let at = versions
-                                .iter()
-                                .position(|(_, tip)| tip.to_string().starts_with(&commit))?;
-                            Some((id, history(&repo, &versions, at, &path, line)))
-                        })
-                        .collect::<HashMap<_, _>>()
-                })
-                .await;
-            this.update(cx, |this, cx| {
-                if this.requests.read(cx).current == Some(iid) {
-                    this.requests.update(cx, |rq, _| rq.histories = histories);
-                    this.refresh_rows(cx);
-                    this.open_since_on_arrival(cx);
-                    cx.notify();
-                }
-            })
-            .ok();
-        }));
-        self.requests.update(cx, |rq, _| rq.history_task = task);
+        self.requests
+            .update(cx, |rq, cx| rq.compute_histories(root, cx));
     }
 
     /// The button that compares thread `ix`'s version with the latest: "Compare v1 → v3".
@@ -420,7 +367,7 @@ impl Workspace {
 
     /// A notification opened on comment `note`: once the histories are in, an outdated one whose
     /// line changed opens on the diff since it (#46, the inbox way in).
-    fn open_since_on_arrival(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn open_since_on_arrival(&mut self, cx: &mut Context<Self>) {
         let Some((iid, note)) = self.since_on_open else {
             return;
         };
@@ -493,72 +440,10 @@ fn joined(old: &str, new: &str, pieces: &[Piece]) -> (String, Vec<(std::ops::Ran
     (text, runs)
 }
 
-/// Follows `line` of `path` from version `at` to the last of `versions`.
-fn history(
-    repo: &Repo,
-    versions: &[(usize, git2::Oid)],
-    at: usize,
-    path: &str,
-    line: u32,
-) -> LineHistory {
-    let (written, tip) = versions[at];
-    let then = repo
-        .file_at(tip, path)
-        .and_then(|t| {
-            t.lines()
-                .nth(line as usize - 1)
-                .map(|l| l.trim_end().to_owned())
-        })
-        .unwrap_or_default();
-    let mut steps = Vec::new();
-    let mut now = Some(line);
-    for pair in versions[at..].windows(2) {
-        let ((_, old), (number, new)) = (pair[0], pair[1]);
-        let Some(cur) = now else { break };
-        let who = || {
-            repo.last_change(old, new, path)
-                .map(|c| (c.author, format::short(c.id), c.summary))
-                .unwrap_or_default()
-        };
-        match repo.follow_line(old, new, path, cur) {
-            Fate::Same(n) => now = Some(n),
-            Fate::Changed(n, text) => {
-                let (who, sha, summary) = who();
-                steps.push(Step {
-                    version: number,
-                    who,
-                    summary,
-                    sha,
-                    now: Some(text),
-                    line: Some(n),
-                });
-                now = Some(n);
-            }
-            Fate::Gone => {
-                let (who, sha, summary) = who();
-                steps.push(Step {
-                    version: number,
-                    who,
-                    summary,
-                    sha,
-                    now: None,
-                    line: None,
-                });
-                now = None;
-            }
-        }
-    }
-    LineHistory {
-        written,
-        then,
-        steps,
-        line_now: now,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use artoo_requests::outdated::Step;
 
     fn step(version: usize, line: Option<u32>) -> Step {
         Step {

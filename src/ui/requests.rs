@@ -11,7 +11,7 @@ use super::waiting::Op;
 use super::{Header, Selection, Workspace, format, plural, theme};
 use crate::git::{RefKind, Repo};
 use crate::mr::{self, Draft, Mr, Pipeline, Thread};
-pub(super) use artoo_requests::requests::{HostSides, Past, Requests, Scope, Sides, sides};
+pub(super) use artoo_requests::requests::{Past, Requests, Scope, Sides, sides};
 use gpui::{App, ClickEvent, Context, FontWeight, SharedString, WeakEntity, div, prelude::*};
 
 impl Workspace {
@@ -203,6 +203,18 @@ impl Workspace {
         use artoo_requests::requests::Event;
         match event {
             Event::Read(iid) => self.base_taken(*iid, cx),
+            Event::Versions(iid) => {
+                self.follow_host_sides(*iid, cx);
+                self.apply_mr_versions(cx);
+                // Two versions of it waited for them (#71).
+                self.finish_pending(cx);
+                self.compute_histories(cx);
+            }
+            Event::Histories => {
+                self.refresh_rows(cx);
+                self.open_since_on_arrival(cx);
+            }
+            Event::Awards => self.refresh_rows(cx),
             Event::Failed(e) => self.error = Some(e.clone().into()),
         }
         cx.notify();
@@ -694,54 +706,18 @@ impl Workspace {
         )
     }
 
-    /// Reads the pushes GitLab kept for request `iid`; they become the versions timeline once the
-    /// request's diff is open, and the latest one's base and head are what it is compared from
-    /// (#145).
+    /// Reads the pushes GitLab kept for request `iid` (`Requests::load_versions`); they become the
+    /// versions timeline once the request's diff is open.
     fn load_request_versions(&mut self, iid: u64, cx: &mut Context<Self>) {
-        self.requests.update(cx, |rq, _| rq.versions = None);
-        self.requests.update(cx, |rq, _| rq.host = None);
-        let (Some(remote), Some(root)) = (self.web.clone(), self.root.clone()) else {
+        self.requests.update(cx, |rq, _| {
+            rq.versions = None;
+            rq.host = None;
+        });
+        let (Some(host), Some(root)) = (self.host(cx), self.root.clone()) else {
             return;
         };
-        let host = super::host_of(&remote, cx);
-        let task = Some(cx.spawn(async move |this, cx| {
-            let built = cx
-                .background_executor()
-                .spawn(async move {
-                    let read = host.versions(iid)?;
-                    let oid = |sha: &str| git2::Oid::from_str(sha).ok();
-                    let host: Option<HostSides> = read.last().map(|p| (oid(&p.base), oid(&p.head)));
-                    let pushes: Vec<_> = read
-                        .iter()
-                        .filter_map(|p| Some((oid(&p.head)?, oid(&p.base), p.created)))
-                        .collect();
-                    let ids: Vec<_> = read
-                        .iter()
-                        .filter_map(|p| Some((oid(&p.head)?, p.id)))
-                        .collect();
-                    let list = Repo::open(&root)?.versions_from_pushes(&pushes);
-                    anyhow::Ok((list, host, ids))
-                })
-                .await;
-            this.update(cx, |this, cx| {
-                if let Ok((list, host, ids)) = built {
-                    this.requests
-                        .update(cx, |rq, _| rq.versions = Some((iid, list)));
-                    this.requests
-                        .update(cx, |rq, _| rq.version_ids = Some((iid, ids)));
-                    this.requests
-                        .update(cx, |rq, _| rq.host = host.map(|h| (iid, h)));
-                    this.follow_host_sides(iid, cx);
-                    this.apply_mr_versions(cx);
-                    // Two versions of it waited for them (#71).
-                    this.finish_pending(cx);
-                    this.compute_histories(cx);
-                    cx.notify();
-                }
-            })
-            .ok();
-        }));
-        self.requests.update(cx, |rq, _| rq.version_task = task);
+        self.requests
+            .update(cx, |rq, cx| rq.load_versions(iid, host, root, cx));
     }
 
     /// Request `iid` is compared from the base and head its host gives, once they are known

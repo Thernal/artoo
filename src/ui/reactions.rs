@@ -24,48 +24,12 @@ const ROWS_SHOWN: usize = 8;
 const DEFAULT_FIVE: [&str; 5] = ["thumbsup", "heart", "tada", "eyes", "rocket"];
 
 impl Workspace {
-    /// Reads the reactions on every note of the open request, in the background.
+    /// Reads the reactions on every note of the open request (`Requests::load_awards`).
     pub(super) fn load_awards(&mut self, cx: &mut Context<Self>) {
-        let (Some(remote), Some(iid)) = (self.web.clone(), self.requests.read(cx).current) else {
+        let Some(host) = self.host(cx) else {
             return;
         };
-        let host = super::host_of(&remote, cx);
-        let notes: Vec<(u64, bool)> = self
-            .requests
-            .read(cx)
-            .threads
-            .iter()
-            .flat_map(|t| {
-                let issue = t.id.starts_with("issue|");
-                t.notes.iter().map(move |n| (n.id, issue))
-            })
-            .collect();
-        let task = Some(cx.spawn(async move |this, cx| {
-            let awards = cx
-                .background_executor()
-                .spawn(async move { host.awards(iid, &notes) })
-                .await;
-            this.update(cx, |this, cx| {
-                if this.requests.read(cx).current == Some(iid)
-                    && let Ok(mut awards) = awards
-                {
-                    // One's own still on its way stays (#139).
-                    for (note, list) in &this.requests.read(cx).awards {
-                        for a in list.iter().filter(|a| a.id == 0) {
-                            let fresh = awards.entry(*note).or_default();
-                            if !fresh.iter().any(|f| f.name == a.name && f.user == a.user) {
-                                fresh.push(a.clone());
-                            }
-                        }
-                    }
-                    this.requests.update(cx, |rq, _| rq.awards = awards);
-                    this.refresh_rows(cx);
-                    cx.notify();
-                }
-            })
-            .ok();
-        }));
-        self.requests.update(cx, |rq, _| rq.award_task = task);
+        self.requests.update(cx, |rq, cx| rq.load_awards(host, cx));
     }
 
     /// Your five most used reactions (GitHub: from its eight).
