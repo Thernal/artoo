@@ -1,7 +1,8 @@
 //! The review's state (#165 stage 4): the diff on screen and how it is read (its files and rows, the find over
 //! it, the marks of files read, the annotations), an entity the tab holds (`Workspace::review`) on its way to
 //! `artoo-review`. It loads and builds in its own tasks and says what came (`ReviewEvent`); the tab follows. It
-//! draws its rows itself, with what the tab gives it (`Host`): the rows other features pin, what a line's events do.
+//! draws its rows and the files' headers itself, with what the tab gives it (`Host`): the rows other features pin,
+//! what a line's and a file's events do.
 
 use super::*;
 
@@ -150,18 +151,31 @@ pub(super) enum LineEvent {
     Expand { segment: usize },
 }
 
-/// What the tab gives the review to draw its rows with (`TabHost`): the rows other features pin on lines, the
-/// stack's file headers and notes, whether a file's rows fade in, and what a line's events do.
+/// What a click on a file's header or note in the stack asks (`Host::file`).
+pub(super) enum FileEvent {
+    /// File `ix` becomes the active one and folds or opens.
+    Fold(usize),
+    /// File `ix` (an image, which has no rows) is shown on its own.
+    Alone(usize),
+}
+
+/// What the tab gives the review to draw its rows with (`TabHost`): the rows other features pin on lines, what
+/// they say beside a file's name, a document's page and its switch, whether a file's rows fade in, and what a
+/// line's and a file's events do.
 pub(super) trait Host {
     /// Pinned row `row` (a discussion, a pending comment, an agent's note, the composer, the `c` prompt),
     /// `indent` from the left; `active` in the file the keyboard works in.
     fn pin(&self, row: Row, active: bool, indent: f32, cx: &App) -> gpui::AnyElement;
-    /// File `file`'s header in the stack.
-    fn header(&self, file: usize, cx: &App) -> gpui::AnyElement;
-    /// What block `b` (file `file`) shows when it shows no rows.
-    fn note(&self, b: usize, file: usize, cx: &App) -> gpui::AnyElement;
+    /// What is said beside file `path`'s name in its header: another chat changing it (#77).
+    fn badge(&self, path: &str, cx: &App) -> Option<gpui::AnyElement>;
+    /// The Rendered · Source switch of file `file`, a document.
+    fn page_switch(&self, file: usize, cx: &App) -> Option<gpui::AnyElement>;
+    /// File `file`, a document, drawn as a page.
+    fn page(&self, file: usize, cx: &App) -> gpui::AnyElement;
     /// File `file` just opened: its rows fade in (#56, 9).
     fn opening(&self, file: usize, cx: &App) -> bool;
     /// Event `event` on a line of file `file`; `active` false when the keyboard works in another file.
     fn line(&self, file: usize, active: bool, event: LineEvent, cx: &mut App);
+    /// Event `event` on a file's header or note.
+    fn file(&self, event: FileEvent, cx: &mut App);
 }

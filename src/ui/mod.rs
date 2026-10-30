@@ -2969,10 +2969,7 @@ impl Workspace {
     }
 
     fn unfold(&mut self, path: &str, cx: &mut Context<Self>) {
-        self.review
-            .update(cx, |rv, _| rv.unfolded.insert(path.to_owned()));
-        self.review.update(cx, |rv, _| rv.sync_stack());
-        self.build_stack(cx);
+        self.review.update(cx, |rv, cx| rv.unfold(path, cx));
         cx.notify();
     }
 
@@ -4338,20 +4335,32 @@ impl review::Host for TabHost {
         }
     }
 
-    fn header(&self, file: usize, cx: &App) -> gpui::AnyElement {
-        match self.0.upgrade() {
-            Some(workspace) => workspace
-                .read(cx)
-                .render_block_header(file, self.0.clone(), cx),
-            None => div().into_any_element(),
-        }
+    fn badge(&self, path: &str, cx: &App) -> Option<gpui::AnyElement> {
+        let workspace = self.0.upgrade()?;
+        let (name, letter, hue) = workspace.read(cx).changing(path)?;
+        Some(
+            div()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .text_size(px(12.))
+                .text_color(theme::muted())
+                .child(agent::chat_badge(letter, hue, false))
+                .child(format!("{name} is changing it"))
+                .into_any_element(),
+        )
     }
 
-    fn note(&self, b: usize, file: usize, cx: &App) -> gpui::AnyElement {
+    fn page_switch(&self, file: usize, cx: &App) -> Option<gpui::AnyElement> {
+        let workspace = self.0.upgrade()?.read(cx);
+        let diff = workspace.review.read(cx).diff.clone()?;
+        workspace.page_switch(diff.files.get(file)?, true, self.0.clone(), cx)
+    }
+
+    fn page(&self, file: usize, cx: &App) -> gpui::AnyElement {
         match self.0.upgrade() {
-            Some(workspace) => workspace
-                .read(cx)
-                .render_block_note(b, file, self.0.clone(), cx),
+            Some(workspace) => workspace.read(cx).render_page(file, self.0.clone(), cx),
             None => div().into_any_element(),
         }
     }
@@ -4392,6 +4401,19 @@ impl review::Host for TabHost {
             })
             .ok();
     }
+
+    fn file(&self, event: review::FileEvent, cx: &mut App) {
+        use review::FileEvent;
+        self.0
+            .update(cx, |this, cx| match event {
+                FileEvent::Fold(ix) => {
+                    this.activate_file(ix, cx);
+                    this.flip_fold(ix, cx);
+                }
+                FileEvent::Alone(ix) => this.view_alone(ix, cx),
+            })
+            .ok();
+    }
 }
 
 impl review::Review {
@@ -4420,10 +4442,10 @@ impl review::Review {
                     let (b, inside) = stack.locate(ix);
                     let file = stack.blocks[b].file;
                     if inside == 0 {
-                        return host.header(file, cx);
+                        return review.render_header(file, this.clone(), host, cx);
                     }
                     if review.body(b) != stack::Body::Rows {
-                        return host.note(b, file, cx);
+                        return review.render_note(b, file, this.clone(), host, cx);
                     }
                     (Some((b, file)), inside - 1)
                 }
@@ -4858,6 +4880,13 @@ fn button(
 }
 
 impl review::Review {
+    /// Generated file `path` shown in full anyway, its rows built.
+    pub(super) fn unfold(&mut self, path: &str, cx: &mut Context<Self>) {
+        self.unfolded.insert(path.to_owned());
+        self.sync_stack();
+        self.build_stack(cx);
+    }
+
     fn clear_file(&mut self) {
         self.stack = None;
         self.page.leave();

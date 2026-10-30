@@ -9,7 +9,7 @@
 
 use super::diff_view::LineNote;
 use super::pins::Pins;
-use super::review::ReviewEvent;
+use super::review::{FileEvent, Host, ReviewEvent};
 use super::reviewed::State;
 use super::rows::{self, FileData, Row};
 use super::{ROW_RADIUS, Workspace, px, theme};
@@ -20,6 +20,7 @@ use gpui::{
 };
 use std::collections::HashSet;
 use std::ops::Range;
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// The ground between two files' cards.
@@ -313,38 +314,35 @@ impl Workspace {
 
     // ---- drawing ------------------------------------------------------------------------------
 
+    /// Shows file `ix` alone (an image, which has no rows), until all files are asked for again.
+    pub(super) fn view_alone(&mut self, ix: usize, cx: &mut Context<Self>) {
+        self.set_option_unsaved(super::Opt::OneFile, true, cx);
+        self.select_file(ix, cx);
+    }
+}
+
+impl super::review::Review {
     /// A file's header in the list, the top of the file's card: a click folds or opens it, the
     /// chip at the right marks it reviewed. Cards stand apart on the darker ground between them.
-    pub(super) fn render_block_header(
+    pub(super) fn render_header(
         &self,
         ix: usize,
         this: WeakEntity<Self>,
+        host: &Rc<dyn Host>,
         cx: &App,
     ) -> gpui::AnyElement {
-        let Some(file) = self
-            .review
-            .read(cx)
-            .diff
-            .as_ref()
-            .and_then(|d| d.files.get(ix))
-        else {
+        let Some(file) = self.diff.as_ref().and_then(|d| d.files.get(ix)) else {
             return div().into_any_element();
         };
         let path = match (&file.old_path, &file.new_path) {
             (Some(old), Some(new)) if old != new => format!("{old} → {new}"),
             _ => file.path().to_owned(),
         };
-        let folded = self.review.read(cx).folded(ix);
-        let state = self.review.read(cx).review_state(ix);
-        let active = ix == self.review.read(cx).file;
-        let first = self
-            .review
-            .read(cx)
-            .stack
-            .as_ref()
-            .and_then(|s| s.block_of(ix))
-            == Some(0);
-        let (fold, mark) = (this.clone(), this.clone());
+        let folded = self.folded(ix);
+        let state = self.review_state(ix);
+        let active = ix == self.file;
+        let first = self.stack.as_ref().and_then(|s| s.block_of(ix)) == Some(0);
+        let (fold, mark) = (host.clone(), this);
         div()
             .id(("file-header", ix))
             .w_full()
@@ -406,25 +404,11 @@ impl Workspace {
                     )
                     // The working tree's part it is (#22): staged, not staged, untracked.
                     .children(super::working::file_tag(
-                        self.review
-                            .read(cx)
-                            .diff
-                            .as_ref()
-                            .and_then(|d| d.tags.word(ix)),
+                        self.diff.as_ref().and_then(|d| d.tags.word(ix)),
                     ))
                     // Another chat is changing it (#77).
-                    .children(self.changing(file.path()).map(|(name, letter, hue)| {
-                        div()
-                            .flex_none()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .text_size(px(12.))
-                            .text_color(theme::muted())
-                            .child(super::agent::chat_badge(letter, hue, false))
-                            .child(format!("{name} is changing it"))
-                    }))
-                    .children(self.page_switch(file, true, this, cx))
+                    .children(host.badge(file.path(), cx))
+                    .children(host.page_switch(ix, cx))
                     .child(
                         div()
                             .flex_none()
@@ -471,10 +455,11 @@ impl Workspace {
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .on_click(move |_: &ClickEvent, _, cx| {
                                 cx.stop_propagation();
-                                mark.update(cx, |this, cx| {
-                                    let done =
-                                        this.review.read(cx).review_state(ix) == Some(State::Done);
-                                    this.set_reviewed(ix, !done, cx);
+                                mark.update(cx, |rv, cx| {
+                                    let done = rv.review_state(ix) == Some(State::Done);
+                                    if rv.set_reviewed(ix, !done) {
+                                        cx.emit(ReviewEvent::Changed);
+                                    }
                                 })
                                 .ok();
                             })
@@ -485,30 +470,21 @@ impl Workspace {
                 if e.click_count() > 1 {
                     return;
                 }
-                fold.update(cx, |this, cx| {
-                    this.activate_file(ix, cx);
-                    this.flip_fold(ix, cx);
-                })
-                .ok();
+                fold.file(FileEvent::Fold(ix), cx);
             })
             .into_any_element()
     }
 
     /// The one line under a header that has no rows to show (or none yet).
-    pub(super) fn render_block_note(
+    pub(super) fn render_note(
         &self,
         b: usize,
         ix: usize,
         this: WeakEntity<Self>,
+        host: &Rc<dyn Host>,
         cx: &gpui::App,
     ) -> gpui::AnyElement {
-        let Some(file) = self
-            .review
-            .read(cx)
-            .diff
-            .as_ref()
-            .and_then(|d| d.files.get(ix))
-        else {
+        let Some(file) = self.diff.as_ref().and_then(|d| d.files.get(ix)) else {
             return div().into_any_element();
         };
         let line = |text: String| {
@@ -538,11 +514,11 @@ impl Workspace {
                 .hover(|s| s.bg(theme::selected()))
                 .child(label)
         };
-        if self.review.read(cx).body(b) == Body::Waiting {
+        if self.body(b) == Body::Waiting {
             let rows = (file.added + file.removed + 6).min(14) as f32;
             // Its rows are being built: a shimmer as tall as they will about be (#56, 18).
             return line(String::new())
-                .h(px(self.review.read(cx).row_height() * rows))
+                .h(px(self.row_height() * rows))
                 .items_start()
                 .child(super::motion::shimmer(
                     ("card-loading", ix),
@@ -550,7 +526,7 @@ impl Workspace {
                 ))
                 .into_any_element();
         }
-        if self.review.read(cx).generated_folded(file) {
+        if self.generated_folded(file) {
             let path = file.path().to_owned();
             return line(format!(
                 "Generated: {} changed lines are folded.",
@@ -558,22 +534,24 @@ impl Workspace {
             ))
             .child(action("unfold-in-stack", "Show it anyway").on_click(
                 move |_: &ClickEvent, _, cx| {
-                    this.update(cx, |this, cx| this.unfold(&path, cx)).ok();
+                    this.update(cx, |rv, cx| {
+                        rv.unfold(&path, cx);
+                        cx.emit(ReviewEvent::Changed);
+                    })
+                    .ok();
                 },
             ))
             .into_any_element();
         }
-        if self.review.read(cx).shows_page(file) {
-            return self
-                .review
-                .read(cx)
-                .card_row(self.render_page(ix, this, cx), ix, true);
+        if self.shows_page(file) {
+            return self.card_row(host.page(ix, cx), ix, true);
         }
-        if self.review.read(cx).shows_image(file) {
+        if self.shows_image(file) {
+            let alone = host.clone();
             return line("An image.".to_owned())
                 .child(action("image-alone", "View it on its own").on_click(
                     move |_: &ClickEvent, _, cx| {
-                        this.update(cx, |this, cx| this.view_alone(ix, cx)).ok();
+                        alone.file(FileEvent::Alone(ix), cx);
                     },
                 ))
                 .into_any_element();
@@ -588,14 +566,6 @@ impl Workspace {
         line(text).into_any_element()
     }
 
-    /// Shows file `ix` alone (an image, which has no rows), until all files are asked for again.
-    fn view_alone(&mut self, ix: usize, cx: &mut Context<Self>) {
-        self.set_option_unsaved(super::Opt::OneFile, true, cx);
-        self.select_file(ix, cx);
-    }
-}
-
-impl super::review::Review {
     /// The list index of the active file's first row.
     pub(super) fn list_base(&self) -> usize {
         self.stack
