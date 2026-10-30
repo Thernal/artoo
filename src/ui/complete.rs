@@ -5,7 +5,7 @@
 //! No agents: they are messaged apart.
 
 use super::Workspace;
-pub(super) use artoo_review::complete::{Choice, Trigger, render_list, token};
+pub(super) use artoo_ui_kit::complete::{Choice, Trigger, render_list, token};
 use gpui::App;
 
 impl Workspace {

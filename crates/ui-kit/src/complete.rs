@@ -1,7 +1,7 @@
 //! The token completed while writing a comment (#51 mentions, #9 `:name` emoji): `@` or `:` starting a word
 //! before the caret, a row of the list it opens and the list drawn. Who and which emoji it holds is the tab's.
 
-use artoo_ui_kit::{ROW_RADIUS, discussion, hover, px, theme};
+use crate::{ROW_RADIUS, discussion, hover, px, theme};
 use gpui::{Div, FontWeight, div, prelude::*};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

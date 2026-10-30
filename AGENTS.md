@@ -14,8 +14,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   again once the file changed (`anchor`, a comment's and an agent's note's); its `build.rs` gives a build its commit (`artoo_core::version`). `crates/review` (`artoo-review`, #165 stage 4):
   the review — the entity (`review::Review`, its events, its `Host`), its row drawing (`diff_view`), what it does
   to the open file's lines (`lines`), the find (`find`), going to a line (`goline`), the comment being written and
-  the input it is written in (`composer`: `Compose`, its `Target`, `render_input`; the token completed and its list,
-  `complete`), the Changes list as it keeps it (`lists`), and the types it
+  the input it is written in (`composer`: `Compose`, its `Target`, `render_input`), the Changes list as it keeps it (`lists`), and the types it
   keeps: the selection's
   (`select`), the reviewed marks' store (`reviewed`), blame's (`annotate`), the one scroll's blocks (`stack`), what
   other features pin on a file's lines (`pins`: the agents' comments and notes as `Anchored` lines) and the diff shown
@@ -51,7 +50,8 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   agents' contract — for now the reports chats drafted, which Report a problem opens. `crates/ui-kit` (`artoo-ui-kit`): the design system —
   theme, the interface size (`px`, `ui_zoom`), panes and rows (`island`, `row`), icons, keycaps, motion, row room,
   formats, words, the dragged label and Reveal's words (`controls`), tooltips and the
-  cut (`hover`: `Hover`, `Tip`, `TipOwned`, `cut`, `mid`), the text field and its editing (`input`), file and folder icons (`file_icons`), comments drawn as markdown
+  cut (`hover`: `Hover`, `Tip`, `TipOwned`, `cut`, `mid`), the text field and its editing (`input`), the token completed in one (`@`, `:`) and its list
+  (`complete`), file and folder icons (`file_icons`), comments drawn as markdown
   (`markdown`), the port for the web pictures it draws (`pictures`: `Pictures`, provided by hosts' `install`), a
   discussion's pieces (`discussion`: its frame, an avatar, a note, the buttons) and the port for the people an avatar
   shows (`people`: `People`, provided by hosts' `install`) — on the core and

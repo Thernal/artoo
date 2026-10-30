@@ -3,9 +3,9 @@
 //! helpers, preview —, and the one input component it is drawn in. Who sees it, the buttons along its edge, where
 //! it is drawn, its keys routed and what it writes sent are the tab's.
 
-use crate::complete::Choice;
 use artoo_core::markdown::Helper;
 use artoo_core::textedit::TextEdit;
+use artoo_ui_kit::complete::Choice;
 use artoo_ui_kit::input::{self, Edit};
 use artoo_ui_kit::{hover, icons, markdown, px, theme};
 use gpui::{AnyElement, App, Div, Keystroke, Pixels, Point, Rgba, div, prelude::*};
