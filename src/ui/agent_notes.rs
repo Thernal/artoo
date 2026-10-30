@@ -231,7 +231,7 @@ impl Workspace {
         };
         self.start_comment(false, line, cx);
         if let Some(compose) = &mut self.compose {
-            compose.target = super::comments::Target::Agent;
+            compose.target = super::composer::Target::Agent;
             compose.answers = Some(body);
         }
         cx.notify();

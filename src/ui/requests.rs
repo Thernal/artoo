@@ -1304,14 +1304,14 @@ impl Workspace {
         let replying = self.compose.as_ref().is_some_and(|c| {
             matches!(
                 c.target,
-                super::comments::Target::Reply(i) | super::comments::Target::ThreadNote(i)
+                super::composer::Target::Reply(i) | super::composer::Target::ThreadNote(i)
                     if i == ix
             )
         });
         let last = t.notes.len() - 1;
         let mine = self.my_note_in(ix, cx);
         let notes = t.notes.iter().enumerate().map(|(n, note)| {
-            let change = super::comments::Change::Note {
+            let change = super::composer::Change::Note {
                 thread: ix,
                 note: note.id,
             };
@@ -1355,7 +1355,7 @@ impl Workspace {
                         .gap_2()
                         .children(bar)
                         .children(editable.then(|| {
-                            super::comments::edit_button(
+                            super::composer::edit_button(
                                 ("edit-note", note.id as usize),
                                 key,
                                 self.review.read(cx).tight,
@@ -1402,7 +1402,7 @@ impl Workspace {
         });
         // Replying: the box opens where "Reply…" was, inside the discussion.
         // The reply row: my avatar on the timeline's column, then the one input — closed, one line
-        // with Resolve beside it; open, grown inside its own outline (`comments::reply_editor`).
+        // with Resolve beside it; open, grown inside its own outline (`composer::reply_editor`).
         let my_avatar = || {
             div()
                 .w(px(28.))

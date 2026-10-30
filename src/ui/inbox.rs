@@ -7,7 +7,7 @@
 //! the request, e is done with it, r replies. Per project: the open repository's notices, and
 //! among them what your agents answered on your notes (#116): a question, or "done".
 
-use super::comments::Target;
+use super::composer::Target;
 use super::discussion::{self, Kind as Button, Source};
 use super::hover::CutInTip;
 use super::keys::{self, On};

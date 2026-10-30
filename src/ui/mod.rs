@@ -8,6 +8,7 @@ use artoo_ui_kit::{
     ISLAND_RADIUS, ROW_RADIUS, format, icons, island, keys, markdown, room, row, theme, words,
 };
 mod agent;
+mod agent_comments;
 mod agent_events;
 mod agent_notes;
 mod annotate;
@@ -17,9 +18,9 @@ mod beside;
 mod bookmarks;
 mod branch_page;
 mod code;
-mod comments;
 mod compare;
 mod complete;
+mod composer;
 mod connecting;
 mod create;
 mod discussion;
@@ -29,6 +30,7 @@ mod find;
 mod findfiles;
 mod fonts;
 mod frame;
+mod goline;
 mod goto;
 mod image_view;
 mod inbox;
@@ -53,6 +55,7 @@ mod pins;
 mod rail;
 mod reactions;
 mod recents;
+mod replies;
 mod request_page;
 mod requests;
 mod reviewed;
@@ -1737,7 +1740,7 @@ pub struct Workspace {
     watch: watch::Watch,
     /// Review comments of this repository, the one being written, and the Review island.
     comments: Vec<crate::review::Comment>,
-    compose: Option<comments::Compose>,
+    compose: Option<composer::Compose>,
     /// The merge request the last comment went to: the next composer on its diff starts there.
     last_request_target: Option<u64>,
     /// Who is reviewing (git's `user.name`): the composer's avatar.

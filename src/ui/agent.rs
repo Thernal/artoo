@@ -1704,7 +1704,7 @@ impl Workspace {
                         this.send_agent(vec![id], cx)
                     });
                     action("Edit".to_owned(), false, |this, id, cx| {
-                        this.start_edit(super::comments::Change::Agent(id), cx)
+                        this.start_edit(super::composer::Change::Agent(id), cx)
                     });
                     action("Delete".to_owned(), false, |this, id, cx| {
                         this.delete_draft(id, cx)
