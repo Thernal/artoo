@@ -2278,14 +2278,9 @@ impl Workspace {
     }
 
     fn clear_diff(&mut self) {
-        self.review.unfolded.clear();
-        self.review.notice = None;
         self.body_expanded = false;
         self.selection = Selection::None;
-        self.review.diff = None;
-        self.review.diff_task = None;
-        self.review.clear_file();
-        self.review.file = 0;
+        self.review.clear();
     }
 
     fn select_branch(&mut self, ix: usize, keep: Option<git2::Oid>, cx: &mut Context<Self>) {
@@ -2634,32 +2629,18 @@ impl Workspace {
         if self.wants_stack() {
             return self.stack_select(ix, cx);
         }
-        self.review.file = ix;
-        self.review.fcursor = None;
-        self.review.clear_file();
-        self.review.scroll_file_into_view(ix);
-        let mode = self.review.options.mode;
+        let mode = self.review.show_file(ix);
         self.review.view_task = Some(cx.spawn(async move |this, cx| {
             let data = cx
                 .background_executor()
                 .spawn(async move { FileData::build(&file, mode) })
                 .await;
             this.update(cx, |this, cx| {
-                this.review.data = Some(Arc::new(data));
+                let pins = this.open_pins();
+                this.review.file_built(data, &pins);
                 this.refresh_annotations(cx);
-                this.relayout();
                 this.apply_jump(cx);
-                if let Some((path, offset)) = this.review.restore_scroll.take()
-                    && this
-                        .review
-                        .diff
-                        .as_ref()
-                        .and_then(|d| d.files.get(this.review.file))
-                        .map(|f| f.path())
-                        == Some(path.as_str())
-                {
-                    this.review.diff_list.scroll_to(offset);
-                }
+                this.review.restore_file_scroll();
                 cx.notify();
             })
             .ok();
@@ -2695,16 +2676,8 @@ impl Workspace {
     }
 
     fn set_option_unsaved(&mut self, opt: Opt, value: bool, cx: &mut Context<Self>) {
-        if self.review.option(opt) == value {
+        if !self.review.set_option(opt, value) {
             return;
-        }
-        match opt {
-            Opt::Unified => self.review.options.unified = value,
-            Opt::Wrap => self.review.options.wrap = value,
-            Opt::FullContext => self.review.options.full_context = value,
-            Opt::Whitespace => self.review.options.ignore_whitespace = value,
-            Opt::OneFile => self.review.options.one_file = value,
-            Opt::FoldReviewed => self.review.options.fold_reviewed = value,
         }
         cx.set_menus(menus(&self.review.options, cx));
         match opt {
@@ -2720,10 +2693,9 @@ impl Workspace {
 
     /// Changes what a diff marks inside changed lines. Not remembered: Settings holds the default.
     fn set_mode(&mut self, mode: DiffMode, cx: &mut Context<Self>) {
-        if self.review.options.mode == mode {
+        if !self.review.set_mode(mode) {
             return;
         }
-        self.review.options.mode = mode;
         cx.set_menus(menus(&self.review.options, cx));
         if self.review.stack.is_some() {
             self.reopen_stack(cx);
@@ -3014,16 +2986,7 @@ impl Workspace {
     }
 
     fn scroll_horizontally(&mut self, event: &ScrollWheelEvent, cx: &mut Context<Self>) {
-        if self.review.options.wrap {
-            return;
-        }
-        let delta = f32::from(event.delta.pixel_delta(px(self.review.row_height())).x);
-        if delta == 0. {
-            return;
-        }
-        let offset = (self.review.offset - delta).clamp(0., self.review.max_offset());
-        if offset != self.review.offset {
-            self.review.offset = offset;
+        if self.review.scroll_horizontally(event) {
             cx.notify();
         }
     }
@@ -5094,6 +5057,87 @@ impl review::Review {
         self.rows = rows;
         self.diff_list.splice(at..at + 1, inserted);
         self.recompute_matches();
+        true
+    }
+
+    /// No diff any more.
+    pub(super) fn clear(&mut self) {
+        self.unfolded.clear();
+        self.notice = None;
+        self.diff = None;
+        self.diff_task = None;
+        self.clear_file();
+        self.file = 0;
+    }
+
+    /// File `ix` alone becomes the one shown, its rows to be built in the diff mode returned.
+    pub(super) fn show_file(&mut self, ix: usize) -> DiffMode {
+        self.file = ix;
+        self.fcursor = None;
+        self.clear_file();
+        self.scroll_file_into_view(ix);
+        self.options.mode
+    }
+
+    /// The rows of the file shown alone were built as `data`: laid out with `pins`.
+    pub(super) fn file_built(&mut self, data: FileData, pins: &Pins) {
+        self.data = Some(Arc::new(data));
+        self.relayout(pins);
+    }
+
+    /// The place a reload kept, when it was in the file shown alone.
+    pub(super) fn restore_file_scroll(&mut self) {
+        if let Some((path, offset)) = self.restore_scroll.take()
+            && self
+                .diff
+                .as_ref()
+                .and_then(|d| d.files.get(self.file))
+                .map(|f| f.path())
+                == Some(path.as_str())
+        {
+            self.diff_list.scroll_to(offset);
+        }
+    }
+
+    /// Turns view option `opt` on or off; false when it already was.
+    pub(super) fn set_option(&mut self, opt: Opt, value: bool) -> bool {
+        if self.option(opt) == value {
+            return false;
+        }
+        match opt {
+            Opt::Unified => self.options.unified = value,
+            Opt::Wrap => self.options.wrap = value,
+            Opt::FullContext => self.options.full_context = value,
+            Opt::Whitespace => self.options.ignore_whitespace = value,
+            Opt::OneFile => self.options.one_file = value,
+            Opt::FoldReviewed => self.options.fold_reviewed = value,
+        }
+        true
+    }
+
+    /// What changed lines mark inside becomes `mode`; false when it already was.
+    pub(super) fn set_mode(&mut self, mode: DiffMode) -> bool {
+        if self.options.mode == mode {
+            return false;
+        }
+        self.options.mode = mode;
+        true
+    }
+
+    /// A sideways scroll of the rows, when they do not wrap; false when nothing moved.
+    pub(super) fn scroll_horizontally(&mut self, event: &ScrollWheelEvent) -> bool {
+        if self.options.wrap {
+            return false;
+        }
+        let delta = f32::from(event.delta.pixel_delta(px(self.row_height())).x);
+        if delta == 0. {
+            return false;
+        }
+        let offset = (self.offset - delta).clamp(0., self.max_offset());
+        if offset == self.offset {
+            return false;
+        }
+        self.offset = offset;
         true
     }
 }
