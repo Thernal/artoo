@@ -100,7 +100,8 @@ The target above is reached stage by stage; until then:
   open, a tool window shown); the tab draws them (`src/ui/parts.rs`). Updates' card, mark and Settings line are
   `artoo-updates`' own (`card.rs`); Report a problem's window is `artoo-reports`' (`tool.rs`), the drafts agents
   leave reaching it through `artoo-agents-api`. Each shows `install` alone.
-- `Page` (`src/ui/nav.rs`) is a closed enum the route registry replaces; `menu::Act` and `toast` still know the
-  other features. Meanwhile a new page, action or toast is added there in the shape the registries will take: one
+- `Page` (`src/ui/nav.rs`) is a closed enum the route registry replaces; it is kept as a route already (the
+  core's `Route` and `Place`; the app's kinds in `src/ui/routes.rs`, each to move to its owner's `-api` with its
+  pages). `menu::Act` and `toast` still know the other features. Meanwhile a new page, action or toast is added there in the shape the registries will take: one
   variant, one id, one owner.
 - Every implementation's surface is wide (`OPEN`) until its views move with it.

@@ -1,8 +1,9 @@
 # Contributions: routes, pages, actions, settings, toasts
 
 **Decided:** 2026-10-29 · **Applies to:** every feature with a view · **In force:** actions, parts and the
-`Frame` since 2026-10-30 (`artoo-shell-api`, updates the first feature on it); routes and pages with the first
-feature that has a page (requests). Until then `Page` (`src/ui/nav.rs`), `menu::Act` and `toast` are what these
+`Frame` since 2026-10-30 (`artoo-shell-api`, updates the first feature on it); routes as data since 2026-10-30
+(`artoo_core::route`: `nav.txt` keeps them, the app's kinds in `src/ui/routes.rs`); the page registry with the
+first feature that has a page (requests). Until then `Page` (`src/ui/nav.rs`), `menu::Act` and `toast` are what these
 replace, and a new page, action or toast is added there in the shape below — one variant, one id, one owner.
 
 **What `artoo-shell-api` holds now:** `add_action` (an id, its words for ⌘K, the keys it ships with, the menu that

@@ -12,6 +12,7 @@
 
 use super::spaces::Space;
 use super::{Header, Selection, Workspace, zones};
+use artoo_core::route::Route;
 use git2::Oid;
 use gpui::{Context, ListOffset};
 
@@ -98,29 +99,8 @@ impl Page {
         }
     }
 
-    /// As `nav.txt` writes it.
-    fn key(&self) -> String {
-        match self {
-            Page::File(path) => format!("file:{path}"),
-            Page::Folder(path) => format!("folder:{path}"),
-            Page::Branch(refname) => format!("branch:{refname}"),
-            Page::BranchCommit(refname, id) => format!("branch-commit:{id}:{refname}"),
-            Page::BranchCommits(refname, a, b) => format!("branch-commits:{a}:{b}:{refname}"),
-            Page::Versions(refname, a, b) => format!("versions:{a}:{b}:{refname}"),
-            Page::WorkingTree => "working-tree".to_owned(),
-            // Direct has a kind of its own: a line written before it reads as since the merge base.
-            Page::Compare((base, a), (head, b), since) => {
-                let kind = if *since { "compare" } else { "compare-direct" };
-                format!("{kind}:{a}:{b}:{base}:{head}")
-            }
-            Page::Request(iid) => format!("request:{iid}"),
-            Page::RequestCommit(iid, id) => format!("request-commit:{iid}:{id}"),
-            Page::RequestCommits(iid, a, b) => format!("request-commits:{iid}:{a}:{b}"),
-            Page::RequestVersions(iid, a, b) => format!("request-versions:{iid}:{a}:{b}"),
-        }
-    }
-
-    fn parse(key: &str) -> Option<Page> {
+    /// A page as `nav.txt` kept it before routes (#165): read, never written.
+    fn parse_key(key: &str) -> Option<Page> {
         let (kind, rest) = key.split_once(':').unwrap_or((key, ""));
         let mut parts = rest.splitn(4, ':');
         let mut next = || parts.next();
@@ -201,16 +181,7 @@ impl Item {
         }
     }
 
-    /// A comparison is kept as its page, which has its sides' commits (`Nav::line`).
-    fn key(&self) -> String {
-        match self {
-            Item::Request(iid) => format!("request:{iid}"),
-            Item::Branch(refname) => format!("branch:{refname}"),
-            Item::Compare(a, b) => format!("compare:{a}:{b}"),
-            Item::WorkingTree => "working-tree".to_owned(),
-        }
-    }
-
+    /// An item as `nav.txt` kept it before routes (#165): read, never written.
     fn parse(key: &str) -> Option<Item> {
         match key.split_once(':')? {
             ("request", iid) => Some(Item::Request(iid.parse().ok()?)),
@@ -375,15 +346,22 @@ impl Nav {
         let pages: Vec<String> = self
             .pages
             .iter()
-            .map(|p| p.as_ref().map_or_else(|| "-".to_owned(), Page::key))
+            .map(|p| {
+                p.as_ref()
+                    .map_or_else(|| "-".to_owned(), |p| p.route().text())
+            })
             .collect();
-        // A comparison as its page: its sides' commits come back with it (#149).
+        // An item as its own page; a comparison as the page it was left on: its sides' commits come
+        // back with it (#149).
         let open: Vec<String> = self
             .open
             .iter()
-            .map(|o| match o.item {
-                Item::Compare(..) => o.page.key(),
-                _ => o.item.key(),
+            .map(|o| {
+                o.item
+                    .page()
+                    .unwrap_or_else(|| o.page.clone())
+                    .route()
+                    .text()
             })
             .collect();
         format!(
@@ -401,17 +379,25 @@ impl Nav {
         let space = Space::ALL
             .get(cols.next()?.parse::<usize>().ok()?)
             .copied()?;
+        // Each kept as a route; a line written before routes as the keys it had then.
+        let page_of = |text: &str| {
+            Route::parse(text)
+                .and_then(|route| Page::from_route(&route))
+                .or_else(|| Page::parse_key(text))
+        };
         let mut pages: [Option<Page>; 4] = Default::default();
         for page in pages.iter_mut() {
-            *page = Page::parse(cols.next()?);
+            *page = page_of(cols.next()?);
         }
         let open = cols
             .next()
             .unwrap_or_default()
             .split(' ')
-            .filter_map(|key| match Item::parse(key) {
-                Some(item) => Some((item, None)),
-                None => Page::parse(key).and_then(|page| Some((page.item()?, Some(page)))),
+            .filter_map(|key| match page_of(key) {
+                // A request's or a branch's own page is the item alone.
+                Some(page @ (Page::Request(_) | Page::Branch(_))) => Some((page.item()?, None)),
+                Some(page) => Some((page.item()?, Some(page))),
+                None => Some((Item::parse(key)?, None)),
             })
             .collect();
         Some(Saved {
@@ -1370,11 +1356,27 @@ mod tests {
             Page::RequestVersions(398, 0, 2),
         ];
         for page in pages {
-            assert_eq!(Page::parse(&page.key()), Some(page));
+            assert_eq!(Page::from_route(&page.route()), Some(page.clone()));
+            assert_eq!(
+                Route::parse(&page.route().text()).and_then(|r| Page::from_route(&r)),
+                Some(page)
+            );
         }
+        // A kind nothing draws (a plugin gone) is dropped.
+        let gone = Route::parse(r#"plugin.page{"x":1}"#).unwrap();
+        assert_eq!(Page::from_route(&gone), None);
+        // nav.txt before routes (#165): its keys still read.
+        assert_eq!(
+            Page::parse_key(&format!("branch-commit:{id}:refs/heads/feature/x")),
+            Some(Page::BranchCommit("refs/heads/feature/x".into(), id))
+        );
+        assert_eq!(
+            Page::parse_key("file:src/a b.rs"),
+            Some(Page::File("src/a b.rs".into()))
+        );
         // A compare kept before Direct was kept with it is since the merge base (#147).
         assert_eq!(
-            Page::parse(&format!("compare:{id}:{id}:main:origin/x")),
+            Page::parse_key(&format!("compare:{id}:{id}:main:origin/x")),
             Some(Page::Compare(
                 ("main".into(), id),
                 ("origin/x".into(), id),
@@ -1421,6 +1423,37 @@ mod tests {
             Some(Page::RequestCommit(398, id))
         );
         // A comparison comes back with its page, its sides' commits in it.
+        assert_eq!(
+            open,
+            [
+                (Item::Request(398), None),
+                (Item::Branch("refs/heads/main".into()), None),
+                (Item::compare("main", "origin/x"), Some(compare)),
+                (Item::WorkingTree, Some(Page::WorkingTree)),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_line_written_before_routes_still_reads() {
+        let id = "0123456789012345678901234567890123456789";
+        let line = format!(
+            "_Users_me_repo\t3\t-\tfile:README.md\t-\trequest-commit:398:{id}\trequest:398 branch:refs/heads/main compare-direct:{id}:{id}:main:origin/x working-tree"
+        );
+        let Saved {
+            space, pages, open, ..
+        } = Nav::read(&line).unwrap();
+        let id = Oid::from_str(id).unwrap();
+        assert_eq!(space, Space::Requests);
+        assert_eq!(
+            pages[Space::Code.ix()],
+            Some(Page::File("README.md".into()))
+        );
+        assert_eq!(
+            pages[Space::Requests.ix()],
+            Some(Page::RequestCommit(398, id))
+        );
+        let compare = Page::Compare(("main".into(), id), ("origin/x".into(), id), false);
         assert_eq!(
             open,
             [

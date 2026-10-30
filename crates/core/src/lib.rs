@@ -15,6 +15,7 @@ pub mod markdown;
 pub mod mddiff;
 pub mod platform;
 pub mod rank;
+pub mod route;
 pub mod search;
 pub mod storage;
 pub mod structural;
