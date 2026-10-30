@@ -1931,6 +1931,31 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
             Act::SendNow(id) => this.send_draft_now(id, cx),
             Act::RunMerge => this.run_merge(cx),
             Act::ShowNewVersion => this.show_new_version(cx),
+            Act::PickRequest(iid) => {
+                this.zone = super::zones::Zone::Branches;
+                this.pick_request(iid, cx);
+            }
+            Act::OpenRequest { iid, note } => this.open_at_note(iid, note, cx),
+            Act::ToggleGroup(g) => {
+                this.mark_motion(&format!("group-{}", g.key()), cx);
+                this.requests.update(cx, |rq, _| rq.rows.toggle(g));
+                cx.notify();
+            }
+            Act::RetryPast => this.retry_past_page(cx),
+            Act::ShowAll => {
+                this.requests.update(cx, |rq, _| rq.scope = Scope::All);
+                this.bfilter.clear();
+                this.field = None;
+                cx.notify();
+            }
+            Act::Relist => {
+                this.load_requests(cx);
+                cx.notify();
+            }
+            Act::RenewToken => {
+                this.settings_section = super::settings::Section::Requests;
+                this.open_settings(cx);
+            }
         })
         .ok();
     })

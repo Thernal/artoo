@@ -131,6 +131,20 @@ pub enum Act {
     /// Merge was refused for a push after the version on the page: the card goes, the new one
     /// comes.
     ShowNewVersion,
+    /// Request `iid`'s row picked in the list, by a click.
+    PickRequest(u64),
+    /// Request `iid` opened, at note `note` (a discussion waiting for you) when there is one.
+    OpenRequest { iid: u64, note: Option<u64> },
+    /// The list's group folded or unfolded.
+    ToggleGroup(crate::group::Group),
+    /// The merged or closed page that could not be read, read again.
+    RetryPast,
+    /// Every request listed again: the scope All, the filter cleared.
+    ShowAll,
+    /// The open list read again.
+    Relist,
+    /// Settings, at the requests' token.
+    RenewToken,
 }
 
 /// How the tab answers what the requests' views ask.

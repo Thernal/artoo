@@ -451,7 +451,10 @@ impl Workspace {
             .flex()
             .flex_col()
             .gap(px(super::gap()))
-            .children(self.list_banner(cx))
+            .children(artoo_requests::list::banner(
+                self.requests.read(cx),
+                &super::requests::acts_of(cx.entity().downgrade()),
+            ))
             .child(body)
     }
 

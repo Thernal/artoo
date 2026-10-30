@@ -8,16 +8,14 @@
 use super::hover::{CutInTip, Hover};
 use super::lists::Field;
 use super::nav::BranchRow;
-use super::{Workspace, discussion, format, icons, island, keys, plural, px, theme, words};
+use super::{Workspace, format, icons, island, keys, plural, px, theme, words};
 use crate::git::{BranchRef, ChangeKind, RefKind, Repo};
 use crate::mr::{Mr, MrState, Thread};
 pub(super) use artoo_requests::group::Group;
 use artoo_requests::list;
 use artoo_review_api::Seen;
 pub(super) use artoo_ui_kit::controls::skeleton;
-use artoo_ui_kit::controls::{
-    empty_state, outline_button, pill, primary_button, progress_badge, unread_dot,
-};
+use artoo_ui_kit::controls::{empty_state, outline_button, primary_button, progress_badge};
 use gpui::{
     AnyElement, App, ClickEvent, Context, Div, FontWeight, Rgba, SharedString, Task, div,
     prelude::*,
@@ -307,12 +305,6 @@ impl Workspace {
         cx.notify();
     }
 
-    fn toggle_group(&mut self, g: Group, cx: &mut Context<Self>) {
-        self.mark_motion(&format!("group-{}", g.key()), cx);
-        self.requests.update(cx, |rq, _| rq.rows.toggle(g));
-        cx.notify();
-    }
-
     /// Whether group `g`'s rows are folded away; a filter typed opens every group.
     fn folds(&self, g: Group, cx: &App) -> bool {
         let filtering = !self.bfilter.trim().is_empty();
@@ -355,30 +347,37 @@ impl Workspace {
                 .into_any_element();
         }
         let shown = self.shown_requests(cx);
-        // The merged or the closed (#114): a flat list, newest first, read as it is scrolled.
-        // What shows of them, copied: a row is drawn with the tab's context.
-        struct PastShown {
-            loading: bool,
-            empty: bool,
-            more: bool,
-            error: Option<String>,
-        }
-        let past = (self.requests.read(cx).view != MrState::Opened).then(|| {
-            let rq = self.requests.read(cx);
-            let p = rq.past.of_scope(rq.scope);
-            PastShown {
-                loading: p.loading,
-                empty: p.list.is_empty(),
-                more: p.more,
-                error: p.error.clone(),
-            }
-        });
-        let loading = match &past {
-            Some(p) => p.loading && p.empty,
-            None => self.requests.read(cx).loading && self.requests.read(cx).list.is_empty(),
+        let acts = super::requests::acts_of(cx.entity().downgrade());
+        // How far your review of each got, as the review has it.
+        let review = self.review.read(cx);
+        let heads = shown
+            .iter()
+            .map(|m| (m.iid, git2::Oid::from_str(&m.head).ok()));
+        let seen = heads
+            .clone()
+            .map(|(iid, head)| (iid, review.request_seen(iid, head)))
+            .collect();
+        let parts = heads
+            .filter_map(|(iid, head)| Some((iid, review.head_part(head?)?)))
+            .collect();
+        let threads = |iid| self.notices.threads_of(iid);
+        let fold = |key, moving: &str, open, row| self.folding(key, moving, open, row);
+        let look = list::ListLook {
+            shown: &shown,
+            picked: self.nav.pick_request,
+            filter: &self.bfilter,
+            compact: self.compact(),
+            rich: self.settings.rich_comments,
+            widths: &self.widths,
+            seen,
+            parts,
+            threads: &threads,
+            fold: &fold,
         };
-        let body = if loading {
-            div()
+        let rq = self.requests.read(cx);
+        let banner = list::banner(rq, &acts);
+        let body = match list::list(rq, &look, &acts) {
+            list::Body::Loading => div()
                 .flex_1()
                 .min_h_0()
                 .flex()
@@ -398,109 +397,18 @@ impl Workspace {
                         .py(px(26.))
                         .child(skeleton("request-preview-loading", 3)),
                 )
-                .into_any_element()
-        } else if shown.is_empty() && past.as_ref().is_none_or(|p| !p.more) {
-            island()
+                .into_any_element(),
+            list::Body::Empty(empty) => island()
                 .flex_1()
                 .bg(theme::editor())
-                .child(self.requests_empty(cx))
-                .into_any_element()
-        } else {
-            let groups: Vec<Group> = match &past {
-                Some(_) => vec![Group::New; shown.len()],
-                None => shown.iter().map(|m| self.group_of(m, cx)).collect(),
-            };
-            let picked = self
-                .nav
-                .pick_request
-                .and_then(|iid| shown.iter().find(|m| m.iid == iid))
-                .or_else(|| {
-                    shown
-                        .iter()
-                        .zip(&groups)
-                        .find(|(_, g)| past.is_some() || !self.folds(**g, cx))
-                        .map(|(m, _)| m)
-                })
-                .cloned();
-            // Each group a band, its rows under it unless it is folded (#81).
-            let mut rows: Vec<AnyElement> = Vec::new();
-            let mut bands: Vec<(usize, Group, usize)> = Vec::new();
-            let mut picked_row = None;
-            for (n, (m, &g)) in shown.iter().zip(&groups).enumerate() {
-                if past.is_some() {
-                    if picked.as_ref().is_some_and(|p| p.iid == m.iid) {
-                        picked_row = Some(rows.len());
-                    }
-                    rows.push(self.request_row(m, g, cx).into_any_element());
-                    continue;
-                }
-                if n == 0 || groups[n - 1] != g {
-                    let count = groups.iter().filter(|&&o| o == g).count();
-                    bands.push((rows.len(), g, count));
-                    let top = rows.is_empty();
-                    rows.push(self.group_band(g, count, false, top, cx).into_any_element());
-                }
-                let is_picked = picked.as_ref().is_some_and(|p| p.iid == m.iid);
-                // Each row folds with its group, in size and alpha (#110): the group opens and
-                // shuts as one, and every row stays a child of its own for the held band.
-                let Some(row) = self.folding(
-                    format!("request-row-{}", m.iid),
-                    &format!("group-{}", g.key()),
-                    !self.folds(g, cx) || is_picked,
-                    self.request_row(m, g, cx),
-                ) else {
-                    continue;
-                };
-                if is_picked {
-                    picked_row = Some(rows.len());
-                }
-                rows.push(row);
-            }
-            // More of them while there may be: a shimmer row at the end, read when it comes into
-            // sight (#114).
-            if let Some(error) = past.as_ref().and_then(|p| p.error.as_ref()) {
-                rows.push(
-                    div()
-                        .px(px(16.))
-                        .py(px(12.))
-                        .flex()
-                        .items_center()
-                        .gap(px(10.))
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child(super::hover::cut("past-error", error.clone()).flex_1())
-                        .child(
-                            div()
-                                .id("past-retry")
-                                .child(outline_button("Retry"))
-                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                    this.retry_past_page(cx)
-                                })),
-                        )
-                        .into_any_element(),
-                );
-            } else if past.as_ref().is_some_and(|p| p.more || p.loading) {
-                rows.push(
-                    div()
-                        .id("past-more")
-                        .px(px(16.))
-                        .py(px(12.))
-                        .child(super::motion::shimmer("past-more-bars", 2))
-                        .into_any_element(),
-                );
-            }
-            // The rows as the last frame laid them out, when they are these rows: where the list's
-            // top is, so the band above it is held there.
-            let scroll = self.requests.read(cx).rows.scroll.clone();
-            let laid = scroll.children_count() == rows.len();
-            if past.as_ref().is_some_and(|p| p.more && !p.loading) {
-                // Not laid out yet: looked at again once it is. A row's bounds are where it is
-                // in the unscrolled list.
-                let near = laid
-                    && scroll.bounds_for_item(rows.len() - 1).is_some_and(|b| {
-                        b.top() + scroll.offset().y < scroll.bounds().bottom() + px(list::BAND * 4.)
-                    });
-                if near || !laid {
+                .child(empty)
+                .into_any_element(),
+            list::Body::List {
+                rows,
+                preview,
+                more,
+            } => {
+                if let Some(near) = more {
                     let this = cx.entity().downgrade();
                     cx.defer(move |cx| {
                         this.update(cx, |this, cx| {
@@ -513,73 +421,30 @@ impl Workspace {
                         .ok();
                     });
                 }
-            }
-            let top = f32::from(scroll.bounds().top() - scroll.offset().y);
-            let top_of = |ix: usize| scroll.bounds_for_item(ix).map(|b| f32::from(b.top()));
-            if self.requests.read(cx).rows.reveal.take()
-                && let Some(ix) = picked_row
-            {
-                // A row going up out of sight would stop under the held band: the one above it
-                // comes into view instead, and with it the row.
-                let under_band = laid && ix > 0 && top_of(ix).is_some_and(|t| t < top + list::BAND);
-                scroll.scroll_to_item(if under_band { ix - 1 } else { ix });
-            }
-            let tops: Vec<f32> = bands.iter().filter_map(|&(ix, ..)| top_of(ix)).collect();
-            let held = (laid && tops.len() == bands.len())
-                .then(|| list::held_band(&tops, top))
-                .flatten()
-                .map(|(at, push)| {
-                    let (_, g, count) = bands[at];
-                    div()
-                        .absolute()
-                        .top(px(push))
-                        .left_0()
-                        .right_0()
-                        .child(self.group_band(g, count, true, true, cx))
-                });
-            div()
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .child(
-                    self.root_list()
-                        .border_color(self.zone_border(super::zones::Zone::Branches))
-                        .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .child(
+                        self.root_list()
+                            .border_color(self.zone_border(super::zones::Zone::Branches))
+                            .child(rows),
+                    )
+                    // Its handle widens or narrows the list, kept for every list page (the
+                    // developer, 2026-10-23); a double click sets it back.
+                    .children((!self.compact()).then(|| self.handle(super::Split::List, cx)))
+                    .children((!self.compact()).then(|| {
+                        island().flex_1().min_w_0().bg(theme::editor()).child(
                             div()
-                                .relative()
+                                .id("request-preview")
                                 .flex_1()
                                 .min_h_0()
-                                .flex()
-                                .flex_col()
-                                .overflow_hidden()
-                                .child(self.widths.measure("requests"))
-                                .child(
-                                    div()
-                                        .id("requests")
-                                        .flex_1()
-                                        .min_h_0()
-                                        .overflow_y_scroll()
-                                        .track_scroll(&scroll)
-                                        .pb(px(6.))
-                                        .children(rows),
-                                )
-                                .children(held),
-                        ),
-                )
-                // Its handle widens or narrows the list, kept for every list page (the developer,
-                // 2026-10-23); a double click sets it back.
-                .children((!self.compact()).then(|| self.handle(super::Split::List, cx)))
-                .children((!self.compact()).then(|| {
-                    island().flex_1().min_w_0().bg(theme::editor()).child(
-                        div()
-                            .id("request-preview")
-                            .flex_1()
-                            .min_h_0()
-                            .overflow_y_scroll()
-                            .children(picked.as_ref().map(|m| self.request_preview(m, cx))),
-                    )
-                }))
-                .into_any_element()
+                                .overflow_y_scroll()
+                                .children(preview),
+                        )
+                    }))
+                    .into_any_element()
+            }
         };
         div()
             .flex_1()
@@ -587,620 +452,8 @@ impl Workspace {
             .flex()
             .flex_col()
             .gap(px(super::gap()))
-            .children(self.list_banner(cx))
+            .children(banner)
             .child(body)
-            .into_any_element()
-    }
-
-    /// No request to list: why, per filter, and the way to more.
-    fn requests_empty(&self, cx: &mut Context<Self>) -> Div {
-        use super::requests::Scope;
-        let all = self.requests.read(cx).list.len();
-        let filter = self.bfilter.trim().to_owned();
-        let view = self.requests.read(cx).view;
-        let show_all = |label: &'static str| {
-            div()
-                .id("empty-show-all")
-                .child(outline_button(label))
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.requests
-                        .update(cx, |rq, _| rq.scope = super::requests::Scope::All);
-                    this.bfilter.clear();
-                    this.field = None;
-                    cx.notify();
-                }))
-                .into_any_element()
-        };
-        if !filter.is_empty() {
-            return empty_state(
-                "search",
-                format!("Nothing matches “{filter}”"),
-                words::say("The filter looks in the number, title, author and branch of each merge request.")
-                    .into_owned(),
-                Some(show_all("Clear the filter")),
-            );
-        }
-        // The merged or the closed (#114): none read, or none of this filter's.
-        if view != MrState::Opened {
-            let word = view.word().to_lowercase();
-            let past = self
-                .requests
-                .read(cx)
-                .past
-                .of_scope(self.requests.read(cx).scope);
-            if let Some(error) = &past.error {
-                return empty_state(
-                    "pull-request",
-                    words::say(&format!("The {word} merge requests could not be read"))
-                        .into_owned(),
-                    error.clone(),
-                    Some(
-                        div()
-                            .id("past-retry")
-                            .child(outline_button("Retry"))
-                            .on_click(
-                                cx.listener(|this, _: &ClickEvent, _, cx| this.retry_past_page(cx)),
-                            )
-                            .into_any_element(),
-                    ),
-                );
-            }
-            let read = !self
-                .requests
-                .read(cx)
-                .past
-                .of_scope(Scope::All)
-                .list
-                .is_empty();
-            return match self.requests.read(cx).scope {
-                Scope::All => empty_state(
-                    "pull-request",
-                    words::say(&format!("No {word} merge requests")).into_owned(),
-                    words::say(&format!("Merge requests {word} in this project land here."))
-                        .into_owned(),
-                    None,
-                ),
-                Scope::ReviewMe => empty_state(
-                    "pull-request",
-                    format!("None {word} asked for your review"),
-                    words::say(&format!(
-                        "{} merge requests you were asked to review land here.",
-                        view.word()
-                    ))
-                    .into_owned(),
-                    read.then(|| show_all("Show all")),
-                ),
-                Scope::Mine => empty_state(
-                    "pull-request",
-                    format!("None of yours is {word}"),
-                    words::say(&format!(
-                        "The merge requests you opened land here once {word}."
-                    ))
-                    .into_owned(),
-                    read.then(|| show_all("Show all")),
-                ),
-            };
-        }
-        if self.requests.read(cx).error.is_some() && all == 0 {
-            return empty_state(
-                "pull-request",
-                words::say("No merge requests yet").into_owned(),
-                "They come when the list can be read again.".to_owned(),
-                None,
-            );
-        }
-        match self.requests.read(cx).scope {
-            Scope::ReviewMe => empty_state(
-                "pull-request",
-                "Nothing to review".to_owned(),
-                format!(
-                    "Requests that ask for your review land here. {} open under All.",
-                    if all == 1 {
-                        "1 is".to_owned()
-                    } else {
-                        format!("{all} are")
-                    }
-                ),
-                (all > 0).then(|| show_all("Show all")),
-            ),
-            Scope::Mine => empty_state(
-                "pull-request",
-                "None of yours is open".to_owned(),
-                words::say(
-                    "The merge requests you open land here, with what waits for you on each.",
-                )
-                .into_owned(),
-                (all > 0).then(|| show_all("Show all")),
-            ),
-            Scope::All => empty_state(
-                "pull-request",
-                words::say("No open merge requests").into_owned(),
-                words::say("When someone opens a merge request in this project, it lands here.")
-                    .into_owned(),
-                None,
-            ),
-        }
-    }
-
-    /// A group's band in the requests list: its icon, name and count, and the chevron that folds
-    /// it (a click anywhere on it does); `held` is its copy held at the top of the list (#81).
-    fn group_band(
-        &self,
-        g: Group,
-        count: usize,
-        held: bool,
-        top: bool,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
-        let (icon, tone) = g.icon();
-        // At the list's top its fill follows the island's round corners, and the island's own
-        // border is its top edge.
-        let corner = if super::flat() {
-            0.
-        } else {
-            super::ISLAND_RADIUS - 1.
-        };
-        let foldable = self.bfilter.trim().is_empty();
-        let folded = self.folds(g, cx);
-        div()
-            .id((if held { "group-held" } else { "group-band" }, g as usize))
-            .h(px(list::BAND))
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .pl(px(16.))
-            .pr(px(10.))
-            .bg(theme::base())
-            .when(top, |s| s.rounded_t(px(corner)))
-            .when(!top, |s| s.border_t_1())
-            .border_b_1()
-            .border_color(theme::island_border())
-            .text_size(px(12.))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(if folded {
-                theme::muted()
-            } else {
-                theme::text()
-            })
-            .child(icons::icon(icon).size(px(14.)).text_color(tone))
-            .child(super::hover::cut("heading", g.heading()).flex_1())
-            .child(
-                div()
-                    .flex_none()
-                    .px(px(6.))
-                    .rounded_full()
-                    .bg(theme::hover())
-                    .text_size(px(11.))
-                    .font_weight(FontWeight::NORMAL)
-                    .text_color(theme::muted())
-                    .child(count.to_string()),
-            )
-            .when(foldable, |s| {
-                s.cursor_pointer()
-                    .child(
-                        icons::icon(if folded { "chevron-right" } else { "chevron" })
-                            .size(px(14.))
-                            .text_color(theme::faint()),
-                    )
-                    .on_click(
-                        // A double click folds or opens it once, as one click does.
-                        cx.listener(move |this, e: &ClickEvent, _, cx| {
-                            if e.click_count() < 2 {
-                                this.toggle_group(g, cx)
-                            }
-                        }),
-                    )
-            })
-    }
-
-    /// A request's row: unread dot, number and title, when; who, the pipeline, its discussions.
-    fn request_row(&self, m: &Mr, g: Group, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let iid = m.iid;
-        let picked = self.nav.pick_request == Some(iid);
-        let head = git2::Oid::from_str(&m.head).ok();
-        let part = head.and_then(|h| self.review.read(cx).head_part(h));
-        let pipeline = self
-            .requests
-            .read(cx)
-            .rows
-            .preview(iid)
-            .and_then(|p| p.pipeline.clone());
-        let waiting = (g == Group::Yours).then(|| self.waiting_threads(iid, cx).len());
-        let threads = self.notices.threads_of(iid).map(<[Thread]>::len);
-        // A dot: a row of yours a thread waits on, another you have never opened; how far your
-        // review is, its group says (#81).
-        let unread = m.state == MrState::Opened
-            && match waiting {
-                Some(n) => n > 0,
-                None => !self.opened_before(iid, cx),
-            };
-        // Its anatomy (#79): the number, the title and the pipeline's verdict always; who (or
-        // what waits for you) and when while the list has 260 px; the threads and how far your
-        // review is under 360 px leave first. The tooltip holds it all.
-        let room = self.widths.room("requests");
-        let who = match waiting {
-            Some(n) if n > 0 => Some((
-                format!(
-                    "{} for you",
-                    if n == 1 {
-                        "1 thread waits".to_owned()
-                    } else {
-                        format!("{n} threads wait")
-                    }
-                ),
-                theme::warning(),
-            )),
-            _ => Some((
-                if m.draft {
-                    format!("draft · {}", m.author)
-                } else {
-                    m.author.clone()
-                },
-                theme::muted(),
-            )),
-        };
-        let verdict = pipeline.as_ref().map(artoo_requests::bar::pipeline_word);
-        let threads = threads.filter(|&n| n > 0 && waiting.is_none_or(|w| w == 0));
-        let mut tip = vec![
-            format!("{} {}", words::number(iid), m.title),
-            format!("{} · {} → {}", m.author, m.source, m.target),
-        ];
-        if let Some((glyph, word, _)) = &verdict {
-            tip.push(format!("pipeline {glyph} {word}"));
-        }
-        if let Some(n) = threads {
-            tip.push(plural(n, "thread"));
-        }
-        if let Some((text, _)) = who.as_ref().filter(|_| waiting.is_some_and(|w| w > 0)) {
-            tip.push(text.clone());
-        }
-        tip.push(format!("updated {}", super::hover::full_date(m.updated)));
-        let mut meta: Vec<AnyElement> = Vec::new();
-        if let Some((text, color)) = who.filter(|_| room.second()) {
-            meta.push(div().text_color(color).child(text).into_any_element());
-        }
-        if let Some((glyph, word, color)) = verdict {
-            meta.push(
-                div()
-                    .text_color(color)
-                    .child(format!("{glyph} {word}"))
-                    .into_any_element(),
-            );
-        }
-        if let Some(n) = threads.filter(|_| room.third()) {
-            meta.push(div().child(plural(n, "thread")).into_any_element());
-        }
-        let mut line2: Vec<AnyElement> = Vec::new();
-        for (n, part) in meta.into_iter().enumerate() {
-            if n > 0 {
-                line2.push(
-                    div()
-                        .text_color(theme::faint())
-                        .child("·")
-                        .into_any_element(),
-                );
-            }
-            line2.push(part);
-        }
-        div().px(px(6.)).py(px(1.)).child(
-            div()
-                .id(("mr-row", iid))
-                .on_mouse_down(
-                    gpui::MouseButton::Right,
-                    cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
-                        this.request_context(iid, e.position, cx)
-                    }),
-                )
-                .px(px(10.))
-                .py(px(8.))
-                .flex()
-                .items_start()
-                .gap(px(10.))
-                .rounded(px(super::ROW_RADIUS))
-                .cursor_pointer()
-                .when(picked, |s| s.bg(theme::selected()))
-                .when(!picked, |s| s.hover(|s| s.bg(theme::hover())))
-                .child(unread_dot(unread))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap(px(3.))
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(8.))
-                                .child(
-                                    div()
-                                        .flex_none()
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .child(words::number(iid)),
-                                )
-                                .child(div().flex_1().min_w_0().cut_in_tip().child(m.title.clone()))
-                                .children(
-                                    part.filter(|_| room.third())
-                                        .map(|(done, total)| progress_badge(done, total)),
-                                )
-                                .children(room.second().then(|| {
-                                    div()
-                                        .flex_none()
-                                        .text_size(px(11.))
-                                        .text_color(theme::faint())
-                                        .child(format::ago(m.updated))
-                                })),
-                        )
-                        .when(!line2.is_empty(), |s| {
-                            s.child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(5.))
-                                    .overflow_hidden()
-                                    .whitespace_nowrap()
-                                    .text_size(px(12.))
-                                    .text_color(theme::muted())
-                                    .children(line2),
-                            )
-                        }),
-                )
-                .tip(tip.join("\n"))
-                .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
-                    // A second click on the picked one opens it, as ↵ does; with no preview
-                    // beside the list, the first (#80).
-                    let open = this.nav.pick_request == Some(iid) && event.click_count() > 1;
-                    if open || this.compact() {
-                        this.field = None;
-                        return this.select_request(iid, cx);
-                    }
-                    this.zone = super::zones::Zone::Branches;
-                    this.pick_request(iid, cx);
-                })),
-        )
-    }
-
-    /// The request picked: who and where, its title and description, how far your review is,
-    /// and Open; for one of yours, the discussions waiting for you first.
-    fn request_preview(&self, m: &Mr, cx: &mut Context<Self>) -> AnyElement {
-        let iid = m.iid;
-        let me = self.requests.read(cx).login.as_deref().unwrap_or_default();
-        let mine = !me.is_empty() && m.author_login == me;
-        let (pipeline, approvals, since) = self
-            .requests
-            .read(cx)
-            .rows
-            .preview(iid)
-            .map(|p| (p.pipeline.clone(), p.approvals.clone(), p.since))
-            .unwrap_or_default();
-        let mut pills: Vec<AnyElement> = Vec::new();
-        if let Some(p) = &pipeline {
-            let (glyph, word, color) = artoo_requests::bar::pipeline_word(p);
-            pills.push(pill(format!("{glyph} {word}"), color).into_any_element());
-        }
-        if let Some(a) = &approvals {
-            let said = if a.required > 0 {
-                Some(format!(
-                    "{}/{} approved",
-                    a.required - a.left.min(a.required),
-                    a.required
-                ))
-            } else {
-                (!a.by.is_empty()).then(|| format!("{} approved", a.by.len()))
-            };
-            pills.extend(said.map(|s| {
-                pill(
-                    s,
-                    if a.left == 0 && !a.by.is_empty() {
-                        theme::added()
-                    } else {
-                        theme::muted()
-                    },
-                )
-                .into_any_element()
-            }));
-        }
-        let props = div()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap(px(8.))
-            .text_size(px(12.))
-            .text_color(theme::muted())
-            .child(
-                div()
-                    .font_family(theme::code_font())
-                    .text_color(theme::accent())
-                    .child(words::number(iid)),
-            )
-            .child(discussion::avatar(&m.author, mine, 18.))
-            .child(
-                div()
-                    .flex()
-                    .gap(px(6.))
-                    .child(if mine {
-                        "yours".to_owned()
-                    } else {
-                        m.author.clone()
-                    })
-                    .child(div().text_color(theme::faint()).child("·"))
-                    .child(
-                        div()
-                            .font_family(theme::code_font())
-                            .child(format!("{} → {}", m.source, m.target)),
-                    ),
-            )
-            .child(div().flex_1())
-            .children(pills);
-        let title = div()
-            .text_size(px(19.))
-            .line_height(px(26.))
-            .font_weight(FontWeight::SEMIBOLD)
-            .child(m.title.clone());
-        let description = crate::markdown::plain(&m.description);
-        let description = description.trim();
-        // How far your review is, and what is open.
-        let head = git2::Oid::from_str(&m.head).ok();
-        let mut facts: Vec<String> = Vec::new();
-        match (
-            self.review.read(cx).request_seen(iid, head),
-            head.and_then(|h| self.review.read(cx).head_part(h)),
-        ) {
-            (Seen::Done, _) => facts.push("Reviewed at this push".to_owned()),
-            (Seen::Earlier, _) => facts.push(match since {
-                Some((viewed, 0)) => format!("Pushed since you viewed v{viewed}, no file changed"),
-                Some((viewed, n)) => {
-                    format!("{} changed since you viewed v{viewed}", plural(n, "file"))
-                }
-                None => "Pushed since your review".to_owned(),
-            }),
-            (_, Some((done, total))) => facts.push(format!("{done} of {total} files reviewed")),
-            (Seen::Started | Seen::Never, None) => {}
-        }
-        if let Some(threads) = self.notices.threads_of(iid) {
-            let open = threads
-                .iter()
-                .filter(|t| t.resolvable && !t.resolved)
-                .count();
-            if open > 0 {
-                facts.push(format!("{} open", plural(open, "discussion")));
-            }
-        }
-        if m.draft {
-            facts.push("Draft".to_owned());
-        }
-        // A merged or closed one: when it was (its last update, as the list gives it, #114).
-        facts.push(match m.state {
-            MrState::Opened => format!("updated {}", format::ago(m.updated)),
-            s => format!("{} {}", s.word().to_lowercase(), format::ago(m.updated)),
-        });
-        let waiting = if mine {
-            self.waiting_threads(iid, cx)
-        } else {
-            Vec::new()
-        };
-        let first = waiting.first().and_then(|t| t.notes.last().map(|n| n.id));
-        let open_label = if first.is_some() {
-            "Open the first"
-        } else {
-            "Open"
-        };
-        let open_hint = if first.is_some() {
-            words::say("opens the merge request at that discussion").into_owned()
-        } else {
-            "opens on its changes, at the first file not reviewed · ⌥↓ the next not reviewed"
-                .to_owned()
-        };
-        let waits = (!waiting.is_empty()).then(|| {
-            div()
-                .flex()
-                .flex_col()
-                .child(
-                    div()
-                        .pb(px(6.))
-                        .text_size(px(11.))
-                        .text_color(theme::faint())
-                        .child(format!("Waiting for you · {}", waiting.len())),
-                )
-                .children(waiting.iter().enumerate().map(|(n, t)| {
-                    let last = t.notes.last();
-                    let who = last.map(|n| n.author.clone()).unwrap_or_default();
-                    let gist = last.map(|n| self.one_line(&n.body)).unwrap_or_default();
-                    let at = match (&t.path, t.new_line.or(t.old_line)) {
-                        (Some(path), Some(line)) => {
-                            format!("{}:{line}", path.rsplit('/').next().unwrap_or(path))
-                        }
-                        (Some(path), None) => path.rsplit('/').next().unwrap_or(path).to_owned(),
-                        _ => "General".to_owned(),
-                    };
-                    let note = last.map(|n| n.id);
-                    div()
-                        .id(("waiting", n))
-                        .flex()
-                        .items_start()
-                        .gap(px(10.))
-                        .py(px(8.))
-                        .border_t_1()
-                        .border_color(theme::island_border())
-                        .cursor_pointer()
-                        .hover(|s| s.bg(theme::hover()))
-                        .child(discussion::avatar(&who, false, 18.))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .flex()
-                                .flex_col()
-                                .gap(px(2.))
-                                .text_size(px(12.))
-                                .child(
-                                    div()
-                                        .flex()
-                                        .gap(px(6.))
-                                        .child(div().font_weight(FontWeight::SEMIBOLD).child(who))
-                                        .child(
-                                            div()
-                                                .text_color(theme::faint())
-                                                .child(format!("on {at}")),
-                                        ),
-                                )
-                                .child(
-                                    super::hover::cut(
-                                        SharedString::from(format!("waiting-text-{n}")),
-                                        gist,
-                                    )
-                                    .text_color(theme::muted()),
-                                ),
-                        )
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.open_at_note(iid, note, cx)
-                        }))
-                }))
-        });
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(14.))
-            .px(px(28.))
-            .py(px(22.))
-            .max_w(px(820.))
-            .child(props)
-            .child(title)
-            .children(waits)
-            .children((!description.is_empty()).then(|| {
-                super::hover::cut_to(
-                    SharedString::from(format!("mr-description-{iid}")),
-                    description.to_owned(),
-                    5,
-                )
-                .text_size(px(13.))
-                .line_height(px(20.))
-                .text_color(theme::muted())
-            }))
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap(px(14.))
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .children(facts.into_iter().map(|f| div().child(f))),
-            )
-            .child(
-                div().flex().items_center().gap(px(12.)).child(
-                    primary_button("request-open", open_label, "↵")
-                        .tip(open_hint)
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| match first {
-                            Some(note) => this.open_at_note(iid, Some(note), cx),
-                            None => {
-                                this.field = None;
-                                this.select_request(iid, cx)
-                            }
-                        })),
-                ),
-            )
             .into_any_element()
     }
 
@@ -1942,73 +1195,6 @@ impl Workspace {
                     }),
             )
             .into_any_element()
-    }
-
-    /// Over a list whose host cannot be read now: offline (the VPN), or the token refused; the
-    /// last list stays under it.
-    pub(super) fn list_banner(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let error = self.requests.read(cx).error.as_ref()?;
-        let offline = error.starts_with("Can't reach");
-        let since = self
-            .requests
-            .read(cx)
-            .listed_at
-            .map(|t| format!(" The list is from {}", format::clock(t)));
-        let text = match (offline, &since) {
-            (true, Some(since)) => format!("{error}{since} and refreshes when it is back."),
-            (true, None) => format!("{error} The list comes when it is back."),
-            (false, Some(since)) => format!("{error}.{since}."),
-            (false, None) => format!("{error}."),
-        };
-        let token = error.contains("token");
-        let color = if offline {
-            theme::accent()
-        } else {
-            theme::removed()
-        };
-        Some(
-            div()
-                .flex_none()
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .px(px(14.))
-                .py(px(8.))
-                .rounded(px(if super::flat() {
-                    0.
-                } else {
-                    super::ISLAND_RADIUS
-                }))
-                .border_1()
-                .border_color(color)
-                .bg(theme::panel())
-                .text_size(px(13.))
-                .child(
-                    icons::icon(if offline { "info" } else { "alert" })
-                        .size(px(16.))
-                        .text_color(color),
-                )
-                .child(div().flex_1().min_w_0().child(text))
-                .child(
-                    div()
-                        .id("banner-action")
-                        .child(outline_button(if token {
-                            "Renew token…"
-                        } else {
-                            "Retry"
-                        }))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            if token {
-                                this.settings_section = super::settings::Section::Requests;
-                                this.open_settings(cx);
-                            } else {
-                                this.load_requests(cx);
-                                cx.notify();
-                            }
-                        })),
-                )
-                .into_any_element(),
-        )
     }
 }
 

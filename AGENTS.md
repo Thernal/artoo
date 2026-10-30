@@ -38,9 +38,11 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   (`reading`), each read the entity's own task, the tab hearing what follows as a `requests::Event`. Its views draw
   from it, a click asking the tab a `requests::Act`: the request's bar pieces (`bar`), Overview and the line over
   Commits and Changes (`page`), the Discussions window (`discussions`), Merge's card (`merging`), Submit review
-  (`submit`), the New merge request form (`create`), who and which emoji a token completes to (`complete`); a
-  card's text keeps its own caret (`area`). The tab gives each what it knows (a `…Look`) and puts it in its
-  frame; the list, the Inbox and a thread drawn on the diff's lines are still the app's.
+  (`submit`), the New merge request form (`create`), who and which emoji a token completes to (`complete`), the
+  list (`list`: its groups and folds, the picked one's preview read, the rows, bands, preview, why none is listed,
+  the banner while it cannot be read); a card's text keeps its own caret (`area`). The tab gives each what it
+  knows (a `…Look`) and puts it in its frame; the Inbox and a thread drawn on the diff's lines are still the
+  app's.
   `crates/shell-api` (`artoo-shell-api`): the
   shell's contract — actions (the app menu and ⌘K list them), parts each tab draws (title-bar items, cards over the
   window, Settings rows, snapshot views, a space's pages), the `Frame` a part asks and the tab's `Services`;
