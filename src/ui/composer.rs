@@ -1,11 +1,12 @@
 //! The composer (#9, #51, #129, #168): a + in the gutter opens it under the line — on a page, a file or a folder
-//! in Code too —, for the agent, a merge request, a reply or an edit; its keys, completion, markdown helpers and
-//! preview, and drawing it. What it writes goes to its owner: the agents' comments (`agent_comments.rs`), a
+//! in Code too —, for the agent, a merge request, a reply or an edit; its keys routed, the completion's choices,
+//! and drawing it. The comment itself and its editing are the review's (`artoo_review::composer`). What it writes
+//! goes to its owner: the agents' comments (`agent_comments.rs`), a
 //! request (`replies.rs`). Comments for an agent are kept on this Mac (`crate::review`), never in the reviewed
 //! repository. Designed in `../Design/mockups/line-comments/a-agent-comments.html`.
 
 use super::discussion::{self, Kind, Source};
-use super::input::{self, Edit};
+use super::input;
 use super::markdown;
 use super::px;
 use super::typing::{self, Input};
@@ -14,6 +15,7 @@ use super::{Selection, Workspace, format, theme};
 use crate::markdown::Helper;
 use crate::review::{Comment, State};
 use crate::textedit::TextEdit;
+pub(super) use artoo_review::composer::{Change, Compose, Short, Target, Typed};
 use gpui::{App, Context, KeyDownEvent, WeakEntity, div, prelude::*};
 
 /// The quiet Edit on one's own note: a pencil, alone in a narrow diff (#69).
@@ -32,87 +34,6 @@ pub(super) fn edit_button(
             this.update(cx, |this, cx| this.start_edit(change, cx)).ok();
         })
         .into_any_element()
-}
-
-/// Who a comment is for.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Target {
-    /// Kept on this Mac and copied for a coding agent.
-    Agent,
-    /// Posted to a merge request on GitLab, where everyone on it sees it.
-    Request(u64),
-    /// A reply to discussion number `0` of the open merge request.
-    Reply(usize),
-    /// A new text for one's own comment.
-    Edit(Change),
-    /// A purple note on discussion `0` of the request, kept on this Mac for the agent (#50 G).
-    ThreadNote(usize),
-    /// The reviewer's note answering the agent's question on comment `0` (#10).
-    Answer(u64),
-    /// Text's own value on the agent's form of comment `0` (#10 C).
-    AnswerValue(u64),
-    /// Written in the Inbox: a reply to the selected notice's discussion, or a comment on its
-    /// request when it has none (`Workspace::inbox_view.reply`).
-    InboxReply,
-}
-
-/// The comment an edit changes.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Change {
-    /// A comment for the agent, by its id.
-    Agent(u64),
-    /// Note `note` of discussion number `thread` of the open merge request.
-    Note { thread: usize, note: u64 },
-}
-
-/// A comment being written.
-pub struct Compose {
-    pub(super) path: String,
-    pub(super) old: bool,
-    /// The first line of a comment on several lines; it sits under its last, `line`.
-    pub(super) first: Option<u32>,
-    pub(super) line: u32,
-    pub(super) code: String,
-    /// The text, its caret and selection.
-    pub(super) edit: TextEdit,
-    pub(super) at: String,
-    pub(super) target: Target,
-    /// Why the last attempt to post failed.
-    pub(super) error: Option<String>,
-    /// The text is shown formatted instead of as written (⌘⇧P); typing goes on and the preview
-    /// follows it.
-    pub(super) preview: bool,
-    /// The completion list's selected row, and where a list was closed with esc (#51, #9).
-    pub(super) pick: usize,
-    pub(super) closed: Option<usize>,
-    /// Written on a document read as a page: its file in the diff, the composer under the block
-    /// (#11).
-    pub(super) page: Option<usize>,
-    /// Written on a file read in Code, at its commit (None: the working tree) — a note on a plain
-    /// line, under it in the file (#75).
-    pub(super) file: Option<Option<git2::Oid>>,
-    /// The agent's note it answers, carried into the comment (#151).
-    pub(super) answers: Option<String>,
-}
-
-impl Compose {
-    /// The discussion of the open request a reply, an edit or a note for the agent is in.
-    pub(super) fn thread(&self) -> Option<usize> {
-        match self.target {
-            Target::Reply(ix) | Target::ThreadNote(ix) => Some(ix),
-            Target::Edit(Change::Note { thread, .. }) => Some(thread),
-            _ => None,
-        }
-    }
-
-    /// That discussion moved to `ix` in the list.
-    pub(super) fn set_thread(&mut self, ix: usize) {
-        match &mut self.target {
-            Target::Reply(i) | Target::ThreadNote(i) => *i = ix,
-            Target::Edit(Change::Note { thread, .. }) => *thread = ix,
-            _ => {}
-        }
-    }
 }
 
 impl Workspace {
@@ -666,8 +587,16 @@ impl Workspace {
             }
             return self.add_comment(cx);
         }
-        if self.completion_key(key, cx) {
-            return;
+        if let Some((at, choices)) = self.compose_completion()
+            && let Some(changed) = self
+                .compose
+                .as_mut()
+                .and_then(|c| c.completion_key(key, at, &choices))
+        {
+            if changed {
+                self.review.read(cx).diff_list.remeasure();
+            }
+            return cx.notify();
         }
         if key.key == "tab" {
             return self.toggle_target(cx);
@@ -675,36 +604,19 @@ impl Workspace {
         if self.vertical_key(key, cx) {
             return;
         }
-        // ⌘B ⌘I ⇧⌘X … (Ctrl on Windows and Linux), no other modifier.
-        if m.secondary() && m.number_of_modifiers() == 1 + u8::from(m.shift) {
-            let helper = match (key.key.as_str(), m.shift) {
-                ("b", false) => Some(Helper::Bold),
-                ("i", false) => Some(Helper::Italic),
-                ("x", true) => Some(Helper::Strike),
-                ("e", true) => Some(Helper::Code),
-                ("k", true) => Some(Helper::Link),
-                _ => None,
-            };
-            if let Some(helper) = helper {
-                return self.apply_helper(helper, cx);
-            }
-            if key.key == "p" && m.shift {
-                return self.toggle_preview(cx);
-            }
+        match Compose::shortcut(key) {
+            Some(Short::Helper(helper)) => return self.apply_helper(helper, cx),
+            Some(Short::Preview) => return self.toggle_preview(cx),
+            None => {}
         }
         let Some(compose) = self.compose.as_mut() else {
             return;
         };
-        match input::edit_text(&mut compose.edit, key, cx) {
-            // Written in, it keeps what was written and lets the keyboard go (#168).
-            Edit::Escape if !compose.edit.text().trim().is_empty() => {
-                return self.leave_input(cx);
-            }
-            Edit::Escape => return self.cancel_comment(cx),
-            Edit::Ignored => return,
-            Edit::Enter { shift: true } => compose.edit.insert("\n"),
-            Edit::Enter { shift: false } => crate::markdown::newline(&mut compose.edit),
-            Edit::Changed | Edit::Selected => {}
+        match compose.edit_key(key, cx) {
+            Typed::Leave => return self.leave_input(cx),
+            Typed::Cancel => return self.cancel_comment(cx),
+            Typed::Ignored => return,
+            Typed::Changed => {}
         }
         // The box grows with its text.
         self.review.read(cx).diff_list.remeasure();
@@ -714,7 +626,7 @@ impl Workspace {
     /// Puts `text` at the composer's caret (a reply that mentions the author).
     pub(super) fn insert_into_compose(&mut self, text: &str) {
         if let Some(c) = self.compose.as_mut() {
-            c.edit.insert(text);
+            c.insert(text);
         }
     }
 
@@ -747,35 +659,6 @@ impl Workspace {
     pub(super) fn compose_completion(&self) -> Option<(usize, Vec<super::complete::Choice>)> {
         let c = self.compose.as_ref().filter(|c| !c.preview)?;
         self.completion(c.edit.text(), c.edit.caret(), c.closed)
-    }
-
-    /// ↑ ↓ ↵ ⇥ esc while a completion list is open; whether it took the key.
-    fn completion_key(&mut self, key: &gpui::Keystroke, cx: &mut Context<Self>) -> bool {
-        let Some((at, choices)) = self.compose_completion() else {
-            return false;
-        };
-        if key.modifiers.number_of_modifiers() > 0 {
-            return false;
-        }
-        let Some(c) = self.compose.as_mut() else {
-            return false;
-        };
-        match key.key.as_str() {
-            "down" => c.pick = (c.pick + 1).min(choices.len() - 1),
-            "up" => c.pick = c.pick.saturating_sub(1),
-            "enter" | "tab" => {
-                let choice = &choices[c.pick.min(choices.len() - 1)];
-                let caret = c.edit.caret();
-                let end = at + choice.insert.len();
-                c.edit.replace(at..caret, &choice.insert, end..end);
-                c.pick = 0;
-                self.review.read(cx).diff_list.remeasure();
-            }
-            "escape" => c.closed = Some(at),
-            _ => return false,
-        }
-        cx.notify();
-        true
     }
 
     /// ↑ ↓ and ⌘← ⌘→ (⇧ selecting) in a wrapped field — the composer, a review's summary, a
@@ -849,10 +732,7 @@ impl Workspace {
         let Some(compose) = self.compose.as_mut() else {
             return;
         };
-        compose.edit.click(at, clicks, shift || drag);
-        if clicks == 1 && !shift && !drag {
-            compose.edit.set_downstream(lower);
-        }
+        compose.place(at, shift, clicks, drag, lower);
         self.field_goal = None;
         cx.notify();
     }
@@ -865,7 +745,7 @@ impl Workspace {
         let Some(compose) = self.compose.as_mut() else {
             return;
         };
-        crate::markdown::apply(&mut compose.edit, helper);
+        compose.apply(helper);
         self.review.read(cx).diff_list.remeasure();
         cx.notify();
     }
@@ -875,7 +755,7 @@ impl Workspace {
             self.take_keyboard(Input::Compose, cx);
         }
         if let Some(compose) = self.compose.as_mut() {
-            compose.preview = !compose.preview;
+            compose.toggle_preview();
             self.review.read(cx).diff_list.remeasure();
             cx.notify();
         }

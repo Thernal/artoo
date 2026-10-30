@@ -5,6 +5,8 @@
 
 pub mod annotate;
 pub mod changes;
+pub mod complete;
+pub mod composer;
 pub mod diff;
 pub mod diff_view;
 pub mod file_view;
