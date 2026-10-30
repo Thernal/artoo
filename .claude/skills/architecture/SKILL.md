@@ -86,7 +86,7 @@ independent of each other); the Rust form below waits for the developer's review
 
 The target above is reached stage by stage; until then:
 
-- `src/ui/` is still the app's: the shell and every feature's views, as `impl Workspace` blocks in 68 files.
+- `src/ui/` is still the app's: the shell and every feature's views, as `impl Workspace` blocks in 74 files.
   Stage 4 moves them out, the shell first, then one feature at a time.
 - Stage 3 (under way): `artoo-hosts-api` holds the hosts' contract and agents reads requests through it
   (`ALLOWED` is empty), and so do the app's views (`Workspace::host`, `ui::host_of`). GitLab answers from
@@ -117,6 +117,7 @@ The target above is reached stage by stage; until then:
   changes waiting) and draws most of its views — the bar's pieces, Overview, Discussions, Merge's card, Submit
   review, the New merge request form, reactions, the list —, a click asking the tab an `Act` and what a view needs
   of the tab given as a `…Look`; the tab keeps the root's frame (the list's island, its handle, the preview's).
-  How far your review got (`Seen`) it reads from `artoo-review-api`. The Inbox follows with its pages through the
-  registry (R5e); a thread on the diff's lines with the composer as an entity (R4d).
+  How far your review got (`Seen`) it reads from `artoo-review-api`. Its space's pages go through the registry with
+  the branches' (the review's diff and the side panel they share), the Inbox with the agents' views; a thread on the
+  diff's lines with the composer as an entity (R4d).
 - Every implementation's surface is wide (`OPEN`) until its views move with it.
