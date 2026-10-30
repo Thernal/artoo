@@ -3,11 +3,11 @@
 //! of them in ⌘K's window —, the code's size in points, the interface size, and a line saying
 //! where the narrow layout folds at that size (`narrow.rs`: the steps grow with it).
 
-use super::diff_view::{self, chip};
 use super::menu::{Act, Entry};
 use super::palette::Kind;
 use super::settings::item;
 use super::{ROW_RADIUS, Workspace, icons, narrow, px, theme};
+use artoo_ui_kit::controls::{chip, group};
 use gpui::{AnyElement, ClickEvent, Context, Pixels, Point, div, prelude::*};
 
 /// Faces a face's menu offers when they are installed; Other… lists every one.
@@ -142,7 +142,7 @@ impl Workspace {
         let faces = theme::faces();
         let s = self.settings;
         let ui_zoom =
-            diff_view::group()
+            group()
                 .child(chip("ui-zoom-out", "−", false).on_click(
                     cx.listener(|this, _: &ClickEvent, window, cx| this.ui_zoom_by(-1, window, cx)),
                 ))
@@ -160,7 +160,7 @@ impl Workspace {
                     cx.listener(|this, _: &ClickEvent, window, cx| this.ui_zoom_by(1, window, cx)),
                 ));
         let points = code_points(s.zoom);
-        let code_size = diff_view::group()
+        let code_size = group()
             .child(chip("code-size-down", "−", false).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     this.set_zoom(zoom_for(points.saturating_sub(1)), cx)

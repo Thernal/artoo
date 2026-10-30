@@ -4,7 +4,7 @@
 
 use super::{ROW_RADIUS, hover, keys, motion, px, theme, words};
 use artoo_core::platform;
-use gpui::{Context, Div, FontWeight, div, prelude::*};
+use gpui::{Context, Div, FontWeight, SharedString, div, prelude::*};
 
 /// Finder with it selected, as the rail's project menu words it off macOS.
 pub const REVEAL: &str = if platform::MAC {
@@ -167,4 +167,38 @@ fn bar(percent: f32, height: f32) -> Div {
         .h(px(height))
         .rounded_full()
         .bg(theme::hover())
+}
+
+/// A small toggle in the diff toolbar.
+pub fn chip(
+    id: impl Into<gpui::ElementId>,
+    label: impl Into<SharedString>,
+    active: bool,
+) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .px_2()
+        .py(px(2.))
+        .rounded(px(ROW_RADIUS))
+        .text_size(px(12.))
+        .cursor_pointer()
+        .when(active, |s| {
+            s.bg(theme::selected()).text_color(theme::text())
+        })
+        .when(!active, |s| {
+            s.text_color(theme::muted())
+                .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
+        })
+        .child(label.into())
+}
+
+/// Chips that belong together, on a shared rounded track.
+pub fn group() -> gpui::Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(2.))
+        .p(px(2.))
+        .rounded(px(ROW_RADIUS + 2.))
+        .bg(theme::base())
 }

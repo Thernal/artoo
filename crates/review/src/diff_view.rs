@@ -546,40 +546,6 @@ fn tints(kind: LineKind) -> (Option<Rgba>, Option<Rgba>) {
     }
 }
 
-/// A small toggle in the diff toolbar.
-pub fn chip(
-    id: impl Into<gpui::ElementId>,
-    label: impl Into<SharedString>,
-    active: bool,
-) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .px_2()
-        .py(px(2.))
-        .rounded(px(ROW_RADIUS))
-        .text_size(px(12.))
-        .cursor_pointer()
-        .when(active, |s| {
-            s.bg(theme::selected()).text_color(theme::text())
-        })
-        .when(!active, |s| {
-            s.text_color(theme::muted())
-                .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
-        })
-        .child(label.into())
-}
-
-/// Chips that belong together, on a shared rounded track.
-pub fn group() -> gpui::Div {
-    div()
-        .flex()
-        .items_center()
-        .gap(px(2.))
-        .p(px(2.))
-        .rounded(px(ROW_RADIUS + 2.))
-        .bg(theme::base())
-}
-
 /// A file's change as the colour of its name, beside its icon (the developer, 2026-10-23: a letter
 /// there as well looked odd): added green, deleted red, modified the accent, renamed or copied
 /// their own, a type change the warning's; reviewed, a step fainter.

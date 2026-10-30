@@ -952,7 +952,7 @@ impl Workspace {
                 .border_b_1()
                 .border_color(theme::island_border())
                 .child(
-                    super::diff_view::group()
+                    artoo_ui_kit::controls::group()
                         .child(chip("create-request", "Request", !n.changes).on_click(set(false)))
                         .child(
                             chip("create-changes", format!("Changes · {files}"), n.changes)
@@ -1709,7 +1709,7 @@ impl Workspace {
                             .gap_2()
                             .child(div().flex_1().child(label("Description")))
                             .child(
-                                super::diff_view::group()
+                                artoo_ui_kit::controls::group()
                                     .child(
                                         chip("create-write", "Write", !n.preview)
                                             .on_click(set_preview(false)),

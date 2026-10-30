@@ -10,13 +10,14 @@
 //! Viewed one file at a time the page scrolls on its own: n / p step through its changed blocks,
 //! space and ⇧space scroll it.
 
-use super::diff_view::{LineNote, NoteTone, chip, group};
+use super::diff_view::{LineNote, NoteTone};
 use super::markdown::{DocPictures, doc_block};
 use super::{Selection, Workspace, px, theme};
 use crate::git::FileDiff;
 use crate::markdown;
 use crate::mddiff::{Change, Row};
 use artoo_review::md_page::{bar, heading};
+use artoo_ui_kit::controls::{chip, group};
 use gpui::{AnyElement, App, ClickEvent, Context, FontWeight, Rgba, WeakEntity, div, prelude::*};
 use std::cell::RefCell;
 use std::collections::HashMap;

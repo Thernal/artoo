@@ -1,13 +1,13 @@
 //! Commit search: the field above the commit list, its keyboard handling, and the filtered view of
 //! `Workspace::commits`. The matching itself is `crate::search`.
 
-use super::diff_view::chip;
 use super::input::{self, Edit};
 use super::px;
 use super::typing::{self, Input};
 use super::{COMMIT_PAGE, Older, Workspace, theme};
 use crate::git::Repo;
 use crate::search::{self, Query};
+use artoo_ui_kit::controls::chip;
 use git2::Oid;
 use gpui::{
     App, ClickEvent, Context, HighlightStyle, KeyDownEvent, SharedString, StyledText, Task, div,

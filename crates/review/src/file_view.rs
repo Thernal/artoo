@@ -404,14 +404,15 @@ impl Review {
             )
             .children(markdown.then(|| {
                 let rendered = view.rendered;
-                crate::diff_view::group()
+                artoo_ui_kit::controls::group()
                     .child(
-                        crate::diff_view::chip("file-rendered-on", "Rendered", rendered).on_click(
-                            cx.listener(|rv, _: &ClickEvent, _, cx| rv.set_rendered(true, cx)),
-                        ),
+                        artoo_ui_kit::controls::chip("file-rendered-on", "Rendered", rendered)
+                            .on_click(
+                                cx.listener(|rv, _: &ClickEvent, _, cx| rv.set_rendered(true, cx)),
+                            ),
                     )
                     .child(
-                        crate::diff_view::chip("file-source", "Source", !rendered).on_click(
+                        artoo_ui_kit::controls::chip("file-source", "Source", !rendered).on_click(
                             cx.listener(|rv, _: &ClickEvent, _, cx| rv.set_rendered(false, cx)),
                         ),
                     )

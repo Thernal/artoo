@@ -87,7 +87,7 @@ use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
 use artoo_review::diff::{Diff, Header, Notice};
 use artoo_review::diff_view::{self, CODE_SIZE, change_color, file_tag};
 use artoo_review::review::{self, Opt};
-use diff_view::chip;
+use artoo_ui_kit::controls::chip;
 use gpui::{
     App, ClickEvent, Context, CursorStyle, FocusHandle, FontWeight, KeyBinding, KeyDownEvent,
     ListAlignment, ListState, Menu, MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent,
@@ -3448,13 +3448,13 @@ impl Workspace {
             .items_center()
             .gap_2()
             .child(
-                diff_view::group()
+                artoo_ui_kit::controls::group()
                     .child(chip("split", "Split", !o.unified).on_click(set(Opt::Unified, false)))
                     .child(chip("unified", "Unified", o.unified).on_click(set(Opt::Unified, true))),
             )
             .children(self.review.read(cx).stack.is_some().then(|| {
                 let folded = self.review.read(cx).any_folded();
-                diff_view::group().child(
+                artoo_ui_kit::controls::group().child(
                     chip(
                         "expand-all",
                         if folded { "Expand all" } else { "Collapse all" },
@@ -3466,7 +3466,7 @@ impl Workspace {
                 )
             }))
             .child(
-                diff_view::group().child(
+                artoo_ui_kit::controls::group().child(
                     chip("view", "View ▾", self.ctx_menu.is_some())
                         .relative()
                         .child({
@@ -3502,7 +3502,7 @@ impl Workspace {
                 .into_any_element(),
             Header::WorkingTree { only_unstaged } => {
                 let only = *only_unstaged;
-                diff_view::group()
+                artoo_ui_kit::controls::group()
                     .child(chip("wt-all", "All changes", !only).on_click(
                         cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.set_only_unstaged(false, cx)
@@ -3532,7 +3532,7 @@ impl Workspace {
                     .items_center()
                     .gap_2()
                     .child(
-                        diff_view::group()
+                        artoo_ui_kit::controls::group()
                             .child(chip("cmp-since", "Since merge base", since).on_click(
                                 cx.listener(move |this, _: &ClickEvent, _, cx| {
                                     this.run_compare(b.clone(), h.clone(), true, req, cx)
@@ -3559,7 +3559,7 @@ impl Workspace {
                     }))
                     .into_any_element()
             }
-            Header::Versions { .. } => diff_view::group()
+            Header::Versions { .. } => artoo_ui_kit::controls::group()
                 .child(
                     chip("tab-files", "Files", self.version_tab == VersionTab::Files).on_click(
                         cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -4101,7 +4101,7 @@ impl Workspace {
                                 ))
                             })
                             .child(
-                                diff_view::group()
+                                artoo_ui_kit::controls::group()
                                     .child(chip("prev-change", "↑", false).on_click(cx.listener(
                                         |this, _: &ClickEvent, _, cx| this.step_change(false, cx),
                                     )))

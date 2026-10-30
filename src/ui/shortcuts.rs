@@ -243,15 +243,14 @@ impl Workspace {
             .text_size(px(12.))
             .text_color(theme::muted())
             .child("Your keys start from")
-            .child(super::diff_view::group().children(
+            .child(artoo_ui_kit::controls::group().children(
                 keymap::Preset::ALL.into_iter().enumerate().map(|(i, p)| {
-                    super::diff_view::chip(("card-preset", i), p.label(), p == preset).on_click(
-                        cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    artoo_ui_kit::controls::chip(("card-preset", i), p.label(), p == preset)
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             keymap::set_preset(p, cx);
                             this.refresh_menus(cx);
                             cx.notify();
-                        }),
-                    )
+                        }))
                 }),
             ))
             .child(

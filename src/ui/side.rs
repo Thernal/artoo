@@ -428,7 +428,7 @@ impl Workspace {
             let mut end: Vec<AnyElement> = Vec::new();
             if !folded {
                 end.push(
-                    super::diff_view::group()
+                    artoo_ui_kit::controls::group()
                         // A chip is not the heading: a click on it does not fold the section.
                         .child(chip("files-tree", "Tree", !list).on_click(cx.listener(
                             |this, _: &ClickEvent, _, cx| {

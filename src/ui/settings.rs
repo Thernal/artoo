@@ -1,11 +1,12 @@
 //! The Settings page: how changed words are marked, which mode diffs open in, and whether the
 //! window refreshes itself. Designed in `../Design/mockups/settings/a-general.html`.
 
-use super::diff_view::{self, chip};
+use super::diff_view;
 use super::px;
 use super::{GAP, ISLAND_RADIUS, Workspace, button, island, theme};
 use crate::editor::{self, Editor};
 use crate::storage::{DiffMode, MarkStyle};
+use artoo_ui_kit::controls::{chip, group};
 use gpui::{App, ClickEvent, Context, FontWeight, SharedString, div, prelude::*};
 
 impl Workspace {
@@ -62,14 +63,14 @@ impl Workspace {
 
     pub(super) fn render_settings(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let s = self.settings;
-        let marks = diff_view::group().children(MarkStyle::ALL.map(|style| {
+        let marks = group().children(MarkStyle::ALL.map(|style| {
             chip(style_id(style), style.label(), s.mark_style == style).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     this.change_settings(|this| this.settings.mark_style = style, cx)
                 },
             ))
         }));
-        let modes = diff_view::group().children(DiffMode::ALL.map(|mode| {
+        let modes = group().children(DiffMode::ALL.map(|mode| {
             chip(mode_id(mode), mode.label(), s.default_mode == mode).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     this.change_settings(|this| this.settings.default_mode = mode, cx);
@@ -80,21 +81,21 @@ impl Workspace {
         }));
         let installed: Vec<Editor> = Editor::ALL.into_iter().filter(|e| e.installed()).collect();
         let current = editor::pick(s.editor);
-        let editors = diff_view::group().children(installed.iter().map(|&e| {
+        let editors = group().children(installed.iter().map(|&e| {
             chip(e.key(), e.label(), current == Some(e)).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     this.change_settings(|this| this.settings.editor = Some(e), cx)
                 },
             ))
         }));
-        let open_in = diff_view::group().children(crate::storage::OpenIn::ALL.map(|o| {
+        let open_in = group().children(crate::storage::OpenIn::ALL.map(|o| {
             chip(o.label(), o.label(), s.open_in == o).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     this.change_settings(|this| this.settings.open_in = o, cx)
                 },
             ))
         }));
-        let projects = diff_view::group().children(crate::storage::Projects::ALL.map(|p| {
+        let projects = group().children(crate::storage::Projects::ALL.map(|p| {
             chip(p.label(), p.label(), super::projects() == p).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     this.change_settings(|this| this.settings.projects = p, cx)
@@ -519,7 +520,7 @@ impl Workspace {
     /// actions share is outlined in red, the other one named in its tooltip.
     /// Islands | Flat (Settings → Appearance, and Set up's Look).
     pub(super) fn panes_chips(&self, cx: &mut Context<Self>) -> gpui::Div {
-        diff_view::group()
+        group()
             .child(
                 chip("panes-islands", "Islands", !super::flat()).on_click(cx.listener(
                     |this, _: &ClickEvent, _, cx| {

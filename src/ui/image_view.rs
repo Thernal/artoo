@@ -2,11 +2,11 @@
 //! sizes (2-up), the new one wiped over the old (Swipe), or laid over it (Onion skin). An SVG can
 //! switch to its source, the text diff.
 
-use super::diff_view::{chip, group};
 use super::px;
 use super::{Workspace, theme};
 use crate::git::{FileDiff, ImageSide};
 use artoo_review::image_view::{MAX_H, MAX_W, Mode, change, describe, fit, is_svg};
+use artoo_ui_kit::controls::{chip, group};
 use gpui::{ClickEvent, Context, MouseButton, ObjectFit, Pixels, div, img, prelude::*};
 
 impl Workspace {

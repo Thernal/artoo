@@ -150,7 +150,7 @@ impl Workspace {
                 .text_size(px(12.))
                 .child(div().text_color(theme::warning()).child(line))
                 .child(
-                    super::diff_view::group().children(pairs.into_iter().map(|(a, b)| {
+                    artoo_ui_kit::controls::group().children(pairs.into_iter().map(|(a, b)| {
                         let label = if (a, b) == (0, last) {
                             format!("v{} → v{} · {whose}", number(a), number(b))
                         } else {

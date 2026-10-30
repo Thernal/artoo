@@ -1467,9 +1467,9 @@ impl Workspace {
         // A narrow window's chips go to a second line rather than past its edge (#80).
         let filters = [Filter::All, Filter::NeedsYou, Filter::Waiting, Filter::Done]
             .into_iter()
-            .fold(super::diff_view::group().flex_wrap(), |group, f| {
+            .fold(artoo_ui_kit::controls::group().flex_wrap(), |group, f| {
                 group.child(
-                    super::diff_view::chip(
+                    artoo_ui_kit::controls::chip(
                         f.id(),
                         format!("{} {}", f.label(), counts(f)),
                         self.agents_filter == f && !self.agents_archived,

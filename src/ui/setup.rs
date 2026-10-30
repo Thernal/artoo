@@ -228,27 +228,29 @@ impl Workspace {
         };
         let part = s.part();
         let last = s.at + 1 == s.parts.len();
-        let tabs = s
-            .parts
-            .iter()
-            .enumerate()
-            .fold(super::diff_view::group(), |group, (i, &p)| {
-                let done = self.part_done(p, s, cx);
-                group.child(
-                    super::diff_view::chip(("setup-tab", i), p.name(), i == s.at)
-                        .flex()
-                        .items_center()
-                        .gap(px(6.))
-                        .children(done.then(|| {
-                            icons::icon("check")
-                                .size(px(12.))
-                                .text_color(theme::added())
-                        }))
-                        .on_click(
-                            cx.listener(move |this, _: &ClickEvent, _, cx| this.setup_go(i, cx)),
-                        ),
-                )
-            });
+        let tabs =
+            s.parts
+                .iter()
+                .enumerate()
+                .fold(artoo_ui_kit::controls::group(), |group, (i, &p)| {
+                    let done = self.part_done(p, s, cx);
+                    group.child(
+                        artoo_ui_kit::controls::chip(("setup-tab", i), p.name(), i == s.at)
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .children(done.then(|| {
+                                icons::icon("check")
+                                    .size(px(12.))
+                                    .text_color(theme::added())
+                            }))
+                            .on_click(
+                                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    this.setup_go(i, cx)
+                                }),
+                            ),
+                    )
+                });
         let body = match part {
             Part::Agents => self.render_setup_agents(s, cx),
             Part::Keys => self.render_setup_keys(cx),

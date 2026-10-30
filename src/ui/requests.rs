@@ -1777,7 +1777,7 @@ impl Workspace {
             }
         };
         let filter = |scope: Scope, id: &'static str, name: &'static str| {
-            super::diff_view::chip(
+            artoo_ui_kit::controls::chip(
                 id,
                 format!("{name} {}", count(scope)),
                 self.requests.read(cx).scope == scope,
@@ -1788,26 +1788,27 @@ impl Workspace {
             }))
         };
         let view = self.requests.read(cx).view;
-        let state = super::diff_view::chip("request-state", format!("{} ▾", view.word()), past)
-            .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
-                use super::menu::{Act, Entry};
-                let entries = [
-                    mr::MrState::Opened,
-                    mr::MrState::Merged,
-                    mr::MrState::Closed,
-                ]
-                .into_iter()
-                .map(|s| Entry::new(s.word(), Act::RequestView(s)).checked(s == view))
-                .collect();
-                this.open_menu(e.position(), vec![entries], cx);
-            }));
+        let state =
+            artoo_ui_kit::controls::chip("request-state", format!("{} ▾", view.word()), past)
+                .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
+                    use super::menu::{Act, Entry};
+                    let entries = [
+                        mr::MrState::Opened,
+                        mr::MrState::Merged,
+                        mr::MrState::Closed,
+                    ]
+                    .into_iter()
+                    .map(|s| Entry::new(s.word(), Act::RequestView(s)).checked(s == view))
+                    .collect();
+                    this.open_menu(e.position(), vec![entries], cx);
+                }));
         Some(
             div()
                 .flex()
                 .items_center()
                 .gap_2()
                 .child(
-                    super::diff_view::group()
+                    artoo_ui_kit::controls::group()
                         .child(filter(Scope::All, "scope-all", "All"))
                         .child(filter(Scope::ReviewMe, "scope-review", "To review"))
                         .child(filter(Scope::Mine, "scope-mine", "Mine")),

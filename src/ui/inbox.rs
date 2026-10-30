@@ -362,7 +362,7 @@ impl Workspace {
                 },
             ))
         };
-        super::diff_view::group()
+        artoo_ui_kit::controls::group()
             .child(filter(InboxFilter::All, "All"))
             .child(filter(InboxFilter::Mentions, "Mentions"))
             .child(filter(InboxFilter::Agents, "Agents"))

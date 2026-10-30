@@ -1114,9 +1114,9 @@ impl Workspace {
                 let scopes = (way.via == Via::Ssh && can_write && can_read).then(|| {
                     let scope = self.connecting.pick_scope.unwrap_or("api");
                     div().flex().child(
-                        super::diff_view::group()
+                        artoo_ui_kit::controls::group()
                             .child(
-                                super::diff_view::chip(
+                                artoo_ui_kit::controls::chip(
                                     "ways-api",
                                     "api · read and write",
                                     scope == "api",
@@ -1129,7 +1129,7 @@ impl Workspace {
                                 )),
                             )
                             .child(
-                                super::diff_view::chip(
+                                artoo_ui_kit::controls::chip(
                                     "ways-read",
                                     "read_api · read only",
                                     scope == "read_api",

@@ -547,14 +547,14 @@ impl Workspace {
             Section::Changes => files,
         };
         Some(self.item_sections().iter().copied().fold(
-            super::diff_view::group(),
+            artoo_ui_kit::controls::group(),
             |group, section| {
                 let label = match count(section) {
                     Some(n) => format!("{} {n}", section.label()),
                     None => section.label().to_owned(),
                 };
                 group.child(
-                    super::diff_view::chip(
+                    artoo_ui_kit::controls::chip(
                         SharedString::from(format!("section-{}", section.label())),
                         label,
                         section == at,
