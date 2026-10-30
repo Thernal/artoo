@@ -209,7 +209,7 @@ impl Workspace {
                     (None, _) => {
                         self.file_jump = line.map(|line| (path.clone(), line));
                         self.nav.space = super::spaces::Space::Code;
-                        if self.code.rev.take().is_some() {
+                        if self.code.update(cx, |c, _| c.code.rev.take()).is_some() {
                             self.read_code_files(false, cx);
                         }
                         self.open_code_file(path, false, cx);

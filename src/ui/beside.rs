@@ -98,11 +98,11 @@ impl Workspace {
     }
 
     /// The entries shown, as filtered.
-    fn beside_rows(&self) -> Vec<(String, bool)> {
+    fn beside_rows(&self, cx: &gpui::App) -> Vec<(String, bool)> {
         let Some(b) = &self.beside else {
             return Vec::new();
         };
-        shown(beside(self.code.files(), &b.folder), &b.query)
+        shown(beside(self.code.read(cx).code.files(), &b.folder), &b.query)
     }
 
     pub(super) fn beside_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
@@ -112,11 +112,11 @@ impl Workspace {
         match input::edit(&mut b.query, &mut self.field_edit, &event.keystroke, cx) {
             Edit::Changed => {
                 // The first entry that holds what is typed, else the folder's own row.
-                let any = !self.beside_rows().is_empty();
+                let any = !self.beside_rows(cx).is_empty();
                 self.pick_row(usize::from(any));
             }
             Edit::Enter { .. } => {
-                let at = self.beside_at(&self.beside_rows());
+                let at = self.beside_at(&self.beside_rows(cx));
                 return self.pick_beside(at, cx);
             }
             Edit::Escape => self.beside = None,
@@ -127,7 +127,7 @@ impl Workspace {
 
     /// ↑ ↓ : the row before or after, the folder's own row first.
     pub(super) fn step_beside(&mut self, down: bool, cx: &mut Context<Self>) {
-        let rows = self.beside_rows();
+        let rows = self.beside_rows(cx);
         let at = self.beside_at(&rows);
         self.pick_row(if down {
             (at + 1).min(rows.len())
@@ -139,7 +139,7 @@ impl Workspace {
 
     /// Row `at` chosen: the folder's page, or the entry's — a folder's page, a file's tab.
     fn pick_beside(&mut self, at: usize, cx: &mut Context<Self>) {
-        let rows = self.beside_rows();
+        let rows = self.beside_rows(cx);
         let Some(b) = self.beside.take() else {
             return;
         };
@@ -176,7 +176,7 @@ impl Workspace {
     /// The list under `folder`'s name, while it is the one open.
     pub(super) fn render_beside(&self, folder: &str, cx: &Context<Self>) -> Option<AnyElement> {
         let b = self.beside.as_ref().filter(|b| b.folder == folder)?;
-        let rows = self.beside_rows();
+        let rows = self.beside_rows(cx);
         let at = self.beside_at(&rows);
         let up = div()
             .flex()

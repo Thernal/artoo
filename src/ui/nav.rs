@@ -776,7 +776,7 @@ impl Workspace {
                 }
                 // A folder reached by the path, back or forward, is in the preview tab too.
                 Page::Folder(path) => {
-                    self.code.preview_folder(&path);
+                    self.code.update(cx, |c, _| c.code.preview_folder(&path));
                     self.read_folder_readme(&path, cx)
                 }
                 _ => {}

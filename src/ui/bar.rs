@@ -497,6 +497,8 @@ impl Workspace {
                 let inside = format!("{path}/");
                 let n = self
                     .code
+                    .read(cx)
+                    .code
                     .files()
                     .iter()
                     .filter(|f| f.starts_with(&inside))

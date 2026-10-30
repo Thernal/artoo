@@ -6,8 +6,9 @@
 //! read as that page shows the project. A binary file says so, with Open in (#78); ⌘W closes its
 //! tab, esc goes up to Code.
 
+use super::code::FilePage;
 use super::spaces::Space;
-use super::{Header, Workspace, format, theme};
+use super::{Header, Workspace, format};
 use artoo_review::file_view::FileNotes;
 use artoo_review::review;
 use gpui::{App, Context, prelude::*};
@@ -26,29 +27,35 @@ impl Workspace {
             return;
         };
         if self.nav.space != Space::Code && !self.plain {
-            match self.review.read(cx).diff.as_ref().map(|d| &d.header) {
-                Some(Header::WorkingTree { .. }) => self.code.rev = None,
-                Some(_) => {
-                    if let Some(rev) = self.review.read(cx).viewed_rev() {
-                        self.code.rev = Some((format::short(rev), rev));
-                    }
-                }
-                None => {}
+            let rev = match self.review.read(cx).diff.as_ref().map(|d| &d.header) {
+                Some(Header::WorkingTree { .. }) => Some(None),
+                Some(_) => self
+                    .review
+                    .read(cx)
+                    .viewed_rev()
+                    .map(|rev| Some((format::short(rev), rev))),
+                None => None,
+            };
+            if let Some(rev) = rev {
+                self.code.update(cx, |c, _| c.code.rev = rev);
             }
         }
-        if !self.code.tabs.contains(&path) && self.code.preview.as_ref() != Some(&path) {
-            self.code.tabs.push(path.clone());
-        }
-        self.code.reveal(&path);
+        self.code.update(cx, |c, _| {
+            let code = &mut c.code;
+            if !code.tabs.contains(&path) && code.preview.as_ref() != Some(&path) {
+                code.tabs.push(path.clone());
+            }
+            code.reveal(&path);
+        });
         self.arrive(super::nav::Page::File(path.clone()), cx);
-        self.scroll_to_code_tab();
+        self.scroll_to_code_tab(cx);
         self.read_code_files(false, cx);
         self.remember_place(
             super::recents::Key::File(path.clone()),
             path.clone(),
             "file".to_owned(),
         );
-        let rev = self.code.at().filter(|_| !self.plain);
+        let rev = self.code.read(cx).code.at().filter(|_| !self.plain);
         self.review
             .update(cx, |rv, cx| rv.read_file(root, path, rev, cx));
     }
@@ -104,24 +111,26 @@ impl Workspace {
         self.review.read(cx).file_top_line(path, &notes)
     }
 
-    /// The file read, drawn by the review in Code's island.
-    pub(super) fn render_file_view(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        let binary = self.review.read(cx).file_view.as_ref()?.binary;
+    /// File `path` as Code shows it, drawn by the review: being read, read, or none.
+    pub(super) fn file_page(&self, path: &str, cx: &mut Context<Self>) -> FilePage {
+        let review = self.review.read(cx);
+        // A file being read that is not on screen yet: a shimmer of lines, not the one before.
+        if review.file_reading.is_some() && review.file_view.as_ref().is_none_or(|v| v.path != path)
+        {
+            return FilePage::Reading;
+        }
+        let Some(binary) = review.file_view.as_ref().map(|v| v.binary) else {
+            return FilePage::Empty;
+        };
         let binary = binary.map(|size| self.render_binary(size, cx));
         let notes = self.file_notes(cx);
         let selecting = self.selecting(cx.entity().downgrade());
         let host: Rc<dyn review::Host> = Rc::new(super::TabHost(cx.entity().downgrade()));
-        let (head, body) = self.review.update(cx, |rv, cx| {
+        match self.review.update(cx, |rv, cx| {
             rv.render_file_view(host, &notes, binary, selecting, cx)
-        })?;
-        Some(
-            self.code_island(cx)
-                .flex_1()
-                .min_w_0()
-                .bg(theme::editor())
-                .child(head)
-                .child(body)
-                .into_any_element(),
-        )
+        }) {
+            Some((head, body)) => FilePage::Read(head.into_any_element(), body),
+            None => FilePage::Empty,
+        }
     }
 }

@@ -501,8 +501,8 @@ impl Workspace {
         };
         let files = match (&kind, &self.root) {
             // Code's own: the tree it shows, a plain folder's files on disk (#75).
-            (Kind::Search(_), Some(_)) if !self.code.files().is_empty() => {
-                Arc::new(self.code.files().to_vec())
+            (Kind::Search(_), Some(_)) if !self.code.read(cx).code.files().is_empty() => {
+                Arc::new(self.code.read(cx).code.files().to_vec())
             }
             (Kind::Search(_), Some(root)) if self.plain => {
                 Arc::new(crate::files::on_disk(root, 200_000))
@@ -639,10 +639,10 @@ impl Workspace {
     }
 
     /// A command's label: Copy link names what is on screen.
-    fn command_label(&self, label: &str, cmd: Cmd) -> String {
+    fn command_label(&self, label: &str, cmd: Cmd, cx: &App) -> String {
         match cmd {
             Cmd::CopyLink => format!("Copy link to {}", self.page_kind()),
-            Cmd::PinTab if self.shown_tab_pinned() => "Unpin tab".to_owned(),
+            Cmd::PinTab if self.shown_tab_pinned(cx) => "Unpin tab".to_owned(),
             _ => label.to_owned(),
         }
     }
@@ -674,7 +674,7 @@ impl Workspace {
                 .filter(|(label, ..)| matches(&words, label))
                 .map(|&(label, key, cmd)| Item {
                     group: "Actions",
-                    label: self.command_label(label, cmd),
+                    label: self.command_label(label, cmd, cx),
                     detail: String::new(),
                     key,
                     pick: Pick::Command(cmd),
@@ -1006,7 +1006,7 @@ impl Workspace {
                     .filter(|(label, ..)| matches(&words, label))
                     .map(|&(label, key, cmd)| Item {
                         group: "Commands",
-                        label: self.command_label(label, cmd),
+                        label: self.command_label(label, cmd, cx),
                         detail: String::new(),
                         key,
                         pick: Pick::Command(cmd),

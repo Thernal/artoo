@@ -9,13 +9,15 @@ use super::nav::Page;
 use super::spaces::Space;
 use super::{Workspace, icons, island, keys, markdown, px, theme};
 use crate::files;
-use crate::git::Repo;
+use crate::git::{BranchRef, Repo};
 use git2::Oid;
 use gpui::{
-    AnyElement, ClickEvent, Context, Div, MouseButton, MouseDownEvent, SharedString, Task, div,
-    prelude::*, uniform_list,
+    AnyElement, App, ClickEvent, Context, Div, MouseButton, MouseDownEvent, SharedString, Task,
+    WeakEntity, div, prelude::*, uniform_list,
 };
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 /// The most files Code's tree lists.
 const LIMIT: usize = 20_000;
@@ -181,9 +183,48 @@ pub fn tab_page(key: &str) -> Page {
     }
 }
 
-impl Workspace {
+/// The Code space of one tab (#75): what it reads and holds (`Code`), the project it reads, its tree and
+/// its pages, drawn as its own view. What it asks of the tab goes through `host`.
+pub struct CodeSpace {
+    pub code: Code,
+    /// The project read, and whether it is a plain folder rather than a git repository.
+    pub root: Option<PathBuf>,
+    pub plain: bool,
+    host: Rc<dyn Host>,
+}
+
+impl CodeSpace {
+    pub fn new(host: Rc<dyn Host>) -> Self {
+        Self {
+            code: Code::default(),
+            root: None,
+            plain: false,
+            host,
+        }
+    }
+
+    /// Tab `key` pinned or unpinned, the strip scrolled to the tab on screen.
+    fn pin(&mut self, key: &str, cx: &mut Context<Self>) {
+        self.code.toggle_pin(key);
+        let shown = self.host.shown(cx).as_ref().and_then(tab_of);
+        self.scroll_to_tab(shown.as_deref());
+        cx.notify();
+    }
+
+    /// The strip scrolled to tab `shown`, the one on screen.
+    pub fn scroll_to_tab(&self, shown: Option<&str>) {
+        if let Some(ix) = self
+            .code
+            .shown_tabs()
+            .iter()
+            .position(|(key, _)| Some(key.as_str()) == shown)
+        {
+            self.code.tab_scroll.scroll_to_item(ix);
+        }
+    }
+
     /// Reads the project's files at Code's revision, once per revision (and again with `force`).
-    pub(super) fn read_code_files(&mut self, force: bool, cx: &mut Context<Self>) {
+    fn read_files(&mut self, force: bool, cx: &mut Context<Self>) {
         let at = self.code.at();
         if !force && self.code.read_at == Some(at) {
             return;
@@ -224,36 +265,8 @@ impl Workspace {
         }));
     }
 
-    /// Reads Code at `rev` (None: the working tree); the file open is read again there.
-    fn read_code_at(&mut self, rev: Option<(String, Oid)>, cx: &mut Context<Self>) {
-        self.code.rev = rev;
-        self.read_code_files(false, cx);
-        match self.nav_page().cloned() {
-            Some(Page::File(path)) => self.open_file_view(path, cx),
-            Some(Page::Folder(path)) => {
-                self.code.folder_readme = None;
-                self.read_folder_readme(&path, cx);
-            }
-            _ => {}
-        }
-        cx.notify();
-    }
-
-    /// Folder `path` opens as Code's page (#97), unfolded in the tree, in the preview tab.
-    pub(super) fn open_folder_page(&mut self, path: String, cx: &mut Context<Self>) {
-        self.code.reveal(&path);
-        self.code.preview_folder(&path);
-        if self.code.open.insert(path.clone()) {
-            self.tree_opening(&path, cx);
-        }
-        self.nav.space = Space::Code;
-        self.arrive(Page::Folder(path.clone()), cx);
-        self.read_folder_readme(&path, cx);
-        cx.notify();
-    }
-
     /// Reads the README of folder `dir` at Code's revision, unless it is the one held.
-    pub(super) fn read_folder_readme(&mut self, dir: &str, cx: &mut Context<Self>) {
+    fn read_folder_readme(&mut self, dir: &str, cx: &mut Context<Self>) {
         if self
             .code
             .folder_readme
@@ -295,24 +308,8 @@ impl Workspace {
         .detach();
     }
 
-    /// File `path` opens in Code: as the preview tab (`preview`) the next click replaces, or kept.
-    pub(super) fn open_code_file(&mut self, path: String, preview: bool, cx: &mut Context<Self>) {
-        let code = &mut self.code;
-        if !code.tabs.contains(&path) {
-            if preview {
-                code.preview = Some(path.clone());
-            } else {
-                if code.preview.as_ref() == Some(&path) {
-                    code.preview = None;
-                }
-                code.tabs.push(path.clone());
-            }
-        }
-        self.open_file_view(path, cx);
-    }
-
     /// Tab `from` dragged onto tab `to`: it takes that place, a pinned one among the pinned.
-    fn move_code_tab(&mut self, from: &str, to: &str, cx: &mut Context<Self>) {
+    fn move_tab(&mut self, from: &str, to: &str, cx: &mut Context<Self>) {
         let code = &mut self.code;
         if code.pinned(from) != code.pinned(to) {
             return;
@@ -333,67 +330,8 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Tab `key` pinned — first among the tabs, through every close and a restart — or unpinned,
-    /// first after the pinned ones (#20).
-    pub(super) fn toggle_pin(&mut self, key: &str, cx: &mut Context<Self>) {
-        self.code.toggle_pin(key);
-        self.scroll_to_code_tab();
-        cx.notify();
-    }
-
-    /// ⌥⌘P and ⌘K's Pin tab: the tab on screen in Code pinned or unpinned; false when there is
-    /// none.
-    pub(super) fn pin_shown_tab(&mut self, cx: &mut Context<Self>) -> bool {
-        let tabs = self.code.shown_tabs();
-        let Some(key) = self
-            .shown_tab()
-            .filter(|k| tabs.iter().any(|(t, _)| t == k))
-        else {
-            return false;
-        };
-        self.toggle_pin(&key, cx);
-        true
-    }
-
-    /// Whether Code's tab on screen is pinned: ⌘K says Unpin.
-    pub(super) fn shown_tab_pinned(&self) -> bool {
-        self.shown_tab().is_some_and(|k| self.code.pinned(&k))
-    }
-
-    /// The tab of the page on screen in Code: a file's path, a folder's with its slash.
-    fn shown_tab(&self) -> Option<String> {
-        match self.nav_page() {
-            Some(Page::File(path)) => Some(path.clone()),
-            Some(Page::Folder(path)) => Some(folder_tab(path)),
-            _ => None,
-        }
-    }
-
-    /// Tab `key` on screen: its file or its folder's page.
-    pub(super) fn open_code_tab(&mut self, key: &str, cx: &mut Context<Self>) {
-        match tab_page(key) {
-            Page::Folder(path) => self.open_folder_page(path, cx),
-            Page::File(path) => self.open_file_view(path, cx),
-            _ => {}
-        }
-        self.scroll_to_code_tab();
-    }
-
-    /// The strip scrolled to the tab on screen.
-    pub(super) fn scroll_to_code_tab(&self) {
-        let shown = self.shown_tab();
-        if let Some(ix) = self
-            .code
-            .shown_tabs()
-            .iter()
-            .position(|(key, _)| Some(key) == shown.as_ref())
-        {
-            self.code.tab_scroll.scroll_to_item(ix);
-        }
-    }
-
     /// The preview tab `key` kept: a double click on it, as on a file in the tree.
-    pub(super) fn keep_code_tab(&mut self, key: &str, cx: &mut Context<Self>) {
+    fn keep_tab(&mut self, key: &str, cx: &mut Context<Self>) {
         if self.code.preview.as_deref() == Some(key) {
             self.code.preview = None;
             self.code.tabs.push(key.to_owned());
@@ -401,178 +339,33 @@ impl Workspace {
         }
     }
 
-    /// ⌘W in Code: the tab on screen closes, its neighbour shows, else the project's page. A
-    /// pinned one stays: unpinned first (#20).
-    pub(super) fn close_code_tab(&mut self, key: &str, cx: &mut Context<Self>) {
-        if self.code.pinned(key) {
-            return self.toast_info("Pinned: unpin it to close it".into(), cx);
-        }
-        let shown = self.code.shown_tabs();
-        let at = shown.iter().position(|(p, _)| p == key);
-        self.code.tabs.retain(|t| t != key);
-        if self.code.preview.as_deref() == Some(key) {
-            self.code.preview = None;
-        }
-        if self.shown_tab().as_deref() != Some(key) {
-            return cx.notify();
-        }
-        let rest = self.code.shown_tabs();
-        let next = at.and_then(|at| rest.get(at.min(rest.len().saturating_sub(1))).cloned());
-        match next {
-            Some((next, _)) => self.open_code_tab(&next, cx),
-            None => {
-                self.review.update(cx, |rv, _| rv.file_view = None);
-                self.show(Space::Code, None, cx);
-            }
+    /// What the chip says Code reads: the working tree, or the branch or commit picked.
+    fn revision_label(&self) -> String {
+        match (&self.code.rev, self.plain) {
+            (_, true) => "the files on disk".to_owned(),
+            (None, false) => "working tree".to_owned(),
+            (Some((name, _)), false) => name.clone(),
         }
     }
 
-    /// Every tab closes but `keep`'s (Close others), or every one (Close all) — the pinned ones
-    /// stay.
-    pub(super) fn close_code_tabs(&mut self, keep: Option<String>, cx: &mut Context<Self>) {
-        let keep = keep.filter(|k| self.code.shown_tabs().iter().any(|(t, _)| t == k));
-        let code = &mut self.code;
-        code.tabs
-            .retain(|t| Some(t) == keep.as_ref() || code.pins.contains(t));
-        if code.preview != keep {
-            code.preview = None;
-        }
-        self.after_closing(keep, cx);
-    }
-
-    /// Close to the right: the tabs after `key` close, the pinned ones staying.
-    pub(super) fn close_code_tabs_right(&mut self, key: String, cx: &mut Context<Self>) {
-        let tabs = self.code.shown_tabs();
-        let Some(at) = tabs.iter().position(|(t, _)| *t == key) else {
-            return;
-        };
-        let gone: Vec<String> = tabs[at + 1..]
-            .iter()
-            .map(|(t, _)| t.clone())
-            .filter(|t| !self.code.pinned(t))
-            .collect();
-        self.code.tabs.retain(|t| !gone.contains(t));
-        if self.code.preview.as_ref().is_some_and(|p| gone.contains(p)) {
-            self.code.preview = None;
-        }
-        self.after_closing(Some(key), cx);
-    }
-
-    /// Tabs closed: `keep` shows if the one on screen went, the one on screen stays if it did not,
-    /// else the project's page.
-    fn after_closing(&mut self, keep: Option<String>, cx: &mut Context<Self>) {
-        let shown = self.shown_tab();
-        let left = shown
-            .as_ref()
-            .is_some_and(|s| self.code.shown_tabs().iter().any(|(t, _)| t == s));
-        match keep {
-            _ if left => cx.notify(),
-            Some(key) => self.open_code_tab(&key, cx),
-            None => {
-                self.review.update(cx, |rv, _| rv.file_view = None);
-                self.show(Space::Code, None, cx);
-            }
-        }
-    }
-
-    /// ⌃⇥ and ⌃⇧⇥ in Code: the next or the previous tab, going round.
-    pub(super) fn step_code_tab(&mut self, forward: bool, cx: &mut Context<Self>) {
-        let shown = self.code.shown_tabs();
-        if shown.is_empty() {
-            return;
-        }
-        let n = shown.len();
-        let on = self.shown_tab();
-        let at = shown.iter().position(|(p, _)| Some(p) == on.as_ref());
-        let to = match at {
-            Some(at) => (at + if forward { 1 } else { n - 1 }) % n,
-            None => 0,
-        };
-        let key = shown[to].0.clone();
-        self.open_code_tab(&key, cx);
-    }
-
-    /// Code: the tree beside the folder page or the file's tabs, the tool window after them.
-    pub(super) fn render_code_space(&self, cx: &mut Context<Self>) -> Div {
-        let page = match self.nav_page() {
-            // A file being read that is not on screen yet: a shimmer of lines, not the one before.
-            Some(Page::File(path))
-                if self.review.read(cx).file_reading.is_some()
-                    && self
-                        .review
-                        .read(cx)
-                        .file_view
-                        .as_ref()
-                        .is_none_or(|v| &v.path != path) =>
-            {
-                self.code_island(cx)
-                    .flex_1()
-                    .min_w_0()
-                    .bg(theme::editor())
-                    .p(px(24.))
-                    .child(super::motion::shimmer("file-loading", 9))
-                    .into_any_element()
-            }
-            Some(Page::File(_)) => self.render_file_view(cx).unwrap_or_else(|| {
-                self.code_island(cx)
-                    .flex_1()
-                    .min_w_0()
-                    .bg(theme::editor())
-                    .into_any_element()
-            }),
-            Some(Page::Folder(path)) => self.render_dir_page(path, cx),
-            _ => self.render_folder_page(cx),
-        };
-        div()
-            .relative()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            // It slides and fades in and out with ⌘J, as the side panel does: with its handle,
-            // so no gap is left to vanish at the end (the developer, 2026-10-23); the handle
-            // resizes it as it does the side panel.
-            .children(
-                (!self.compact() && (self.layout.show_sidebar || self.motion.recent("side"))).then(
-                    || {
-                        let room = self.layout.sidebar + super::frame::handle_width();
-                        super::motion::toward(
-                            div()
-                                .flex()
-                                .flex_none()
-                                .overflow_hidden()
-                                .child(self.render_code_tree(cx))
-                                .child(self.handle(super::Split::Sidebar, cx)),
-                            "code-tree-pane",
-                            self.layout.show_sidebar,
-                            self.motion.recent("side"),
-                            super::motion::BASE,
-                            move |pane, v| pane.max_w(px(room * v)).opacity(v),
-                        )
-                    },
-                ),
-            )
-            .child(page)
-            .children(self.render_tool(cx))
-            // Narrow, the tree opens over the page (#80).
-            .children(
-                self.side_drawer()
-                    .then(|| self.drawer(self.render_code_tree(cx))),
-            )
-    }
-
-    /// The project's tree: its name and the revision chip, Go to file, the folders and files.
-    fn render_code_tree(&self, cx: &mut Context<Self>) -> Div {
+    /// The project's tree, `width` wide, `shown` the page on screen: its name and the revision chip, Go to file, the folders and files.
+    pub(super) fn render_tree(
+        &self,
+        width: f32,
+        shown: Option<Page>,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let project = self
             .root
             .as_deref()
             .map(|r| crate::labels::project_name(r).to_uppercase())
             .unwrap_or_default();
         let rows = files::rows(&self.code.files, &self.code.open);
-        let shown = match self.nav_page() {
-            Some(Page::File(path) | Page::Folder(path)) => Some(path.clone()),
+        let shown = match shown {
+            Some(Page::File(path) | Page::Folder(path)) => Some(path),
             _ => None,
         };
-        let chip = self.code_revision_label();
+        let chip = self.revision_label();
         let list = uniform_list(
             "code-tree",
             rows.len(),
@@ -583,7 +376,7 @@ impl Workspace {
                     .map(|(n, row)| {
                         let path = row.path.clone();
                         let drawn = this.render_tree_row(row, shown.as_deref(), n, cx);
-                        this.tree_row(&path, drawn)
+                        this.host.tree_row(&path, drawn, cx)
                     })
                     .collect::<Vec<_>>()
             }),
@@ -603,7 +396,7 @@ impl Workspace {
             list.into_any_element()
         };
         island()
-            .w(px(self.layout.sidebar))
+            .w(px(width))
             .flex_none()
             .child(
                 div()
@@ -660,9 +453,9 @@ impl Workspace {
                         )
                         .child(div().flex_1().child("Go to file"))
                         .child(keys::caps("⌘P", keys::On::Plain))
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.search(super::palette::Scope::Files, cx)
-                        })),
+                        .on_click(
+                            cx.listener(|this, _: &ClickEvent, _, cx| this.host.go_to_file(cx)),
+                        ),
                 ),
             )
             .child(list)
@@ -680,7 +473,7 @@ impl Workspace {
         let preview = self.code.preview.as_deref() == Some(row.path.as_str());
         let path = row.path.clone();
         // A folder whose note for the agent waits (#97).
-        let noted = row.folder.is_some() && self.folder_note_waits(&row.path);
+        let noted = row.folder.is_some() && self.host.note_waits(&row.path, cx);
         super::row(SharedString::from(format!("tree-{}", row.path)), selected)
             // Its whole path, whatever the depth (#79).
             .tip(row.path.clone())
@@ -708,7 +501,7 @@ impl Workspace {
                             }
                             if !this.code.open.remove(&fold) {
                                 this.code.open.insert(fold.clone());
-                                this.tree_opening(&fold, cx);
+                                this.host.tree_opening(fold.clone(), cx);
                             }
                             cx.notify();
                         }))
@@ -750,7 +543,7 @@ impl Workspace {
                 // A folder: one click its page, unfolded; a double click folds one that was
                 // open already (the developer, 2026-10-23: everything that folds folds so).
                 if row.folder.is_some() {
-                    this.close_drawer(cx);
+                    this.host.close_drawer(cx);
                     if e.click_count() > 1 {
                         if this.code.unfolded_now.take().as_deref() != Some(path.as_str()) {
                             this.code.open.remove(&path);
@@ -760,11 +553,11 @@ impl Workspace {
                     }
                     this.code.unfolded_now =
                         (!this.code.open.contains(&path)).then(|| path.clone());
-                    return this.open_folder_page(path.clone(), cx);
+                    return this.host.open_folder(path.clone(), cx);
                 }
                 // A second click keeps it as a tab; picked in the drawer, it goes (#80).
-                this.close_drawer(cx);
-                this.open_code_file(path.clone(), e.click_count() < 2, cx)
+                this.host.close_drawer(cx);
+                this.host.open_file(path.clone(), e.click_count() < 2, cx)
             }))
             .into_any_element()
     }
@@ -786,7 +579,7 @@ impl Workspace {
             Entry::new("Copy path", Act::Copy(path.clone())),
             Entry::new("Copy full path", Act::Copy(full.display().to_string())),
         ]];
-        if let Some(app) = self.open_app(&full) {
+        if let Some(app) = self.host.open_app(&full, cx) {
             groups.push(vec![Entry::new(
                 format!("Open in {}", app.name()),
                 Act::OpenPathWith(full, app),
@@ -798,24 +591,16 @@ impl Workspace {
                 vec![Entry::new("Note for your agent…", Act::FolderNote(path)).key("C")],
             );
         }
-        self.open_menu(at, groups, cx);
-    }
-
-    /// What the chip says Code reads: the working tree, or the branch or commit picked.
-    fn code_revision_label(&self) -> String {
-        match (&self.code.rev, self.plain) {
-            (_, true) => "the files on disk".to_owned(),
-            (None, false) => "working tree".to_owned(),
-            (Some((name, _)), false) => name.clone(),
-        }
+        self.host.menu(at, groups, cx);
     }
 
     /// The chip's menu: the working tree, HEAD, the local branches.
     fn open_revision_menu(&mut self, at: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
         let now = self.code.at();
+        let all = self.host.branches(cx);
         let mut entries =
             vec![Entry::new("Working tree", Act::CodeRevision(None)).checked(now.is_none())];
-        if let Some(head) = self.branches.iter().find(|b| b.is_head) {
+        if let Some(head) = all.iter().find(|b| b.is_head) {
             entries.push(
                 Entry::new(
                     format!("HEAD · {}", head.name),
@@ -827,8 +612,7 @@ impl Workspace {
                 ),
             );
         }
-        let branches: Vec<Entry> = self
-            .branches
+        let branches: Vec<Entry> = all
             .iter()
             .filter(|b| b.kind == crate::git::RefKind::Local && !b.is_head)
             .map(|b| {
@@ -839,87 +623,25 @@ impl Workspace {
                 .checked(self.code.rev.as_ref().is_some_and(|r| r.0 == b.name))
             })
             .collect();
-        self.open_menu(at, vec![entries, branches], cx);
-    }
-
-    /// The Outline tool window: the declarations of the file read in Code; a click goes to one.
-    pub(super) fn outline_tool(&self, cx: &mut Context<Self>) -> super::tools::ToolView {
-        let outline = self.review.read(cx).file_outline();
-        let n = outline.len();
-        let rows = outline.into_iter().map(|(line, depth, kind, name)| {
-            super::row(SharedString::from(format!("outline-{line}")), false)
-                .h(px(26.))
-                .pl(px(10. + depth as f32 * 14.))
-                .gap(px(8.))
-                .text_size(px(12.))
-                .child(
-                    div()
-                        .flex_none()
-                        .font_family(theme::code_font())
-                        .text_color(theme::faint())
-                        .child(kind),
-                )
-                .child(super::hover::cut("name", name).flex_1())
-                .child(
-                    div()
-                        .flex_none()
-                        .text_size(px(11.))
-                        .text_color(theme::faint())
-                        .child(line.to_string()),
-                )
-                .on_click(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| this.reveal_file_line(line, cx)),
-                )
-        });
-        let empty = match &self.review.read(cx).file_view {
-            None => "Open a file to see what it declares.",
-            Some(_) => "Nothing declared here that Artoo reads.",
-        };
-        super::tools::ToolView {
-            title: "Outline".into(),
-            count: (n > 0).then(|| n.to_string()),
-            actions: Vec::new(),
-            body: div()
-                .id("outline-list")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scroll()
-                .p(px(6.))
-                .children(rows)
-                .children((n == 0).then(|| {
-                    div()
-                        .px(px(8.))
-                        .py(px(6.))
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child(empty)
-                }))
-                .into_any_element(),
-            foot: None,
-        }
-    }
-
-    /// The menu's choice: Code reads there.
-    pub(super) fn set_code_revision(&mut self, rev: Option<(String, Oid)>, cx: &mut Context<Self>) {
-        self.read_code_at(rev, cx);
+        self.host.menu(at, vec![entries, branches], cx);
     }
 
     /// The island every Code page is drawn in, its tabs on top (the developer, 2026-10-23, A):
     /// the one on screen open into the page under it, so a folder's page, a file and the project's
     /// own page share one shape, and a folder no longer hides the files' tabs.
-    pub(super) fn code_island(&self, cx: &mut Context<Self>) -> Div {
-        island().children(self.render_code_tabs(cx))
+    fn island(&self, shown: Option<&Page>, cx: &mut Context<Self>) -> Div {
+        island().children(self.render_tabs(shown, cx))
     }
 
     /// The tabs: files and folders kept or previewed, scrolled sideways to the one on screen; ▾ at
     /// the end lists them all. A click shows one, a double click keeps a preview, its right click
     /// closes it or the others.
-    fn render_code_tabs(&self, cx: &mut Context<Self>) -> Option<Div> {
+    fn render_tabs(&self, shown: Option<&Page>, cx: &mut Context<Self>) -> Option<Div> {
         let tabs = self.code.shown_tabs();
         if tabs.is_empty() {
             return None;
         }
-        let shown = self.shown_tab();
+        let shown = shown.and_then(tab_of);
         let rule = theme::island_border();
         let root = self.root.clone();
         let last_pin = self.code.pins.last().cloned();
@@ -983,7 +705,7 @@ impl Workspace {
                         })
                     })
                     .on_drop(cx.listener(move |this, dragged: &DragCodeTab, _, cx| {
-                        this.move_code_tab(&dragged.0, &drop, cx)
+                        this.move_tab(&dragged.0, &drop, cx)
                     }))
                     .child(if folder {
                         icons::folder_icon(&path, 14.)
@@ -1012,17 +734,17 @@ impl Workspace {
                             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 cx.stop_propagation();
                                 if pinned {
-                                    this.toggle_pin(&close, cx)
+                                    this.pin(&close, cx)
                                 } else {
-                                    this.close_code_tab(&close, cx)
+                                    this.host.close_tab(close.clone(), cx)
                                 }
                             })),
                     )
                     .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
                         if e.click_count() > 1 {
-                            this.keep_code_tab(&open, cx)
+                            this.keep_tab(&open, cx)
                         } else {
-                            this.open_code_tab(&open, cx)
+                            this.host.open_tab(open.clone(), cx)
                         }
                     }))
                     .on_mouse_down(
@@ -1068,7 +790,7 @@ impl Workspace {
                                 ));
                             }
                             groups.push(place);
-                            this.open_menu(e.position, groups, cx)
+                            this.host.menu(e.position, groups, cx)
                         }),
                     );
                 let line = parted.then(|| {
@@ -1111,7 +833,7 @@ impl Workspace {
             .tooltip_show_delay(super::hover::LONG)
             .tooltip(|_, cx| cx.new(|_| super::Tip("Every open tab")).into())
             .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
-                let on = this.shown_tab();
+                let on = this.host.shown(cx).as_ref().and_then(tab_of);
                 let listed = this
                     .code
                     .shown_tabs()
@@ -1121,7 +843,7 @@ impl Workspace {
                             .checked(on.as_ref() == Some(&key))
                     })
                     .collect();
-                this.open_menu(
+                this.host.menu(
                     e.position(),
                     vec![
                         listed,
@@ -1156,8 +878,12 @@ impl Workspace {
 
     /// A folder's page (#97, Design: notes on folders, B): its notes for your agent and the
     /// composer, its folders and files, its README.
-    fn render_dir_page(&self, path: &str, cx: &mut Context<Self>) -> AnyElement {
-        let this = cx.entity().downgrade();
+    fn render_dir_page(
+        &self,
+        path: &str,
+        shown: Option<&Page>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let prefix = format!("{path}/");
         let mut folders = std::collections::BTreeSet::new();
         let mut here = Vec::new();
@@ -1174,13 +900,8 @@ impl Workspace {
                 None => here.push(f.to_owned()),
             }
         }
-        let notes: Vec<u64> = self
-            .comments
-            .iter()
-            .filter(|c| c.path == prefix && !c.archived)
-            .map(|c| c.id)
-            .collect();
-        let writing = self.folder_compose() == Some(path);
+        let (count, notes) = self.host.folder_notes(path, cx);
+        let none = notes.is_empty();
         let heading = |text: String| {
             div()
                 .pt(px(14.))
@@ -1202,9 +923,9 @@ impl Workspace {
                 .child(super::hover::cut("name", name).flex_1())
                 .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
                     if folder {
-                        this.open_folder_page(to.clone(), cx)
+                        this.host.open_folder(to.clone(), cx)
                     } else {
-                        this.open_code_file(to.clone(), e.click_count() < 2, cx)
+                        this.host.open_file(to.clone(), e.click_count() < 2, cx)
                     }
                 }))
         };
@@ -1237,7 +958,7 @@ impl Workspace {
             .and_then(|(_, r)| r.clone())
             .map(|(file, text)| {
                 let md = file.ends_with(".md") || file.ends_with(".markdown");
-                let selecting = Some(self.selecting(this.clone()));
+                let selecting = self.host.selecting(cx);
                 div()
                     .child(heading(file.rsplit('/').next().unwrap_or(&file).to_owned()))
                     .child(markdown::body(
@@ -1249,7 +970,7 @@ impl Workspace {
                         cx,
                     ))
             });
-        self.code_island(cx)
+        self.island(shown, cx)
             .flex_1()
             .min_w_0()
             .bg(theme::editor())
@@ -1269,7 +990,7 @@ impl Workspace {
                     .child(
                         div()
                             .text_color(theme::faint())
-                            .child(format!("as of {}", self.code_revision_label())),
+                            .child(format!("as of {}", self.revision_label())),
                     )
                     .child(div().flex_1())
                     .child(
@@ -1290,17 +1011,12 @@ impl Workspace {
                     .child(
                         div()
                             .max_w(px(820.))
-                            .child(heading(match notes.len() {
+                            .child(heading(match count {
                                 0 => "For your agent".to_owned(),
                                 n => format!("For your agent · {n}"),
                             }))
-                            .children(
-                                notes
-                                    .iter()
-                                    .map(|&id| self.render_thread(id, 0., this.clone(), cx)),
-                            )
-                            .children(writing.then(|| self.render_composer(0., this.clone(), cx)))
-                            .children((notes.is_empty() && !writing).then(|| {
+                            .children(notes)
+                            .children(none.then(|| {
                                 let folder = path.to_owned();
                                 div()
                                     .id("dir-note-start")
@@ -1325,7 +1041,7 @@ impl Workspace {
                                     .child(div().flex_1())
                                     .child(keys::caps("C", keys::On::Plain))
                                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                        this.start_folder_comment(&folder, cx)
+                                        this.host.note_folder(folder.clone(), cx)
                                     }))
                             }))
                             .child(heading(format!("In it · {}", folders.len() + here.len())))
@@ -1338,11 +1054,11 @@ impl Workspace {
 
     /// The folder page at Code's root: its README rendered, else Go to a file and the files
     /// opened lately.
-    fn render_folder_page(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_folder_page(&self, shown: Option<&Page>, cx: &mut Context<Self>) -> AnyElement {
         let Some((path, text)) = &self.code.readme else {
-            return self.render_code_root(cx).into_any_element();
+            return self.render_root(shown, cx).into_any_element();
         };
-        let selecting = Some(self.selecting(cx.entity().downgrade()));
+        let selecting = self.host.selecting(cx);
         let body = if path.ends_with(".md") || path.ends_with(".markdown") {
             markdown::body(text, true, "folder-readme", None, selecting, cx)
         } else {
@@ -1359,7 +1075,7 @@ impl Workspace {
                 ))
                 .into_any_element()
         };
-        self.code_island(cx)
+        self.island(shown, cx)
             .flex_1()
             .min_w_0()
             .bg(theme::editor())
@@ -1396,6 +1112,636 @@ impl Workspace {
                     .child(body),
             )
             .into_any_element()
+    }
+
+    /// Code's folder page when it has no README: Go to a file, and the files opened lately.
+    fn render_root(
+        &self,
+        shown: Option<&Page>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let recent = self.host.recent_files(cx);
+        self.island(shown, cx)
+            .flex_1()
+            .items_center()
+            .bg(theme::editor())
+            .child(
+                div()
+                    .w(px(440.))
+                    .mt(px(72.))
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(
+                        div()
+                            .id("code-go-to-file")
+                            .h(px(30.))
+                            .px(px(10.))
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .rounded(px(super::ROW_RADIUS))
+                            .border_1()
+                            .border_color(theme::island_border())
+                            .bg(theme::panel())
+                            .text_color(theme::faint())
+                            .cursor_pointer()
+                            .hover(|s| s.border_color(theme::border()))
+                            .child(
+                                super::icons::icon("search")
+                                    .size(px(14.))
+                                    .text_color(theme::faint()),
+                            )
+                            .child(div().flex_1().child("Go to a file"))
+                            .child(keys::caps("⌘P", keys::On::Plain))
+                            .on_click(
+                                cx.listener(|this, _: &ClickEvent, _, cx| this.host.go_to_file(cx)),
+                            ),
+                    )
+                    .children((!recent.is_empty()).then(|| {
+                        div()
+                            .mt_2()
+                            .text_size(px(11.))
+                            .text_color(theme::faint())
+                            .child("Opened lately")
+                    }))
+                    .children(recent.into_iter().enumerate().map(|(ix, path)| {
+                        let open = path.clone();
+                        super::row(("code-recent", ix), false)
+                            .h(px(28.))
+                            .gap_2()
+                            .child(super::icons::file_icon(&path, 16.))
+                            .child(super::hover::cut("path", path).flex_1())
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.host.show_file(open.clone(), cx)
+                            }))
+                    })),
+            )
+    }
+}
+
+impl Render for CodeSpace {
+    /// The page on screen: a file, a folder's page, or the project's.
+    fn render(&mut self, _: &mut gpui::Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let shown = self.host.shown(cx);
+        match &shown {
+            Some(Page::File(path)) => {
+                let file = self.host.file(path, cx);
+                let island = self
+                    .island(shown.as_ref(), cx)
+                    .flex_1()
+                    .min_w_0()
+                    .bg(theme::editor());
+                match file {
+                    // A file being read that is not on screen yet: a shimmer of lines, not the one before.
+                    FilePage::Reading => island
+                        .p(px(24.))
+                        .child(super::motion::shimmer("file-loading", 9))
+                        .into_any_element(),
+                    FilePage::Read(head, body) => island.child(head).child(body).into_any_element(),
+                    FilePage::Empty => island.into_any_element(),
+                }
+            }
+            Some(Page::Folder(path)) => self.render_dir_page(path, shown.as_ref(), cx),
+            _ => self.render_folder_page(shown.as_ref(), cx),
+        }
+    }
+}
+
+/// The file Code shows, as the tab has it: being read, read (its head line and what is under it), or none.
+pub enum FilePage {
+    Reading,
+    Read(AnyElement, AnyElement),
+    Empty,
+}
+
+/// What Code asks of its tab (`CodeHost`). What it reads is read while Code draws or answers a click, never
+/// while the tab is updating it; what it changes is changed once the update under way is over.
+pub trait Host {
+    /// The page of Code's on screen, a file or a folder.
+    fn shown(&self, cx: &App) -> Option<Page>;
+    /// File `path` as the tab reads it.
+    fn file(&self, path: &str, cx: &mut App) -> FilePage;
+    /// The notes for the agent on folder `folder` (how many) and what is drawn of them, the composer with them.
+    fn folder_notes(&self, folder: &str, cx: &App) -> (usize, Vec<AnyElement>);
+    /// Whether folder `folder` has a note for the agent waiting (#97).
+    fn note_waits(&self, folder: &str, cx: &App) -> bool;
+    /// The files opened lately, the latest first.
+    fn recent_files(&self, cx: &App) -> Vec<String>;
+    /// The tab's text selection, for the text Code draws; `None` once the tab is gone.
+    fn selecting(&self, cx: &App) -> Option<markdown::Selecting>;
+    /// Row `row` of the tree for `path`, fading in under a folder just opened (#110).
+    fn tree_row(&self, path: &str, row: AnyElement, cx: &App) -> AnyElement;
+    /// The repository's branches, for the revision's menu.
+    fn branches(&self, cx: &App) -> Vec<BranchRef>;
+    /// The app `path` opens in.
+    fn open_app(&self, path: &Path, cx: &App) -> Option<super::open_in::App>;
+    /// File `path` opened in a tab: the preview one (`preview`) or kept.
+    fn open_file(&self, path: String, preview: bool, cx: &mut App);
+    /// File `path` shown as Code shows a file opened from elsewhere.
+    fn show_file(&self, path: String, cx: &mut App);
+    /// Folder `path`'s page opened.
+    fn open_folder(&self, path: String, cx: &mut App);
+    /// Tab `key` shown.
+    fn open_tab(&self, key: String, cx: &mut App);
+    /// Tab `key` closed.
+    fn close_tab(&self, key: String, cx: &mut App);
+    /// A note for the agent on folder `folder` started.
+    fn note_folder(&self, folder: String, cx: &mut App);
+    /// Menu `groups` opened at `at`.
+    fn menu(&self, at: gpui::Point<gpui::Pixels>, groups: Vec<Vec<Entry>>, cx: &mut App);
+    /// Go to file (⌘P).
+    fn go_to_file(&self, cx: &mut App);
+    /// The tree's drawer closed, when narrow (#80).
+    fn close_drawer(&self, cx: &mut App);
+    /// Folder `folder` of the tree opened: its rows fade in.
+    fn tree_opening(&self, folder: String, cx: &mut App);
+}
+
+/// The tab of page `page`: a file's path, a folder's with its slash.
+fn tab_of(page: &Page) -> Option<String> {
+    match page {
+        Page::File(path) => Some(path.clone()),
+        Page::Folder(path) => Some(folder_tab(path)),
+        _ => None,
+    }
+}
+
+impl Workspace {
+    /// Reads the project's files at Code's revision, once per revision (and again with `force`).
+    pub(super) fn read_code_files(&mut self, force: bool, cx: &mut Context<Self>) {
+        self.code.update(cx, |c, cx| c.read_files(force, cx));
+    }
+
+    /// Reads Code at `rev` (None: the working tree); the file open is read again there.
+    fn read_code_at(&mut self, rev: Option<(String, Oid)>, cx: &mut Context<Self>) {
+        self.code.update(cx, |c, _| c.code.rev = rev);
+        self.read_code_files(false, cx);
+        match self.nav_page().cloned() {
+            Some(Page::File(path)) => self.open_file_view(path, cx),
+            Some(Page::Folder(path)) => {
+                self.code.update(cx, |c, _| c.code.folder_readme = None);
+                self.read_folder_readme(&path, cx);
+            }
+            _ => {}
+        }
+        cx.notify();
+    }
+
+    /// Folder `path` opens as Code's page (#97), unfolded in the tree, in the preview tab.
+    pub(super) fn open_folder_page(&mut self, path: String, cx: &mut Context<Self>) {
+        let unfolded = self.code.update(cx, |c, _| {
+            c.code.reveal(&path);
+            c.code.preview_folder(&path);
+            c.code.open.insert(path.clone())
+        });
+        if unfolded {
+            self.tree_opening(&path, cx);
+        }
+        self.nav.space = Space::Code;
+        self.arrive(Page::Folder(path.clone()), cx);
+        self.read_folder_readme(&path, cx);
+        cx.notify();
+    }
+
+    /// Reads the README of folder `dir` at Code's revision, unless it is the one held.
+    pub(super) fn read_folder_readme(&mut self, dir: &str, cx: &mut Context<Self>) {
+        self.code.update(cx, |c, cx| c.read_folder_readme(dir, cx));
+    }
+
+    /// File `path` opens in Code: as the preview tab (`preview`) the next click replaces, or kept.
+    pub(super) fn open_code_file(&mut self, path: String, preview: bool, cx: &mut Context<Self>) {
+        self.code.update(cx, |c, _| {
+            let code = &mut c.code;
+            if !code.tabs.contains(&path) {
+                if preview {
+                    code.preview = Some(path.clone());
+                } else {
+                    if code.preview.as_ref() == Some(&path) {
+                        code.preview = None;
+                    }
+                    code.tabs.push(path.clone());
+                }
+            }
+        });
+        self.open_file_view(path, cx);
+    }
+
+    /// Tab `key` pinned — first among the tabs, through every close and a restart — or unpinned,
+    /// first after the pinned ones (#20).
+    pub(super) fn toggle_pin(&mut self, key: &str, cx: &mut Context<Self>) {
+        let shown = self.shown_tab();
+        self.code.update(cx, |c, _| {
+            c.code.toggle_pin(key);
+            c.scroll_to_tab(shown.as_deref());
+        });
+        cx.notify();
+    }
+
+    /// ⌥⌘P and ⌘K's Pin tab: the tab on screen in Code pinned or unpinned; false when there is
+    /// none.
+    pub(super) fn pin_shown_tab(&mut self, cx: &mut Context<Self>) -> bool {
+        let tabs = self.code.read(cx).code.shown_tabs();
+        let Some(key) = self
+            .shown_tab()
+            .filter(|k| tabs.iter().any(|(t, _)| t == k))
+        else {
+            return false;
+        };
+        self.toggle_pin(&key, cx);
+        true
+    }
+
+    /// Whether Code's tab on screen is pinned: ⌘K says Unpin.
+    pub(super) fn shown_tab_pinned(&self, cx: &App) -> bool {
+        self.shown_tab()
+            .is_some_and(|k| self.code.read(cx).code.pinned(&k))
+    }
+
+    /// The tab of the page on screen in Code: a file's path, a folder's with its slash.
+    fn shown_tab(&self) -> Option<String> {
+        self.nav_page().and_then(tab_of)
+    }
+
+    /// Tab `key` on screen: its file or its folder's page.
+    pub(super) fn open_code_tab(&mut self, key: &str, cx: &mut Context<Self>) {
+        match tab_page(key) {
+            Page::Folder(path) => self.open_folder_page(path, cx),
+            Page::File(path) => self.open_file_view(path, cx),
+            _ => {}
+        }
+        self.scroll_to_code_tab(cx);
+    }
+
+    /// The strip scrolled to the tab on screen.
+    pub(super) fn scroll_to_code_tab(&self, cx: &App) {
+        let shown = self.shown_tab();
+        self.code.read(cx).scroll_to_tab(shown.as_deref());
+    }
+
+    /// The preview tab `key` kept: a double click on it, as on a file in the tree.
+    pub(super) fn keep_code_tab(&mut self, key: &str, cx: &mut Context<Self>) {
+        self.code.update(cx, |c, cx| c.keep_tab(key, cx));
+    }
+
+    /// ⌘W in Code: the tab on screen closes, its neighbour shows, else the project's page. A
+    /// pinned one stays: unpinned first (#20).
+    pub(super) fn close_code_tab(&mut self, key: &str, cx: &mut Context<Self>) {
+        if self.code.read(cx).code.pinned(key) {
+            return self.toast_info("Pinned: unpin it to close it".into(), cx);
+        }
+        let at = self.code.update(cx, |c, _| {
+            let code = &mut c.code;
+            let at = code.shown_tabs().iter().position(|(p, _)| p == key);
+            code.tabs.retain(|t| t != key);
+            if code.preview.as_deref() == Some(key) {
+                code.preview = None;
+            }
+            at
+        });
+        if self.shown_tab().as_deref() != Some(key) {
+            return cx.notify();
+        }
+        let rest = self.code.read(cx).code.shown_tabs();
+        let next = at.and_then(|at| rest.get(at.min(rest.len().saturating_sub(1))).cloned());
+        match next {
+            Some((next, _)) => self.open_code_tab(&next, cx),
+            None => {
+                self.review.update(cx, |rv, _| rv.file_view = None);
+                self.show(Space::Code, None, cx);
+            }
+        }
+    }
+
+    /// Every tab closes but `keep`'s (Close others), or every one (Close all) — the pinned ones
+    /// stay.
+    pub(super) fn close_code_tabs(&mut self, keep: Option<String>, cx: &mut Context<Self>) {
+        let keep = keep.filter(|k| {
+            self.code
+                .read(cx)
+                .code
+                .shown_tabs()
+                .iter()
+                .any(|(t, _)| t == k)
+        });
+        self.code.update(cx, |c, _| {
+            let code = &mut c.code;
+            code.tabs
+                .retain(|t| Some(t) == keep.as_ref() || code.pins.contains(t));
+            if code.preview != keep {
+                code.preview = None;
+            }
+        });
+        self.after_closing(keep, cx);
+    }
+
+    /// Close to the right: the tabs after `key` close, the pinned ones staying.
+    pub(super) fn close_code_tabs_right(&mut self, key: String, cx: &mut Context<Self>) {
+        let found = self.code.update(cx, |c, _| {
+            let code = &mut c.code;
+            let tabs = code.shown_tabs();
+            let Some(at) = tabs.iter().position(|(t, _)| *t == key) else {
+                return false;
+            };
+            let gone: Vec<String> = tabs[at + 1..]
+                .iter()
+                .map(|(t, _)| t.clone())
+                .filter(|t| !code.pinned(t))
+                .collect();
+            code.tabs.retain(|t| !gone.contains(t));
+            if code.preview.as_ref().is_some_and(|p| gone.contains(p)) {
+                code.preview = None;
+            }
+            true
+        });
+        if found {
+            self.after_closing(Some(key), cx);
+        }
+    }
+
+    /// Tabs closed: `keep` shows if the one on screen went, the one on screen stays if it did not,
+    /// else the project's page.
+    fn after_closing(&mut self, keep: Option<String>, cx: &mut Context<Self>) {
+        let shown = self.shown_tab();
+        let left = shown.as_ref().is_some_and(|s| {
+            self.code
+                .read(cx)
+                .code
+                .shown_tabs()
+                .iter()
+                .any(|(t, _)| t == s)
+        });
+        match keep {
+            _ if left => cx.notify(),
+            Some(key) => self.open_code_tab(&key, cx),
+            None => {
+                self.review.update(cx, |rv, _| rv.file_view = None);
+                self.show(Space::Code, None, cx);
+            }
+        }
+    }
+
+    /// ⌃⇥ and ⌃⇧⇥ in Code: the next or the previous tab, going round.
+    pub(super) fn step_code_tab(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let shown = self.code.read(cx).code.shown_tabs();
+        if shown.is_empty() {
+            return;
+        }
+        let n = shown.len();
+        let on = self.shown_tab();
+        let at = shown.iter().position(|(p, _)| Some(p) == on.as_ref());
+        let to = match at {
+            Some(at) => (at + if forward { 1 } else { n - 1 }) % n,
+            None => 0,
+        };
+        let key = shown[to].0.clone();
+        self.open_code_tab(&key, cx);
+    }
+
+    /// Code: the tree beside the folder page or the file's tabs, the tool window after them.
+    pub(super) fn render_code_space(&self, cx: &mut Context<Self>) -> Div {
+        let (width, shown) = (self.layout.sidebar, self.nav_page().cloned());
+        div()
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            // It slides and fades in and out with ⌘J, as the side panel does: with its handle,
+            // so no gap is left to vanish at the end (the developer, 2026-10-23); the handle
+            // resizes it as it does the side panel.
+            .children(
+                (!self.compact() && (self.layout.show_sidebar || self.motion.recent("side"))).then(
+                    || {
+                        let room = self.layout.sidebar + super::frame::handle_width();
+                        let tree = self
+                            .code
+                            .update(cx, |c, cx| c.render_tree(width, shown.clone(), cx));
+                        super::motion::toward(
+                            div()
+                                .flex()
+                                .flex_none()
+                                .overflow_hidden()
+                                .child(tree)
+                                .child(self.handle(super::Split::Sidebar, cx)),
+                            "code-tree-pane",
+                            self.layout.show_sidebar,
+                            self.motion.recent("side"),
+                            super::motion::BASE,
+                            move |pane, v| pane.max_w(px(room * v)).opacity(v),
+                        )
+                    },
+                ),
+            )
+            .child(self.code.clone())
+            .children(self.render_tool(cx))
+            // Narrow, the tree opens over the page (#80).
+            .children(self.side_drawer().then(|| {
+                let tree = self
+                    .code
+                    .update(cx, |c, cx| c.render_tree(width, shown.clone(), cx));
+                self.drawer(tree)
+            }))
+    }
+
+    /// The Outline tool window: the declarations of the file read in Code; a click goes to one.
+    pub(super) fn outline_tool(&self, cx: &mut Context<Self>) -> super::tools::ToolView {
+        let outline = self.review.read(cx).file_outline();
+        let n = outline.len();
+        let rows = outline.into_iter().map(|(line, depth, kind, name)| {
+            super::row(SharedString::from(format!("outline-{line}")), false)
+                .h(px(26.))
+                .pl(px(10. + depth as f32 * 14.))
+                .gap(px(8.))
+                .text_size(px(12.))
+                .child(
+                    div()
+                        .flex_none()
+                        .font_family(theme::code_font())
+                        .text_color(theme::faint())
+                        .child(kind),
+                )
+                .child(super::hover::cut("name", name).flex_1())
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(px(11.))
+                        .text_color(theme::faint())
+                        .child(line.to_string()),
+                )
+                .on_click(
+                    cx.listener(move |this, _: &ClickEvent, _, cx| this.reveal_file_line(line, cx)),
+                )
+        });
+        let empty = match &self.review.read(cx).file_view {
+            None => "Open a file to see what it declares.",
+            Some(_) => "Nothing declared here that Artoo reads.",
+        };
+        super::tools::ToolView {
+            title: "Outline".into(),
+            count: (n > 0).then(|| n.to_string()),
+            actions: Vec::new(),
+            body: div()
+                .id("outline-list")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .p(px(6.))
+                .children(rows)
+                .children((n == 0).then(|| {
+                    div()
+                        .px(px(8.))
+                        .py(px(6.))
+                        .text_size(px(12.))
+                        .text_color(theme::muted())
+                        .child(empty)
+                }))
+                .into_any_element(),
+            foot: None,
+        }
+    }
+
+    /// The menu's choice: Code reads there.
+    pub(super) fn set_code_revision(&mut self, rev: Option<(String, Oid)>, cx: &mut Context<Self>) {
+        self.read_code_at(rev, cx);
+    }
+}
+
+/// The tab as its Code space's host.
+pub(super) struct CodeHost(pub(super) WeakEntity<Workspace>);
+
+impl CodeHost {
+    /// `change` made to the tab once the update under way is over.
+    fn later(
+        &self,
+        cx: &mut App,
+        change: impl FnOnce(&mut Workspace, &mut Context<Workspace>) + 'static,
+    ) {
+        let tab = self.0.clone();
+        cx.defer(move |cx| {
+            tab.update(cx, change).ok();
+        });
+    }
+}
+
+impl Host for CodeHost {
+    fn shown(&self, cx: &App) -> Option<Page> {
+        let tab = self.0.upgrade()?;
+        tab.read(cx)
+            .nav_page()
+            .filter(|p| matches!(p, Page::File(_) | Page::Folder(_)))
+            .cloned()
+    }
+
+    fn file(&self, path: &str, cx: &mut App) -> FilePage {
+        self.0
+            .update(cx, |tab, cx| tab.file_page(path, cx))
+            .unwrap_or(FilePage::Empty)
+    }
+
+    fn folder_notes(&self, folder: &str, cx: &App) -> (usize, Vec<AnyElement>) {
+        let Some(tab) = self.0.upgrade() else {
+            return (0, Vec::new());
+        };
+        let tab = tab.read(cx);
+        let prefix = format!("{folder}/");
+        let notes: Vec<u64> = tab
+            .comments
+            .iter()
+            .filter(|c| c.path == prefix && !c.archived)
+            .map(|c| c.id)
+            .collect();
+        let mut drawn: Vec<AnyElement> = notes
+            .iter()
+            .map(|&id| tab.render_thread(id, 0., self.0.clone(), cx))
+            .collect();
+        if tab.folder_compose() == Some(folder) {
+            drawn.push(tab.render_composer(0., self.0.clone(), cx));
+        }
+        (notes.len(), drawn)
+    }
+
+    fn note_waits(&self, folder: &str, cx: &App) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|tab| tab.read(cx).folder_note_waits(folder))
+    }
+
+    fn recent_files(&self, cx: &App) -> Vec<String> {
+        let Some(tab) = self.0.upgrade() else {
+            return Vec::new();
+        };
+        tab.read(cx)
+            .recents
+            .iter()
+            .filter_map(|e| match &e.key {
+                super::recents::Key::File(path) => Some(path.clone()),
+                _ => None,
+            })
+            .take(8)
+            .collect()
+    }
+
+    fn selecting(&self, cx: &App) -> Option<markdown::Selecting> {
+        let tab = self.0.upgrade()?;
+        Some(tab.read(cx).selecting(self.0.clone()))
+    }
+
+    fn tree_row(&self, path: &str, row: AnyElement, cx: &App) -> AnyElement {
+        match self.0.upgrade() {
+            Some(tab) => tab.read(cx).tree_row(path, row),
+            None => row,
+        }
+    }
+
+    fn branches(&self, cx: &App) -> Vec<BranchRef> {
+        self.0
+            .upgrade()
+            .map(|tab| tab.read(cx).branches.clone())
+            .unwrap_or_default()
+    }
+
+    fn open_app(&self, path: &Path, cx: &App) -> Option<super::open_in::App> {
+        self.0.upgrade()?.read(cx).open_app(path)
+    }
+
+    fn open_file(&self, path: String, preview: bool, cx: &mut App) {
+        self.later(cx, move |tab, cx| tab.open_code_file(path, preview, cx));
+    }
+
+    fn show_file(&self, path: String, cx: &mut App) {
+        self.later(cx, move |tab, cx| tab.open_file_view(path, cx));
+    }
+
+    fn open_folder(&self, path: String, cx: &mut App) {
+        self.later(cx, move |tab, cx| tab.open_folder_page(path, cx));
+    }
+
+    fn open_tab(&self, key: String, cx: &mut App) {
+        self.later(cx, move |tab, cx| tab.open_code_tab(&key, cx));
+    }
+
+    fn close_tab(&self, key: String, cx: &mut App) {
+        self.later(cx, move |tab, cx| tab.close_code_tab(&key, cx));
+    }
+
+    fn note_folder(&self, folder: String, cx: &mut App) {
+        self.later(cx, move |tab, cx| tab.start_folder_comment(&folder, cx));
+    }
+
+    fn menu(&self, at: gpui::Point<gpui::Pixels>, groups: Vec<Vec<Entry>>, cx: &mut App) {
+        self.later(cx, move |tab, cx| tab.open_menu(at, groups, cx));
+    }
+
+    fn go_to_file(&self, cx: &mut App) {
+        self.later(cx, |tab, cx| tab.search(super::palette::Scope::Files, cx));
+    }
+
+    fn close_drawer(&self, cx: &mut App) {
+        self.later(cx, |tab, cx| tab.close_drawer(cx));
+    }
+
+    fn tree_opening(&self, folder: String, cx: &mut App) {
+        self.later(cx, move |tab, cx| tab.tree_opening(&folder, cx));
     }
 }
 

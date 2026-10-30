@@ -220,7 +220,7 @@ impl Workspace {
     }
 
     /// The page on screen as a link, or why it has none: ⌘K's and ⌥⇧⌘C's.
-    pub(super) fn page_link(&self) -> Result<Link, String> {
+    pub(super) fn page_link(&self, cx: &gpui::App) -> Result<Link, String> {
         let web = self.web_or_why()?;
         match self.nav.space {
             Space::Inbox => match self.inbox_request() {
@@ -228,7 +228,7 @@ impl Workspace {
                 None => Err("Nothing here has a link: pick a notice of a merge request".into()),
             },
             Space::Code => {
-                let rev = match &self.code.rev {
+                let rev = match &self.code.read(cx).code.rev {
                     Some((name, sha)) => self.on_host(name).unwrap_or_else(|_| sha.to_string()),
                     None => {
                         let head = self.branches.iter().find(|b| b.is_head);
@@ -305,7 +305,7 @@ impl Workspace {
 
     /// ⌘K's and ⌥⇧⌘C's: the page on screen's link copied, or why it has none.
     pub(super) fn copy_page_link(&mut self, cx: &mut Context<Self>) {
-        match self.page_link() {
+        match self.page_link(cx) {
             Ok(link) => self.run_act(link.act(), cx),
             Err(why) => self.toast_info(why.into(), cx),
         }
