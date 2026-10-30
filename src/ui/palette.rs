@@ -499,11 +499,10 @@ impl Workspace {
             Some(_) => super::fonts::installed(cx),
             None => Vec::new(),
         };
+        let code_files = self.code().map(|c| c.files(cx)).unwrap_or_default();
         let files = match (&kind, &self.root) {
             // Code's own: the tree it shows, a plain folder's files on disk (#75).
-            (Kind::Search(_), Some(_)) if !self.code.read(cx).code.files().is_empty() => {
-                Arc::new(self.code.read(cx).code.files().to_vec())
-            }
+            (Kind::Search(_), Some(_)) if !code_files.is_empty() => code_files,
             (Kind::Search(_), Some(root)) if self.plain => {
                 Arc::new(crate::files::on_disk(root, 200_000))
             }

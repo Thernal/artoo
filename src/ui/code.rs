@@ -5,11 +5,11 @@
 
 use super::hover::CutInTip;
 use super::nav::Page;
-use super::routes::{FileRoute, FolderRoute};
 use super::spaces::Space;
 use super::{Workspace, icons, island, keys, markdown, px, theme};
 use crate::files;
 use crate::git::{BranchRef, Repo};
+use artoo_code_api::{FileRoute, FolderRoute};
 use artoo_core::route::{Place, Route};
 use artoo_review::review::Review;
 use artoo_shell_api::{Frame, MenuItem, Pages};
@@ -21,6 +21,7 @@ use gpui::{
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 /// The most files Code's tree lists.
 const LIMIT: usize = 20_000;
@@ -30,7 +31,7 @@ pub struct Code {
     /// The revision read, by name: None the working tree, the files on disk.
     pub rev: Option<(String, Oid)>,
     /// The project's files at it, sorted.
-    files: Vec<String>,
+    files: Arc<Vec<String>>,
     /// What `files` were read at: the revision, None the working tree.
     read_at: Option<Option<Oid>>,
     task: Option<Task<()>>,
@@ -60,11 +61,6 @@ pub struct Code {
 }
 
 impl Code {
-    /// The project's files as the tree lists them.
-    pub fn files(&self) -> &[String] {
-        &self.files
-    }
-
     /// The folders above `path` open, so the tree shows it.
     pub fn reveal(&mut self, path: &str) {
         let mut at = 0;
@@ -190,10 +186,10 @@ pub fn tab_page(key: &str) -> Page {
 /// its pages, drawn as its own view. What it asks of the tab goes through `host`, and what any part asks
 /// (a menu, the drawer) through `frame`.
 pub struct CodeSpace {
-    pub code: Code,
+    code: Code,
     /// The project read, and whether it is a plain folder rather than a git repository.
-    pub root: Option<PathBuf>,
-    pub plain: bool,
+    root: Option<PathBuf>,
+    plain: bool,
     /// The page of Code's on screen, a file or a folder; None the project's own.
     shown: Option<Page>,
     host: Rc<dyn Host>,
@@ -273,7 +269,7 @@ impl CodeSpace {
     }
 
     /// File `path` takes the preview tab (`preview`) unless it has a tab, or a tab of its own.
-    pub fn keep_or_preview(&mut self, path: &str, preview: bool) {
+    fn keep_or_preview(&mut self, path: &str, preview: bool) {
         let code = &mut self.code;
         if !code.tabs.iter().any(|t| t == path) {
             if preview {
@@ -296,7 +292,7 @@ impl CodeSpace {
     }
 
     /// Folder `path` shown in the tree, unfolded, and in the preview tab: whether it was folded.
-    pub fn reveal_folder(&mut self, path: &str) -> bool {
+    fn reveal_folder(&mut self, path: &str) -> bool {
         self.code.reveal(path);
         self.code.preview_folder(path);
         self.code.open.insert(path.to_owned())
@@ -317,9 +313,26 @@ impl CodeSpace {
         self.shown.as_ref().and_then(tab_of)
     }
 
-    /// ⌘W: the tab on screen closes, its neighbour shows, else the project's page. A pinned one
-    /// stays: unpinned first (#20).
-    pub fn close_tab(&mut self, key: &str, cx: &mut Context<Self>) {
+    /// Project `root` read, a plain folder when `plain`, its pinned tabs kept by `key`; another than the one
+    /// read (`fresh`), what was read of that one goes.
+    fn set_project(&mut self, root: PathBuf, plain: bool, fresh: bool, key: &str) {
+        if fresh {
+            (self.code, self.shown) = (Code::default(), None);
+        }
+        self.code.load_pins(key);
+        (self.root, self.plain) = (Some(root), plain);
+    }
+
+    /// ⌘W: the tab on screen closes.
+    fn close_shown(&mut self, cx: &mut Context<Self>) {
+        if let Some(key) = self.shown_tab() {
+            self.close_tab(&key, cx);
+        }
+    }
+
+    /// Tab `key` closes, its neighbour shows if it was on screen, else the project's page. A pinned
+    /// one stays: unpinned first (#20).
+    fn close_tab(&mut self, key: &str, cx: &mut Context<Self>) {
         if self.code.pinned(key) {
             return self.frame.toast("Pinned: unpin it to close it".into(), cx);
         }
@@ -392,7 +405,7 @@ impl CodeSpace {
     }
 
     /// ⌃⇥ and ⌃⇧⇥: the next or the previous tab, going round.
-    pub fn step_tab(&mut self, forward: bool, cx: &mut Context<Self>) {
+    fn step_tab(&mut self, forward: bool, cx: &mut Context<Self>) {
         let shown = self.code.shown_tabs();
         if shown.is_empty() {
             return;
@@ -409,7 +422,7 @@ impl CodeSpace {
     }
 
     /// ⌥⌘P and ⌘K's Pin tab: the tab on screen pinned or unpinned; false when there is none.
-    pub fn pin_shown(&mut self, cx: &mut Context<Self>) -> bool {
+    fn pin_shown(&mut self, cx: &mut Context<Self>) -> bool {
         let tabs = self.code.shown_tabs();
         let Some(key) = self
             .shown_tab()
@@ -422,7 +435,7 @@ impl CodeSpace {
     }
 
     /// Whether the tab on screen is pinned: ⌘K says Unpin.
-    pub fn shown_pinned(&self) -> bool {
+    fn shown_pinned(&self) -> bool {
         self.shown_tab().is_some_and(|k| self.code.pinned(&k))
     }
 
@@ -509,7 +522,7 @@ impl CodeSpace {
             this.update(cx, |this, cx| {
                 if this.code.read_at == Some(at) {
                     this.code.task = None;
-                    (this.code.files, this.code.readme) = read;
+                    (this.code.files, this.code.readme) = (Arc::new(read.0), read.1);
                     cx.notify();
                 }
             })
@@ -1508,14 +1521,21 @@ fn tab_of(page: &Page) -> Option<String> {
 }
 
 impl Workspace {
+    /// Code, as the tab asks it (`artoo_code_api`); none in a build without it.
+    pub(super) fn code(&self) -> Option<Rc<dyn artoo_code_api::Code>> {
+        self.services.get()
+    }
+
     /// Reads the project's files at Code's revision, once per revision (and again with `force`).
     pub(super) fn read_code_files(&mut self, force: bool, cx: &mut Context<Self>) {
-        self.code.update(cx, |c, cx| c.read_files(force, cx));
+        if let Some(code) = self.code() {
+            code.read_files(force, cx);
+        }
     }
 
     /// Folder `path` opens as Code's page (#97), unfolded in the tree, in the preview tab.
     pub(super) fn open_folder_page(&mut self, path: String, cx: &mut Context<Self>) {
-        if self.code.update(cx, |c, _| c.reveal_folder(&path)) {
+        if self.code().is_some_and(|c| c.reveal_folder(&path, cx)) {
             self.tree_opening(&path, cx);
         }
         self.open_page(Page::Folder(path), cx);
@@ -1523,30 +1543,35 @@ impl Workspace {
 
     /// File `path` opens in Code: as the preview tab (`preview`) the next click replaces, or kept.
     pub(super) fn open_code_file(&mut self, path: String, preview: bool, cx: &mut Context<Self>) {
-        self.code
-            .update(cx, |c, _| c.keep_or_preview(&path, preview));
+        if let Some(code) = self.code() {
+            code.place_tab(&path, preview, cx);
+        }
         self.open_file_view(path, cx);
     }
 
     /// ⌥⌘P and ⌘K's Pin tab: the tab on screen in Code pinned or unpinned; false when there is
     /// none.
     pub(super) fn pin_shown_tab(&mut self, cx: &mut Context<Self>) -> bool {
-        self.nav.space == Space::Code && self.code.update(cx, |c, cx| c.pin_shown(cx))
+        self.nav.space == Space::Code && self.code().is_some_and(|c| c.pin_shown(cx))
     }
 
     /// Whether Code's tab on screen is pinned: ⌘K says Unpin.
     pub(super) fn shown_tab_pinned(&self, cx: &App) -> bool {
-        self.nav.space == Space::Code && self.code.read(cx).shown_pinned()
+        self.nav.space == Space::Code && self.code().is_some_and(|c| c.shown_pinned(cx))
     }
 
-    /// ⌘W in Code: tab `key` closes (`CodeSpace::close_tab`).
-    pub(super) fn close_code_tab(&mut self, key: &str, cx: &mut Context<Self>) {
-        self.code.update(cx, |c, cx| c.close_tab(key, cx));
+    /// ⌘W in Code: the tab on screen closes.
+    pub(super) fn close_code_tab(&mut self, cx: &mut Context<Self>) {
+        if let Some(code) = self.code() {
+            code.close_shown(cx);
+        }
     }
 
     /// ⌃⇥ and ⌃⇧⇥ in Code: the next or the previous tab, going round.
     pub(super) fn step_code_tab(&mut self, forward: bool, cx: &mut Context<Self>) {
-        self.code.update(cx, |c, cx| c.step_tab(forward, cx));
+        if let Some(code) = self.code() {
+            code.step_tab(forward, cx);
+        }
     }
 
     /// The Outline tool window: the declarations of the file read in Code; a click goes to one.
@@ -1604,6 +1629,72 @@ impl Workspace {
                 .into_any_element(),
             foot: None,
         }
+    }
+}
+
+/// Code as the tab's features ask it (`artoo_code_api::Code`).
+pub(super) struct Handle(pub(super) WeakEntity<CodeSpace>);
+
+impl Handle {
+    fn read<R: Default>(&self, cx: &App, read: impl FnOnce(&CodeSpace) -> R) -> R {
+        self.0
+            .upgrade()
+            .map(|c| read(c.read(cx)))
+            .unwrap_or_default()
+    }
+
+    fn update<R: Default>(
+        &self,
+        cx: &mut App,
+        change: impl FnOnce(&mut CodeSpace, &mut Context<CodeSpace>) -> R,
+    ) -> R {
+        self.0.update(cx, change).unwrap_or_default()
+    }
+}
+
+impl artoo_code_api::Code for Handle {
+    fn files(&self, cx: &App) -> Arc<Vec<String>> {
+        self.read(cx, |c| c.code.files.clone())
+    }
+
+    fn revision(&self, cx: &App) -> Option<(String, Oid)> {
+        self.read(cx, |c| c.code.rev.clone())
+    }
+
+    fn follow(&self, rev: Option<(String, Oid)>, cx: &mut App) {
+        self.update(cx, |c, _| c.code.rev = rev);
+    }
+
+    fn read_files(&self, force: bool, cx: &mut App) {
+        self.update(cx, |c, cx| c.read_files(force, cx));
+    }
+
+    fn set_project(&self, root: PathBuf, plain: bool, fresh: bool, key: &str, cx: &mut App) {
+        self.update(cx, |c, _| c.set_project(root, plain, fresh, key));
+    }
+
+    fn place_tab(&self, path: &str, preview: bool, cx: &mut App) {
+        self.update(cx, |c, _| c.keep_or_preview(path, preview));
+    }
+
+    fn reveal_folder(&self, path: &str, cx: &mut App) -> bool {
+        self.update(cx, |c, _| c.reveal_folder(path))
+    }
+
+    fn pin_shown(&self, cx: &mut App) -> bool {
+        self.update(cx, |c, cx| c.pin_shown(cx))
+    }
+
+    fn shown_pinned(&self, cx: &App) -> bool {
+        self.read(cx, |c| c.shown_pinned())
+    }
+
+    fn close_shown(&self, cx: &mut App) {
+        self.update(cx, |c, cx| c.close_shown(cx));
+    }
+
+    fn step_tab(&self, forward: bool, cx: &mut App) {
+        self.update(cx, |c, cx| c.step_tab(forward, cx));
     }
 }
 

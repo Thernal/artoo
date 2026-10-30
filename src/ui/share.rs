@@ -228,8 +228,8 @@ impl Workspace {
                 None => Err("Nothing here has a link: pick a notice of a merge request".into()),
             },
             Space::Code => {
-                let rev = match &self.code.read(cx).code.rev {
-                    Some((name, sha)) => self.on_host(name).unwrap_or_else(|_| sha.to_string()),
+                let rev = match self.code().and_then(|c| c.revision(cx)) {
+                    Some((name, sha)) => self.on_host(&name).unwrap_or_else(|_| sha.to_string()),
                     None => {
                         let head = self.branches.iter().find(|b| b.is_head);
                         let Some(head) = head else {

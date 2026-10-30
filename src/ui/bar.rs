@@ -495,14 +495,8 @@ impl Workspace {
                 .map(|v| format!("as of {}", v.at())),
             (Space::Code, Some(Page::Folder(path))) => {
                 let inside = format!("{path}/");
-                let n = self
-                    .code
-                    .read(cx)
-                    .code
-                    .files()
-                    .iter()
-                    .filter(|f| f.starts_with(&inside))
-                    .count();
+                let files = self.code().map(|c| c.files(cx)).unwrap_or_default();
+                let n = files.iter().filter(|f| f.starts_with(&inside)).count();
                 Some(super::plural(n, "file"))
             }
             _ => None,

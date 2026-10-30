@@ -10,14 +10,18 @@
    be replaced in a test.** Pure code that two crates need — the diff's rows, a parser — is plain functions in
    the core, not a trait.
 3. **A trait is `Send + Sync` and object-safe, used as `Arc<dyn Trait>`.** Its methods block (they run curl and
-   git, as today) and are called off the window's thread.
+   git, as today) and are called off the window's thread. A contract of what lives in one tab (a space, its
+   review: `artoo-code-api`) is the exception: used as `Rc<dyn Trait>` on the window's thread, its methods take
+   `cx` and return at once.
 4. **Split a trait by who calls it.** The MCP server reads a request and writes a pending comment; it does not
    merge. A consumer depends on what it calls, so a trait that only one consumer uses half of is two.
 5. **Names:** a trait is named for what it offers (`Hosts`, `Host`); an implementation for what it is
    (`GitLab`, `GitHub`); the only implementation of a trait is `<Trait>Impl`, never `Default…`.
 6. **One handle per contract:** a private GPUI global with `provide(cx, …)`, set by the implementation's
    `install`, and `get(cx)`, read by anyone. Six lines, repeated in each contract rather than shared — a shared
-   helper would be a contract every contract depends on.
+   helper would be a contract every contract depends on. A tab's contract has one handle per tab and no global:
+   the feature offers it in the tab's `Services` as its parts are made (`Frame::services`), and the others read
+   it there when they use it.
 7. **A shared crate that needs a service declares the port itself.** The kit's markdown draws pictures by their
    address, so the kit holds `Pictures` and its handle and hosts implements it; the kit stays on the core
    alone and nothing it draws knows a host.

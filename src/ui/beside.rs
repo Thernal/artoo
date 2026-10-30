@@ -102,7 +102,8 @@ impl Workspace {
         let Some(b) = &self.beside else {
             return Vec::new();
         };
-        shown(beside(self.code.read(cx).code.files(), &b.folder), &b.query)
+        let files = self.code().map(|c| c.files(cx)).unwrap_or_default();
+        shown(beside(&files, &b.folder), &b.query)
     }
 
     pub(super) fn beside_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {

@@ -36,8 +36,10 @@ impl Workspace {
                     .map(|rev| Some((format::short(rev), rev))),
                 None => None,
             };
-            if let Some(rev) = rev {
-                self.code.update(cx, |c, _| c.code.rev = rev);
+            if let Some(rev) = rev
+                && let Some(code) = self.code()
+            {
+                code.follow(rev, cx);
             }
         }
         self.open_page(super::nav::Page::File(path), cx);

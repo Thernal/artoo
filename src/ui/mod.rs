@@ -1582,8 +1582,8 @@ pub struct Workspace {
     branch_page: Option<branch_page::Facts>,
     /// A comparison's own commits, and the run of them its diff is narrowed to (#21).
     compare_commits: Option<compare::CompareCommits>,
-    /// The Code space: its tree, revision and tabs (#75).
-    code: gpui::Entity<code::CodeSpace>,
+    /// What the tab's features offer one another (`Frame::services`): Code among them (#165).
+    services: Rc<artoo_shell_api::Services>,
     /// The project is a plain folder, not a git repository: Code is all it has (#75).
     plain: bool,
     /// The project's main working tree: where its notes for the agents are kept, whatever
@@ -1882,6 +1882,7 @@ impl Workspace {
             diff_task: None,
             view_task: None,
         });
+        let services = Rc::new(artoo_shell_api::Services::default());
         let mut this = Self {
             focus,
             layout: Layout::load(),
@@ -1942,11 +1943,7 @@ impl Workspace {
             branch: None,
             branch_page: None,
             compare_commits: None,
-            code: {
-                let host = Rc::new(code::CodeHost(cx.weak_entity()));
-                let frame = Rc::new(parts::TabFrame(cx.weak_entity()));
-                cx.new(|_| code::CodeSpace::new(host, frame, review.clone()))
-            },
+            services: services.clone(),
             plain: false,
             project: None,
             versions: Vec::new(),
@@ -2044,19 +2041,22 @@ impl Workspace {
             repo_task: None,
             branch_task: None,
         };
-        let frame = Rc::new(parts::TabFrame(cx.weak_entity()));
-        this.parts = artoo_shell_api::make_parts(frame, window, cx);
-        // Code's pages, the app's own until Code is a crate (#165).
+        let frame = Rc::new(parts::TabFrame(cx.weak_entity(), services.clone()));
+        this.parts = artoo_shell_api::make_parts(frame.clone(), window, cx);
+        // Code, the app's own until it is a crate (#165): its pages, and what the tab asks of it.
+        let host = Rc::new(code::CodeHost(cx.weak_entity()));
+        let code = cx.new(|_| code::CodeSpace::new(host, frame, review.clone()));
         this.parts.push(artoo_shell_api::Parts {
-            pages: Some(code::CodeSpace::pages(&this.code)),
+            pages: Some(code::CodeSpace::pages(&code)),
             ..Default::default()
         });
+        services.set::<Rc<dyn artoo_code_api::Code>>(Rc::new(code::Handle(code.downgrade())));
+        cx.observe(&code, |_, _, cx| cx.notify()).detach();
         if let Some(path) = start {
             this.open_repo(path, None, cx);
         }
         Self::start_watching(this.on_screen.clone(), cx);
         cx.subscribe(&this.review, Self::review_event).detach();
-        cx.observe(&this.code, |_, _, cx| cx.notify()).detach();
         cx.observe_window_activation(window, |this, window, cx| {
             if window.is_window_active() {
                 this.window_activated(cx);
@@ -2119,7 +2119,6 @@ impl Workspace {
                             this.find.reset();
                         }
                         if this.root.as_ref() != Some(&root) {
-                            this.code.update(cx, |c, _| c.code = Default::default());
                             this.comments = crate::review::load(&project);
                             this.agent_notes = crate::notes::load(&project);
                             this.answers_stamp = None;
@@ -2134,11 +2133,12 @@ impl Workspace {
                             .update(cx, |rv, _| rv.page.load(&crate::review::key(&root)));
                         // Its requests list's folds and the requests opened (#81).
                         this.roots.load(&crate::review::key(&root));
-                        // Code's pinned tabs (#20).
-                        this.code.update(cx, |c, _| {
-                            c.code.load_pins(&crate::review::key(&root));
-                            (c.root, c.plain) = (Some(root.clone()), false);
-                        });
+                        // Code's project, its pinned tabs (#20).
+                        if let Some(code) = this.code() {
+                            let fresh = this.root.as_ref() != Some(&root);
+                            let key = crate::review::key(&root);
+                            code.set_project(root.clone(), false, fresh, &key, cx);
+                        }
                         this.review.update(cx, |rv, _| rv.root = Some(root.clone()));
                         this.root = Some(root);
                         // Once the root is this repository's: it reads whether fetch is off for it (#141).
@@ -2187,7 +2187,6 @@ impl Workspace {
         self.project = Some(root.clone());
         if self.root.as_ref() != Some(&root) {
             self.find.reset();
-            self.code.update(cx, |c, _| c.code = Default::default());
             self.comments = crate::review::load(&root);
             self.answers_stamp = None;
             self.marks_stamp = None;
@@ -2200,10 +2199,10 @@ impl Workspace {
         self.review
             .update(cx, |rv, _| rv.page.load(&crate::review::key(&root)));
         self.roots.load(&crate::review::key(&root));
-        self.code.update(cx, |c, _| {
-            c.code.load_pins(&crate::review::key(&root));
-            (c.root, c.plain) = (Some(root.clone()), true);
-        });
+        if let Some(code) = self.code() {
+            let fresh = self.root.as_ref() != Some(&root);
+            code.set_project(root.clone(), true, fresh, &crate::review::key(&root), cx);
+        }
         self.review.update(cx, |rv, _| rv.root = Some(root.clone()));
         self.root = Some(root);
         self.branches.clear();

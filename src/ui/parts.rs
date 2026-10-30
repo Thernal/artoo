@@ -10,16 +10,17 @@ use super::tools::Tool;
 use super::zones::Zone;
 use super::{Workspace, motion, px};
 use artoo_core::route::Route;
-use artoo_shell_api::{Frame, MenuItem, Overlay, Pages, Places, Run, Section};
+use artoo_shell_api::{Frame, MenuItem, Overlay, Pages, Places, Run, Section, Services};
 use artoo_ui_kit::markdown::Selecting;
 use gpui::{
     AnyView, App, Context, Div, KeyDownEvent, Pixels, Point, SharedString, WeakEntity, Window, div,
     prelude::*,
 };
+use std::rc::Rc;
 
 /// A tab as its parts reach it. What it changes waits until the update under way is over: a part asks from
 /// its own update, and the tab may be what called it.
-pub(super) struct TabFrame(pub WeakEntity<Workspace>);
+pub(super) struct TabFrame(pub WeakEntity<Workspace>, pub Rc<Services>);
 
 impl TabFrame {
     fn later(
@@ -126,6 +127,10 @@ impl Frame for TabFrame {
                 this.show(space, None, cx);
             }
         });
+    }
+
+    fn services(&self) -> Rc<Services> {
+        self.1.clone()
     }
 
     fn remember(&self, route: Route, cx: &mut App) {

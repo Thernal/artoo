@@ -11,7 +11,9 @@
 //!   own through the `Frame` like any other.
 //! - **`Frame`**: what a part asks of its tab: a toast, the error line, a redraw, the text selection, the places
 //!   it has open, its tool window opened or closed, a menu at the pointer, the narrow tab's drawer closed, a
-//!   route opened (or a space's own page), a route kept among the places opened lately.
+//!   route opened (or a space's own page), a route kept among the places opened lately, the tab's services.
+//! - **`Services`**: what the features of a tab offer one another — a contract's handle (`Rc<dyn Code>`), by its
+//!   type —, set by the feature that makes it as its parts are made, read by the others when they use it.
 //!
 //! What a `Frame` changes waits until the update under way is over, so a part asks for it from anywhere. What it
 //! reads needs the tab free: the shell calls a part's hooks (`key`, `close`, `poll`, `opened`, the snapshot views)
@@ -22,7 +24,9 @@ use artoo_core::git::WebRemote;
 use artoo_core::route::Route;
 use artoo_ui_kit::markdown::Selecting;
 use gpui::{AnyElement, AnyView, App, Global, KeyDownEvent, Pixels, Point, SharedString, Window};
-use std::cell::Cell;
+use std::any::{Any, TypeId};
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -89,6 +93,31 @@ pub trait Frame {
 
     /// Route `route` kept first among the places opened lately (⌘K lists them).
     fn remember(&self, route: Route, cx: &mut App);
+
+    /// What the tab's features offer one another.
+    fn services(&self) -> Rc<Services>;
+}
+
+/// What the features of one tab offer one another, by type: a contract's handle, `Rc<dyn …>`.
+#[derive(Default)]
+pub struct Services(RefCell<HashMap<TypeId, Box<dyn Any>>>);
+
+impl Services {
+    /// `handle` offered, in place of the one of its type there was.
+    pub fn set<T: Clone + 'static>(&self, handle: T) {
+        self.0
+            .borrow_mut()
+            .insert(TypeId::of::<T>(), Box::new(handle));
+    }
+
+    /// The handle of type `T`, when a feature offers one.
+    pub fn get<T: Clone + 'static>(&self) -> Option<T> {
+        self.0
+            .borrow()
+            .get(&TypeId::of::<T>())?
+            .downcast_ref()
+            .cloned()
+    }
 }
 
 /// An item of a menu a part opens (`Frame::menu`).
@@ -287,4 +316,31 @@ pub fn make_parts(frame: Rc<dyn Frame>, window: &mut Window, cx: &mut App) -> Ve
         .iter()
         .map(|make| make(frame.clone(), window, cx))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    trait Greeting {
+        fn hello(&self) -> &'static str;
+    }
+
+    struct En;
+
+    impl Greeting for En {
+        fn hello(&self) -> &'static str {
+            "hello"
+        }
+    }
+
+    #[test]
+    fn a_service_is_found_by_its_handles_type() {
+        let services = Services::default();
+        assert!(services.get::<Rc<dyn Greeting>>().is_none());
+        services.set::<Rc<dyn Greeting>>(Rc::new(En));
+        let greeting = services.get::<Rc<dyn Greeting>>().unwrap();
+        assert_eq!(greeting.hello(), "hello");
+        assert!(services.get::<Rc<En>>().is_none());
+    }
 }

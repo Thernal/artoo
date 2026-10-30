@@ -1,30 +1,12 @@
 //! The app's pages as routes (#165 stage 4, `artoo_core::route`): a kind and its fields for each, which
-//! `nav.txt` keeps. Each type moves to its owner's contract when its pages move out of the app.
+//! `nav.txt` keeps. Each type moves to its owner's contract when its pages move out of the app; Code's are in
+//! `artoo-code-api`.
 
 use super::nav::Page;
+use artoo_code_api::{FileRoute, FolderRoute};
 use artoo_core::route::{Place, Route};
 use git2::Oid;
 use serde::{Deserialize, Serialize};
-
-/// A file read in Code.
-#[derive(Serialize, Deserialize)]
-pub(crate) struct FileRoute {
-    pub path: String,
-}
-
-impl Place for FileRoute {
-    const KIND: &'static str = "code.file";
-}
-
-/// A folder of the project in Code.
-#[derive(Serialize, Deserialize)]
-pub(crate) struct FolderRoute {
-    pub path: String,
-}
-
-impl Place for FolderRoute {
-    const KIND: &'static str = "code.folder";
-}
 
 /// A branch, by its refname.
 #[derive(Serialize, Deserialize)]

@@ -541,7 +541,8 @@ impl Workspace {
     /// A note for the agent on folder `path` of Code (#97): kept on the path with a slash and no
     /// line, written on the folder's page.
     pub(super) fn start_folder_comment(&mut self, path: &str, cx: &mut Context<Self>) {
-        let at = match &self.code.read(cx).code.rev {
+        let rev = self.code().and_then(|c| c.revision(cx));
+        let at = match &rev {
             Some((_, id)) => super::format::short(*id),
             None => "working tree".to_owned(),
         };
@@ -559,7 +560,7 @@ impl Workspace {
             pick: 0,
             closed: None,
             page: None,
-            file: Some(self.code.read(cx).code.at()),
+            file: Some(rev.map(|(_, id)| id)),
             answers: None,
         });
         self.take_keyboard(Input::Compose, cx);

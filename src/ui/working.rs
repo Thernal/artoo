@@ -109,7 +109,8 @@ impl Workspace {
             self.read_tree_files(cx);
         }
         // Code's tree of the working tree follows it (#75).
-        if self.nav.space == super::spaces::Space::Code && self.code.read(cx).code.at().is_none() {
+        let working = self.code().is_some_and(|c| c.revision(cx).is_none());
+        if self.nav.space == super::spaces::Space::Code && working {
             self.read_code_files(true, cx);
         }
         if self.selection == Selection::WorkingTree {

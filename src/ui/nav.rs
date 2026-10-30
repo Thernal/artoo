@@ -1054,8 +1054,7 @@ impl Workspace {
             return;
         }
         match self.nav_page().cloned() {
-            Some(Page::File(path)) => self.close_code_tab(&path, cx),
-            Some(Page::Folder(path)) => self.close_code_tab(&super::code::folder_tab(&path), cx),
+            Some(Page::File(_) | Page::Folder(_)) => self.close_code_tab(cx),
             Some(page) => match page.item() {
                 Some(item) => self.close_open(&item, cx),
                 None => self.go_up(cx),
