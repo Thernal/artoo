@@ -350,18 +350,18 @@ impl Workspace {
             return;
         };
         let host = super::host_of(&remote, cx);
-        if !self.requests.available {
+        if !self.requests.read(cx).available {
             self.notices.list.clear();
             return;
         }
         self.notices.load_seen();
         self.notices.load_read(&remote.base);
         let base = remote.base.clone();
-        let requests = self.requests.list.clone();
+        let requests = self.requests.read(cx).list.clone();
         let seen = self.notices.seen.clone();
         let known = self.notices.known_resolved.clone();
         let cache = self.notices.cache.clone();
-        let tick = self.requests.waiting.tick();
+        let tick = self.requests.read(cx).waiting.tick();
         self.notices.task = Some(cx.spawn(async move |this, cx| {
             let found = cx
                 .background_executor()
@@ -458,12 +458,12 @@ impl Workspace {
                         .from
                         .retain(|iid, _| notices.cache.contains_key(iid));
                     notices.shown.clear();
-                    this.settle_waiting();
+                    this.settle_waiting(cx);
                     let iids: Vec<u64> = this.notices.cache.keys().copied().collect();
-                    let me = this.requests.login.clone().unwrap_or_default();
+                    let me = this.requests.read(cx).login.clone().unwrap_or_default();
                     for iid in iids {
                         this.notices
-                            .show(iid, &this.requests.waiting, (&this.me, &me));
+                            .show(iid, &this.requests.read(cx).waiting, (&this.me, &me));
                     }
                     if complete {
                         let before = this.notices.read.len();

@@ -299,7 +299,7 @@ impl Workspace {
                 (c.path.clone(), c.old, c.line, c.body.clone())
             }
             Change::Note { thread, note } => {
-                let Some(t) = self.requests.threads.get(thread) else {
+                let Some(t) = self.requests.read(cx).threads.get(thread) else {
                     return;
                 };
                 let Some(n) = t
@@ -310,7 +310,7 @@ impl Workspace {
                     return;
                 };
                 self.thread_at = Some(thread);
-                if !self.mr_open(thread) {
+                if !self.mr_open(thread, cx) {
                     self.toggled_mr.insert(thread);
                 }
                 let old = t.new_line.is_none();
@@ -386,9 +386,10 @@ impl Workspace {
                 cx.notify();
             }
             Change::Note { thread, note } => {
-                let (Some(t), Some(iid)) =
-                    (self.requests.threads.get(thread), self.requests.current)
-                else {
+                let (Some(t), Some(iid)) = (
+                    self.requests.read(cx).threads.get(thread),
+                    self.requests.read(cx).current,
+                ) else {
                     return;
                 };
                 let id = t.id.clone();
@@ -555,7 +556,7 @@ impl Workspace {
                 Some(rev) => rev.map(|id| id.to_string()),
                 None => self.review.read(cx).shown_head().map(|id| id.to_string()),
             },
-            branch: self.page_branch(),
+            branch: self.page_branch(cx),
             answers: compose.answers,
             ..Default::default()
         });
@@ -589,7 +590,7 @@ impl Workspace {
             }
             return self.add_comment(cx);
         }
-        if let Some((at, choices)) = self.compose_completion()
+        if let Some((at, choices)) = self.compose_completion(cx)
             && let Some(changed) = self
                 .compose
                 .as_mut()
@@ -658,9 +659,12 @@ impl Workspace {
     }
 
     /// The list for the token being typed in the composer, if one is open.
-    pub(super) fn compose_completion(&self) -> Option<(usize, Vec<super::complete::Choice>)> {
+    pub(super) fn compose_completion(
+        &self,
+        cx: &App,
+    ) -> Option<(usize, Vec<super::complete::Choice>)> {
         let c = self.compose.as_ref().filter(|c| !c.preview)?;
-        self.completion(c.edit.text(), c.edit.caret(), c.closed)
+        self.completion(c.edit.text(), c.edit.caret(), c.closed, cx)
     }
 
     /// ↑ ↓ and ⌘← ⌘→ (⇧ selecting) in a wrapped field — the composer, a review's summary, a
@@ -860,7 +864,7 @@ impl Workspace {
         let audience = match compose.target {
             Target::Request(iid) => format!("Everyone on !{iid}"),
             // The chat it will go to, by its page's branch (#77).
-            Target::Agent => match self.route_of(self.page_branch().as_deref()) {
+            Target::Agent => match self.route_of(self.page_branch(cx).as_deref()) {
                 Some(chat) if !chat.title.is_empty() => format!("To: {}", chat.title),
                 Some(chat) => format!("To: {}", chat.agent),
                 None => "Your agent".to_owned(),
@@ -1289,7 +1293,7 @@ impl Workspace {
             lines: (self.submit.is_none() && self.newreq.is_none())
                 .then(|| self.field_lines.clone()),
             completion: self
-                .compose_completion()
+                .compose_completion(cx)
                 .filter(|_| live)
                 .map(|(_, choices)| super::complete::render_list(&choices, compose.pick)),
             // Its own width decides its buttons' (`compose_narrow`).

@@ -424,11 +424,11 @@ impl Workspace {
             },
             None => (false, String::new()),
         };
-        let requests = crate::rank::rank(self.requests.list.iter(), query, |m| &m.title)
+        let requests = crate::rank::rank(self.requests.read(cx).list.iter(), query, |m| &m.title)
             .into_iter()
             .chain(
                 // `!12` or a branch name finds a request too.
-                self.requests.list.iter().filter(|m| {
+                self.requests.read(cx).list.iter().filter(|m| {
                     let q = query.trim().trim_start_matches('!');
                     !q.is_empty()
                         && (m.iid.to_string() == q || crate::rank::word_matches(q, &m.source))
@@ -712,6 +712,7 @@ impl Workspace {
             Scope::Requests => {
                 let number = query.trim_start_matches(['!', '#']);
                 self.requests
+                    .read(cx)
                     .list
                     .iter()
                     .filter(|m| {
@@ -1061,6 +1062,7 @@ impl Workspace {
             let number = rest.trim_start_matches(['!', '#']);
             items.extend(
                 self.requests
+                    .read(cx)
                     .list
                     .iter()
                     .filter(|m| matches(&words, &m.title) || m.iid.to_string() == number)

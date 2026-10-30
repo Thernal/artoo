@@ -9,7 +9,9 @@ use super::hover::CutInTip;
 use super::nav::{Item, Page, Section};
 use super::{Workspace, format, icons, island, markdown, plural, px, theme, words};
 use crate::mr::{Details, Mr, MrState};
-use gpui::{AnyElement, ClickEvent, Context, Div, FontWeight, Rgba, SharedString, div, prelude::*};
+use gpui::{
+    AnyElement, App, ClickEvent, Context, Div, FontWeight, Rgba, SharedString, div, prelude::*,
+};
 
 /// Overview's column beside the description, and the least height it keeps when the
 /// description is short.
@@ -18,19 +20,20 @@ const SIDE_MIN: f32 = 320.;
 
 impl Workspace {
     /// The request of the page on screen, once it is the one loaded.
-    fn page_request(&self) -> Option<&Mr> {
+    fn page_request<'a>(&self, cx: &'a App) -> Option<&'a Mr> {
         let Some(Item::Request(iid)) = self.nav_page()?.item() else {
             return None;
         };
         self.requests
+            .read(cx)
             .find(iid)
-            .filter(|_| self.requests.current == Some(iid))
+            .filter(|_| self.requests.read(cx).current == Some(iid))
     }
 
     /// An item's Overview or Commits under its bar, the tool window beside it: a request's, or a
     /// branch's Commits (#74).
     pub(super) fn render_tab_page(&self, tab: Section, cx: &mut Context<Self>) -> Div {
-        let body = match (self.page_request(), tab) {
+        let body = match (self.page_request(cx).cloned(), tab) {
             _ if matches!(self.nav_page(), Some(Page::Branch(_))) => {
                 let line = self
                     .render_branch_line(cx)
@@ -52,8 +55,8 @@ impl Workspace {
                 .py(px(26.))
                 .child(super::roots::skeleton("request-loading", 4))
                 .into_any_element(),
-            (Some(m), Section::Overview) => self.render_overview(m, cx),
-            (Some(m), _) => self.render_commits_tab(m, cx),
+            (Some(m), Section::Overview) => self.render_overview(&m, cx),
+            (Some(m), _) => self.render_commits_tab(&m, cx),
         };
         div()
             .relative()
@@ -66,7 +69,7 @@ impl Workspace {
 
     /// Overview: the identity and its facts, then the description beside the facts column.
     fn render_overview(&self, m: &Mr, cx: &mut Context<Self>) -> AnyElement {
-        let d = self.requests.details.clone().unwrap_or_default();
+        let d = self.requests.read(cx).details.clone().unwrap_or_default();
         // The list's own copy until the request's details are in.
         let text = if d.description.trim().is_empty() {
             &m.description
@@ -136,7 +139,7 @@ impl Workspace {
                                     .flex_col()
                                     .gap(px(20.))
                                     .text_size(px(12.))
-                                    .children(self.overview_facts(&d)),
+                                    .children(self.overview_facts(&d, cx)),
                             ),
                     ),
             )
@@ -149,10 +152,11 @@ impl Workspace {
         let url = m.url.clone();
         let mine = self
             .requests
+            .read(cx)
             .login
             .as_deref()
             .is_some_and(|me| me == m.author_login);
-        let pipeline = self.requests.pipeline.as_ref().map_or_else(
+        let pipeline = self.requests.read(cx).pipeline.as_ref().map_or_else(
             || faint("—").into_any_element(),
             |p| {
                 let (glyph, word, color) = super::requests::pipeline_word(p);
@@ -162,7 +166,7 @@ impl Workspace {
                     .into_any_element()
             },
         );
-        let approvals = match &self.requests.approvals {
+        let approvals = match &self.requests.read(cx).approvals {
             Some(a) if a.required > 0 => {
                 format!("{} of {}", a.required - a.left.min(a.required), a.required)
             }
@@ -289,7 +293,9 @@ impl Workspace {
                     .child(fact(
                         "Approvals",
                         div()
-                            .when(self.approval_waits(), |s| s.opacity(super::waiting::FADED))
+                            .when(self.approval_waits(cx), |s| {
+                                s.opacity(super::waiting::FADED)
+                            })
                             .child(approvals)
                             .into_any_element(),
                     ))
@@ -300,9 +306,10 @@ impl Workspace {
 
     /// Overview's column: who reviews and how far (#137; the discussions are the Discussions
     /// window's).
-    fn overview_facts(&self, d: &Details) -> Vec<AnyElement> {
+    fn overview_facts(&self, d: &Details, cx: &App) -> Vec<AnyElement> {
         let approved = self
             .requests
+            .read(cx)
             .approvals
             .as_ref()
             .map(|a| a.by.clone())
@@ -329,7 +336,7 @@ impl Workspace {
                     } else {
                         ("reviewing", theme::muted())
                     };
-                    let login = self.login_of(&r);
+                    let login = self.login_of(&r, cx);
                     person(r, login, Some(state)).into_any_element()
                 }),
             )
@@ -523,8 +530,9 @@ impl Workspace {
         let at = self.page_section()?;
         let (loaded, files) = match self.nav_page()?.item()? {
             Item::Request(iid) => (
-                self.requests.current == Some(iid),
+                self.requests.read(cx).current == Some(iid),
                 self.requests
+                    .read(cx)
                     .files
                     .filter(|(of, _)| *of == iid)
                     .map(|(_, n)| n),
@@ -627,10 +635,11 @@ impl Workspace {
     pub(super) fn render_request_line(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let m = self
             .requests
+            .read(cx)
             .current
             .filter(|_| self.showing_request(cx))
-            .and_then(|iid| self.requests.find(iid))?;
-        Some(self.request_line(m, cx).into_any_element())
+            .and_then(|iid| self.requests.read(cx).find(iid).cloned())?;
+        Some(self.request_line(&m, cx).into_any_element())
     }
 
     fn request_line(&self, m: &Mr, cx: &mut Context<Self>) -> Div {
@@ -659,7 +668,7 @@ impl Workspace {
                     cx.entity().downgrade(),
                     cx,
                 );
-                match self.request_tip(m.iid) {
+                match self.request_tip(m.iid, cx) {
                     Some(tip) => div()
                         .id("request-line-title")
                         .min_w_0()

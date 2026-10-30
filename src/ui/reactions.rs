@@ -9,7 +9,7 @@
 
 use super::{ROW_RADIUS, Workspace, px, theme};
 use crate::{emoji, mr, storage};
-use gpui::{AnyElement, Context, Rgba, WeakEntity, div, prelude::*};
+use gpui::{AnyElement, App, Context, Rgba, WeakEntity, div, prelude::*};
 use std::borrow::Cow;
 use std::ops::Range;
 use std::rc::Rc;
@@ -26,12 +26,13 @@ const DEFAULT_FIVE: [&str; 5] = ["thumbsup", "heart", "tada", "eyes", "rocket"];
 impl Workspace {
     /// Reads the reactions on every note of the open request, in the background.
     pub(super) fn load_awards(&mut self, cx: &mut Context<Self>) {
-        let (Some(remote), Some(iid)) = (self.web.clone(), self.requests.current) else {
+        let (Some(remote), Some(iid)) = (self.web.clone(), self.requests.read(cx).current) else {
             return;
         };
         let host = super::host_of(&remote, cx);
         let notes: Vec<(u64, bool)> = self
             .requests
+            .read(cx)
             .threads
             .iter()
             .flat_map(|t| {
@@ -39,17 +40,17 @@ impl Workspace {
                 t.notes.iter().map(move |n| (n.id, issue))
             })
             .collect();
-        self.requests.award_task = Some(cx.spawn(async move |this, cx| {
+        let task = Some(cx.spawn(async move |this, cx| {
             let awards = cx
                 .background_executor()
                 .spawn(async move { host.awards(iid, &notes) })
                 .await;
             this.update(cx, |this, cx| {
-                if this.requests.current == Some(iid)
+                if this.requests.read(cx).current == Some(iid)
                     && let Ok(mut awards) = awards
                 {
                     // One's own still on its way stays (#139).
-                    for (note, list) in &this.requests.awards {
+                    for (note, list) in &this.requests.read(cx).awards {
                         for a in list.iter().filter(|a| a.id == 0) {
                             let fresh = awards.entry(*note).or_default();
                             if !fresh.iter().any(|f| f.name == a.name && f.user == a.user) {
@@ -57,13 +58,14 @@ impl Workspace {
                             }
                         }
                     }
-                    this.requests.awards = awards;
+                    this.requests.update(cx, |rq, _| rq.awards = awards);
                     this.refresh_rows(cx);
                     cx.notify();
                 }
             })
             .ok();
         }));
+        self.requests.update(cx, |rq, _| rq.award_task = task);
     }
 
     /// Your five most used reactions (GitHub: from its eight).
@@ -114,36 +116,45 @@ impl Workspace {
     pub(super) fn toggle_reaction(&mut self, note: u64, name: &str, cx: &mut Context<Self>) {
         // A pill added pops in (#56, 11).
         self.mark_motion(&format!("award-{note}-{name}"), cx);
-        let (Some(remote), Some(iid)) = (self.web.clone(), self.requests.current) else {
+        let (Some(remote), Some(iid)) = (self.web.clone(), self.requests.read(cx).current) else {
             return;
         };
         let host = super::host_of(&remote, cx);
-        let me = self.requests.login.clone().unwrap_or_default();
+        let me = self.requests.read(cx).login.clone().unwrap_or_default();
         let issue = self
             .requests
+            .read(cx)
             .threads
             .iter()
             .find(|t| t.notes.iter().any(|n| n.id == note))
             .is_some_and(|t| t.id.starts_with("issue|"));
-        let list = self.requests.awards.entry(note).or_default();
         let name = name.to_owned();
-        let mine = list.iter().position(|a| a.name == name && a.user == me);
-        // Shown at once; a failure puts it back and says why.
-        let undo = list.clone();
-        match mine {
-            Some(at) => {
-                let award = list.remove(at);
+        let (undo, removed) = self.requests.update(cx, |rq, _| {
+            let list = rq.awards.entry(note).or_default();
+            let mine = list.iter().position(|a| a.name == name && a.user == me);
+            // Shown at once; a failure puts it back and says why.
+            let undo = list.clone();
+            let removed = match mine {
+                Some(at) => Some(list.remove(at)),
+                None => {
+                    list.push(mr::Award {
+                        id: 0,
+                        name: name.clone(),
+                        user: me.clone(),
+                    });
+                    None
+                }
+            };
+            (undo, removed)
+        });
+        match removed {
+            Some(award) => {
                 self.spawn_reaction(note, undo, cx, move || {
                     host.unaward(iid, note, issue, &award.name, award.id)
                         .map(|_| None)
                 });
             }
             None => {
-                list.push(mr::Award {
-                    id: 0,
-                    name: name.clone(),
-                    user: me.clone(),
-                });
                 Self::count_use(&name);
                 self.spawn_reaction(note, undo, cx, move || {
                     host.award(iid, note, issue, &name)
@@ -169,18 +180,20 @@ impl Workspace {
                 match result {
                     // The new reaction learns its id, to be taken back later.
                     Ok(Some((id, name))) => {
-                        if let Some(a) = this
-                            .requests
-                            .awards
-                            .get_mut(&note)
-                            .and_then(|l| l.iter_mut().find(|a| a.name == name && a.id == 0))
-                        {
-                            a.id = id;
-                        }
+                        this.requests.update(cx, |rq, _| {
+                            if let Some(a) = rq
+                                .awards
+                                .get_mut(&note)
+                                .and_then(|l| l.iter_mut().find(|a| a.name == name && a.id == 0))
+                            {
+                                a.id = id;
+                            }
+                        });
                     }
                     Ok(None) => {}
                     Err(e) => {
-                        this.requests.awards.insert(note, undo);
+                        this.requests
+                            .update(cx, |rq, _| rq.awards.insert(note, undo));
                         this.error = Some(format!("{e:#}").into());
                         this.refresh_rows(cx);
                     }
@@ -202,9 +215,19 @@ impl Workspace {
     }
 
     /// Under a note: its reactions as pills, one per emoji, yours outlined.
-    pub(super) fn reaction_pills(&self, note: u64, this: WeakEntity<Self>) -> Option<AnyElement> {
-        let list = self.requests.awards.get(&note).filter(|l| !l.is_empty())?;
-        let me = self.requests.login.clone().unwrap_or_default();
+    pub(super) fn reaction_pills(
+        &self,
+        note: u64,
+        this: WeakEntity<Self>,
+        cx: &App,
+    ) -> Option<AnyElement> {
+        let list = self
+            .requests
+            .read(cx)
+            .awards
+            .get(&note)
+            .filter(|l| !l.is_empty())?;
+        let me = self.requests.read(cx).login.clone().unwrap_or_default();
         let mut groups: Vec<(String, Vec<String>)> = Vec::new();
         for a in list {
             match groups.iter_mut().find(|(n, _)| *n == a.name) {
@@ -430,7 +453,13 @@ impl Workspace {
         else {
             return;
         };
-        let Some(note) = self.requests.threads.get(ix).and_then(|t| t.notes.last()) else {
+        let Some(note) = self
+            .requests
+            .read(cx)
+            .threads
+            .get(ix)
+            .and_then(|t| t.notes.last())
+        else {
             return;
         };
         self.thread_at = Some(ix);

@@ -242,7 +242,7 @@ impl Workspace {
             let mut notes: Vec<AnyElement> = Vec::new();
             if self.showing_request(cx) {
                 notes.extend(
-                    self.request_threads_in(path)
+                    self.request_threads_in(path, cx)
                         .into_iter()
                         .filter(|&(_, o, n)| here(o, n))
                         .map(|(t, _, _)| self.render_request_thread(t, 0., this.clone(), cx)),

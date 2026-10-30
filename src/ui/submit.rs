@@ -11,7 +11,7 @@ use super::typing::{self, Input};
 use super::waiting::Op;
 use super::{ROW_RADIUS, Workspace, plural, theme};
 use crate::mr;
-use gpui::{ClickEvent, Context, FontWeight, KeyDownEvent, div, prelude::*};
+use gpui::{App, ClickEvent, Context, FontWeight, KeyDownEvent, div, prelude::*};
 
 /// What the review says besides its comments.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -50,7 +50,7 @@ pub struct Submit {
 impl Workspace {
     /// ⇧⌘↵ or "Submit review": the card, on Comment.
     pub(super) fn open_submit(&mut self, cx: &mut Context<Self>) {
-        if self.requests.current.is_none() || !self.showing_request(cx) {
+        if self.requests.read(cx).current.is_none() || !self.showing_request(cx) {
             return;
         }
         self.reset_field_edit();
@@ -75,8 +75,12 @@ impl Workspace {
     }
 
     /// Whether the token's user approved the current request already.
-    fn approved_already(&self) -> bool {
-        self.requests.approvals.as_ref().is_some_and(|a| a.mine)
+    fn approved_already(&self, cx: &App) -> bool {
+        self.requests
+            .read(cx)
+            .approvals
+            .as_ref()
+            .is_some_and(|a| a.mine)
     }
 
     pub(super) fn submit_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
@@ -89,7 +93,7 @@ impl Workspace {
         }
         // `@` and `:` complete in the summary too (#51, #9).
         let mut summary = s.summary.clone();
-        if self.field_completion_key(&mut summary, key) {
+        if self.field_completion_key(&mut summary, key, cx) {
             if let Some(s) = self.submit.as_mut() {
                 s.summary = summary;
             }
@@ -129,24 +133,26 @@ impl Workspace {
     /// and the review shows, faded, until the host answers: the pending comments as discussions,
     /// the summary, the approval (#139). Refused, the card comes back saying why.
     fn run_submit(&mut self, cx: &mut Context<Self>) {
-        let Some(iid) = self.requests.current else {
+        let Some(iid) = self.requests.read(cx).current else {
             return;
         };
         let head = self
             .requests
+            .read(cx)
             .find(iid)
             .map(|m| m.head.clone())
             .unwrap_or_default();
         // One still on its way is not on the host to publish yet.
         let sent: Vec<u64> = self
             .requests
+            .read(cx)
             .drafts
             .iter()
             .map(|d| d.id)
-            .filter(|id| !super::waiting::is_temp(*id) && self.draft_waits(*id).is_none())
+            .filter(|id| !super::waiting::is_temp(*id) && self.draft_waits(*id, cx).is_none())
             .collect();
         let drafts = !sent.is_empty();
-        let approve_already = self.approved_already();
+        let approve_already = self.approved_already(cx);
         let Some(s) = self.submit.as_mut() else {
             return;
         };
@@ -160,25 +166,28 @@ impl Workspace {
         let Some(card) = self.submit.take() else {
             return;
         };
-        let w = &mut self.requests.waiting;
-        let mut ops = vec![Op::Publish(
-            sent.into_iter()
-                .map(|id| (id, w.temp_thread(), w.temp()))
-                .collect(),
-        )];
-        if !summary.is_empty() {
-            ops.push(Op::Discussion {
-                thread: w.temp_thread(),
-                note: w.temp(),
-                body: summary.clone(),
-                at: None,
-            });
-        }
+        let mut ops = self.requests.update(cx, |rq, _| {
+            let w = &mut rq.waiting;
+            let mut ops = vec![Op::Publish(
+                sent.into_iter()
+                    .map(|id| (id, w.temp_thread(), w.temp()))
+                    .collect(),
+            )];
+            if !summary.is_empty() {
+                ops.push(Op::Discussion {
+                    thread: w.temp_thread(),
+                    note: w.temp(),
+                    body: summary.clone(),
+                    at: None,
+                });
+            }
+            ops
+        });
         if verdict == Verdict::Approve && !approve_already {
             ops.push(Op::Approve { mine: true });
         }
         let refused = move |this: &mut Self, why: String, cx: &mut Context<Self>| {
-            if this.submit.is_none() && this.requests.current == Some(iid) {
+            if this.submit.is_none() && this.requests.read(cx).current == Some(iid) {
                 this.reset_field_edit();
                 this.submit = Some(Submit {
                     error: Some(why),
@@ -203,14 +212,15 @@ impl Workspace {
     /// Submit review, in the tool window while it is open.
     pub(super) fn submit_tool(&self, cx: &mut Context<Self>) -> Option<ToolView> {
         let s = self.submit.as_ref()?;
-        let iid = self.requests.current?;
+        let iid = self.requests.read(cx).current?;
         let title = self
             .requests
+            .read(cx)
             .find(iid)
             .map(|m| m.title.clone())
             .unwrap_or_default();
         // What Approve does to the approvals: "1 / 2 → 2 / 2" where rules count them.
-        let approve = match &self.requests.approvals {
+        let approve = match &self.requests.read(cx).approvals {
             Some(a) if a.mine => "approved already".to_owned(),
             Some(a) if a.required > 0 => {
                 let have = a.required.saturating_sub(a.left);
@@ -271,46 +281,52 @@ impl Workspace {
                     }
                 }))
         };
-        let pending = self.requests.drafts.iter().enumerate().map(|(ix, d)| {
-            let (place, target, old) = self.draft_where(d);
-            div()
-                .id(("submit-draft", ix))
-                .flex()
-                .items_baseline()
-                .gap_2()
-                .px(px(6.))
-                .py(px(2.))
-                .rounded(px(ROW_RADIUS))
-                .cursor_pointer()
-                .hover(|s| s.bg(theme::hover()))
-                .child(
-                    div()
-                        .flex_none()
-                        .font_family(theme::code_font())
-                        .text_size(px(11.))
-                        .text_color(theme::faint())
-                        .child(place),
-                )
-                .child(
-                    super::hover::cut("draft-line", self.draft_line(d))
-                        .flex_1()
-                        .text_size(px(12.))
-                        .text_color(theme::muted()),
-                )
-                .relative()
-                .group("submit-pending-row")
-                .children(
-                    self.send_now_chip(d.id, "submit-pending-row", cx)
-                        .map(|chip| chip.absolute().top(px(1.)).right(px(4.))),
-                )
-                // The window stays: the comment is checked in the diff beside it.
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    if let Some((path, line)) = target.clone() {
-                        this.jump_to_line(&path, line, old, cx);
-                    }
-                }))
-        });
-        let drafts = self.requests.drafts.len();
+        let pending = self
+            .requests
+            .read(cx)
+            .drafts
+            .iter()
+            .enumerate()
+            .map(|(ix, d)| {
+                let (place, target, old) = self.draft_where(d, cx);
+                div()
+                    .id(("submit-draft", ix))
+                    .flex()
+                    .items_baseline()
+                    .gap_2()
+                    .px(px(6.))
+                    .py(px(2.))
+                    .rounded(px(ROW_RADIUS))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::hover()))
+                    .child(
+                        div()
+                            .flex_none()
+                            .font_family(theme::code_font())
+                            .text_size(px(11.))
+                            .text_color(theme::faint())
+                            .child(place),
+                    )
+                    .child(
+                        super::hover::cut("draft-line", self.draft_line(d, cx))
+                            .flex_1()
+                            .text_size(px(12.))
+                            .text_color(theme::muted()),
+                    )
+                    .relative()
+                    .group("submit-pending-row")
+                    .children(
+                        self.send_now_chip(d.id, "submit-pending-row", cx)
+                            .map(|chip| chip.absolute().top(px(1.)).right(px(4.))),
+                    )
+                    // The window stays: the comment is checked in the diff beside it.
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        if let Some((path, line)) = target.clone() {
+                            this.jump_to_line(&path, line, old, cx);
+                        }
+                    }))
+            });
+        let drafts = self.requests.read(cx).drafts.len();
         let go = match s.verdict {
             Verdict::Comment => "Submit review",
             Verdict::Approve => "Submit and approve",
@@ -394,7 +410,7 @@ impl Workspace {
                     .child(field),
             )
             .children(
-                self.field_completion(&s.summary)
+                self.field_completion(&s.summary, cx)
                     .map(|(_, choices)| super::complete::render_list(&choices, self.field_pick)),
             )
             .children(s.error.clone().map(|e| {

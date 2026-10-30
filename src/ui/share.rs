@@ -42,10 +42,11 @@ impl Workspace {
     }
 
     /// Request `iid`'s page: the one the host gave, else made from the remote.
-    fn request_link(&self, web: &WebRemote, iid: u64) -> Link {
+    fn request_link(&self, web: &WebRemote, iid: u64, cx: &App) -> Link {
         Link {
             url: self
                 .requests
+                .read(cx)
                 .find(iid)
                 .map_or_else(|| web.request(iid), |m| m.url.clone()),
             what: words::number(iid),
@@ -53,8 +54,14 @@ impl Workspace {
     }
 
     /// Request `iid`'s diff: GitLab's Changes, GitHub's Files, or one commit of it.
-    fn request_diff_link(&self, web: &WebRemote, iid: u64, commit: Option<git2::Oid>) -> Link {
-        let page = self.request_link(web, iid);
+    fn request_diff_link(
+        &self,
+        web: &WebRemote,
+        iid: u64,
+        commit: Option<git2::Oid>,
+        cx: &App,
+    ) -> Link {
+        let page = self.request_link(web, iid, cx);
         let url = match (web.github, commit) {
             (true, None) => format!("{}/files", page.url),
             (true, Some(sha)) => format!("{}/commits/{sha}", page.url),
@@ -141,6 +148,7 @@ impl Workspace {
         iid: Option<u64>,
         newest: git2::Oid,
         oldest: git2::Oid,
+        cx: &App,
     ) -> Result<Link, String> {
         let range = format!("{}..{}", format::short(oldest), format::short(newest));
         if !self.pushed(newest) {
@@ -157,7 +165,7 @@ impl Workspace {
         let compare = web.compare(&before.to_string(), &newest.to_string(), true);
         Ok(match iid {
             Some(iid) => {
-                let request = self.request_link(web, iid);
+                let request = self.request_link(web, iid, cx);
                 Link {
                     url: if web.github {
                         format!("{}/files/{before}..{newest}", request.url)
@@ -177,8 +185,8 @@ impl Workspace {
     /// Versions `from` and `to` of request `iid` compared on the host: GitLab's Compare versions
     /// (the newer named by its id, the older by its head); GitHub's comparison of the two heads,
     /// as its force-push events link it.
-    fn versions_link(&self, web: &WebRemote, iid: u64, from: usize, to: usize) -> Link {
-        let request = self.request_link(web, iid);
+    fn versions_link(&self, web: &WebRemote, iid: u64, from: usize, to: usize, cx: &App) -> Link {
+        let request = self.request_link(web, iid, cx);
         let (Some(a), Some(b)) = (self.versions.get(from), self.versions.get(to)) else {
             return request;
         };
@@ -192,6 +200,7 @@ impl Workspace {
         }
         let id = self
             .requests
+            .read(cx)
             .version_ids
             .as_ref()
             .filter(|(of, _)| *of == iid)
@@ -224,7 +233,7 @@ impl Workspace {
         let web = self.web_or_why()?;
         match self.nav.space {
             Space::Inbox => match self.inbox_request() {
-                Some(iid) => Ok(self.request_link(web, iid)),
+                Some(iid) => Ok(self.request_link(web, iid, cx)),
                 None => Err("Nothing here has a link: pick a notice of a merge request".into()),
             },
             Space::Code => {
@@ -254,28 +263,32 @@ impl Workspace {
                 })
             }
             Space::Branches | Space::Requests => match self.nav_page() {
-                Some(page) => self.link_of(web, page),
+                Some(page) => self.link_of(web, page, cx),
                 None => Err("Nothing here has a link: open a branch or a merge request".into()),
             },
         }
     }
 
     /// Page `page` of Branches or Merge requests as a link.
-    fn link_of(&self, web: &WebRemote, page: &Page) -> Result<Link, String> {
+    fn link_of(&self, web: &WebRemote, page: &Page, cx: &App) -> Result<Link, String> {
         match page {
-            Page::Request(iid) => Ok(self.request_link(web, *iid)),
-            Page::RequestCommit(iid, sha) => Ok(self.request_diff_link(web, *iid, Some(*sha))),
+            Page::Request(iid) => Ok(self.request_link(web, *iid, cx)),
+            Page::RequestCommit(iid, sha) => Ok(self.request_diff_link(web, *iid, Some(*sha), cx)),
             Page::RequestCommits(iid, newest, oldest) => {
-                self.run_link(web, Some(*iid), *newest, *oldest)
+                self.run_link(web, Some(*iid), *newest, *oldest, cx)
             }
-            Page::RequestVersions(iid, from, to) => Ok(self.versions_link(web, *iid, *from, *to)),
+            Page::RequestVersions(iid, from, to) => {
+                Ok(self.versions_link(web, *iid, *from, *to, cx))
+            }
             Page::Branch(refname) => {
                 let branch = self.branches.iter().find(|b| b.refname == *refname);
                 let name = branch.map_or(refname.as_str(), |b| b.name.as_str());
                 self.branch_link(name)
             }
             Page::BranchCommit(_, sha) => self.pushed_commit_link(*sha),
-            Page::BranchCommits(_, newest, oldest) => self.run_link(web, None, *newest, *oldest),
+            Page::BranchCommits(_, newest, oldest) => {
+                self.run_link(web, None, *newest, *oldest, cx)
+            }
             // What the branch was before a rewrite is this Mac's alone: the host keeps the newest.
             Page::Versions(..) => {
                 Err("A branch's earlier versions are only on this Mac: no link".into())
@@ -324,7 +337,7 @@ impl Workspace {
         let Some(web) = self.web.clone() else {
             return;
         };
-        let link = self.request_link(&web, iid);
+        let link = self.request_link(&web, iid, cx);
         let number = link.what.clone();
         let url = link.url.clone();
         let groups = vec![
@@ -385,13 +398,13 @@ impl Workspace {
     pub(super) fn diff_file_link(&self, path: &str, cx: &App) -> Option<Link> {
         let web = self.web.as_ref()?;
         let page = match self.loaded_page(cx)? {
-            Page::Request(iid) => self.request_diff_link(web, iid, None),
+            Page::Request(iid) => self.request_diff_link(web, iid, None, cx),
             page @ (Page::RequestCommit(..)
             | Page::RequestCommits(..)
             | Page::RequestVersions(..)
             | Page::BranchCommit(..)
             | Page::BranchCommits(..)
-            | Page::Compare(..)) => self.link_of(web, &page).ok()?,
+            | Page::Compare(..)) => self.link_of(web, &page, cx).ok()?,
             _ => return None,
         };
         let name = path.rsplit('/').next().unwrap_or(path);

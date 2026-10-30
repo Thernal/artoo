@@ -6,10 +6,11 @@
 
 use super::Workspace;
 pub(super) use artoo_review::complete::{Choice, Trigger, render_list, token};
+use gpui::App;
 
 impl Workspace {
     /// Who can be mentioned, the request's people first: (username, name).
-    fn people(&self) -> Vec<(String, String)> {
+    fn people(&self, cx: &App) -> Vec<(String, String)> {
         let mut out: Vec<(String, String)> = Vec::new();
         let mut add = |login: &str, name: &str| {
             if login.is_empty() {
@@ -24,24 +25,25 @@ impl Workspace {
         };
         if let Some(m) = self
             .requests
+            .read(cx)
             .current
-            .and_then(|iid| self.requests.find(iid))
+            .and_then(|iid| self.requests.read(cx).find(iid))
         {
             add(&m.author_login, &m.author);
             for r in &m.reviewers {
                 add(r, "");
             }
         }
-        for t in &self.requests.threads {
+        for t in &self.requests.read(cx).threads {
             for n in &t.notes {
                 add(&n.login, &n.author);
             }
         }
-        for (login, name) in &self.requests.members {
+        for (login, name) in &self.requests.read(cx).members {
             add(login, name);
         }
         // A name learnt later (a member) fills in one known only by login (a reviewer).
-        let members = &self.requests.members;
+        let members = &self.requests.read(cx).members;
         out.into_iter()
             .map(|(l, n)| {
                 let name = if n.is_empty() {
@@ -64,6 +66,7 @@ impl Workspace {
         text: &str,
         caret: usize,
         closed: Option<usize>,
+        cx: &App,
     ) -> Option<(usize, Vec<Choice>)> {
         let (trigger, at, query) = token(text, caret)?;
         if closed == Some(at) {
@@ -73,7 +76,7 @@ impl Workspace {
         let choices: Vec<Choice> = match trigger {
             Trigger::Person => {
                 let mut people: Vec<(String, String)> = self
-                    .people()
+                    .people(cx)
                     .into_iter()
                     // By username or name, as typed or by the starts of its words ("ko" is not
                     // enough, "kok" finds Kestrel Okafor).
@@ -92,7 +95,7 @@ impl Workspace {
             .map(|(login, name)| Choice {
                 label: if name.is_empty() { login.clone() } else { name },
                 // Greyed: GitLab sends them nothing, they cannot read the request.
-                detail: if self.requests.unreached.contains(&login) {
+                detail: if self.requests.read(cx).unreached.contains(&login) {
                     format!("@{login} · not notified")
                 } else {
                     format!("@{login}")
@@ -114,14 +117,14 @@ impl Workspace {
 
     /// The list for the token at the caret of a plain field showing `text` (the new request's
     /// description, a review's summary), if one is open.
-    pub(super) fn field_completion(&self, text: &str) -> Option<(usize, Vec<Choice>)> {
+    pub(super) fn field_completion(&self, text: &str, cx: &App) -> Option<(usize, Vec<Choice>)> {
         // Until the field is edited the shared edit holds another text: the caret is at the end.
         let caret = if self.field_edit.text() == text {
             self.field_edit.caret()
         } else {
             text.len()
         };
-        self.completion(text, caret, self.field_closed)
+        self.completion(text, caret, self.field_closed, cx)
     }
 
     /// ↑ ↓ ↵ ⇥ esc in a plain field while its list is open; whether it took the key. `text` is the
@@ -130,8 +133,9 @@ impl Workspace {
         &mut self,
         text: &mut String,
         key: &gpui::Keystroke,
+        cx: &App,
     ) -> bool {
-        let Some((at, choices)) = self.field_completion(text) else {
+        let Some((at, choices)) = self.field_completion(text, cx) else {
             return false;
         };
         if key.modifiers.number_of_modifiers() > 0 {
@@ -156,8 +160,8 @@ impl Workspace {
     }
 
     /// The username of the person called `name`, as the request and the project know them.
-    pub(super) fn login_of(&self, name: &str) -> Option<String> {
-        self.people()
+    pub(super) fn login_of(&self, name: &str, cx: &App) -> Option<String> {
+        self.people(cx)
             .into_iter()
             .find(|(l, n)| n == name || l == name)
             .map(|(l, _)| l)

@@ -106,7 +106,7 @@ impl Workspace {
             Header::Compare { head, .. } => Some(head.0.clone()),
             _ => None,
         }
-        .or_else(|| self.page_branch());
+        .or_else(|| self.page_branch(cx));
         self.agent_notes
             .iter()
             .filter(|n| match (&n.on, header) {

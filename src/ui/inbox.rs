@@ -282,7 +282,7 @@ impl Workspace {
         let (Some(root), Some(path)) = (self.root.clone(), t.path.clone()) else {
             return;
         };
-        let Some(m) = self.requests.find(n.iid) else {
+        let Some(m) = self.requests.read(cx).find(n.iid) else {
             return;
         };
         let heads: Vec<String> = t.commit.iter().cloned().chain([m.head.clone()]).collect();
@@ -913,9 +913,9 @@ impl Workspace {
     /// The selected notice: its request, the code, the discussion, the reply.
     fn render_inbox_preview(&self, n: &Notice, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let ix = self.notices.at;
-        let mr = self.requests.find(n.iid);
+        let mr = self.requests.read(cx).find(n.iid);
         let thread = self.inbox_thread(n);
-        let me = self.requests.login.as_deref().unwrap_or_default();
+        let me = self.requests.read(cx).login.as_deref().unwrap_or_default();
         let props = div()
             .flex()
             .flex_wrap()
@@ -971,7 +971,11 @@ impl Workspace {
                 let notes = t.notes.iter().enumerate().map(|(i, note)| {
                     // Sent from here or the diff: faded until the host answers; the read after it is
                     // the Inbox's next look (#139).
-                    let waits = self.requests.waiting.note(n.iid, u64::MAX, note.id);
+                    let waits = self
+                        .requests
+                        .read(cx)
+                        .waiting
+                        .note(n.iid, u64::MAX, note.id);
                     discussion::note(
                         &note.author,
                         note.login == me,
@@ -994,6 +998,7 @@ impl Workspace {
                 let (iid, id, resolved) = (n.iid, t.id.clone(), t.resolved);
                 let resolving = self
                     .requests
+                    .read(cx)
                     .waiting
                     .thread(iid, u64::MAX, &id)
                     .filter(|_| t.resolvable);

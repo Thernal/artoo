@@ -147,7 +147,7 @@ impl Workspace {
         let (Some(root), Some(web)) = (self.root.clone(), self.web.clone()) else {
             return;
         };
-        if !self.requests.available {
+        if !self.requests.read(cx).available {
             self.error = Some(
                 super::words::say("Needs a GitLab token: Settings → Merge requests.")
                     .into_owned()
@@ -411,6 +411,7 @@ impl Workspace {
         let (source, target) = (find(&n.source), find(&n.target));
         let existing = self
             .requests
+            .read(cx)
             .list
             .iter()
             .find(|m| m.source == n.source && m.target == n.target)
@@ -449,7 +450,8 @@ impl Workspace {
                 .unwrap_or_default(),
             _ => Vec::new(),
         };
-        let suggested = codeowners::suggest(&owners, &paths, self.requests.login.as_deref());
+        let suggested =
+            codeowners::suggest(&owners, &paths, self.requests.read(cx).login.as_deref());
         if let Some(n) = self.newreq.as_mut() {
             n.existing = existing;
             n.commits = commits;
@@ -611,7 +613,7 @@ impl Workspace {
         // `@` and `:` complete in the description (#51, #9).
         if n.focus == Focus::Description && !n.changes && !n.preview {
             let mut text = n.description.clone();
-            if self.field_completion_key(&mut text, key) {
+            if self.field_completion_key(&mut text, key, cx) {
                 if let Some(n) = self.newreq.as_mut() {
                     n.description = text;
                 }
@@ -784,7 +786,7 @@ impl Workspace {
                         // Created: an agent's draft for the branch is done with (#152).
                         this.agent_requests
                             .retain(|(_, d)| d.source != request.source);
-                        this.requests.list.insert(0, request);
+                        this.requests.update(cx, |rq, _| rq.list.insert(0, request));
                         this.layout.show_sidebar = true;
                         this.select_request(iid, cx);
                     }
@@ -1401,7 +1403,7 @@ impl Workspace {
         let source_list = self.render_branch_list(n, true, cx);
         let target_list = self.render_branch_list(n, false, cx);
         let completion = (n.focus == Focus::Description && !n.preview)
-            .then(|| self.field_completion(&n.description))
+            .then(|| self.field_completion(&n.description, cx))
             .flatten()
             .map(|(_, choices)| super::complete::render_list(&choices, self.field_pick));
         let label = |text: &'static str| {
@@ -2015,9 +2017,12 @@ impl Workspace {
                                 cx.entity().downgrade(),
                             )),
                     )
-                    .children(self.field_completion(&n.description).map(|(_, choices)| {
-                        super::complete::render_list(&choices, self.field_pick)
-                    }))
+                    .children(
+                        self.field_completion(&n.description, cx)
+                            .map(|(_, choices)| {
+                                super::complete::render_list(&choices, self.field_pick)
+                            }),
+                    )
                     .into_any_element(),
             ),
         };

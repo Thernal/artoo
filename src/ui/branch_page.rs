@@ -111,7 +111,7 @@ impl Workspace {
         };
         let request = self
             .branch
-            .and_then(|ix| self.request_of_branch(ix))
+            .and_then(|ix| self.request_of_branch(ix, cx))
             .map_or_else(|| "none yet".to_owned(), |m| super::words::number(m.iid));
         let fact = |label: String, value: String| {
             div()

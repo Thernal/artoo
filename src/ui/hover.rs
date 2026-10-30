@@ -414,9 +414,11 @@ impl Workspace {
         name: &str,
         login: &str,
         ws: WeakEntity<Workspace>,
+        cx: &App,
     ) -> PersonCard {
         let login = if login.is_empty() {
             self.requests
+                .read(cx)
                 .members
                 .iter()
                 .find(|(_, n)| n == name)
@@ -427,10 +429,12 @@ impl Workspace {
         };
         let m = self
             .requests
+            .read(cx)
             .current
-            .and_then(|iid| self.requests.find(iid));
+            .and_then(|iid| self.requests.read(cx).find(iid));
         let approved = self
             .requests
+            .read(cx)
             .approvals
             .as_ref()
             .is_some_and(|a| a.by.iter().any(|b| b == name));
@@ -458,6 +462,7 @@ impl Workspace {
         let wrote = m
             .and_then(|_| {
                 self.requests
+                    .read(cx)
                     .threads
                     .iter()
                     .flat_map(|t| &t.notes)
@@ -495,6 +500,7 @@ impl Workspace {
     pub(super) fn branch_card(
         &self,
         ix: usize,
+        cx: &App,
     ) -> Option<impl Fn(&mut Window, &mut App) -> AnyView + 'static> {
         let b = self.branches.get(ix)?;
         let (root, name, tip) = (self.root.clone()?, b.name.clone(), b.tip);
@@ -504,7 +510,7 @@ impl Workspace {
             .get(&b.refname)
             .and_then(|f| f.against.clone());
         let request = self
-            .request_of_branch(ix)
+            .request_of_branch(ix, cx)
             .map(|m| format!("{} {}", super::words::number(m.iid), m.title));
         Some(move |_: &mut Window, cx: &mut App| {
             let repo = crate::git::Repo::open(&root).ok();
@@ -566,11 +572,12 @@ impl Workspace {
         };
         let name = self
             .requests
+            .read(cx)
             .members
             .iter()
             .find(|(l, _)| *l == login)
             .map_or_else(|| login.clone(), |(_, n)| n.clone());
-        let card = self.person_card(&name, &login, cx.entity().downgrade());
+        let card = self.person_card(&name, &login, cx.entity().downgrade(), cx);
         let view: AnyView = cx.new(|_| card).into();
         if let Some(h) = &mut self.mention_hover {
             h.card = Some(view);

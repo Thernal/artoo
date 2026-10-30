@@ -17,9 +17,9 @@ use gpui::{App, ClickEvent, Context, FontWeight, SharedString, WeakEntity, div, 
 impl Workspace {
     /// The list shows the merged or the closed requests, or the open ones again (#114).
     pub(super) fn set_request_view(&mut self, state: mr::MrState, cx: &mut Context<Self>) {
-        self.requests.view = state;
+        self.requests.update(cx, |rq, _| rq.view = state);
         self.nav.pick_request = None;
-        if state != mr::MrState::Opened && self.requests.past.of != state {
+        if state != mr::MrState::Opened && self.requests.read(cx).past.of != state {
             // Every scope's first page at once: the chips count them all.
             let mut past = Past {
                 of: state,
@@ -28,7 +28,7 @@ impl Workspace {
             for pages in &mut past.scopes {
                 pages.more = true;
             }
-            self.requests.past = past;
+            self.requests.update(cx, |rq, _| rq.past = past);
             for scope in [Scope::All, Scope::ReviewMe, Scope::Mine] {
                 self.load_past_page(scope, cx);
             }
@@ -39,8 +39,8 @@ impl Workspace {
     /// The next page of `scope`'s merged or closed requests, unless one is on its way or none
     /// follows.
     pub(super) fn load_past_page(&mut self, scope: Scope, cx: &mut Context<Self>) {
-        let state = self.requests.past.of;
-        let login = self.requests.login.clone();
+        let state = self.requests.read(cx).past.of;
+        let login = self.requests.read(cx).login.clone();
         let whose = match (scope, login) {
             (Scope::All, _) => Some(mr::Whose::All),
             (Scope::ReviewMe, Some(login)) => Some(mr::Whose::Reviewer(login)),
@@ -52,52 +52,62 @@ impl Workspace {
             return;
         };
         let host = super::host_of(&remote, cx);
-        let pages = self.requests.past.of_scope_mut(scope);
-        if pages.loading || !pages.more || state == mr::MrState::Opened {
+        let Some(at) = self.requests.update(cx, |rq, _| {
+            let pages = rq.past.of_scope_mut(scope);
+            if pages.loading || !pages.more || state == mr::MrState::Opened {
+                return None;
+            }
+            pages.loading = true;
+            Some(pages.at.clone())
+        }) else {
             return;
-        }
-        pages.loading = true;
-        let at = pages.at.clone();
-        pages.task = Some(cx.spawn(async move |this, cx| {
+        };
+        let task = cx.spawn(async move |this, cx| {
             let read = cx
                 .background_executor()
                 .spawn(async move { host.list_past(state, &whose, at.as_deref()) })
                 .await;
             this.update(cx, |this, cx| {
-                if this.requests.past.of != state {
+                if this.requests.read(cx).past.of != state {
                     return;
                 }
-                let pages = this.requests.past.of_scope_mut(scope);
-                pages.loading = false;
-                match read {
-                    Ok(page) => {
-                        pages.more = page.next.is_some();
-                        pages.at = page.next;
-                        pages.total = page.total.or(pages.total);
-                        pages.error = None;
-                        let known: std::collections::HashSet<u64> =
-                            pages.list.iter().map(|m| m.iid).collect();
-                        pages
-                            .list
-                            .extend(page.list.into_iter().filter(|m| !known.contains(&m.iid)));
+                this.requests.update(cx, |rq, _| {
+                    let pages = rq.past.of_scope_mut(scope);
+                    pages.loading = false;
+                    match read {
+                        Ok(page) => {
+                            pages.more = page.next.is_some();
+                            pages.at = page.next;
+                            pages.total = page.total.or(pages.total);
+                            pages.error = None;
+                            let known: std::collections::HashSet<u64> =
+                                pages.list.iter().map(|m| m.iid).collect();
+                            pages
+                                .list
+                                .extend(page.list.into_iter().filter(|m| !known.contains(&m.iid)));
+                        }
+                        Err(e) => {
+                            pages.more = false;
+                            pages.error = Some(format!("{e:#}"));
+                        }
                     }
-                    Err(e) => {
-                        pages.more = false;
-                        pages.error = Some(format!("{e:#}"));
-                    }
-                }
+                });
                 cx.notify();
             })
             .ok();
-        }));
+        });
+        self.requests
+            .update(cx, |rq, _| rq.past.of_scope_mut(scope).task = Some(task));
     }
 
     /// The page of the scope shown that could not be read, again.
     pub(super) fn retry_past_page(&mut self, cx: &mut Context<Self>) {
-        let scope = self.requests.scope;
-        let pages = self.requests.past.of_scope_mut(scope);
-        pages.error = None;
-        pages.more = true;
+        let scope = self.requests.read(cx).scope;
+        self.requests.update(cx, |rq, _| {
+            let pages = rq.past.of_scope_mut(scope);
+            pages.error = None;
+            pages.more = true;
+        });
         self.load_past_page(scope, cx);
         cx.notify();
     }
@@ -107,7 +117,7 @@ impl Workspace {
     pub(super) fn read_left(&mut self, iids: Vec<u64>, cx: &mut Context<Self>) {
         let iids: Vec<u64> = iids
             .into_iter()
-            .filter(|iid| self.requests.tried.insert(*iid))
+            .filter(|iid| self.requests.update(cx, |rq, _| rq.tried.insert(*iid)))
             .collect();
         let Some(remote) = self.web.clone().filter(|_| !iids.is_empty()) else {
             return;
@@ -124,8 +134,8 @@ impl Workspace {
                 .await;
             this.update(cx, |this, cx| {
                 for m in read {
-                    if this.requests.find(m.iid).is_none() {
-                        this.requests.left.push(m);
+                    if this.requests.read(cx).find(m.iid).is_none() {
+                        this.requests.update(cx, |rq, _| rq.left.push(m));
                     }
                 }
                 this.follow_pending_link(cx);
@@ -139,31 +149,32 @@ impl Workspace {
     /// Reads the open merge requests of the repository's project, when a token is configured.
     pub(super) fn load_requests(&mut self, cx: &mut Context<Self>) {
         let Some(remote) = self.web.clone() else {
-            self.requests = Requests::default();
+            self.requests.update(cx, |rq, _| *rq = Requests::default());
             return;
         };
         let host = super::host_of(&remote, cx);
         let available = host.available();
-        self.requests.available = available;
+        self.requests.update(cx, |rq, _| rq.available = available);
         // The way picked borrows a token not read yet this run (the CLI's, git's): read first.
         if !available && crate::connect::to_borrow(&remote) {
-            self.requests.connectable = false;
-            self.requests.loading = true;
+            self.requests.update(cx, |rq, _| rq.connectable = false);
+            self.requests.update(cx, |rq, _| rq.loading = true);
             return self.borrow_token(cx);
         }
-        self.requests.loading = false;
-        self.requests.connectable = !available;
+        self.requests.update(cx, |rq, _| rq.loading = false);
+        self.requests
+            .update(cx, |rq, _| rq.connectable = !available);
         if !available {
-            self.requests.list.clear();
-            self.requests.error = None;
+            self.requests.update(cx, |rq, _| rq.list.clear());
+            self.requests.update(cx, |rq, _| rq.error = None);
             // The ways in this computer offers (#142, #156).
             return self.look_for_token(cx);
         }
         self.renew_ssh_token(cx);
-        self.requests.loading = true;
+        self.requests.update(cx, |rq, _| rq.loading = true);
         // Who the token is, once: the menu counts the requests asking for them.
-        let known = self.requests.login.is_some();
-        self.requests.task = Some(cx.spawn(async move |this, cx| {
+        let known = self.requests.read(cx).login.is_some();
+        let task = Some(cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
@@ -174,21 +185,24 @@ impl Workspace {
                 })
                 .await;
             this.update(cx, |this, cx| {
-                this.requests.loading = false;
+                this.requests.update(cx, |rq, _| rq.loading = false);
                 match result {
                     Ok((list, login, (members, unreached))) => {
-                        this.requests.list = list;
-                        this.requests.listed_at = Some(super::inbox::now());
+                        this.requests.update(cx, |rq, _| rq.list = list);
+                        this.requests
+                            .update(cx, |rq, _| rq.listed_at = Some(super::inbox::now()));
                         if !members.is_empty() {
-                            this.requests.members = members;
+                            this.requests.update(cx, |rq, _| rq.members = members);
                         }
-                        this.requests.unreached = unreached;
-                        this.requests.error = None;
+                        this.requests.update(cx, |rq, _| rq.unreached = unreached);
+                        this.requests.update(cx, |rq, _| rq.error = None);
                         if login.is_some() {
-                            this.requests.login = login;
+                            this.requests.update(cx, |rq, _| rq.login = login);
                         }
                     }
-                    Err(e) => this.requests.error = Some(format!("{e:#}")),
+                    Err(e) => this
+                        .requests
+                        .update(cx, |rq, _| rq.error = Some(format!("{e:#}"))),
                 }
                 if let Some(ix) = this.branch {
                     this.sync_request(ix, cx);
@@ -200,33 +214,38 @@ impl Workspace {
             })
             .ok();
         }));
+        self.requests.update(cx, |rq, _| rq.task = task);
     }
 
     /// The request whose source branch is branch `ix` (`feat/x` and `origin/feat/x` alike), or
     /// whose head it is.
-    pub(super) fn request_of_branch(&self, ix: usize) -> Option<&Mr> {
+    pub(super) fn request_of_branch<'a>(&self, ix: usize, cx: &'a App) -> Option<&'a Mr> {
         let b = self.branches.get(ix)?;
         let name = match b.kind {
             RefKind::Remote => b.name.split_once('/').map_or(b.name.as_str(), |(_, n)| n),
             RefKind::Local => b.name.as_str(),
             RefKind::Request => {
                 let iid = b.name.rsplit('/').next()?.parse().ok()?;
-                return self.requests.find(iid);
+                return self.requests.read(cx).find(iid);
             }
         };
-        self.requests.list.iter().find(|m| m.source == name)
+        self.requests
+            .read(cx)
+            .list
+            .iter()
+            .find(|m| m.source == name)
     }
 
     /// Reads the discussions, pending comments and approvals of the current request again (after
     /// a change to it) and swaps them in, nothing cleared first; a read that fails leaves what
     /// shows (#139).
     pub(super) fn reload_threads(&mut self, cx: &mut Context<Self>) {
-        let (Some(iid), Some(remote)) = (self.requests.current, self.web.clone()) else {
+        let (Some(iid), Some(remote)) = (self.requests.read(cx).current, self.web.clone()) else {
             return;
         };
         let host = super::host_of(&remote, cx);
-        let from = self.requests.waiting.tick();
-        self.requests.reload_task = Some(cx.spawn(async move |this, cx| {
+        let from = self.requests.read(cx).waiting.tick();
+        let task = Some(cx.spawn(async move |this, cx| {
             let read = cx
                 .background_executor()
                 .spawn(async move {
@@ -236,14 +255,16 @@ impl Workspace {
                 })
                 .await;
             this.update(cx, |this, cx| {
-                if this.requests.current != Some(iid) {
+                if this.requests.read(cx).current != Some(iid) {
                     return;
                 }
                 if let Ok((threads, drafts, approvals)) = read {
                     let base = super::waiting::Base {
                         threads,
-                        drafts: drafts.unwrap_or_else(|| this.requests.base.drafts.clone()),
-                        approvals: approvals.or_else(|| this.requests.base.approvals.clone()),
+                        drafts: drafts
+                            .unwrap_or_else(|| this.requests.read(cx).base.drafts.clone()),
+                        approvals: approvals
+                            .or_else(|| this.requests.read(cx).base.approvals.clone()),
                     };
                     this.take_base(iid, from, base, cx);
                 }
@@ -251,6 +272,7 @@ impl Workspace {
             })
             .ok();
         }));
+        self.requests.update(cx, |rq, _| rq.reload_task = task);
     }
 
     /// Follows the branch selection: a request opened as one (or being opened) whose source
@@ -264,58 +286,67 @@ impl Workspace {
             .map(|r| r.2)
             .filter(|iid| {
                 // Its source branch, or a branch at its head (a merged one's, #114).
-                self.request_of_branch(ix).is_some_and(|m| m.iid == *iid)
+                self.request_of_branch(ix, cx)
+                    .is_some_and(|m| m.iid == *iid)
                     || self
                         .requests
+                        .read(cx)
                         .find(*iid)
                         .zip(self.branches.get(ix))
                         .is_some_and(|(m, b)| {
                             m.state != mr::MrState::Opened && b.tip.to_string() == m.head
                         })
             });
-        if iid == self.requests.current && iid.is_none() {
+        if iid == self.requests.read(cx).current && iid.is_none() {
             return;
         }
-        if iid != self.requests.current {
-            self.requests.threads.clear();
-            self.requests.drafts.clear();
-            self.requests.base = Default::default();
-            self.requests.reload_task = None;
-            self.requests.pipeline = None;
-            self.requests.approvals = None;
-            self.requests.merge = None;
-            self.requests.merge_busy = None;
+        if iid != self.requests.read(cx).current {
+            self.requests.update(cx, |rq, _| rq.threads.clear());
+            self.requests.update(cx, |rq, _| rq.drafts.clear());
+            self.requests
+                .update(cx, |rq, _| rq.base = Default::default());
+            self.requests.update(cx, |rq, _| rq.reload_task = None);
+            self.requests.update(cx, |rq, _| rq.pipeline = None);
+            self.requests.update(cx, |rq, _| rq.approvals = None);
+            self.requests.update(cx, |rq, _| rq.merge = None);
+            self.requests.update(cx, |rq, _| rq.merge_busy = None);
             // A merge's card is of the request it was opened on (#164).
             if self.merging.as_ref().is_some_and(|c| !c.busy) {
                 self.merging = None;
             }
-            self.requests.details = None;
-            self.requests.histories.clear();
-            self.requests.awards.clear();
+            self.requests.update(cx, |rq, _| rq.details = None);
+            self.requests.update(cx, |rq, _| rq.histories.clear());
+            self.requests.update(cx, |rq, _| rq.awards.clear());
             self.draft_at = None;
         }
-        self.requests.current = iid;
+        self.requests.update(cx, |rq, _| rq.current = iid);
         if let Some(iid) = iid {
-            if self.requests.walk.is_none_or(|(walked, _)| walked != iid)
-                && let Some(m) = self.requests.find(iid)
+            if self
+                .requests
+                .read(cx)
+                .walk
+                .is_none_or(|(walked, _)| walked != iid)
+                && let Some(m) = self.requests.read(cx).find(iid)
             {
-                self.requests.walk = Some((iid, self.group_of(m, cx)));
+                let task = Some((iid, self.group_of(m, cx)));
+                self.requests.update(cx, |rq, _| rq.walk = task);
             }
-            self.mark_opened(iid);
+            self.mark_opened(iid, cx);
         }
-        self.requests.reading = false;
+        self.requests.update(cx, |rq, _| rq.reading = false);
         let (Some(iid), Some(remote)) = (iid, self.web.clone()) else {
             return;
         };
         let host = super::host_of(&remote, cx);
-        let known = self.requests.login.is_some();
+        let known = self.requests.read(cx).login.is_some();
         let open = self
             .requests
+            .read(cx)
             .find(iid)
             .is_some_and(|m| m.state == mr::MrState::Opened);
-        self.requests.reading = true;
-        let from = self.requests.waiting.tick();
-        self.requests.thread_task = Some(cx.spawn(async move |this, cx| {
+        self.requests.update(cx, |rq, _| rq.reading = true);
+        let from = self.requests.read(cx).waiting.tick();
+        let task = Some(cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
@@ -331,16 +362,16 @@ impl Workspace {
                 })
                 .await;
             this.update(cx, |this, cx| {
-                if this.requests.current == Some(iid) {
-                    this.requests.reading = false;
+                if this.requests.read(cx).current == Some(iid) {
+                    this.requests.update(cx, |rq, _| rq.reading = false);
                     match result {
                         Ok((threads, drafts, pipeline, approvals, login, (details, merge))) => {
                             if login.is_some() {
-                                this.requests.login = login;
+                                this.requests.update(cx, |rq, _| rq.login = login);
                             }
-                            this.requests.details = details;
-                            this.requests.merge = merge;
-                            this.requests.pipeline = pipeline;
+                            this.requests.update(cx, |rq, _| rq.details = details);
+                            this.requests.update(cx, |rq, _| rq.merge = merge);
+                            this.requests.update(cx, |rq, _| rq.pipeline = pipeline);
                             let base = super::waiting::Base {
                                 threads,
                                 drafts,
@@ -352,7 +383,9 @@ impl Workspace {
                             let diff_in = this.showing_request(cx);
                             this.resolve_spot(diff_in, cx);
                         }
-                        Err(e) => this.requests.error = Some(format!("{e:#}")),
+                        Err(e) => this
+                            .requests
+                            .update(cx, |rq, _| rq.error = Some(format!("{e:#}"))),
                     }
                     this.refresh_rows(cx);
                     cx.notify();
@@ -360,17 +393,18 @@ impl Workspace {
             })
             .ok();
         }));
+        self.requests.update(cx, |rq, _| rq.thread_task = task);
     }
 
     /// Opens merge request `iid`: its branch in the lists and, as the diff, what the branch adds to
     /// its target — the diff the discussions and new comments belong to.
     pub(super) fn select_request(&mut self, iid: u64, cx: &mut Context<Self>) {
-        let Some(m) = self.requests.find(iid).cloned() else {
+        let Some(m) = self.requests.read(cx).find(iid).cloned() else {
             return;
         };
         let (source, target) = (m.source.clone(), m.target.clone());
         self.load_request_versions(iid, cx);
-        if let Some(m) = self.requests.find(iid) {
+        if let Some(m) = self.requests.read(cx).find(iid) {
             let (label, detail) = (m.title.clone(), super::words::number(iid));
             self.remember_place(super::recents::Key::Request(iid), label, detail);
         }
@@ -398,7 +432,10 @@ impl Workspace {
             .or_else(|| self.branches.iter().position(|b| b.refname == head));
         let Some(src) = found else {
             // Not here: its head is fetched from the host, once, and then it opens (#114).
-            if self.requests.heads_fetched.insert(iid) {
+            if self
+                .requests
+                .update(cx, |rq, _| rq.heads_fetched.insert(iid))
+            {
                 return self.fetch_request_head(iid, github, cx);
             }
             self.error = Some(
@@ -447,6 +484,7 @@ impl Workspace {
         };
         let head = self
             .requests
+            .read(cx)
             .find(iid)
             .map(|m| m.head.clone())
             .filter(|h| !h.is_empty());
@@ -488,7 +526,7 @@ impl Workspace {
 
     /// ⌥⌘L: closes the request on screen, back to the list (as ⌘W on it does).
     pub(super) fn leave_request(&mut self, cx: &mut Context<Self>) {
-        if let Some(iid) = self.requests.current {
+        if let Some(iid) = self.requests.read(cx).current {
             self.close_open(&super::nav::Item::Request(iid), cx);
         }
     }
@@ -515,8 +553,8 @@ impl Workspace {
         } else {
             let at = shown
                 .iter()
-                .position(|m| Some(m.iid) == self.requests.current);
-            Some(shown[at.map_or(n - 1, |a| (a + n - 1) % n)])
+                .position(|m| Some(m.iid) == self.requests.read(cx).current);
+            Some(shown[at.map_or(n - 1, |a| (a + n - 1) % n)].clone())
         };
         let Some(next) = next.map(|m| m.iid) else {
             self.error =
@@ -530,14 +568,15 @@ impl Workspace {
     /// The next request to review below the open one, going round the list once: the first that
     /// is not reviewed at its head and not yours (#81). Counted from where the open one was when
     /// it was opened — reviewed to the end, it has moved down to Reviewed (#136).
-    fn next_request(&self, cx: &App) -> Option<&Mr> {
+    fn next_request(&self, cx: &App) -> Option<Mr> {
         let mut shown = self.shown_requests(cx);
         let walk = self
             .requests
+            .read(cx)
             .walk
-            .filter(|(iid, _)| Some(*iid) == self.requests.current);
+            .filter(|(iid, _)| Some(*iid) == self.requests.read(cx).current);
         if let Some((walked, was)) = walk
-            && self.requests.view == mr::MrState::Opened
+            && self.requests.read(cx).view == mr::MrState::Opened
         {
             shown.sort_by_key(|m| {
                 let group = if m.iid == walked {
@@ -550,7 +589,7 @@ impl Workspace {
         }
         let at = shown
             .iter()
-            .position(|m| Some(m.iid) == self.requests.current);
+            .position(|m| Some(m.iid) == self.requests.read(cx).current);
         let open: Vec<bool> = shown
             .iter()
             .map(|m| {
@@ -560,7 +599,7 @@ impl Workspace {
                 )
             })
             .collect();
-        next_to_review(&open, at).map(|ix| shown[ix])
+        next_to_review(&open, at).map(|ix| shown[ix].clone())
     }
 
     /// After branch `self.branch` in the branch list, the next branch of the same kind (local or
@@ -584,7 +623,7 @@ impl Workspace {
             return None;
         }
         let total = self.review.read(cx).diff.as_ref()?.files.len();
-        let current = self.requests.current;
+        let current = self.requests.read(cx).current;
         // The next merge request in request mode, else the next branch.
         let next = match current {
             Some(_) => self
@@ -669,6 +708,7 @@ impl Workspace {
                 )
                 .children(
                     self.requests
+                        .read(cx)
                         .approvals
                         .as_ref()
                         .filter(|a| a.can && !a.mine && current.is_some())
@@ -725,13 +765,13 @@ impl Workspace {
     /// request's diff is open, and the latest one's base and head are what it is compared from
     /// (#145).
     fn load_request_versions(&mut self, iid: u64, cx: &mut Context<Self>) {
-        self.requests.versions = None;
-        self.requests.host = None;
+        self.requests.update(cx, |rq, _| rq.versions = None);
+        self.requests.update(cx, |rq, _| rq.host = None);
         let (Some(remote), Some(root)) = (self.web.clone(), self.root.clone()) else {
             return;
         };
         let host = super::host_of(&remote, cx);
-        self.requests.version_task = Some(cx.spawn(async move |this, cx| {
+        let task = Some(cx.spawn(async move |this, cx| {
             let built = cx
                 .background_executor()
                 .spawn(async move {
@@ -752,11 +792,14 @@ impl Workspace {
                 .await;
             this.update(cx, |this, cx| {
                 if let Ok((list, host, ids)) = built {
-                    this.requests.versions = Some((iid, list));
-                    this.requests.version_ids = Some((iid, ids));
-                    this.requests.host = host.map(|h| (iid, h));
+                    this.requests
+                        .update(cx, |rq, _| rq.versions = Some((iid, list)));
+                    this.requests
+                        .update(cx, |rq, _| rq.version_ids = Some((iid, ids)));
+                    this.requests
+                        .update(cx, |rq, _| rq.host = host.map(|h| (iid, h)));
                     this.follow_host_sides(iid, cx);
-                    this.apply_mr_versions();
+                    this.apply_mr_versions(cx);
                     // Two versions of it waited for them (#71).
                     this.finish_pending(cx);
                     this.compute_histories(cx);
@@ -765,6 +808,7 @@ impl Workspace {
             })
             .ok();
         }));
+        self.requests.update(cx, |rq, _| rq.version_task = task);
     }
 
     /// Request `iid` is compared from the base and head its host gives, once they are known
@@ -773,6 +817,7 @@ impl Workspace {
     fn follow_host_sides(&mut self, iid: u64, cx: &mut Context<Self>) {
         let Some(host) = self
             .requests
+            .read(cx)
             .host
             .filter(|(i, _)| *i == iid)
             .map(|(_, h)| h)
@@ -794,7 +839,10 @@ impl Workspace {
         match sides(&repo, host, (base.1, head.1)) {
             Sides::Same => {}
             Sides::Missing { base, head } => {
-                if self.requests.sides_fetched.insert(iid) {
+                if self
+                    .requests
+                    .update(cx, |rq, _| rq.sides_fetched.insert(iid))
+                {
                     self.fetch_request_sides(iid, base, head, cx);
                 }
             }
@@ -840,13 +888,14 @@ impl Workspace {
     /// branch for the base, its head for the head —, then compares it from them; says why when
     /// the fetch fails.
     fn fetch_request_sides(&mut self, iid: u64, base: bool, head: bool, cx: &mut Context<Self>) {
-        let (Some(root), Some(m)) = (self.root.clone(), self.requests.find(iid)) else {
+        let (Some(root), Some(m)) = (self.root.clone(), self.requests.read(cx).find(iid)) else {
             return;
         };
         let target = m.target.clone();
         let github = self.web.as_ref().is_some_and(|w| w.github);
         let sha = self
             .requests
+            .read(cx)
             .host
             .and_then(|(_, h)| h.1)
             .map(|h| h.to_string());
@@ -900,11 +949,11 @@ impl Workspace {
     }
 
     /// Shows GitLab's versions of the open request in the timeline, when there is more than one.
-    pub(super) fn apply_mr_versions(&mut self) {
+    pub(super) fn apply_mr_versions(&mut self, cx: &App) {
         let Some(iid) = self.open_request.as_ref().map(|r| r.2) else {
             return;
         };
-        if let Some((for_iid, list)) = &self.requests.versions
+        if let Some((for_iid, list)) = &self.requests.read(cx).versions
             && *for_iid == iid
             && list.len() > 1
         {
@@ -927,7 +976,7 @@ impl Workspace {
     /// Is the whole request whose discussions are loaded on screen, as its page (#71)? Its keys
     /// (`a`, ⇧N, Submit review) act only then, never on one loaded under another page.
     pub(super) fn showing_request(&self, cx: &App) -> bool {
-        self.requests.current.is_some_and(|iid| {
+        self.requests.read(cx).current.is_some_and(|iid| {
             self.request_loaded(iid, cx)
                 && self.nav.space == super::spaces::Space::Requests
                 && self.nav_page() == Some(&super::nav::Page::Request(iid))
@@ -936,7 +985,7 @@ impl Workspace {
 
     /// The diff loaded is the whole of request `iid`, whatever page is on screen.
     pub(super) fn request_loaded(&self, iid: u64, cx: &App) -> bool {
-        self.requests.current == Some(iid)
+        self.requests.read(cx).current == Some(iid)
             && matches!(
                 self.review.read(cx).diff.as_ref().map(|d| &d.header),
                 Some(Header::Compare { request: Some(i), .. }) if *i == iid
@@ -948,29 +997,30 @@ impl Workspace {
         self.review
             .read(cx)
             .current_path()
-            .map(|path| self.request_threads_in(&path))
+            .map(|path| self.request_threads_in(&path, cx))
             .unwrap_or_default()
     }
 
     /// The discussions on lines of file `path`.
-    pub(super) fn request_threads_in(&self, path: &str) -> Vec<(usize, bool, u32)> {
+    pub(super) fn request_threads_in(&self, path: &str, cx: &App) -> Vec<(usize, bool, u32)> {
         self.requests
+            .read(cx)
             .threads
             .iter()
             .enumerate()
             .filter(|(_, t)| t.path.as_deref() == Some(path))
             .filter_map(|(ix, t)| {
-                let (old, line) = self.thread_line_now(t)?;
+                let (old, line) = self.thread_line_now(t, cx)?;
                 Some((ix, old, line))
             })
             .collect()
     }
 
     /// Where discussion `t` is drawn in the diff on screen: (old side, line).
-    fn thread_line_now(&self, t: &mr::Thread) -> Option<(bool, u32)> {
+    fn thread_line_now(&self, t: &mr::Thread, cx: &App) -> Option<(bool, u32)> {
         // Written on an earlier version: drawn at its line now, or not at all (#46).
-        if self.thread_is_old(t) {
-            let h = self.requests.histories.get(&t.id)?;
+        if self.thread_is_old(t, cx) {
+            let h = self.requests.read(cx).histories.get(&t.id)?;
             return h.line_now.map(|n| (false, n));
         }
         match (t.new_line, t.old_line) {
@@ -981,23 +1031,38 @@ impl Workspace {
     }
 
     /// The discussion pending comment `d` replies to, when it is one of the request's.
-    pub(super) fn draft_thread(&self, d: &mr::Draft) -> Option<usize> {
+    pub(super) fn draft_thread(&self, d: &mr::Draft, cx: &App) -> Option<usize> {
         let id = d.reply_to.as_deref()?;
-        self.requests.threads.iter().position(|t| t.id == id)
+        self.requests
+            .read(cx)
+            .threads
+            .iter()
+            .position(|t| t.id == id)
     }
 
     /// Where pending comment `d` is: its own place, or for a reply its discussion's (#166) —
     /// (path, new line, old line); the path alone for a file's, nothing for the request's.
-    pub(super) fn draft_place(&self, d: &mr::Draft) -> Option<(String, Option<u32>, Option<u32>)> {
-        match self.draft_thread(d).map(|ix| &self.requests.threads[ix]) {
+    pub(super) fn draft_place(
+        &self,
+        d: &mr::Draft,
+        cx: &App,
+    ) -> Option<(String, Option<u32>, Option<u32>)> {
+        match self
+            .draft_thread(d, cx)
+            .map(|ix| &self.requests.read(cx).threads[ix])
+        {
             Some(t) => Some((t.path.clone()?, t.new_line, t.old_line)),
             None => Some((d.path.clone()?, d.new_line, d.old_line)),
         }
     }
 
     /// Where pending comment `d` is, said in a list: `file.rs:12`, or why it has no line.
-    pub(super) fn draft_where(&self, d: &mr::Draft) -> (String, Option<(String, u32)>, bool) {
-        let place = self.draft_place(d);
+    pub(super) fn draft_where(
+        &self,
+        d: &mr::Draft,
+        cx: &App,
+    ) -> (String, Option<(String, u32)>, bool) {
+        let place = self.draft_place(d, cx);
         let target = place
             .as_ref()
             .and_then(|(p, new, old)| Some((p.clone(), new.or(*old)?)));
@@ -1005,7 +1070,7 @@ impl Workspace {
         let said = match &target {
             Some((p, n)) => format!("{}:{n}", p.rsplit('/').next().unwrap_or(p)),
             // A reply whose discussion is not among the request's: not General, it was in one.
-            None if d.reply_to.is_some() && self.draft_thread(d).is_none() => {
+            None if d.reply_to.is_some() && self.draft_thread(d, cx).is_none() => {
                 "A reply to a discussion not here".to_owned()
             }
             None => "General".to_owned(),
@@ -1024,13 +1089,13 @@ impl Workspace {
         cx: &App,
     ) -> gpui::AnyElement {
         use super::discussion::{self, Kind, Source};
-        let Some(t) = self.requests.threads.get(ix) else {
+        let Some(t) = self.requests.read(cx).threads.get(ix) else {
             return div().into_any_element();
         };
-        let open = self.mr_open(ix);
+        let open = self.mr_open(ix, cx);
         let focused = self.thread_at == Some(ix);
         // On its way to the host: faded, and nothing to act on until it has an id (#139).
-        let waits = self.thread_waits(&t.id);
+        let waits = self.thread_waits(&t.id, cx);
         let sending = super::waiting::is_temp_thread(&t.id);
         let can_act = self.request_target(cx).is_some() && !sending;
         let (fold, pick, reply, resolve, raw, edit) = (
@@ -1041,13 +1106,14 @@ impl Workspace {
             this.clone(),
             this.clone(),
         );
-        let history = self.render_history(ix, this.clone());
+        let history = self.render_history(ix, this.clone(), cx);
         let selecting = self.selecting(this.clone());
         let first = &t.notes[0];
         let author = self
             .requests
+            .read(cx)
             .current
-            .and_then(|iid| self.requests.find(iid))
+            .and_then(|iid| self.requests.read(cx).find(iid))
             .map(|m| m.author.clone());
         let rich = t
             .notes
@@ -1147,12 +1213,12 @@ impl Workspace {
                 note: note.id,
             };
             let edit_box = self.edit_box(change, edit.clone(), cx);
-            let own = self.requests.login.as_deref() == Some(note.login.as_str());
+            let own = self.requests.read(cx).login.as_deref() == Some(note.login.as_str());
             // Waiting on the host: faded, its time saying what for; a new one takes no actions.
-            let (time, note_waits) = self.note_time(note.id, note.created);
+            let (time, note_waits) = self.note_time(note.id, note.created, cx);
             let can_act = can_act && !super::waiting::is_temp(note.id);
             let editable = can_act && self.compose.is_none() && own && !note_waits;
-            let (hover, pills) = (edit.clone(), self.reaction_pills(note.id, edit.clone()));
+            let (hover, pills) = (edit.clone(), self.reaction_pills(note.id, edit.clone(), cx));
             let bar = can_act
                 .then(|| self.hover_bar(ix, note.id, &note.login, edit.clone()))
                 .flatten();
@@ -1202,8 +1268,12 @@ impl Workspace {
                         .into_any_element()
                 }),
                 (!own).then(|| {
-                    let card =
-                        std::rc::Rc::new(self.person_card(&note.author, &note.login, this.clone()));
+                    let card = std::rc::Rc::new(self.person_card(
+                        &note.author,
+                        &note.login,
+                        this.clone(),
+                        cx,
+                    ));
                     let build: discussion::Card = std::rc::Rc::new(move |_, cx| {
                         let c = card.clone();
                         cx.new(|_| super::hover::PersonCard::clone_of(&c)).into()
@@ -1357,6 +1427,7 @@ impl Workspace {
         };
         let mut order: Vec<(usize, u32, usize)> = self
             .requests
+            .read(cx)
             .threads
             .iter()
             .enumerate()
@@ -1392,10 +1463,10 @@ impl Workspace {
         };
         let ix = order[next];
         self.thread_at = Some(ix);
-        if !self.mr_open(ix) {
+        if !self.mr_open(ix, cx) {
             self.set_thread_open(ix, true, cx);
         }
-        let t = &self.requests.threads[ix];
+        let t = &self.requests.read(cx).threads[ix];
         if let Some(path) = t.path.clone() {
             let (line, old) = (t.new_line.or(t.old_line).unwrap_or(1), t.new_line.is_none());
             self.jump_to_line(&path, line, old, cx);
@@ -1414,7 +1485,7 @@ impl Workspace {
                 .iter()
                 .skip(top)
                 .find_map(|row| match row {
-                    super::rows::Row::Request(ix) if self.mr_open(*ix) => Some(*ix),
+                    super::rows::Row::Request(ix) if self.mr_open(*ix, cx) => Some(*ix),
                     _ => None,
                 })
         })
@@ -1445,8 +1516,13 @@ impl Workspace {
     }
 
     /// Is discussion `ix` shown open? A resolved one starts folded, as in GitLab.
-    pub(super) fn mr_open(&self, ix: usize) -> bool {
-        let default = self.requests.threads.get(ix).is_some_and(|t| !t.resolved);
+    pub(super) fn mr_open(&self, ix: usize, cx: &App) -> bool {
+        let default = self
+            .requests
+            .read(cx)
+            .threads
+            .get(ix)
+            .is_some_and(|t| !t.resolved);
         default != self.toggled_mr.contains(&ix)
     }
 
@@ -1454,7 +1530,7 @@ impl Workspace {
     pub(super) fn set_thread_open(&mut self, ix: usize, open: bool, cx: &mut Context<Self>) {
         // Its notes fade in as it opens (#56, 10).
         self.mark_motion(&format!("thread-{ix}"), cx);
-        if self.mr_open(ix) != open && !self.toggled_mr.remove(&ix) {
+        if self.mr_open(ix, cx) != open && !self.toggled_mr.remove(&ix) {
             self.toggled_mr.insert(ix);
         }
         self.refresh_rows(cx);
@@ -1465,22 +1541,26 @@ impl Workspace {
     pub(super) fn toggle_focused(&mut self, cx: &mut Context<Self>) {
         if let Some(ix) = self.acting_thread(cx) {
             self.thread_at = Some(ix);
-            let open = self.mr_open(ix);
+            let open = self.mr_open(ix, cx);
             self.set_thread_open(ix, !open, cx);
         }
     }
 
     /// The pending comments of file `path`: (index, old side, line).
-    pub(super) fn drafts_in(&self, path: &str) -> Vec<(usize, bool, u32)> {
+    pub(super) fn drafts_in(&self, path: &str, cx: &App) -> Vec<(usize, bool, u32)> {
         self.requests
+            .read(cx)
             .drafts
             .iter()
             .enumerate()
             .filter_map(|(ix, d)| {
                 // A reply is drawn under its discussion, wherever that is now (#166).
-                if let Some(t) = self.draft_thread(d).map(|t| &self.requests.threads[t]) {
+                if let Some(t) = self
+                    .draft_thread(d, cx)
+                    .map(|t| &self.requests.read(cx).threads[t])
+                {
                     let (old, line) = self
-                        .thread_line_now(t)
+                        .thread_line_now(t, cx)
                         .filter(|_| t.path.as_deref() == Some(path))?;
                     return Some((ix, old, line));
                 }
@@ -1505,14 +1585,14 @@ impl Workspace {
         cx: &App,
     ) -> gpui::AnyElement {
         use super::discussion::{self, Kind, Source};
-        let Some(d) = self.requests.drafts.get(ix) else {
+        let Some(d) = self.requests.read(cx).drafts.get(ix) else {
             return div().into_any_element();
         };
         let id = d.id;
         let selecting = self.selecting(this.clone());
         let (delete, raw, send) = (this.clone(), this.clone(), this);
         // Waiting on the host: faded, saying what for, nothing to act on (#139).
-        let waits = self.draft_waits(id);
+        let waits = self.draft_waits(id, cx);
         let acts = waits.is_none() && !super::waiting::is_temp(id);
         let one = self.sends_one_draft();
         // GitHub publishes a pending comment only with its review: there it says so (#138).
@@ -1550,8 +1630,8 @@ impl Workspace {
                     .flex()
                     // A reply says whose discussion it goes into (#166).
                     .children(
-                        self.draft_thread(d)
-                            .and_then(|t| self.requests.threads[t].notes.first())
+                        self.draft_thread(d, cx)
+                            .and_then(|t| self.requests.read(cx).threads[t].notes.first())
                             .map(|n| {
                                 super::hover::cut(
                                     "draft-reply",
@@ -1560,7 +1640,7 @@ impl Workspace {
                             }),
                     )
                     // An agent's says who wrote it (#150).
-                    .children(self.draft_agent(id).map(|agent| {
+                    .children(self.draft_agent(id, cx).map(|agent| {
                         super::hover::cut("draft-agent", format!("· {agent} wrote it"))
                     })),
             )
@@ -1630,21 +1710,21 @@ impl Workspace {
         + 'static,
         cx: &mut Context<Self>,
     ) {
-        if let Some(iid) = self.requests.current {
+        if let Some(iid) = self.requests.read(cx).current {
             self.send_change(iid, ops, work, Self::say_refused, cx);
         }
     }
 
     /// Resolves discussion `ix`, or opens it again: it folds, or opens, at once (#139).
     pub(super) fn toggle_resolved(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let Some(t) = self.requests.threads.get(ix) else {
+        let Some(t) = self.requests.read(cx).threads.get(ix) else {
             return;
         };
         if super::waiting::is_temp_thread(&t.id) {
             return;
         }
         let (id, resolved) = (t.id.clone(), !t.resolved);
-        let Some(iid) = self.requests.current else {
+        let Some(iid) = self.requests.read(cx).current else {
             return;
         };
         // Shown as its new state shows it.
@@ -1659,7 +1739,10 @@ impl Workspace {
 
     /// `a`: approves the open request, or takes one's approval back.
     pub(super) fn toggle_approval(&mut self, cx: &mut Context<Self>) {
-        let (Some(iid), Some(a)) = (self.requests.current, self.requests.approvals.clone()) else {
+        let (Some(iid), Some(a)) = (
+            self.requests.read(cx).current,
+            self.requests.read(cx).approvals.clone(),
+        ) else {
             return;
         };
         if !self.showing_request(cx) {
@@ -1671,6 +1754,7 @@ impl Workspace {
         } else if a.can {
             let head = self
                 .requests
+                .read(cx)
                 .find(iid)
                 .map(|m| m.head.clone())
                 .unwrap_or_default();
@@ -1702,7 +1786,7 @@ impl Workspace {
         };
         let ix = order[next].2;
         self.draft_at = Some(ix);
-        let d = &self.requests.drafts[ix];
+        let d = &self.requests.read(cx).drafts[ix];
         if let Some(path) = d.path.clone() {
             let (line, old) = (d.new_line.or(d.old_line).unwrap_or(1), d.new_line.is_none());
             self.jump_to_line(&path, line, old, cx);
@@ -1711,8 +1795,8 @@ impl Workspace {
     }
 
     /// A pending comment in one line, an agent's after its name (#150).
-    pub(super) fn draft_line(&self, d: &mr::Draft) -> String {
-        match self.draft_agent(d.id) {
+    pub(super) fn draft_line(&self, d: &mr::Draft, cx: &App) -> String {
+        match self.draft_agent(d.id, cx) {
             Some(agent) => format!("{agent}: {}", self.one_line(&d.body)),
             None => self.one_line(&d.body),
         }
@@ -1725,11 +1809,12 @@ impl Workspace {
         };
         let mut order: Vec<(usize, u32, usize)> = self
             .requests
+            .read(cx)
             .drafts
             .iter()
             .enumerate()
             .filter_map(|(ix, d)| {
-                let (path, new, old) = self.draft_place(d)?;
+                let (path, new, old) = self.draft_place(d, cx)?;
                 let file = diff.files.iter().position(|f| f.path() == path)?;
                 Some((file, new.or(old)?, ix))
             })
@@ -1741,6 +1826,7 @@ impl Workspace {
     pub(super) fn discard_draft(&mut self, id: u64, cx: &mut Context<Self>) {
         let Some(iid) = self
             .requests
+            .read(cx)
             .current
             .filter(|_| !super::waiting::is_temp(id))
         else {
@@ -1758,13 +1844,16 @@ impl Workspace {
     pub(super) fn send_draft_now(&mut self, id: u64, cx: &mut Context<Self>) {
         let Some(iid) = self
             .requests
+            .read(cx)
             .current
             .filter(|_| !super::waiting::is_temp(id))
         else {
             return;
         };
-        let w = &mut self.requests.waiting;
-        let op = Op::Publish(vec![(id, w.temp_thread(), w.temp())]);
+        let op = self.requests.update(cx, |rq, _| {
+            let w = &mut rq.waiting;
+            Op::Publish(vec![(id, w.temp_thread(), w.temp())])
+        });
         self.request_action(vec![op], move |host| host.publish_draft(iid, id), cx);
     }
 
@@ -1902,8 +1991,12 @@ impl Workspace {
     fn delete_own_note(&mut self, thread: usize, note: u64, cx: &mut Context<Self>) {
         self.confirm_note = None;
         let (Some(iid), Some(discussion)) = (
-            self.requests.current,
-            self.requests.threads.get(thread).map(|t| t.id.clone()),
+            self.requests.read(cx).current,
+            self.requests
+                .read(cx)
+                .threads
+                .get(thread)
+                .map(|t| t.id.clone()),
         ) else {
             return;
         };
@@ -1917,16 +2010,15 @@ impl Workspace {
     /// The Discussions tool window: the request's discussions and pending notes — public ones only,
     /// the agent's are the Agents window's (#76); a click shows one in the diff.
     pub(super) fn discussions_tool(&self, cx: &mut Context<Self>) -> ToolView {
-        let theirs: Vec<(usize, &Thread)> = if self.showing_request(cx) {
-            self.requests.threads.iter().enumerate().collect()
+        // Copied: drawing an item needs the tab's context.
+        let (threads, all_drafts) = if self.showing_request(cx) {
+            let rq = self.requests.read(cx);
+            (rq.threads.clone(), rq.drafts.clone())
         } else {
-            Vec::new()
+            Default::default()
         };
-        let drafts: Vec<(usize, &Draft)> = if self.showing_request(cx) {
-            self.requests.drafts.iter().enumerate().collect()
-        } else {
-            Vec::new()
-        };
+        let theirs: Vec<(usize, &Thread)> = threads.iter().enumerate().collect();
+        let drafts: Vec<(usize, &Draft)> = all_drafts.iter().enumerate().collect();
         let pending = drafts.len();
         // Public only: the agent's comments are the Agents window's (#76).
         let discussions = theirs.len();
@@ -1936,7 +2028,7 @@ impl Workspace {
         let grouped = [discussions, pending].iter().filter(|&&n| n > 0).count() > 1;
         // Written on an earlier version: listed apart, grouped by that version (#46).
         let outdated = if self.showing_request(cx) {
-            self.outdated_by_version()
+            self.outdated_by_version(cx)
         } else {
             Vec::new()
         };
@@ -1973,8 +2065,10 @@ impl Workspace {
             };
             let first = &t.notes[0];
             // Faded while a change to it waits on the host (#139).
-            let waits = self.thread_waits(&t.id).is_some()
-                || t.notes.iter().any(|n| self.note_time(n.id, n.created).1);
+            let waits = self.thread_waits(&t.id, cx).is_some()
+                || t.notes
+                    .iter()
+                    .any(|n| self.note_time(n.id, n.created, cx).1);
             comment_item(
                 ("comment-mr", ix),
                 theme::warning(),
@@ -1989,21 +2083,23 @@ impl Workspace {
             }))
         });
         let draft_items = drafts.into_iter().map(|(ix, d)| {
-            let (where_, target, old) = self.draft_where(d);
+            let (where_, target, old) = self.draft_where(d, cx);
             comment_item(
                 ("comment-draft", ix),
                 theme::warning(),
                 where_,
-                self.draft_line(d),
+                self.draft_line(d, cx),
             )
             .relative()
             .group("pending-row")
-            .when(self.draft_waits(d.id).is_some(), |s| {
+            .when(self.draft_waits(d.id, cx).is_some(), |s| {
                 s.opacity(super::waiting::FADED)
             })
             .children(
                 self.send_now_chip(d.id, "pending-row", cx)
-                    .filter(|_| self.draft_waits(d.id).is_none() && !super::waiting::is_temp(d.id))
+                    .filter(|_| {
+                        self.draft_waits(d.id, cx).is_none() && !super::waiting::is_temp(d.id)
+                    })
                     .map(|chip| chip.absolute().top(px(3.)).right(px(6.))),
             )
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -2066,13 +2162,13 @@ impl Workspace {
                         )
                 }))
                 .children(outdated_items)
-                .children((total == 0 && self.requests.reading).then(|| {
+                .children((total == 0 && self.requests.read(cx).reading).then(|| {
                     div()
                         .px(px(14.))
                         .py(px(12.))
                         .child(super::roots::skeleton("discussions-loading", 3))
                 }))
-                .children((total == 0 && !self.requests.reading).then(|| {
+                .children((total == 0 && !self.requests.read(cx).reading).then(|| {
                     div()
                         .px(px(14.))
                         .py(px(10.))
@@ -2091,8 +2187,13 @@ impl Workspace {
     /// or Reopen on the row).
     fn outdated_item(&self, ix: usize, cx: &mut Context<Self>) -> gpui::AnyElement {
         use super::hover::Hover;
-        let t = &self.requests.threads[ix];
-        let line_now = self.requests.histories.get(&t.id).and_then(|h| h.line_now);
+        let t = &self.requests.read(cx).threads[ix];
+        let line_now = self
+            .requests
+            .read(cx)
+            .histories
+            .get(&t.id)
+            .and_then(|h| h.line_now);
         let path = t.path.clone().unwrap_or_default();
         let place = format!(
             "{}:{}",
@@ -2100,9 +2201,14 @@ impl Workspace {
             t.new_line.or(t.old_line).unwrap_or(0)
         );
         let first = &t.notes[0];
-        let written = self.requests.histories.get(&t.id).map(|h| h.written);
+        let written = self
+            .requests
+            .read(cx)
+            .histories
+            .get(&t.id)
+            .map(|h| h.written);
         // What a click does: the line where it is now, or (gone) the versions compared.
-        let shows = match (line_now, self.compare_label(ix)) {
+        let shows = match (line_now, self.compare_label(ix, cx)) {
             (Some(_), _) => "Show its line now".to_owned(),
             (None, Some(compare)) => compare,
             (None, None) => String::new(),
@@ -2126,7 +2232,7 @@ impl Workspace {
                     .text_size(px(11.))
                     .text_color(theme::warning())
                     .child(
-                        self.since_comment(ix)
+                        self.since_comment(ix, cx)
                             .unwrap_or_else(|| "Written on an earlier version".to_owned()),
                     ),
             )
@@ -2145,28 +2251,29 @@ impl Workspace {
     /// The Discussions window's count: the request's own discussions and pending notes (#76).
     pub(super) fn comments_total(&self, cx: &App) -> usize {
         if self.showing_request(cx) {
-            self.requests.threads.len() + self.requests.drafts.len()
+            self.requests.read(cx).threads.len() + self.requests.read(cx).drafts.len()
         } else {
             0
         }
     }
 
     /// The requests the scope and filter let through, in the order the list shows them.
-    pub(super) fn shown_requests(&self, cx: &App) -> Vec<&Mr> {
+    /// Copied: a row is drawn with the tab's context.
+    pub(super) fn shown_requests(&self, cx: &App) -> Vec<Mr> {
         let filter = self.bfilter.to_lowercase();
         let words: Vec<&str> = filter.split_whitespace().collect();
         // The merged or the closed as read, newest first, the host having picked the scope's
         // (#114, #169); the open by what they need.
-        let past = self.requests.view != mr::MrState::Opened;
-        let scope = self.requests.scope;
+        let past = self.requests.read(cx).view != mr::MrState::Opened;
+        let scope = self.requests.read(cx).scope;
         let list = if past {
-            &self.requests.past.of_scope(scope).list
+            &self.requests.read(cx).past.of_scope(scope).list
         } else {
-            &self.requests.list
+            &self.requests.read(cx).list
         };
         let mut shown: Vec<&Mr> = list
             .iter()
-            .filter(|m| past || self.in_scope(m, scope))
+            .filter(|m| past || self.in_scope(m, scope, cx))
             .filter(|m| {
                 let hay = format!(
                     "{} {} {} {}",
@@ -2183,12 +2290,12 @@ impl Workspace {
         if !past {
             shown.sort_by_key(|m| (self.group_of(m, cx), std::cmp::Reverse(m.updated)));
         }
-        shown
+        shown.into_iter().cloned().collect()
     }
 
     /// Whether `m` is one the scope lists, by the token's user.
-    pub(super) fn in_scope(&self, m: &Mr, scope: Scope) -> bool {
-        let me = self.requests.login.as_deref().unwrap_or_default();
+    pub(super) fn in_scope(&self, m: &Mr, scope: Scope, cx: &App) -> bool {
+        let me = self.requests.read(cx).login.as_deref().unwrap_or_default();
         match scope {
             Scope::All => true,
             Scope::ReviewMe => !me.is_empty() && m.reviewers.iter().any(|r| r == me),
@@ -2202,23 +2309,23 @@ impl Workspace {
         &self,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
-        let loading = self.requests.loading && self.requests.list.is_empty();
-        if self.requests.login.is_none() || loading {
+        let loading = self.requests.read(cx).loading && self.requests.read(cx).list.is_empty();
+        if self.requests.read(cx).login.is_none() || loading {
             return None;
         }
         // The merged or the closed: as many as the host says, or counted as far as read (#114,
         // #169).
-        let past = self.requests.view != mr::MrState::Opened;
+        let past = self.requests.read(cx).view != mr::MrState::Opened;
         let count = |scope: Scope| {
             if !past {
-                let list = &self.requests.list;
+                let list = &self.requests.read(cx).list;
                 return list
                     .iter()
-                    .filter(|m| self.in_scope(m, scope))
+                    .filter(|m| self.in_scope(m, scope, cx))
                     .count()
                     .to_string();
             }
-            let pages = self.requests.past.of_scope(scope);
+            let pages = self.requests.read(cx).past.of_scope(scope);
             match pages.total {
                 Some(total) => total.to_string(),
                 None => format!("{}{}", pages.list.len(), if pages.more { "+" } else { "" }),
@@ -2228,14 +2335,14 @@ impl Workspace {
             super::diff_view::chip(
                 id,
                 format!("{name} {}", count(scope)),
-                self.requests.scope == scope,
+                self.requests.read(cx).scope == scope,
             )
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.requests.scope = scope;
+                this.requests.update(cx, |rq, _| rq.scope = scope);
                 cx.notify();
             }))
         };
-        let view = self.requests.view;
+        let view = self.requests.read(cx).view;
         let state = super::diff_view::chip("request-state", format!("{} ▾", view.word()), past)
             .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
                 use super::menu::{Act, Entry};
@@ -2325,7 +2432,7 @@ impl Workspace {
         &self,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
-        self.requests.pipeline.clone().map(|p| {
+        self.requests.read(cx).pipeline.clone().map(|p| {
             let (glyph, word, color) = pipeline_word(&p);
             // A failure opens the job that failed; the rest open the pipeline.
             let url = p
@@ -2381,8 +2488,8 @@ impl Workspace {
         &self,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
-        let waits = self.approval_waits();
-        self.requests.approvals.clone().map(|a| {
+        let waits = self.approval_waits(cx);
+        self.requests.read(cx).approvals.clone().map(|a| {
             let count = if a.required > 0 {
                 format!(" {}/{}", a.required - a.left.min(a.required), a.required)
             } else if !a.by.is_empty() && !a.mine {
@@ -2396,7 +2503,7 @@ impl Workspace {
                 (false, false) => "",
             };
             // A long hover: who approved, who asked for changes, who is still asked (X59).
-            let d = self.requests.details.clone().unwrap_or_default();
+            let d = self.requests.read(cx).details.clone().unwrap_or_default();
             let waiting: Vec<&str> = d
                 .reviewers
                 .iter()

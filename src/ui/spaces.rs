@@ -177,25 +177,28 @@ impl Workspace {
         (!self.settings_open && self.root.is_some()).then_some(self.nav.space)
     }
 
-    fn missing(&self, space: Space) -> Option<Missing> {
+    fn missing(&self, space: Space, cx: &App) -> Option<Missing> {
         match space {
             Space::Branches if self.plain => Some(Missing::Git),
             Space::Code | Space::Branches => None,
-            Space::Inbox | Space::Requests if self.requests.available => None,
-            Space::Inbox | Space::Requests if self.requests.connectable => Some(Missing::Token),
+            Space::Inbox | Space::Requests if self.requests.read(cx).available => None,
+            Space::Inbox | Space::Requests if self.requests.read(cx).connectable => {
+                Some(Missing::Token)
+            }
             Space::Inbox | Space::Requests => Some(Missing::Remote),
         }
     }
 
     /// What waits in a space: the Inbox's unread, the requests that ask for your review.
-    fn waiting(&self, space: Space) -> usize {
+    fn waiting(&self, space: Space, cx: &App) -> usize {
         match space {
             Space::Inbox => self.inbox_unread(),
             Space::Requests => self
                 .requests
+                .read(cx)
                 .list
                 .iter()
-                .filter(|m| self.in_scope(m, Scope::ReviewMe))
+                .filter(|m| self.in_scope(m, Scope::ReviewMe, cx))
                 .count(),
             Space::Code | Space::Branches => 0,
         }
@@ -245,7 +248,7 @@ impl Workspace {
                     .any(|c| c.state == crate::review::State::Draft && paths.contains(&c.path));
                 match &open.item {
                     Item::Request(iid) => {
-                        let m = self.requests.find(*iid);
+                        let m = self.requests.read(cx).find(*iid);
                         let title = m.map(|m| m.title.clone()).unwrap_or_default();
                         // One merged or closed since stays here, saying so, until closed (#114).
                         let state = m
@@ -265,7 +268,7 @@ impl Workspace {
                         };
                         let agent = gathered.map(|g| {
                             let (letter, hue) = self.agent_mark(&g.agent);
-                            (letter, hue, self.agent_waiting(*iid, &g.agent))
+                            (letter, hue, self.agent_waiting(*iid, &g.agent, cx))
                         });
                         OpenRow {
                             item: Some(open.item.clone()),
@@ -355,7 +358,7 @@ impl Workspace {
     /// One the project lacks a token for opens the connect panel; one it lacks a remote or git
     /// for does nothing.
     pub(super) fn go_space(&mut self, space: Space, cx: &mut Context<Self>) {
-        match self.missing(space) {
+        match self.missing(space, cx) {
             _ if self.root.is_none() => {}
             Some(Missing::Remote | Missing::Git) => {}
             Some(Missing::Token) => self.show(Space::Requests, None, cx),
@@ -415,7 +418,7 @@ impl Workspace {
         let row = |space: Space| {
             let id = space.id();
             let label = space.label();
-            let missing = self.missing(space);
+            let missing = self.missing(space, cx);
             let opens = self.open_rows(space, cx);
             let shut = self.nav.folded[space.ix()];
             let call = opens
@@ -426,7 +429,7 @@ impl Workspace {
             // root, or with them folded away.
             let within = here == Some(space);
             let on = within && (folded || shut || !opens.iter().any(|o| o.on));
-            let n = Some(self.waiting(space)).filter(|&n| n > 0 && missing.is_none());
+            let n = Some(self.waiting(space, cx)).filter(|&n| n > 0 && missing.is_none());
             let tip: gpui::SharedString = match missing {
                 Some(m) => format!("{label} — {}", m.line()),
                 None => format!("{label}  {}", space.key()),

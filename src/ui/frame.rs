@@ -701,7 +701,7 @@ impl Render for Workspace {
         );
         // The host's words (pull requests on GitHub) for everything drawn from here.
         words::set(self.web.as_ref().is_some_and(|w| w.github));
-        markdown::set_me(self.requests.login.as_deref());
+        markdown::set_me(self.requests.read(cx).login.as_deref());
         self.take_error(cx);
         self.poll_parts(cx);
         // Settings closed (esc, Done, a place) while a theme was edited: its preview ends too.

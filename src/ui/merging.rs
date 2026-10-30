@@ -13,8 +13,8 @@ use super::{ISLAND_RADIUS, ROW_RADIUS, Workspace, icons, plural, px, theme};
 use crate::merge::{self, Fix, Merge, Method, Squash, Stand};
 use crate::mr::MrState;
 use gpui::{
-    ClickEvent, Context, FontWeight, KeyDownEvent, MouseButton, Pixels, Point, SharedString, div,
-    prelude::*,
+    App, ClickEvent, Context, FontWeight, KeyDownEvent, MouseButton, Pixels, Point, SharedString,
+    div, prelude::*,
 };
 
 /// The card before a merge goes.
@@ -46,15 +46,17 @@ impl Workspace {
 
     /// Where merging the request on the page stands: the host's word with what the page knows,
     /// fresher after an approval or a discussion resolved here.
-    pub(super) fn merge_stand(&self) -> Option<Stand> {
-        let iid = self.requests.current?;
+    pub(super) fn merge_stand(&self, cx: &App) -> Option<Stand> {
+        let iid = self.requests.read(cx).current?;
         let m = self
             .requests
+            .read(cx)
             .find(iid)
             .filter(|m| m.state == MrState::Opened)?;
-        let host = self.requests.merge.as_ref()?;
+        let host = self.requests.read(cx).merge.as_ref()?;
         let open_threads = self
             .requests
+            .read(cx)
             .threads
             .iter()
             .filter(|t| t.resolvable && !t.resolved)
@@ -63,9 +65,9 @@ impl Workspace {
             host,
             &merge::Known {
                 draft: m.draft,
-                approvals: self.requests.approvals.as_ref(),
+                approvals: self.requests.read(cx).approvals.as_ref(),
                 open_threads,
-                pipeline: self.requests.pipeline.as_ref(),
+                pipeline: self.requests.read(cx).pipeline.as_ref(),
                 url: &m.url,
                 target: &m.target,
             },
@@ -75,32 +77,36 @@ impl Workspace {
     /// Reads where merging the current request stands again: after a rebase, or auto-merge set
     /// or cancelled.
     pub(super) fn reload_merge(&mut self, cx: &mut Context<Self>) {
-        let (Some(iid), Some(remote)) = (self.requests.current, self.web.clone()) else {
+        let (Some(iid), Some(remote)) = (self.requests.read(cx).current, self.web.clone()) else {
             return;
         };
         let host = super::host_of(&remote, cx);
-        self.requests.merge_task = Some(cx.spawn(async move |this, cx| {
+        let task = Some(cx.spawn(async move |this, cx| {
             let read = cx
                 .background_executor()
                 .spawn(async move { host.merge_state(iid) })
                 .await;
             this.update(cx, |this, cx| {
-                if this.requests.current == Some(iid) {
-                    this.requests.merge_busy = None;
+                if this.requests.read(cx).current == Some(iid) {
+                    this.requests.update(cx, |rq, _| rq.merge_busy = None);
                     if let Ok(host) = read {
-                        this.requests.merge = Some(host);
+                        this.requests.update(cx, |rq, _| rq.merge = Some(host));
                     }
                     cx.notify();
                 }
             })
             .ok();
         }));
+        self.requests.update(cx, |rq, _| rq.merge_task = task);
     }
 
     /// Merge in the request's bar, as it stands; none while the host has not said.
     pub(super) fn render_merge_control(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        let stand = self.merge_stand()?;
-        let m = self.requests.find(self.requests.current?)?;
+        let stand = self.merge_stand(cx)?;
+        let m = self
+            .requests
+            .read(cx)
+            .find(self.requests.read(cx).current?)?;
         let target = m.target.clone();
         let row = || div().flex_none().flex().items_center().gap(px(6.));
         let word = |text: String, color| {
@@ -110,7 +116,7 @@ impl Workspace {
                 .text_color(color)
                 .child(text)
         };
-        if let Some(busy) = self.requests.merge_busy {
+        if let Some(busy) = self.requests.read(cx).merge_busy {
             return Some(
                 word(busy.to_owned(), theme::muted())
                     .opacity(super::waiting::FADED)
@@ -211,10 +217,15 @@ impl Workspace {
 
     /// Merge's ▾: each reason in the way, and where it is fixed.
     pub(super) fn open_merge_reasons(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
-        let Some(Stand::InTheWay(blocks)) = self.merge_stand() else {
+        let Some(Stand::InTheWay(blocks)) = self.merge_stand(cx) else {
             return;
         };
-        let pipeline = self.requests.pipeline.as_ref().map(|p| p.url.clone());
+        let pipeline = self
+            .requests
+            .read(cx)
+            .pipeline
+            .as_ref()
+            .map(|p| p.url.clone());
         let github = self.on_github();
         let host = if github { "GitHub →" } else { "GitLab →" };
         let entries = blocks
@@ -254,7 +265,7 @@ impl Workspace {
     /// Merge… or ⌘K's Merge this merge request: the card, the project's defaults filled in; while
     /// something is in the way, the list of what.
     pub(super) fn open_merge(&mut self, cx: &mut Context<Self>) {
-        let when = match self.merge_stand() {
+        let when = match self.merge_stand(cx) {
             Some(Stand::Ready) => false,
             Some(Stand::Running) => true,
             Some(Stand::InTheWay(_)) => {
@@ -263,10 +274,13 @@ impl Workspace {
             }
             _ => return,
         };
-        let (Some(iid), Some(host)) = (self.requests.current, self.requests.merge.as_ref()) else {
+        let (Some(iid), Some(host)) = (
+            self.requests.read(cx).current,
+            self.requests.read(cx).merge.as_ref(),
+        ) else {
             return;
         };
-        let Some(m) = self.requests.find(iid) else {
+        let Some(m) = self.requests.read(cx).find(iid) else {
             return;
         };
         let message = format!("{} ({})", m.title, self.reference(iid));
@@ -337,7 +351,7 @@ impl Workspace {
         card.busy = true;
         card.error = None;
         let merge = card.merge.clone();
-        self.requests.merge_task = Some(cx.spawn(async move |this, cx| {
+        let task = Some(cx.spawn(async move |this, cx| {
             let sent = merge.clone();
             let result = cx
                 .background_executor()
@@ -362,6 +376,7 @@ impl Workspace {
             })
             .ok();
         }));
+        self.requests.update(cx, |rq, _| rq.merge_task = task);
         cx.notify();
     }
 
@@ -369,7 +384,7 @@ impl Workspace {
     /// its branch fetched, so the new head shows as its version.
     fn show_new_version(&mut self, cx: &mut Context<Self>) {
         self.merging = None;
-        self.requests.merge = None;
+        self.requests.update(cx, |rq, _| rq.merge = None);
         self.load_requests(cx);
         self.fetch_now(cx);
         cx.notify();
@@ -378,22 +393,25 @@ impl Workspace {
     /// The host merged it, or set it to merge when the pipeline succeeds: a toast says which, and
     /// the list is read again — a request merged moves to Merged, as one merged elsewhere does.
     fn merged(&mut self, iid: u64, merge: &Merge, cx: &mut Context<Self>) {
-        let here = self.requests.current == Some(iid);
+        let here = self.requests.read(cx).current == Some(iid);
         if merge.when_pipeline_succeeds {
             let text = format!("{} merges when the pipeline succeeds", self.reference(iid));
             self.toast_info(text.into(), cx);
-            if let Some(host) = self.requests.merge.as_mut().filter(|_| here) {
-                host.auto_set = true;
-            }
+            self.requests.update(cx, |rq, _| {
+                if let Some(host) = rq.merge.as_mut().filter(|_| here) {
+                    host.auto_set = true;
+                }
+            });
             return self.reload_merge(cx);
         }
         let deletes = here
             && self
                 .requests
+                .read(cx)
                 .merge
                 .as_ref()
                 .is_some_and(|h| h.deletes_itself);
-        if let Some(m) = self.requests.find(iid) {
+        if let Some(m) = self.requests.read(cx).find(iid) {
             let deleted = match merge.delete_branch || deletes {
                 true => format!(" · {} deleted", m.source),
                 false => String::new(),
@@ -402,7 +420,7 @@ impl Workspace {
             self.toast_info(text.into(), cx);
         }
         if here {
-            self.requests.merge = None;
+            self.requests.update(cx, |rq, _| rq.merge = None);
         }
         self.load_requests(cx);
     }
@@ -429,25 +447,26 @@ impl Workspace {
         call: impl FnOnce(&dyn artoo_hosts_api::Host, u64, &str) -> anyhow::Result<()> + Send + 'static,
         cx: &mut Context<Self>,
     ) {
-        let (Some(iid), Some(remote)) = (self.requests.current, self.web.clone()) else {
+        let (Some(iid), Some(remote)) = (self.requests.read(cx).current, self.web.clone()) else {
             return;
         };
         let host = super::host_of(&remote, cx);
         let node = self
             .requests
+            .read(cx)
             .merge
             .as_ref()
             .map(|h| h.node.clone())
             .unwrap_or_default();
-        self.requests.merge_busy = Some(busy);
-        self.requests.merge_task = Some(cx.spawn(async move |this, cx| {
+        self.requests.update(cx, |rq, _| rq.merge_busy = Some(busy));
+        let task = Some(cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move { call(&*host, iid, &node) })
                 .await;
             this.update(cx, |this, cx| {
                 if let Err(e) = result {
-                    this.requests.merge_busy = None;
+                    this.requests.update(cx, |rq, _| rq.merge_busy = None);
                     this.error = Some(format!("{e:#}").into());
                     return cx.notify();
                 }
@@ -455,6 +474,7 @@ impl Workspace {
             })
             .ok();
         }));
+        self.requests.update(cx, |rq, _| rq.merge_task = task);
         cx.notify();
     }
 
@@ -465,12 +485,13 @@ impl Workspace {
     ) -> Option<impl IntoElement + use<>> {
         let card = self.merging.as_ref()?;
         let iid = card.iid;
-        let m = self.requests.find(iid)?;
-        let host = self.requests.merge.clone().unwrap_or_default();
+        let m = self.requests.read(cx).find(iid)?;
+        let host = self.requests.read(cx).merge.clone().unwrap_or_default();
         let merge = &card.merge;
         let reference = self.reference(iid);
         let version = self
             .requests
+            .read(cx)
             .versions
             .as_ref()
             .filter(|(of, _)| *of == iid)

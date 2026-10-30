@@ -71,11 +71,11 @@ impl Workspace {
             })
             .map(|c| c.id)
             .collect();
-        let any_open = mine.iter().any(|&ix| self.mr_open(ix))
+        let any_open = mine.iter().any(|&ix| self.mr_open(ix, cx))
             || agent.iter().any(|id| !self.toggled_agent.contains(id));
         for ix in mine {
             // Everything there ends up the other way round from how most of it was.
-            if self.mr_open(ix) == any_open && !self.toggled_mr.remove(&ix) {
+            if self.mr_open(ix, cx) == any_open && !self.toggled_mr.remove(&ix) {
                 self.toggled_mr.insert(ix);
             }
         }
@@ -125,20 +125,21 @@ impl Workspace {
             .filter(|c| c.path == path && c.file.is_none());
         let showing = self.showing_request(cx);
         let theirs = if showing {
-            self.request_threads_in(path)
+            self.request_threads_in(path, cx)
         } else {
-            self.since_thread_in(path)
+            self.since_thread_in(path, cx)
         };
         let drafts = if showing {
-            self.drafts_in(path)
+            self.drafts_in(path, cx)
         } else {
             Vec::new()
         };
         let reply_of = |ix: usize| {
             self.requests
+                .read(cx)
                 .drafts
                 .get(ix)
-                .and_then(|d| self.draft_thread(d))
+                .and_then(|d| self.draft_thread(d, cx))
         };
         let mut fixed = Vec::new();
         // A reply waiting to be sent comes right under its own discussion (#166).

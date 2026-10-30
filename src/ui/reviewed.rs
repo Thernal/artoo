@@ -17,7 +17,8 @@ impl Workspace {
                 request: Some(iid), ..
             } = d.header
         {
-            self.requests.files = Some((iid, d.files.len()));
+            let files = Some((iid, d.files.len()));
+            self.requests.update(cx, |rq, _| rq.files = files);
         }
         if self.branch_compare(cx)
             && let (Some(f), Some(d)) = (

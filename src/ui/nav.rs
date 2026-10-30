@@ -431,7 +431,7 @@ impl Workspace {
     pub(super) fn loaded_page(&self, cx: &App) -> Option<Page> {
         let refname = self.branches.get(self.branch?)?.refname.clone();
         if let Some((_, _, iid)) = &self.open_request
-            && self.requests.current == Some(*iid)
+            && self.requests.read(cx).current == Some(*iid)
         {
             let iid = *iid;
             return Some(match self.selection {
@@ -757,7 +757,7 @@ impl Workspace {
                 self.read_preview(cx);
                 self.zone = zones::Zone::Branches;
                 // A project without a token: the connect panel takes the keyboard.
-                if self.requests.connectable {
+                if self.requests.read(cx).connectable {
                     self.start_field(super::lists::Field::Token, cx);
                 }
             }
@@ -1034,7 +1034,7 @@ impl Workspace {
         if shown {
             self.nav.pages[space.ix()] = None;
             if let Item::Request(iid) = item
-                && self.requests.current == Some(*iid)
+                && self.requests.read(cx).current == Some(*iid)
             {
                 self.drop_request(cx);
             }
@@ -1067,7 +1067,7 @@ impl Workspace {
     /// closed) stay there, what became of them read once (#114: no pin needed); a page waiting
     /// for the list is shown.
     pub(super) fn requests_listed(&mut self, cx: &mut Context<Self>) {
-        if self.requests.error.is_none() {
+        if self.requests.read(cx).error.is_none() {
             let gone: Vec<u64> = self
                 .nav
                 .open
@@ -1076,7 +1076,7 @@ impl Workspace {
                     Item::Request(iid) => Some(iid),
                     _ => None,
                 })
-                .filter(|iid| self.requests.find(*iid).is_none())
+                .filter(|iid| self.requests.read(cx).find(*iid).is_none())
                 .collect();
             self.read_left(gone, cx);
         }
@@ -1145,7 +1145,7 @@ impl Workspace {
             self.nav.restoring = false;
         }
         let needs_list = matches!(page.as_ref().map(Page::space), Some(Space::Requests));
-        if needs_list && self.requests.loading {
+        if needs_list && self.requests.read(cx).loading {
             self.nav.space = space;
             self.nav.pages[space.ix()] = None;
             self.nav.pending_show = Some((space, page));

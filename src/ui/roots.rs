@@ -299,7 +299,7 @@ impl Workspace {
         let Some(m) = self
             .nav
             .pick_request
-            .and_then(|iid| self.requests.find(iid))
+            .and_then(|iid| self.requests.read(cx).find(iid))
         else {
             return;
         };
@@ -374,7 +374,7 @@ impl Workspace {
 
     /// Request `m`'s group in the list.
     pub(super) fn group_of(&self, m: &Mr, cx: &App) -> Group {
-        let me = self.requests.login.as_deref().unwrap_or_default();
+        let me = self.requests.read(cx).login.as_deref().unwrap_or_default();
         let head = git2::Oid::from_str(&m.head).ok();
         group(
             !me.is_empty() && m.author_login == me,
@@ -385,8 +385,8 @@ impl Workspace {
 
     /// The discussions of request `iid` waiting for its author (`waiting`). Read with the
     /// notifications (`notices`), so only for requests read there.
-    fn waiting_threads(&self, iid: u64) -> Vec<&Thread> {
-        let me = self.requests.login.as_deref().unwrap_or_default();
+    fn waiting_threads(&self, iid: u64, cx: &App) -> Vec<&Thread> {
+        let me = self.requests.read(cx).login.as_deref().unwrap_or_default();
         waiting(me, self.notices.threads_of(iid).unwrap_or_default())
     }
 
@@ -497,8 +497,8 @@ impl Workspace {
 
     /// The requests the list has a row for, in its order: those of folded groups left out, but
     /// the picked one, which stays under its band.
-    pub(super) fn listed_requests(&self, cx: &App) -> Vec<&Mr> {
-        let past = self.requests.view != MrState::Opened;
+    pub(super) fn listed_requests(&self, cx: &App) -> Vec<Mr> {
+        let past = self.requests.read(cx).view != MrState::Opened;
         self.shown_requests(cx)
             .into_iter()
             .filter(|m| {
@@ -511,6 +511,7 @@ impl Workspace {
     pub(super) fn opened_before(&self, iid: u64, cx: &App) -> bool {
         let head = self
             .requests
+            .read(cx)
             .find(iid)
             .and_then(|m| git2::Oid::from_str(&m.head).ok());
         self.roots.opened.contains(&iid)
@@ -518,12 +519,12 @@ impl Workspace {
     }
 
     /// Request `iid` opened: its row's dot goes for good. Requests no longer open are forgotten.
-    pub(super) fn mark_opened(&mut self, iid: u64) {
+    pub(super) fn mark_opened(&mut self, iid: u64, cx: &App) {
         if self.roots.opened.contains(&iid) {
             return;
         }
-        if !self.requests.list.is_empty() {
-            let list = &self.requests.list;
+        if !self.requests.read(cx).list.is_empty() {
+            let list = &self.requests.read(cx).list;
             self.roots
                 .opened
                 .retain(|i| list.iter().any(|m| m.iid == *i));
@@ -536,7 +537,7 @@ impl Workspace {
 
     /// Merge requests' root: the list grouped, the picked one previewed; or one of its states.
     pub(super) fn render_requests_root(&self, cx: &mut Context<Self>) -> AnyElement {
-        if self.requests.connectable {
+        if self.requests.read(cx).connectable {
             return island()
                 .flex_1()
                 .bg(theme::editor())
@@ -545,11 +546,26 @@ impl Workspace {
         }
         let shown = self.shown_requests(cx);
         // The merged or the closed (#114): a flat list, newest first, read as it is scrolled.
-        let past = (self.requests.view != MrState::Opened)
-            .then(|| self.requests.past.of_scope(self.requests.scope));
-        let loading = match past {
-            Some(p) => p.loading && p.list.is_empty(),
-            None => self.requests.loading && self.requests.list.is_empty(),
+        // What shows of them, copied: a row is drawn with the tab's context.
+        struct PastShown {
+            loading: bool,
+            empty: bool,
+            more: bool,
+            error: Option<String>,
+        }
+        let past = (self.requests.read(cx).view != MrState::Opened).then(|| {
+            let rq = self.requests.read(cx);
+            let p = rq.past.of_scope(rq.scope);
+            PastShown {
+                loading: p.loading,
+                empty: p.list.is_empty(),
+                more: p.more,
+                error: p.error.clone(),
+            }
+        });
+        let loading = match &past {
+            Some(p) => p.loading && p.empty,
+            None => self.requests.read(cx).loading && self.requests.read(cx).list.is_empty(),
         };
         let body = if loading {
             div()
@@ -573,14 +589,14 @@ impl Workspace {
                         .child(skeleton("request-preview-loading", 3)),
                 )
                 .into_any_element()
-        } else if shown.is_empty() && past.is_none_or(|p| !p.more) {
+        } else if shown.is_empty() && past.as_ref().is_none_or(|p| !p.more) {
             island()
                 .flex_1()
                 .bg(theme::editor())
                 .child(self.requests_empty(cx))
                 .into_any_element()
         } else {
-            let groups: Vec<Group> = match past {
+            let groups: Vec<Group> = match &past {
                 Some(_) => vec![Group::New; shown.len()],
                 None => shown.iter().map(|m| self.group_of(m, cx)).collect(),
             };
@@ -595,14 +611,14 @@ impl Workspace {
                         .find(|(_, g)| past.is_some() || !self.folds(**g))
                         .map(|(m, _)| m)
                 })
-                .copied();
+                .cloned();
             // Each group a band, its rows under it unless it is folded (#81).
             let mut rows: Vec<AnyElement> = Vec::new();
             let mut bands: Vec<(usize, Group, usize)> = Vec::new();
             let mut picked_row = None;
             for (n, (m, &g)) in shown.iter().zip(&groups).enumerate() {
                 if past.is_some() {
-                    if picked.is_some_and(|p| p.iid == m.iid) {
+                    if picked.as_ref().is_some_and(|p| p.iid == m.iid) {
                         picked_row = Some(rows.len());
                     }
                     rows.push(self.request_row(m, g, cx).into_any_element());
@@ -614,7 +630,7 @@ impl Workspace {
                     let top = rows.is_empty();
                     rows.push(self.group_band(g, count, false, top, cx).into_any_element());
                 }
-                let is_picked = picked.is_some_and(|p| p.iid == m.iid);
+                let is_picked = picked.as_ref().is_some_and(|p| p.iid == m.iid);
                 // Each row folds with its group, in size and alpha (#110): the group opens and
                 // shuts as one, and every row stays a child of its own for the held band.
                 let Some(row) = self.folding(
@@ -632,7 +648,7 @@ impl Workspace {
             }
             // More of them while there may be: a shimmer row at the end, read when it comes into
             // sight (#114).
-            if let Some(error) = past.and_then(|p| p.error.as_ref()) {
+            if let Some(error) = past.as_ref().and_then(|p| p.error.as_ref()) {
                 rows.push(
                     div()
                         .px(px(16.))
@@ -648,7 +664,7 @@ impl Workspace {
                         ))
                         .into_any_element(),
                 );
-            } else if past.is_some_and(|p| p.more || p.loading) {
+            } else if past.as_ref().is_some_and(|p| p.more || p.loading) {
                 rows.push(
                     div()
                         .id("past-more")
@@ -662,7 +678,7 @@ impl Workspace {
             // top is, so the band above it is held there.
             let scroll = &self.roots.scroll;
             let laid = scroll.children_count() == rows.len();
-            if past.is_some_and(|p| p.more && !p.loading) {
+            if past.as_ref().is_some_and(|p| p.more && !p.loading) {
                 // Not laid out yet: looked at again once it is. A row's bounds are where it is
                 // in the unscrolled list.
                 let near = laid
@@ -674,7 +690,7 @@ impl Workspace {
                     cx.defer(move |cx| {
                         this.update(cx, |this, cx| {
                             if near {
-                                this.load_past_page(this.requests.scope, cx);
+                                this.load_past_page(this.requests.read(cx).scope, cx);
                             } else {
                                 cx.notify();
                             }
@@ -745,7 +761,7 @@ impl Workspace {
                             .flex_1()
                             .min_h_0()
                             .overflow_y_scroll()
-                            .children(picked.map(|m| self.request_preview(m, cx))),
+                            .children(picked.as_ref().map(|m| self.request_preview(m, cx))),
                     )
                 }))
                 .into_any_element()
@@ -764,15 +780,16 @@ impl Workspace {
     /// No request to list: why, per filter, and the way to more.
     fn requests_empty(&self, cx: &mut Context<Self>) -> Div {
         use super::requests::Scope;
-        let all = self.requests.list.len();
+        let all = self.requests.read(cx).list.len();
         let filter = self.bfilter.trim().to_owned();
-        let view = self.requests.view;
+        let view = self.requests.read(cx).view;
         let show_all = |label: &'static str| {
             div()
                 .id("empty-show-all")
                 .child(bar_button(label))
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.requests.scope = super::requests::Scope::All;
+                    this.requests
+                        .update(cx, |rq, _| rq.scope = super::requests::Scope::All);
                     this.bfilter.clear();
                     this.field = None;
                     cx.notify();
@@ -791,7 +808,11 @@ impl Workspace {
         // The merged or the closed (#114): none read, or none of this filter's.
         if view != MrState::Opened {
             let word = view.word().to_lowercase();
-            let past = self.requests.past.of_scope(self.requests.scope);
+            let past = self
+                .requests
+                .read(cx)
+                .past
+                .of_scope(self.requests.read(cx).scope);
             if let Some(error) = &past.error {
                 return empty_state(
                     "pull-request",
@@ -809,8 +830,14 @@ impl Workspace {
                     ),
                 );
             }
-            let read = !self.requests.past.of_scope(Scope::All).list.is_empty();
-            return match self.requests.scope {
+            let read = !self
+                .requests
+                .read(cx)
+                .past
+                .of_scope(Scope::All)
+                .list
+                .is_empty();
+            return match self.requests.read(cx).scope {
                 Scope::All => empty_state(
                     "pull-request",
                     words::say(&format!("No {word} merge requests")).into_owned(),
@@ -839,7 +866,7 @@ impl Workspace {
                 ),
             };
         }
-        if self.requests.error.is_some() && all == 0 {
+        if self.requests.read(cx).error.is_some() && all == 0 {
             return empty_state(
                 "pull-request",
                 words::say("No merge requests yet").into_owned(),
@@ -847,7 +874,7 @@ impl Workspace {
                 None,
             );
         }
-        match self.requests.scope {
+        match self.requests.read(cx).scope {
             Scope::ReviewMe => empty_state(
                 "pull-request",
                 "Nothing to review".to_owned(),
@@ -963,7 +990,7 @@ impl Workspace {
             .previews
             .get(&iid)
             .and_then(|p| p.pipeline.as_ref());
-        let waiting = (g == Group::Yours).then(|| self.waiting_threads(iid).len());
+        let waiting = (g == Group::Yours).then(|| self.waiting_threads(iid, cx).len());
         let threads = self.notices.threads_of(iid).map(<[Thread]>::len);
         // A dot: a row of yours a thread waits on, another you have never opened; how far your
         // review is, its group says (#81).
@@ -1124,7 +1151,7 @@ impl Workspace {
     /// and Open; for one of yours, the discussions waiting for you first.
     fn request_preview(&self, m: &Mr, cx: &mut Context<Self>) -> AnyElement {
         let iid = m.iid;
-        let me = self.requests.login.as_deref().unwrap_or_default();
+        let me = self.requests.read(cx).login.as_deref().unwrap_or_default();
         let mine = !me.is_empty() && m.author_login == me;
         let preview = self.roots.previews.get(&iid);
         let mut pills: Vec<AnyElement> = Vec::new();
@@ -1229,7 +1256,7 @@ impl Workspace {
             s => format!("{} {}", s.word().to_lowercase(), format::ago(m.updated)),
         });
         let waiting = if mine {
-            self.waiting_threads(iid)
+            self.waiting_threads(iid, cx)
         } else {
             Vec::new()
         };
@@ -1379,14 +1406,15 @@ impl Workspace {
     /// ↵ on Merge requests' root: the picked request opens — for one of yours with discussions
     /// waiting, at the first of them.
     pub(super) fn open_picked_request(&mut self, iid: u64, cx: &mut Context<Self>) {
-        let me = self.requests.login.clone().unwrap_or_default();
+        let me = self.requests.read(cx).login.clone().unwrap_or_default();
         let mine = self
             .requests
+            .read(cx)
             .find(iid)
             .is_some_and(|m| !me.is_empty() && m.author_login == me);
         let note = mine
             .then(|| {
-                self.waiting_threads(iid)
+                self.waiting_threads(iid, cx)
                     .first()
                     .and_then(|t| t.notes.last().map(|n| n.id))
             })
@@ -1699,7 +1727,7 @@ impl Workspace {
                         ),
                         None => {}
                     }
-                    if let Some(m) = self.request_of_branch(ix).filter(|_| room.second()) {
+                    if let Some(m) = self.request_of_branch(ix, cx).filter(|_| room.second()) {
                         let iid = m.iid;
                         parts.push(
                             div()
@@ -1732,7 +1760,7 @@ impl Workspace {
                 }
             };
         let card = match row {
-            BranchRow::Branch(ix) => self.branch_card(ix),
+            BranchRow::Branch(ix) => self.branch_card(ix, cx),
             BranchRow::WorkingTree => None,
         };
         // The working tree has no card: its tooltip names its files.
@@ -1946,7 +1974,9 @@ impl Workspace {
             return div().into_any_element();
         };
         let fact = self.roots.facts.get(&b.refname);
-        let request = self.request_of_branch(ix).map(|m| (m.iid, m.title.clone()));
+        let request = self
+            .request_of_branch(ix, cx)
+            .map(|m| (m.iid, m.title.clone()));
         let props = div()
             .flex()
             .items_center()
@@ -2096,10 +2126,11 @@ impl Workspace {
     /// Over a list whose host cannot be read now: offline (the VPN), or the token refused; the
     /// last list stays under it.
     pub(super) fn list_banner(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let error = self.requests.error.as_ref()?;
+        let error = self.requests.read(cx).error.as_ref()?;
         let offline = error.starts_with("Can't reach");
         let since = self
             .requests
+            .read(cx)
             .listed_at
             .map(|t| format!(" The list is from {}", format::clock(t)));
         let text = match (offline, &since) {

@@ -10,7 +10,7 @@ use super::nav::{Item, Page};
 use super::toast::Act;
 use crate::agents::{Bus, Mark, Place, RequestDraft, What};
 use crate::git::RefKind;
-use gpui::Context;
+use gpui::{App, Context};
 use std::path::Path;
 
 impl Workspace {
@@ -61,7 +61,7 @@ impl Workspace {
     /// `agent` wrote `count` pending comments on request `iid`: the request on screen reads them
     /// in, and a toast offers to go to them.
     fn agent_left(&mut self, agent: String, iid: u64, count: usize, cx: &mut Context<Self>) {
-        if self.requests.current == Some(iid) {
+        if self.requests.read(cx).current == Some(iid) {
             self.reload_threads(cx);
         }
         // Its row under Merge requests, quietly, with a dot (#160).
@@ -225,7 +225,7 @@ impl Workspace {
                 self.go_to(crate::links::Target::Request { iid, note, line }, cx);
                 if let Some(id) = draft {
                     self.spot = Some(Spot::Drafts(vec![id]));
-                    if self.request_loaded(iid, cx) && !self.requests.reading {
+                    if self.request_loaded(iid, cx) && !self.requests.read(cx).reading {
                         self.resolve_spot(true, cx);
                     }
                 }
@@ -350,7 +350,7 @@ impl Workspace {
         }
         self.spot = Some(Spot::Drafts(ids));
         // Loaded with its comments in: now; else as they come in (`sync_request`).
-        if self.request_loaded(iid, cx) && !self.requests.reading {
+        if self.request_loaded(iid, cx) && !self.requests.read(cx).reading {
             self.resolve_spot(true, cx);
         }
         cx.notify();
@@ -377,14 +377,14 @@ impl Workspace {
 
     /// The pending comments `agent` left on request `iid` that still wait there: as the host
     /// lists them when the request is loaded, else as the marks say.
-    pub(super) fn agent_waiting(&self, iid: u64, agent: &str) -> usize {
+    pub(super) fn agent_waiting(&self, iid: u64, agent: &str, cx: &App) -> usize {
         let ids = self
             .agent_marks
             .iter()
             .filter(|m| m.iid == iid && m.agent == agent)
             .filter_map(|m| m.draft);
-        if self.requests.current == Some(iid) && !self.requests.reading {
-            ids.filter(|id| self.requests.drafts.iter().any(|d| d.id == *id))
+        if self.requests.read(cx).current == Some(iid) && !self.requests.read(cx).reading {
+            ids.filter(|id| self.requests.read(cx).drafts.iter().any(|d| d.id == *id))
                 .count()
         } else {
             ids.count()
@@ -405,8 +405,8 @@ impl Workspace {
     }
 
     /// The agent that wrote pending comment `id` of the request open, when one did.
-    pub(super) fn draft_agent(&self, id: u64) -> Option<&str> {
-        let iid = self.requests.current?;
+    pub(super) fn draft_agent(&self, id: u64, cx: &App) -> Option<&str> {
+        let iid = self.requests.read(cx).current?;
         self.agent_marks
             .iter()
             .find(|m| m.iid == iid && m.draft == Some(id))

@@ -160,10 +160,10 @@ impl Workspace {
     /// the file is changed there (#117: what it really edits). One in this working tree, where
     /// whose edit is whose cannot be told: a note of its on the file was taken and not answered
     /// yet. Its name, letter and hue.
-    pub(super) fn changing(&self, path: &str) -> Option<(String, char, gpui::Rgba)> {
+    pub(super) fn changing(&self, path: &str, cx: &App) -> Option<(String, char, gpui::Rgba)> {
         let alive = |session: &str| self.chat_listens(session);
         let page = self
-            .route_of(self.page_branch().as_deref())
+            .route_of(self.page_branch(cx).as_deref())
             .map(|c| c.session.clone());
         let edited = self
             .agent_chats
@@ -269,9 +269,9 @@ impl Workspace {
 
     /// The branch of the page on screen, as a note written there keeps it: a request's source
     /// branch, a branch's own, else the one checked out (#77).
-    pub(super) fn page_branch(&self) -> Option<String> {
-        if let Some(iid) = self.requests.current
-            && let Some(m) = self.requests.find(iid)
+    pub(super) fn page_branch(&self, cx: &App) -> Option<String> {
+        if let Some(iid) = self.requests.read(cx).current
+            && let Some(m) = self.requests.read(cx).find(iid)
             && self.nav.space == super::spaces::Space::Requests
         {
             return Some(m.source.clone());
@@ -1398,7 +1398,7 @@ impl Workspace {
             })
             .collect();
         // Where a note written here goes, and the way to change it (#77).
-        let branch = self.page_branch();
+        let branch = self.page_branch(cx);
         // "Goes to" the chat; why, in its tooltip (#79).
         let route = self.route_of(branch.as_deref()).cloned().map(|chat| {
             use super::hover::Hover;

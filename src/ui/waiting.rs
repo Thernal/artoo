@@ -29,7 +29,9 @@ impl Workspace {
             return;
         };
         let host = super::host_of(&remote, cx);
-        let key = self.requests.waiting.send(iid, ops, super::inbox::now());
+        let key = self
+            .requests
+            .update(cx, |rq, _| rq.waiting.send(iid, ops, super::inbox::now()));
         self.show_waiting(iid, cx);
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -39,9 +41,9 @@ impl Workspace {
                 .await;
             this.update(cx, |this, cx| {
                 match result {
-                    Ok(()) => this.requests.waiting.took(key),
+                    Ok(()) => this.requests.update(cx, |rq, _| rq.waiting.took(key)),
                     Err(e) => {
-                        this.requests.waiting.refused(key);
+                        this.requests.update(cx, |rq, _| rq.waiting.refused(key));
                         this.show_waiting(iid, cx);
                         refused(this, format!("{e:#}"), cx);
                     }
@@ -51,7 +53,7 @@ impl Workspace {
                 if this.inbox {
                     this.load_notices(cx);
                 }
-                if this.requests.current == Some(iid) {
+                if this.requests.read(cx).current == Some(iid) {
                     this.reload_threads(cx);
                 }
                 cx.notify();
@@ -73,11 +75,11 @@ impl Workspace {
     pub(super) fn show_waiting(&mut self, iid: u64, cx: &mut App) {
         let me = (
             self.me.clone(),
-            self.requests.login.clone().unwrap_or_default(),
+            self.requests.read(cx).login.clone().unwrap_or_default(),
         );
         let me = (me.0.as_str(), me.1.as_str());
-        if self.requests.current == Some(iid) {
-            let r = &self.requests;
+        if self.requests.read(cx).current == Some(iid) {
+            let r = &self.requests.read(cx);
             let thread_id = |ix: usize| r.threads.get(ix).map(|t| t.id.clone());
             let toggled: Vec<String> = self
                 .toggled_mr
@@ -107,20 +109,20 @@ impl Workspace {
             {
                 c.set_thread(ix);
             }
-            self.requests.threads = threads;
-            self.requests.drafts = drafts;
-            self.requests.approvals = approvals;
+            self.requests.update(cx, |rq, _| rq.threads = threads);
+            self.requests.update(cx, |rq, _| rq.drafts = drafts);
+            self.requests.update(cx, |rq, _| rq.approvals = approvals);
             self.refresh_rows(cx);
         }
-        self.notices.show(iid, &self.requests.waiting, me);
+        self.notices.show(iid, &self.requests.read(cx).waiting, me);
     }
 
     /// The host's answer for the open request `iid`, from a read begun at tick `from`: what shows
     /// is made again on it, and the changes every reader holds are let go.
     pub(super) fn take_base(&mut self, iid: u64, from: u64, base: Base, cx: &mut Context<Self>) {
-        self.requests.base = base;
-        self.requests.from = from;
-        self.settle_waiting();
+        self.requests.update(cx, |rq, _| rq.base = base);
+        self.requests.update(cx, |rq, _| rq.from = from);
+        self.settle_waiting(cx);
         self.show_waiting(iid, cx);
         // Both read the discussions just taken in.
         self.compute_histories(cx);
@@ -128,43 +130,55 @@ impl Workspace {
     }
 
     /// The changes the request open and the Inbox both hold now are let go.
-    pub(super) fn settle_waiting(&mut self) {
-        let (current, from) = (self.requests.current, self.requests.from);
+    pub(super) fn settle_waiting(&mut self, cx: &mut App) {
+        let (current, from) = (self.requests.read(cx).current, self.requests.read(cx).from);
         let notices = &self.notices;
-        self.requests
-            .waiting
-            .settle(|iid, done| (current != Some(iid) || from > done) && notices.holds(iid, done));
+        self.requests.update(cx, |rq, _| {
+            rq.waiting.settle(|iid, done| {
+                (current != Some(iid) || from > done) && notices.holds(iid, done)
+            })
+        });
     }
 
     /// A note's time, or what it waits for; and whether it waits.
-    pub(super) fn note_time(&self, id: u64, created: i64) -> (String, bool) {
-        match self
-            .requests
-            .current
-            .and_then(|iid| self.requests.waiting.note(iid, self.requests.from, id))
-        {
+    pub(super) fn note_time(&self, id: u64, created: i64, cx: &App) -> (String, bool) {
+        match self.requests.read(cx).current.and_then(|iid| {
+            self.requests
+                .read(cx)
+                .waiting
+                .note(iid, self.requests.read(cx).from, id)
+        }) {
             Some(word) => (word.to_owned(), true),
             None => (super::format::ago(created), false),
         }
     }
 
     /// What the open request's discussion `id` waits for.
-    pub(super) fn thread_waits(&self, id: &str) -> Option<&'static str> {
-        let iid = self.requests.current?;
-        self.requests.waiting.thread(iid, self.requests.from, id)
+    pub(super) fn thread_waits(&self, id: &str, cx: &App) -> Option<&'static str> {
+        let iid = self.requests.read(cx).current?;
+        self.requests
+            .read(cx)
+            .waiting
+            .thread(iid, self.requests.read(cx).from, id)
     }
 
     /// What the open request's pending comment `id` waits for.
-    pub(super) fn draft_waits(&self, id: u64) -> Option<&'static str> {
-        let iid = self.requests.current?;
-        self.requests.waiting.draft(iid, self.requests.from, id)
+    pub(super) fn draft_waits(&self, id: u64, cx: &App) -> Option<&'static str> {
+        let iid = self.requests.read(cx).current?;
+        self.requests
+            .read(cx)
+            .waiting
+            .draft(iid, self.requests.read(cx).from, id)
     }
 
     /// Whether the open request's approval waits.
-    pub(super) fn approval_waits(&self) -> bool {
-        self.requests
-            .current
-            .is_some_and(|iid| self.requests.waiting.approving(iid, self.requests.from))
+    pub(super) fn approval_waits(&self, cx: &App) -> bool {
+        self.requests.read(cx).current.is_some_and(|iid| {
+            self.requests
+                .read(cx)
+                .waiting
+                .approving(iid, self.requests.read(cx).from)
+        })
     }
 }
 
@@ -177,7 +191,7 @@ impl Workspace {
     /// comment sent now and the second deleted.
     #[cfg(feature = "snapshot")]
     pub(super) fn snapshot_changes(&mut self, cx: &mut Context<Self>) {
-        let on_lines: Vec<usize> = (self.requests.threads.iter().enumerate())
+        let on_lines: Vec<usize> = (self.requests.read(cx).threads.iter().enumerate())
             .filter(|(_, t)| t.path.is_some() && t.resolvable)
             .map(|(ix, _)| ix)
             .collect();
@@ -193,7 +207,7 @@ impl Workspace {
         }
         self.toggle_approval(cx);
         // The first pending comment sent now, the second deleted.
-        let drafts: Vec<u64> = self.requests.drafts.iter().map(|d| d.id).collect();
+        let drafts: Vec<u64> = self.requests.read(cx).drafts.iter().map(|d| d.id).collect();
         if let Some(&id) = drafts.first() {
             self.send_draft_now(id, cx);
         }

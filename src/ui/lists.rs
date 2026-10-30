@@ -184,7 +184,7 @@ impl Workspace {
         // The connect panel: ↵ with nothing pasted presses the focused way's button; ↑ ↓ move
         // between the ways (`zone_vertical`, #156).
         if field == Field::Token
-            && self.requests.connectable
+            && self.requests.read(cx).connectable
             && !self.settings_open
             && event.keystroke.key == "enter"
             && self.token_input.trim().is_empty()

@@ -14,6 +14,7 @@ impl Workspace {
         // One still on its way to the host has no id to reply to yet (#139).
         let Some(t) = self
             .requests
+            .read(cx)
             .threads
             .get(ix)
             .filter(|t| !super::waiting::is_temp_thread(&t.id))
@@ -44,7 +45,7 @@ impl Workspace {
         self.take_keyboard(Input::Compose, cx);
         self.reset_field_edit();
         self.thread_at = Some(ix);
-        if !self.mr_open(ix) {
+        if !self.mr_open(ix, cx) {
             self.toggled_mr.insert(ix);
         }
         self.refresh_rows(cx);
@@ -103,20 +104,22 @@ impl Workspace {
         if body.is_empty() {
             return;
         }
-        let w = &mut self.requests.waiting;
-        let op = match discussion.clone() {
-            Some(thread) => Op::Reply {
-                thread,
-                note: w.temp(),
-                body: body.clone(),
-            },
-            None => Op::Discussion {
-                thread: w.temp_thread(),
-                note: w.temp(),
-                body: body.clone(),
-                at: None,
-            },
-        };
+        let op = self.requests.update(cx, |rq, _| {
+            let w = &mut rq.waiting;
+            match discussion.clone() {
+                Some(thread) => Op::Reply {
+                    thread,
+                    note: w.temp(),
+                    body: body.clone(),
+                },
+                None => Op::Discussion {
+                    thread: w.temp_thread(),
+                    note: w.temp(),
+                    body: body.clone(),
+                    at: None,
+                },
+            }
+        });
         self.submit_compose(iid, vec![op], cx, move |host| match discussion {
             Some(id) => host.reply(iid, &id, &body),
             None => host.comment(iid, &body),
@@ -125,9 +128,9 @@ impl Workspace {
 
     /// One's own last note in discussion `ix`, when the request can take changes.
     pub(super) fn my_note_in(&self, ix: usize, cx: &App) -> Option<u64> {
-        let login = self.requests.login.as_deref()?;
+        let login = self.requests.read(cx).login.as_deref()?;
         self.request_target(cx)?;
-        let t = self.requests.threads.get(ix)?;
+        let t = self.requests.read(cx).threads.get(ix)?;
         t.notes
             .iter()
             .rev()
@@ -176,28 +179,30 @@ impl Workspace {
         let path = new_path.clone().or(old_path.clone()).unwrap_or_default();
         let old_path = old_path.or(new_path).unwrap_or_default();
         // Shown at once where it was written: a pending comment, or a discussion (#139).
-        let w = &mut self.requests.waiting;
-        let op = if draft {
-            Op::Draft(crate::mr::Draft {
-                id: w.temp(),
-                body: body.clone(),
-                path: Some(path.clone()),
-                new_line,
-                old_line,
-                reply_to: None,
-            })
-        } else {
-            Op::Discussion {
-                thread: w.temp_thread(),
-                note: w.temp(),
-                body: body.clone(),
-                at: Some(super::waiting::At {
-                    path: path.clone(),
+        let op = self.requests.update(cx, |rq, _| {
+            let w = &mut rq.waiting;
+            if draft {
+                Op::Draft(crate::mr::Draft {
+                    id: w.temp(),
+                    body: body.clone(),
+                    path: Some(path.clone()),
                     new_line,
                     old_line,
-                }),
+                    reply_to: None,
+                })
+            } else {
+                Op::Discussion {
+                    thread: w.temp_thread(),
+                    note: w.temp(),
+                    body: body.clone(),
+                    at: Some(super::waiting::At {
+                        path: path.clone(),
+                        new_line,
+                        old_line,
+                    }),
+                }
             }
-        };
+        });
         self.submit_compose(iid, vec![op], cx, move |host| {
             host.post_discussion(
                 iid,
@@ -220,8 +225,8 @@ impl Workspace {
     pub(super) fn post_reply(&mut self, ix: usize, cx: &mut Context<Self>) {
         let (Some(compose), Some(thread), Some(iid)) = (
             self.compose.as_ref(),
-            self.requests.threads.get(ix),
-            self.requests.current,
+            self.requests.read(cx).threads.get(ix),
+            self.requests.read(cx).current,
         ) else {
             return;
         };
@@ -231,7 +236,7 @@ impl Workspace {
         }
         let op = Op::Reply {
             thread: id.clone(),
-            note: self.requests.waiting.temp(),
+            note: self.requests.update(cx, |rq, _| rq.waiting.temp()),
             body: body.clone(),
         };
         self.submit_compose(iid, vec![op], cx, move |host| host.reply(iid, &id, &body));
@@ -260,13 +265,18 @@ impl Workspace {
         // A reply or an edit comes back to its discussion, wherever it moved.
         let thread = compose
             .thread()
-            .and_then(|ix| self.requests.threads.get(ix))
+            .and_then(|ix| self.requests.read(cx).threads.get(ix))
             .map(|t| t.id.clone());
         self.refresh_rows(cx);
         self.review.update(cx, |rv, _| rv.remeasure_pages());
         let refused = move |this: &mut Self, why: String, cx: &mut Context<Self>| {
             let place = match &thread {
-                Some(id) => this.requests.threads.iter().position(|t| &t.id == id),
+                Some(id) => this
+                    .requests
+                    .read(cx)
+                    .threads
+                    .iter()
+                    .position(|t| &t.id == id),
                 None => Some(usize::MAX),
             };
             let shows = match compose.target {
@@ -281,12 +291,12 @@ impl Workspace {
                         })
                 }
                 Target::Request(_) => {
-                    this.requests.current == Some(iid)
+                    this.requests.read(cx).current == Some(iid)
                         && (compose.page.is_some()
                             || this.review.read(cx).current_path().as_deref()
                                 == Some(compose.path.as_str()))
                 }
-                _ => this.requests.current == Some(iid),
+                _ => this.requests.read(cx).current == Some(iid),
             };
             match place {
                 Some(ix) if this.compose.is_none() && shows => {

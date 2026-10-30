@@ -117,7 +117,7 @@ impl Workspace {
             return;
         }
         // The connect panel with its field: ↑ ↓ move between the ways (#156).
-        if self.requests.connectable
+        if self.requests.read(cx).connectable
             && self.field == Some(super::lists::Field::Token)
             && !self.settings_open
         {

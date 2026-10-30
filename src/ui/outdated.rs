@@ -19,23 +19,24 @@ use std::collections::HashMap;
 
 impl Workspace {
     /// The latest version's head of the open request.
-    fn latest_head(&self) -> Option<String> {
+    fn latest_head(&self, cx: &App) -> Option<String> {
         self.requests
+            .read(cx)
             .current
-            .and_then(|iid| self.requests.find(iid))
+            .and_then(|iid| self.requests.read(cx).find(iid))
             .map(|m| m.head.clone())
             .filter(|h| !h.is_empty())
     }
 
     /// The commit discussion `t` was written on: the host's word, else (an older GitLab answer
     /// without `head_sha`) the version pushed last before its first note.
-    fn written_commit(&self, t: &Thread) -> Option<String> {
+    fn written_commit(&self, t: &Thread, cx: &App) -> Option<String> {
         if let Some(c) = &t.commit {
             return Some(c.clone());
         }
-        let iid = self.requests.current?;
+        let iid = self.requests.read(cx).current?;
         let when = t.notes.first()?.created;
-        match &self.requests.versions {
+        match &self.requests.read(cx).versions {
             Some((for_iid, list)) if *for_iid == iid && list.len() > 1 => list
                 .iter()
                 .rev()
@@ -46,11 +47,11 @@ impl Workspace {
     }
 
     /// Written on an earlier version than the one shown: its line number is that version's.
-    pub(super) fn thread_is_old(&self, t: &Thread) -> bool {
+    pub(super) fn thread_is_old(&self, t: &Thread, cx: &App) -> bool {
         if t.outdated {
             return true;
         }
-        match (self.written_commit(t), self.latest_head()) {
+        match (self.written_commit(t, cx), self.latest_head(cx)) {
             (Some(c), Some(head)) => !head.starts_with(c.as_str()) && !c.starts_with(&head),
             _ => false,
         }
@@ -59,10 +60,10 @@ impl Workspace {
     /// Follows the line of every discussion written on an earlier version to the latest, in the
     /// background; the threads and the versions must both be in.
     pub(super) fn compute_histories(&mut self, cx: &mut Context<Self>) {
-        let (Some(root), Some(iid)) = (self.root.clone(), self.requests.current) else {
+        let (Some(root), Some(iid)) = (self.root.clone(), self.requests.read(cx).current) else {
             return;
         };
-        let versions: Vec<(usize, git2::Oid)> = match &self.requests.versions {
+        let versions: Vec<(usize, git2::Oid)> = match &self.requests.read(cx).versions {
             Some((for_iid, list)) if *for_iid == iid => {
                 list.iter().map(|v| (v.number, v.tip)).collect()
             }
@@ -70,23 +71,24 @@ impl Workspace {
         };
         let old: Vec<(String, String, String, u32)> = self
             .requests
+            .read(cx)
             .threads
             .iter()
-            .filter(|t| self.thread_is_old(t))
+            .filter(|t| self.thread_is_old(t, cx))
             .filter_map(|t| {
                 Some((
                     t.id.clone(),
-                    self.written_commit(t)?,
+                    self.written_commit(t, cx)?,
                     t.path.clone()?,
                     t.new_line?,
                 ))
             })
             .collect();
         if old.is_empty() {
-            self.requests.histories.clear();
+            self.requests.update(cx, |rq, _| rq.histories.clear());
             return;
         }
-        self.requests.history_task = Some(cx.spawn(async move |this, cx| {
+        let task = Some(cx.spawn(async move |this, cx| {
             let histories = cx
                 .background_executor()
                 .spawn(async move {
@@ -104,8 +106,8 @@ impl Workspace {
                 })
                 .await;
             this.update(cx, |this, cx| {
-                if this.requests.current == Some(iid) {
-                    this.requests.histories = histories;
+                if this.requests.read(cx).current == Some(iid) {
+                    this.requests.update(cx, |rq, _| rq.histories = histories);
                     this.refresh_rows(cx);
                     this.open_since_on_arrival(cx);
                     cx.notify();
@@ -113,16 +115,22 @@ impl Workspace {
             })
             .ok();
         }));
+        self.requests.update(cx, |rq, _| rq.history_task = task);
     }
 
     /// The outdated discussions by the version they were written on, newest version first.
-    pub(super) fn outdated_by_version(&self) -> Vec<(Option<usize>, Vec<usize>)> {
+    pub(super) fn outdated_by_version(&self, cx: &App) -> Vec<(Option<usize>, Vec<usize>)> {
         let mut groups: Vec<(Option<usize>, Vec<usize>)> = Vec::new();
-        for (ix, t) in self.requests.threads.iter().enumerate() {
-            if t.path.is_none() || !self.thread_is_old(t) {
+        for (ix, t) in self.requests.read(cx).threads.iter().enumerate() {
+            if t.path.is_none() || !self.thread_is_old(t, cx) {
                 continue;
             }
-            let version = self.requests.histories.get(&t.id).map(|h| h.written);
+            let version = self
+                .requests
+                .read(cx)
+                .histories
+                .get(&t.id)
+                .map(|h| h.written);
             match groups.iter_mut().find(|(v, _)| *v == version) {
                 Some((_, list)) => list.push(ix),
                 None => groups.push((version, vec![ix])),
@@ -133,17 +141,17 @@ impl Workspace {
     }
 
     /// Whether thread `t` began with a comment of yours: only then is it "your comment".
-    fn yours(&self, t: &Thread) -> bool {
-        let me = self.requests.login.as_deref().unwrap_or_default();
+    fn yours(&self, t: &Thread, cx: &App) -> bool {
+        let me = self.requests.read(cx).login.as_deref().unwrap_or_default();
         !me.is_empty() && t.notes.first().is_some_and(|n| n.login == me)
     }
 
     /// "Changed since your comment" (or this comment, another's), or not, for thread `ix`; None
     /// while it is not known.
-    pub(super) fn since_comment(&self, ix: usize) -> Option<String> {
-        let t = self.requests.threads.get(ix)?;
-        let h = self.requests.histories.get(&t.id)?;
-        let whose = if self.yours(t) {
+    pub(super) fn since_comment(&self, ix: usize, cx: &App) -> Option<String> {
+        let t = self.requests.read(cx).threads.get(ix)?;
+        let h = self.requests.read(cx).histories.get(&t.id)?;
+        let whose = if self.yours(t, cx) {
             "your comment"
         } else {
             "this comment"
@@ -156,17 +164,22 @@ impl Workspace {
     }
 
     /// The button that compares thread `ix`'s version with the latest: "Compare v1 → v3".
-    pub(super) fn compare_label(&self, ix: usize) -> Option<String> {
-        let t = self.requests.threads.get(ix)?;
-        let written = self.requests.histories.get(&t.id)?.written;
+    pub(super) fn compare_label(&self, ix: usize, cx: &App) -> Option<String> {
+        let t = self.requests.read(cx).threads.get(ix)?;
+        let written = self.requests.read(cx).histories.get(&t.id)?.written;
         let latest = self.versions.last()?.number;
         Some(format!("Compare v{written} → v{latest}"))
     }
 
     /// Under an outdated discussion: the line's history and Compare with the new version.
-    pub(super) fn render_history(&self, ix: usize, this: WeakEntity<Self>) -> Option<AnyElement> {
-        let t = self.requests.threads.get(ix)?;
-        let h = self.requests.histories.get(&t.id)?.clone();
+    pub(super) fn render_history(
+        &self,
+        ix: usize,
+        this: WeakEntity<Self>,
+        cx: &App,
+    ) -> Option<AnyElement> {
+        let t = self.requests.read(cx).threads.get(ix)?;
+        let h = self.requests.read(cx).histories.get(&t.id)?.clone();
         let changed = h.changed();
         let row = |tag: String, who: String, text: Option<AnyElement>, struck: bool| {
             div()
@@ -209,13 +222,13 @@ impl Workspace {
                 )
         };
         // Who wrote the comment, named unless it is you.
-        let who = if self.yours(t) {
+        let who = if self.yours(t, cx) {
             "you commented on".to_owned()
         } else {
             let author = t.notes.first().map_or("", |n| n.author.as_str());
             format!("{author} commented on")
         };
-        let compare = self.compare_label(ix).unwrap_or_default();
+        let compare = self.compare_label(ix, cx).unwrap_or_default();
         let mut rows: Vec<AnyElement> = vec![
             row(
                 format!("v{}", h.written),
@@ -277,7 +290,7 @@ impl Workspace {
                                 .rounded_full()
                                 .bg(theme::warning_bg())
                                 .text_color(theme::warning())
-                                .child(self.since_comment(ix).unwrap_or_default()),
+                                .child(self.since_comment(ix, cx).unwrap_or_default()),
                         )
                         .child(
                             div()
@@ -313,10 +326,14 @@ impl Workspace {
     /// line now with the whole function around it (or, the line gone, where it was), and a stepper
     /// through the versions that changed it.
     pub(super) fn compare_since(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let (Some(t), Some(iid)) = (self.requests.threads.get(ix), self.requests.current) else {
+        let (Some(t), Some(iid)) = (
+            self.requests.read(cx).threads.get(ix),
+            self.requests.read(cx).current,
+        ) else {
             return;
         };
-        let (Some(h), Some(path)) = (self.requests.histories.get(&t.id), t.path.clone()) else {
+        let (Some(h), Some(path)) = (self.requests.read(cx).histories.get(&t.id), t.path.clone())
+        else {
             return;
         };
         let Some(latest) = self.versions.last().map(|v| v.number) else {
@@ -359,7 +376,7 @@ impl Workspace {
 
     /// The stepper's comparison of file `path` shown: its discussion pinned on the line, in the
     /// later version or, gone there, in the earlier one (#46 C).
-    pub(super) fn since_thread_in(&self, path: &str) -> Vec<(usize, bool, u32)> {
+    pub(super) fn since_thread_in(&self, path: &str, cx: &App) -> Vec<(usize, bool, u32)> {
         let Some(since) = self.since.as_ref().filter(|s| s.path == path) else {
             return Vec::new();
         };
@@ -373,6 +390,7 @@ impl Workspace {
         };
         let ix = self
             .requests
+            .read(cx)
             .threads
             .iter()
             .position(|t| t.id == since.thread);
@@ -405,10 +423,11 @@ impl Workspace {
         let iid = since.iid;
         let yours = self
             .requests
+            .read(cx)
             .threads
             .iter()
             .find(|t| t.id == since.thread)
-            .is_some_and(|t| self.yours(t));
+            .is_some_and(|t| self.yours(t, cx));
         let (line, whose) = if yours {
             ("Your comment's line", "your comment")
         } else {
@@ -488,20 +507,22 @@ impl Workspace {
         let Some((iid, note)) = self.since_on_open else {
             return;
         };
-        if self.requests.current != Some(iid) {
+        if self.requests.read(cx).current != Some(iid) {
             return;
         }
         self.since_on_open = None;
         let ix = self
             .requests
+            .read(cx)
             .threads
             .iter()
             .position(|t| t.notes.iter().any(|n| n.id == note));
         if let Some(ix) = ix
             && self
                 .requests
+                .read(cx)
                 .histories
-                .get(&self.requests.threads[ix].id)
+                .get(&self.requests.read(cx).threads[ix].id)
                 .is_some_and(LineHistory::changed)
         {
             self.compare_since(ix, cx);

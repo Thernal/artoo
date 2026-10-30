@@ -1078,13 +1078,15 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         }
                         // Merge requests' root narrowed to the ones you wrote (#72).
                         "mine-requests" => {
-                            this.requests.scope = requests::Scope::Mine;
+                            this.requests
+                                .update(cx, |rq, _| rq.scope = requests::Scope::Mine);
                             this.go_space(spaces::Space::Requests, cx);
                             continue;
                         }
                         // Merge requests' root narrowed to the ones that ask for a review.
                         "review-requests" => {
-                            this.requests.scope = requests::Scope::ReviewMe;
+                            this.requests
+                                .update(cx, |rq, _| rq.scope = requests::Scope::ReviewMe);
                             this.go_space(spaces::Space::Requests, cx);
                             continue;
                         }
@@ -1157,7 +1159,8 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             continue;
                         }
                         "all-requests" => {
-                            this.requests.scope = requests::Scope::All;
+                            this.requests
+                                .update(cx, |rq, _| rq.scope = requests::Scope::All);
                             this.go_space(spaces::Space::Requests, cx);
                             continue;
                         }
@@ -1425,6 +1428,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             ws.update(cx, |this, cx| {
                 let note = this
                     .requests
+                    .read(cx)
                     .threads
                     .iter()
                     .find(|t| t.path.is_some())
@@ -1660,7 +1664,7 @@ pub struct Workspace {
     /// Settings → Agents: what connecting said, and whether it runs.
     agent_setup: Option<String>,
     agent_setup_busy: bool,
-    requests: requests::Requests,
+    requests: gpui::Entity<requests::Requests>,
     /// What the roots of Branches and Merge requests read for their rows and previews (#72).
     roots: roots::Roots,
     /// The menu's scroll (#146).
@@ -1961,7 +1965,7 @@ impl Workspace {
             wt: WorkingState::default(),
             fetch: fetch::Fetch::default(),
             shell: None,
-            requests: Default::default(),
+            requests: cx.new(|_| requests::Requests::default()),
             roots: Default::default(),
             places: Default::default(),
             pending_compare: None,
@@ -2299,7 +2303,7 @@ impl Workspace {
                         if let Some((base, head, iid)) = this.pending_compare.take() {
                             this.open_request = Some((base.clone(), head.clone(), iid));
                             this.show_request_commits(&base, &head);
-                            this.apply_mr_versions();
+                            this.apply_mr_versions(cx);
                             // A commit or versions of it waited for its commits (#71); else the
                             // whole request.
                             if !this.finish_pending(cx) {
@@ -2807,7 +2811,7 @@ impl Workspace {
         // Its page on the host; one only on this Mac says so instead (#162).
         let link = self.branch_link(&branch.name).ok();
         groups[0].extend(self.branch_link_entry(&branch.name));
-        if self.requests.available && branch.name != "main" && branch.name != "master" {
+        if self.requests.read(cx).available && branch.name != "main" && branch.name != "master" {
             groups.push(vec![
                 Entry::new("Create merge request…", Act::CreateRequest(ix)).key("⌥⌘M"),
             ]);
@@ -3318,9 +3322,10 @@ impl Workspace {
     fn header_title(&self, diff: &Diff, cx: &App) -> String {
         if let Some(m) = self
             .requests
+            .read(cx)
             .current
             .filter(|_| self.showing_request(cx))
-            .and_then(|iid| self.requests.find(iid))
+            .and_then(|iid| self.requests.read(cx).find(iid))
         {
             return format!("{} {}", words::number(m.iid), m.title);
         }
@@ -4267,7 +4272,7 @@ impl review::Host for TabHost {
 
     fn badge(&self, path: &str, cx: &App) -> Option<gpui::AnyElement> {
         let workspace = self.0.upgrade()?;
-        let (name, letter, hue) = workspace.read(cx).changing(path)?;
+        let (name, letter, hue) = workspace.read(cx).changing(path, cx)?;
         Some(
             div()
                 .flex_none()
