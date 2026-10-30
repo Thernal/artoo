@@ -4,7 +4,9 @@ use artoo_ui_kit::hover::{Tip, TipOwned};
 pub(crate) use artoo_ui_kit::{apply_ui_zoom, flat, px, ui_zoom};
 mod hover;
 use artoo_ui_kit::format::plural;
-use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, format, icons, keys, markdown, room, theme, words};
+use artoo_ui_kit::{
+    ISLAND_RADIUS, ROW_RADIUS, format, icons, island, keys, markdown, room, row, theme, words,
+};
 mod agent;
 mod agent_events;
 mod agent_notes;
@@ -2041,19 +2043,11 @@ impl Workspace {
             repo_task: None,
             branch_task: None,
         };
-        // The tab's review, as its pages ask it.
+        // The tab's review as its pages ask it, the tab as Code's host.
         services.set(artoo_review::file_view::file_view(&review));
+        services.set::<Rc<dyn artoo_code_api::Host>>(Rc::new(code::CodeHost(cx.weak_entity())));
         let frame = Rc::new(parts::TabFrame(cx.weak_entity(), services.clone()));
-        this.parts = artoo_shell_api::make_parts(frame.clone(), window, cx);
-        // Code, the app's own until it is a crate (#165): its pages, and what the tab asks of it.
-        let host = Rc::new(code::CodeHost(cx.weak_entity()));
-        let code = cx.new(|_| code::CodeSpace::new(host, frame));
-        this.parts.push(artoo_shell_api::Parts {
-            pages: Some(code::CodeSpace::pages(&code)),
-            ..Default::default()
-        });
-        services.set::<Rc<dyn artoo_code_api::Code>>(Rc::new(code::Handle(code.downgrade())));
-        cx.observe(&code, |_, _, cx| cx.notify()).detach();
+        this.parts = artoo_shell_api::make_parts(frame, window, cx);
         if let Some(path) = start {
             this.open_repo(path, None, cx);
         }
@@ -4405,18 +4399,6 @@ fn section_label(text: impl Into<SharedString>) -> gpui::Div {
         .child(text.into().to_uppercase())
 }
 
-/// A rounded pane floating on the window background.
-fn island() -> gpui::Div {
-    div()
-        .flex()
-        .flex_col()
-        .overflow_hidden()
-        .rounded(px(if flat() { 0. } else { ISLAND_RADIUS }))
-        .border_1()
-        .border_color(theme::island_border())
-        .bg(theme::panel())
-}
-
 /// A `Key: value` line of the kind git calls a trailer.
 fn is_trailer(line: &str) -> bool {
     const KEYS: [&str; 7] = [
@@ -4456,20 +4438,6 @@ fn island_label(text: impl Into<SharedString>) -> gpui::Div {
         .px(px(14.))
         .pt(px(10.))
         .pb(px(6.))
-}
-
-/// A clickable list row: a rounded pill, filled when selected.
-fn row(id: impl Into<gpui::ElementId>, selected: bool) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .w_full()
-        .flex()
-        .items_center()
-        .px(px(8.))
-        .rounded(px(ROW_RADIUS))
-        .cursor_pointer()
-        .when(selected, |s| s.bg(theme::selected()))
-        .when(!selected, |s| s.hover(|s| s.bg(theme::hover())))
 }
 
 fn tag(text: &'static str, color: Rgba) -> impl IntoElement {

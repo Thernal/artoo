@@ -225,7 +225,7 @@ impl Workspace {
         let mut place = vec![Entry::new("Copy path", Act::Copy(folder.clone()))];
         if let Some(root) = &self.root {
             place.push(Entry::new(
-                super::open_in::REVEAL,
+                artoo_ui_kit::controls::REVEAL,
                 Act::Reveal(root.join(&folder)),
             ));
         }

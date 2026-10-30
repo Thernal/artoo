@@ -1,7 +1,34 @@
-//! Controls a feature's view shares with the frame: a bar's button, a tool window's foot.
+//! Controls a feature's view shares with the frame: a bar's button, a tool window's foot, what follows the pointer
+//! while something is dragged, the words for showing a file where it lies.
 
 use super::{ROW_RADIUS, keys, px, theme, words};
-use gpui::{Div, FontWeight, div, prelude::*};
+use artoo_core::platform;
+use gpui::{Context, Div, FontWeight, div, prelude::*};
+
+/// Finder with it selected, as the rail's project menu words it off macOS.
+pub const REVEAL: &str = if platform::MAC {
+    "Reveal in Finder"
+} else {
+    "Show in its folder"
+};
+
+/// What follows the pointer while a space or a tab is dragged: its name.
+pub struct DragLabel(pub String);
+
+impl Render for DragLabel {
+    fn render(&mut self, _: &mut gpui::Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px(px(10.))
+            .py(px(4.))
+            .rounded(px(ROW_RADIUS))
+            .bg(theme::selected())
+            .border_1()
+            .border_color(theme::island_border())
+            .text_size(px(13.))
+            .text_color(theme::text())
+            .child(self.0.clone())
+    }
+}
 
 /// A button of the bar: its label and its key as caps; the primary one filled.
 pub fn bar_button(

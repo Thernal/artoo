@@ -1,0 +1,16 @@
+[package]
+name = "artoo-code"
+description = "Code (#75, #165): the project's tree beside a folder's page or a file's tabs, read at a revision."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+artoo-code-api = { path = "../code-api" }
+artoo-core = { path = "../core" }
+artoo-review-api = { path = "../review-api" }
+artoo-shell-api = { path = "../shell-api" }
+artoo-ui-kit = { path = "../ui-kit" }
+git2.workspace = true
+gpui.workspace = true

@@ -3,13 +3,17 @@
 //! through — and the routes of its pages, which anyone opens through the `Frame`.
 //!
 //! Code offers it in every tab as `Rc<dyn Code>` (`Frame::services`). What it changes is changed at once: ask it
-//! from anywhere but Code's own update.
+//! from anywhere but Code's own update. What Code asks of the tab in turn (`Host`: the file as the review draws it,
+//! the notes on a folder, the files opened lately…) the tab offers there as `Rc<dyn Host>` before its parts are
+//! made; a tab without one has no Code.
 
+use artoo_core::git::BranchRef;
 use artoo_core::route::Place;
 use git2::Oid;
-use gpui::App;
+use gpui::{AnyElement, App};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// A file read in Code.
@@ -69,4 +73,39 @@ pub trait Code {
 
     /// ⌃⇥ and ⌃⇧⇥: the next or the previous tab, going round.
     fn step_tab(&self, forward: bool, cx: &mut App);
+}
+
+/// The file Code shows, as the tab has it: being read, read (its head line and what is under it), or none.
+pub enum FilePage {
+    Reading,
+    Read(AnyElement, AnyElement),
+    Empty,
+}
+
+/// What opens a file in an app (`Host::open_in`).
+pub type Opens = Rc<dyn Fn(&mut App)>;
+
+/// What Code asks of its tab, found in the tab's services. What it reads is read while Code draws or answers a click, never
+/// while the tab is updating it; what it changes is changed once the update under way is over.
+pub trait Host {
+    /// File `path` as the tab reads it.
+    fn file(&self, path: &str, cx: &mut App) -> FilePage;
+    /// The notes for the agent on folder `folder` (how many) and what is drawn of them, the composer with them.
+    fn folder_notes(&self, folder: &str, cx: &App) -> (usize, Vec<AnyElement>);
+    /// Whether folder `folder` has a note for the agent waiting (#97).
+    fn note_waits(&self, folder: &str, cx: &App) -> bool;
+    /// The files opened lately, the latest first.
+    fn recent_files(&self, cx: &App) -> Vec<String>;
+    /// Row `row` of the tree for `path`, fading in under a folder just opened (#110).
+    fn tree_row(&self, path: &str, row: AnyElement, cx: &App) -> AnyElement;
+    /// The repository's branches, for the revision's menu.
+    fn branches(&self, cx: &App) -> Vec<BranchRef>;
+    /// Open in the app `path` opens in, when there is one: its menu item's words, and what opens it.
+    fn open_in(&self, path: &Path, cx: &App) -> Option<(String, Opens)>;
+    /// A note for the agent on folder `folder` started.
+    fn note_folder(&self, folder: String, cx: &mut App);
+    /// Go to file (⌘P).
+    fn go_to_file(&self, cx: &mut App);
+    /// Folder `folder` of the tree opened: its rows fade in.
+    fn tree_opening(&self, folder: String, cx: &mut App);
 }

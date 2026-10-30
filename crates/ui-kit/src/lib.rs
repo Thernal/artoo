@@ -52,6 +52,34 @@ pub fn set_flat(on: bool) {
     FLAT.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// A rounded pane floating on the window background; square and flush when panes are flat.
+pub fn island() -> gpui::Div {
+    use gpui::{Styled, div};
+    div()
+        .flex()
+        .flex_col()
+        .overflow_hidden()
+        .rounded(px(if flat() { 0. } else { ISLAND_RADIUS }))
+        .border_1()
+        .border_color(theme::island_border())
+        .bg(theme::panel())
+}
+
+/// A clickable list row: a rounded pill, filled when selected.
+pub fn row(id: impl Into<gpui::ElementId>, selected: bool) -> gpui::Stateful<gpui::Div> {
+    use gpui::{InteractiveElement, Styled, div, prelude::FluentBuilder};
+    div()
+        .id(id)
+        .w_full()
+        .flex()
+        .items_center()
+        .px(px(8.))
+        .rounded(px(ROW_RADIUS))
+        .cursor_pointer()
+        .when(selected, |s| s.bg(theme::selected()))
+        .when(!selected, |s| s.hover(|s| s.bg(theme::hover())))
+}
+
 static FLAT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// The interface size, in percent; read by `px`.

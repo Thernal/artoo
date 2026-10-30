@@ -98,8 +98,9 @@ The target above is reached stage by stage; until then:
   title-bar item, a card over the window, a tool window on the right, Settings rows, snapshot views, made for each
   tab with its `Frame`) and `Frame` (a toast, the error line, a redraw, the text selection, the places the tab has
   open, a tool window shown, a route opened); the tab draws them (`src/ui/parts.rs`). A space's pages are a part
-  (`Pages`): Code's (`src/ui/code.rs`, `CodeSpace`) the first, the shell keeping which is on screen and telling
-  them. What the tab asks of Code is `artoo-code-api` (its routes, `Code`), offered in the tab's `Services`. Updates' card, mark and Settings line are
+  (`Pages`): Code's the first, the shell keeping which is on screen and telling them. Code is `artoo-code`
+  (`install` alone): what the tab asks of it is `artoo-code-api` (its routes, `Code`), offered in the tab's
+  `Services`, where it finds the tab as its `Host` and the review's `FileView` (`artoo-review-api`). Updates' card, mark and Settings line are
   `artoo-updates`' own (`card.rs`); Report a problem's window is `artoo-reports`' (`tool.rs`), the drafts agents
   leave reaching it through `artoo-agents-api`. Each shows `install` alone.
 - `Page` (`src/ui/nav.rs`) is a closed enum the route registry replaces; it is kept as a route already (the

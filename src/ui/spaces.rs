@@ -106,24 +106,6 @@ pub fn ordered(kept: &str) -> Vec<Space> {
 #[derive(Clone, Copy)]
 pub struct DragSpace(pub Space);
 
-/// What follows the pointer while a space or a tab is dragged: its name.
-pub struct DragLabel(pub String);
-
-impl Render for DragLabel {
-    fn render(&mut self, _: &mut gpui::Window, _: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .px(px(10.))
-            .py(px(4.))
-            .rounded(px(super::ROW_RADIUS))
-            .bg(theme::selected())
-            .border_1()
-            .border_color(theme::island_border())
-            .text_size(px(13.))
-            .text_color(theme::text())
-            .child(self.0.clone())
-    }
-}
-
 /// What a project lacks for a space.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Missing {
@@ -594,7 +576,9 @@ impl Workspace {
                 // Dragged onto another space, it takes that place in the menu (kept).
                 .drag_over::<DragSpace>(|s, _, _, _| s.bg(theme::selected()))
                 .on_drag(DragSpace(space), move |_, _, _, cx| {
-                    cx.new(|_| DragLabel(super::words::say(label).into_owned()))
+                    cx.new(|_| {
+                        artoo_ui_kit::controls::DragLabel(super::words::say(label).into_owned())
+                    })
                 })
                 .on_drop(cx.listener(move |this, dragged: &DragSpace, _, cx| {
                     this.move_space(dragged.0, space, cx)

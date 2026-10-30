@@ -22,9 +22,16 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   (`file_view`), and the Changes list's rows (`changes`); the app's
   views read them as `ui::diff_view` and `artoo_review::…`, and draw the find bar, the Changes list and the
   file's head line. `crates/updates` (`artoo-updates`) asks for
-  newer releases and draws what it found (its `install` alone is shown). `crates/shell-api` (`artoo-shell-api`): the
+  newer releases and draws what it found (its `install` alone is shown). `crates/code` (`artoo-code`): Code — the
+  project's tree beside a folder's page or a file's tabs, read at a revision (`space.rs`; its `install` alone is
+  shown); `src/ui/code.rs` is the tab's side: what the tab asks of it, the Outline tool window, the tab as its host.
+  `crates/code-api` (`artoo-code-api`): Code's contract — its routes (`code.file`, `code.folder`), `Code` (what the
+  tab asks of it, offered in the tab's services) and `Host` (what it asks of the tab). `crates/review-api`
+  (`artoo-review-api`): what a page asks of the tab's review, for now the file Code reads (`FileView`).
+  `crates/shell-api` (`artoo-shell-api`): the
   shell's contract — actions (the app menu and ⌘K list them), parts each tab draws (title-bar items, cards over the
-  window, Settings rows, snapshot views) and the `Frame` a part asks; `src/ui/parts.rs` is the tab's side. `crates/hosts-api` (`artoo-hosts-api`): the hosts' contract — the models GitLab and GitHub answer
+  window, Settings rows, snapshot views, a space's pages), the `Frame` a part asks and the tab's `Services`;
+  `src/ui/parts.rs` is the tab's side. `crates/hosts-api` (`artoo-hosts-api`): the hosts' contract — the models GitLab and GitHub answer
   in, the traits (`Account`, `Requests`, `Discussions`, `Reviews`, `Merging`; `Host` the five; `Hosts::of(remote)`)
   and the handle (`provide` / `get`). `crates/hosts` (`artoo-hosts`): GitLab and GitHub behind it (`hosts.rs`),
   connecting a host, merging, pictures — one crate while they share helpers (#165 stage 3); `install` provides the
@@ -34,7 +41,8 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   contract (`mcp::run(hosts)`). `crates/reports` (`artoo-reports`): Report a problem,
   its tool window included (`tool.rs`; its `install` alone is shown). `crates/agents-api` (`artoo-agents-api`): the
   agents' contract — for now the reports chats drafted, which Report a problem opens. `crates/ui-kit` (`artoo-ui-kit`): the design system —
-  theme, the interface size (`px`, `ui_zoom`), icons, keycaps, motion, row room, formats, words, tooltips and the
+  theme, the interface size (`px`, `ui_zoom`), panes and rows (`island`, `row`), icons, keycaps, motion, row room,
+  formats, words, the dragged label and Reveal's words (`controls`), tooltips and the
   cut (`hover`: `Hover`, `Tip`, `TipOwned`, `cut`, `mid`), the text field and its editing (`input`), file and folder icons (`file_icons`), comments drawn as markdown
   (`markdown`) and the port for the web pictures it draws (`pictures`: `Pictures`, provided by hosts' `install`) — on the core and
   GPUI alone (`format::short` takes any `Display`, so the kit knows no git); `ui/mod.rs` imports its modules by

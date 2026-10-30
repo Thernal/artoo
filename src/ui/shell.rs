@@ -528,7 +528,9 @@ impl Workspace {
                         .drag_over::<super::rail::DragProject>(|s, _, _, _| s.bg(theme::selected()))
                         .on_drag(super::rail::DragProject(ix), {
                             let title = tab.title.clone();
-                            move |_, _, _, cx| cx.new(|_| super::spaces::DragLabel(title.clone()))
+                            move |_, _, _, cx| {
+                                cx.new(|_| artoo_ui_kit::controls::DragLabel(title.clone()))
+                            }
                         })
                         .on_drop(cx.listener(
                             move |this, dragged: &super::rail::DragProject, window, cx| {

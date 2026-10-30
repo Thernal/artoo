@@ -17,12 +17,7 @@ use std::path::{Path, PathBuf};
 
 const FILE: &str = "open-with.txt";
 
-/// Finder with it selected, as the rail's project menu words it off macOS.
-pub(super) const REVEAL: &str = if platform::MAC {
-    "Reveal in Finder"
-} else {
-    "Show in its folder"
-};
+use artoo_ui_kit::controls::REVEAL;
 
 /// An app a file opens in.
 #[derive(Clone, Debug, PartialEq, Eq)]

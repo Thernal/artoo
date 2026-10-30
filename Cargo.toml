@@ -76,6 +76,7 @@ artoo-updates = { path = "crates/updates" }
 artoo-hosts = { path = "crates/hosts" }
 artoo-hosts-api = { path = "crates/hosts-api" }
 artoo-shell-api = { path = "crates/shell-api" }
+artoo-code = { path = "crates/code" }
 artoo-code-api = { path = "crates/code-api" }
 artoo-agents = { path = "crates/agents" }
 artoo-reports = { path = "crates/reports" }

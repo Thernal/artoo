@@ -6,9 +6,9 @@
 //! read as that page shows the project. A binary file says so, with Open in (#78); ⌘W closes its
 //! tab, esc goes up to Code.
 
-use super::code::FilePage;
 use super::spaces::Space;
 use super::{Header, Workspace, format};
+use artoo_code_api::FilePage;
 use artoo_review::file_view::FileNotes;
 use artoo_review::review;
 use gpui::{App, Context, prelude::*};
