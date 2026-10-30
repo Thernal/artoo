@@ -55,7 +55,8 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   its tool window included (`tool.rs`; its `install` alone is shown). `crates/agents-api` (`artoo-agents-api`): the
   agents' contract — for now the reports chats drafted, which Report a problem opens. `crates/ui-kit` (`artoo-ui-kit`): the design system —
   theme, the interface size (`px`, `ui_zoom`), panes and rows (`island`, `row`), icons, keycaps, motion, row room,
-  formats, words, the dragged label, Reveal's words and the toggle chips on their track (`controls`: `chip`, `group`), tooltips and the
+  formats, words, the dragged label, Reveal's words and the toggle chips on their track (`controls`: `chip`, `group`), a list's row pieces and a page's empty state (`unread_dot`,
+  `progress_badge`, `pill`, `primary_button`, `outline_button`, `empty_state`), tooltips and the
   cut (`hover`: `Hover`, `Tip`, `TipOwned`, `cut`, `mid`), the text field and its editing (`input`), the token completed in one (`@`, `:`) and its list
   (`complete`), file and folder icons (`file_icons`), comments drawn as markdown
   (`markdown`), the port for the web pictures it draws (`pictures`: `Pictures`, provided by hosts' `install`), a

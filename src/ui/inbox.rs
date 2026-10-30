@@ -15,6 +15,7 @@ use super::notifications::{Kind, Notice};
 use super::{Workspace, chip, format, icons, island, markdown, px, theme, words};
 use crate::git::{DiffLine, DiffSettings, LineKind, Repo};
 use crate::mr::Thread;
+use artoo_ui_kit::controls;
 pub(super) use artoo_ui_kit::format::now;
 use gpui::{AnyElement, ClickEvent, Context, Div, FontWeight, Task, div, prelude::*};
 use std::collections::HashMap;
@@ -419,7 +420,7 @@ impl Workspace {
             .then(|| {
                 div()
                     .id("inbox-show-all")
-                    .child(super::roots::bar_button("Show all"))
+                    .child(controls::outline_button("Show all"))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.inbox_view.filter = InboxFilter::All;
                         if let Some(&first) = this.inbox_rows().first() {
@@ -434,7 +435,7 @@ impl Workspace {
                 .bg(theme::editor())
                 // Its button's room kept when there is none, so switching the filter moves
                 // nothing.
-                .child(super::roots::empty_state(
+                .child(controls::empty_state(
                     "inbox",
                     title.to_owned(),
                     text.to_owned(),

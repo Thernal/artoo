@@ -1,10 +1,11 @@
 //! Controls a feature's view shares with the frame: a bar's button, a tool window's foot and its list's pieces (a
 //! group's heading, a comment as an entry), rows breathing while a list loads, what follows the pointer while
-//! something is dragged, the words for showing a file where it lies.
+//! something is dragged, the words for showing a file where it lies; a root list's row pieces (its unread dot, how
+//! far its review is), its preview's pills and buttons, a page's message when it has nothing to show.
 
-use super::{ROW_RADIUS, hover, keys, motion, px, theme, words};
+use super::{ROW_RADIUS, hover, icons, keys, motion, px, theme, words};
 use artoo_core::platform;
-use gpui::{Context, Div, FontWeight, SharedString, div, prelude::*};
+use gpui::{AnyElement, Context, Div, FontWeight, Rgba, SharedString, div, prelude::*};
 
 /// Finder with it selected, as the rail's project menu words it off macOS.
 pub const REVEAL: &str = if platform::MAC {
@@ -201,4 +202,119 @@ pub fn group() -> gpui::Div {
         .p(px(2.))
         .rounded(px(ROW_RADIUS + 2.))
         .bg(theme::base())
+}
+
+/// The blue dot of a row not seen yet: a request you have never opened, or one of yours a thread
+/// waits on; a blank of its width otherwise.
+pub fn unread_dot(on: bool) -> Div {
+    div()
+        .flex_none()
+        .mt(px(6.))
+        .size(px(7.))
+        .rounded_full()
+        .when(on, |s| s.bg(theme::accent()))
+}
+
+/// One message centred in the content: an icon, what is the case, why, and the way on.
+pub fn empty_state(
+    icon: &'static str,
+    title: String,
+    text: String,
+    action: Option<AnyElement>,
+) -> Div {
+    div()
+        .flex_1()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap(px(8.))
+        .px(px(24.))
+        .child(icons::icon(icon).size(px(24.)).text_color(theme::muted()))
+        .child(
+            div()
+                .text_size(px(15.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::text())
+                .child(title),
+        )
+        // Room for three lines, so the box stays put as its words change (the developer,
+        // 2026-10-23).
+        .child(
+            div()
+                .max_w(px(400.))
+                .min_h(px(19. * 3.))
+                .text_size(px(13.))
+                .line_height(px(19.))
+                .text_center()
+                .text_color(theme::muted())
+                .child(text),
+        )
+        .children(action.map(|a| div().pt(px(6.)).child(a)))
+}
+
+/// A small rounded label in a preview's head: the pipeline, the approvals.
+pub fn pill(text: String, color: Rgba) -> Div {
+    div()
+        .flex_none()
+        .px(px(8.))
+        .h(px(22.))
+        .flex()
+        .items_center()
+        .rounded_full()
+        .border_1()
+        .border_color(color)
+        .text_size(px(12.))
+        .text_color(color)
+        .child(text)
+}
+
+/// The filled button of a preview, with its key.
+pub fn primary_button(id: &'static str, label: &str, key: &'static str) -> gpui::Stateful<Div> {
+    div()
+        .id(id)
+        .flex_none()
+        .h(px(28.))
+        .px(px(12.))
+        .flex()
+        .items_center()
+        .gap_2()
+        .rounded(px(ROW_RADIUS))
+        .bg(theme::accent())
+        .text_color(theme::on_accent())
+        .text_size(px(13.))
+        .font_weight(FontWeight::MEDIUM)
+        .cursor_pointer()
+        .hover(|s| s.opacity(0.9))
+        .child(words::say(label).into_owned())
+        .child(keys::caps(key, keys::On::Filled))
+}
+
+/// A plain outlined button.
+pub fn outline_button(label: &str) -> Div {
+    div()
+        .flex_none()
+        .h(px(28.))
+        .px(px(10.))
+        .flex()
+        .items_center()
+        .rounded(px(ROW_RADIUS))
+        .border_1()
+        .border_color(theme::island_border())
+        .cursor_pointer()
+        .text_size(px(13.))
+        .hover(|s| s.bg(theme::hover()))
+        .child(words::say(label).into_owned())
+}
+
+/// "3/7" beside a branch or request whose review started: files reviewed of the whole diff.
+pub fn progress_badge(done: u32, total: u32) -> gpui::Div {
+    div()
+        .flex_none()
+        .px(px(5.))
+        .rounded_full()
+        .bg(theme::hover())
+        .text_size(px(11.))
+        .text_color(theme::muted())
+        .child(format!("{done}/{total}"))
 }

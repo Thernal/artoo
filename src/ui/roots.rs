@@ -15,6 +15,9 @@ pub(super) use artoo_requests::group::Group;
 use artoo_requests::list;
 use artoo_review_api::Seen;
 pub(super) use artoo_ui_kit::controls::skeleton;
+use artoo_ui_kit::controls::{
+    empty_state, outline_button, pill, primary_button, progress_badge, unread_dot,
+};
 use gpui::{
     AnyElement, App, ClickEvent, Context, Div, FontWeight, Rgba, SharedString, Task, div,
     prelude::*,
@@ -466,9 +469,14 @@ impl Workspace {
                         .text_size(px(12.))
                         .text_color(theme::muted())
                         .child(super::hover::cut("past-error", error.clone()).flex_1())
-                        .child(div().id("past-retry").child(bar_button("Retry")).on_click(
-                            cx.listener(|this, _: &ClickEvent, _, cx| this.retry_past_page(cx)),
-                        ))
+                        .child(
+                            div()
+                                .id("past-retry")
+                                .child(outline_button("Retry"))
+                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                    this.retry_past_page(cx)
+                                })),
+                        )
                         .into_any_element(),
                 );
             } else if past.as_ref().is_some_and(|p| p.more || p.loading) {
@@ -593,7 +601,7 @@ impl Workspace {
         let show_all = |label: &'static str| {
             div()
                 .id("empty-show-all")
-                .child(bar_button(label))
+                .child(outline_button(label))
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.requests
                         .update(cx, |rq, _| rq.scope = super::requests::Scope::All);
@@ -629,7 +637,7 @@ impl Workspace {
                     Some(
                         div()
                             .id("past-retry")
-                            .child(bar_button("Retry"))
+                            .child(outline_button("Retry"))
                             .on_click(
                                 cx.listener(|this, _: &ClickEvent, _, cx| this.retry_past_page(cx)),
                             )
@@ -914,9 +922,8 @@ impl Workspace {
                                 )
                                 .child(div().flex_1().min_w_0().cut_in_tip().child(m.title.clone()))
                                 .children(
-                                    part.filter(|_| room.third()).map(|(done, total)| {
-                                        super::lists::progress_badge(done, total)
-                                    }),
+                                    part.filter(|_| room.third())
+                                        .map(|(done, total)| progress_badge(done, total)),
                                 )
                                 .children(room.second().then(|| {
                                     div()
@@ -1494,7 +1501,7 @@ impl Workspace {
                                 .read(cx)
                                 .head_part(b.tip)
                                 .filter(|_| room.third())
-                                .map(|(done, total)| super::lists::progress_badge(done, total)),
+                                .map(|(done, total)| progress_badge(done, total)),
                         )
                         .children(
                             (room.third() && self.review.read(cx).head_reviewed(b.tip)).then(
@@ -1868,7 +1875,7 @@ impl Workspace {
             actions.push(
                 div()
                     .id("branch-request")
-                    .child(bar_button(&format!("{} →", words::number(iid))))
+                    .child(outline_button(&format!("{} →", words::number(iid))))
                     .on_click(
                         cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.select_request(iid, cx)
@@ -1985,7 +1992,11 @@ impl Workspace {
                 .child(
                     div()
                         .id("banner-action")
-                        .child(bar_button(if token { "Renew token…" } else { "Retry" }))
+                        .child(outline_button(if token {
+                            "Renew token…"
+                        } else {
+                            "Retry"
+                        }))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             if token {
                                 this.settings_section = super::settings::Section::Requests;
@@ -2010,109 +2021,6 @@ fn heading(text: String) -> Div {
         .text_size(px(11.))
         .text_color(theme::faint())
         .child(text)
-}
-
-/// The blue dot of a row not seen yet: a request you have never opened, or one of yours a thread
-/// waits on; a blank of its width otherwise.
-fn unread_dot(on: bool) -> Div {
-    div()
-        .flex_none()
-        .mt(px(6.))
-        .size(px(7.))
-        .rounded_full()
-        .when(on, |s| s.bg(theme::accent()))
-}
-
-/// One message centred in the content: an icon, what is the case, why, and the way on.
-pub(super) fn empty_state(
-    icon: &'static str,
-    title: String,
-    text: String,
-    action: Option<AnyElement>,
-) -> Div {
-    div()
-        .flex_1()
-        .flex()
-        .flex_col()
-        .items_center()
-        .justify_center()
-        .gap(px(8.))
-        .px(px(24.))
-        .child(icons::icon(icon).size(px(24.)).text_color(theme::muted()))
-        .child(
-            div()
-                .text_size(px(15.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::text())
-                .child(title),
-        )
-        // Room for three lines, so the box stays put as its words change (the developer,
-        // 2026-10-23).
-        .child(
-            div()
-                .max_w(px(400.))
-                .min_h(px(19. * 3.))
-                .text_size(px(13.))
-                .line_height(px(19.))
-                .text_center()
-                .text_color(theme::muted())
-                .child(text),
-        )
-        .children(action.map(|a| div().pt(px(6.)).child(a)))
-}
-
-/// A small rounded label in a preview's head: the pipeline, the approvals.
-fn pill(text: String, color: Rgba) -> Div {
-    div()
-        .flex_none()
-        .px(px(8.))
-        .h(px(22.))
-        .flex()
-        .items_center()
-        .rounded_full()
-        .border_1()
-        .border_color(color)
-        .text_size(px(12.))
-        .text_color(color)
-        .child(text)
-}
-
-/// The filled button of a preview, with its key.
-fn primary_button(id: &'static str, label: &str, key: &'static str) -> gpui::Stateful<Div> {
-    div()
-        .id(id)
-        .flex_none()
-        .h(px(28.))
-        .px(px(12.))
-        .flex()
-        .items_center()
-        .gap_2()
-        .rounded(px(super::ROW_RADIUS))
-        .bg(theme::accent())
-        .text_color(theme::on_accent())
-        .text_size(px(13.))
-        .font_weight(FontWeight::MEDIUM)
-        .cursor_pointer()
-        .hover(|s| s.opacity(0.9))
-        .child(words::say(label).into_owned())
-        .child(keys::caps(key, keys::On::Filled))
-}
-
-/// A plain outlined button.
-pub(super) fn bar_button(label: &str) -> Div {
-    div()
-        .flex_none()
-        .h(px(28.))
-        .px(px(10.))
-        .flex()
-        .items_center()
-        .rounded(px(super::ROW_RADIUS))
-        .border_1()
-        .border_color(theme::island_border())
-        .cursor_pointer()
-        .text_size(px(13.))
-        .hover(|s| s.bg(theme::hover()))
-        .child(words::say(label).into_owned())
 }
 
 fn change_letter(change: ChangeKind) -> (&'static str, Rgba) {

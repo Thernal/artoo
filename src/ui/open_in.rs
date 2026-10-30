@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 const FILE: &str = "open-with.txt";
 
-use artoo_ui_kit::controls::REVEAL;
+use artoo_ui_kit::controls::{self, REVEAL};
 
 /// An app a file opens in.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -447,7 +447,7 @@ impl Workspace {
                 super::bar::bar_button("binary-reveal", REVEAL, "", false)
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.reveal_target(cx))),
             );
-        super::roots::empty_state(
+        controls::empty_state(
             "file",
             "This file can’t be shown as text".to_owned(),
             format!(

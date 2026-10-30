@@ -675,15 +675,3 @@ fn uniform_list_files(
     .pb(px(6.))
     .into_any_element()
 }
-
-/// "3/7" beside a branch or request whose review started: files reviewed of the whole diff.
-pub(super) fn progress_badge(done: u32, total: u32) -> gpui::Div {
-    div()
-        .flex_none()
-        .px(px(5.))
-        .rounded_full()
-        .bg(theme::hover())
-        .text_size(px(11.))
-        .text_color(theme::muted())
-        .child(format!("{done}/{total}"))
-}
