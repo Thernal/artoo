@@ -4,6 +4,7 @@
 //! (`reading`). The app's views read and draw them for now.
 
 pub mod bar;
+pub mod complete;
 pub mod discussions;
 pub mod group;
 pub mod merge;
