@@ -105,7 +105,7 @@ The target above is reached stage by stage; until then:
   leave reaching it through `artoo-agents-api`. Each shows `install` alone.
 - `Page` (`src/ui/nav.rs`) is a closed enum the route registry replaces; it is kept as a route already (the
   core's `Route` and `Place`; the app's kinds in `src/ui/routes.rs`, each to move to its owner's `-api` with its
-  pages). `menu::Act` and `toast` still know the other features. Meanwhile a new page, action or toast is added there in the shape the registries will take: one
+  pages; Code's and a merge request's are there). `menu::Act` and `toast` still know the other features. Meanwhile a new page, action or toast is added there in the shape the registries will take: one
   variant, one id, one owner.
 - `artoo-review` (stage 4, R3) holds the review: the entity (`review::Review`) with its events and its host, the
   row drawing (`diff_view`) and the types it keeps, the diff's rows having gone to the core (`artoo_core::rows`).

@@ -1,10 +1,13 @@
 //! The app's pages as routes (#165 stage 4, `artoo_core::route`): a kind and its fields for each, which
 //! `nav.txt` keeps. Each type moves to its owner's contract when its pages move out of the app; Code's are in
-//! `artoo-code-api`.
+//! `artoo-code-api`, a merge request's in `artoo-requests-api`.
 
 use super::nav::Page;
 use artoo_code_api::{FileRoute, FolderRoute};
 use artoo_core::route::{Place, Route};
+use artoo_requests_api::{
+    RequestCommitRoute, RequestCommitsRoute, RequestRoute, RequestVersionsRoute,
+};
 use git2::Oid;
 use serde::{Deserialize, Serialize};
 
@@ -73,51 +76,6 @@ pub(crate) struct CompareRoute {
 
 impl Place for CompareRoute {
     const KIND: &'static str = "branches.compare";
-}
-
-/// A merge request, by its number.
-#[derive(Serialize, Deserialize)]
-pub(crate) struct RequestRoute {
-    pub number: u64,
-}
-
-impl Place for RequestRoute {
-    const KIND: &'static str = "requests.request";
-}
-
-/// A commit of a merge request.
-#[derive(Serialize, Deserialize)]
-pub(crate) struct RequestCommitRoute {
-    pub number: u64,
-    pub commit: String,
-}
-
-impl Place for RequestCommitRoute {
-    const KIND: &'static str = "requests.commit";
-}
-
-/// A run of a merge request's commits, newest and oldest.
-#[derive(Serialize, Deserialize)]
-pub(crate) struct RequestCommitsRoute {
-    pub number: u64,
-    pub newest: String,
-    pub oldest: String,
-}
-
-impl Place for RequestCommitsRoute {
-    const KIND: &'static str = "requests.commits";
-}
-
-/// Two versions of a merge request compared.
-#[derive(Serialize, Deserialize)]
-pub(crate) struct RequestVersionsRoute {
-    pub number: u64,
-    pub from: usize,
-    pub to: usize,
-}
-
-impl Place for RequestVersionsRoute {
-    const KIND: &'static str = "requests.versions";
 }
 
 impl Page {

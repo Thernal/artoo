@@ -28,13 +28,15 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   shown); `src/ui/code.rs` is the tab's side: what the tab asks of it, the Outline tool window, the tab as its host.
   `crates/code-api` (`artoo-code-api`): Code's contract — its routes (`code.file`, `code.folder`), `Code` (what the
   tab asks of it, offered in the tab's services) and `Host` (what it asks of the tab). `crates/review-api`
-  (`artoo-review-api`): what a page asks of the tab's review, for now the file Code reads (`FileView`). `crates/requests`
+  (`artoo-review-api`): what a page asks of the tab's review, for now the file Code reads (`FileView`).
+  `crates/requests-api` (`artoo-requests-api`): merge requests' contract — the routes of a request's pages
+  (`requests.request`, `requests.commit`, `requests.commits`, `requests.versions`). `crates/requests`
   (`artoo-requests`, #165 stage 4): what the tab keeps of merge requests — the lists and their groups (`group`),
   the request open (`requests`), the changes sent to its host and not read back (`waiting`), what became of an
   outdated discussion's line (`outdated`, its history drawn), the reactions on its notes (`reactions`: the pills,
   the hover bar, ☺+'s grid), where merging it stands (`merge`) — and what they read from their host
   (`reading`), each read the entity's own task, the tab hearing what follows as a `requests::Event`. Its views draw
-  from it, a click asking the tab an `requests::Act`: the request's bar pieces (`bar`), Overview and the line over
+  from it, a click asking the tab a `requests::Act`: the request's bar pieces (`bar`), Overview and the line over
   Commits and Changes (`page`), the Discussions window (`discussions`), Merge's card (`merging`), Submit review
   (`submit`), the New merge request form (`create`), who and which emoji a token completes to (`complete`); a
   card's text keeps its own caret (`area`). The tab gives each what it knows (a `…Look`) and puts it in its

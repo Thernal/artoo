@@ -1,0 +1,12 @@
+[package]
+name = "artoo-requests-api"
+description = "Merge requests' contract (#165): the routes of a request's pages, which anyone opens."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# Its routes are the core's `Place`s.
+artoo-core = { path = "../core" }
+serde.workspace = true
