@@ -1,5 +1,6 @@
 //! The review's contract (#165 stage 4): what a page asks of the tab's review. For now the file Code reads
 //! (#71, #75): read at a revision, which one is read, closed. The review draws it; the page puts it where it goes.
+//! And how far your review of a merge request got (`Seen`), which the requests list groups by.
 //!
 //! The tab's review offers it as `Rc<dyn FileView>` in the tab's services (`Frame::services`). What it changes is
 //! changed at once: ask it from anywhere but the review's own update.
@@ -18,4 +19,17 @@ pub trait FileView {
 
     /// The file read is let go: nothing is read.
     fn close(&self, cx: &mut App);
+}
+
+/// How far your review of a merge request got, against its head now.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Seen {
+    /// No file of it was ever marked.
+    Never,
+    /// Files were marked at this head.
+    Started,
+    /// Files were marked at an earlier head: it was pushed since.
+    Earlier,
+    /// Its whole diff at this head was reviewed.
+    Done,
 }

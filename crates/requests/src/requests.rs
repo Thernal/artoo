@@ -191,6 +191,8 @@ pub struct Requests {
     pub submitting: Option<crate::submit::SubmitCard>,
     /// The New merge request form, while it is open.
     pub creating: Option<crate::create::NewRequest>,
+    /// The list's rows: their previews, its scroll, the groups folded, the requests opened.
+    pub rows: crate::list::Rows,
     /// The host's last answer for them, and the tick the read that gave it began at.
     pub base: crate::waiting::Base,
     pub from: u64,

@@ -916,7 +916,7 @@ impl Workspace {
                 (Page::WorkingTree, _) => self.nav.pick_branch = Some(BranchRow::WorkingTree),
                 (_, Some(Item::Request(iid))) => {
                     self.nav.pick_request = Some(iid);
-                    self.roots.reveal.set(true);
+                    self.requests.read(cx).rows.reveal.set(true);
                 }
                 (_, Some(Item::Branch(refname))) => {
                     self.nav.pick_branch = self.branch_ix(&refname).map(BranchRow::Branch)

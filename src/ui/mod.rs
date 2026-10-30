@@ -2117,7 +2117,8 @@ impl Workspace {
                         this.review
                             .update(cx, |rv, _| rv.page.load(&crate::review::key(&root)));
                         // Its requests list's folds and the requests opened (#81).
-                        this.roots.load(&crate::review::key(&root));
+                        let key = crate::review::key(&root);
+                        this.requests.update(cx, |rq, _| rq.rows.load(&key));
                         // Code's project, its pinned tabs (#20).
                         if let Some(code) = this.code() {
                             let fresh = this.root.as_ref() != Some(&root);
@@ -2183,7 +2184,8 @@ impl Workspace {
         self.load_requests(cx);
         self.review
             .update(cx, |rv, _| rv.page.load(&crate::review::key(&root)));
-        self.roots.load(&crate::review::key(&root));
+        let key = crate::review::key(&root);
+        self.requests.update(cx, |rq, _| rq.rows.load(&key));
         if let Some(code) = self.code() {
             let fresh = self.root.as_ref() != Some(&root);
             code.set_project(root.clone(), true, fresh, &crate::review::key(&root), cx);

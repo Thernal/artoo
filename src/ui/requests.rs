@@ -225,7 +225,7 @@ impl Workspace {
                 let task = Some((iid, self.group_of(m, cx)));
                 self.requests.update(cx, |rq, _| rq.walk = task);
             }
-            self.mark_opened(iid, cx);
+            self.requests.update(cx, |rq, _| rq.mark_opened(iid));
         }
         self.requests.update(cx, |rq, _| rq.reading = false);
         let (Some(iid), Some(host)) = (iid, self.host(cx)) else {

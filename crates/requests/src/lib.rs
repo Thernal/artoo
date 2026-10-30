@@ -9,6 +9,7 @@ pub mod complete;
 pub mod create;
 pub mod discussions;
 pub mod group;
+pub mod list;
 pub mod merge;
 pub mod merging;
 pub mod outdated;

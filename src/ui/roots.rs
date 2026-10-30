@@ -10,15 +10,15 @@ use super::lists::Field;
 use super::nav::BranchRow;
 use super::{Workspace, discussion, format, icons, island, keys, plural, px, theme, words};
 use crate::git::{BranchRef, ChangeKind, RefKind, Repo};
-use crate::mr::{Approvals, Mr, MrState, Pipeline, Thread};
+use crate::mr::{Mr, MrState, Thread};
 pub(super) use artoo_requests::group::Group;
-use artoo_review::reviewed::Seen;
+use artoo_requests::list;
+use artoo_review_api::Seen;
 pub(super) use artoo_ui_kit::controls::skeleton;
 use gpui::{
     AnyElement, App, ClickEvent, Context, Div, FontWeight, Rgba, SharedString, Task, div,
     prelude::*,
 };
-use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 
 /// The width of a root's list.
@@ -46,27 +46,6 @@ pub(super) fn list_width(width: f32) -> f32 {
     width
 }
 
-/// What the requests list keeps per project (`<repo>\t<folded groups>\t<requests opened>`, both
-/// comma-separated, then `folds` once a group was folded or unfolded by hand) (#81). Every group
-/// starts open (the developer, 2026-10-23); a line written before the folds were yours carries the
-/// old default (Reviewed folded), and is read as nothing folded.
-const LIST_FILE: &str = "requests-list.txt";
-
-/// The height of a group's band in the requests list.
-const BAND: f32 = 28.;
-
-/// Where request `seen` sits: yours first of all, then by how far your review got.
-pub fn group(mine: bool, asks: bool, seen: Seen) -> Group {
-    match seen {
-        _ if mine => Group::Yours,
-        Seen::Done => Group::Reviewed,
-        Seen::Earlier => Group::Updated,
-        Seen::Started => Group::Asks,
-        Seen::Never if asks => Group::Asks,
-        Seen::Never => Group::New,
-    }
-}
-
 /// A branch, as its row and preview say it.
 #[derive(Clone)]
 pub struct Fact {
@@ -88,16 +67,6 @@ pub struct TreeFile {
     pub removed: usize,
 }
 
-/// A request's pipeline and approvals, read for its preview, with its `updated` then.
-struct Preview {
-    updated: i64,
-    pipeline: Option<Pipeline>,
-    approvals: Option<Approvals>,
-    /// Pushed since your review: the version you viewed, and how many files changed since then
-    /// (X22).
-    since: Option<(usize, usize)>,
-}
-
 #[derive(Default)]
 pub struct Roots {
     /// Per refname.
@@ -108,99 +77,6 @@ pub struct Roots {
     /// The working tree's files as last read, with the fingerprint they were read at.
     tree: Option<(u64, Vec<TreeFile>)>,
     tree_task: Option<Task<()>>,
-    previews: HashMap<u64, Preview>,
-    preview_task: Option<Task<()>>,
-    /// The requests list's scroll, and whether the next frame brings the picked row into view
-    /// (after ↑ ↓ or esc back to the list).
-    scroll: gpui::ScrollHandle,
-    pub reveal: Cell<bool>,
-    /// Project `kept_of`'s requests list: the groups folded, and the requests you have opened —
-    /// a row's dot is gone once you have (#81).
-    folded: HashSet<Group>,
-    opened: HashSet<u64>,
-    /// A group was folded or unfolded by hand: the folds are kept.
-    chosen: bool,
-    kept_of: Option<String>,
-}
-
-impl Roots {
-    /// Project `repo`'s folds and opened requests, unless they are the ones held.
-    pub fn load(&mut self, repo: &str) {
-        if self.kept_of.as_deref() == Some(repo) {
-            return;
-        }
-        (self.folded, self.opened, self.chosen) =
-            kept_list(&crate::storage::read(LIST_FILE), repo).unwrap_or_default();
-        self.kept_of = Some(repo.to_owned());
-    }
-
-    fn keep(&self) {
-        if let Some(repo) = &self.kept_of {
-            let text = crate::storage::read(LIST_FILE);
-            crate::storage::save(
-                LIST_FILE,
-                with_kept_list(&text, repo, &self.folded, &self.opened, self.chosen),
-            );
-        }
-    }
-}
-
-/// Repository `repo`'s line of `requests-list.txt`: its folded groups (none unless folded by
-/// hand), the requests opened, and whether the folds are yours; none when it has no line.
-fn kept_list(text: &str, repo: &str) -> Option<(HashSet<Group>, HashSet<u64>, bool)> {
-    let line = text.lines().find(|l| l.split('\t').next() == Some(repo))?;
-    let parts: Vec<&str> = line.split('\t').skip(1).collect();
-    let field = |n: usize| parts.get(n).copied().unwrap_or_default().split(',');
-    let chosen = parts.get(2) == Some(&"folds");
-    let folded = field(0)
-        .filter_map(Group::parse)
-        .filter(|_| chosen)
-        .collect();
-    let opened = field(1).filter_map(|iid| iid.parse().ok()).collect();
-    Some((folded, opened, chosen))
-}
-
-/// `text` with repository `repo`'s line written anew; other repositories' kept.
-fn with_kept_list(
-    text: &str,
-    repo: &str,
-    folded: &HashSet<Group>,
-    opened: &HashSet<u64>,
-    chosen: bool,
-) -> String {
-    let mut folded: Vec<Group> = folded.iter().copied().collect();
-    folded.sort();
-    let mut opened: Vec<u64> = opened.iter().copied().collect();
-    opened.sort();
-    let line = format!(
-        "{repo}\t{}\t{}{}",
-        folded.iter().map(|g| g.key()).collect::<Vec<_>>().join(","),
-        opened
-            .iter()
-            .map(u64::to_string)
-            .collect::<Vec<_>>()
-            .join(","),
-        if chosen { "\tfolds" } else { "" }
-    );
-    let mut lines: Vec<String> = text
-        .lines()
-        .filter(|l| !l.is_empty() && l.split('\t').next() != Some(repo))
-        .map(str::to_owned)
-        .chain([line])
-        .collect();
-    lines.sort_unstable();
-    lines.join("\n") + "\n"
-}
-
-/// The band held at the top of the requests list while its rows scroll under it, by the bands'
-/// tops and the list's top: the last band above it, pushed up as far as the next one comes into
-/// its room (#81).
-fn held_band(tops: &[f32], top: f32) -> Option<(usize, f32)> {
-    let at = tops.iter().rposition(|&t| t < top)?;
-    let push = tops
-        .get(at + 1)
-        .map_or(0., |&next| (next - top - BAND).min(0.));
-    Some((at, push))
 }
 
 impl Workspace {
@@ -301,94 +177,41 @@ impl Workspace {
             .nav
             .pick_request
             .and_then(|iid| self.requests.read(cx).find(iid))
+            .cloned()
         else {
             return;
         };
-        let (iid, updated) = (m.iid, m.updated);
-        if self
-            .roots
-            .previews
-            .get(&iid)
-            .is_some_and(|p| p.updated == updated)
-        {
-            return;
-        }
         let (Some(remote), Some(root)) = (self.web.clone(), self.root.clone()) else {
             return;
         };
         let host = super::host_of(&remote, cx);
         // Pushed since your review: what changed since the push you viewed.
         let head = git2::Oid::from_str(&m.head).ok();
-        let viewed = match self.review.read(cx).request_seen(iid, head) {
-            Seen::Earlier => head.zip(self.review.read(cx).reviewed_head(iid, head)),
+        let viewed = match self.review.read(cx).request_seen(m.iid, head) {
+            Seen::Earlier => head.zip(self.review.read(cx).reviewed_head(m.iid, head)),
             _ => None,
         };
         let settings = self.settings(cx);
-        self.roots.preview_task = Some(cx.spawn(async move |this, cx| {
-            let (pipeline, approvals, since) = cx
-                .background_executor()
-                .spawn(async move {
-                    let since = viewed.and_then(|(head, viewed)| {
-                        let pushes: Vec<_> = host
-                            .versions(iid)
-                            .ok()?
-                            .iter()
-                            .filter_map(|p| {
-                                Some((
-                                    git2::Oid::from_str(&p.head).ok()?,
-                                    git2::Oid::from_str(&p.base).ok(),
-                                    p.created,
-                                ))
-                            })
-                            .collect();
-                        let repo = Repo::open(&root).ok()?;
-                        let versions = repo.versions_from_pushes(&pushes);
-                        let from = versions.iter().find(|v| v.tip == viewed)?;
-                        let to = versions.iter().find(|v| v.tip == head)?;
-                        let diff = repo.version_diff(from, to, settings).ok()?;
-                        Some((from.number, diff.files.len()))
-                    });
-                    (
-                        host.pipeline(iid).ok().flatten(),
-                        host.approvals(iid).ok(),
-                        since,
-                    )
-                })
-                .await;
-            this.update(cx, |this, cx| {
-                this.roots.previews.insert(
-                    iid,
-                    Preview {
-                        updated,
-                        pipeline,
-                        approvals,
-                        since,
-                    },
-                );
-                cx.notify();
-            })
-            .ok();
-        }));
+        self.requests.update(cx, |rq, cx| {
+            rq.read_preview(&m, viewed, host, root, settings, cx)
+        });
     }
 
     // ---- what the lists hold ---------------------------------------------------------------
 
     /// Request `m`'s group in the list.
     pub(super) fn group_of(&self, m: &Mr, cx: &App) -> Group {
-        let me = self.requests.read(cx).login.as_deref().unwrap_or_default();
         let head = git2::Oid::from_str(&m.head).ok();
-        group(
-            !me.is_empty() && m.author_login == me,
-            !me.is_empty() && m.reviewers.iter().any(|r| r == me),
-            self.review.read(cx).request_seen(m.iid, head),
-        )
+        let seen = self.review.read(cx).request_seen(m.iid, head);
+        self.requests.read(cx).group_of(m, seen)
     }
 
     /// The discussions of request `iid` waiting for its author (`waiting`). Read with the
     /// notifications (`notices`), so only for requests read there.
     fn waiting_threads(&self, iid: u64, cx: &App) -> Vec<&Thread> {
-        let me = self.requests.read(cx).login.as_deref().unwrap_or_default();
-        waiting(me, self.notices.threads_of(iid).unwrap_or_default())
+        self.requests
+            .read(cx)
+            .waiting_for_me(self.notices.threads_of(iid).unwrap_or_default())
     }
 
     /// The branches a search lists, by index: a request's fetched head is none of them (#114).
@@ -469,7 +292,7 @@ impl Workspace {
     /// A root list's row picked, by a click or ↑ ↓.
     pub(super) fn pick_request(&mut self, iid: u64, cx: &mut Context<Self>) {
         self.nav.pick_request = Some(iid);
-        self.roots.reveal.set(true);
+        self.requests.read(cx).rows.reveal.set(true);
         self.read_preview(cx);
         cx.notify();
     }
@@ -483,17 +306,14 @@ impl Workspace {
 
     fn toggle_group(&mut self, g: Group, cx: &mut Context<Self>) {
         self.mark_motion(&format!("group-{}", g.key()), cx);
-        self.roots.chosen = true;
-        if !self.roots.folded.remove(&g) {
-            self.roots.folded.insert(g);
-        }
-        self.roots.keep();
+        self.requests.update(cx, |rq, _| rq.rows.toggle(g));
         cx.notify();
     }
 
     /// Whether group `g`'s rows are folded away; a filter typed opens every group.
-    fn folds(&self, g: Group) -> bool {
-        self.bfilter.trim().is_empty() && self.roots.folded.contains(&g)
+    fn folds(&self, g: Group, cx: &App) -> bool {
+        let filtering = !self.bfilter.trim().is_empty();
+        self.requests.read(cx).rows.folds(g, filtering)
     }
 
     /// The requests the list has a row for, in its order: those of folded groups left out, but
@@ -503,7 +323,8 @@ impl Workspace {
         self.shown_requests(cx)
             .into_iter()
             .filter(|m| {
-                past || self.nav.pick_request == Some(m.iid) || !self.folds(self.group_of(m, cx))
+                past || self.nav.pick_request == Some(m.iid)
+                    || !self.folds(self.group_of(m, cx), cx)
             })
             .collect()
     }
@@ -515,23 +336,8 @@ impl Workspace {
             .read(cx)
             .find(iid)
             .and_then(|m| git2::Oid::from_str(&m.head).ok());
-        self.roots.opened.contains(&iid)
+        self.requests.read(cx).rows.opened(iid)
             || !matches!(self.review.read(cx).request_seen(iid, head), Seen::Never)
-    }
-
-    /// Request `iid` opened: its row's dot goes for good. Requests no longer open are forgotten.
-    pub(super) fn mark_opened(&mut self, iid: u64, cx: &App) {
-        if self.roots.opened.contains(&iid) {
-            return;
-        }
-        if !self.requests.read(cx).list.is_empty() {
-            let list = &self.requests.read(cx).list;
-            self.roots
-                .opened
-                .retain(|i| list.iter().any(|m| m.iid == *i));
-        }
-        self.roots.opened.insert(iid);
-        self.roots.keep();
     }
 
     // ---- the pages ------------------------------------------------------------------------
@@ -609,7 +415,7 @@ impl Workspace {
                     shown
                         .iter()
                         .zip(&groups)
-                        .find(|(_, g)| past.is_some() || !self.folds(**g))
+                        .find(|(_, g)| past.is_some() || !self.folds(**g, cx))
                         .map(|(m, _)| m)
                 })
                 .cloned();
@@ -637,7 +443,7 @@ impl Workspace {
                 let Some(row) = self.folding(
                     format!("request-row-{}", m.iid),
                     &format!("group-{}", g.key()),
-                    !self.folds(g) || is_picked,
+                    !self.folds(g, cx) || is_picked,
                     self.request_row(m, g, cx),
                 ) else {
                     continue;
@@ -677,14 +483,14 @@ impl Workspace {
             }
             // The rows as the last frame laid them out, when they are these rows: where the list's
             // top is, so the band above it is held there.
-            let scroll = &self.roots.scroll;
+            let scroll = self.requests.read(cx).rows.scroll.clone();
             let laid = scroll.children_count() == rows.len();
             if past.as_ref().is_some_and(|p| p.more && !p.loading) {
                 // Not laid out yet: looked at again once it is. A row's bounds are where it is
                 // in the unscrolled list.
                 let near = laid
                     && scroll.bounds_for_item(rows.len() - 1).is_some_and(|b| {
-                        b.top() + scroll.offset().y < scroll.bounds().bottom() + px(BAND * 4.)
+                        b.top() + scroll.offset().y < scroll.bounds().bottom() + px(list::BAND * 4.)
                     });
                 if near || !laid {
                     let this = cx.entity().downgrade();
@@ -702,17 +508,17 @@ impl Workspace {
             }
             let top = f32::from(scroll.bounds().top() - scroll.offset().y);
             let top_of = |ix: usize| scroll.bounds_for_item(ix).map(|b| f32::from(b.top()));
-            if self.roots.reveal.take()
+            if self.requests.read(cx).rows.reveal.take()
                 && let Some(ix) = picked_row
             {
                 // A row going up out of sight would stop under the held band: the one above it
                 // comes into view instead, and with it the row.
-                let under_band = laid && ix > 0 && top_of(ix).is_some_and(|t| t < top + BAND);
+                let under_band = laid && ix > 0 && top_of(ix).is_some_and(|t| t < top + list::BAND);
                 scroll.scroll_to_item(if under_band { ix - 1 } else { ix });
             }
             let tops: Vec<f32> = bands.iter().filter_map(|&(ix, ..)| top_of(ix)).collect();
             let held = (laid && tops.len() == bands.len())
-                .then(|| held_band(&tops, top))
+                .then(|| list::held_band(&tops, top))
                 .flatten()
                 .map(|(at, push)| {
                     let (_, g, count) = bands[at];
@@ -745,7 +551,7 @@ impl Workspace {
                                         .flex_1()
                                         .min_h_0()
                                         .overflow_y_scroll()
-                                        .track_scroll(&self.roots.scroll)
+                                        .track_scroll(&scroll)
                                         .pb(px(6.))
                                         .children(rows),
                                 )
@@ -927,10 +733,10 @@ impl Workspace {
             super::ISLAND_RADIUS - 1.
         };
         let foldable = self.bfilter.trim().is_empty();
-        let folded = self.folds(g);
+        let folded = self.folds(g, cx);
         div()
             .id((if held { "group-held" } else { "group-band" }, g as usize))
-            .h(px(BAND))
+            .h(px(list::BAND))
             .flex_none()
             .flex()
             .items_center()
@@ -987,10 +793,11 @@ impl Workspace {
         let head = git2::Oid::from_str(&m.head).ok();
         let part = head.and_then(|h| self.review.read(cx).head_part(h));
         let pipeline = self
-            .roots
-            .previews
-            .get(&iid)
-            .and_then(|p| p.pipeline.as_ref());
+            .requests
+            .read(cx)
+            .rows
+            .preview(iid)
+            .and_then(|p| p.pipeline.clone());
         let waiting = (g == Group::Yours).then(|| self.waiting_threads(iid, cx).len());
         let threads = self.notices.threads_of(iid).map(<[Thread]>::len);
         // A dot: a row of yours a thread waits on, another you have never opened; how far your
@@ -1025,7 +832,7 @@ impl Workspace {
                 theme::muted(),
             )),
         };
-        let verdict = pipeline.map(artoo_requests::bar::pipeline_word);
+        let verdict = pipeline.as_ref().map(artoo_requests::bar::pipeline_word);
         let threads = threads.filter(|&n| n > 0 && waiting.is_none_or(|w| w == 0));
         let mut tip = vec![
             format!("{} {}", words::number(iid), m.title),
@@ -1154,13 +961,19 @@ impl Workspace {
         let iid = m.iid;
         let me = self.requests.read(cx).login.as_deref().unwrap_or_default();
         let mine = !me.is_empty() && m.author_login == me;
-        let preview = self.roots.previews.get(&iid);
+        let (pipeline, approvals, since) = self
+            .requests
+            .read(cx)
+            .rows
+            .preview(iid)
+            .map(|p| (p.pipeline.clone(), p.approvals.clone(), p.since))
+            .unwrap_or_default();
         let mut pills: Vec<AnyElement> = Vec::new();
-        if let Some(p) = preview.and_then(|p| p.pipeline.as_ref()) {
+        if let Some(p) = &pipeline {
             let (glyph, word, color) = artoo_requests::bar::pipeline_word(p);
             pills.push(pill(format!("{glyph} {word}"), color).into_any_element());
         }
-        if let Some(a) = preview.and_then(|p| p.approvals.as_ref()) {
+        if let Some(a) = &approvals {
             let said = if a.required > 0 {
                 Some(format!(
                     "{}/{} approved",
@@ -1229,7 +1042,7 @@ impl Workspace {
             head.and_then(|h| self.review.read(cx).head_part(h)),
         ) {
             (Seen::Done, _) => facts.push("Reviewed at this push".to_owned()),
-            (Seen::Earlier, _) => facts.push(match preview.and_then(|p| p.since) {
+            (Seen::Earlier, _) => facts.push(match since {
                 Some((viewed, 0)) => format!("Pushed since you viewed v{viewed}, no file changed"),
                 Some((viewed, n)) => {
                     format!("{} changed since you viewed v{viewed}", plural(n, "file"))
@@ -2310,134 +2123,5 @@ fn change_letter(change: ChangeKind) -> (&'static str, Rgba) {
         ChangeKind::Renamed => ("R", theme::renamed()),
         ChangeKind::Copied => ("C", theme::renamed()),
         ChangeKind::TypeChanged => ("T", theme::warning()),
-    }
-}
-
-/// Of a request's `threads`, those waiting for `me`, its author: the last word not mine, and —
-/// a discussion — still open, or — a plain comment, which cannot be resolved (X21, the developer,
-/// 2026-10-23) — written after anything I wrote on the request.
-fn waiting<'a>(me: &str, threads: &'a [Thread]) -> Vec<&'a Thread> {
-    if me.is_empty() {
-        return Vec::new();
-    }
-    let my_last = threads
-        .iter()
-        .flat_map(|t| &t.notes)
-        .filter(|n| n.login == me)
-        .map(|n| n.created)
-        .max()
-        .unwrap_or(0);
-    threads
-        .iter()
-        .filter(|t| match t.notes.last() {
-            Some(last) if last.login != me => {
-                if t.resolvable {
-                    !t.resolved
-                } else {
-                    last.created > my_last
-                }
-            }
-            _ => false,
-        })
-        .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_request_is_grouped_by_what_it_needs_from_you() {
-        assert_eq!(group(true, true, Seen::Done), Group::Yours);
-        assert_eq!(group(false, true, Seen::Never), Group::Asks);
-        assert_eq!(group(false, false, Seen::Never), Group::New);
-        assert_eq!(group(false, false, Seen::Started), Group::Asks);
-        assert_eq!(group(false, true, Seen::Earlier), Group::Updated);
-        assert_eq!(group(false, true, Seen::Done), Group::Reviewed);
-        // What changed, then what is new, then what is reviewed; yours last.
-        assert!(Group::Asks < Group::Updated && Group::Updated < Group::New);
-        assert!(Group::New < Group::Reviewed && Group::Reviewed < Group::Yours);
-    }
-
-    #[test]
-    fn a_projects_folds_and_opened_requests_are_kept_on_its_own_line() {
-        let folded = HashSet::from([Group::New, Group::Reviewed]);
-        let opened = HashSet::from([415, 398]);
-        let text = with_kept_list("b\tasks\t7\tfolds\n", "a", &folded, &opened, true);
-        assert_eq!(
-            text,
-            "a\tothers,reviewed\t398,415\tfolds\nb\tasks\t7\tfolds\n"
-        );
-        assert_eq!(kept_list(&text, "a"), Some((folded, opened, true)));
-        assert_eq!(
-            kept_list(&text, "b"),
-            Some((HashSet::from([Group::Asks]), HashSet::from([7]), true))
-        );
-        // Every group unfolded by hand, nothing opened: a line still.
-        let none = with_kept_list(&text, "a", &HashSet::new(), &HashSet::new(), true);
-        assert_eq!(
-            kept_list(&none, "a"),
-            Some((HashSet::new(), HashSet::new(), true))
-        );
-        assert_eq!(kept_list(&none, "c"), None);
-        // A line from before the folds were yours: its fold was the old default, so none.
-        assert_eq!(
-            kept_list("a\treviewed\t398\n", "a"),
-            Some((HashSet::new(), HashSet::from([398]), false))
-        );
-    }
-
-    #[test]
-    fn a_plain_comment_waits_for_the_author_until_they_write_again() {
-        use crate::mr::{Note, Thread};
-        let note = |login: &str, created: i64| Note {
-            id: created as u64,
-            author: login.into(),
-            login: login.into(),
-            body: String::new(),
-            created,
-        };
-        let thread = |notes: Vec<Note>, resolvable: bool, resolved: bool| Thread {
-            id: String::new(),
-            notes,
-            path: None,
-            new_line: None,
-            old_line: None,
-            resolved,
-            resolvable,
-            resolved_by: None,
-            resolved_at: 0,
-            commit: None,
-            outdated: false,
-        };
-        let threads = [
-            // An open discussion, its last word theirs: waits.
-            thread(vec![note("me", 1), note("ember", 2)], true, false),
-            // Resolved: does not.
-            thread(vec![note("ember", 3)], true, true),
-            // A plain comment after my last word: waits.
-            thread(vec![note("kestrel", 9)], false, false),
-            // A plain comment before it: I have written since.
-            thread(vec![note("kestrel", 4)], false, false),
-            // My own last word.
-            thread(vec![note("ember", 5), note("me", 8)], true, false),
-        ];
-        let waits: Vec<i64> = waiting("me", &threads)
-            .iter()
-            .map(|t| t.notes.last().unwrap().created)
-            .collect();
-        assert_eq!(waits, [2, 9]);
-        assert!(waiting("", &threads).is_empty());
-    }
-
-    #[test]
-    fn the_band_above_the_lists_top_is_held_until_the_next_pushes_it_up() {
-        // Bands at 0, 200 and 300; the list's top at 0: nothing is above it.
-        assert_eq!(held_band(&[0., 200., 300.], 0.), None);
-        assert_eq!(held_band(&[0., 200., 300.], 100.), Some((0, 0.)));
-        // The next band 10 px below the top: the held one goes up by what it covers.
-        assert_eq!(held_band(&[0., 200., 300.], 190.), Some((0, -18.)));
-        assert_eq!(held_band(&[0., 200., 300.], 250.), Some((1, 0.)));
-        assert_eq!(held_band(&[0., 200., 300.], 900.), Some((2, 0.)));
     }
 }

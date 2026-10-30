@@ -5,6 +5,7 @@ use crate::diff::Header;
 use crate::review::Review;
 use artoo_core::git::FileDiff;
 use artoo_core::storage;
+use artoo_review_api::Seen;
 use std::collections::HashMap;
 
 /// How a file stands in the review.
@@ -14,19 +15,6 @@ pub enum State {
     Done,
     /// Marked, but the file is not what it was when it was marked.
     Stale,
-}
-
-/// How far your review of a merge request got, against its head now.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Seen {
-    /// No file of it was ever marked.
-    Never,
-    /// Files were marked at this head.
-    Started,
-    /// Files were marked at an earlier head: it was pushed since.
-    Earlier,
-    /// Its whole diff at this head was reviewed.
-    Done,
 }
 
 /// A file marked reviewed: its fingerprint then, when (0: not known, an older mark), and the head
