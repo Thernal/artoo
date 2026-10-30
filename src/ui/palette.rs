@@ -417,8 +417,8 @@ impl Workspace {
     /// says how far its review got.
     fn switch_items(&self, query: &str, open_only: bool) -> Vec<Item> {
         let state = |head: Option<Oid>| match head {
-            Some(h) if self.head_reviewed(h) => (true, "✓ reviewed".to_owned()),
-            Some(h) => match self.head_part(h) {
+            Some(h) if self.review.head_reviewed(h) => (true, "✓ reviewed".to_owned()),
+            Some(h) => match self.review.head_part(h) {
                 Some((done, total)) => (false, format!("{done}/{total} reviewed")),
                 None => (false, "not reviewed".to_owned()),
             },

@@ -311,9 +311,7 @@ impl super::review::Review {
             .collect();
         Some(lines.join("\n"))
     }
-}
 
-impl super::review::Review {
     fn line_text(&self, old: bool, line: u32) -> String {
         self.data
             .as_ref()

@@ -1923,6 +1923,7 @@ impl Workspace {
             keys_exact: false,
             keys_changed_only: false,
             review: review::Review {
+                root: None,
                 pfilter: String::new(),
                 fcursor: None,
                 settings,
@@ -2197,6 +2198,7 @@ impl Workspace {
                         this.roots.load(&crate::review::key(&root));
                         // Code's pinned tabs (#20).
                         this.code.load_pins(&crate::review::key(&root));
+                        this.review.root = Some(root.clone());
                         this.root = Some(root);
                         // Once the root is this repository's: it reads whether fetch is off for it (#141).
                         this.start_fetching(cx);
@@ -2257,6 +2259,7 @@ impl Workspace {
         self.review.page.load(&crate::review::key(&root));
         self.roots.load(&crate::review::key(&root));
         self.code.load_pins(&crate::review::key(&root));
+        self.review.root = Some(root.clone());
         self.root = Some(root);
         self.branches.clear();
         self.clear_branch();

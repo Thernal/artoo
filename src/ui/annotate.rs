@@ -72,29 +72,12 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Reads who wrote the lines of the open file, when the column is on.
+    /// The annotation column of the open file read again: blame in the background
+    /// (`Review::annotation_job`, `Review::annotated`).
     pub(super) fn refresh_annotations(&mut self, cx: &mut Context<Self>) {
-        self.review.annot_task = None;
-        if !self.review.annotate {
-            return;
-        }
-        let (Some(root), Some(rev), Some(path)) = (
-            self.root.clone(),
-            self.review.viewed_rev(),
-            self.review.current_path(),
-        ) else {
+        let Some((root, rev, path)) = self.review.annotation_job() else {
             return;
         };
-        // A deleted file has no new side to annotate.
-        if self
-            .review
-            .diff
-            .as_ref()
-            .and_then(|d| d.files.get(self.review.file))
-            .is_none_or(|f| f.new_path.is_none())
-        {
-            return;
-        }
         self.review.annot_task = Some(cx.spawn(async move |this, cx| {
             let lines = cx
                 .background_executor()
@@ -102,43 +85,7 @@ impl Workspace {
                 .await;
             this.update(cx, |this, cx| {
                 if let Ok(lines) = lines {
-                    let mut previous = None;
-                    this.review.annotations = lines
-                        .into_iter()
-                        .map(|line| {
-                            let line = line?;
-                            let first = previous != Some(line.id);
-                            previous = Some(line.id);
-                            Some(AnnCell {
-                                id: line.id,
-                                label: first.then(|| {
-                                    // The age first: the name may be long, the age is what scans.
-                                    let ago = format::ago(line.time);
-                                    SharedString::from(format!(
-                                        "{} · {}",
-                                        ago.trim_end_matches(" ago"),
-                                        line.author
-                                    ))
-                                }),
-                                tip: SharedString::from(format!(
-                                    "{} · {} · {} · {}\nclick to open the commit",
-                                    line.summary,
-                                    format::short(line.id),
-                                    line.author,
-                                    format::ago(line.time)
-                                )),
-                                current: line.id == rev,
-                            })
-                        })
-                        .map(|c| {
-                            c.unwrap_or(AnnCell {
-                                id: rev,
-                                label: None,
-                                tip: SharedString::default(),
-                                current: false,
-                            })
-                        })
-                        .collect();
+                    this.review.annotated(lines, rev);
                     cx.notify();
                 }
             })
@@ -296,5 +243,70 @@ impl super::review::Review {
             .with_priority(2)
             .into_any_element(),
         )
+    }
+
+    /// What blame reads for the annotation column: the repository, the revision shown and the open
+    /// file; none when the column is off or the file has no new side. The blame under way stops.
+    pub(super) fn annotation_job(&mut self) -> Option<(std::path::PathBuf, git2::Oid, String)> {
+        self.annot_task = None;
+        if !self.annotate {
+            return None;
+        }
+        let (Some(root), Some(rev), Some(path)) =
+            (self.root.clone(), self.viewed_rev(), self.current_path())
+        else {
+            return None;
+        };
+        // A deleted file has no new side to annotate.
+        if self
+            .diff
+            .as_ref()
+            .and_then(|d| d.files.get(self.file))
+            .is_none_or(|f| f.new_path.is_none())
+        {
+            return None;
+        }
+        Some((root, rev, path))
+    }
+
+    /// Blame's `lines` of the open file at `rev`: the annotation column's cells.
+    pub(super) fn annotated(&mut self, lines: Vec<Option<BlameLine>>, rev: git2::Oid) {
+        let mut previous = None;
+        self.annotations = lines
+            .into_iter()
+            .map(|line| {
+                let line = line?;
+                let first = previous != Some(line.id);
+                previous = Some(line.id);
+                Some(AnnCell {
+                    id: line.id,
+                    label: first.then(|| {
+                        // The age first: the name may be long, the age is what scans.
+                        let ago = format::ago(line.time);
+                        SharedString::from(format!(
+                            "{} · {}",
+                            ago.trim_end_matches(" ago"),
+                            line.author
+                        ))
+                    }),
+                    tip: SharedString::from(format!(
+                        "{} · {} · {} · {}\nclick to open the commit",
+                        line.summary,
+                        format::short(line.id),
+                        line.author,
+                        format::ago(line.time)
+                    )),
+                    current: line.id == rev,
+                })
+            })
+            .map(|c| {
+                c.unwrap_or(AnnCell {
+                    id: rev,
+                    label: None,
+                    tip: SharedString::default(),
+                    current: false,
+                })
+            })
+            .collect();
     }
 }

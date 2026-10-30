@@ -181,32 +181,16 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Steps to the next (or previous) matching line.
     pub(super) fn step_match(&mut self, forward: bool, cx: &mut Context<Self>) {
-        if let Some(stack) = &self.review.stack {
-            let n = stack.matches.len();
-            if n > 0 {
-                let at = if forward {
-                    (stack.match_at + 1) % n
-                } else {
-                    (stack.match_at + n - 1) % n
-                };
+        if self.review.stack.is_some() {
+            if let Some(at) = self.review.next_stack_match(forward) {
                 self.go_to_stack_match(at, cx);
             }
             return;
         }
-        if self.review.matches.is_empty() {
-            return;
+        if self.review.step_match(forward) {
+            cx.notify();
         }
-        let n = self.review.matches.len();
-        self.review.match_at = if forward {
-            (self.review.match_at + 1) % n
-        } else {
-            (self.review.match_at + n - 1) % n
-        };
-        self.review
-            .scroll_to_row(self.review.matches[self.review.match_at]);
-        cx.notify();
     }
 
     /// F7 / ⇧F7: the next (or previous) change in the open file.
@@ -215,19 +199,9 @@ impl Workspace {
         if self.step_page(forward, cx) {
             return;
         }
-        let n = self.review.changes.len();
-        if n == 0 {
-            return;
+        if self.review.step_change(forward) {
+            cx.notify();
         }
-        let at = match (self.review.change_at, forward) {
-            (None, true) => 0,
-            (None, false) => n - 1,
-            (Some(at), true) => (at + 1) % n,
-            (Some(at), false) => (at + n - 1) % n,
-        };
-        self.review.change_at = Some(at);
-        self.review.scroll_to_row(self.review.changes[at]);
-        cx.notify();
     }
 
     /// A key: to the input with the keyboard (#168), else the keys of what is on screen.
@@ -401,31 +375,18 @@ impl Workspace {
     }
 
     pub(super) fn close_dfind(&mut self, cx: &mut Context<Self>) {
-        self.review.dfind = None;
-        self.review.dterms = Arc::default();
-        self.review.recompute_matches();
+        self.review.close_find();
         cx.notify();
     }
 
     pub(super) fn set_dfind(&mut self, text: String, cx: &mut Context<Self>) {
-        let terms = if self.review.dfind_regex {
-            search::Terms::regex(&text)
-        } else {
-            Ok(search::Terms::text(&text))
-        };
-        self.review.dfind_error = terms.as_ref().err().cloned();
-        self.review.dterms = Arc::new(terms.unwrap_or_default());
-        self.review.dfind = Some(text);
-        self.review.match_at = 0;
-        self.review.recompute_matches();
+        self.review.set_find(text);
         if self.review.stack.is_some() {
             // The folded files are built to be searched too.
             self.build_stack(cx);
             if let Some(at) = self.review.first_stack_match() {
                 self.go_to_stack_match(at, cx);
             }
-        } else if let Some(&row) = self.review.matches.first() {
-            self.review.scroll_to_row(row);
         }
         cx.notify();
     }
@@ -722,9 +683,7 @@ impl super::review::Review {
         self.change_at = self.change_at.filter(|&at| at < self.changes.len());
         self.recompute_stack_matches();
     }
-}
 
-impl super::review::Review {
     /// Scrolls the diff so `row` sits a few lines below the top.
     pub(super) fn scroll_to_row(&mut self, row: usize) {
         self.open_active();
@@ -754,5 +713,77 @@ impl super::review::Review {
             item_ix: rows.start.saturating_sub(fit / 3),
             offset_in_item: px(0.),
         });
+    }
+
+    /// With every file in one scroll: the match of every file's after (or before) the current one.
+    pub(super) fn next_stack_match(&self, forward: bool) -> Option<usize> {
+        let stack = self.stack.as_ref()?;
+        let n = stack.matches.len();
+        (n > 0).then(|| {
+            if forward {
+                (stack.match_at + 1) % n
+            } else {
+                (stack.match_at + n - 1) % n
+            }
+        })
+    }
+
+    /// The open file's next (or previous) match comes into view; false when it has none.
+    pub(super) fn step_match(&mut self, forward: bool) -> bool {
+        let n = self.matches.len();
+        if n == 0 {
+            return false;
+        }
+        self.match_at = if forward {
+            (self.match_at + 1) % n
+        } else {
+            (self.match_at + n - 1) % n
+        };
+        self.scroll_to_row(self.matches[self.match_at]);
+        true
+    }
+
+    /// The open file's next (or previous) change comes into view; false when it has none.
+    pub(super) fn step_change(&mut self, forward: bool) -> bool {
+        let n = self.changes.len();
+        if n == 0 {
+            return false;
+        }
+        let at = match (self.change_at, forward) {
+            (None, true) => 0,
+            (None, false) => n - 1,
+            (Some(at), true) => (at + 1) % n,
+            (Some(at), false) => (at + n - 1) % n,
+        };
+        self.change_at = Some(at);
+        self.scroll_to_row(self.changes[at]);
+        true
+    }
+
+    /// Find in the diff closes.
+    pub(super) fn close_find(&mut self) {
+        self.dfind = None;
+        self.dterms = Arc::default();
+        self.recompute_matches();
+    }
+
+    /// Find in the diff looks for `text` (as typed, or as a regular expression); in the open file the
+    /// first match comes into view.
+    pub(super) fn set_find(&mut self, text: String) {
+        let terms = if self.dfind_regex {
+            search::Terms::regex(&text)
+        } else {
+            Ok(search::Terms::text(&text))
+        };
+        self.dfind_error = terms.as_ref().err().cloned();
+        self.dterms = Arc::new(terms.unwrap_or_default());
+        self.dfind = Some(text);
+        self.match_at = 0;
+        self.recompute_matches();
+        if self.stack.is_none()
+            && let Some(&row) = self.matches.first()
+        {
+            self.scroll_to_row(row);
+        }
     }
 }

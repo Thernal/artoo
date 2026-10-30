@@ -736,7 +736,7 @@ impl Workspace {
         let n = self.branches.len();
         (1..n).map(|step| (at + step) % n).find(|&ix| {
             let b = &self.branches[ix];
-            b.kind == kind && !b.is_head && !self.head_reviewed(b.tip)
+            b.kind == kind && !b.is_head && !self.review.head_reviewed(b.tip)
         })
     }
 

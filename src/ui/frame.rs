@@ -693,6 +693,10 @@ impl Render for Workspace {
             self.review.settings, self.settings,
             "a change of the settings did not reach the review's copy (save_settings)"
         );
+        debug_assert_eq!(
+            self.review.root, self.root,
+            "the review's root is not the tab's"
+        );
         // The host's words (pull requests on GitHub) for everything drawn from here.
         words::set(self.web.as_ref().is_some_and(|w| w.github));
         markdown::set_me(self.requests.login.as_deref());

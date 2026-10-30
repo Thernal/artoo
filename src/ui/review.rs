@@ -5,6 +5,8 @@
 use super::*;
 
 pub(super) struct Review {
+    /// The repository's folder, a copy of the tab's (`Workspace::root`): the marks' keys, blame.
+    pub(super) root: Option<PathBuf>,
     /// The app's settings, a copy the tab keeps equal to its own (`Workspace::change_settings`): how code is
     /// drawn (its zoom, the marks of changed words), generated files folded.
     pub(super) settings: Settings,

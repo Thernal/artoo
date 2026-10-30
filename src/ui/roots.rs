@@ -379,8 +379,8 @@ impl Workspace {
         let host = super::host_of(&remote, cx);
         // Pushed since your review: what changed since the push you viewed.
         let head = git2::Oid::from_str(&m.head).ok();
-        let viewed = match self.request_seen(iid, head) {
-            Seen::Earlier => head.zip(self.reviewed_head(iid, head)),
+        let viewed = match self.review.request_seen(iid, head) {
+            Seen::Earlier => head.zip(self.review.reviewed_head(iid, head)),
             _ => None,
         };
         let settings = self.settings();
@@ -440,7 +440,7 @@ impl Workspace {
         group(
             !me.is_empty() && m.author_login == me,
             !me.is_empty() && m.reviewers.iter().any(|r| r == me),
-            self.request_seen(m.iid, head),
+            self.review.request_seen(m.iid, head),
         )
     }
 
@@ -574,7 +574,8 @@ impl Workspace {
             .requests
             .find(iid)
             .and_then(|m| git2::Oid::from_str(&m.head).ok());
-        self.roots.opened.contains(&iid) || !matches!(self.request_seen(iid, head), Seen::Never)
+        self.roots.opened.contains(&iid)
+            || !matches!(self.review.request_seen(iid, head), Seen::Never)
     }
 
     /// Request `iid` opened: its row's dot goes for good. Requests no longer open are forgotten.
@@ -1017,7 +1018,7 @@ impl Workspace {
         let iid = m.iid;
         let picked = self.nav.pick_request == Some(iid);
         let head = git2::Oid::from_str(&m.head).ok();
-        let part = head.and_then(|h| self.head_part(h));
+        let part = head.and_then(|h| self.review.head_part(h));
         let pipeline = self
             .roots
             .previews
@@ -1257,8 +1258,8 @@ impl Workspace {
         let head = git2::Oid::from_str(&m.head).ok();
         let mut facts: Vec<String> = Vec::new();
         match (
-            self.request_seen(iid, head),
-            head.and_then(|h| self.head_part(h)),
+            self.review.request_seen(iid, head),
+            head.and_then(|h| self.review.head_part(h)),
         ) {
             (Seen::Done, _) => facts.push("Reviewed at this push".to_owned()),
             (Seen::Earlier, _) => facts.push(match preview.and_then(|p| p.since) {
@@ -1708,11 +1709,12 @@ impl Workspace {
                             .when(b.kind == RefKind::Remote, |s| s.text_color(theme::muted())),
                         )
                         .children(
-                            self.head_part(b.tip)
+                            self.review
+                                .head_part(b.tip)
                                 .filter(|_| room.third())
                                 .map(|(done, total)| super::lists::progress_badge(done, total)),
                         )
-                        .children((room.third() && self.head_reviewed(b.tip)).then(|| {
+                        .children((room.third() && self.review.head_reviewed(b.tip)).then(|| {
                             div()
                                 .text_size(px(11.))
                                 .text_color(theme::added())

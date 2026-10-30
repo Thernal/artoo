@@ -893,9 +893,7 @@ impl super::review::Review {
             self.collapsed.retain(|dir| !inside(&key, dir));
         }
     }
-}
 
-impl super::review::Review {
     pub(super) fn items(&self) -> Vec<FileItem> {
         match &self.diff {
             Some(diff) => file_items(

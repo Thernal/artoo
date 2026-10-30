@@ -175,7 +175,7 @@ impl Workspace {
             .review
             .review_progress()
             .map(|(done, total)| (done as u32, total as u32))
-            .or_else(|| head.and_then(|h| self.head_part(h)))
+            .or_else(|| head.and_then(|h| self.review.head_part(h)))
             .map_or_else(
                 || "—".to_owned(),
                 |(done, total)| format!("{done} of {}", plural(total as usize, "file")),
