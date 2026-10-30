@@ -2,13 +2,20 @@
 //! drawn where the frame has room for them, the keys an open card or a tool window takes, and the `Frame` they
 //! ask.
 
-use super::Workspace;
 use super::menu::{Act, Entry};
+use super::nav::Page;
+use super::recents::Key;
+use super::spaces::Space;
 use super::tools::Tool;
 use super::zones::Zone;
-use artoo_shell_api::{Frame, MenuItem, Overlay, Places, Run, Section};
+use super::{Workspace, motion, px};
+use artoo_core::route::Route;
+use artoo_shell_api::{Frame, MenuItem, Overlay, Pages, Places, Run, Section};
 use artoo_ui_kit::markdown::Selecting;
-use gpui::{AnyView, App, Context, KeyDownEvent, Pixels, Point, SharedString, WeakEntity, Window};
+use gpui::{
+    AnyView, App, Context, Div, KeyDownEvent, Pixels, Point, SharedString, WeakEntity, Window, div,
+    prelude::*,
+};
 
 /// A tab as its parts reach it. What it changes waits until the update under way is over: a part asks from
 /// its own update, and the tab may be what called it.
@@ -100,9 +107,105 @@ impl Frame for TabFrame {
     fn close_drawer(&self, cx: &mut App) {
         self.later(cx, |this, cx| this.close_drawer(cx));
     }
+
+    fn open(&self, route: Route, cx: &mut App) {
+        self.later(cx, move |this, cx| {
+            let mut drawn = this.parts.iter().filter_map(|p| p.pages.as_ref());
+            match Page::from_route(&route)
+                .filter(|_| drawn.any(|p| p.kinds.contains(&route.kind.as_str())))
+            {
+                Some(page) => this.open_page(page, cx),
+                None => this.toast_info(format!("Nothing here opens {}", route.kind).into(), cx),
+            }
+        });
+    }
+
+    fn open_space(&self, space: &'static str, cx: &mut App) {
+        self.later(cx, move |this, cx| {
+            if let Some(space) = Space::named(space) {
+                this.show(space, None, cx);
+            }
+        });
+    }
+
+    fn remember(&self, route: Route, cx: &mut App) {
+        self.later(cx, move |this, _| {
+            if let Some(Page::File(path)) = Page::from_route(&route) {
+                this.remember_place(Key::File(path.clone()), path, "file".to_owned());
+            }
+        });
+    }
 }
 
 impl Workspace {
+    /// The pages a feature draws in `space`, when one does.
+    pub(super) fn space_pages(&self, space: Space) -> Option<&Pages> {
+        self.parts
+            .iter()
+            .filter_map(|p| p.pages.as_ref())
+            .find(|p| p.space == space.name())
+    }
+
+    /// The pages of `space` told what is on screen: `page`, or the space's own (`None`); `opened`
+    /// anew, or gone back to.
+    pub(super) fn show_pages(
+        &self,
+        space: Space,
+        page: Option<&Page>,
+        opened: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(show) = self.space_pages(space).map(|p| p.show.clone()) {
+            show(page.map(Page::route).as_ref(), opened, cx);
+        }
+    }
+
+    /// Page `page` opened: on screen in its space, kept in the history, its pages told so.
+    pub(super) fn open_page(&mut self, page: Page, cx: &mut Context<Self>) {
+        self.arrive(page.clone(), cx);
+        self.show_pages(page.space(), Some(&page), true, cx);
+        cx.notify();
+    }
+
+    /// A space's pages a feature draws: its panel beside them — sliding and fading in and out with
+    /// ⌘J as the side panel does, with its handle, so no gap is left to vanish at the end (the
+    /// developer, 2026-10-23), the handle resizing it as it does the side panel —, the tool window
+    /// after them. Narrow, the panel opens over the page (#80).
+    pub(super) fn render_pages(&self, pages: &Pages, cx: &mut Context<Self>) -> Div {
+        let width = self.layout.sidebar;
+        let beside = !self.compact() && (self.layout.show_sidebar || self.motion.recent("side"));
+        div()
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .children(pages.side.as_ref().filter(|_| beside).map(|side| {
+                let room = width + super::frame::handle_width();
+                motion::toward(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .overflow_hidden()
+                        .child(side(width, cx))
+                        .child(self.handle(super::Split::Sidebar, cx)),
+                    SharedString::from(format!("{}-side-pane", pages.space)),
+                    self.layout.show_sidebar,
+                    self.motion.recent("side"),
+                    motion::BASE,
+                    move |pane, v| pane.max_w(px(room * v)).opacity(v),
+                )
+            }))
+            .child(pages.view.clone())
+            .children(self.render_tool(cx))
+            .children(
+                pages
+                    .side
+                    .as_ref()
+                    .filter(|_| self.side_drawer())
+                    .map(|side| self.drawer(side(width, cx))),
+            )
+    }
+
     /// The parts' tool windows, in the order the features were installed.
     pub(super) fn part_tools(&self) -> impl Iterator<Item = &artoo_shell_api::Tool> {
         self.parts.iter().filter_map(|p| p.tool.as_ref())

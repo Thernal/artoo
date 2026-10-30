@@ -2,18 +2,22 @@
 
 **Decided:** 2026-10-29 · **Applies to:** every feature with a view · **In force:** actions, parts and the
 `Frame` since 2026-10-30 (`artoo-shell-api`, updates the first feature on it); routes as data since 2026-10-30
-(`artoo_core::route`: `nav.txt` keeps them, the app's kinds in `src/ui/routes.rs`); the page registry with the
-first feature that has a page (requests). Until then `Page` (`src/ui/nav.rs`), `menu::Act` and `toast` are what these
-replace, and a new page, action or toast is added there in the shape below — one variant, one id, one owner.
+(`artoo_core::route`: `nav.txt` keeps them, the app's kinds in `src/ui/routes.rs`); the page registry (`Pages`)
+since 2026-10-30, Code's pages the first on it, still drawn in the app until Code is a crate. Until every space is on
+it, `Page` (`src/ui/nav.rs`), `menu::Act` and `toast` are what these replace, and a new page, action or toast is
+added there in the shape below — one variant, one id, one owner.
 
 **What `artoo-shell-api` holds now:** `add_action` (an id, its words for ⌘K, the keys it ships with, the menu that
 shows it — Artoo's or Help —, its GPUI action) and `add_parts` (a maker each tab calls with its `Frame`: a
 title-bar item with when it shows, an `Overlay` — a card that is drawn and has the keys while open, closed by
 Escape, polled each frame the tab is not busy —, a `Tool` — a tool window in every space after the shell's own,
 readied as it opens, given typed keys while it has the keyboard and says it is typing —, Settings rows by section,
-the tab's handlers of the feature's actions, the snapshot views it opens). What the `Frame` changes (a toast, the
+the tab's handlers of the feature's actions, the snapshot views it opens, a space's `Pages` — the kinds of route
+they draw, their view, the panel beside them, and `show`, which the shell calls with the route on screen, or none
+for the space's own page, and whether it was just opened or gone back to). What the `Frame` changes (a toast, the
 error line, a redraw, a tool window shown, a menu at the pointer — `MenuItem`s, each running its own closure —, the
-narrow tab's drawer closed) waits until the update under way is over, so a part may ask it from its own update and
+narrow tab's drawer closed, a route opened — a kind no pages draw says so in a toast —, a space's own page opened,
+a route kept among the places opened lately) waits until the update under way is over, so a part may ask it from its own update and
 from a hook. What it reads (the selection, the `Places` the tab has open, whether a tool window types) needs the tab
 free: the shell calls a part's key, close, poll, opened and snapshot hooks from inside its own update, so a hook
 defers what reads it (`cx.defer`); the part's views, listeners and tasks read it as they like.

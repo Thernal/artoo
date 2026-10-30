@@ -75,9 +75,14 @@ impl Space {
         }
     }
 
-    /// As `layout.txt` keeps the menu's order.
-    fn name(self) -> &'static str {
+    /// As `layout.txt` keeps the menu's order, and features name it (`Pages::space`).
+    pub fn name(self) -> &'static str {
         self.id().trim_start_matches("space-")
+    }
+
+    /// The space named `name`.
+    pub fn named(name: &str) -> Option<Space> {
+        Space::ALL.into_iter().find(|s| s.name() == name)
     }
 }
 
@@ -86,7 +91,7 @@ impl Space {
 pub fn ordered(kept: &str) -> Vec<Space> {
     let mut out: Vec<Space> = kept
         .split(',')
-        .filter_map(|n| Space::ALL.into_iter().find(|s| s.name() == n.trim()))
+        .filter_map(|n| Space::named(n.trim()))
         .collect();
     out.dedup();
     for s in Space::ALL {

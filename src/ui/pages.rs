@@ -18,8 +18,9 @@ impl Workspace {
                 .flex()
                 .child(shrinks(self.render_inbox(cx)))
                 .children(self.render_tool(cx)),
-            // The project's tree beside its folder page or a file's tabs (#75).
-            (Space::Code, _) => self.render_code_space(cx),
+            // A space whose pages a feature draws: Code's tree beside its folder page or a file's
+            // tabs (#75).
+            (space, _) if let Some(pages) = self.space_pages(space) => self.render_pages(pages, cx),
             (Space::Branches, None) => div()
                 .relative()
                 .flex_1()
@@ -42,6 +43,8 @@ impl Workspace {
                 self.render_tab_page(tab, cx)
             }
             (Space::Branches | Space::Requests, Some(_)) => self.render_item(cx),
+            // Code without the pages the tab gives it: nothing to draw.
+            (Space::Code, _) => div().flex_1(),
         };
         div()
             .flex_1()

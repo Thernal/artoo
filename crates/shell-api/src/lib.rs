@@ -4,10 +4,14 @@
 //! - **Actions** (`add_action`): a command's words, the menu that shows it, its GPUI action. The app menu and ⌘K
 //!   list them; the tab that has the keys runs one through its parts (`Parts::actions`).
 //! - **Parts** (`add_parts`): what a feature draws in every tab — an item in the title bar, a card over the
-//!   window, a tool window on the right, rows in Settings, the views a snapshot run opens —, made for each tab
-//!   with its `Frame`.
+//!   window, a tool window on the right, rows in Settings, the views a snapshot run opens, a space's pages —,
+//!   made for each tab with its `Frame`.
+//! - **Pages**: the routes of some kinds and a space's own page, drawn by the feature that owns them. The shell
+//!   keeps which is on screen — its history, `nav.txt` — and says so (`Pages::show`); a feature opens one of its
+//!   own through the `Frame` like any other.
 //! - **`Frame`**: what a part asks of its tab: a toast, the error line, a redraw, the text selection, the places
-//!   it has open, its tool window opened or closed, a menu at the pointer, the narrow tab's drawer closed.
+//!   it has open, its tool window opened or closed, a menu at the pointer, the narrow tab's drawer closed, a
+//!   route opened (or a space's own page), a route kept among the places opened lately.
 //!
 //! What a `Frame` changes waits until the update under way is over, so a part asks for it from anywhere. What it
 //! reads needs the tab free: the shell calls a part's hooks (`key`, `close`, `poll`, `opened`, the snapshot views)
@@ -15,8 +19,9 @@
 //! The part's views, listeners and tasks read it as they like.
 
 use artoo_core::git::WebRemote;
+use artoo_core::route::Route;
 use artoo_ui_kit::markdown::Selecting;
-use gpui::{AnyView, App, Global, KeyDownEvent, Pixels, Point, SharedString, Window};
+use gpui::{AnyElement, AnyView, App, Global, KeyDownEvent, Pixels, Point, SharedString, Window};
 use std::cell::Cell;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -74,6 +79,16 @@ pub trait Frame {
 
     /// The side panel's drawer closed, when the tab is narrow and it is open.
     fn close_drawer(&self, cx: &mut App);
+
+    /// Route `route` opened: on screen in its space, kept in the history, shown by the pages of its kind. One no
+    /// pages draw says so in a toast.
+    fn open(&self, route: Route, cx: &mut App);
+
+    /// Space `space`'s own page opened (`code`: the project's).
+    fn open_space(&self, space: &'static str, cx: &mut App);
+
+    /// Route `route` kept first among the places opened lately (⌘K lists them).
+    fn remember(&self, route: Route, cx: &mut App);
 }
 
 /// An item of a menu a part opens (`Frame::menu`).
@@ -192,6 +207,30 @@ pub enum Section {
 /// What runs an action in a tab.
 pub type Run = Rc<dyn Fn(&mut Window, &mut App)>;
 
+/// A space's pages a feature draws in one tab: the routes of its kinds, and the space's own page when none of
+/// them is on screen.
+pub struct Pages {
+    /// The space they are in, by its id (`code`).
+    pub space: &'static str,
+    /// The kinds of route they draw (`code.file`).
+    pub kinds: &'static [&'static str],
+    /// The page on screen.
+    pub view: AnyView,
+    /// The panel beside it (Code's tree), at the width given; the shell puts it where the side panel goes, over
+    /// the page in a drawer when the tab is narrow.
+    pub side: Option<Side>,
+    /// What is on screen now: a route of theirs, or the space's own page (`None`); `true` when it was just opened
+    /// (a click, a link), so what it shows is read anew, `false` when it was gone back to or kept from before.
+    /// The shell says it from inside its own update (see the crate's doc).
+    pub show: Show,
+}
+
+/// A panel beside a space's pages, drawn at a width.
+pub type Side = Rc<dyn Fn(f32, &mut App) -> AnyElement>;
+
+/// What a space's pages are told is on screen (`Pages::show`).
+pub type Show = Rc<dyn Fn(Option<&Route>, bool, &mut App)>;
+
 /// What a feature draws in one tab. Every field is optional.
 #[derive(Default)]
 pub struct Parts {
@@ -204,6 +243,8 @@ pub struct Parts {
     pub actions: Vec<(Box<dyn gpui::Action>, Run)>,
     /// What `ARTOO_SNAPSHOT_VIEW=<name>` opens in this tab.
     pub snapshots: Vec<(&'static str, Hook)>,
+    /// A space's pages.
+    pub pages: Option<Pages>,
 }
 
 type Maker = Rc<dyn Fn(Rc<dyn Frame>, &mut Window, &mut App) -> Parts>;

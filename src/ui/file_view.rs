@@ -23,9 +23,9 @@ impl Workspace {
     /// Shows `path` in Code at its revision, as a tab; from another space, read as that page
     /// shows the project (#71, #75).
     pub(super) fn open_file_view(&mut self, path: String, cx: &mut Context<Self>) {
-        let Some(root) = self.root.clone() else {
+        if self.root.is_none() {
             return;
-        };
+        }
         if self.nav.space != Space::Code && !self.plain {
             let rev = match self.review.read(cx).diff.as_ref().map(|d| &d.header) {
                 Some(Header::WorkingTree { .. }) => Some(None),
@@ -40,24 +40,7 @@ impl Workspace {
                 self.code.update(cx, |c, _| c.code.rev = rev);
             }
         }
-        self.code.update(cx, |c, _| {
-            let code = &mut c.code;
-            if !code.tabs.contains(&path) && code.preview.as_ref() != Some(&path) {
-                code.tabs.push(path.clone());
-            }
-            code.reveal(&path);
-        });
-        self.arrive(super::nav::Page::File(path.clone()), cx);
-        self.scroll_to_code_tab(cx);
-        self.read_code_files(false, cx);
-        self.remember_place(
-            super::recents::Key::File(path.clone()),
-            path.clone(),
-            "file".to_owned(),
-        );
-        let rev = self.code.read(cx).code.at().filter(|_| !self.plain);
-        self.review
-            .update(cx, |rv, cx| rv.read_file(root, path, rev, cx));
+        self.open_page(super::nav::Page::File(path), cx);
     }
 
     /// The file read came (`ReviewEvent::FileRead`): a note shown from the Agents window has its line come

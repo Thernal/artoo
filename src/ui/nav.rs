@@ -743,7 +743,7 @@ impl Workspace {
                 }
                 self.refresh_notices(cx);
             }
-            Space::Code => self.read_code_files(false, cx),
+            Space::Code => self.show_pages(space, None, false, cx),
             Space::Branches => {
                 self.nav.pick_branch = self.nav.pick_branch.or_else(|| self.first_branch_row());
                 self.zone = zones::Zone::Branches;
@@ -766,23 +766,11 @@ impl Workspace {
 
     /// Loads what `page` shows, unless it is what is loaded.
     fn load_page(&mut self, page: Page, cx: &mut Context<Self>) {
-        let loaded = self.loaded_page(cx);
-        if page.space() == Space::Code {
-            match page {
-                Page::File(path)
-                    if self.review.read(cx).file_view.as_ref().map(|v| &v.path) != Some(&path) =>
-                {
-                    self.open_file_view(path, cx)
-                }
-                // A folder reached by the path, back or forward, is in the preview tab too.
-                Page::Folder(path) => {
-                    self.code.update(cx, |c, _| c.code.preview_folder(&path));
-                    self.read_folder_readme(&path, cx)
-                }
-                _ => {}
-            }
-            return;
+        // A feature's pages load what they show themselves.
+        if self.space_pages(page.space()).is_some() {
+            return self.show_pages(page.space(), Some(&page), false, cx);
         }
+        let loaded = self.loaded_page(cx);
         if loaded.as_ref() == Some(&page) {
             return;
         }
