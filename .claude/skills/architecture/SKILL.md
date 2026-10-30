@@ -109,6 +109,10 @@ The target above is reached stage by stage; until then:
   variant, one id, one owner.
 - `artoo-review` (stage 4, R3) holds the review: the entity (`review::Review`) with its events and its host, the
   row drawing (`diff_view`) and the types it keeps, the diff's rows having gone to the core (`artoo_core::rows`).
-  The find bar, the Changes list and the head line are still drawn by the tab. `artoo-review-api` holds what a page
-  asks of the tab's review: for now the file Code reads (`FileView`), offered in the tab's services.
+  Going to a line, the comment being written and the input it is written in are its own (R4); the find bar, the
+  Changes list, the head line and the composer's foot (who sees it, its buttons) are still drawn by the tab.
+  `artoo-review-api` holds what a page asks of the tab's review: for now the file Code reads (`FileView`), offered
+  in the tab's services. A discussion's pieces are the kit's (`discussion`, with the `People` port hosts provide).
+- `artoo-requests` (stage 4, R5) holds what the tab keeps of merge requests (the lists, the request open, the
+  changes waiting); the app's views read and draw it until they move into it.
 - Every implementation's surface is wide (`OPEN`) until its views move with it.
