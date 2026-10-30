@@ -91,6 +91,16 @@ pub enum Act {
     Rebase,
     /// Merging when the pipeline succeeds is cancelled.
     CancelAutoMerge,
+    /// Your reaction `name` on note `note`, added or taken back.
+    React { note: u64, name: String },
+    /// ☺+ opened on note `note`.
+    OpenGrid(u64),
+    /// ☺+ closed, when it is open on note `note`.
+    CloseGrid(u64),
+    /// A note for your agent on discussion `thread` (#50 G).
+    ThreadNote(usize),
+    /// A reply to discussion `thread` with `login` already mentioned.
+    ReplyMentioning { thread: usize, login: String },
     /// Merge's card sends the merge.
     RunMerge,
     /// Merge was refused for a push after the version on the page: the card goes, the new one
@@ -169,6 +179,8 @@ pub struct Requests {
     /// The reactions on its notes, by note id (#9).
     pub awards: crate::reactions::Awards,
     pub award_task: Option<Task<()>>,
+    /// ☺+, open on a note.
+    pub reaction_grid: Option<crate::reactions::Grid>,
     /// The pushes GitLab kept for a request, as versions of this repository.
     pub versions: Option<(u64, Vec<Version>)>,
     /// The base and head the host compares that request from — its latest push's, as given, here

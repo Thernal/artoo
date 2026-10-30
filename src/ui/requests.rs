@@ -11,6 +11,7 @@ use super::waiting::Op;
 use super::{Header, Selection, Workspace, plural, theme};
 use crate::git::{RefKind, Repo};
 use crate::mr::{self, Draft, Mr, Thread};
+use artoo_requests::reactions::Hovered;
 use artoo_requests::requests::{Act, Acts};
 pub(super) use artoo_requests::requests::{Past, Requests, Scope, Sides, sides};
 use gpui::{App, ClickEvent, Context, FontWeight, WeakEntity, div, prelude::*};
@@ -124,19 +125,7 @@ impl Workspace {
 
     /// How the tab answers what the requests' views ask (`requests::Act`).
     pub(super) fn request_acts(&self, cx: &Context<Self>) -> Acts {
-        let this = cx.weak_entity();
-        Rc::new(move |act, cx| {
-            this.update(cx, |this, cx| match act {
-                Act::ToggleApproval => this.toggle_approval(cx),
-                Act::MergeReasons(at) => this.open_merge_reasons(at, cx),
-                Act::OpenMerge => this.open_merge(cx),
-                Act::Rebase => this.rebase_request(cx),
-                Act::CancelAutoMerge => this.cancel_auto_merge(cx),
-                Act::RunMerge => this.run_merge(cx),
-                Act::ShowNewVersion => this.show_new_version(cx),
-            })
-            .ok();
-        })
+        acts_of(cx.weak_entity())
     }
 
     /// The open repository's host, when it has one.
@@ -952,9 +941,21 @@ impl Workspace {
             let (time, note_waits) = self.requests.read(cx).note_time(note.id, note.created);
             let can_act = can_act && !super::waiting::is_temp(note.id);
             let editable = can_act && self.compose.is_none() && own && !note_waits;
-            let (hover, pills) = (edit.clone(), self.reaction_pills(note.id, edit.clone(), cx));
+            let acts = acts_of(edit.clone());
+            let rq = self.requests.read(cx);
+            let (hover, pills) = (
+                edit.clone(),
+                rq.reaction_pills(note.id, &self.motion, acts.clone()),
+            );
+            let at = Hovered {
+                thread: ix,
+                note: note.id,
+                author: note.login.clone(),
+                hovered: self.hover_note == Some(note.id),
+                github: self.on_github(),
+            };
             let bar = can_act
-                .then(|| self.hover_bar(ix, note.id, &note.login, edit.clone()))
+                .then(|| rq.hover_bar(at, self.requests.downgrade(), acts))
                 .flatten();
             let note_id = note.id;
             let note_el = discussion::note(
@@ -2151,6 +2152,31 @@ impl Workspace {
             None => self.review.update(cx, |rv, _| rv.jump_line = None),
         }
     }
+}
+
+/// How the tab `this` answers what the requests' views ask (`requests::Act`).
+pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
+    Rc::new(move |act, cx| {
+        this.update(cx, |this, cx| match act {
+            Act::ToggleApproval => this.toggle_approval(cx),
+            Act::MergeReasons(at) => this.open_merge_reasons(at, cx),
+            Act::OpenMerge => this.open_merge(cx),
+            Act::Rebase => this.rebase_request(cx),
+            Act::CancelAutoMerge => this.cancel_auto_merge(cx),
+            Act::React { note, name } => this.toggle_reaction(note, &name, cx),
+            Act::OpenGrid(note) => this.open_reaction_grid(note, cx),
+            Act::CloseGrid(note) => {
+                if this.requests.read(cx).grid_note() == Some(note) {
+                    this.close_reaction_grid(cx)
+                }
+            }
+            Act::ThreadNote(thread) => this.start_thread_note(thread, cx),
+            Act::ReplyMentioning { thread, login } => this.reply_mentioning(thread, &login, cx),
+            Act::RunMerge => this.run_merge(cx),
+            Act::ShowNewVersion => this.show_new_version(cx),
+        })
+        .ok();
+    })
 }
 
 /// The row to review after row `at`, going round: the nearest of the lowest tier; a row of no

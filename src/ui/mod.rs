@@ -1435,8 +1435,11 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                     .and_then(|t| t.notes.first())
                     .map(|n| n.id);
                 this.hover_note = note;
-                if view.contains("reaction-grid") {
-                    this.reaction_grid = note;
+                if view.contains("reaction-grid")
+                    && let Some(note) = note
+                {
+                    this.requests
+                        .update(cx, |rq, _| rq.open_reaction_grid(note));
                 }
                 this.refresh_rows(cx);
                 cx.notify();
@@ -1654,13 +1657,8 @@ pub struct Workspace {
     /// The Inbox place is shown, and which of its notifications it lists.
     inbox: bool,
     inbox_view: inbox::InboxView,
-    /// The note under the pointer (its reaction bar shows), and the one whose ☺+ is open (#9).
+    /// The note under the pointer: its reaction bar shows (#9).
     hover_note: Option<u64>,
-    reaction_grid: Option<u64>,
-    /// ☺+'s search and its cursor (#9).
-    reaction_query: String,
-    reaction_at: usize,
-    reaction_scroll: UniformListScrollHandle,
     /// Settings → Agents: what connecting said, and whether it runs.
     agent_setup: Option<String>,
     agent_setup_busy: bool,
@@ -1938,10 +1936,6 @@ impl Workspace {
             inbox: false,
             inbox_view: Default::default(),
             hover_note: None,
-            reaction_grid: None,
-            reaction_query: String::new(),
-            reaction_at: 0,
-            reaction_scroll: UniformListScrollHandle::new(),
             agent_setup: None,
             agent_setup_busy: false,
             notices: Default::default(),

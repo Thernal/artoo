@@ -130,7 +130,7 @@ impl Workspace {
             Input::FindFiles => self.ffind.is_some(),
             Input::OpenAsk => self.open_ask.is_some(),
             Input::AgentPick => self.agent_pick.is_some(),
-            Input::Reactions => self.reaction_grid.is_some(),
+            Input::Reactions => self.requests.read(cx).reaction_grid.is_some(),
             Input::Overlay => self.overlay_open(),
             Input::Beside => self.beside.is_some(),
             Input::Merge => self.requests.read(cx).merging.is_some(),
