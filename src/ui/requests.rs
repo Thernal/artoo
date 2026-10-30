@@ -1922,6 +1922,7 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
             Act::CompareSince(ix) => this.compare_since(ix, cx),
             Act::JumpToLine { path, line, old } => this.jump_to_line(&path, line, old, cx),
             Act::OpenSubmit => this.open_submit(cx),
+            Act::RequestContext { iid, at } => this.request_context(iid, at, cx),
             Act::RunSubmit => this.run_submit(cx),
             Act::CreateGo => this.submit_create(cx),
             Act::UseTemplate(ix) => this.use_template(ix, cx),

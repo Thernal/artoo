@@ -17,14 +17,4 @@ impl Workspace {
     ) -> Option<(usize, Vec<Choice>)> {
         self.requests.read(cx).completion(text, caret, closed)
     }
-
-    /// The username of the person called `name`, as the request and the project know them.
-    pub(super) fn login_of(&self, name: &str, cx: &App) -> Option<String> {
-        self.requests
-            .read(cx)
-            .people()
-            .into_iter()
-            .find(|(l, n)| n == name || l == name)
-            .map(|(l, _)| l)
-    }
 }

@@ -12,6 +12,7 @@ pub mod group;
 pub mod merge;
 pub mod merging;
 pub mod outdated;
+pub mod page;
 pub mod reactions;
 pub mod reading;
 pub mod requests;

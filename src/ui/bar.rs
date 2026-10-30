@@ -309,49 +309,8 @@ impl Workspace {
         }
     }
 
-    /// A request's identity in words, for a long hover: its number and title, whose it is and
-    /// where it merges, its state, when it was opened and updated, who reviews it.
     pub(super) fn request_tip(&self, iid: u64, cx: &App) -> Option<String> {
-        let m = self.requests.read(cx).find(iid)?;
-        let mut lines = vec![
-            format!("{} {}", words::number(iid), m.title),
-            format!("{} wants to merge {} → {}", m.author, m.source, m.target),
-        ];
-        let mut facts = Vec::new();
-        if m.draft {
-            facts.push("Draft".to_owned());
-        }
-        if m.comments > 0 {
-            facts.push(super::plural(m.comments, "comment"));
-        }
-        facts.push(format!("updated {}", format::ago(m.updated)));
-        lines.push(facts.join(" · "));
-        if m.created > 0 {
-            lines.push(format!("opened {}", super::hover::full_date(m.created)));
-        }
-        if !m.reviewers.is_empty() {
-            // By name where it is known, you as you.
-            let me = self.requests.read(cx).login.as_deref();
-            let names: Vec<String> = m
-                .reviewers
-                .iter()
-                .map(|login| {
-                    match self
-                        .requests
-                        .read(cx)
-                        .members
-                        .iter()
-                        .find(|(l, _)| l == login)
-                    {
-                        _ if Some(login.as_str()) == me => "you".to_owned(),
-                        Some((_, name)) if !name.is_empty() => name.clone(),
-                        _ => format!("@{login}"),
-                    }
-                })
-                .collect();
-            lines.push(format!("Reviewers: {}", names.join(", ")));
-        }
-        Some(lines.join("\n"))
+        self.requests.read(cx).request_tip(iid)
     }
 
     /// The path above the page, and its own id.

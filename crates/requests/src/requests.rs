@@ -111,6 +111,11 @@ pub enum Act {
     OpenSubmit,
     /// Pending comment `id` published alone (#138).
     SendNow(u64),
+    /// A right click on request `iid`'s line: its link and its number (#162).
+    RequestContext {
+        iid: u64,
+        at: gpui::Point<gpui::Pixels>,
+    },
     /// Submit review's card sends the review.
     RunSubmit,
     /// The New merge request form creates the request, or opens the one there is.

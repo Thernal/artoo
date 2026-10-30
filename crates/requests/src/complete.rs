@@ -104,4 +104,12 @@ impl Requests {
         };
         (!choices.is_empty()).then_some((at, choices))
     }
+
+    /// The username of the person called `name`, as the request and the project know them.
+    pub fn login_of(&self, name: &str) -> Option<String> {
+        self.people()
+            .into_iter()
+            .find(|(l, n)| n == name || l == name)
+            .map(|(l, _)| l)
+    }
 }

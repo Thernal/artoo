@@ -1,22 +1,16 @@
 //! A merge request's page (#73): the section tabs of its bar — Overview, Commits, Changes — and
 //! what the first two show; Changes is the diff, with one line of identity over it. Overview holds
-//! what the Details tool window held (#8), as a page: the identity and its facts, the description,
-//! and a column of who reviews (#137: the discussions are the Discussions window's). A request you
-//! have never been inside opens on it, later ones on Changes (`nav::first_section`). Commits lists
-//! the request's commits with the version each came with; one opens as a level under it.
+//! what the Details tool window held (#8), as a page (`artoo_requests::page` draws it and the
+//! line). A request you have never been inside opens on it, later ones on Changes
+//! (`nav::first_section`). Commits lists the request's commits with the version each came with;
+//! one opens as a level under it.
 
 use super::hover::CutInTip;
 use super::nav::{Item, Page, Section};
-use super::{Workspace, format, icons, island, markdown, plural, px, theme, words};
-use crate::mr::{Details, Mr, MrState};
-use gpui::{
-    AnyElement, App, ClickEvent, Context, Div, FontWeight, Rgba, SharedString, div, prelude::*,
-};
-
-/// Overview's column beside the description, and the least height it keeps when the
-/// description is short.
-const SIDE: f32 = 300.;
-const SIDE_MIN: f32 = 320.;
+use super::{Workspace, format, icons, island, plural, px, theme};
+use crate::mr::Mr;
+use artoo_requests::page::{Facts, OverviewLook};
+use gpui::{AnyElement, App, ClickEvent, Context, Div, SharedString, div, prelude::*};
 
 impl Workspace {
     /// The request of the page on screen, once it is the one loaded.
@@ -67,113 +61,8 @@ impl Workspace {
             .children(self.render_tool(cx))
     }
 
-    /// Overview: the identity and its facts, then the description beside the facts column.
+    /// Overview (`Requests::render_overview`).
     fn render_overview(&self, m: &Mr, cx: &mut Context<Self>) -> AnyElement {
-        let d = self.requests.read(cx).details.clone().unwrap_or_default();
-        // The list's own copy until the request's details are in.
-        let text = if d.description.trim().is_empty() {
-            &m.description
-        } else {
-            &d.description
-        };
-        let description = if text.trim().is_empty() {
-            div()
-                .text_color(theme::muted())
-                .child("No description.")
-                .into_any_element()
-        } else {
-            markdown::body(
-                text,
-                true,
-                format!("overview-{}", m.iid),
-                self.web.as_ref().map(|w| w.base.as_str()),
-                Some(self.selecting(cx.entity().downgrade())),
-                cx,
-            )
-        };
-        island()
-            .flex_1()
-            .min_w_0()
-            .bg(theme::editor())
-            .child(
-                div()
-                    .id("overview")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .child(self.overview_identity(m, cx))
-                    .child(div().h(px(1.)).bg(theme::island_border()))
-                    // The description sets the height; the facts and discussions beside it are no
-                    // taller and scroll in their own column (the developer, 2026-10-23).
-                    .child(
-                        div()
-                            .relative()
-                            .px(px(24.))
-                            .py(px(20.))
-                            .child(
-                                div()
-                                    .mr(px(SIDE + 32.))
-                                    .min_h(px(SIDE_MIN))
-                                    .min_w_0()
-                                    .flex()
-                                    .flex_col()
-                                    .gap(px(10.))
-                                    .child(
-                                        div()
-                                            .text_size(px(15.))
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .child("Description"),
-                                    )
-                                    .child(div().text_size(px(13.)).child(description)),
-                            )
-                            .child(
-                                div()
-                                    .id("overview-side")
-                                    .absolute()
-                                    .top(px(20.))
-                                    .bottom(px(20.))
-                                    .right(px(24.))
-                                    .w(px(SIDE))
-                                    .overflow_y_scroll()
-                                    .flex()
-                                    .flex_col()
-                                    .gap(px(20.))
-                                    .text_size(px(12.))
-                                    .children(self.overview_facts(&d, cx)),
-                            ),
-                    ),
-            )
-            .into_any_element()
-    }
-
-    /// Overview's head: the title and its state, who wants to merge what into what, and the facts
-    /// in a row — author, branches, pipeline, approvals, how far your review is, the versions.
-    fn overview_identity(&self, m: &Mr, cx: &mut Context<Self>) -> Div {
-        let url = m.url.clone();
-        let mine = self
-            .requests
-            .read(cx)
-            .login
-            .as_deref()
-            .is_some_and(|me| me == m.author_login);
-        let pipeline = self.requests.read(cx).pipeline.as_ref().map_or_else(
-            || faint("—").into_any_element(),
-            |p| {
-                let (glyph, word, color) = artoo_requests::bar::pipeline_word(p);
-                div()
-                    .text_color(color)
-                    .child(format!("{glyph} {word}"))
-                    .into_any_element()
-            },
-        );
-        let approvals = match &self.requests.read(cx).approvals {
-            Some(a) if a.required > 0 => {
-                format!("{} of {}", a.required - a.left.min(a.required), a.required)
-            }
-            Some(a) if !a.by.is_empty() => format!("{} approved", a.by.len()),
-            Some(_) => "none yet".to_owned(),
-            None => "—".to_owned(),
-        };
         let head = git2::Oid::from_str(&m.head).ok();
         let reviewed = self
             .review
@@ -191,157 +80,22 @@ impl Workspace {
             (_, Some(latest)) => format!("v{latest}"),
             _ => "—".to_owned(),
         };
-        div()
-            .px(px(24.))
-            .pt(px(20.))
-            .pb(px(18.))
-            .flex()
-            .flex_col()
-            .gap(px(6.))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .child(
-                        super::hover::cut_with(
-                            "overview-title",
-                            m.title.clone(),
-                            self.selectable(
-                                format!("title-{}", m.iid),
-                                &m.title,
-                                cx.entity().downgrade(),
-                                cx,
-                            ),
-                        )
-                        .text_size(px(17.))
-                        .font_weight(FontWeight::SEMIBOLD),
-                    )
-                    .child(state_chip(m))
-                    .child(div().flex_1())
-                    .child(
-                        div()
-                            .id("overview-web")
-                            .flex_none()
-                            .text_size(px(12.))
-                            .text_color(theme::faint())
-                            .cursor_pointer()
-                            .hover(|s| s.text_color(theme::accent()))
-                            .child(words::say("Open in GitLab ↗").into_owned())
-                            .on_click(
-                                cx.listener(move |_, _: &ClickEvent, _, cx| cx.open_url(&url)),
-                            ),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .items_center()
-                    .gap_x(px(5.))
-                    .text_size(px(13.))
-                    .text_color(theme::muted())
-                    .child(div().text_color(theme::text()).child(if mine {
-                        "You".to_owned()
-                    } else {
-                        m.author.clone()
-                    }))
-                    .child(match (m.state, mine) {
-                        (MrState::Merged, _) => "merged",
-                        (MrState::Closed, _) => "wanted to merge",
-                        (MrState::Opened, true) => "want to merge",
-                        (MrState::Opened, false) => "wants to merge",
-                    })
-                    .child(
-                        div()
-                            .text_color(theme::text())
-                            .child(plural(self.commits.len(), "commit")),
-                    )
-                    .child("from")
-                    .child(mono(&m.source).text_color(theme::accent()))
-                    .child("into")
-                    .child(mono(&m.target)),
-            )
-            .child(
-                div()
-                    .mt(px(12.))
-                    .flex()
-                    .flex_wrap()
-                    .gap_x(px(32.))
-                    .gap_y(px(12.))
-                    .child(fact(
-                        "Author",
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .child(super::discussion::avatar(&m.author, false, 16.))
-                            .child(m.author.clone())
-                            .into_any_element(),
-                    ))
-                    .child(fact(
-                        "Branches",
-                        div()
-                            .flex()
-                            .gap(px(5.))
-                            .child(mono(&m.source).text_color(theme::accent()))
-                            .child(faint("→"))
-                            .child(mono(&m.target))
-                            .into_any_element(),
-                    ))
-                    .child(fact("Pipeline", pipeline))
-                    .child(fact(
-                        "Approvals",
-                        div()
-                            .when(self.requests.read(cx).approval_waits(), |s| {
-                                s.opacity(super::waiting::FADED)
-                            })
-                            .child(approvals)
-                            .into_any_element(),
-                    ))
-                    .child(fact("Reviewed", div().child(reviewed).into_any_element()))
-                    .child(fact("Versions", div().child(versions).into_any_element())),
-            )
-    }
-
-    /// Overview's column: who reviews and how far (#137; the discussions are the Discussions
-    /// window's).
-    fn overview_facts(&self, d: &Details, cx: &App) -> Vec<AnyElement> {
-        let approved = self
-            .requests
-            .read(cx)
-            .approvals
-            .as_ref()
-            .map(|a| a.by.clone())
-            .unwrap_or_default();
-        // Who reviews: those asked, then whoever approved without being asked (GitHub drops an
-        // approving reviewer from the asked ones).
-        let mut reviewers = d.reviewers.clone();
-        for name in approved.iter().chain(&d.changes_requested) {
-            if !reviewers.contains(name) {
-                reviewers.push(name.clone());
-            }
-        }
-        if reviewers.is_empty() {
-            return Vec::new();
-        }
-        vec![
-            block(
-                "Reviewers",
-                reviewers.into_iter().map(|r| {
-                    let state = if approved.contains(&r) {
-                        ("✓ approved", theme::added())
-                    } else if d.changes_requested.contains(&r) {
-                        ("requested changes", theme::warning())
-                    } else {
-                        ("reviewing", theme::muted())
-                    };
-                    let login = self.login_of(&r, cx);
-                    person(r, login, Some(state)).into_any_element()
-                }),
-            )
-            .into_any_element(),
-        ]
+        let look = OverviewLook {
+            title: self.selectable(
+                format!("title-{}", m.iid),
+                &m.title,
+                cx.entity().downgrade(),
+                cx,
+            ),
+            base: self.web.as_ref().map(|w| w.base.clone()),
+            selecting: Some(self.selecting(cx.entity().downgrade())),
+            facts: Facts {
+                commits: self.commits.len(),
+                reviewed,
+                versions,
+            },
+        };
+        self.requests.read(cx).render_overview(m, look, cx)
     }
 
     /// A request's Commits: one line of identity, then its commits, each with the version it came
@@ -643,46 +397,14 @@ impl Workspace {
     }
 
     fn request_line(&self, m: &Mr, cx: &mut Context<Self>) -> Div {
-        let iid = m.iid;
-        island()
-            // Its link and its number (#162).
-            .on_mouse_down(
-                gpui::MouseButton::Right,
-                cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
-                    this.request_context(iid, e.position, cx)
-                }),
-            )
-            .flex_none()
-            .flex_row()
-            .items_center()
-            .gap(px(10.))
-            .h(px(40.))
-            .px(px(14.))
-            // Its whole identity in a long hover: the line names no author (the developer,
-            // 2026-10-23).
-            .child({
-                use super::hover::Hover;
-                let title = self.selectable(
-                    format!("line-title-{}", m.iid),
-                    &m.title,
-                    cx.entity().downgrade(),
-                    cx,
-                );
-                match self.request_tip(m.iid, cx) {
-                    Some(tip) => div()
-                        .id("request-line-title")
-                        .min_w_0()
-                        .cut_in_tip()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(title)
-                        .tip(tip),
-                    None => super::hover::cut_with("request-line-title", m.title.clone(), title)
-                        .font_weight(FontWeight::SEMIBOLD),
-                }
-            })
-            .child(state_chip(m))
-            .child(div().flex_1())
-            .children(self.requests.read(cx).render_pipeline_pill())
+        let title = self.selectable(
+            format!("line-title-{}", m.iid),
+            &m.title,
+            cx.entity().downgrade(),
+            cx,
+        );
+        let acts = self.request_acts(cx);
+        self.requests.read(cx).request_line(m, title, acts)
     }
 }
 
@@ -701,87 +423,6 @@ fn commit_versions(commits: &[git2::Oid], tips: &[(usize, git2::Oid)]) -> Vec<Op
             at
         })
         .collect()
-}
-
-/// The request's state as a chip: open, a draft, merged or closed (#114).
-fn state_chip(m: &Mr) -> Div {
-    let (word, color) = match m.state {
-        MrState::Merged => ("Merged", theme::accent()),
-        MrState::Closed => ("Closed", theme::removed()),
-        MrState::Opened if m.draft => ("Draft", theme::warning()),
-        MrState::Opened => ("Open", theme::added()),
-    };
-    div()
-        .flex_none()
-        .px(px(6.))
-        .rounded(px(4.))
-        .bg(Rgba { a: 0.15, ..color })
-        .text_size(px(11.))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(color)
-        .child(word)
-}
-
-/// A fact of Overview's head: its label over its value.
-fn fact(label: &'static str, value: AnyElement) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(4.))
-        .child(
-            div()
-                .text_size(px(11.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::faint())
-                .child(label.to_uppercase()),
-        )
-        .child(div().text_size(px(13.)).child(value))
-}
-
-/// A block of Overview's column: its heading over its rows.
-fn block(title: &str, rows: impl IntoIterator<Item = AnyElement>) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(8.))
-        .child(
-            div()
-                .text_size(px(11.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::faint())
-                .child(title.to_uppercase()),
-        )
-        .children(rows)
-}
-
-/// Someone in a list: the face, the name with the username under it (the developer,
-/// 2026-10-23), and where they stand.
-fn person(name: String, login: Option<String>, state: Option<(&'static str, Rgba)>) -> Div {
-    let login = login.filter(|l| *l != name);
-    div()
-        .flex()
-        .items_center()
-        .gap(px(6.))
-        .child(super::discussion::avatar(
-            &name,
-            false,
-            if login.is_some() { 24. } else { 18. },
-        ))
-        .child(div().flex().flex_col().child(name).children(login.map(|l| {
-            div()
-                .text_size(px(11.))
-                .text_color(theme::faint())
-                .child(format!("@{l}"))
-        })))
-        .children(state.map(|(word, color)| div().text_color(color).child(word)))
-}
-
-fn mono(text: &str) -> Div {
-    div().font_family(theme::code_font()).child(text.to_owned())
-}
-
-fn faint(text: &'static str) -> Div {
-    div().text_color(theme::faint()).child(text)
 }
 
 #[cfg(test)]
