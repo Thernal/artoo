@@ -14,6 +14,7 @@ use crate::mr::{self, Draft, Mr, Thread};
 use artoo_requests::reactions::Hovered;
 use artoo_requests::requests::{Act, Acts};
 pub(super) use artoo_requests::requests::{Past, Requests, Scope, Sides, sides};
+pub(super) use artoo_ui_kit::controls::{comment_item, group_heading};
 use gpui::{App, ClickEvent, Context, FontWeight, WeakEntity, div, prelude::*};
 use std::rc::Rc;
 
@@ -2196,63 +2197,6 @@ fn next_to_review(open: &[bool], at: Option<usize>) -> Option<usize> {
     (0..n)
         .map(|step| (start + step) % n)
         .find(|&ix| Some(ix) != at && open[ix])
-}
-
-/// A group's heading in a tool window's list; `keys` says how to walk it.
-pub(super) fn group_heading(text: String, keys: Option<&'static str>) -> gpui::Div {
-    div()
-        .flex()
-        .items_center()
-        .gap_2()
-        .px(px(14.))
-        .pt(px(10.))
-        .pb(px(4.))
-        .text_size(px(11.))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(theme::muted())
-        .child(div().flex_1().child(text.to_uppercase()))
-        .children(keys.map(|k| super::keys::caps(k, super::keys::On::Plain)))
-}
-
-/// A comment as one entry of a tool window's list: a dot in its colour, where it is, two lines of it.
-pub(super) fn comment_item(
-    id: (&'static str, usize),
-    tone: gpui::Rgba,
-    where_: String,
-    body: String,
-) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .mx(px(6.))
-        .px(px(8.))
-        .py(px(4.))
-        .overflow_hidden()
-        .rounded(px(super::ROW_RADIUS))
-        .cursor_pointer()
-        .hover(|s| s.bg(theme::hover()))
-        .flex()
-        .flex_col()
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(div().flex_none().size(px(6.)).rounded_full().bg(tone))
-                .child(
-                    super::hover::cut("where", where_)
-                        .flex_1()
-                        .font_family(theme::code_font())
-                        .text_size(px(11.))
-                        .text_color(theme::faint()),
-                ),
-        )
-        .child(
-            div().pl(px(14.)).child(
-                super::hover::cut_to("body", body, 2)
-                    .text_size(px(12.))
-                    .text_color(theme::muted()),
-            ),
-        )
 }
 
 #[cfg(test)]

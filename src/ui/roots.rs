@@ -13,6 +13,7 @@ use crate::git::{BranchRef, ChangeKind, RefKind, Repo};
 use crate::mr::{Approvals, Mr, MrState, Pipeline, Thread};
 pub(super) use artoo_requests::group::Group;
 use artoo_review::reviewed::Seen;
+pub(super) use artoo_ui_kit::controls::skeleton;
 use gpui::{
     AnyElement, App, ClickEvent, Context, Div, FontWeight, Rgba, SharedString, Task, div,
     prelude::*,
@@ -2245,35 +2246,6 @@ pub(super) fn empty_state(
                 .child(text),
         )
         .children(action.map(|a| div().pt(px(6.)).child(a)))
-}
-
-/// Rows still loading: two grey bars each, breathing as the diff's shimmer does.
-pub(super) fn skeleton(id: &'static str, rows: usize) -> gpui::AnyElement {
-    const LONG: [f32; 6] = [62., 48., 70., 55., 66., 44.];
-    const SHORT: [f32; 6] = [40., 52., 34., 46., 38., 50.];
-    super::motion::breathe(
-        id,
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(22.))
-            .children((0..rows).map(|n| {
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(7.))
-                    .child(bar(LONG[n % 6], 10.))
-                    .child(bar(SHORT[n % 6], 7.))
-            })),
-    )
-}
-
-fn bar(percent: f32, height: f32) -> Div {
-    div()
-        .w(gpui::relative(percent / 100.))
-        .h(px(height))
-        .rounded_full()
-        .bg(theme::hover())
 }
 
 /// A small rounded label in a preview's head: the pipeline, the approvals.
