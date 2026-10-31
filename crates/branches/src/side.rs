@@ -1,18 +1,21 @@
-//! The history's sections of the side panel (#49): the versions, newest first, a commit's row, the chips on the
-//! Commits label and a comparison's commits. The tab draws the panel around them; a click asks it an `Act`.
+//! The history's sections of the side panel (#49): the versions, newest first, the commits' list and a commit's
+//! row, the chips on the Commits label and a comparison's commits. The tab draws the panel around them; a click
+//! asks it an `Act`.
 
 use crate::card::{CommitCard, deco_tags};
 use crate::compare::CompareCommits;
 use crate::find::summary_text;
 use crate::history::{Act, Acts, History, Selection};
+use artoo_core::git::WebRemote;
+use artoo_ui_kit::controls::skeleton;
 use artoo_ui_kit::controls::{section_chip, tag};
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, CutInTip, Hover};
-use artoo_ui_kit::room::Room;
+use artoo_ui_kit::room::{Room, Widths};
 use artoo_ui_kit::{icons, keys, px, row, theme};
 use gpui::{
-    AnyElement, ClickEvent, Div, FontWeight, MouseButton, MouseDownEvent, Stateful, UniformList,
-    div, prelude::*,
+    AnyElement, ClickEvent, Context, Div, FontWeight, MouseButton, MouseDownEvent, Stateful,
+    UniformList, div, prelude::*, uniform_list,
 };
 
 /// Rows of a comparison's commits before they scroll.
@@ -173,6 +176,95 @@ pub fn version_rows(h: &History, new_from: Option<usize>, acts: &Acts) -> Div {
                 });
             div().px(px(6.)).py(px(1.)).child(item)
         }))
+}
+
+impl History {
+    /// What the Commits section shows under its field: the commits found (all while nothing is searched), a
+    /// skeleton while the branch is read, or the words when nothing matches, older history read on for it (#25).
+    /// A row has the parts the list's width leaves it (`widths`, measured as `side-commits` where the section is
+    /// drawn); its card links to its page on `web`.
+    pub fn render_commits(
+        &self,
+        widths: Widths,
+        web: Option<WebRemote>,
+        acts: Acts,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if self.find.shown.as_ref().is_some_and(Vec::is_empty) {
+            self.want_older(cx);
+            return crate::find::no_match(self).into_any_element();
+        }
+        if self.commits.is_empty() && self.task.is_some() {
+            // The branch's commits are being read.
+            return div()
+                .px(px(14.))
+                .py(px(10.))
+                .child(skeleton("commits-loading", 5))
+                .into_any_element();
+        }
+        uniform_list(
+            "commits",
+            self.commit_rows(),
+            cx.processor(move |h, range: std::ops::Range<usize>, _, cx| {
+                // Near the end: the next page of history (#25).
+                if range.end + 100 >= h.commit_rows() {
+                    h.want_older(cx);
+                }
+                // Its anatomy (#79): the parts its list has room for.
+                let room = widths.room("side-commits");
+                range
+                    .map(|row| {
+                        let ix = h.commit_at(row);
+                        let card = h.commits.get(ix).map(|c| h.card(c.clone(), web.as_ref()));
+                        commit_row(h, ix, room, card, &acts)
+                    })
+                    .collect::<Vec<_>>()
+            }),
+        )
+        .track_scroll(&self.commit_scroll)
+        .flex_1()
+        .pb(px(6.))
+        .into_any_element()
+    }
+
+    /// A comparison's own commits (#21), a row each — its card linking to its page on `web` —, as many as there
+    /// are room for before the list scrolls; `None` until they are read.
+    pub fn render_compare_commits(
+        &self,
+        web: Option<WebRemote>,
+        acts: Acts,
+        cx: &mut Context<Self>,
+    ) -> Option<Div> {
+        let n = self.compare.as_ref()?.list.as_ref()?.len();
+        let list = uniform_list(
+            "compare-commits",
+            n,
+            cx.processor(move |h, range: std::ops::Range<usize>, _, _| {
+                let compare = h.compare.as_ref();
+                range
+                    .map(|ix| {
+                        let card = compare
+                            .and_then(|c| c.list.as_ref()?.get(ix))
+                            .map(|info| h.card(info.clone(), web.as_ref()));
+                        compare_row(compare, ix, card, &acts)
+                    })
+                    .collect::<Vec<_>>()
+            }),
+        )
+        .track_scroll(&self.compare_scroll);
+        Some(compare_commits(list, n))
+    }
+
+    /// A page more of history read once this frame is drawn, unless one is on its way or none is left.
+    pub fn want_older(&self, cx: &mut Context<Self>) {
+        if self.older.as_ref().is_none_or(|o| o.task.is_some()) {
+            return;
+        }
+        let this = cx.entity().downgrade();
+        cx.defer(move |cx| {
+            this.update(cx, |h, cx| h.read_older(cx)).ok();
+        });
+    }
 }
 
 /// Commit `ix`'s row in the Commits section, the parts `room` leaves it; `card` on a long hover.

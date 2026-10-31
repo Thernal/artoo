@@ -8,7 +8,6 @@
 use super::nav::Page;
 use super::{Selection, Workspace};
 use artoo_branches::compare::{CompareCommits, Sides};
-use artoo_branches::side::{compare_commits, compare_row};
 use gpui::{AnyElement, App, Context, prelude::*};
 
 impl Workspace {
@@ -111,28 +110,13 @@ impl Workspace {
         })
     }
 
-    /// The comparison's commits: a row each — its card on a long hover —, as many as there are room for before
-    /// the list scrolls.
+    /// The comparison's commits, while its page is on screen and they are read (`History::render_compare_commits`).
     pub(super) fn render_compare_commits(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let n = self.shown_compare(cx)?.list.as_ref()?.len();
-        let list = gpui::uniform_list(
-            "compare-commits",
-            n,
-            cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
-                let acts = this.history_acts(cx);
-                let compare = this.history.read(cx).compare.as_ref();
-                range
-                    .map(|ix| {
-                        let card = compare
-                            .and_then(|c| c.list.as_ref()?.get(ix))
-                            .map(|info| this.card_of(info.clone(), cx));
-                        compare_row(compare, ix, card, &acts)
-                    })
-                    .collect::<Vec<_>>()
-            }),
-        )
-        .track_scroll(&self.history.read(cx).compare_scroll);
-        Some(compare_commits(list, n).into_any_element())
+        self.shown_compare(cx)?;
+        let (web, acts) = (self.web.clone(), self.history_acts(cx));
+        self.history
+            .update(cx, |h, cx| h.render_compare_commits(web, acts, cx))
+            .map(IntoElement::into_any_element)
     }
 }
 

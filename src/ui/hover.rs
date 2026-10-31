@@ -199,15 +199,7 @@ impl Workspace {
 
     /// The card of commit `info`, of whatever list.
     pub(super) fn card_of(&self, info: crate::git::CommitInfo, cx: &App) -> CommitCard {
-        CommitCard {
-            refs: (self.history.read(cx).decor.get(&info.id))
-                .cloned()
-                .unwrap_or_default(),
-            url: self.web.as_ref().map(|w| w.commit(&info.id.to_string())),
-            info,
-            root: self.root.clone(),
-            stat: None,
-        }
+        self.history.read(cx).card(info, self.web.as_ref())
     }
 
     /// The card of the person named `name` (`login` when known): their part in the open request.

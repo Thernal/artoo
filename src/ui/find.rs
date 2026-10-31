@@ -24,30 +24,6 @@ impl Workspace {
         self.history.read(cx).row_of(ix)
     }
 
-    /// The branch's older history, a page more (#25): as the list is scrolled near its end, and
-    /// on and on while a search has not found what it looks for (`History::read_older`).
-    pub(super) fn load_older_commits(&mut self, cx: &mut Context<Self>) {
-        self.history.update(cx, |h, cx| h.read_older(cx));
-    }
-
-    /// Reads a page more of history once this frame is drawn, unless one is on its way.
-    pub(super) fn want_older_commits(&self, cx: &mut Context<Self>) {
-        if self
-            .history
-            .read(cx)
-            .older
-            .as_ref()
-            .is_none_or(|o| o.task.is_some())
-        {
-            return;
-        }
-        let this = cx.entity().downgrade();
-        cx.defer(move |cx| {
-            this.update(cx, |this, cx| this.load_older_commits(cx)).ok();
-        });
-    }
-
-    /// Filters the commits by the search's text (`History::refilter`).
     pub(super) fn refilter(&mut self, cx: &mut App) {
         self.history.update(cx, |h, _| h.refilter());
     }

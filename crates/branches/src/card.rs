@@ -208,3 +208,16 @@ impl CommitCard {
             )
     }
 }
+
+impl crate::history::History {
+    /// The card of commit `info`, of whatever list: its labels, its page on `web`.
+    pub fn card(&self, info: CommitInfo, web: Option<&artoo_core::git::WebRemote>) -> CommitCard {
+        CommitCard {
+            refs: self.decor.get(&info.id).cloned().unwrap_or_default(),
+            url: web.map(|w| w.commit(&info.id.to_string())),
+            info,
+            root: self.root.clone(),
+            stat: None,
+        }
+    }
+}

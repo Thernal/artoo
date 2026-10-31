@@ -7,10 +7,9 @@ use super::nav::Page;
 use super::zones::Zone;
 use super::{Selection, Workspace, chip, icons, island, plural, px, theme};
 use artoo_branches::history::{Act, Acts};
-use artoo_branches::side::{commit_row, search_chip, working_chip};
+use artoo_branches::side::{search_chip, working_chip};
 use gpui::{
     AnyElement, App, ClickEvent, Context, FontWeight, MouseButton, SharedString, div, prelude::*,
-    uniform_list,
 };
 use std::rc::Rc;
 
@@ -402,59 +401,12 @@ impl Workspace {
                             .then(|| self.render_find(cx)),
                     )
                     .children(self.render_pill(cx))
-                    .child(
-                        if self
-                            .history
-                            .read(cx)
-                            .find
-                            .shown
-                            .as_ref()
-                            .is_some_and(Vec::is_empty)
-                        {
-                            // Not found yet: older history is read on (#25).
-                            self.want_older_commits(cx);
-                            artoo_branches::find::no_match(self.history.read(cx)).into_any_element()
-                        } else if self.history.read(cx).commits.is_empty()
-                            && self.history.read(cx).task.is_some()
-                        {
-                            // The branch's commits are being read.
-                            div()
-                                .px(px(14.))
-                                .py(px(10.))
-                                .child(super::roots::skeleton("commits-loading", 5))
-                                .into_any_element()
-                        } else {
-                            uniform_list(
-                                "commits",
-                                self.commit_rows(cx),
-                                cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
-                                    // Near the end: the next page of history (#25).
-                                    if range.end + 100 >= this.commit_rows(cx) {
-                                        this.want_older_commits(cx);
-                                    }
-                                    // Its anatomy (#79): the parts its list has room for.
-                                    let room = this.widths.room("side-commits");
-                                    let acts = this.history_acts(cx);
-                                    range
-                                        .map(|row| {
-                                            let ix = this.commit_at(row, cx);
-                                            commit_row(
-                                                this.history.read(cx),
-                                                ix,
-                                                room,
-                                                this.commit_card(ix, cx),
-                                                &acts,
-                                            )
-                                        })
-                                        .collect::<Vec<_>>()
-                                }),
-                            )
-                            .track_scroll(&self.history.read(cx).commit_scroll)
-                            .flex_1()
-                            .pb(px(6.))
-                            .into_any_element()
-                        },
-                    )
+                    .child({
+                        let (widths, web) = (self.widths.clone(), self.web.clone());
+                        let acts = self.history_acts(cx);
+                        self.history
+                            .update(cx, |h, cx| h.render_commits(widths, web, acts, cx))
+                    })
                 });
             sections.push(open_share(commits, "commits-open", !commits_folded).into_any_element());
         }
