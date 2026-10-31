@@ -1,15 +1,18 @@
-//! The Changes list drawn (A9, A11, #22, #79, #157): how far the review is with Mark all (X59), the path filter, the
-//! files' total, and the files as a folder tree or a flat list — a file's box, icon, name, words and +/−, a folder's
-//! box and fold, a group's header (#22). What the tab puts on it comes in a `ChangesLook`; a click goes to the host
-//! (`ChangesEvent`), which also fades a tree's rows in and says the version a mark was made at.
+//! The Changes section drawn (A9, A11, #22, #79, #157): its header in the side panel (`changes_section`: how far
+//! the review is, Tree · List, the count), how far the review is with Mark all (X59), the path filter, the files'
+//! total, and the files as a folder tree or a flat list — a file's box, icon, name, words and +/−, a folder's box
+//! and fold, a group's header (#22). What the tab puts on it comes in a `SectionLook` and a `ChangesLook`; a click
+//! goes to the host (`ChangesEvent`), which also fades a tree's rows in and says the version a mark was made at.
 
 use crate::changes::{FileItem, Group, folder_of};
 use crate::diff_view::{change_color, file_tag};
 use crate::review::{ChangesEvent, Host, Review};
 use crate::reviewed::State;
 use artoo_core::git::{ChangeKind, FileDiff};
+use artoo_ui_kit::controls::{self, chip};
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, CutInTip, Hover, LONG, Tip, TipOwned};
+use artoo_ui_kit::panel::{self, Head, count, open_share};
 use artoo_ui_kit::{icons, motion, px, row, theme};
 use gpui::{
     AnyElement, App, ClickEvent, Context, FontWeight, MouseButton, MouseDownEvent, div, prelude::*,
@@ -29,7 +32,91 @@ pub struct ChangesLook {
     pub draft: Option<String>,
 }
 
+/// What the Changes section needs of the tab besides the review.
+pub struct SectionLook {
+    /// Folded in the tab's layout.
+    pub folded: bool,
+    /// Its fold moves now: its rows stay drawn while it folds (#56, 1).
+    pub moving: bool,
+    /// The keyboard's mark on its title (" · ⌃3").
+    pub tag: String,
+    /// What goes on its list.
+    pub list: ChangesLook,
+}
+
 impl Review {
+    /// The side panel's Changes section while the diff has files: its header (how far the review is or the one
+    /// file, Tree · List, the count) over the list; one file's does not open. With it whether it is open.
+    pub fn changes_section(
+        &self,
+        look: SectionLook,
+        host: Rc<dyn Host>,
+        cx: &mut Context<Self>,
+    ) -> Option<(AnyElement, bool)> {
+        let diff = self.diff.as_ref().filter(|d| !d.files.is_empty())?;
+        let one = diff.files.len() == 1;
+        let folded = one || look.folded;
+        let summary = if one {
+            diff.files[0].path().to_owned()
+        } else {
+            match self.review_progress() {
+                Some((done, total)) => format!("{done} / {total} reviewed"),
+                None => plural(diff.file_count(), "file"),
+            }
+        };
+        let list = self.options.list_files;
+        let mut end: Vec<AnyElement> = Vec::new();
+        if !folded {
+            let (tree, flat) = (host.clone(), host.clone());
+            end.push(
+                controls::group()
+                    // A chip is not the heading: a click on it does not fold the section.
+                    .child(chip("files-tree", "Tree", !list).on_click(
+                        move |_: &ClickEvent, _, cx| {
+                            cx.stop_propagation();
+                            tree.changes(ChangesEvent::ListFiles(false), cx)
+                        },
+                    ))
+                    .child(chip("files-list", "List", list).on_click(
+                        move |_: &ClickEvent, _, cx| {
+                            cx.stop_propagation();
+                            flat.changes(ChangesEvent::ListFiles(true), cx)
+                        },
+                    ))
+                    .into_any_element(),
+            );
+        }
+        end.push(count(diff.file_count().to_string()));
+        let header = Head {
+            title: format!(
+                "Changes{}{}",
+                if self.all_reviewed() { " ✓" } else { "" },
+                look.tag
+            ),
+            summary: Some(summary),
+            end,
+            folded,
+            opens: !one,
+        };
+        let rows = !folded || (!one && look.moving);
+        let (press, fold) = (host.clone(), host.clone());
+        let section = div()
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .on_mouse_down(MouseButton::Left, move |_: &MouseDownEvent, _, cx| {
+                press.changes(ChangesEvent::Pressed, cx)
+            })
+            .child(panel::head("fold-changes", header, move |cx| {
+                fold.changes(ChangesEvent::Section, cx)
+            }))
+            .when(rows, |s| s.child(self.render_changes(look.list, host, cx)));
+        Some((
+            open_share(section, "changes-open", !folded).into_any_element(),
+            !folded,
+        ))
+    }
+
     /// The Changes section's body: how far the review is, the path filter, the files.
     pub fn render_changes(
         &self,

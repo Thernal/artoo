@@ -16,9 +16,9 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   (`pane`: its line, its notice, its rows or what stands in their place, the toolbar's options; what others put on it a
   `PaneLook`, a click a `PaneEvent` to its host), zen's head (`zen`: the tab's words for what is shown), what it does
   to the open file's lines (`lines`), the find (`find`), going to a line (`goline`), the comment being written and
-  the input it is written in (`composer`: `Compose`, its `Target`, `render_input`), the Changes list as it keeps it (`lists`) and draws it (`changes_view`: the progress with Mark all, the
+  the input it is written in (`composer`: `Compose`, its `Target`, `render_input`), the Changes list as it keeps it (`lists`) and draws it (`changes_view`: the side panel's section, its header with Tree · List, `changes_section`; the progress with Mark all, the
   files' total, a file's and a folder's box, the rows of the tree or the flat list, a group's header; the tab's field
-  and width a `ChangesLook`, a click a `ChangesEvent`, a tree's rows fading in and a mark's version the host's), and the types it
+  and width a `ChangesLook`, its fold a `SectionLook`, a click a `ChangesEvent`, a tree's rows fading in and a mark's version the host's), and the types it
   keeps: the selection's
   (`select`), the reviewed marks' store (`reviewed`), blame's (`annotate`), the one scroll's blocks (`stack`), what
   other features pin on a file's lines (`pins`: the agents' comments and notes as `Anchored` lines) and the diff shown
@@ -65,7 +65,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   review's handle, `shown`), where it is as a route of its own (`place`: the route nav keeps, whether a branch has
   its own commits), what its page says of it (`facts`), the commits' search (`find`: its field an `Area`, its keys `History::find_key`, the field a part's, `find::input`), a
   comparison's own commits (`compare`), the working tree as last looked at (`working`), what the Branches list
-  reads for its rows (`roots`) —, and the side panel (`panel`: its frame, its sections' headers and folds, `Act::Fold`; the Versions, Commits and a comparison's commits sections, the tab giving what is its in a `CommitsLook`), the views of its rows and its lists, the commits' and a comparison's, each its own `uniform_list` (`side`), a commit's card (`card`) and the
+  reads for its rows (`roots`) —, and its sections of the side panel (`panel`: their folds, `Act::Fold`; the Versions, Commits and a comparison's commits sections, the tab giving what is its in a `CommitsLook`), the views of its rows and its lists, the commits' and a comparison's, each its own `uniform_list` (`side`), a commit's card (`card`) and the
   head over a diff with its toolbar's left (`head`: what the diff is of, the working tree's halves, a comparison's
   sides and warnings, the versions' tabs; its text selectable through the tab), a click asking the tab a
   `history::Act`; the app's other views read and draw the history, the side panel a
@@ -86,7 +86,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   theme, the interface size (`px`, `ui_zoom`), panes and rows (`island`, `row`), icons, keycaps, motion, row room,
   formats, words, the dragged label, Reveal's words and the toggle chips on their track (`controls`: `chip`, `group`), a list's row pieces and a page's empty state (`unread_dot`,
   `progress_badge`, `pill`, `primary_button`, `outline_button`, `empty_state`), tooltips and the
-  cut (`hover`: `Hover`, `Tip`, `TipOwned`, `cut`, `mid`), the text field and its editing (`input`; `Area`, a field its owner keeps), the token completed in one (`@`, `:`) and its list
+  cut (`hover`: `Hover`, `Tip`, `TipOwned`, `cut`, `mid`), a page's side panel and its sections' headers (`panel`: `head`, `panel`, `rule`, `open_share`, `count`), the text field and its editing (`input`; `Area`, a field its owner keeps), the token completed in one (`@`, `:`) and its list
   (`complete`), file and folder icons (`file_icons`), comments drawn as markdown
   (`markdown`), the port for the web pictures it draws (`pictures`: `Pictures`, provided by hosts' `install`), a
   discussion's pieces (`discussion`: its frame, an avatar, a note, the buttons) and the port for the people an avatar

@@ -131,7 +131,7 @@ pub enum FileEvent {
     Note(u32),
 }
 
-/// What a click on the Changes list asks (`Host::changes`).
+/// What a click on the Changes section asks (`Host::changes`).
 pub enum ChangesEvent {
     /// File `ix`'s box: marked reviewed, or unmarked when it is.
     ToggleReviewed(usize),
@@ -148,6 +148,12 @@ pub enum ChangesEvent {
     },
     /// A folder, or a group by its key, folded or opened.
     Fold(String),
+    /// The section's header: the section folds or opens.
+    Section,
+    /// Tree (`false`) or List (`true`).
+    ListFiles(bool),
+    /// A press in the section: the keyboard works in its list.
+    Pressed,
 }
 
 /// What the review's host gives it to draw its rows with (the tab, for now): the rows other features pin on

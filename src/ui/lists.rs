@@ -9,7 +9,6 @@ use super::typing::{self, Input};
 use super::{Workspace, theme};
 use artoo_review::changes_view::ChangesLook;
 use gpui::{ClickEvent, Context, KeyDownEvent, div, prelude::*};
-use std::rc::Rc;
 
 impl Workspace {
     /// The one-line field of `field` in a list's head, inset from the list's edges.
@@ -243,20 +242,17 @@ impl Workspace {
         cx.notify();
     }
 
-    /// The Changes section's body, the review's (`Review::render_changes`): the path filter and the width it is
-    /// drawn at are the tab's.
-    pub(super) fn render_changes(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let look = ChangesLook {
+    /// What the tab puts on the Changes list, the review's (`Review::changes_section`): the path filter and the
+    /// width it is drawn at.
+    pub(super) fn changes_look(&self, cx: &mut Context<Self>) -> ChangesLook {
+        ChangesLook {
             measure: self.widths.measure("changes").into_any_element(),
             filter: self
                 .render_field("file-filter", Field::Files, "Filter by path  ⌥⌘P", cx)
                 .into_any_element(),
             counts: self.counts_fit(),
             draft: self.draft_path(cx),
-        };
-        let host = Rc::new(super::TabHost(cx.entity().downgrade()));
-        self.review
-            .update(cx, |rv, cx| rv.render_changes(look, host, cx))
+        }
     }
 
     /// A file's +/− shows while the list has 240 px (#79).

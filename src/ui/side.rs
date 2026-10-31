@@ -3,14 +3,14 @@
 //! (a count, the first item, how far the review is). An open Commits or Changes takes the room left;
 //! Versions takes what its rows need. Folds are kept in `layout.txt`; ⌥⌘2 folds Changes.
 
+use super::Workspace;
 use super::nav::Page;
 use super::zones::Zone;
-use super::{Workspace, chip, plural};
 use artoo_branches::history::{Act, Acts};
-use artoo_branches::panel::{
-    CommitsLook, Fold, Folding, Head, count, head, open_share, panel, rule,
-};
-use gpui::{AnyElement, App, ClickEvent, Context, MouseButton, div, prelude::*};
+use artoo_branches::panel::{CommitsLook, Fold, Folding};
+use artoo_review::changes_view::SectionLook;
+use artoo_ui_kit::panel::{panel, rule};
+use gpui::{AnyElement, App, Context, prelude::*};
 use std::rc::Rc;
 
 impl Workspace {
@@ -110,27 +110,6 @@ impl Workspace {
             self.set_zone(Zone::Diff, cx);
         }
         cx.notify();
-    }
-
-    /// A section's header (`artoo_branches::panel::head`); `opens` is false for a section that cannot open.
-    fn section_header(
-        &self,
-        section: Fold,
-        title: String,
-        summary: Option<String>,
-        end: Vec<AnyElement>,
-        opens: bool,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
-        let look = Head {
-            fold: section,
-            title,
-            summary,
-            end,
-            folded: self.section_folded(section) || !opens,
-            opens,
-        };
-        head(look, &self.history_acts(cx))
     }
 
     /// The panel shows the versions: a request's page with more than one, not on its commits nor
@@ -285,77 +264,22 @@ impl Workspace {
             }));
         }
 
-        if let Some(diff) = self
+        let look = SectionLook {
+            folded: self.section_folded(Fold::Changes),
+            moving: self.motion.recent("fold-2"),
+            tag: self.zone_tag(Zone::Files).into_owned(),
+            list: self.changes_look(cx),
+        };
+        let host = Rc::new(super::TabHost(cx.entity().downgrade()));
+        if let Some((changes, open)) = self
             .review
-            .read(cx)
-            .diff
-            .as_ref()
-            .filter(|d| !d.files.is_empty())
+            .update(cx, |rv, cx| rv.changes_section(look, host, cx))
         {
-            let one = diff.files.len() == 1;
-            let folded = one || self.section_folded(Fold::Changes);
-            let summary = if one {
-                Some(diff.files[0].path().to_owned())
-            } else {
-                Some(match self.review.read(cx).review_progress() {
-                    Some((done, total)) => format!("{done} / {total} reviewed"),
-                    None => plural(diff.file_count(), "file"),
-                })
-            };
-            let list = self.review.read(cx).options.list_files;
-            let mut end: Vec<AnyElement> = Vec::new();
-            if !folded {
-                end.push(
-                    artoo_ui_kit::controls::group()
-                        // A chip is not the heading: a click on it does not fold the section.
-                        .child(chip("files-tree", "Tree", !list).on_click(cx.listener(
-                            |this, _: &ClickEvent, _, cx| {
-                                cx.stop_propagation();
-                                this.set_file_view(false, cx)
-                            },
-                        )))
-                        .child(chip("files-list", "List", list).on_click(cx.listener(
-                            |this, _: &ClickEvent, _, cx| {
-                                cx.stop_propagation();
-                                this.set_file_view(true, cx)
-                            },
-                        )))
-                        .into_any_element(),
-                );
-            }
-            end.push(count(diff.file_count().to_string()));
-            let done = self.review.read(cx).all_reviewed();
-            if !folded {
+            if open {
                 open_lists += 1;
             }
             sections.push(rule().into_any_element());
-            let rows = !folded || (!one && self.motion.recent("fold-2"));
-            let changes = div()
-                .flex()
-                .flex_col()
-                .overflow_hidden()
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, cx| {
-                        if this.files_zone(cx) {
-                            this.set_zone(Zone::Files, cx)
-                        }
-                    }),
-                )
-                .child(self.section_header(
-                    Fold::Changes,
-                    format!(
-                        "Changes{}{}",
-                        if done { " ✓" } else { "" },
-                        self.zone_tag(Zone::Files)
-                    ),
-                    summary,
-                    end,
-                    !one,
-                    cx,
-                ))
-                .when(rows, |s| s.child(self.render_changes(cx)));
-            sections.push(open_share(changes, "changes-open", !folded).into_any_element());
+            sections.push(changes);
         }
 
         Some(panel(self.layout.sidebar, keyboard, sections, open_lists))

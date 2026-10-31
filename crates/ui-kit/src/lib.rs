@@ -13,6 +13,7 @@ pub mod input;
 pub mod keys;
 pub mod markdown;
 pub mod motion;
+pub mod panel;
 pub mod people;
 pub mod pictures;
 pub mod room;

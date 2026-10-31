@@ -3451,7 +3451,9 @@ impl artoo_review_api::Host for TabHost {
     }
 
     fn changes(&self, event: artoo_review_api::ChangesEvent, cx: &mut App) {
+        use artoo_branches::panel::Fold;
         use artoo_review_api::ChangesEvent;
+        use zones::Zone;
         self.0
             .update(cx, |this, cx| match event {
                 ChangesEvent::ToggleReviewed(ix) => {
@@ -3471,6 +3473,13 @@ impl artoo_review_api::Host for TabHost {
                 }
                 ChangesEvent::Menu { ix, at } => this.file_context(ix, at, cx),
                 ChangesEvent::Fold(path) => this.toggle_dir(&path, cx),
+                ChangesEvent::Section => this.fold_section(Fold::Changes as u8, cx),
+                ChangesEvent::ListFiles(list) => this.set_file_view(list, cx),
+                ChangesEvent::Pressed => {
+                    if this.files_zone(cx) {
+                        this.set_zone(Zone::Files, cx)
+                    }
+                }
             })
             .ok();
     }
