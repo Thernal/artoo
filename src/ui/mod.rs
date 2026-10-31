@@ -85,7 +85,7 @@ use crate::git::{DiffSettings, PairKind, Repo};
 use crate::rows::{self, Row};
 use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
 use artoo_branches::head;
-use artoo_branches::history::{self, History, NamedTip, Selection, VersionTab};
+use artoo_branches::history::{self, History, Selection, VersionTab};
 use artoo_branches::reading::COMMIT_PAGE;
 use artoo_branches::working::WorkingState;
 use artoo_review::diff::{Diff, Header, Notice};
@@ -2051,6 +2051,7 @@ impl Workspace {
                             code.set_project(root.clone(), false, fresh, &key, cx);
                         }
                         this.review.update(cx, |rv, _| rv.root = Some(root.clone()));
+                        this.history.update(cx, |h, _| h.root = Some(root.clone()));
                         this.root = Some(root);
                         // Once the root is this repository's: it reads whether fetch is off for it (#141).
                         this.start_fetching(cx);
@@ -2129,6 +2130,7 @@ impl Workspace {
             code.set_project(root.clone(), true, fresh, &crate::review::key(&root), cx);
         }
         self.review.update(cx, |rv, _| rv.root = Some(root.clone()));
+        self.history.update(cx, |h, _| h.root = Some(root.clone()));
         self.root = Some(root);
         self.history.update(cx, |h, _| h.branches = Arc::default());
         self.clear_branch(cx);
@@ -2159,15 +2161,11 @@ impl Workspace {
     fn select_branch(&mut self, ix: usize, keep: Option<git2::Oid>, cx: &mut Context<Self>) {
         self.history.update(cx, |h, _| h.open_request = None);
         self.sync_request(ix, cx);
-        let Some(root) = self.root.clone() else {
-            return;
-        };
-        if self.history.read(cx).branches.get(ix).is_none() {
+        if self.root.is_none() || self.history.read(cx).branches.get(ix).is_none() {
             return;
         }
         self.clear_branch(cx);
-        self.history
-            .update(cx, |h, cx| h.read_branch(root, ix, keep, cx));
+        self.history.update(cx, |h, cx| h.read_branch(ix, keep, cx));
         cx.notify();
     }
 
@@ -2192,8 +2190,7 @@ impl Workspace {
     /// The branch open was read: its page — the branch against the main line, or the commit asked for —, or a
     /// request on it waiting for its commits.
     fn branch_read(&mut self, cx: &mut Context<Self>) {
-        let request = self.history.read(cx).pending_request.is_some();
-        let Some(shown) = self.history.update(cx, |h, _| h.settle(request)) else {
+        let Some(shown) = self.history.update(cx, |h, _| h.settle()) else {
             return;
         };
         self.refilter(cx);
@@ -2219,11 +2216,11 @@ impl Workspace {
         if !self.history.read(cx).commits.is_empty() {
             self.select_commit(ix, cx);
         }
-        if let Some((base, head, iid)) = self.history.update(cx, |h, _| h.pending_request.take()) {
-            let open = Some((base.clone(), head.clone(), iid));
-            self.history.update(cx, |h, _| h.open_request = open);
-            self.show_request_commits(&base, &head, cx);
-            self.apply_mr_versions(cx);
+        let requests = &self.requests;
+        let pending = self.history.update(cx, |h, cx| {
+            h.open_pending_request(requests.read(cx).versions.as_ref())
+        });
+        if let Some((base, head, iid)) = pending {
             // A commit or versions of it waited for its commits (#71); else the whole request.
             if !self.finish_pending(cx) {
                 self.run_compare(base, head, true, Some(iid), cx);

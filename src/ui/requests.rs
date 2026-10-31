@@ -688,7 +688,8 @@ impl Workspace {
                     Selection::Commits { newest, oldest } => id(newest).zip(id(oldest)),
                     _ => None,
                 };
-                self.show_request_commits(&base, &head, cx);
+                self.history
+                    .update(cx, |h, _| h.show_request_commits(&base, &head));
                 let at = |id: git2::Oid| {
                     self.history
                         .read(cx)
@@ -784,35 +785,13 @@ impl Workspace {
         .detach();
     }
 
-    /// Shows GitLab's versions of the open request in the timeline, when there is more than one.
+    /// Shows GitLab's versions of the open request in the timeline, when there is more than one
+    /// (`History::show_request_versions`).
     pub(super) fn apply_mr_versions(&mut self, cx: &mut App) {
-        let Some(iid) = self.history.read(cx).open_request.as_ref().map(|r| r.2) else {
-            return;
-        };
-        let list = match &self.requests.read(cx).versions {
-            Some((for_iid, list)) if *for_iid == iid && list.len() > 1 => list.clone(),
-            _ => return,
-        };
-        self.history.update(cx, |h, _| h.versions = list);
-    }
-
-    /// The commits list of an open request: only what the request adds to its target.
-    pub(super) fn show_request_commits(
-        &mut self,
-        base: &super::NamedTip,
-        head: &super::NamedTip,
-        cx: &mut App,
-    ) {
-        let Some(root) = self.root.clone() else {
-            return;
-        };
-        if let Ok(list) = Repo::open(&root).and_then(|r| r.range_log(base.1, head.1, true)) {
-            self.history.update(cx, |h, _| {
-                h.commits = list;
-                h.older = None;
-            });
-            self.refilter(cx);
-        }
+        let requests = &self.requests;
+        self.history.update(cx, |h, cx| {
+            h.show_request_versions(requests.read(cx).versions.as_ref())
+        });
     }
 
     /// Is the whole request whose discussions are loaded on screen, as its page (#71)? Its keys

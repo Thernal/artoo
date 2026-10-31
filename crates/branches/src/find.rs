@@ -8,7 +8,6 @@ use artoo_ui_kit::theme;
 use git2::Oid;
 use gpui::{Context, HighlightStyle, SharedString, StyledText, Task};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Commits whose paths are read per background step.
@@ -84,9 +83,11 @@ impl History {
         });
     }
 
-    /// Reads the paths of every listed commit of the repository at `root`, a chunk at a time; the filter
-    /// updates as they arrive.
-    pub fn index_paths(&mut self, root: PathBuf, cx: &mut Context<Self>) {
+    /// Reads the paths of every listed commit, a chunk at a time; the filter updates as they arrive.
+    pub fn index_paths(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
         let ids: Vec<Oid> = self
             .commits
             .iter()

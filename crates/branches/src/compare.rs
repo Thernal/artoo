@@ -6,7 +6,6 @@ use artoo_core::git::{CommitInfo, Repo};
 use artoo_ui_kit::hover::Hover;
 use artoo_ui_kit::{format, icons, keys, px, theme};
 use gpui::{ClickEvent, Context, Div, div, prelude::*};
-use std::path::PathBuf;
 
 /// Two refs compared: the base, the head, and whether since their merge base.
 pub type Sides = (NamedTip, NamedTip, bool);
@@ -56,9 +55,13 @@ impl CompareCommits {
 }
 
 impl History {
-    /// The commits of the comparison `of` in the repository at `root`, read unless they are these already (esc
-    /// back from a pick); none picked.
-    pub fn read_compare(&mut self, root: PathBuf, of: Sides, cx: &mut Context<Self>) {
+    /// The commits of the comparison `of`, read unless they are these already (esc back from a pick); none
+    /// picked.
+    pub fn read_compare(&mut self, of: Sides, cx: &mut Context<Self>) {
+        let Some(root) = self.root.clone() else {
+            self.compare = None;
+            return;
+        };
         if let Some(c) = self.compare.as_mut().filter(|c| c.of == of) {
             c.picked = None;
             return;

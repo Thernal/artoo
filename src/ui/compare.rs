@@ -32,12 +32,12 @@ impl Workspace {
     /// A comparison of `page` shown whole: its commits are read, unless they are these already
     /// (esc back from a pick); none picked. Any other diff (`None`) has none.
     pub(super) fn read_compare_commits(&mut self, page: Option<Page>, cx: &mut Context<Self>) {
-        let (Some(Page::Compare(base, head, since)), Some(root)) = (page, self.root.clone()) else {
+        let Some(Page::Compare(base, head, since)) = page else {
             self.history.update(cx, |h, _| h.compare = None);
             return;
         };
         self.history
-            .update(cx, |h, cx| h.read_compare(root, (base, head, since), cx));
+            .update(cx, |h, cx| h.read_compare((base, head, since), cx));
     }
 
     /// A click on commit `ix`: its diff alone; with ⇧ the run from the one clicked last to it.

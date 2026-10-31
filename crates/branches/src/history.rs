@@ -9,6 +9,7 @@ use crate::roots::Roots;
 use artoo_core::git::{BranchRef, CommitInfo, Deco, Version};
 use gpui::{EventEmitter, Task, UniformListScrollHandle};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// A ref's name and the commit it points at.
@@ -47,6 +48,8 @@ pub struct Older {
 }
 
 pub struct History {
+    /// The repository whose history this is: what every read opens.
+    pub root: Option<PathBuf>,
     /// Shared, so what reads them keeps them while the tab changes something else.
     pub branches: Arc<Vec<BranchRef>>,
     pub branch: Option<usize>,
@@ -170,6 +173,7 @@ impl History {
 impl Default for History {
     fn default() -> Self {
         History {
+            root: None,
             branches: Arc::default(),
             branch: None,
             page: None,

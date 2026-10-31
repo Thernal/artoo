@@ -29,10 +29,7 @@ impl Workspace {
     /// The branch's older history, a page more (#25): as the list is scrolled near its end, and
     /// on and on while a search has not found what it looks for (`History::read_older`).
     pub(super) fn load_older_commits(&mut self, cx: &mut Context<Self>) {
-        let Some(root) = self.root.clone() else {
-            return;
-        };
-        self.history.update(cx, |h, cx| h.read_older(root, cx));
+        self.history.update(cx, |h, cx| h.read_older(cx));
     }
 
     /// Reads a page more of history once this frame is drawn, unless one is on its way.
@@ -399,10 +396,7 @@ impl Workspace {
 
     /// Reads the paths of every loaded commit (`History::index_paths`).
     pub(super) fn index_paths(&mut self, cx: &mut Context<Self>) {
-        let Some(root) = self.root.clone() else {
-            return;
-        };
-        self.history.update(cx, |h, cx| h.index_paths(root, cx));
+        self.history.update(cx, |h, cx| h.index_paths(cx));
     }
 
     /// The search field, its qualifier tags and the count line.

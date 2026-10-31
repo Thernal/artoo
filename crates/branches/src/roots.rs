@@ -6,7 +6,6 @@ use artoo_core::git::{BranchRef, ChangeKind, DiffSettings, RefKind, Repo};
 use artoo_core::rank;
 use gpui::{Context, Task};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::PathBuf;
 
 /// A row of Branches' list: the working tree, or a branch (#72).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -49,9 +48,11 @@ pub struct Roots {
 }
 
 impl History {
-    /// Reads, in the background, when each branch's tip of the repository at `root` was made and how far it is
-    /// from the main line.
-    pub fn read_facts(&mut self, root: PathBuf, cx: &mut Context<Self>) {
+    /// Reads, in the background, when each branch's tip was made and how far it is from the main line.
+    pub fn read_facts(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
         let branches = self.branches.clone();
         self.roots.facts_task = Some(cx.spawn(async move |this, cx| {
             let facts = cx
@@ -97,15 +98,17 @@ impl History {
         }));
     }
 
-    /// Reads the files of the working tree at `root` again when they changed since the last read: it has
-    /// `count` changes, `hash` its fingerprint.
+    /// Reads the working tree's files again when they changed since the last read: it has `count` changes,
+    /// `hash` its fingerprint.
     pub fn read_tree(
         &mut self,
-        root: PathBuf,
         (count, hash): (usize, u64),
         settings: DiffSettings,
         cx: &mut Context<Self>,
     ) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
         if count == 0 || self.roots.tree.as_ref().is_some_and(|t| t.0 == hash) {
             return;
         }

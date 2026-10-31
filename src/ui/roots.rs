@@ -48,20 +48,14 @@ impl Workspace {
 
     /// Reads when each branch's tip was made and how far it is from the main line (`History::read_facts`).
     pub(super) fn read_branch_facts(&mut self, cx: &mut Context<Self>) {
-        let Some(root) = self.root.clone() else {
-            return;
-        };
-        self.history.update(cx, |h, cx| h.read_facts(root, cx));
+        self.history.update(cx, |h, cx| h.read_facts(cx));
     }
 
     /// Reads the working tree's files again when they changed since the last read (`History::read_tree`).
     pub(super) fn read_tree_files(&mut self, cx: &mut Context<Self>) {
-        let Some(root) = self.root.clone() else {
-            return;
-        };
         let (wt, settings) = ((self.wt.count, self.wt.hash), self.settings(cx));
         self.history
-            .update(cx, |h, cx| h.read_tree(root, wt, settings, cx));
+            .update(cx, |h, cx| h.read_tree(wt, settings, cx));
     }
 
     /// The request picked in the list: its pipeline and approvals, once per update of it.

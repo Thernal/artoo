@@ -2,11 +2,10 @@
 //! says, its commits —, and older pages of its history. What the tab does after one comes to it as an `Event`.
 
 use crate::facts::Facts;
-use crate::history::{Event, History, Older};
+use crate::history::{Event, History, NamedTip, Older, RequestSides};
 use artoo_core::git::{CommitInfo, Repo, Version};
 use git2::Oid;
 use gpui::Context;
-use std::path::PathBuf;
 
 /// How much of a branch's history is read at first; more is read as the list is scrolled (#25).
 pub const COMMIT_PAGE: usize = 1000;
@@ -31,16 +30,10 @@ pub struct Shown {
 }
 
 impl History {
-    /// Reads branch `ix` of the repository at `root`, down to commit `keep` however old (#25): its versions, what
-    /// its page says, and its own commits when it forks from the main line (#74).
-    pub fn read_branch(
-        &mut self,
-        root: PathBuf,
-        ix: usize,
-        keep: Option<Oid>,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(branch) = self.branches.get(ix) else {
+    /// Reads branch `ix` down to commit `keep` however old (#25): its versions, what its page says, and its own
+    /// commits when it forks from the main line (#74).
+    pub fn read_branch(&mut self, ix: usize, keep: Option<Oid>, cx: &mut Context<Self>) {
+        let (Some(root), Some(branch)) = (self.root.clone(), self.branches.get(ix)) else {
             return;
         };
         let (refname, name, tip) = (branch.refname.clone(), branch.name.clone(), branch.tip);
@@ -87,9 +80,10 @@ impl History {
     }
 
     /// Shows the branch read: its page shows the branch against the main line — its own commits — unless a
-    /// commit of it (not one of its own) or a request on it (`request`) is what was asked for; else a page of its
-    /// history. None when nothing was read.
-    pub fn settle(&mut self, request: bool) -> Option<Shown> {
+    /// commit of it (not one of its own) or a request on it (`pending_request`) is what was asked for; else a page
+    /// of its history. None when nothing was read.
+    pub fn settle(&mut self) -> Option<Shown> {
+        let request = self.pending_request.is_some();
         let Read {
             versions,
             log,
@@ -117,10 +111,49 @@ impl History {
         Some(Shown { tabbed, keep })
     }
 
+    /// The request that waited for its branch (#71), open now: its commits listed, the host's versions of it in
+    /// the timeline (`versions`, as `show_request_versions` takes them). Its sides, when one waited.
+    pub fn open_pending_request(
+        &mut self,
+        versions: Option<&(u64, Vec<Version>)>,
+    ) -> Option<RequestSides> {
+        let sides = self.pending_request.take()?;
+        self.open_request = Some(sides.clone());
+        self.show_request_commits(&sides.0, &sides.1);
+        self.show_request_versions(versions);
+        Some(sides)
+    }
+
+    /// The commits of a request open: only what `head` adds to `base`, its target.
+    pub fn show_request_commits(&mut self, base: &NamedTip, head: &NamedTip) {
+        let Some(root) = self.root.as_ref() else {
+            return;
+        };
+        if let Ok(list) = Repo::open(root).and_then(|r| r.range_log(base.1, head.1, true)) {
+            self.commits = list;
+            self.older = None;
+            self.refilter();
+        }
+    }
+
+    /// The host's versions of the request open in the timeline, when it has more than one: `versions` are the
+    /// ones read last, with the number of the request they are of.
+    pub fn show_request_versions(&mut self, versions: Option<&(u64, Vec<Version>)>) {
+        let Some(iid) = self.open_request.as_ref().map(|r| r.2) else {
+            return;
+        };
+        if let Some((_, list)) = versions.filter(|(of, list)| *of == iid && list.len() > 1) {
+            self.versions = list.clone();
+        }
+    }
+
     /// The branch's older history, a page more (#25), unless one is on its way: a page is as long as what is
     /// listed, so a search through a long history reads it in a few.
-    pub fn read_older(&mut self, root: PathBuf, cx: &mut Context<Self>) {
-        let Some(older) = self.older.as_ref().filter(|o| o.task.is_none()) else {
+    pub fn read_older(&mut self, cx: &mut Context<Self>) {
+        let (Some(root), Some(older)) = (
+            self.root.clone(),
+            self.older.as_ref().filter(|o| o.task.is_none()),
+        ) else {
             return;
         };
         let (tip, skip) = (older.tip, self.commits.len());
