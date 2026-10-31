@@ -6,6 +6,7 @@
 pub mod agents;
 pub mod codex;
 mod contract;
+pub mod inbox;
 pub mod mcp;
 pub mod notes;
 pub mod review;

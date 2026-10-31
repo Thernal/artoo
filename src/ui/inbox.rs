@@ -8,17 +8,15 @@
 //! among them what your agents answered on your notes (#116): a question, or "done".
 
 use super::composer::Target;
-use super::hover::CutInTip;
 use super::notifications::{Kind, Notice};
-use super::{Workspace, format, icons, island, px, theme};
-use crate::git::LineKind;
+use super::{Workspace, format, island, px, theme};
 use crate::mr::Thread;
+use artoo_agents::inbox::{AnswerEvent, AnswerLook, From, OnAnswer, answer_preview, answer_row};
 use artoo_requests::inbox::excerpt;
 pub(super) use artoo_requests::inbox::{InboxRow, InboxView};
 use artoo_requests::inbox_view::{self, InboxEvent, NoticeLook, OnInbox, RowLook};
-use artoo_ui_kit::excerpt::{Excerpt, ExcerptLine, excerpt_view};
 pub(super) use artoo_ui_kit::format::now;
-use gpui::{AnyElement, ClickEvent, Context, FontWeight, div, prelude::*};
+use gpui::{AnyElement, Context, div, prelude::*};
 use std::rc::Rc;
 
 impl Workspace {
@@ -456,7 +454,7 @@ impl Workspace {
     }
 
     /// Who an agent's answer is from: the chat's agent ("Claude"), and the chat's title.
-    fn agent_of(&self, c: &crate::review::Comment) -> (String, String) {
+    fn agent_of(&self, c: &crate::review::Comment) -> From {
         let title = c
             .sent
             .as_ref()
@@ -469,232 +467,53 @@ impl Workspace {
             .map(|ch| ch.agent.clone())
             .filter(|a| !a.is_empty())
             .unwrap_or_else(|| "Agent".to_owned());
-        (agent, title)
+        From { agent, chat: title }
     }
 
-    /// What the agent did, as the row says it: asked, your answer waiting to be sent, done.
-    fn agent_verb(c: &crate::review::Comment) -> &'static str {
-        use crate::review::State;
-        match c.state {
-            State::Addressed => "addressed your note",
-            State::Draft => "asks you · answered, not sent",
-            _ => "asks you",
-        }
+    /// How the Inbox's agents' answers ask the tab.
+    fn answer_on(&self, cx: &Context<Self>) -> OnAnswer {
+        let this = cx.weak_entity();
+        Rc::new(move |event, cx| {
+            this.update(cx, |this, cx| match event {
+                AnswerEvent::Pick(id) => {
+                    if this.compact() {
+                        return this.open_agent_note(id, cx);
+                    }
+                    this.inbox_select(InboxRow::Agent(id), cx)
+                }
+                AnswerEvent::Open(id) => this.open_agent_note(id, cx),
+                AnswerEvent::Done => this.inbox_done(cx),
+            })
+            .ok();
+        })
     }
 
-    /// One agent's answer (#116): purple where a notice is blue — who and what, the note's
-    /// place, the start of what it wrote.
+    /// One agent's answer (#116) in the list (`artoo_agents::inbox::answer_row`).
     fn render_agent_row(&self, id: u64, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        use super::hover::Hover;
         let Some(c) = self.comments.iter().find(|c| c.id == id) else {
             return div().id(("inbox-agent", id as usize));
         };
-        let fresh = self
-            .agent_notices()
-            .iter()
-            .any(|(i, _, key)| *i == id && !self.notices.is_read(key));
-        let on = self.inbox_current() == Some(InboxRow::Agent(id));
-        let room = self.widths.room("inbox");
-        let (agent, chat) = self.agent_of(c);
-        let at = c.replies.last().map_or(0, |r| r.at);
-        let said = c
-            .replies
-            .last()
-            .map(|r| crate::markdown::plain(&r.body))
-            .unwrap_or_default();
-        let gist = said
-            .lines()
-            .find(|l| !l.trim().is_empty())
-            .unwrap_or("")
-            .trim()
-            .to_owned();
-        let place = note_place(c);
-        let verb = Self::agent_verb(c);
-        let mut tip = vec![format!("{agent} {verb}"), place.clone()];
-        if !chat.is_empty() {
-            tip.push(format!("chat “{chat}”"));
-        }
-        tip.push(super::hover::full_date(at));
-        if !said.trim().is_empty() {
-            tip.push(said.trim().to_owned());
-        }
-        div()
-            .id(("inbox-agent", id as usize))
-            .mx(px(6.))
-            .px(px(10.))
-            .py(px(8.))
-            .flex()
-            .items_start()
-            .gap(px(10.))
-            .rounded(px(super::ROW_RADIUS))
-            .cursor_pointer()
-            .when(on, |s| s.bg(theme::selected()))
-            .hover(|s| s.bg(theme::hover()))
-            .child(
-                div()
-                    .flex_none()
-                    .mt(px(6.))
-                    .size(px(7.))
-                    .rounded_full()
-                    .when(fresh, |s| s.bg(theme::agent())),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .flex()
-                                    .gap(px(5.))
-                                    .overflow_hidden()
-                                    .whitespace_nowrap()
-                                    .when(fresh, |s| s.font_weight(FontWeight::SEMIBOLD))
-                                    .child(agent)
-                                    .child(div().text_color(theme::agent()).child(verb)),
-                            )
-                            .children(room.second().then(|| {
-                                div()
-                                    .flex_none()
-                                    .text_size(px(11.))
-                                    .text_color(theme::faint())
-                                    .child(format::ago(at))
-                            })),
-                    )
-                    .child(
-                        div()
-                            .cut_in_tip()
-                            .text_size(px(12.))
-                            .font_family(theme::code_font())
-                            .text_color(theme::agent())
-                            .child(place),
-                    )
-                    .children((room.second() && !gist.is_empty()).then(|| {
-                        div()
-                            .cut_in_tip()
-                            .text_size(px(12.))
-                            .text_color(theme::muted())
-                            .child(gist)
-                    })),
-            )
-            .tip(tip.join("\n"))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                if this.compact() {
-                    return this.open_agent_note(id, cx);
-                }
-                this.inbox_select(InboxRow::Agent(id), cx)
-            }))
+        let look = AnswerLook {
+            fresh: self
+                .agent_notices()
+                .iter()
+                .any(|(i, _, key)| *i == id && !self.notices.is_read(key)),
+            on: self.inbox_current() == Some(InboxRow::Agent(id)),
+            wide: self.widths.room("inbox").second(),
+        };
+        answer_row(c, self.agent_of(c), look, &self.answer_on(cx))
     }
 
-    /// The selected agent's answer: whose and where, the lines the note is on as they were, the
-    /// purple thread itself — your note, what the agent said, its form, your answer and Send, or
-    /// Resolve —, and the way to its line.
+    /// The selected agent's answer, its thread the tab's (`artoo_agents::inbox::answer_preview`).
     fn render_agent_preview(&self, id: u64, cx: &mut Context<Self>) -> Option<AnyElement> {
-        use crate::review::State;
         let c = self.comments.iter().find(|c| c.id == id)?;
-        let (agent, chat) = self.agent_of(c);
-        let at = c.replies.last().map_or(0, |r| r.at);
-        let props = div()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap_2()
-            .text_size(px(12.))
-            .text_color(theme::muted())
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .text_color(theme::agent())
-                    .child(icons::icon("bot").size(px(14.)).text_color(theme::agent()))
-                    .child(if chat.is_empty() {
-                        agent.clone()
-                    } else {
-                        format!("{agent} · {chat}")
-                    }),
-            )
-            .children(c.branch.clone().filter(|b| !b.is_empty()).map(|b| {
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .child(
-                        icons::icon("branch")
-                            .size(px(14.))
-                            .text_color(theme::muted()),
-                    )
-                    .child(div().font_family(theme::code_font()).child(b))
-            }))
-            .child(div().flex_1())
-            .child(format!(
-                "{agent} {} · {}",
-                Self::agent_verb(c),
-                format::ago(at)
-            ));
-        let title = div()
-            .text_size(px(19.))
-            .line_height(px(26.))
-            .font_weight(FontWeight::SEMIBOLD)
-            .child(note_place(c));
-        // The lines the note is on, as they were when it was written.
-        let code = (!c.path.ends_with('/') && !c.code.is_empty()).then(|| {
-            let first = c.line.saturating_sub(c.above.len() as u32);
-            let lines = c
-                .above
-                .iter()
-                .chain([&c.code])
-                .enumerate()
-                .map(|(k, text)| {
-                    let n = Some(first + k as u32);
-                    ExcerptLine {
-                        kind: LineKind::Context,
-                        old: if c.old { n } else { None },
-                        new: if c.old { None } else { n },
-                        text: text.clone(),
-                        on: true,
-                    }
-                })
-                .collect();
-            excerpt_view(&c.path, c.line, Some(Some(&Excerpt { lines })))
-        });
         let thread = self.render_thread(id, 0., cx.entity().downgrade(), cx);
-        let open = super::bar::bar_button("inbox-agent-open", "Open at the line", "↵", true)
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_agent_note(id, cx)));
-        let later = super::bar::bar_button(
-            "inbox-agent-done",
-            if c.state == State::Addressed {
-                "Resolve"
-            } else {
-                "Later"
-            },
-            "E",
-            false,
-        )
-        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.inbox_done(cx)));
-        Some(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(14.))
-                .px(px(28.))
-                .py(px(22.))
-                .max_w(px(820.))
-                .child(props)
-                .child(title)
-                .children(code)
-                .child(div().mx(px(-12.)).child(thread))
-                .child(div().flex().gap_2().child(open).child(later))
-                .into_any_element(),
-        )
+        Some(answer_preview(
+            c,
+            self.agent_of(c),
+            thread.into_any_element(),
+            &self.answer_on(cx),
+        ))
     }
 
     /// The selected notice: its request, the code, the discussion, the reply
@@ -727,13 +546,4 @@ impl Workspace {
         };
         inbox_view::notice_preview(n, look, &on, cx)
     }
-}
-
-/// Where a note is written: `refunds/`, `Money.kt:23`.
-fn note_place(c: &crate::review::Comment) -> String {
-    if c.path.ends_with('/') {
-        return c.path.clone();
-    }
-    let name = c.path.rsplit('/').next().unwrap_or(&c.path);
-    format!("{name}:{}", c.line)
 }
