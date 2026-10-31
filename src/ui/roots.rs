@@ -9,9 +9,8 @@ use super::hover::{CutInTip, Hover};
 use super::lists::Field;
 use super::nav::BranchRow;
 use super::{Workspace, format, icons, island, keys, plural, px, theme, words};
-use crate::git::{BranchRef, ChangeKind, RefKind, Repo};
+use crate::git::{BranchRef, ChangeKind, RefKind};
 use crate::mr::{Mr, MrState, Thread};
-use artoo_branches::roots::{Fact, TreeFile};
 pub(super) use artoo_requests::group::Group;
 use artoo_requests::list;
 use artoo_review_api::Seen;
@@ -20,7 +19,6 @@ use artoo_ui_kit::controls::{empty_state, outline_button, primary_button, progre
 use gpui::{
     AnyElement, App, ClickEvent, Context, Div, FontWeight, Rgba, SharedString, div, prelude::*,
 };
-use std::collections::HashMap;
 
 /// The width of a root's list.
 impl Workspace {
@@ -50,93 +48,22 @@ pub(super) fn list_width(width: f32) -> f32 {
 impl Workspace {
     // ---- reading ------------------------------------------------------------------------
 
-    /// Reads, in the background, when each branch's tip was made and how far it is from the
-    /// main line.
+    /// Reads when each branch's tip was made and how far it is from the main line (`History::read_facts`).
     pub(super) fn read_branch_facts(&mut self, cx: &mut Context<Self>) {
         let Some(root) = self.root.clone() else {
             return;
         };
-        let branches = self.history.read(cx).branches.clone();
-        self.roots.facts_task = Some(cx.spawn(async move |this, cx| {
-            let facts = cx
-                .background_executor()
-                .spawn(async move {
-                    let repo = Repo::open(&root).ok()?;
-                    let main = repo.default_branch();
-                    let tip = |name: &str| branches.iter().find(|b| b.name == name).map(|b| b.tip);
-                    let main_tip = main
-                        .as_deref()
-                        .and_then(|m| tip(m).or_else(|| tip(&format!("origin/{m}"))));
-                    let facts: HashMap<String, Fact> = branches
-                        .iter()
-                        .filter_map(|b| {
-                            let commit = repo.commit(b.tip).ok()?;
-                            let against = match (b.kind, &main, main_tip) {
-                                (RefKind::Remote, ..) => None,
-                                (RefKind::Local, Some(m), _) if *m == b.name => repo.tracking(m),
-                                (RefKind::Local, Some(m), Some(t)) => repo
-                                    .ahead_behind(b.tip, t)
-                                    .map(|(ahead, behind)| (m.clone(), ahead, behind)),
-                                _ => None,
-                            };
-                            let fact = Fact {
-                                time: commit.time,
-                                summary: commit.summary,
-                                author: commit.author,
-                                against,
-                            };
-                            Some((b.refname.clone(), fact))
-                        })
-                        .collect();
-                    Some(facts)
-                })
-                .await;
-            this.update(cx, |this, cx| {
-                if let Some(facts) = facts {
-                    this.roots.facts = facts;
-                    cx.notify();
-                }
-            })
-            .ok();
-        }));
+        self.history.update(cx, |h, cx| h.read_facts(root, cx));
     }
 
-    /// Reads the working tree's files again when they changed since the last read.
+    /// Reads the working tree's files again when they changed since the last read (`History::read_tree`).
     pub(super) fn read_tree_files(&mut self, cx: &mut Context<Self>) {
-        let hash = self.wt.hash;
-        if self.wt.count == 0 || self.roots.tree.as_ref().is_some_and(|t| t.0 == hash) {
-            return;
-        }
         let Some(root) = self.root.clone() else {
             return;
         };
-        let settings = self.settings(cx);
-        self.roots.tree_task = Some(cx.spawn(async move |this, cx| {
-            let files = cx
-                .background_executor()
-                .spawn(async move {
-                    let tree = Repo::open(&root)?.working_tree(settings, false)?;
-                    anyhow::Ok(
-                        tree.files
-                            .iter()
-                            .map(|f| TreeFile {
-                                change: f.change,
-                                path: f.path().to_owned(),
-                                added: f.added,
-                                removed: f.removed,
-                            })
-                            .collect::<Vec<_>>(),
-                    )
-                })
-                .await;
-            this.update(cx, |this, cx| {
-                if let Ok(files) = files {
-                    this.roots.tree = Some((hash, files));
-                    cx.notify();
-                }
-            })
-            .ok();
-        }));
+        let (wt, settings) = ((self.wt.count, self.wt.hash), self.settings(cx));
+        self.history
+            .update(cx, |h, cx| h.read_tree(root, wt, settings, cx));
     }
 
     /// The request picked in the list: its pipeline and approvals, once per update of it.
@@ -216,7 +143,7 @@ impl Workspace {
                 .map(|(ix, _)| BranchRow::Branch(ix)),
         );
         for (remote, ixs) in self.remotes(cx) {
-            if self.roots.open_remotes.contains(&remote) {
+            if self.history.read(cx).roots.open_remotes.contains(&remote) {
                 out.extend(ixs.into_iter().map(BranchRow::Branch));
             }
         }
@@ -277,9 +204,7 @@ impl Workspace {
     }
 
     fn toggle_remote(&mut self, remote: String, cx: &mut Context<Self>) {
-        if !self.roots.open_remotes.remove(&remote) {
-            self.roots.open_remotes.insert(remote);
-        }
+        self.history.update(cx, |h, _| h.toggle_remote(remote));
         cx.notify();
     }
 
@@ -529,7 +454,7 @@ impl Workspace {
                     .into_any_element()
             }));
             for (remote, ixs) in self.remotes(cx) {
-                let open = self.roots.open_remotes.contains(&remote);
+                let open = self.history.read(cx).roots.open_remotes.contains(&remote);
                 let name = remote.clone();
                 list.push(
                     div()
@@ -660,7 +585,7 @@ impl Workspace {
         let (id, icon, line1, line2): (SharedString, &'static str, AnyElement, Option<AnyElement>) =
             match row {
                 BranchRow::WorkingTree => {
-                    let files = self.roots.tree.as_ref().map(|t| &t.1);
+                    let files = self.history.read(cx).roots.tree.as_ref().map(|t| &t.1);
                     let line1 = div()
                         .flex()
                         .items_center()
@@ -718,7 +643,7 @@ impl Workspace {
                         }
                         _ => b.name.as_str(),
                     };
-                    let fact = self.roots.facts.get(&b.refname);
+                    let fact = self.history.read(cx).roots.facts.get(&b.refname);
                     let line1 = div()
                         .flex()
                         .items_center()
@@ -830,7 +755,7 @@ impl Workspace {
             } else {
                 format!("{}, not committed", plural(self.wt.count, "change"))
             }];
-            if let Some(files) = self.roots.tree.as_ref().map(|t| &t.1) {
+            if let Some(files) = self.history.read(cx).roots.tree.as_ref().map(|t| &t.1) {
                 tip.extend(files.iter().take(12).map(|f| f.path.clone()));
                 if files.len() > 12 {
                     tip.push(format!("and {} more", files.len() - 12));
@@ -920,6 +845,8 @@ impl Workspace {
             .find(|b| b.is_head)
             .map(|b| b.name.clone());
         let files = self
+            .history
+            .read(cx)
             .roots
             .tree
             .as_ref()
@@ -1035,7 +962,7 @@ impl Workspace {
         let Some(b) = self.history.read(cx).branches.get(ix) else {
             return div().into_any_element();
         };
-        let fact = self.roots.facts.get(&b.refname);
+        let fact = self.history.read(cx).roots.facts.get(&b.refname);
         let request = self
             .request_of_branch(ix, cx)
             .map(|m| (m.iid, m.title.clone()));

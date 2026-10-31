@@ -1,8 +1,10 @@
-//! A comparison's own commits (#21, B), read with it: the run of them its diff is narrowed to, and what a click or
-//! an arrow picks.
+//! A comparison's own commits (#21, B), read with it — the history's own task —: the run of them its diff is
+//! narrowed to, and what a click or an arrow picks.
 
-use crate::history::NamedTip;
-use artoo_core::git::CommitInfo;
+use crate::history::{History, NamedTip};
+use artoo_core::git::{CommitInfo, Repo};
+use gpui::Context;
+use std::path::PathBuf;
 
 /// Two refs compared: the base, the head, and whether since their merge base.
 pub type Sides = (NamedTip, NamedTip, bool);
@@ -48,6 +50,34 @@ impl CompareCommits {
     /// ↑ ↓: the one commit to pick past the run, if any.
     pub fn step(&self, down: bool) -> Option<usize> {
         step_to(self.picked, down, self.list.as_ref().map_or(0, Vec::len))
+    }
+}
+
+impl History {
+    /// The commits of the comparison `of` in the repository at `root`, read unless they are these already (esc
+    /// back from a pick); none picked.
+    pub fn read_compare(&mut self, root: PathBuf, of: Sides, cx: &mut Context<Self>) {
+        if let Some(c) = self.compare.as_mut().filter(|c| c.of == of) {
+            c.picked = None;
+            return;
+        }
+        let (from, to, since) = (of.0.1, of.1.1, of.2);
+        self.compare = Some(CompareCommits::of(of.clone()));
+        cx.spawn(async move |this, cx| {
+            let list = cx
+                .background_executor()
+                .spawn(async move { Repo::open(&root).and_then(|r| r.range_log(from, to, since)) })
+                .await
+                .unwrap_or_default();
+            this.update(cx, |h, cx| {
+                if let Some(c) = h.compare.as_mut().filter(|c| c.of == of) {
+                    c.list = Some(list);
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 }
 

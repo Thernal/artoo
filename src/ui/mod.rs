@@ -1618,8 +1618,6 @@ pub struct Workspace {
     agent_setup: Option<String>,
     agent_setup_busy: bool,
     requests: gpui::Entity<requests::Requests>,
-    /// What the Branches list reads for its rows and previews (#72).
-    roots: artoo_branches::roots::Roots,
     /// The menu's scroll (#146).
     places: spaces::Places,
     /// A merge request's diff to show once its branch has loaded: base, head, request.
@@ -1897,7 +1895,6 @@ impl Workspace {
             fetch: fetch::Fetch::default(),
             shell: None,
             requests: cx.new(|_| requests::Requests::default()),
-            roots: Default::default(),
             places: Default::default(),
             pending_compare: None,
             open_request: None,

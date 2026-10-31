@@ -42,35 +42,8 @@ impl Workspace {
             self.history.update(cx, |h, _| h.compare = None);
             return;
         };
-        let of = (base, head, since);
-        let read = self.history.update(cx, |h, _| {
-            let c = h.compare.as_mut().filter(|c| c.of == of);
-            c.map(|c| c.picked = None).is_some()
-        });
-        if read {
-            return;
-        }
-        let (from, to) = (of.0.1, of.1.1);
         self.history
-            .update(cx, |h, _| h.compare = Some(CompareCommits::of(of.clone())));
-        cx.spawn(async move |this, cx| {
-            let list = cx
-                .background_executor()
-                .spawn(async move { Repo::open(&root).and_then(|r| r.range_log(from, to, since)) })
-                .await
-                .unwrap_or_default();
-            this.update(cx, |this, cx| {
-                let read = this.history.update(cx, |h, _| {
-                    let c = h.compare.as_mut().filter(|c| c.of == of);
-                    c.map(|c| c.list = Some(list)).is_some()
-                });
-                if read {
-                    cx.notify();
-                }
-            })
-            .ok();
-        })
-        .detach();
+            .update(cx, |h, cx| h.read_compare(root, (base, head, since), cx));
     }
 
     /// A click on commit `ix`: its diff alone; with ⇧ the run from the one clicked last to it.

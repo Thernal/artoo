@@ -505,6 +505,8 @@ impl Workspace {
         let b = self.history.read(cx).branches.get(ix)?;
         let (root, name, tip) = (self.root.clone()?, b.name.clone(), b.tip);
         let against = self
+            .history
+            .read(cx)
             .roots
             .facts
             .get(&b.refname)
