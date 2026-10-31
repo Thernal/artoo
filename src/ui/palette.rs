@@ -446,7 +446,8 @@ impl Workspace {
                 })
             });
         let branches = crate::rank::rank(
-            self.branches
+            self.history
+                .branches
                 .iter()
                 .enumerate()
                 .filter(|(_, b)| b.kind == crate::git::RefKind::Local),
@@ -692,6 +693,7 @@ impl Workspace {
                 })
                 .collect(),
             Scope::Commits => self
+                .history
                 .commits
                 .iter()
                 .filter(|c| {
@@ -1043,7 +1045,8 @@ impl Workspace {
         }
         if scope.is_none() && !words.is_empty() {
             items.extend(
-                self.commits
+                self.history
+                    .commits
                     .iter()
                     .filter(|c| {
                         matches(&words, &c.summary)
@@ -1227,7 +1230,7 @@ impl Workspace {
             // A result opens in its space (#71): a commit or a file of what is loaded on its page.
             Pick::Commit(id) => {
                 self.palette = None;
-                if let Some(ix) = self.commits.iter().position(|c| c.id == id) {
+                if let Some(ix) = self.history.commits.iter().position(|c| c.id == id) {
                     self.select_commit(ix, cx);
                     self.follow_loaded(cx);
                 }
@@ -1319,7 +1322,7 @@ impl Workspace {
             return;
         };
         self.clear_diff(cx);
-        self.selection = Selection::None;
+        self.history.selection = Selection::None;
         // The whole request is its page; a commit or versions of it were (#71).
         if request.is_some() {
             self.record(cx);

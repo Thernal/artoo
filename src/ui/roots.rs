@@ -11,16 +11,16 @@ use super::nav::BranchRow;
 use super::{Workspace, format, icons, island, keys, plural, px, theme, words};
 use crate::git::{BranchRef, ChangeKind, RefKind, Repo};
 use crate::mr::{Mr, MrState, Thread};
+use artoo_branches::roots::{Fact, TreeFile};
 pub(super) use artoo_requests::group::Group;
 use artoo_requests::list;
 use artoo_review_api::Seen;
 pub(super) use artoo_ui_kit::controls::skeleton;
 use artoo_ui_kit::controls::{empty_state, outline_button, primary_button, progress_badge};
 use gpui::{
-    AnyElement, App, ClickEvent, Context, Div, FontWeight, Rgba, SharedString, Task, div,
-    prelude::*,
+    AnyElement, App, ClickEvent, Context, Div, FontWeight, Rgba, SharedString, div, prelude::*,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// The width of a root's list.
 impl Workspace {
@@ -47,39 +47,6 @@ pub(super) fn list_width(width: f32) -> f32 {
     width
 }
 
-/// A branch, as its row and preview say it.
-#[derive(Clone)]
-pub struct Fact {
-    /// When its tip was committed, its subject and who wrote it.
-    pub time: i64,
-    pub summary: String,
-    pub author: String,
-    /// What it is counted against (the main line, or its upstream for the main line itself) and
-    /// how far apart: (name, ahead, behind).
-    pub against: Option<(String, usize, usize)>,
-}
-
-/// A file of the working tree, for its row and preview.
-#[derive(Clone)]
-pub struct TreeFile {
-    pub change: ChangeKind,
-    pub path: String,
-    pub added: usize,
-    pub removed: usize,
-}
-
-#[derive(Default)]
-pub struct Roots {
-    /// Per refname.
-    pub(super) facts: HashMap<String, Fact>,
-    facts_task: Option<Task<()>>,
-    /// The remotes whose branches the list shows; the rest are folded to their name.
-    open_remotes: HashSet<String>,
-    /// The working tree's files as last read, with the fingerprint they were read at.
-    tree: Option<(u64, Vec<TreeFile>)>,
-    tree_task: Option<Task<()>>,
-}
-
 impl Workspace {
     // ---- reading ------------------------------------------------------------------------
 
@@ -89,7 +56,7 @@ impl Workspace {
         let Some(root) = self.root.clone() else {
             return;
         };
-        let branches = self.branches.clone();
+        let branches = self.history.branches.clone();
         self.roots.facts_task = Some(cx.spawn(async move |this, cx| {
             let facts = cx
                 .background_executor()
@@ -217,7 +184,8 @@ impl Workspace {
 
     /// The branches a search lists, by index: a request's fetched head is none of them (#114).
     pub(super) fn listed_branches(&self) -> impl Iterator<Item = (usize, &BranchRef)> {
-        self.branches
+        self.history
+            .branches
             .iter()
             .enumerate()
             .filter(|(_, b)| b.kind != RefKind::Request)
@@ -235,7 +203,8 @@ impl Workspace {
         }
         let mut out = vec![BranchRow::WorkingTree];
         out.extend(
-            self.branches
+            self.history
+                .branches
                 .iter()
                 .enumerate()
                 .filter(|(_, b)| b.kind == RefKind::Local)
@@ -252,7 +221,7 @@ impl Workspace {
     /// The remote branches, by remote.
     fn remotes(&self) -> std::collections::BTreeMap<&str, Vec<usize>> {
         let mut out: std::collections::BTreeMap<&str, Vec<usize>> = Default::default();
-        for (ix, b) in self.branches.iter().enumerate() {
+        for (ix, b) in self.history.branches.iter().enumerate() {
             if b.kind == RefKind::Remote {
                 let remote = b.name.split_once('/').map_or("", |(r, _)| r);
                 out.entry(remote).or_default().push(ix);
@@ -264,6 +233,7 @@ impl Workspace {
     /// "4 local · 6 on origin": the count after Branches' name in the bar.
     pub(super) fn branches_count(&self) -> String {
         let local = self
+            .history
             .branches
             .iter()
             .filter(|b| b.kind == RefKind::Local)
@@ -283,10 +253,11 @@ impl Workspace {
         if self.wt.count > 0 {
             return Some(BranchRow::WorkingTree);
         }
-        self.branches
+        self.history
+            .branches
             .iter()
             .position(|b| b.is_head)
-            .or(self.branch)
+            .or(self.history.branch)
             .map(BranchRow::Branch)
     }
 
@@ -536,6 +507,7 @@ impl Workspace {
                 .into_any_element(),
             );
             let local: Vec<usize> = self
+                .history
                 .branches
                 .iter()
                 .enumerate()
@@ -591,6 +563,7 @@ impl Workspace {
             }
         }
         let local = self
+            .history
             .branches
             .iter()
             .filter(|b| b.kind == RefKind::Local)
@@ -598,6 +571,7 @@ impl Workspace {
         let alone = !filtering && local == 1 && self.wt.count == 0;
         let preview = if alone {
             let name = self
+                .history
                 .branches
                 .iter()
                 .find(|b| b.kind == RefKind::Local)
@@ -667,6 +641,7 @@ impl Workspace {
     ) -> impl IntoElement + use<> {
         let room = self.widths.room("branches");
         let head_name = self
+            .history
             .branches
             .iter()
             .find(|b| b.is_head)
@@ -725,7 +700,7 @@ impl Workspace {
                     ("branch-row-wt".into(), "files", line1, line2)
                 }
                 BranchRow::Branch(ix) => {
-                    let b = &self.branches[ix];
+                    let b = &self.history.branches[ix];
                     let name = match (b.kind, flat) {
                         (RefKind::Remote, false) => {
                             b.name.split_once('/').map_or(b.name.as_str(), |(_, n)| n)
@@ -927,6 +902,7 @@ impl Workspace {
     /// The working tree picked: what is not committed, read only, and the way to its diff.
     fn tree_preview(&self, cx: &mut Context<Self>) -> Div {
         let head = self
+            .history
             .branches
             .iter()
             .find(|b| b.is_head)
@@ -1044,7 +1020,7 @@ impl Workspace {
 
     /// A branch picked: its last commit, how far it is from the main line, its request, Open.
     fn branch_preview(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
-        let Some(b) = self.branches.get(ix) else {
+        let Some(b) = self.history.branches.get(ix) else {
             return div().into_any_element();
         };
         let fact = self.roots.facts.get(&b.refname);

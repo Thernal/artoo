@@ -276,8 +276,8 @@ impl Workspace {
 
     /// The working tree entry above the commits counts as the row before the first commit.
     fn step_commit_row(&mut self, down: bool, cx: &mut Context<Self>) {
-        let has_wt = self.wt.count > 0 || self.selection == Selection::WorkingTree;
-        match (self.selection, down) {
+        let has_wt = self.wt.count > 0 || self.history.selection == Selection::WorkingTree;
+        match (self.history.selection, down) {
             (Selection::WorkingTree, true) if self.commit_rows() > 0 => {
                 self.select_commit(self.commit_at(0), cx)
             }

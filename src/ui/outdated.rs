@@ -13,7 +13,7 @@ use gpui::{AnyElement, App, Context, div, prelude::*};
 impl Workspace {
     /// The timeline's last version: what an outdated discussion's is compared with.
     pub(super) fn latest_version(&self) -> Option<usize> {
-        self.versions.last().map(|v| v.number)
+        self.history.versions.last().map(|v| v.number)
     }
 
     /// Follows the line of every discussion written on an earlier version to the latest
@@ -40,7 +40,7 @@ impl Workspace {
         else {
             return;
         };
-        let Some(latest) = self.versions.last().map(|v| v.number) else {
+        let Some(latest) = self.history.versions.last().map(|v| v.number) else {
             return;
         };
         let stops = h.stops(t.new_line.or(t.old_line), latest);
@@ -60,7 +60,12 @@ impl Workspace {
         let Some(since) = self.since.clone() else {
             return;
         };
-        let index = |number: usize| self.versions.iter().position(|v| v.number == number);
+        let index = |number: usize| {
+            self.history
+                .versions
+                .iter()
+                .position(|v| v.number == number)
+        };
         let (Some(&(va, la)), Some(&(vb, lb))) = (since.stops.get(a), since.stops.get(b)) else {
             return;
         };
@@ -74,7 +79,7 @@ impl Workspace {
             rv.jump_line = at;
             rv.jump_whole = at.is_some();
         });
-        self.version_tab = super::VersionTab::Files;
+        self.history.version_tab = super::VersionTab::Files;
         self.load_versions(from, to, Some(since.path.clone()), cx);
     }
 
@@ -84,10 +89,10 @@ impl Workspace {
         let Some(since) = self.since.as_ref().filter(|s| s.path == path) else {
             return Vec::new();
         };
-        let Selection::Versions { from, to } = self.selection else {
+        let Selection::Versions { from, to } = self.history.selection else {
             return Vec::new();
         };
-        let number = |i: usize| self.versions.get(i).map(|v| v.number);
+        let number = |i: usize| self.history.versions.get(i).map(|v| v.number);
         let stop = |n: Option<usize>| since.stops.iter().find(|(v, _)| Some(*v) == n);
         let (Some(&(_, a)), Some(&(_, b))) = (stop(number(from)), stop(number(to))) else {
             return Vec::new();
@@ -108,12 +113,12 @@ impl Workspace {
     /// comment's line, and the way back to all changes.
     pub(super) fn render_since_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let since = self.since.as_ref()?;
-        let Selection::Versions { from, to } = self.selection else {
+        let Selection::Versions { from, to } = self.history.selection else {
             return None;
         };
         let shown = (
-            self.versions.get(from)?.number,
-            self.versions.get(to)?.number,
+            self.history.versions.get(from)?.number,
+            self.history.versions.get(to)?.number,
         );
         let last = since.stops.len() - 1;
         let mut pairs = vec![(0, last)];

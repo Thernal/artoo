@@ -12,7 +12,7 @@ impl Workspace {
     fn create_here(&self) -> Option<Here<'_>> {
         Some(Here {
             root: self.root.as_deref()?,
-            branches: &self.branches,
+            branches: &self.history.branches,
             github: self.on_github(),
         })
     }
@@ -31,8 +31,8 @@ impl Workspace {
             return cx.notify();
         }
         let Some(branch) = ix
-            .or(self.branch)
-            .and_then(|i| self.branches.get(i))
+            .or(self.history.branch)
+            .and_then(|i| self.history.branches.get(i))
             .cloned()
         else {
             return;
@@ -132,7 +132,7 @@ impl Workspace {
 
     /// ↑ ↓ on From's or Into's list (`Requests::step_branch_list`).
     pub(super) fn step_branch_list(&mut self, down: bool, cx: &mut Context<Self>) -> bool {
-        let branches = &self.branches;
+        let branches = &self.history.branches;
         let took = self
             .requests
             .update(cx, |rq, _| rq.step_branch_list(branches, down));
@@ -212,7 +212,7 @@ impl Workspace {
             base: self.web.as_ref().map(|w| w.base.clone()),
             selecting: Some(self.selecting(cx.entity().downgrade())),
             totals: self.create_totals(cx),
-            branches: &self.branches,
+            branches: &self.history.branches,
         }
     }
 

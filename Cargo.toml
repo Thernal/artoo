@@ -84,6 +84,7 @@ artoo-requests = { path = "crates/requests" }
 artoo-requests-api = { path = "crates/requests-api" }
 artoo-review = { path = "crates/review" }
 artoo-review-api = { path = "crates/review-api" }
+artoo-branches = { path = "crates/branches" }
 artoo-ui-kit = { path = "crates/ui-kit" }
 anyhow.workspace = true
 imagesize.workspace = true

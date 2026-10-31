@@ -46,6 +46,8 @@ const OPEN: &[&str] = &[
     "artoo-review",
     // Merge requests (stage 4, R5): the app's views read the state it keeps until they move into it.
     "artoo-requests",
+    // Branches (stage 4, B): the app's views read the history it keeps until they move into it.
+    "artoo-branches",
 ];
 
 /// The `artoo-*` crates `manifest` depends on, its dev-dependencies left out.

@@ -99,7 +99,7 @@ impl Workspace {
     /// The request whose source branch is branch `ix` (`feat/x` and `origin/feat/x` alike), or
     /// whose head it is.
     pub(super) fn request_of_branch<'a>(&self, ix: usize, cx: &'a App) -> Option<&'a Mr> {
-        let b = self.branches.get(ix)?;
+        let b = self.history.branches.get(ix)?;
         let name = match b.kind {
             RefKind::Remote => b.name.split_once('/').map_or(b.name.as_str(), |(_, n)| n),
             RefKind::Local => b.name.as_str(),
@@ -145,7 +145,7 @@ impl Workspace {
         use artoo_requests::requests::Event;
         match event {
             Event::Listed => {
-                if let Some(ix) = self.branch {
+                if let Some(ix) = self.history.branch {
                     self.sync_request(ix, cx);
                 }
                 self.requests_listed(cx);
@@ -201,7 +201,7 @@ impl Workspace {
                         .requests
                         .read(cx)
                         .find(*iid)
-                        .zip(self.branches.get(ix))
+                        .zip(self.history.branches.get(ix))
                         .is_some_and(|(m, b)| {
                             m.state != mr::MrState::Opened && b.tip.to_string() == m.head
                         })
@@ -248,11 +248,12 @@ impl Workspace {
             self.remember_place(super::recents::Key::Request(iid), label, detail);
         }
         let pick = |name: &str| {
-            let remote = self.branches.iter().position(|b| {
+            let remote = self.history.branches.iter().position(|b| {
                 b.kind == RefKind::Remote && b.name.split_once('/').is_some_and(|(_, n)| n == name)
             });
             remote.or_else(|| {
-                self.branches
+                self.history
+                    .branches
                     .iter()
                     .position(|b| b.kind == RefKind::Local && b.name == name)
             })
@@ -265,10 +266,11 @@ impl Workspace {
         let found = pick(&source)
             // A merged or closed one's branch may have moved on since.
             .filter(|&ix| {
-                m.state == mr::MrState::Opened || self.branches[ix].tip.to_string() == m.head
+                m.state == mr::MrState::Opened
+                    || self.history.branches[ix].tip.to_string() == m.head
             })
             .or_else(|| github.then(|| pick(&format!("pr/{iid}"))).flatten())
-            .or_else(|| self.branches.iter().position(|b| b.refname == head));
+            .or_else(|| self.history.branches.iter().position(|b| b.refname == head));
         let Some(src) = found else {
             // Not here: its head is fetched from the host, once, and then it opens (#114).
             if self
@@ -297,7 +299,12 @@ impl Workspace {
         // Its page now, before the branch it is read from replaces what is loaded (#71).
         self.arrive(super::nav::Page::Request(iid), cx);
         if let Some(tgt) = tgt {
-            let side = |ix: usize| (self.branches[ix].name.clone(), self.branches[ix].tip);
+            let side = |ix: usize| {
+                (
+                    self.history.branches[ix].name.clone(),
+                    self.history.branches[ix].tip,
+                )
+            };
             let mut base = side(tgt);
             // Merged: the target as it was, the merge commit's first parent, so the diff is what
             // the request brought, not empty.
@@ -343,7 +350,7 @@ impl Workspace {
                 this.toast_over(&news, cx);
                 match read {
                     Ok(branches) => {
-                        this.branches = branches;
+                        this.history.branches = branches;
                         this.select_request(iid, cx);
                     }
                     Err(e) => {
@@ -374,7 +381,7 @@ impl Workspace {
     pub(super) fn drop_request(&mut self, cx: &mut Context<Self>) {
         self.open_request = None;
         self.pending_compare = None;
-        if let Some(ix) = self.branch {
+        if let Some(ix) = self.history.branch {
             self.sync_request(ix, cx);
         }
     }
@@ -441,14 +448,14 @@ impl Workspace {
         next_to_review(&open, at).map(|ix| shown[ix].clone())
     }
 
-    /// After branch `self.branch` in the branch list, the next branch of the same kind (local or
+    /// After branch `self.history.branch` in the branch list, the next branch of the same kind (local or
     /// remote) whose review is not done, going round; never the checked-out one.
     fn next_unreviewed_branch(&self, cx: &App) -> Option<usize> {
-        let at = self.branch?;
-        let kind = self.branches.get(at)?.kind;
-        let n = self.branches.len();
+        let at = self.history.branch?;
+        let kind = self.history.branches.get(at)?.kind;
+        let n = self.history.branches.len();
         (1..n).map(|step| (at + step) % n).find(|&ix| {
-            let b = &self.branches[ix];
+            let b = &self.history.branches[ix];
             b.kind == kind && !b.is_head && !self.review.read(cx).head_reviewed(b.tip)
         })
     }
@@ -470,7 +477,7 @@ impl Workspace {
                 .map(|m| (format!("Next: !{} {}", m.iid, m.title), Err(m.iid))),
             None => self
                 .next_unreviewed_branch(cx)
-                .map(|ix| (format!("Next: {}", self.branches[ix].name), Ok(ix))),
+                .map(|ix| (format!("Next: {}", self.history.branches[ix].name), Ok(ix))),
         };
         let button = |id: &'static str, label: String, key: &'static str, primary: bool| {
             div()
@@ -657,18 +664,18 @@ impl Workspace {
                 }
                 self.open_request = Some((base.clone(), head.clone(), iid));
                 // The Commits tab is read again; a commit or a run picked in it stays picked.
-                let id = |ix: usize| self.commits.get(ix).map(|c| c.id);
-                let picked = match self.selection {
+                let id = |ix: usize| self.history.commits.get(ix).map(|c| c.id);
+                let picked = match self.history.selection {
                     Selection::Commit(ix) => id(ix).map(|a| (a, a)),
                     Selection::Commits { newest, oldest } => id(newest).zip(id(oldest)),
                     _ => None,
                 };
                 self.show_request_commits(&base, &head);
-                let at = |id: git2::Oid| self.commits.iter().position(|c| c.id == id);
+                let at = |id: git2::Oid| self.history.commits.iter().position(|c| c.id == id);
                 if let Some((a, b)) = picked
                     && let (Some(a), Some(b)) = (at(a), at(b))
                 {
-                    self.selection = match self.selection {
+                    self.history.selection = match self.history.selection {
                         Selection::Commit(_) => Selection::Commit(a),
                         _ => Selection::Commits {
                             newest: a,
@@ -679,7 +686,7 @@ impl Workspace {
                 let whole = self.request_loaded(iid, cx)
                     || (self.review.read(cx).diff.is_none()
                         && self.nav_page() == Some(&Page::Request(iid)));
-                if self.selection == Selection::None && whole {
+                if self.history.selection == Selection::None && whole {
                     self.run_compare(base, head, true, Some(iid), cx);
                 }
                 cx.notify();
@@ -729,12 +736,12 @@ impl Workspace {
                 match read {
                     Ok(branches) => {
                         let open = this
-                            .branch
-                            .and_then(|ix| this.branches.get(ix))
+                            .history.branch
+                            .and_then(|ix| this.history.branches.get(ix))
                             .map(|b| b.refname.clone());
-                        this.branches = branches;
-                        this.branch =
-                            open.and_then(|r| this.branches.iter().position(|b| b.refname == r));
+                        this.history.branches = branches;
+                        this.history.branch =
+                            open.and_then(|r| this.history.branches.iter().position(|b| b.refname == r));
                         this.follow_host_sides(iid, cx);
                     }
                     Err(e) => {
@@ -760,7 +767,7 @@ impl Workspace {
             && *for_iid == iid
             && list.len() > 1
         {
-            self.versions = list.clone();
+            self.history.versions = list.clone();
         }
     }
 
@@ -770,8 +777,8 @@ impl Workspace {
             return;
         };
         if let Ok(list) = Repo::open(&root).and_then(|r| r.range_log(base.1, head.1, true)) {
-            self.commits = list;
-            self.older = None;
+            self.history.commits = list;
+            self.history.older = None;
             self.refilter();
         }
     }

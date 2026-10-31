@@ -7,7 +7,8 @@
 use super::hover::{CutInTip, Hover};
 use super::nav::Page;
 use super::{Diff, Header, Selection, Workspace, format, icons, px, row, theme};
-use crate::git::{CommitInfo, Repo};
+use crate::git::Repo;
+use artoo_branches::compare::{CompareCommits, Sides};
 use gpui::{AnyElement, ClickEvent, Context, div, prelude::*};
 use std::sync::Arc;
 
@@ -16,75 +17,45 @@ const ROWS: usize = 8;
 /// A row's height.
 const ROW: f32 = 28.;
 
-/// A comparison's own commits, read with it.
-pub(super) struct CompareCommits {
-    /// The comparison they are of, as its page names it.
-    pub page: Page,
-    /// Newest first; None while they are read.
-    pub list: Option<Vec<CommitInfo>>,
-    /// The run whose diff is shown — the newest's index and the oldest's —; None the whole.
-    pub picked: Option<(usize, usize)>,
-    /// Where a ⇧-click's run starts: the commit clicked last.
-    anchor: Option<usize>,
-}
-
-impl CompareCommits {
-    /// The commits picked, newest first.
-    fn picked_ids(&self) -> Option<(git2::Oid, git2::Oid)> {
-        let (newest, oldest) = self.picked?;
-        let list = self.list.as_ref()?;
-        Some((list.get(newest)?.id, list.get(oldest)?.id))
-    }
-}
-
 impl Workspace {
     /// The comparison's commits, while its page is on screen and they are read.
     pub(super) fn shown_compare(&self) -> Option<&CompareCommits> {
-        self.compare_commits
+        self.history
+            .compare
             .as_ref()
             .filter(|c| c.list.as_ref().is_some_and(|l| !l.is_empty()))
-            .filter(|c| self.nav_page() == Some(&c.page))
+            .filter(|c| is_page(&c.of, self.nav_page()))
     }
 
     /// The comparison's page while a run of its commits narrows its diff.
-    pub(super) fn narrowed_compare(&self) -> Option<&Page> {
+    pub(super) fn narrowed_compare(&self) -> Option<Page> {
         self.shown_compare()
-            .filter(|c| c.picked.is_some() && self.selection == Selection::None)
-            .map(|c| &c.page)
+            .filter(|c| c.picked.is_some() && self.history.selection == Selection::None)
+            .map(|c| Page::Compare(c.of.0.clone(), c.of.1.clone(), c.of.2))
     }
 
     /// A comparison of `page` shown whole: its commits are read, unless they are these already
     /// (esc back from a pick); none picked. Any other diff (`None`) has none.
     pub(super) fn read_compare_commits(&mut self, page: Option<Page>, cx: &mut Context<Self>) {
-        let sides = match &page {
-            Some(Page::Compare(base, head, since)) => Some((base.1, head.1, *since)),
-            _ => None,
-        };
-        let (Some(page), Some((base, head, since)), Some(root)) = (page, sides, self.root.clone())
-        else {
-            self.compare_commits = None;
+        let (Some(Page::Compare(base, head, since)), Some(root)) = (page, self.root.clone()) else {
+            self.history.compare = None;
             return;
         };
-        if let Some(c) = self.compare_commits.as_mut().filter(|c| c.page == page) {
+        let of = (base, head, since);
+        if let Some(c) = self.history.compare.as_mut().filter(|c| c.of == of) {
             c.picked = None;
             return;
         }
-        self.compare_commits = Some(CompareCommits {
-            page: page.clone(),
-            list: None,
-            picked: None,
-            anchor: None,
-        });
+        let (from, to) = (of.0.1, of.1.1);
+        self.history.compare = Some(CompareCommits::of(of.clone()));
         cx.spawn(async move |this, cx| {
             let list = cx
                 .background_executor()
-                .spawn(
-                    async move { Repo::open(&root).and_then(|r| r.range_log(base, head, since)) },
-                )
+                .spawn(async move { Repo::open(&root).and_then(|r| r.range_log(from, to, since)) })
                 .await
                 .unwrap_or_default();
             this.update(cx, |this, cx| {
-                if let Some(c) = this.compare_commits.as_mut().filter(|c| c.page == page) {
+                if let Some(c) = this.history.compare.as_mut().filter(|c| c.of == of) {
                     c.list = Some(list);
                     cx.notify();
                 }
@@ -96,23 +67,17 @@ impl Workspace {
 
     /// A click on commit `ix`: its diff alone; with ⇧ the run from the one clicked last to it.
     pub(super) fn pick_compare_commit(&mut self, ix: usize, span: bool, cx: &mut Context<Self>) {
-        let Some(c) = self.compare_commits.as_mut() else {
+        let Some(c) = self.history.compare.as_mut() else {
             return;
         };
-        c.picked = Some(run_to(c.anchor, ix, span));
-        if !span || c.anchor.is_none() {
-            c.anchor = Some(ix);
-        }
+        c.pick(ix, span);
         let keep = self.review.read(cx).current_path();
         self.load_compare_pick(keep, cx);
     }
 
     /// ↑ ↓ in the comparison's commits: the one above or below the one picked.
     pub(super) fn step_compare_pick(&mut self, down: bool, cx: &mut Context<Self>) {
-        let Some(to) = self
-            .shown_compare()
-            .and_then(|c| step_to(c.picked, down, c.list.as_ref().map_or(0, Vec::len)))
-        else {
+        let Some(to) = self.shown_compare().and_then(|c| c.step(down)) else {
             return;
         };
         self.pick_compare_commit(to, false, cx);
@@ -125,7 +90,7 @@ impl Workspace {
     pub(super) fn load_compare_pick(&mut self, keep: Option<String>, cx: &mut Context<Self>) {
         let (Some(root), Some((newest, oldest))) = (
             self.root.clone(),
-            self.compare_commits.as_ref().and_then(|c| c.picked_ids()),
+            self.history.compare.as_ref().and_then(|c| c.picked_ids()),
         ) else {
             return;
         };
@@ -161,7 +126,7 @@ impl Workspace {
 
     /// esc or the pill's ×: the whole comparison again. Whether a run was picked.
     pub(super) fn unpick_compare(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(Page::Compare(base, head, since)) = self.narrowed_compare().cloned() else {
+        let Some(Page::Compare(base, head, since)) = self.narrowed_compare() else {
             return false;
         };
         self.run_compare(base, head, since, None, cx);
@@ -171,7 +136,7 @@ impl Workspace {
     /// The title of a comparison narrowed to one of its commits: the commit's subject.
     pub(super) fn compare_title(&self) -> Option<String> {
         self.narrowed_compare()?;
-        let c = self.compare_commits.as_ref()?;
+        let c = self.history.compare.as_ref()?;
         match c.picked? {
             (newest, oldest) if newest == oldest => {
                 Some(c.list.as_ref()?.get(newest)?.summary.clone())
@@ -229,7 +194,8 @@ impl Workspace {
 
     fn render_compare_row(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
         let Some((c, info)) = self
-            .compare_commits
+            .history
+            .compare
             .as_ref()
             .and_then(|c| Some((c, c.list.as_ref()?.get(ix)?)))
         else {
@@ -288,7 +254,7 @@ impl Workspace {
     /// Over the narrowed diff: "a41f9c0 only" (a run its ends), its × the whole comparison.
     pub(super) fn render_compare_only(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         self.narrowed_compare()?;
-        let (newest, oldest) = self.compare_commits.as_ref()?.picked_ids()?;
+        let (newest, oldest) = self.history.compare.as_ref()?.picked_ids()?;
         let what = if newest == oldest {
             format::short(newest)
         } else {
@@ -334,49 +300,7 @@ impl Workspace {
     }
 }
 
-/// The run a click on `ix` picks — the newest's index and the oldest's —: with ⇧ from `anchor`,
-/// the one clicked last, to it; else it alone.
-fn run_to(anchor: Option<usize>, ix: usize, span: bool) -> (usize, usize) {
-    match (span, anchor) {
-        (true, Some(at)) => (at.min(ix), at.max(ix)),
-        _ => (ix, ix),
-    }
-}
-
-/// ↑ ↓ from the run `picked` in a list of `len`, newest first: the one commit to pick — the first
-/// when none is, the one past the run's end the key points to, which stops at the list's ends.
-fn step_to(picked: Option<(usize, usize)>, down: bool, len: usize) -> Option<usize> {
-    let last = len.checked_sub(1)?;
-    match (picked, down) {
-        (None, true) => Some(0),
-        (None, false) => None,
-        (Some((newest, _)), false) => Some(newest.saturating_sub(1)),
-        (Some((_, oldest)), true) => Some((oldest + 1).min(last)),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_click_picks_one_and_a_shift_click_the_run_from_the_last_one() {
-        assert_eq!(run_to(None, 2, false), (2, 2));
-        assert_eq!(run_to(Some(1), 3, false), (3, 3));
-        // Newest first: the run's newest is the smaller index, whichever was clicked first.
-        assert_eq!(run_to(Some(1), 3, true), (1, 3));
-        assert_eq!(run_to(Some(3), 1, true), (1, 3));
-        assert_eq!(run_to(None, 2, true), (2, 2));
-    }
-
-    #[test]
-    fn the_arrows_pick_the_next_commit_past_the_run() {
-        assert_eq!(step_to(None, true, 5), Some(0));
-        assert_eq!(step_to(None, false, 5), None);
-        assert_eq!(step_to(Some((1, 3)), true, 5), Some(4));
-        assert_eq!(step_to(Some((1, 3)), false, 5), Some(0));
-        assert_eq!(step_to(Some((4, 4)), true, 5), Some(4));
-        assert_eq!(step_to(Some((0, 0)), false, 5), Some(0));
-        assert_eq!(step_to(None, true, 0), None);
-    }
+/// Whether `page` is the comparison `of`.
+fn is_page(of: &Sides, page: Option<&Page>) -> bool {
+    matches!(page, Some(Page::Compare(base, head, since)) if (base, head, since) == (&of.0, &of.1, &of.2))
 }

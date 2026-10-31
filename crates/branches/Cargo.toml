@@ -1,0 +1,12 @@
+[package]
+name = "artoo-branches"
+description = "Branches (#165 stage 4): what the tab keeps of the repository's branches — the branch open, its commits and versions and what is picked of them, a comparison's commits, the working tree and the Branches list's facts."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+artoo-core = { path = "../core" }
+git2.workspace = true
+gpui.workspace = true

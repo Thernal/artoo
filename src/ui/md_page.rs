@@ -268,9 +268,12 @@ impl Workspace {
 
     /// The column heads of Split: the versions compared.
     fn page_heads(&self) -> (String, String) {
-        match self.selection {
+        match self.history.selection {
             Selection::Versions { from, to } => {
-                match (self.versions.get(from), self.versions.get(to)) {
+                match (
+                    self.history.versions.get(from),
+                    self.history.versions.get(to),
+                ) {
                     (Some(a), Some(b)) => (
                         format!("v{} · before", a.number),
                         format!("v{} · now", b.number),
@@ -279,7 +282,7 @@ impl Workspace {
                 }
             }
             Selection::WorkingTree => ("HEAD · before".into(), "Working tree · now".into()),
-            Selection::Commit(ix) => match self.commits.get(ix) {
+            Selection::Commit(ix) => match self.history.commits.get(ix) {
                 Some(c) => {
                     let sha = super::format::short(c.id);
                     (format!("{sha}^ · before"), format!("{sha} · now"))
@@ -287,7 +290,10 @@ impl Workspace {
                 None => ("Before".into(), "After".into()),
             },
             Selection::Commits { newest, oldest } => {
-                match (self.commits.get(oldest), self.commits.get(newest)) {
+                match (
+                    self.history.commits.get(oldest),
+                    self.history.commits.get(newest),
+                ) {
                     (Some(a), Some(b)) => (
                         format!("{}^ · before", super::format::short(a.id)),
                         format!("{} · now", super::format::short(b.id)),

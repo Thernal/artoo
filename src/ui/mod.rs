@@ -81,9 +81,11 @@ mod welcome;
 mod working;
 mod zones;
 
-use crate::git::{BranchRef, CommitInfo, DiffSettings, FileDiff, PairKind, Repo, Version};
+use crate::git::{DiffSettings, FileDiff, PairKind, Repo};
 use crate::rows::{self, Row};
 use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
+use artoo_branches::history::{History, NamedTip, Older, Selection, VersionTab};
+use artoo_branches::working::WorkingState;
 use artoo_review::diff::{Diff, Header, Notice};
 use artoo_review::diff_view::{self, CODE_SIZE, change_color, file_tag};
 use artoo_review::review::{self, Opt};
@@ -247,11 +249,6 @@ actions!(
 /// How much of a branch's history is read at first; more is read as the list is scrolled (#25).
 const COMMIT_PAGE: usize = 1000;
 
-/// More of a branch's history to read past the commits listed, from `tip` (#25).
-struct Older {
-    tip: git2::Oid,
-    task: Option<Task<()>>,
-}
 /// The most a file shown alone in zen is wide: a reading width (#55).
 const READING_WIDTH: f32 = 1100.;
 const TITLE_BAR: f32 = 38.;
@@ -744,6 +741,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         if let Ok(prefix) = std::env::var("ARTOO_SNAPSHOT_COMMIT") {
             ws.update(cx, |this, cx| {
                 let found = this
+                    .history
                     .commits
                     .iter()
                     .position(|c| c.id.to_string().starts_with(&prefix));
@@ -994,7 +992,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         // The right clicks that copy a link (#162): the branch checked out, the
                         // newest commit, a request.
                         "branchmenu" => {
-                            if let Some(ix) = this.branches.iter().position(|b| b.is_head) {
+                            if let Some(ix) = this.history.branches.iter().position(|b| b.is_head) {
                                 this.branch_context(ix, Point::new(px(420.), px(160.)), cx);
                             }
                             continue;
@@ -1236,8 +1234,8 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         }
         if versions {
             ws.update(cx, |this, cx| {
-                if this.versions.len() > 1 {
-                    this.select_versions(0, this.versions.len() - 1, cx);
+                if this.history.versions.len() > 1 {
+                    this.select_versions(0, this.history.versions.len() - 1, cx);
                 }
             });
             wait(1500).await;
@@ -1473,44 +1471,8 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
     .detach();
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Selection {
-    None,
-    Commit(usize),
-    /// A run of the list's commits as one diff: the newest's index and the oldest's.
-    Commits {
-        newest: usize,
-        oldest: usize,
-    },
-    Versions {
-        from: usize,
-        to: usize,
-    },
-    WorkingTree,
-}
-
-/// A ref's name and the commit it points at.
-type NamedTip = (String, git2::Oid);
 /// Base, head and merge request of a diff to show.
 type PendingCompare = (NamedTip, NamedTip, u64);
-
-/// The working tree's count and fingerprint, polled while a repository is open.
-#[derive(Default)]
-struct WorkingState {
-    count: usize,
-    hash: u64,
-    only_unstaged: bool,
-    task: Option<gpui::Task<()>>,
-    /// What the file system says changed, so the poll asks git only then (#87).
-    changes: Option<Rc<crate::fswatch::Changes>>,
-}
-
-/// What the version comparison shows: the files that changed, or the commits paired up.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum VersionTab {
-    Files,
-    Commits,
-}
 
 /// A pane boundary that can be dragged.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1586,12 +1548,8 @@ pub struct Workspace {
     /// The pending comment ⌥N / ⌥P is on.
     draft_at: Option<usize>,
     title: String,
-    branches: Vec<BranchRef>,
-    branch: Option<usize>,
-    /// The loaded branch's page: its main line, how far from it, where it is pushed (#74).
-    branch_page: Option<branch_page::Facts>,
-    /// A comparison's own commits, and the run of them its diff is narrowed to (#21).
-    compare_commits: Option<compare::CompareCommits>,
+    /// The branch open, its commits and versions, what the diff shows of them (`artoo_branches`).
+    history: History,
     /// What the tab's features offer one another (`Frame::services`): Code among them (#165).
     services: Rc<artoo_shell_api::Services>,
     /// The project is a plain folder, not a git repository: Code is all it has (#75).
@@ -1599,12 +1557,6 @@ pub struct Workspace {
     /// The project's main working tree: where its notes for the agents are kept, whatever
     /// worktree is open (#77).
     project: Option<PathBuf>,
-    versions: Vec<Version>,
-    commits: Vec<CommitInfo>,
-    /// None: `commits` is all the history there is to list.
-    older: Option<Older>,
-    selection: Selection,
-    version_tab: VersionTab,
     palette: Option<palette::Palette>,
     zone: zones::Zone,
     wt: WorkingState,
@@ -1661,8 +1613,8 @@ pub struct Workspace {
     agent_setup: Option<String>,
     agent_setup_busy: bool,
     requests: gpui::Entity<requests::Requests>,
-    /// What the roots of Branches and Merge requests read for their rows and previews (#72).
-    roots: roots::Roots,
+    /// What the Branches list reads for its rows and previews (#72).
+    roots: artoo_branches::roots::Roots,
     /// The menu's scroll (#146).
     places: spaces::Places,
     /// A merge request's diff to show once its branch has loaded: base, head, request.
@@ -1801,7 +1753,6 @@ pub struct Workspace {
     compare_scroll: UniformListScrollHandle,
     // Replacing a task drops, and so cancels, the one it replaces.
     repo_task: Option<Task<()>>,
-    branch_task: Option<Task<()>>,
 }
 
 impl Workspace {
@@ -1932,18 +1883,10 @@ impl Workspace {
             agent_setup_busy: false,
             notices: Default::default(),
             title: String::new(),
-            branches: Vec::new(),
-            branch: None,
-            branch_page: None,
-            compare_commits: None,
+            history: History::default(),
             services: services.clone(),
             plain: false,
             project: None,
-            versions: Vec::new(),
-            commits: Vec::new(),
-            older: None,
-            selection: Selection::None,
-            version_tab: VersionTab::Files,
             palette: None,
             zone: zones::Zone::default(),
             wt: WorkingState::default(),
@@ -2028,7 +1971,6 @@ impl Workspace {
             commit_scroll: UniformListScrollHandle::new(),
             compare_scroll: UniformListScrollHandle::new(),
             repo_task: None,
-            branch_task: None,
         };
         // The tab's review as its pages ask it, the tab as Code's host.
         services.set(artoo_review::file_view::file_view(&review));
@@ -2129,13 +2071,13 @@ impl Workspace {
                         this.root = Some(root);
                         // Once the root is this repository's: it reads whether fetch is off for it (#141).
                         this.start_fetching(cx);
-                        this.branches = branches;
+                        this.history.branches = branches;
                         let refresh = keep.is_some();
                         let (refname, commit) = keep.unzip();
                         let ix = refname
-                            .and_then(|r| this.branches.iter().position(|b| b.refname == r))
-                            .or_else(|| this.branches.iter().position(|b| b.is_head))
-                            .or((!this.branches.is_empty()).then_some(0));
+                            .and_then(|r| this.history.branches.iter().position(|b| b.refname == r))
+                            .or_else(|| this.history.branches.iter().position(|b| b.is_head))
+                            .or((!this.history.branches.is_empty()).then_some(0));
                         this.clear_branch(cx);
                         if !refresh {
                             // Opened: the space and pages it was left on (#71).
@@ -2192,7 +2134,7 @@ impl Workspace {
         }
         self.review.update(cx, |rv, _| rv.root = Some(root.clone()));
         self.root = Some(root);
-        self.branches.clear();
+        self.history.branches.clear();
         self.clear_branch(cx);
         self.nav = nav::Nav::default();
         self.show(spaces::Space::Code, None, cx);
@@ -2200,37 +2142,37 @@ impl Workspace {
 
     fn clear_branch(&mut self, cx: &mut App) {
         self.watch.forget();
-        self.branch = None;
-        self.branch_page = None;
-        self.versions.clear();
-        self.commits.clear();
-        self.older = None;
+        self.history.branch = None;
+        self.history.page = None;
+        self.history.versions.clear();
+        self.history.commits.clear();
+        self.history.older = None;
         self.clear_diff(cx);
     }
 
     fn clear_diff(&mut self, cx: &mut App) {
         self.body_expanded = false;
-        self.selection = Selection::None;
+        self.history.selection = Selection::None;
         self.review.update(cx, |rv, _| rv.clear());
     }
 
     fn select_branch(&mut self, ix: usize, keep: Option<git2::Oid>, cx: &mut Context<Self>) {
         self.open_request = None;
         self.sync_request(ix, cx);
-        let (Some(root), Some(branch)) = (self.root.clone(), self.branches.get(ix)) else {
+        let (Some(root), Some(branch)) = (self.root.clone(), self.history.branches.get(ix)) else {
             return;
         };
         let (refname, name, tip) = (branch.refname.clone(), branch.name.clone(), branch.tip);
         self.clear_branch(cx);
-        self.branch = Some(ix);
-        self.branch_task = Some(cx.spawn(async move |this, cx| {
+        self.history.branch = Some(ix);
+        self.history.task = Some(cx.spawn(async move |this, cx| {
             let loaded = cx
                 .background_executor()
                 .spawn(async move {
                     let repo = Repo::open(&root)?;
                     // A ref without a reflog simply has no earlier versions.
                     let versions = repo.versions(&refname).unwrap_or_default();
-                    let facts = branch_page::Facts::read(&repo, &refname, &name, tip);
+                    let facts = artoo_branches::facts::Facts::read(&repo, &refname, &name, tip);
                     // A branch off the main line lists its own commits (#74).
                     let own = facts
                         .base
@@ -2244,10 +2186,10 @@ impl Workspace {
                 .await;
             this.update(cx, |this, cx| {
                 // Read: the commits list stops shimmering.
-                this.branch_task = None;
+                this.history.task = None;
                 match loaded {
                     Ok((versions, commits, facts, own)) => {
-                        this.versions = versions;
+                        this.history.versions = versions;
                         // Its page shows the branch against the main line, unless a commit of it
                         // or a request on it is what was asked for.
                         let tabbed = own.is_some()
@@ -2255,22 +2197,22 @@ impl Workspace {
                             && keep.is_none_or(|id| {
                                 own.as_ref().is_some_and(|o| o.iter().any(|c| c.id == id))
                             });
-                        this.commits = match own {
+                        this.history.commits = match own {
                             Some(own) if tabbed => own,
                             _ => {
                                 let more = commits.len() >= COMMIT_PAGE;
-                                this.older = more.then_some(Older { tip, task: None });
+                                this.history.older = more.then_some(Older { tip, task: None });
                                 commits
                             }
                         };
-                        this.branch_page = Some(branch_page::Facts {
+                        this.history.page = Some(artoo_branches::facts::Facts {
                             base: facts.base.filter(|_| tabbed),
                             ..facts
                         });
                         this.refilter();
                         this.index_paths(cx);
                         let ix = keep
-                            .and_then(|id| this.commits.iter().position(|c| c.id == id))
+                            .and_then(|id| this.history.commits.iter().position(|c| c.id == id))
                             .unwrap_or(0);
                         if tabbed && keep.is_none() {
                             if !this.finish_pending(cx) {
@@ -2281,7 +2223,7 @@ impl Workspace {
                             cx.notify();
                             return;
                         }
-                        if !this.commits.is_empty() {
+                        if !this.history.commits.is_empty() {
                             this.select_commit(ix, cx);
                         }
                         if let Some((base, head, iid)) = this.pending_compare.take() {
@@ -2314,11 +2256,12 @@ impl Workspace {
 
     /// Shows commit `ix`; `keep` re-selects a file by path.
     fn load_commit(&mut self, ix: usize, keep: Option<String>, cx: &mut Context<Self>) {
-        let (Some(root), Some(commit)) = (self.root.clone(), self.commits.get(ix).cloned()) else {
+        let (Some(root), Some(commit)) = (self.root.clone(), self.history.commits.get(ix).cloned())
+        else {
             return;
         };
         self.clear_diff(cx);
-        self.selection = Selection::Commit(ix);
+        self.history.selection = Selection::Commit(ix);
         self.record(cx);
         self.remember_place(
             recents::Key::Commit(commit.id),
@@ -2361,13 +2304,13 @@ impl Workspace {
         }
         let (Some(root), Some(head), Some(tail)) = (
             self.root.clone(),
-            self.commits.get(newest).map(|c| c.id),
-            self.commits.get(oldest).map(|c| c.id),
+            self.history.commits.get(newest).map(|c| c.id),
+            self.history.commits.get(oldest).map(|c| c.id),
         ) else {
             return;
         };
         self.clear_diff(cx);
-        self.selection = Selection::Commits { newest, oldest };
+        self.history.selection = Selection::Commits { newest, oldest };
         self.record(cx);
         let settings = self.settings(cx);
         self.load_diff(keep, cx, move || {
@@ -2405,20 +2348,20 @@ impl Workspace {
     ) {
         let (Some(root), Some(a), Some(b)) = (
             self.root.clone(),
-            self.versions.get(from).cloned(),
-            self.versions.get(to).cloned(),
+            self.history.versions.get(from).cloned(),
+            self.history.versions.get(to).cloned(),
         ) else {
             return;
         };
         if keep.is_none() {
-            self.version_tab = if b.commits > 1 {
+            self.history.version_tab = if b.commits > 1 {
                 VersionTab::Commits
             } else {
                 VersionTab::Files
             };
         }
         self.clear_diff(cx);
-        self.selection = Selection::Versions { from, to };
+        self.history.selection = Selection::Versions { from, to };
         self.record(cx);
         let settings = self.settings(cx);
         self.load_diff(keep, cx, move || {
@@ -2441,7 +2384,8 @@ impl Workspace {
 
     /// The interdiff of one modified commit of the comparison `from`..`to`.
     fn select_interdiff(&mut self, pair: usize, cx: &mut Context<Self>) {
-        let (Some(root), Selection::Versions { from, to }) = (self.root.clone(), self.selection)
+        let (Some(root), Selection::Versions { from, to }) =
+            (self.root.clone(), self.history.selection)
         else {
             return;
         };
@@ -2456,7 +2400,7 @@ impl Workspace {
             return;
         };
         self.clear_diff(cx);
-        self.selection = Selection::Versions { from, to };
+        self.history.selection = Selection::Versions { from, to };
         let settings = self.settings(cx);
         self.load_diff(None, cx, move || {
             let diff = Repo::open(&root)?.interdiff(old.id, new.id, settings)?;
@@ -2719,7 +2663,7 @@ impl Workspace {
                 "Copy path:line",
                 Act::Copy(format!("{path}:{line}")),
             ));
-            if matches!(self.selection, Selection::Commit(_)) {
+            if matches!(self.history.selection, Selection::Commit(_)) {
                 share.push(Entry::new(
                     format!("Copy git show {}", format::short(rev)),
                     Act::Copy(format!("git show {}", format::short(rev))),
@@ -2730,7 +2674,7 @@ impl Workspace {
     }
 
     fn commit_context(&mut self, ix: usize, at: Point<gpui::Pixels>, cx: &mut Context<Self>) {
-        let Some(commit) = self.commits.get(ix) else {
+        let Some(commit) = self.history.commits.get(ix) else {
             return;
         };
         let mut groups = vec![vec![
@@ -2785,7 +2729,7 @@ impl Workspace {
         at: Point<gpui::Pixels>,
         cx: &mut Context<Self>,
     ) {
-        let Some(branch) = self.branches.get(ix) else {
+        let Some(branch) = self.history.branches.get(ix) else {
             return;
         };
         let mut groups = vec![vec![Entry::new(
@@ -2822,7 +2766,7 @@ impl Workspace {
             .as_ref()
             .and_then(|d| d.files.get(self.review.read(cx).file))
             .map(|f| f.path().to_owned());
-        match self.selection {
+        match self.history.selection {
             Selection::Commit(ix) => self.load_commit(ix, keep, cx),
             Selection::Commits { newest, oldest } => self.load_commits(newest, oldest, keep, cx),
             Selection::Versions { from, to } => self.load_versions(from, to, keep, cx),
@@ -2914,9 +2858,12 @@ impl Workspace {
         let Some(root) = self.root.clone() else {
             return;
         };
-        let branch = self.branch.and_then(|ix| self.branches.get(ix));
-        let commit = match self.selection {
-            Selection::Commit(ix) => self.commits.get(ix).map(|c| c.id),
+        let branch = self
+            .history
+            .branch
+            .and_then(|ix| self.history.branches.get(ix));
+        let commit = match self.history.selection {
+            Selection::Commit(ix) => self.history.commits.get(ix).map(|c| c.id),
             _ => None,
         };
         let keep = branch.map(|b| (b.refname.clone(), commit));
@@ -3222,8 +3169,8 @@ impl Workspace {
 
     /// A click compares that version with the latest; ⌘-click makes it the newer side instead.
     fn click_version(&mut self, ix: usize, event: &ClickEvent, cx: &mut Context<Self>) {
-        let latest = self.versions.len() - 1;
-        let (from, to) = match (self.selection, event.modifiers().secondary()) {
+        let latest = self.history.versions.len() - 1;
+        let (from, to) = match (self.history.selection, event.modifiers().secondary()) {
             (Selection::Versions { from, .. }, true) if from != ix => (from.min(ix), from.max(ix)),
             _ if ix == latest => (latest - 1, latest),
             _ => (ix, latest),
@@ -3264,7 +3211,7 @@ impl Workspace {
                 .into_any_element();
         };
         let commits_tab = matches!(diff.header, Header::Versions { .. })
-            && self.version_tab == VersionTab::Commits;
+            && self.history.version_tab == VersionTab::Commits;
         div()
             .flex_1()
             .min_w_0()
@@ -3555,21 +3502,24 @@ impl Workspace {
             }
             Header::Versions { .. } => artoo_ui_kit::controls::group()
                 .child(
-                    chip("tab-files", "Files", self.version_tab == VersionTab::Files).on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.version_tab = VersionTab::Files;
-                            cx.notify();
-                        }),
-                    ),
+                    chip(
+                        "tab-files",
+                        "Files",
+                        self.history.version_tab == VersionTab::Files,
+                    )
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.history.version_tab = VersionTab::Files;
+                        cx.notify();
+                    })),
                 )
                 .child(
                     chip(
                         "tab-commits",
                         format!("Commits · {}", diff.pairs.len()),
-                        self.version_tab == VersionTab::Commits,
+                        self.history.version_tab == VersionTab::Commits,
                     )
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.version_tab = VersionTab::Commits;
+                        this.history.version_tab = VersionTab::Commits;
                         cx.notify();
                     })),
                 )

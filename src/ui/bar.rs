@@ -262,7 +262,8 @@ impl Workspace {
         );
         let plain = || style(super::hover::cut("bar-title", text.clone())).into_any_element();
         let commit = |id: &git2::Oid| {
-            self.commits
+            self.history
+                .commits
                 .iter()
                 .position(|c| c.id == *id)
                 .and_then(|ix| self.commit_card(ix))
@@ -285,6 +286,7 @@ impl Workspace {
                 | Page::BranchCommits(refname, ..)
                 | Page::Versions(refname, ..),
             ) => match self
+                .history
                 .branches
                 .iter()
                 .position(|b| &b.refname == refname)
@@ -321,15 +323,18 @@ impl Workspace {
             .map(crate::labels::project_name)
             .unwrap_or_default();
         let branch = |refname: &str| {
-            self.branches
+            self.history
+                .branches
                 .iter()
                 .find(|b| b.refname == refname)
                 .map_or_else(|| refname.to_owned(), |b| b.name.clone())
         };
-        let versions = |a: usize, b: usize| match (self.versions.get(a), self.versions.get(b)) {
-            (Some(a), Some(b)) => format!("v{} → v{}", a.number, b.number),
-            _ => "versions".to_owned(),
-        };
+        let versions =
+            |a: usize, b: usize| match (self.history.versions.get(a), self.history.versions.get(b))
+            {
+                (Some(a), Some(b)) => format!("v{} → v{}", a.number, b.number),
+                _ => "versions".to_owned(),
+            };
         let requests = || Crumb::up("Merge requests", None);
         match page {
             None => (Vec::new(), space_root(space, &project), false),
@@ -521,7 +526,11 @@ impl Workspace {
             // The file or the project's folder in the app it belongs to, named (#78).
             (Space::Code, _) => out.extend(self.open_in_button(cx)),
             (Space::Branches, Some(Page::Branch(refname))) => {
-                let ix = self.branches.iter().position(|b| &b.refname == refname);
+                let ix = self
+                    .history
+                    .branches
+                    .iter()
+                    .position(|b| &b.refname == refname);
                 match ix.and_then(|ix| self.request_of_branch(ix, cx).map(|m| m.iid)) {
                     // Its request has a page of its own: the way there.
                     Some(iid) => out.push(

@@ -22,7 +22,7 @@ impl Workspace {
         }
         if self.branch_compare(cx)
             && let (Some(f), Some(d)) = (
-                self.branch_page.as_mut(),
+                self.history.page.as_mut(),
                 self.review.read(cx).diff.as_ref(),
             )
         {
@@ -54,7 +54,8 @@ impl Workspace {
             .read(cx)
             .reviewed
             .marked_heads(&format!("{root}|mr:{iid}"));
-        self.versions
+        self.history
+            .versions
             .iter()
             .filter(|v| heads.contains(&Some(v.tip)))
             .map(|v| v.number)
@@ -169,7 +170,7 @@ impl Workspace {
             .and_then(|(scope, f)| self.review.read(cx).reviewed.when(scope, f.path()));
         let at = when.map(|(time, head)| {
             let version = head
-                .and_then(|h| self.versions.iter().find(|v| v.tip == h))
+                .and_then(|h| self.history.versions.iter().find(|v| v.tip == h))
                 .map(|v| format!(" at v{},", v.number))
                 .unwrap_or_default();
             format!("{version} {}", super::format::ago(time))

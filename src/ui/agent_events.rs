@@ -161,7 +161,7 @@ impl Workspace {
         self.agent_requests.push((agent.clone(), draft));
         self.drafts_unseen.insert(source.clone());
         if let Some(ix) = self.draft_branch(&source) {
-            let page = Page::Branch(self.branches[ix].refname.clone());
+            let page = Page::Branch(self.history.branches[ix].refname.clone());
             if let Some(item) = page.item() {
                 self.call_reviewer(item, format!("{agent} drafted a merge request: {said}"));
             }
@@ -245,7 +245,8 @@ impl Workspace {
     /// The branch a drafted request is for: here, else as origin has it.
     fn draft_branch(&self, source: &str) -> Option<usize> {
         let at = |kind: RefKind, name: &str| {
-            self.branches
+            self.history
+                .branches
                 .iter()
                 .position(|b| b.kind == kind && b.name == name)
         };
@@ -259,7 +260,7 @@ impl Workspace {
             self.error = Some(format!("{source} is not a branch here any more.").into());
             return cx.notify();
         };
-        let page = Page::Branch(self.branches[ix].refname.clone());
+        let page = Page::Branch(self.history.branches[ix].refname.clone());
         let Some(item) = page.item() else {
             return;
         };
@@ -276,9 +277,9 @@ impl Workspace {
         // A draft whose card has not opened yet opens with its branch, however the branch was
         // opened: from its row, a link, the toast (#159).
         if !self.creating(cx)
-            && self.branch_task.is_none()
-            && let Some(ix) = self.branch
-            && let Some(branch) = self.branches.get(ix)
+            && self.history.task.is_none()
+            && let Some(ix) = self.history.branch
+            && let Some(branch) = self.history.branches.get(ix)
             && self.drafts_unseen.contains(match branch.kind {
                 RefKind::Remote => branch.name.split_once('/').map_or("", |(_, n)| n),
                 _ => branch.name.as_str(),
@@ -295,11 +296,11 @@ impl Workspace {
             self.create_waiting = None;
             return;
         };
-        if self.branch == Some(ix) && self.branch_task.is_some() {
+        if self.history.branch == Some(ix) && self.history.task.is_some() {
             return;
         }
         self.create_waiting = None;
-        if self.branch == Some(ix) {
+        if self.history.branch == Some(ix) {
             self.open_create(Some(ix), cx);
         }
     }

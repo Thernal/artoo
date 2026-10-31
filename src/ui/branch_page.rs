@@ -6,69 +6,25 @@
 //! goes out. The main line itself has no base: its page is the commit browser it always was.
 
 use super::nav::Page;
-use super::{Header, NamedTip, Workspace, island, plural, px, theme};
-use git2::Oid;
+use super::{Header, Workspace, island, plural, px, theme};
 use gpui::{AnyElement, App, Context, div, prelude::*};
-
-/// What a branch's page says of it, read when the branch loads.
-#[derive(Clone, Debug, Default)]
-pub struct Facts {
-    /// The branch it is a page of.
-    pub refname: String,
-    /// The main line it forks from, at its tip; none for the main line itself.
-    pub base: Option<NamedTip>,
-    /// Commits it has that the main line has not, and the other way round.
-    pub ahead: usize,
-    pub behind: usize,
-    /// Its upstream, with how far it is ahead of it and behind it; none when it was never pushed.
-    pub upstream: Option<(String, usize, usize)>,
-    /// The files of its Changes, once read.
-    pub files: Option<usize>,
-}
-
-impl Facts {
-    /// Reads them for branch `name` (`refname`) at `tip`: its base is the main line's local branch,
-    /// else its remote one.
-    pub fn read(repo: &crate::git::Repo, refname: &str, name: &str, tip: Oid) -> Facts {
-        let main = repo.default_branch();
-        let base = main
-            .as_deref()
-            .filter(|m| name != *m && name != format!("origin/{m}"))
-            .and_then(|m| {
-                [m.to_owned(), format!("origin/{m}")]
-                    .into_iter()
-                    .find_map(|n| repo.resolve(&n).ok().map(|id| (n, id)))
-            });
-        let (ahead, behind) = base
-            .as_ref()
-            .and_then(|(_, b)| repo.ahead_behind(tip, *b))
-            .unwrap_or_default();
-        Facts {
-            refname: refname.to_owned(),
-            base,
-            ahead,
-            behind,
-            upstream: repo.tracking(name),
-            files: None,
-        }
-    }
-}
 
 impl Workspace {
     /// The branch loaded has the tabs Commits · Changes: it forks from the main line.
     pub(super) fn branch_tabbed(&self, refname: &str) -> bool {
-        self.branch_page
+        self.history
+            .page
             .as_ref()
             .is_some_and(|f| f.refname == refname && f.base.is_some())
     }
 
     /// The diff loaded is the branch page's own: the branch against the main line.
     pub(super) fn branch_compare(&self, cx: &App) -> bool {
-        let (Some(f), Some(ix)) = (self.branch_page.as_ref(), self.branch) else {
+        let (Some(f), Some(ix)) = (self.history.page.as_ref(), self.history.branch) else {
             return false;
         };
         matches!(
-            (self.review.read(cx).diff.as_ref().map(|d| &d.header), &f.base, self.branches.get(ix)),
+            (self.review.read(cx).diff.as_ref().map(|d| &d.header), &f.base, self.history.branches.get(ix)),
             (
                 Some(Header::Compare { base, head, request: None, .. }),
                 Some(main),
@@ -80,12 +36,12 @@ impl Workspace {
     /// Shows the branch loaded against the main line since they parted: its Changes.
     pub(super) fn run_branch_compare(&mut self, cx: &mut Context<Self>) {
         let (Some(ix), Some(base)) = (
-            self.branch,
-            self.branch_page.as_ref().and_then(|f| f.base.clone()),
+            self.history.branch,
+            self.history.page.as_ref().and_then(|f| f.base.clone()),
         ) else {
             return;
         };
-        let Some(b) = self.branches.get(ix) else {
+        let Some(b) = self.history.branches.get(ix) else {
             return;
         };
         let head = (b.name.clone(), b.tip);
@@ -101,7 +57,7 @@ impl Workspace {
         if !self.branch_tabbed(refname) {
             return None;
         }
-        let f = self.branch_page.as_ref()?;
+        let f = self.history.page.as_ref()?;
         let main = f.base.as_ref()?.0.trim_start_matches("origin/").to_owned();
         let remote = match &f.upstream {
             None => "not pushed".to_owned(),
@@ -110,6 +66,7 @@ impl Workspace {
             Some((up, _, behind)) => format!("{behind} behind {up}"),
         };
         let request = self
+            .history
             .branch
             .and_then(|ix| self.request_of_branch(ix, cx))
             .map_or_else(|| "none yet".to_owned(), |m| super::words::number(m.iid));
@@ -120,7 +77,7 @@ impl Workspace {
                 .child(div().text_color(theme::faint()).child(label))
                 .child(div().child(value))
         };
-        let ix = self.branch;
+        let ix = self.history.branch;
         Some(
             island()
                 // Its link, the branch's name, a request (#162).

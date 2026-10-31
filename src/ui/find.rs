@@ -1,5 +1,5 @@
 //! Commit search: the field above the commit list, its keyboard handling, and the filtered view of
-//! `Workspace::commits`. The matching itself is `crate::search`.
+//! `History::commits`. The matching itself is `crate::search`.
 
 use super::input::{self, Edit};
 use super::px;
@@ -26,7 +26,7 @@ pub struct Find {
     /// The text in the field; `None` while the field is not active.
     pub text: Option<String>,
     pub query: Query,
-    /// Indices into `Workspace::commits` of the commits that match; `None` shows every commit.
+    /// Indices into `History::commits` of the commits that match; `None` shows every commit.
     pub shown: Option<Vec<usize>>,
     /// Paths each commit touched, read in the background after a branch loads.
     paths: HashMap<Oid, Vec<String>>,
@@ -57,7 +57,7 @@ impl Workspace {
         self.find
             .shown
             .as_ref()
-            .map_or(self.commits.len(), Vec::len)
+            .map_or(self.history.commits.len(), Vec::len)
     }
 
     /// The index in `commits` shown at list row `row`.
@@ -77,13 +77,13 @@ impl Workspace {
     /// on and on while a search has not found what it looks for. A page is as long as what is
     /// listed, so a search through a long history reads it in a few.
     pub(super) fn load_older_commits(&mut self, cx: &mut Context<Self>) {
-        let (Some(root), Some(older)) = (self.root.clone(), self.older.as_mut()) else {
+        let (Some(root), Some(older)) = (self.root.clone(), self.history.older.as_mut()) else {
             return;
         };
         if older.task.is_some() {
             return;
         }
-        let (tip, skip) = (older.tip, self.commits.len());
+        let (tip, skip) = (older.tip, self.history.commits.len());
         let count = skip.max(COMMIT_PAGE);
         older.task = Some(cx.spawn(async move |this, cx| {
             let read = cx
@@ -92,19 +92,21 @@ impl Workspace {
                 .await;
             this.update(cx, |this, cx| {
                 // Another branch, or the history read again meanwhile: not these.
-                if this.older.as_ref().is_none_or(|o| o.tip != tip) || this.commits.len() != skip {
+                if this.history.older.as_ref().is_none_or(|o| o.tip != tip)
+                    || this.history.commits.len() != skip
+                {
                     return;
                 }
                 match read {
                     Ok(page) => {
                         let more = page.len() >= count;
-                        this.commits.extend(page);
-                        this.older = more.then_some(Older { tip, task: None });
+                        this.history.commits.extend(page);
+                        this.history.older = more.then_some(Older { tip, task: None });
                         this.refilter();
                         this.index_paths(cx);
                     }
                     Err(e) => {
-                        this.older = None;
+                        this.history.older = None;
                         this.error = Some(format!("{e:#}").into());
                     }
                 }
@@ -116,7 +118,7 @@ impl Workspace {
 
     /// Reads a page more of history once this frame is drawn, unless one is on its way.
     pub(super) fn want_older_commits(&self, cx: &mut Context<Self>) {
-        if self.older.as_ref().is_none_or(|o| o.task.is_some()) {
+        if self.history.older.as_ref().is_none_or(|o| o.task.is_some()) {
             return;
         }
         let this = cx.entity().downgrade();
@@ -130,7 +132,8 @@ impl Workspace {
         let text = self.find.text.clone().unwrap_or_default();
         self.find.query = Query::parse(&text, now());
         self.find.shown = (!self.find.query.is_empty()).then(|| {
-            self.commits
+            self.history
+                .commits
                 .iter()
                 .enumerate()
                 .filter(|(_, c)| {
@@ -158,7 +161,7 @@ impl Workspace {
     pub(super) fn close_find(&mut self, cx: &mut Context<Self>) {
         self.find.text = None;
         self.refilter();
-        if let Selection::Commit(ix) = self.selection
+        if let Selection::Commit(ix) = self.history.selection
             && let Some(row) = self.row_of(ix)
         {
             self.commit_scroll
@@ -170,7 +173,7 @@ impl Workspace {
     fn set_find_text(&mut self, text: String, cx: &mut Context<Self>) {
         self.find.text = Some(text);
         self.refilter();
-        if let Selection::Commit(ix) = self.selection
+        if let Selection::Commit(ix) = self.history.selection
             && let Some(row) = self.row_of(ix)
         {
             self.commit_scroll
@@ -484,6 +487,7 @@ impl Workspace {
             return;
         };
         let ids: Vec<Oid> = self
+            .history
             .commits
             .iter()
             .map(|c| c.id)
@@ -588,9 +592,9 @@ impl Workspace {
                 }))
         });
         let count = self.find.shown.as_ref().map(|shown| {
-            let mut line = format!("{} of {} commits", shown.len(), self.commits.len());
+            let mut line = format!("{} of {} commits", shown.len(), self.history.commits.len());
             // Older history still being read for it (#25).
-            if self.older.is_some() {
+            if self.history.older.is_some() {
                 line.push_str(" · reading older ones…");
             } else if self.find.indexing {
                 line.push_str(" · reading paths…");
@@ -640,18 +644,15 @@ impl Workspace {
             .px_4()
             .text_color(theme::muted())
             .child(format!("No commit matches “{text}”."))
-            .child(
-                div()
-                    .text_size(px(11.))
-                    .text_color(theme::faint())
-                    .child(match self.older {
-                        Some(_) => format!(
-                            "Searched the {} newest commits; reading older ones…",
-                            self.commits.len()
-                        ),
-                        None => format!("Searched all {} commits.", self.commits.len()),
-                    }),
-            )
+            .child(div().text_size(px(11.)).text_color(theme::faint()).child(
+                match self.history.older {
+                    Some(_) => format!(
+                        "Searched the {} newest commits; reading older ones…",
+                        self.history.commits.len()
+                    ),
+                    None => format!("Searched all {} commits.", self.history.commits.len()),
+                },
+            ))
     }
 }
 

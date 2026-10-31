@@ -170,11 +170,12 @@ impl Workspace {
         };
         self.set_status(Status::Changed, cx);
         let refname = self
+            .history
             .branch
-            .and_then(|ix| self.branches.get(ix))
+            .and_then(|ix| self.history.branches.get(ix))
             .map(|b| b.refname.clone());
         // As much history as is listed, the pages scrolled to included (#25).
-        let count = self.commits.len().max(COMMIT_PAGE);
+        let count = self.history.commits.len().max(COMMIT_PAGE);
         self.watch.task = Some(cx.spawn(async move |this, cx| {
             let loaded = cx
                 .background_executor()
@@ -215,7 +216,7 @@ impl Workspace {
         open: Option<(String, Vec<Version>, Vec<CommitInfo>)>,
         cx: &mut Context<Self>,
     ) {
-        self.branches = branches;
+        self.history.branches = branches;
         if self.nav.space == super::spaces::Space::Branches && self.at_root_list() {
             self.read_branch_facts(cx);
         }
@@ -227,30 +228,35 @@ impl Workspace {
             self.error =
                 Some(format!("{refname} no longer exists — showing the current branch.").into());
             let ix = self
+                .history
                 .branches
                 .iter()
                 .position(|b| b.is_head)
-                .or((!self.branches.is_empty()).then_some(0));
+                .or((!self.history.branches.is_empty()).then_some(0));
             self.clear_branch(cx);
             if let Some(ix) = ix {
                 self.select_branch(ix, None, cx);
             }
             return self.set_status(Status::Reloaded, cx);
         };
-        self.branch = self.branches.iter().position(|b| b.refname == refname);
+        self.history.branch = self
+            .history
+            .branches
+            .iter()
+            .position(|b| b.refname == refname);
 
-        let old_first = self.commits.first().map(|c| c.id);
+        let old_first = self.history.commits.first().map(|c| c.id);
         let first_same = old_first == commits.first().map(|c| c.id);
-        if first_same && versions.len() == self.versions.len() {
+        if first_same && versions.len() == self.history.versions.len() {
             self.watch.pending = None;
             return self.set_status(Status::UpToDate, cx);
         }
         let new = old_first.and_then(|id| commits.iter().position(|c| c.id == id));
         if first_same {
             // Only the reflog moved: a new version of the same history.
-            let seen = self.versions.len();
+            let seen = self.history.versions.len();
             self.mark_new_versions(versions.len());
-            self.versions = versions;
+            self.history.versions = versions;
             self.follow_latest_version(seen, cx);
             return self.set_status(Status::Reloaded, cx);
         }
@@ -263,8 +269,8 @@ impl Workspace {
     }
 
     fn mark_new_versions(&mut self, len: usize) {
-        if len > self.versions.len() {
-            self.watch.new_from = Some(self.versions.len());
+        if len > self.history.versions.len() {
+            self.watch.new_from = Some(self.history.versions.len());
         }
     }
 
@@ -273,38 +279,38 @@ impl Workspace {
         let Some(pending) = self.watch.pending.take() else {
             return;
         };
-        let selected = match self.selection {
-            Selection::Commit(ix) => self.commits.get(ix).map(|c| c.id),
+        let selected = match self.history.selection {
+            Selection::Commit(ix) => self.history.commits.get(ix).map(|c| c.id),
             _ => None,
         };
-        let seen = self.versions.len();
+        let seen = self.history.versions.len();
         self.mark_new_versions(pending.versions.len());
-        self.versions = pending.versions;
-        self.commits = pending.commits;
+        self.history.versions = pending.versions;
+        self.history.commits = pending.commits;
         // Older history goes on from the new tip.
-        if let Some(older) = &mut self.older {
-            match self.commits.first() {
+        if let Some(older) = &mut self.history.older {
+            match self.history.commits.first() {
                 Some(tip) => {
                     *older = super::Older {
                         tip: tip.id,
                         task: None,
                     }
                 }
-                None => self.older = None,
+                None => self.history.older = None,
             }
         }
         self.refilter();
         self.index_paths(cx);
-        match (self.selection, selected) {
+        match (self.history.selection, selected) {
             (Selection::Commit(_), Some(id)) => {
-                match self.commits.iter().position(|c| c.id == id) {
+                match self.history.commits.iter().position(|c| c.id == id) {
                     // The commit is still there, further down: only its index moved.
-                    Some(ix) => self.selection = Selection::Commit(ix),
+                    Some(ix) => self.history.selection = Selection::Commit(ix),
                     None => self.select_commit(0, cx),
                 }
             }
-            (Selection::Versions { from, to }, _) if to < self.versions.len() => {
-                self.selection = Selection::Versions { from, to };
+            (Selection::Versions { from, to }, _) if to < self.history.versions.len() => {
+                self.history.selection = Selection::Versions { from, to };
             }
             (Selection::WorkingTree, _) => {}
             _ => self.clear_diff(cx),
@@ -317,10 +323,10 @@ impl Workspace {
     /// same file, same scroll position, and a notice that can undo it. Commits never need this —
     /// a commit's diff cannot change.
     fn follow_latest_version(&mut self, seen: usize, cx: &mut Context<Self>) {
-        let Selection::Versions { from, to } = self.selection else {
+        let Selection::Versions { from, to } = self.history.selection else {
             return;
         };
-        let latest = self.versions.len().saturating_sub(1);
+        let latest = self.history.versions.len().saturating_sub(1);
         if seen == 0 || to + 1 != seen || latest <= to {
             return;
         }
@@ -339,7 +345,7 @@ impl Workspace {
             rv.notice = Some(super::Notice {
                 text: format!(
                     "v{} arrived — this comparison now ends at v{}.",
-                    self.versions[latest].number, self.versions[latest].number
+                    self.history.versions[latest].number, self.history.versions[latest].number
                 ),
                 undo,
             })

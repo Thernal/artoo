@@ -89,6 +89,7 @@ impl Workspace {
             }
             Target::Commit(sha) => {
                 match self
+                    .history
                     .commits
                     .iter()
                     .position(|c| c.id.to_string().starts_with(&sha))
@@ -113,15 +114,16 @@ impl Workspace {
                 }
             }
             Target::Branch(name) => {
-                let ix = self
-                    .branches
-                    .iter()
-                    .position(|b| b.name == name)
-                    .or_else(|| {
-                        self.branches
-                            .iter()
-                            .position(|b| b.name.split_once('/').is_some_and(|(_, n)| n == name))
-                    });
+                let ix =
+                    self.history
+                        .branches
+                        .iter()
+                        .position(|b| b.name == name)
+                        .or_else(|| {
+                            self.history.branches.iter().position(|b| {
+                                b.name.split_once('/').is_some_and(|(_, n)| n == name)
+                            })
+                        });
                 match ix {
                     Some(ix) => self.open_branch(ix, None, cx),
                     None => {
@@ -138,11 +140,11 @@ impl Workspace {
     fn branch_with(&self, sha: &str) -> Option<(usize, git2::Oid)> {
         let repo = Repo::open(self.root.as_ref()?).ok()?;
         let id = repo.resolve(sha).ok()?;
-        let mut order: Vec<usize> = (0..self.branches.len()).collect();
-        order.sort_by_key(|&ix| self.branches[ix].kind != crate::git::RefKind::Local);
+        let mut order: Vec<usize> = (0..self.history.branches.len()).collect();
+        order.sort_by_key(|&ix| self.history.branches[ix].kind != crate::git::RefKind::Local);
         order
             .into_iter()
-            .find(|&ix| repo.contains(self.branches[ix].tip, id))
+            .find(|&ix| repo.contains(self.history.branches[ix].tip, id))
             .map(|ix| (ix, id))
     }
 
@@ -152,8 +154,8 @@ impl Workspace {
         let ready = match &self.pending_link {
             None => return,
             Some(Target::Request { .. }) => self.root.is_some() && !self.requests.read(cx).loading,
-            Some(Target::Commit(_)) => !self.commits.is_empty(),
-            Some(Target::Branch(_)) => !self.branches.is_empty(),
+            Some(Target::Commit(_)) => !self.history.commits.is_empty(),
+            Some(Target::Branch(_)) => !self.history.branches.is_empty(),
         };
         if ready && let Some(target) = self.pending_link.take() {
             self.go_to(target, cx);

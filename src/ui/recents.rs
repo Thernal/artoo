@@ -49,7 +49,7 @@ impl Workspace {
                     None => self.open_file_view(path, cx),
                 }
             }
-            Key::Commit(id) => match self.commits.iter().position(|c| c.id == id) {
+            Key::Commit(id) => match self.history.commits.iter().position(|c| c.id == id) {
                 Some(ix) => {
                     self.select_commit(ix, cx);
                     self.follow_loaded(cx);

@@ -429,17 +429,22 @@ impl Workspace {
 
     /// What is loaded, as a page of Branches or Merge requests.
     pub(super) fn loaded_page(&self, cx: &App) -> Option<Page> {
-        let refname = self.branches.get(self.branch?)?.refname.clone();
+        let refname = self
+            .history
+            .branches
+            .get(self.history.branch?)?
+            .refname
+            .clone();
         if let Some((_, _, iid)) = &self.open_request
             && self.requests.read(cx).current == Some(*iid)
         {
             let iid = *iid;
-            return Some(match self.selection {
-                Selection::Commit(ix) => Page::RequestCommit(iid, self.commits.get(ix)?.id),
+            return Some(match self.history.selection {
+                Selection::Commit(ix) => Page::RequestCommit(iid, self.history.commits.get(ix)?.id),
                 Selection::Commits { newest, oldest } => Page::RequestCommits(
                     iid,
-                    self.commits.get(newest)?.id,
-                    self.commits.get(oldest)?.id,
+                    self.history.commits.get(newest)?.id,
+                    self.history.commits.get(oldest)?.id,
                 ),
                 Selection::Versions { from, to } => Page::RequestVersions(iid, from, to),
                 Selection::None | Selection::WorkingTree => Page::Request(iid),
@@ -447,23 +452,23 @@ impl Workspace {
         }
         // A run of a comparison's commits is a filter of its page, not a page (#21).
         if let Some(page) = self.narrowed_compare() {
-            return Some(page.clone());
+            return Some(page);
         }
         let tabbed = self.branch_tabbed(&refname);
         Some(
             match (
-                self.selection,
+                self.history.selection,
                 self.review.read(cx).diff.as_ref().map(|d| &d.header),
             ) {
                 (Selection::WorkingTree, _) => Page::WorkingTree,
                 (Selection::Versions { from, to }, _) => Page::Versions(refname, from, to),
                 (Selection::Commit(ix), _) if tabbed => {
-                    Page::BranchCommit(refname, self.commits.get(ix)?.id)
+                    Page::BranchCommit(refname, self.history.commits.get(ix)?.id)
                 }
                 (Selection::Commits { newest, oldest }, _) => Page::BranchCommits(
                     refname,
-                    self.commits.get(newest)?.id,
-                    self.commits.get(oldest)?.id,
+                    self.history.commits.get(newest)?.id,
+                    self.history.commits.get(oldest)?.id,
                 ),
                 (Selection::None, Some(Header::Compare { .. })) if self.branch_compare(cx) => {
                     Page::Branch(refname)
@@ -484,8 +489,8 @@ impl Workspace {
 
     /// The commit the page shows, when it shows one.
     fn shown_commit(&self) -> Option<Oid> {
-        match self.selection {
-            Selection::Commit(ix) => self.commits.get(ix).map(|c| c.id),
+        match self.history.selection {
+            Selection::Commit(ix) => self.history.commits.get(ix).map(|c| c.id),
             _ => None,
         }
     }
@@ -788,7 +793,8 @@ impl Workspace {
                 self.run_branch_compare(cx)
             }
             Page::BranchCommit(refname, id) => {
-                if same_item && let Some(ix) = self.commits.iter().position(|c| c.id == id) {
+                if same_item && let Some(ix) = self.history.commits.iter().position(|c| c.id == id)
+                {
                     self.select_commit(ix, cx);
                 } else if let Some(ix) = self.branch_ix(&refname) {
                     self.select_branch(ix, Some(id), cx);
@@ -798,9 +804,9 @@ impl Workspace {
                 let commit = opened.and_then(|o| o.commit);
                 if same_item {
                     let ix = commit
-                        .and_then(|id| self.commits.iter().position(|c| c.id == id))
+                        .and_then(|id| self.history.commits.iter().position(|c| c.id == id))
                         .unwrap_or(0);
-                    if !self.commits.is_empty() {
+                    if !self.history.commits.is_empty() {
                         self.select_commit(ix, cx);
                     }
                 } else if let Some(ix) = self.branch_ix(&refname) {
@@ -808,7 +814,7 @@ impl Workspace {
                 }
             }
             Page::Versions(refname, from, to) => {
-                if same_item && to < self.versions.len() {
+                if same_item && to < self.history.versions.len() {
                     self.select_versions(from, to, cx);
                 } else if let Some(ix) = self.branch_ix(&refname) {
                     self.nav.pending = Some(page);
@@ -848,7 +854,10 @@ impl Workspace {
     }
 
     fn branch_ix(&self, refname: &str) -> Option<usize> {
-        self.branches.iter().position(|b| b.refname == refname)
+        self.history
+            .branches
+            .iter()
+            .position(|b| b.refname == refname)
     }
 
     /// What a page waited for is in (a request's commits, a branch's versions): the page is
@@ -866,7 +875,7 @@ impl Workspace {
                 false
             }
             Page::RequestCommits(_, newest, oldest) | Page::BranchCommits(_, newest, oldest) => {
-                let at = |id: Oid| self.commits.iter().position(|c| c.id == id);
+                let at = |id: Oid| self.history.commits.iter().position(|c| c.id == id);
                 match (at(newest), at(oldest)) {
                     (Some(a), Some(b)) => {
                         self.select_commits(a, b, cx);
@@ -879,19 +888,21 @@ impl Workspace {
                     }
                 }
             }
-            Page::RequestCommit(_, id) => match self.commits.iter().position(|c| c.id == id) {
-                Some(ix) => {
-                    self.select_commit(ix, cx);
-                    true
+            Page::RequestCommit(_, id) => {
+                match self.history.commits.iter().position(|c| c.id == id) {
+                    Some(ix) => {
+                        self.select_commit(ix, cx);
+                        true
+                    }
+                    None => {
+                        // Not among its commits any more (a push rewrote it): the whole request.
+                        self.nav.pending = None;
+                        return false;
+                    }
                 }
-                None => {
-                    // Not among its commits any more (a push rewrote it): the whole request.
-                    self.nav.pending = None;
-                    return false;
-                }
-            },
+            }
             Page::RequestVersions(_, from, to) | Page::Versions(_, from, to)
-                if to < self.versions.len() =>
+                if to < self.history.versions.len() =>
             {
                 self.select_versions(from, to, cx);
                 true
@@ -958,7 +969,7 @@ impl Workspace {
             if loaded && self.page_of(Space::Branches) == moment.page.as_ref() {
                 self.nav.space = Space::Branches;
                 self.nav.restoring = true;
-                if let Some(ix) = self.commits.iter().position(|c| c.id == id) {
+                if let Some(ix) = self.history.commits.iter().position(|c| c.id == id) {
                     self.select_commit(ix, cx);
                 }
                 self.nav.restoring = false;
@@ -1256,7 +1267,7 @@ impl Workspace {
 
     /// Opens branch `ix` as a page of Branches (a list's row, ⌘K, a link).
     pub(super) fn open_branch(&mut self, ix: usize, keep: Option<Oid>, cx: &mut Context<Self>) {
-        let Some(refname) = self.branches.get(ix).map(|b| b.refname.clone()) else {
+        let Some(refname) = self.history.branches.get(ix).map(|b| b.refname.clone()) else {
             return;
         };
         let item = Item::Branch(refname.clone());

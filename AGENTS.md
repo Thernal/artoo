@@ -42,7 +42,11 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   list (`list`: its groups and folds, the picked one's preview read, the rows, bands, preview, why none is listed,
   the banner while it cannot be read); a card's text keeps its own caret (`area`). The tab gives each what it
   knows (a `…Look`) and puts it in its frame; the Inbox and a thread drawn on the diff's lines are still the
-  app's.
+  app's. `crates/branches` (`artoo-branches`, #165 stage 4): what the tab keeps of the repository's branches — the
+  branch open, its versions and commits and what the diff shows of them (`history`), what its page says of it
+  (`facts`), a comparison's own commits (`compare`), the working tree as last looked at (`working`), what the
+  Branches list reads for its rows (`roots`); the app's views read and draw them, the side panel a request's page
+  shares among them.
   `crates/shell-api` (`artoo-shell-api`): the
   shell's contract — actions (the app menu and ⌘K list them), parts each tab draws (title-bar items, cards over the
   window, Settings rows, snapshot views, a space's pages), the `Frame` a part asks and the tab's `Services`;

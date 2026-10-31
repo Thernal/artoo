@@ -113,7 +113,7 @@ impl Workspace {
         if self.nav.space == super::spaces::Space::Code && working {
             self.read_code_files(true, cx);
         }
-        if self.selection == Selection::WorkingTree {
+        if self.history.selection == Selection::WorkingTree {
             // Reload in place: the selected file stays.
             let keep = self.review.read(cx).current_path();
             self.load_working_tree(keep, cx);
@@ -135,7 +135,7 @@ impl Workspace {
         self.clear_diff(cx);
         // A reload finds a file partly staged at its place, in the group it was in (#22).
         self.review.update(cx, |rv, _| rv.file = at);
-        self.selection = Selection::WorkingTree;
+        self.history.selection = Selection::WorkingTree;
         let settings = self.settings(cx);
         self.load_diff(keep, cx, move || {
             // All changes as `git status` groups them (#22); Not staged only is that group alone.
@@ -165,7 +165,7 @@ impl Workspace {
 
     /// The working tree as a chip on the Commits label: how many changes, one click to open.
     pub(super) fn render_working_chip(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let selected = self.selection == Selection::WorkingTree;
+        let selected = self.history.selection == Selection::WorkingTree;
         (self.wt.count > 0 || selected).then(|| {
             super::commit_chip("working-tree", selected)
                 .child("WT")

@@ -155,7 +155,7 @@ impl Workspace {
                 page,
                 Some(Page::Branch(_) | Page::BranchCommit(..) | Page::BranchCommits(..))
             );
-        self.versions.len() > 1 && !commit_level && !branch && !self.loose_page()
+        self.history.versions.len() > 1 && !commit_level && !branch && !self.loose_page()
     }
 
     /// The panel shows the commits: on a page without a Commits tab (the main line), not on a
@@ -192,7 +192,7 @@ impl Workspace {
                 if self.side_versions() {
                     icons.push(("layers", "Versions", None));
                 }
-                if (self.side_commits() && !self.commits.is_empty())
+                if (self.side_commits() && !self.history.commits.is_empty())
                     || self.shown_compare().is_some()
                 {
                     icons.push(("commit", "Commits", Some(Zone::Commits)));
@@ -228,12 +228,15 @@ impl Workspace {
         // only the commit's (#73, #74).
         if self.side_versions() {
             let folded = self.section_folded(Section::Versions);
-            let summary = match self.selection {
+            let summary = match self.history.selection {
                 Selection::Versions { from, to } => format!(
                     "v{} → v{}",
-                    self.versions[from].number, self.versions[to].number
+                    self.history.versions[from].number, self.history.versions[to].number
                 ),
-                _ => format!("latest v{}", self.versions[self.versions.len() - 1].number),
+                _ => format!(
+                    "latest v{}",
+                    self.history.versions[self.history.versions.len() - 1].number
+                ),
             };
             sections.push(
                 div()
@@ -244,7 +247,7 @@ impl Workspace {
                         Section::Versions,
                         "Versions".into(),
                         Some(summary),
-                        vec![count(self.versions.len().to_string())],
+                        vec![count(self.history.versions.len().to_string())],
                         true,
                         cx,
                     ))
@@ -268,13 +271,13 @@ impl Workspace {
 
         if self.side_commits() {
             let commits_folded = self.section_folded(Section::Commits);
-            let first = match self.selection {
-                Selection::Commit(ix) => self.commits.get(ix),
-                _ => self.commits.first(),
+            let first = match self.history.selection {
+                Selection::Commit(ix) => self.history.commits.get(ix),
+                _ => self.history.commits.first(),
             };
             let commit_summary = first.map(|c| {
-                if self.commits.len() > 1 {
-                    format!("{} +{}", c.summary, self.commits.len() - 1)
+                if self.history.commits.len() > 1 {
+                    format!("{} +{}", c.summary, self.history.commits.len() - 1)
                 } else {
                     c.summary.clone()
                 }
@@ -306,8 +309,12 @@ impl Workspace {
                     .into_any_element(),
             );
             // Older history not read yet: "1000+" (#25).
-            let more = if self.older.is_some() { "+" } else { "" };
-            commit_end.push(count(format!("{}{more}", self.commits.len())));
+            let more = if self.history.older.is_some() {
+                "+"
+            } else {
+                ""
+            };
+            commit_end.push(count(format!("{}{more}", self.history.commits.len())));
             if !sections.is_empty() {
                 sections.push(rule().into_any_element());
             }
@@ -340,7 +347,7 @@ impl Workspace {
                             // Not found yet: older history is read on (#25).
                             self.want_older_commits(cx);
                             self.render_no_match().into_any_element()
-                        } else if self.commits.is_empty() && self.branch_task.is_some() {
+                        } else if self.history.commits.is_empty() && self.history.task.is_some() {
                             // The branch's commits are being read.
                             div()
                                 .px(px(14.))
