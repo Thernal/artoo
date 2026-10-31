@@ -1,0 +1,12 @@
+[package]
+name = "artoo-branches-api"
+description = "Branches' contract (#165): the routes of a branch's pages, a comparison's and the working tree's, which anyone opens."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# Its routes are the core's `Place`s.
+artoo-core = { path = "../core" }
+serde.workspace = true

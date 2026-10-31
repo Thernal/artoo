@@ -1,82 +1,18 @@
 //! The app's pages as routes (#165 stage 4, `artoo_core::route`): a kind and its fields for each, which
-//! `nav.txt` keeps. Each type moves to its owner's contract when its pages move out of the app; Code's are in
-//! `artoo-code-api`, a merge request's in `artoo-requests-api`.
+//! `nav.txt` keeps. Each type is its owner's contract's: Code's are in `artoo-code-api`, a branch's, a comparison's
+//! and the working tree's in `artoo-branches-api`, a merge request's in `artoo-requests-api`.
 
 use super::nav::Page;
+use artoo_branches_api::{
+    BranchCommitRoute, BranchCommitsRoute, BranchRoute, CompareRoute, VersionsRoute,
+    WorkingTreeRoute,
+};
 use artoo_code_api::{FileRoute, FolderRoute};
 use artoo_core::route::{Place, Route};
 use artoo_requests_api::{
     RequestCommitRoute, RequestCommitsRoute, RequestRoute, RequestVersionsRoute,
 };
 use git2::Oid;
-use serde::{Deserialize, Serialize};
-
-/// A branch, by its refname.
-#[derive(Serialize, Deserialize)]
-pub(crate) struct BranchRoute {
-    pub refname: String,
-}
-
-impl Place for BranchRoute {
-    const KIND: &'static str = "branches.branch";
-}
-
-/// A commit of a branch.
-#[derive(Serialize, Deserialize)]
-pub(crate) struct BranchCommitRoute {
-    pub refname: String,
-    pub commit: String,
-}
-
-impl Place for BranchCommitRoute {
-    const KIND: &'static str = "branches.commit";
-}
-
-/// A run of a branch's commits, newest and oldest.
-#[derive(Serialize, Deserialize)]
-pub(crate) struct BranchCommitsRoute {
-    pub refname: String,
-    pub newest: String,
-    pub oldest: String,
-}
-
-impl Place for BranchCommitsRoute {
-    const KIND: &'static str = "branches.commits";
-}
-
-/// Two versions of a branch compared.
-#[derive(Serialize, Deserialize)]
-pub(crate) struct VersionsRoute {
-    pub refname: String,
-    pub from: usize,
-    pub to: usize,
-}
-
-impl Place for VersionsRoute {
-    const KIND: &'static str = "branches.versions";
-}
-
-/// What is not committed.
-#[derive(Serialize, Deserialize)]
-pub(crate) struct WorkingTreeRoute {}
-
-impl Place for WorkingTreeRoute {
-    const KIND: &'static str = "branches.working-tree";
-}
-
-/// Two refs compared, each with the commit it was at; since their merge base or directly.
-#[derive(Serialize, Deserialize)]
-pub(crate) struct CompareRoute {
-    pub base: String,
-    pub base_commit: String,
-    pub head: String,
-    pub head_commit: String,
-    pub since: bool,
-}
-
-impl Place for CompareRoute {
-    const KIND: &'static str = "branches.compare";
-}
 
 impl Page {
     pub fn route(&self) -> Route {

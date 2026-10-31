@@ -29,6 +29,9 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   `crates/code-api` (`artoo-code-api`): Code's contract — its routes (`code.file`, `code.folder`), `Code` (what the
   tab asks of it, offered in the tab's services) and `Host` (what it asks of the tab). `crates/review-api`
   (`artoo-review-api`): what a page asks of the tab's review, for now the file Code reads (`FileView`).
+  `crates/branches-api` (`artoo-branches-api`): branches' contract — the routes of a branch's pages
+  (`branches.branch`, `branches.commit`, `branches.commits`, `branches.versions`), of a comparison
+  (`branches.compare`) and of the working tree (`branches.working-tree`).
   `crates/requests-api` (`artoo-requests-api`): merge requests' contract — the routes of a request's pages
   (`requests.request`, `requests.commit`, `requests.commits`, `requests.versions`). `crates/requests`
   (`artoo-requests`, #165 stage 4): what the tab keeps of merge requests — the lists and their groups (`group`),
