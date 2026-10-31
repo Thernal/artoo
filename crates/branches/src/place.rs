@@ -38,9 +38,30 @@ impl History {
 
     /// Where what is loaded is, as a route: the page of the request on the branch open while it is request
     /// `current`, by the selection; the comparison `on_screen` while a run of its commits narrows it (a filter of
-    /// its page, not a page, #21); else where the branch is (`route`). None while no branch is open.
+    /// its page, not a page, #21); else where the branch is (`branch_route`). None while no branch is open.
     pub fn loaded_route(
         &self,
+        shown: Option<&Header>,
+        current: Option<u64>,
+        on_screen: Option<&Route>,
+    ) -> Option<Route> {
+        self.route_at(self.selection, shown, current, on_screen)
+    }
+
+    /// The page `selection` of the branch open is once shown (`loaded_route`): a commit, a run or two versions, of
+    /// the request open while it is `current`. None for a selection that is not one of those.
+    pub fn route_of(&self, selection: Selection, current: Option<u64>) -> Option<Route> {
+        match selection {
+            Selection::Commit(_) | Selection::Commits { .. } | Selection::Versions { .. } => {
+                self.route_at(selection, None, current, None)
+            }
+            Selection::None | Selection::WorkingTree => None,
+        }
+    }
+
+    fn route_at(
+        &self,
+        selection: Selection,
         shown: Option<&Header>,
         current: Option<u64>,
         on_screen: Option<&Route>,
@@ -50,7 +71,7 @@ impl History {
             && current == Some(number)
         {
             let hex = |ix: usize| Some(self.commits.get(ix)?.id.to_string());
-            return Some(match self.selection {
+            return Some(match selection {
                 Selection::Commit(ix) => RequestCommitRoute {
                     number,
                     commit: hex(ix)?,
@@ -69,23 +90,22 @@ impl History {
             });
         }
         if let Some(route) = on_screen.filter(|r| {
-            self.selection == Selection::None
-                && self.compare_of(r).is_some_and(|c| c.picked.is_some())
+            selection == Selection::None && self.compare_of(r).is_some_and(|c| c.picked.is_some())
         }) {
             return Some(route.clone());
         }
-        self.route(shown)
+        self.branch_route(selection, shown)
     }
 
-    /// Where the branch open is, by the selection and the diff `shown`: a commit of it — on a branch without its
+    /// Where the branch open is, by `selection` and the diff `shown`: a commit of it — on a branch without its
     /// own commits any but the newest, which is the branch's own page there (the developer, 2026-11-01) —; the
     /// branch's own comparison is its page, another comparison its own. None while no branch is open, or a commit
     /// picked is gone.
-    pub fn route(&self, shown: Option<&Header>) -> Option<Route> {
+    fn branch_route(&self, selection: Selection, shown: Option<&Header>) -> Option<Route> {
         let refname = self.branches.get(self.branch?)?.refname.clone();
         let hex = |id: git2::Oid| id.to_string();
         let tabbed = self.tabbed(&refname);
-        Some(match (self.selection, shown) {
+        Some(match (selection, shown) {
             (Selection::WorkingTree, _) => WorkingTreeRoute {}.route(),
             (Selection::Versions { from, to }, _) => VersionsRoute { refname, from, to }.route(),
             (Selection::Commit(ix), _) if tabbed || ix > 0 => BranchCommitRoute {

@@ -2198,7 +2198,7 @@ impl Workspace {
                 self.index_paths(cx);
             }
             history::Event::Failed(err) => self.error = Some(err.clone().into()),
-            history::Event::Picked(ix) => self.select_commit(*ix, cx),
+            history::Event::Picked(ix) => self.pick(Selection::Commit(*ix), cx),
         }
         cx.notify();
     }

@@ -11,7 +11,7 @@
 //! say where they went through `arrive`.
 
 use super::spaces::Space;
-use super::{Workspace, recents, zones};
+use super::{Selection, Workspace, recents, zones};
 use artoo_branches::opening::Opening;
 use artoo_core::route::Route;
 use artoo_ui_kit::format;
@@ -561,6 +561,36 @@ impl Workspace {
         }
         self.remember_moment();
         self.save_nav();
+    }
+
+    /// Page `page` of the item on screen opened from where the tab is (a pick, a step): it comes
+    /// on screen, kept in the history, and what it shows is loaded (`load_page`).
+    fn go_page(&mut self, page: Page, cx: &mut Context<Self>) {
+        self.arrive(page.clone(), cx);
+        self.load_page(page, cx);
+        cx.notify();
+    }
+
+    /// `selection` of the branch open picked — a commit, a run, two versions —: opened as the page
+    /// it is (`History::route_of`); loaded as it is where it is no page of the item on screen.
+    pub(super) fn pick(&mut self, selection: Selection, cx: &mut Context<Self>) {
+        let current = self.requests.read(cx).current;
+        let item = self.nav_page().and_then(Page::item);
+        let page = self
+            .history
+            .read(cx)
+            .route_of(selection, current)
+            .and_then(|route| Page::from_route(&route))
+            .filter(|page| page.space() == self.nav.space && page.item() == item);
+        match (page, selection) {
+            (Some(page), _) => self.go_page(page, cx),
+            (None, Selection::Commit(ix)) => self.select_commit(ix, cx),
+            (None, Selection::Commits { newest, oldest }) => {
+                self.select_commits(newest, oldest, cx)
+            }
+            (None, Selection::Versions { from, to }) => self.select_versions(from, to, cx),
+            (None, Selection::None | Selection::WorkingTree) => {}
+        }
     }
 
     /// What is loaded comes on screen as its page, from wherever the window was (a ⌘K result, a

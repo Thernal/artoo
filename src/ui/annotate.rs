@@ -58,7 +58,7 @@ impl Workspace {
         {
             Some(ix) => {
                 // The list may be filtered; show it as it is without the filter.
-                self.select_commit(ix, cx);
+                self.pick(super::Selection::Commit(ix), cx);
             }
             None => {
                 self.error = Some(

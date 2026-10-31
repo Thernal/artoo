@@ -7,7 +7,7 @@
 
 use super::hover::CutInTip;
 use super::nav::{Item, Page, Section};
-use super::{Workspace, format, icons, island, plural, px, theme};
+use super::{Selection, Workspace, format, icons, island, plural, px, theme};
 use crate::mr::Mr;
 use artoo_requests::page::{Facts, OverviewLook};
 use gpui::{AnyElement, App, ClickEvent, Context, Div, SharedString, div, prelude::*};
@@ -244,7 +244,7 @@ impl Workspace {
                             return cx.notify();
                         }
                         if this.picked_commit(cx) == Some(ix) && event.click_count() > 1 {
-                            return this.select_commit(ix, cx);
+                            return this.pick(Selection::Commit(ix), cx);
                         }
                         this.nav.pick_commit = id;
                         this.nav.pick_to = None;
@@ -377,10 +377,10 @@ impl Workspace {
     /// as one diff.
     pub(super) fn open_commit_pick(&mut self, cx: &mut Context<Self>) {
         if let Some((newest, oldest)) = self.picked_run(cx) {
-            return self.select_commits(newest, oldest, cx);
+            return self.pick(Selection::Commits { newest, oldest }, cx);
         }
         if let Some(ix) = self.picked_commit(cx) {
-            self.select_commit(ix, cx);
+            self.pick(Selection::Commit(ix), cx);
         }
     }
 
@@ -407,7 +407,7 @@ impl Workspace {
             (at + 1 < self.history.read(cx).commits.len()).then_some(at + 1)
         };
         if let Some(to) = to {
-            self.select_commit(to, cx);
+            self.pick(Selection::Commit(to), cx);
         }
         true
     }

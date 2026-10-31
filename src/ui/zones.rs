@@ -279,7 +279,7 @@ impl Workspace {
     fn step_commit_row(&mut self, down: bool, cx: &mut Context<Self>) {
         let working = self.history.read(cx).wt.count > 0;
         match self.history.read(cx).step_row(down, working) {
-            Some(Row::Commit(ix)) => self.select_commit(ix, cx),
+            Some(Row::Commit(ix)) => self.pick(super::Selection::Commit(ix), cx),
             Some(Row::WorkingTree) => self.select_working_tree(cx),
             None => {}
         }

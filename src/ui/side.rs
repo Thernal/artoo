@@ -3,9 +3,9 @@
 //! (a count, the first item, how far the review is). An open Commits or Changes takes the room left;
 //! Versions takes what its rows need. Folds are kept in `layout.txt`; ⌥⌘2 folds Changes.
 
-use super::Workspace;
 use super::nav::Page;
 use super::zones::Zone;
+use super::{Selection, Workspace};
 use artoo_branches::history::{Act, Acts};
 use artoo_branches::panel::{CommitsLook, Fold, Folding};
 use artoo_review::changes_view::SectionLook;
@@ -21,11 +21,11 @@ impl Workspace {
             this.update(cx, |this, cx| match act {
                 Act::Version { ix, more } => {
                     let (from, to) = this.history.read(cx).versions_clicked(ix, more);
-                    this.select_versions(from, to, cx)
+                    this.pick(Selection::Versions { from, to }, cx)
                 }
                 Act::Commit(ix) => {
                     this.close_drawer(cx);
-                    this.select_commit(ix, cx)
+                    this.pick(Selection::Commit(ix), cx)
                 }
                 Act::CommitMenu { ix, at } => this.commit_context(ix, at, cx),
                 Act::PickCompare { ix, span } => {
@@ -58,7 +58,7 @@ impl Workspace {
                     since,
                     request,
                 } => this.run_compare(base, head, since, request, cx),
-                Act::Versions { from, to } => this.select_versions(from, to, cx),
+                Act::Versions { from, to } => this.pick(Selection::Versions { from, to }, cx),
                 Act::VersionTab(tab) => {
                     this.history.update(cx, |h, _| h.version_tab = tab);
                     cx.notify();
