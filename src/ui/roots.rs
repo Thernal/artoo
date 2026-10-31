@@ -3,22 +3,20 @@
 //! error, offline. Merge requests are grouped by what they need from you, each group a band that
 //! folds (#81), and Mine counts the discussions waiting for you and lists them first. Branches list the working tree first, then
 //! the local branches with how far they are from the main line and their request; a remote's
-//! branches fold under its name.
+//! branches fold under its name. Each list's rows and preview are their feature's
+//! (`artoo_branches::list`, `artoo_requests::list`); the tab draws the islands around them.
 
-use super::hover::{CutInTip, Hover};
 use super::lists::Field;
 use super::nav::BranchRow;
-use super::{Workspace, format, icons, island, keys, plural, px, theme, words};
-use crate::git::{BranchRef, ChangeKind, RefKind};
+use super::{Workspace, island, keys, px, theme};
+use crate::git::BranchRef;
 use crate::mr::{Mr, MrState, Thread};
+use artoo_branches::list::{self as branches, Beside, Card, ListLook};
 pub(super) use artoo_requests::group::Group;
 use artoo_requests::list;
 use artoo_review_api::Seen;
 pub(super) use artoo_ui_kit::controls::skeleton;
-use artoo_ui_kit::controls::{empty_state, outline_button, primary_button, progress_badge};
-use gpui::{
-    AnyElement, App, ClickEvent, Context, Div, FontWeight, Rgba, SharedString, div, prelude::*,
-};
+use gpui::{AnyElement, App, ClickEvent, Context, Div, div, prelude::*};
 
 /// The width of a root's list.
 impl Workspace {
@@ -140,7 +138,7 @@ impl Workspace {
         cx.notify();
     }
 
-    fn toggle_remote(&mut self, remote: String, cx: &mut Context<Self>) {
+    pub(super) fn toggle_remote(&mut self, remote: String, cx: &mut Context<Self>) {
         self.history.update(cx, |h, _| h.toggle_remote(remote));
         cx.notify();
     }
@@ -340,128 +338,27 @@ impl Workspace {
     /// previewed.
     pub(super) fn render_branches_root(&self, cx: &mut Context<Self>) -> AnyElement {
         let rows = self.branch_rows(cx);
-        let filtering = !self.bfilter.trim().is_empty();
         let picked = self
             .nav
             .pick_branch
             .filter(|r| rows.contains(r))
             .or_else(|| self.first_branch_row(cx).filter(|r| rows.contains(r)))
             .or(rows.first().copied());
-        let mut list: Vec<AnyElement> = Vec::new();
-        if filtering {
-            list.extend(rows.iter().map(|row| {
-                self.branch_row(*row, picked == Some(*row), true, cx)
-                    .into_any_element()
-            }));
-            if rows.is_empty() {
-                list.push(
-                    div()
-                        .px(px(16.))
-                        .py(px(10.))
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child(format!("No branch matches “{}”.", self.bfilter.trim()))
-                        .into_any_element(),
-                );
-            }
-        } else {
-            list.push(heading("Working tree".to_owned()).into_any_element());
-            list.push(
-                self.branch_row(
-                    BranchRow::WorkingTree,
-                    picked == Some(BranchRow::WorkingTree),
-                    false,
-                    cx,
-                )
-                .into_any_element(),
-            );
-            let local: Vec<usize> = self
-                .history
-                .read(cx)
-                .branches
-                .iter()
-                .enumerate()
-                .filter(|(_, b)| b.kind == RefKind::Local)
-                .map(|(ix, _)| ix)
-                .collect();
-            list.push(heading(format!("Local · {}", local.len())).into_any_element());
-            list.extend(local.into_iter().map(|ix| {
-                let row = BranchRow::Branch(ix);
-                self.branch_row(row, picked == Some(row), false, cx)
-                    .into_any_element()
-            }));
-            for (remote, ixs) in self.history.read(cx).remote_branches() {
-                let open = self.history.read(cx).roots.open_remotes.contains(&remote);
-                let name = remote.clone();
-                list.push(
-                    div()
-                        .id(SharedString::from(format!("remote-{remote}")))
-                        .flex()
-                        .items_center()
-                        .gap(px(4.))
-                        .px(px(12.))
-                        .pt(px(10.))
-                        .pb(px(4.))
-                        .text_size(px(11.))
-                        .text_color(theme::faint())
-                        .cursor_pointer()
-                        .hover(|s| s.text_color(theme::text()))
-                        .child(
-                            icons::icon(if open { "chevron" } else { "chevron-right" })
-                                .size(px(14.))
-                                .text_color(theme::faint()),
-                        )
-                        .child(format!(
-                            "{remote} · {}{}",
-                            ixs.len(),
-                            if open { "" } else { " · folded" }
-                        ))
-                        .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
-                            if e.click_count() < 2 {
-                                this.toggle_remote(name.clone(), cx)
-                            }
-                        }))
-                        .into_any_element(),
-                );
-                if open {
-                    list.extend(ixs.into_iter().map(|ix| {
-                        let row = BranchRow::Branch(ix);
-                        self.branch_row(row, picked == Some(row), false, cx)
-                            .into_any_element()
-                    }));
-                }
-            }
-        }
-        let local = self
-            .history
-            .read(cx)
-            .branches
-            .iter()
-            .filter(|b| b.kind == RefKind::Local)
-            .count();
-        let alone = !filtering && local == 1 && self.wt.count == 0;
-        let preview = if alone {
-            let name = self
-                .history
-                .read(cx)
-                .branches
-                .iter()
-                .find(|b| b.kind == RefKind::Local)
-                .map(|b| b.name.clone())
-                .unwrap_or_default();
-            empty_state(
-                "branch",
-                format!("Only {name}, nothing ahead"),
-                "Branches you make in your terminal or editor show up here, with what they hold and their request.".to_owned(),
-                None,
+        let acts = self.history_acts(cx);
+        let (list, preview) = {
+            let beside = |ix: usize| self.beside_branch(ix, cx);
+            let look = ListLook {
+                room: self.widths.room("branches"),
+                changes: self.wt.count,
+                filter: self.bfilter.trim(),
+                picked,
+                beside: &beside,
+            };
+            let h = self.history.read(cx);
+            (
+                branches::rows(h, &rows, &look, &acts),
+                branches::preview(h, &look, &acts),
             )
-            .into_any_element()
-        } else {
-            match picked {
-                Some(BranchRow::WorkingTree) => self.tree_preview(cx).into_any_element(),
-                Some(BranchRow::Branch(ix)) => self.branch_preview(ix, cx),
-                None => div().into_any_element(),
-            }
         };
         div()
             .flex_1()
@@ -500,267 +397,41 @@ impl Workspace {
             .into_any_element()
     }
 
-    /// A row of Branches: the working tree's, or a branch's name, when, how far from the main
-    /// line, its request. `flat` (filtered) names a remote branch with its remote. Its anatomy
-    /// (#79): the name and ↑ ↓ always; its request and when while the list has 260 px; HEAD and
-    /// how far your review is under 360 px leave first; its card holds it all.
-    fn branch_row(
-        &self,
-        row: BranchRow,
-        picked: bool,
-        flat: bool,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
-        let room = self.widths.room("branches");
-        let head_name = self
-            .history
-            .read(cx)
-            .branches
-            .iter()
-            .find(|b| b.is_head)
-            .map(|b| b.name.clone());
-        let (id, icon, line1, line2): (SharedString, &'static str, AnyElement, Option<AnyElement>) =
-            match row {
-                BranchRow::WorkingTree => {
-                    let files = self.history.read(cx).roots.tree.as_ref().map(|t| &t.1);
-                    let line1 = div()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.))
-                        .child(if self.wt.count == 0 {
-                            div()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("Clean")
-                                .into_any_element()
-                        } else {
-                            div()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(plural(self.wt.count, "change"))
-                                .into_any_element()
-                        })
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .cut_in_tip()
-                                .text_color(theme::muted())
-                                .child(if self.wt.count == 0 {
-                                    "nothing to commit"
-                                } else {
-                                    "not committed"
-                                }),
-                        )
-                        .children(head_name.filter(|_| room.second()).map(|n| {
-                            div()
-                                .flex_none()
-                                .text_size(px(11.))
-                                .text_color(theme::faint())
-                                .child(format!("on {n}"))
-                        }))
-                        .into_any_element();
-                    let line2 = files.filter(|f| !f.is_empty()).map(|f| {
-                        let names: Vec<&str> = f.iter().take(2).map(|f| f.path.as_str()).collect();
-                        let more = f.len().saturating_sub(2);
-                        div()
-                            .cut_in_tip()
-                            .child(if more > 0 {
-                                format!("{} and {more} more", names.join(", "))
-                            } else {
-                                names.join(", ")
-                            })
-                            .into_any_element()
-                    });
-                    ("branch-row-wt".into(), "files", line1, line2)
-                }
-                BranchRow::Branch(ix) => {
-                    let b = &self.history.read(cx).branches[ix];
-                    let name = match (b.kind, flat) {
-                        (RefKind::Remote, false) => {
-                            b.name.split_once('/').map_or(b.name.as_str(), |(_, n)| n)
-                        }
-                        _ => b.name.as_str(),
-                    };
-                    let fact = self.history.read(cx).roots.facts.get(&b.refname);
-                    let line1 = div()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .child(
-                            super::hover::cut(
-                                SharedString::from(format!("branch-name-{ix}")),
-                                name.to_owned(),
-                            )
-                            .flex_1()
-                            .font_family(theme::code_font())
-                            .when(b.kind == RefKind::Local, |s| {
-                                s.font_weight(FontWeight::SEMIBOLD)
-                            })
-                            .when(b.kind == RefKind::Remote, |s| s.text_color(theme::muted())),
-                        )
-                        .children(
-                            self.review
-                                .read(cx)
-                                .head_part(b.tip)
-                                .filter(|_| room.third())
-                                .map(|(done, total)| progress_badge(done, total)),
-                        )
-                        .children(
-                            (room.third() && self.review.read(cx).head_reviewed(b.tip)).then(
-                                || {
-                                    div()
-                                        .text_size(px(11.))
-                                        .text_color(theme::added())
-                                        .child("✓ reviewed")
-                                },
-                            ),
-                        )
-                        .children(fact.filter(|_| room.second()).map(|f| {
-                            div()
-                                .flex_none()
-                                .text_size(px(11.))
-                                .text_color(theme::faint())
-                                .child(format::ago(f.time))
-                        }))
-                        .into_any_element();
-                    let mut parts: Vec<AnyElement> = Vec::new();
-                    if b.is_head && room.third() {
-                        parts.push(
-                            div()
-                                .px(px(6.))
-                                .rounded_full()
-                                .border_1()
-                                .border_color(theme::accent())
-                                .text_size(px(10.))
-                                .text_color(theme::accent())
-                                .child("HEAD")
-                                .into_any_element(),
-                        );
-                    }
-                    match fact.and_then(|f| f.against.as_ref()) {
-                        Some((up, 0, 0)) => parts.push(
-                            div()
-                                .child(format!("up to date with {up}"))
-                                .into_any_element(),
-                        ),
-                        Some((_, ahead, behind)) => parts.push(
-                            div()
-                                .child(format!("↑{ahead} ↓{behind}"))
-                                .into_any_element(),
-                        ),
-                        None => {}
-                    }
-                    if let Some(m) = self.request_of_branch(ix, cx).filter(|_| room.second()) {
-                        let iid = m.iid;
-                        parts.push(
-                            div()
-                                .id(SharedString::from(format!("branch-mr-{ix}")))
-                                .text_color(theme::accent())
-                                .cursor_pointer()
-                                .hover(|s| s.underline())
-                                .child(format!("{} →", words::number(iid)))
-                                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                    cx.stop_propagation();
-                                    this.select_request(iid, cx)
-                                }))
-                                .into_any_element(),
-                        );
-                    }
-                    let line2 = (!parts.is_empty()).then(|| {
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .children(parts)
-                            .into_any_element()
-                    });
-                    (
-                        SharedString::from(format!("branch-row-{ix}")),
-                        "branch",
-                        line1,
-                        line2,
-                    )
-                }
-            };
-        let card = match row {
-            BranchRow::Branch(ix) => self.branch_card(ix, cx),
-            BranchRow::WorkingTree => None,
+    /// What the Branches list shows of branch `ix` that other features know: your review of its tip, its request,
+    /// its card.
+    fn beside_branch(&self, ix: usize, cx: &App) -> Beside {
+        let Some(b) = self.history.read(cx).branches.get(ix) else {
+            return Beside::default();
         };
-        // The working tree has no card: its tooltip names its files.
-        let tree_tip = (row == BranchRow::WorkingTree).then(|| {
-            let mut tip = vec![if self.wt.count == 0 {
-                "Clean: nothing to commit".to_owned()
-            } else {
-                format!("{}, not committed", plural(self.wt.count, "change"))
-            }];
-            if let Some(files) = self.history.read(cx).roots.tree.as_ref().map(|t| &t.1) {
-                tip.extend(files.iter().take(12).map(|f| f.path.clone()));
-                if files.len() > 12 {
-                    tip.push(format!("and {} more", files.len() - 12));
-                }
-            }
-            tip.join("\n")
-        });
-        div().px(px(6.)).py(px(1.)).child(
-            div()
-                .id(id)
-                .px(px(10.))
-                .py(px(7.))
-                .flex()
-                .items_start()
-                .gap(px(10.))
-                .rounded(px(super::ROW_RADIUS))
-                .cursor_pointer()
-                .when(picked, |s| s.bg(theme::selected()))
-                .when(!picked, |s| s.hover(|s| s.bg(theme::hover())))
-                .child(
-                    icons::icon(icon)
-                        .mt(px(2.))
-                        .size(px(15.))
-                        .text_color(theme::faint()),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap(px(3.))
-                        .child(line1)
-                        .children(
-                            line2.map(|l| {
-                                div().text_size(px(12.)).text_color(theme::muted()).child(l)
-                            }),
-                        ),
-                )
-                .when_some(card, |s, card| s.card(card))
-                .when_some(tree_tip, |s, tip| s.tip(tip))
-                .when_some(
-                    match row {
-                        BranchRow::Branch(ix) => Some(ix),
-                        BranchRow::WorkingTree => None,
-                    },
-                    |s, ix| {
-                        s.on_mouse_down(
-                            gpui::MouseButton::Right,
-                            cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
-                                this.branch_context(ix, event.position, cx)
-                            }),
-                        )
-                    },
-                )
-                .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
-                    let open = this.nav.pick_branch == Some(row) && event.click_count() > 1;
-                    if open || this.compact() {
-                        return this.open_branch_row(row, cx);
-                    }
-                    this.zone = super::zones::Zone::Branches;
-                    this.nav.pick_branch = Some(row);
-                    if row == BranchRow::WorkingTree {
-                        this.read_tree_files(cx);
-                    }
-                    cx.notify();
-                })),
-        )
+        let review = self.review.read(cx);
+        Beside {
+            part: review.head_part(b.tip),
+            reviewed: review.head_reviewed(b.tip),
+            request: self
+                .request_of_branch(ix, cx)
+                .map(|m| (m.iid, m.title.clone())),
+            card: self.branch_card(ix, cx).map(|card| Box::new(card) as Card),
+        }
+    }
+
+    /// A row of Branches clicked: a second click on the one picked opens it, as one click does
+    /// narrow (#80); else it is picked, the working tree's files read.
+    pub(super) fn pick_branch_row(
+        &mut self,
+        row: BranchRow,
+        clicks: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let open = self.nav.pick_branch == Some(row) && clicks > 1;
+        if open || self.compact() {
+            return self.open_branch_row(row, cx);
+        }
+        self.zone = super::zones::Zone::Branches;
+        self.nav.pick_branch = Some(row);
+        if row == BranchRow::WorkingTree {
+            self.read_tree_files(cx);
+        }
+        cx.notify();
     }
 
     /// Opens a row of Branches: the working tree, or the branch.
@@ -770,255 +441,6 @@ impl Workspace {
             BranchRow::WorkingTree => self.select_working_tree(cx),
             BranchRow::Branch(ix) => self.open_branch(ix, None, cx),
         }
-    }
-
-    /// The working tree picked: what is not committed, read only, and the way to its diff.
-    fn tree_preview(&self, cx: &mut Context<Self>) -> Div {
-        let head = self
-            .history
-            .read(cx)
-            .branches
-            .iter()
-            .find(|b| b.is_head)
-            .map(|b| b.name.clone());
-        let files = self
-            .history
-            .read(cx)
-            .roots
-            .tree
-            .as_ref()
-            .map(|t| t.1.clone())
-            .unwrap_or_default();
-        let props = div()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .text_size(px(12.))
-            .text_color(theme::muted())
-            .child(
-                icons::icon("files")
-                    .size(px(15.))
-                    .text_color(theme::muted()),
-            )
-            .child(match &head {
-                Some(n) => format!("Working tree · on {n}"),
-                None => "Working tree".to_owned(),
-            })
-            .child(div().flex_1())
-            .child(
-                div()
-                    .text_color(theme::faint())
-                    .child("read only: commit in your editor or terminal"),
-            );
-        let title = div()
-            .text_size(px(19.))
-            .line_height(px(26.))
-            .font_weight(FontWeight::SEMIBOLD)
-            .child(if self.wt.count == 0 {
-                "Nothing to commit".to_owned()
-            } else {
-                format!("{} not committed", plural(self.wt.count, "change"))
-            });
-        let list = (!files.is_empty()).then(|| {
-            div()
-                .flex()
-                .flex_col()
-                .py(px(4.))
-                .rounded(px(8.))
-                .border_1()
-                .border_color(theme::island_border())
-                .bg(theme::panel())
-                .children(files.into_iter().take(40).map(|f| {
-                    let (letter, color) = change_letter(f.change);
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(10.))
-                        .px(px(12.))
-                        .h(px(26.))
-                        .text_size(px(13.))
-                        .child(
-                            div()
-                                .w(px(14.))
-                                .text_size(px(11.))
-                                .font_weight(FontWeight::BOLD)
-                                .text_color(color)
-                                .child(letter),
-                        )
-                        .child(
-                            super::hover::cut(
-                                SharedString::from(format!("wt-file-{}", f.path)),
-                                f.path,
-                            )
-                            .flex_1(),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .gap(px(6.))
-                                .text_size(px(11.))
-                                .child(
-                                    div()
-                                        .text_color(theme::added())
-                                        .child(format!("+{}", f.added)),
-                                )
-                                .child(
-                                    div()
-                                        .text_color(theme::removed())
-                                        .child(format!("−{}", f.removed)),
-                                ),
-                        )
-                }))
-        });
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(14.))
-            .px(px(28.))
-            .py(px(22.))
-            .max_w(px(820.))
-            .child(props)
-            .child(title)
-            .children(list)
-            .children((self.wt.count > 0).then(|| {
-                div()
-                    .flex()
-                    .child(
-                        primary_button("tree-open", "Open the diff", "↵").on_click(cx.listener(
-                            |this, _: &ClickEvent, _, cx| {
-                                this.field = None;
-                                this.select_working_tree(cx)
-                            },
-                        )),
-                    )
-            }))
-    }
-
-    /// A branch picked: its last commit, how far it is from the main line, its request, Open.
-    fn branch_preview(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
-        let Some(b) = self.history.read(cx).branches.get(ix) else {
-            return div().into_any_element();
-        };
-        let fact = self.history.read(cx).roots.facts.get(&b.refname);
-        let request = self
-            .request_of_branch(ix, cx)
-            .map(|m| (m.iid, m.title.clone()));
-        let props = div()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .text_size(px(12.))
-            .text_color(theme::muted())
-            .child(
-                icons::icon("branch")
-                    .size(px(15.))
-                    .text_color(theme::muted()),
-            )
-            .child(match b.kind {
-                RefKind::Local if b.is_head => "Local branch · checked out".to_owned(),
-                RefKind::Local => "Local branch".to_owned(),
-                RefKind::Remote => "Remote branch".to_owned(),
-                RefKind::Request => "A merge request's head".to_owned(),
-            })
-            .child(div().flex_1())
-            .children(fact.map(|f| {
-                div()
-                    .text_color(theme::faint())
-                    .child(format!("last commit {}", format::ago(f.time)))
-            }));
-        let title = div()
-            .text_size(px(19.))
-            .line_height(px(26.))
-            .font_weight(FontWeight::SEMIBOLD)
-            .font_family(theme::code_font())
-            .child(b.name.clone());
-        let mut facts: Vec<String> = Vec::new();
-        if let Some((against, ahead, behind)) = fact.and_then(|f| f.against.as_ref()) {
-            facts.push(if (*ahead, *behind) == (0, 0) {
-                format!("up to date with {against}")
-            } else {
-                format!(
-                    "{} ahead of {against}, {} behind",
-                    plural(*ahead, "commit"),
-                    behind
-                )
-            });
-        }
-        let last = fact.map(|f| {
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(2.))
-                .px(px(12.))
-                .py(px(8.))
-                .rounded(px(8.))
-                .border_1()
-                .border_color(theme::island_border())
-                .bg(theme::panel())
-                .child(div().text_size(px(13.)).child(f.summary.clone()))
-                .child(
-                    div()
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child(format!(
-                            "{} · {} · {}",
-                            format::short(b.tip),
-                            f.author,
-                            format::ago(f.time)
-                        )),
-                )
-        });
-        let mut actions: Vec<AnyElement> = vec![
-            primary_button("branch-open", "Open", "↵")
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.open_branch_row(BranchRow::Branch(ix), cx)
-                }))
-                .into_any_element(),
-        ];
-        if let Some((iid, _)) = &request {
-            let iid = *iid;
-            actions.push(
-                div()
-                    .id("branch-request")
-                    .child(outline_button(&format!("{} →", words::number(iid))))
-                    .on_click(
-                        cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.select_request(iid, cx)
-                        }),
-                    )
-                    .into_any_element(),
-            );
-        }
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(14.))
-            .px(px(28.))
-            .py(px(22.))
-            .max_w(px(820.))
-            .child(props)
-            .child(title)
-            .children(request.map(|(iid, title)| {
-                div().text_size(px(13.)).text_color(theme::muted()).child(
-                    words::say(&format!(
-                        "{} is open for this branch: {title}",
-                        words::number(iid)
-                    ))
-                    .into_owned(),
-                )
-            }))
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap(px(14.))
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .children(facts.into_iter().map(|f| div().child(f))),
-            )
-            .children(last)
-            .child(div().flex().items_center().gap(px(10.)).children(actions))
-            .into_any_element()
     }
 
     /// The list's filter in the page bar: ⌘F gives it the keyboard.
@@ -1047,27 +469,5 @@ impl Workspace {
                     }),
             )
             .into_any_element()
-    }
-}
-
-/// A group's heading in a list: "Needs your review · 3".
-fn heading(text: String) -> Div {
-    div()
-        .px(px(16.))
-        .pt(px(10.))
-        .pb(px(4.))
-        .text_size(px(11.))
-        .text_color(theme::faint())
-        .child(text)
-}
-
-fn change_letter(change: ChangeKind) -> (&'static str, Rgba) {
-    match change {
-        ChangeKind::Added => ("A", theme::added()),
-        ChangeKind::Deleted => ("D", theme::removed()),
-        ChangeKind::Modified => ("M", theme::accent()),
-        ChangeKind::Renamed => ("R", theme::renamed()),
-        ChangeKind::Copied => ("C", theme::renamed()),
-        ChangeKind::TypeChanged => ("T", theme::warning()),
     }
 }

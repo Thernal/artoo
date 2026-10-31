@@ -105,6 +105,17 @@ pub enum Act {
         ix: usize,
         at: gpui::Point<gpui::Pixels>,
     },
+    /// A row of Branches clicked, `clicks` times: picked, or opened.
+    PickRow {
+        row: crate::roots::BranchRow,
+        clicks: usize,
+    },
+    /// A row of Branches opened: the working tree, or the branch.
+    OpenRow(crate::roots::BranchRow),
+    /// A branch's request, by its number.
+    ShowRequest(u64),
+    /// A remote's branches folded or open.
+    ToggleRemote(String),
 }
 
 /// How a view asks the tab an `Act`.

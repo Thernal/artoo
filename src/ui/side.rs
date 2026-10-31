@@ -55,6 +55,10 @@ impl Workspace {
                     this.start_find(cx)
                 }
                 Act::BranchMenu { ix, at } => this.branch_context(ix, at, cx),
+                Act::PickRow { row, clicks } => this.pick_branch_row(row, clicks, cx),
+                Act::OpenRow(row) => this.open_branch_row(row, cx),
+                Act::ShowRequest(iid) => this.select_request(iid, cx),
+                Act::ToggleRemote(remote) => this.toggle_remote(remote, cx),
             })
             .ok();
         })
