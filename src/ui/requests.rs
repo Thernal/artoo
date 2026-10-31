@@ -189,10 +189,9 @@ impl Workspace {
     /// branch is branch `ix` becomes the current one and its discussions are read. A branch opened
     /// in Branches is a branch: no request rides on it (#71).
     pub(super) fn sync_request(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let iid = self
-            .pending_compare
-            .as_ref()
-            .or(self.open_request.as_ref())
+        let history = self.history.read(cx);
+        let iid = (history.pending_request.as_ref())
+            .or(history.open_request.as_ref())
             .map(|r| r.2)
             .filter(|iid| {
                 // Its source branch, or a branch at its head (a merged one's, #114).
@@ -248,6 +247,7 @@ impl Workspace {
             let (label, detail) = (m.title.clone(), super::words::number(iid));
             self.remember_place(super::recents::Key::Request(iid), label, detail);
         }
+        self.history.update(cx, |h, _| h.pending_request = None);
         let pick = |name: &str| {
             let remote = self.history.read(cx).branches.iter().position(|b| {
                 b.kind == RefKind::Remote && b.name.split_once('/').is_some_and(|(_, n)| n == name)
@@ -260,7 +260,6 @@ impl Workspace {
                     .position(|b| b.kind == RefKind::Local && b.name == name)
             })
         };
-        self.pending_compare = None;
         // A GitHub pull request from a fork has no branch here; `pr/<n>` is where the hint below
         // fetches its head.
         let github = self.web.as_ref().is_some_and(|w| w.github);
@@ -325,7 +324,9 @@ impl Workspace {
             {
                 base.1 = parent;
             }
-            self.pending_compare = Some((base, side(src), iid));
+            let head = side(src);
+            self.history
+                .update(cx, |h, _| h.pending_request = Some((base, head, iid)));
         }
         self.select_branch(src, None, cx);
     }
@@ -388,8 +389,10 @@ impl Workspace {
 
     /// The request's state goes: what is loaded is its branch, as a branch.
     pub(super) fn drop_request(&mut self, cx: &mut Context<Self>) {
-        self.open_request = None;
-        self.pending_compare = None;
+        self.history.update(cx, |h, _| {
+            h.open_request = None;
+            h.pending_request = None;
+        });
         if let Some(ix) = self.history.read(cx).branch {
             self.sync_request(ix, cx);
         }
@@ -646,11 +649,12 @@ impl Workspace {
         else {
             return;
         };
-        let waiting = self.pending_compare.as_ref().is_some_and(|p| p.2 == iid);
+        let history = self.history.read(cx);
+        let waiting = history.pending_request.as_ref().is_some_and(|p| p.2 == iid);
         let open = if waiting {
-            self.pending_compare.clone()
+            history.pending_request.clone()
         } else {
-            self.open_request.clone().filter(|o| o.2 == iid)
+            history.open_request.clone().filter(|o| o.2 == iid)
         };
         let (Some((base, head, _)), Some(root)) = (open, self.root.clone()) else {
             return;
@@ -671,10 +675,12 @@ impl Workspace {
             Sides::Host(b, h) => {
                 let (base, head) = ((base.0, b), (head.0, h));
                 if waiting {
-                    self.pending_compare = Some((base, head, iid));
+                    self.history
+                        .update(cx, |h, _| h.pending_request = Some((base, head, iid)));
                     return;
                 }
-                self.open_request = Some((base.clone(), head.clone(), iid));
+                let open = Some((base.clone(), head.clone(), iid));
+                self.history.update(cx, |h, _| h.open_request = open);
                 // The Commits tab is read again; a commit or a run picked in it stays picked.
                 let id = |ix: usize| self.history.read(cx).commits.get(ix).map(|c| c.id);
                 let picked = match self.history.read(cx).selection {
@@ -780,7 +786,7 @@ impl Workspace {
 
     /// Shows GitLab's versions of the open request in the timeline, when there is more than one.
     pub(super) fn apply_mr_versions(&mut self, cx: &mut App) {
-        let Some(iid) = self.open_request.as_ref().map(|r| r.2) else {
+        let Some(iid) = self.history.read(cx).open_request.as_ref().map(|r| r.2) else {
             return;
         };
         let list = match &self.requests.read(cx).versions {

@@ -427,10 +427,9 @@ impl Workspace {
         // Nothing is, while no branch is open: a request's page is its branch's too.
         let history = self.history.read(cx);
         history.branches.get(history.branch?)?;
-        if let Some((_, _, iid)) = &self.open_request
-            && self.requests.read(cx).current == Some(*iid)
+        if let Some(iid) = history.open_request.as_ref().map(|r| r.2)
+            && self.requests.read(cx).current == Some(iid)
         {
-            let iid = *iid;
             return Some(match self.history.read(cx).selection {
                 Selection::Commit(ix) => {
                     Page::RequestCommit(iid, self.history.read(cx).commits.get(ix)?.id)
@@ -624,7 +623,7 @@ impl Workspace {
     /// What is selected inside the open request or branch changed (a commit, versions): the page
     /// follows. Not while a request is still loading, nor while a page is being put back.
     pub(super) fn record(&mut self, cx: &App) {
-        if self.pending_compare.is_some() || self.nav.restoring {
+        if self.history.read(cx).pending_request.is_some() || self.nav.restoring {
             return;
         }
         let Some(page) = self.loaded_page(cx) else {
@@ -802,7 +801,7 @@ impl Workspace {
             Page::Compare(base, head, since) => self.run_compare(base, head, since, None, cx),
             Page::Request(iid) => {
                 if same_item {
-                    if let Some((base, head, iid)) = self.open_request.clone() {
+                    if let Some((base, head, iid)) = self.history.read(cx).open_request.clone() {
                         self.run_compare(base, head, true, Some(iid), cx);
                     }
                 } else {
@@ -848,7 +847,7 @@ impl Workspace {
             Page::RequestCommit(iid, _)
             | Page::RequestCommits(iid, ..)
             | Page::RequestVersions(iid, ..)
-                if self.open_request.as_ref().map(|r| r.2) != Some(iid) =>
+                if self.history.read(cx).open_request.as_ref().map(|r| r.2) != Some(iid) =>
             {
                 false
             }

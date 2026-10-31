@@ -14,6 +14,9 @@ use std::sync::Arc;
 /// A ref's name and the commit it points at.
 pub type NamedTip = (String, git2::Oid);
 
+/// A merge request on the branch open: its base and head, and its number.
+pub type RequestSides = (NamedTip, NamedTip, u64);
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Selection {
     None,
@@ -57,6 +60,10 @@ pub struct History {
     pub older: Option<Older>,
     pub selection: Selection,
     pub version_tab: VersionTab,
+    /// A merge request's diff to show once its branch is read (#71).
+    pub pending_request: Option<RequestSides>,
+    /// The merge request whose diff is open (or was last opened from the list).
+    pub open_request: Option<RequestSides>,
     /// The commit's message open under its title, over its diff (`head`).
     pub message_open: bool,
     /// Where the Commits section's list is scrolled.
@@ -172,6 +179,8 @@ impl Default for History {
             older: None,
             selection: Selection::None,
             version_tab: VersionTab::Files,
+            pending_request: None,
+            open_request: None,
             message_open: false,
             commit_scroll: UniformListScrollHandle::new(),
             compare_scroll: UniformListScrollHandle::new(),

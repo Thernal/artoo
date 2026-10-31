@@ -1476,9 +1476,6 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
     .detach();
 }
 
-/// Base, head and merge request of a diff to show.
-type PendingCompare = (NamedTip, NamedTip, u64);
-
 /// A pane boundary that can be dragged.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Split {
@@ -1620,10 +1617,6 @@ pub struct Workspace {
     requests: gpui::Entity<requests::Requests>,
     /// The menu's scroll (#146).
     places: spaces::Places,
-    /// A merge request's diff to show once its branch has loaded: base, head, request.
-    pending_compare: Option<PendingCompare>,
-    /// The merge request whose diff is open (or was last opened from the list).
-    open_request: Option<PendingCompare>,
     /// What the last "Test" of the GitLab connection in Settings found.
     gitlab_check: Option<Result<String, String>>,
     /// A host without a token connected without a paste (#142).
@@ -1890,8 +1883,6 @@ impl Workspace {
             shell: None,
             requests: cx.new(|_| requests::Requests::default()),
             places: Default::default(),
-            pending_compare: None,
-            open_request: None,
             gitlab_check: None,
             connecting: Default::default(),
             shortcuts: greet,
@@ -2166,7 +2157,7 @@ impl Workspace {
     }
 
     fn select_branch(&mut self, ix: usize, keep: Option<git2::Oid>, cx: &mut Context<Self>) {
-        self.open_request = None;
+        self.history.update(cx, |h, _| h.open_request = None);
         self.sync_request(ix, cx);
         let Some(root) = self.root.clone() else {
             return;
@@ -2201,7 +2192,7 @@ impl Workspace {
     /// The branch open was read: its page — the branch against the main line, or the commit asked for —, or a
     /// request on it waiting for its commits.
     fn branch_read(&mut self, cx: &mut Context<Self>) {
-        let request = self.pending_compare.is_some();
+        let request = self.history.read(cx).pending_request.is_some();
         let Some(shown) = self.history.update(cx, |h, _| h.settle(request)) else {
             return;
         };
@@ -2228,8 +2219,9 @@ impl Workspace {
         if !self.history.read(cx).commits.is_empty() {
             self.select_commit(ix, cx);
         }
-        if let Some((base, head, iid)) = self.pending_compare.take() {
-            self.open_request = Some((base.clone(), head.clone(), iid));
+        if let Some((base, head, iid)) = self.history.update(cx, |h, _| h.pending_request.take()) {
+            let open = Some((base.clone(), head.clone(), iid));
+            self.history.update(cx, |h, _| h.open_request = open);
             self.show_request_commits(&base, &head, cx);
             self.apply_mr_versions(cx);
             // A commit or versions of it waited for its commits (#71); else the whole request.
