@@ -22,3 +22,23 @@ pub mod shown;
 pub mod side;
 pub mod waiting;
 pub mod working;
+
+use artoo_shell_api::{Frame, Parts};
+use gpui::{App, Entity, Window};
+use std::rc::Rc;
+
+/// Branches' parts in every tab: the commits' search as one of its inputs.
+pub fn install(cx: &mut App) {
+    artoo_shell_api::add_parts(cx, parts);
+}
+
+/// The parts of a tab that offers its history; none in one that does not.
+fn parts(frame: Rc<dyn Frame>, _: &mut Window, _: &mut App) -> Parts {
+    let Some(history) = frame.services().get::<Entity<history::History>>() else {
+        return Parts::default();
+    };
+    Parts {
+        inputs: vec![find::input(history)],
+        ..Default::default()
+    }
+}

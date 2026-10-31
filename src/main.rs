@@ -37,6 +37,7 @@ fn main() {
         artoo_updates::install(cx);
         artoo_reports::install(cx);
         artoo_code::install(cx);
+        artoo_branches::install(cx);
     });
 }
 

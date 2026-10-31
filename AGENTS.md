@@ -55,7 +55,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   list (`list`: its groups and folds, the picked one's preview read, the rows, bands, preview, why none is listed,
   the banner while it cannot be read); a card's text keeps its own caret (`area`). The tab gives each what it
   knows (a `…Look`) and puts it in its frame; the Inbox and a thread drawn on the diff's lines are still the
-  app's. `crates/branches` (`artoo-branches`, #165 stage 4): what the tab keeps of the repository's branches, an entity
+  app's. `crates/branches` (`artoo-branches`, #165 stage 4; a part, `install`): what the tab keeps of the repository's branches, an entity
   (`History`) whose reads, of the repository it keeps (`root`), are each its own task (`reading`) — the branch open,
   a merge request on it (waiting for it to be read, or open: `RequestSides`, its commits and the host's versions of
   it listed), a page waiting for them (`waiting`: a commit, a run, versions, shown once they are in), its versions
@@ -63,7 +63,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   their lists are scrolled, the commit's message open or not, and what the diff shows of them (`history`; a
   commit, a run, versions, an interdiff, the working tree, a comparison or a run of its commits shown through the
   review's handle, `shown`), where it is as a route of its own (`place`: the route nav keeps, whether a branch has
-  its own commits), what its page says of it (`facts`), the commits' search (`find`: its field an `Area`, its keys `History::find_key`), a
+  its own commits), what its page says of it (`facts`), the commits' search (`find`: its field an `Area`, its keys `History::find_key`, the field a part's, `find::input`), a
   comparison's own commits (`compare`), the working tree as last looked at (`working`), what the Branches list
   reads for its rows (`roots`) —, and the side panel (`panel`: its frame, its sections' headers and folds, `Act::Fold`; the Versions, Commits and a comparison's commits sections, the tab giving what is its in a `CommitsLook`), the views of its rows and its lists, the commits' and a comparison's, each its own `uniform_list` (`side`), a commit's card (`card`) and the
   head over a diff with its toolbar's left (`head`: what the diff is of, the working tree's halves, a comparison's
@@ -72,7 +72,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   request's page shares among them.
   `crates/shell-api` (`artoo-shell-api`): the
   shell's contract — actions (the app menu and ⌘K list them), parts each tab draws (title-bar items, cards over the
-  window, Settings rows, snapshot views, a space's pages), the `Frame` a part asks and the tab's `Services`;
+  window, Settings rows, snapshot views, a space's pages, fields that take the keyboard: `Input`), the `Frame` a part asks and the tab's `Services`;
   `src/ui/parts.rs` is the tab's side. `crates/hosts-api` (`artoo-hosts-api`): the hosts' contract — the models GitLab and GitHub answer
   in, the traits (`Account`, `Requests`, `Discussions`, `Reviews`, `Merging`; `Host` the five; `Hosts::of(remote)`)
   and the handle (`provide` / `get`). `crates/hosts` (`artoo-hosts`): GitLab and GitHub behind it (`hosts.rs`),

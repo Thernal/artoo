@@ -1,19 +1,24 @@
 //! The commits' search (⌘⇧F): what is typed, the commits it finds among those listed, and the paths each commit
 //! touched, read in the background so `path:` can be judged. The matching itself is the core's `search`. Its
-//! field (`field`), its words when nothing matches (`no_match`); the tab gives it the keyboard.
+//! field (`field`), its words when nothing matches (`no_match`), the field as a part's (`input`).
 
-use crate::history::{Act, Acts, History, Selection};
+use crate::history::{Act, Acts, Event, History, Selection};
 use artoo_core::git::Repo;
 use artoo_core::search::{self, Query};
+use artoo_shell_api::{Input, Typed};
 use artoo_ui_kit::input::{self, Area, Edit};
 use artoo_ui_kit::{ROW_RADIUS, icons, keys, px, theme};
 use git2::Oid;
 use gpui::{
-    App, ClickEvent, Context, Div, HighlightStyle, Keystroke, ScrollStrategy, SharedString,
+    App, ClickEvent, Context, Div, Entity, HighlightStyle, Keystroke, ScrollStrategy, SharedString,
     StyledText, Task, WeakEntity, div, prelude::*,
 };
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// The search's field as an input of the tab's (`artoo_shell_api::Input`).
+pub const INPUT: &str = "branches.search";
 
 /// Commits whose paths are read per background step.
 const PATH_CHUNK: usize = 250;
@@ -72,6 +77,18 @@ impl History {
             self.set_find(text);
         }
         edit
+    }
+
+    /// The search closed: every commit listed again, the one selected in the middle of the list.
+    pub fn close_find(&mut self) {
+        self.find.text = None;
+        self.refilter();
+        if let Selection::Commit(ix) = self.selection
+            && let Some(row) = self.row_of(ix)
+        {
+            self.commit_scroll
+                .scroll_to_item(row, ScrollStrategy::Center);
+        }
     }
 
     /// The search's text `text`: the commits it finds, the one selected kept in view.
@@ -316,4 +333,52 @@ pub fn no_match(h: &History) -> Div {
                     None => format!("Searched all {} commits.", h.commits.len()),
                 }),
         )
+}
+
+/// The search's field as the tab's input: its keys edit it, ↵ shows the first commit found (`Event::Picked`), esc
+/// lets the keyboard go; left empty, it closes.
+pub fn input(history: Entity<History>) -> Input {
+    let (open, key, left, selected) = (
+        history.downgrade(),
+        history.downgrade(),
+        history.downgrade(),
+        history.downgrade(),
+    );
+    Input {
+        id: INPUT,
+        open: Rc::new(move |cx| {
+            open.upgrade()
+                .is_some_and(|h| h.read(cx).find.text.is_some())
+        }),
+        key: Rc::new(move |event, _, cx| {
+            key.update(cx, |h, cx| match h.find_key(&event.keystroke, cx) {
+                Edit::Changed | Edit::Selected => {
+                    cx.notify();
+                    Typed::Kept
+                }
+                Edit::Enter { .. } => {
+                    if h.commit_rows() > 0 {
+                        cx.emit(Event::Picked(h.commit_at(0)));
+                    }
+                    Typed::Kept
+                }
+                Edit::Escape => Typed::Leave,
+                Edit::Ignored => Typed::Kept,
+            })
+            .unwrap_or(Typed::Kept)
+        }),
+        left: Rc::new(move |cx| {
+            left.update(cx, |h, cx| {
+                if h.find.text.as_deref() == Some("") {
+                    h.close_find();
+                    cx.notify();
+                }
+            })
+            .ok();
+        }),
+        selected: Rc::new(move |cx| {
+            let h = selected.upgrade()?;
+            h.read(cx).find.area.edit.selected_text().map(str::to_owned)
+        }),
+    }
 }

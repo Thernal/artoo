@@ -4,8 +4,8 @@
 //! - **Actions** (`add_action`): a command's words, the menu that shows it, its GPUI action. The app menu and ⌘K
 //!   list them; the tab that has the keys runs one through its parts (`Parts::actions`).
 //! - **Parts** (`add_parts`): what a feature draws in every tab — an item in the title bar, a card over the
-//!   window, a tool window on the right, rows in Settings, the views a snapshot run opens, a space's pages —,
-//!   made for each tab with its `Frame`.
+//!   window, a tool window on the right, rows in Settings, the views a snapshot run opens, a space's pages, the
+//!   fields it types in (`Input`) —, made for each tab with its `Frame`.
 //! - **Pages**: the routes of some kinds and a space's own page, drawn by the feature that owns them. The shell
 //!   keeps which is on screen — its history, `nav.txt` — and says so (`Pages::show`); a feature opens one of its
 //!   own through the `Frame` like any other.
@@ -227,6 +227,37 @@ pub struct Tool {
     pub key: OnKey,
 }
 
+/// A field a part draws that takes typed keys (#168). One input at a time has the keyboard, a part's as the tab's
+/// own: one opened since the last look takes it, and so does a press in its box; a press outside it, another page
+/// or esc lets it go, its text kept.
+pub struct Input {
+    /// A stable id (`branches.search`).
+    pub id: &'static str,
+    /// Whether it is open, with the keyboard or not.
+    pub open: Rc<dyn Fn(&App) -> bool>,
+    /// A key while it has the keyboard, and what came of it. The shell calls it from inside its own update.
+    pub key: OnType,
+    /// It let the keyboard go: one left empty closes.
+    pub left: Hook,
+    /// The text selected in it, for Copy.
+    pub selected: Selected,
+}
+
+/// A key typed in a part's input (`Input::key`).
+pub type OnType = Rc<dyn Fn(&KeyDownEvent, &mut Window, &mut App) -> Typed>;
+
+/// The text selected in a part's input (`Input::selected`).
+pub type Selected = Rc<dyn Fn(&App) -> Option<String>>;
+
+/// What a key typed in a part's input came to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Typed {
+    /// Taken, or not one it takes: it keeps the keyboard.
+    Kept,
+    /// Esc: it lets the keyboard go.
+    Leave,
+}
+
 /// A section of Settings a part can add rows to.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Section {
@@ -274,6 +305,8 @@ pub struct Parts {
     pub snapshots: Vec<(&'static str, Hook)>,
     /// A space's pages.
     pub pages: Option<Pages>,
+    /// The fields it types in.
+    pub inputs: Vec<Input>,
 }
 
 type Maker = Rc<dyn Fn(Rc<dyn Frame>, &mut Window, &mut App) -> Parts>;

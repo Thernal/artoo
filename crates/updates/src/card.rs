@@ -80,6 +80,7 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
             ),
         ],
         pages: None,
+        inputs: Vec::new(),
     }
 }
 

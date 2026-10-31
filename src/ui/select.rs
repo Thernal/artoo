@@ -112,16 +112,7 @@ impl Workspace {
                     .map(str::to_owned);
             }
             Input::Field => self.field != Some(super::lists::Field::Token),
-            Input::CommitSearch => {
-                return self
-                    .history
-                    .read(cx)
-                    .find
-                    .area
-                    .edit
-                    .selected_text()
-                    .map(str::to_owned);
-            }
+            Input::Part(id) => return self.part_input(id).and_then(|i| (i.selected)(cx)),
             Input::DiffFind
             | Input::Palette
             | Input::FindFiles

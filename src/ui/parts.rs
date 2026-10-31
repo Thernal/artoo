@@ -228,6 +228,31 @@ impl Workspace {
         self.zone == Zone::Tool && self.part_tool(id).is_some_and(|t| t.typing.get())
     }
 
+    /// Field `id` of a part's (`artoo_shell_api::Input`).
+    pub(super) fn part_input(&self, id: &str) -> Option<&artoo_shell_api::Input> {
+        self.parts
+            .iter()
+            .flat_map(|p| &p.inputs)
+            .find(|i| i.id == id)
+    }
+
+    /// A key while a part's field has the keyboard: the field's; esc lets it go.
+    pub(super) fn part_input_key(
+        &mut self,
+        id: &'static str,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(key) = self.part_input(id).map(|i| i.key.clone()) else {
+            return;
+        };
+        match key(event, window, cx) {
+            artoo_shell_api::Typed::Leave => self.leave_input(cx),
+            artoo_shell_api::Typed::Kept => cx.notify(),
+        }
+    }
+
     /// A key while a part's tool window has the keyboard: the window's.
     pub(super) fn tool_key(
         &mut self,

@@ -39,8 +39,6 @@ pub(super) enum Input {
     GoLine,
     /// The find bar over the diff.
     DiffFind,
-    /// The commits' search.
-    CommitSearch,
     /// The New merge request form.
     NewRequest,
     /// Submit review's summary.
@@ -48,10 +46,12 @@ pub(super) enum Input {
     /// A feature's tool window being written in (`artoo_shell_api::Tool`): Report a problem's title and
     /// description.
     Tool,
+    /// A part's field (`artoo_shell_api::Input`), by its id: the commits' search.
+    Part(&'static str),
 }
 
 impl Input {
-    const ALL: [Input; 16] = [
+    const ALL: [Input; 15] = [
         Input::Palette,
         Input::FindFiles,
         Input::OpenAsk,
@@ -64,7 +64,6 @@ impl Input {
         Input::Compose,
         Input::GoLine,
         Input::DiffFind,
-        Input::CommitSearch,
         Input::NewRequest,
         Input::Submit,
         Input::Tool,
@@ -120,6 +119,8 @@ pub(super) struct Keyboard {
     left_away: bool,
     /// The inputs open at the last look, a bit each: one opened since takes the keyboard.
     open: u16,
+    /// The parts' inputs open at the last look.
+    parts: Vec<&'static str>,
 }
 
 impl Workspace {
@@ -138,7 +139,7 @@ impl Workspace {
             Input::Compose => self.compose.is_some(),
             Input::GoLine => self.review.read(cx).goline.is_some(),
             Input::DiffFind => self.review.read(cx).dfind.is_some(),
-            Input::CommitSearch => self.history.read(cx).find.text.is_some(),
+            Input::Part(id) => self.part_input(id).is_some_and(|i| (i.open)(cx)),
             Input::NewRequest => self.creating(cx),
             Input::Submit => self.submitting(cx),
             Input::Tool => self.tool_typing(),
@@ -238,8 +239,10 @@ impl Workspace {
             Input::DiffFind if self.review.read(cx).dfind.as_deref() == Some("") => {
                 self.close_dfind(cx)
             }
-            Input::CommitSearch if self.history.read(cx).find.text.as_deref() == Some("") => {
-                self.close_find(cx)
+            Input::Part(id) => {
+                if let Some(left) = self.part_input(id).map(|i| i.left.clone()) {
+                    left(cx);
+                }
             }
             Input::GoLine => self.close_goline(cx),
             _ => {}
@@ -274,6 +277,19 @@ impl Workspace {
         }
         let opened = open & !self.keyboard.open;
         self.keyboard.open = open;
+        // The parts' fields after the tab's own.
+        let parts: Vec<&'static str> = self
+            .parts
+            .iter()
+            .flat_map(|p| &p.inputs)
+            .filter(|i| (i.open)(cx))
+            .map(|i| i.id)
+            .collect();
+        let part_opened = parts
+            .iter()
+            .find(|id| !self.keyboard.parts.contains(id))
+            .copied();
+        self.keyboard.parts = parts;
         // A card opened with a field is over it.
         if let Some(input) = Input::ALL
             .into_iter()
@@ -281,6 +297,7 @@ impl Workspace {
             .filter(|(i, _)| opened & (1 << i) != 0)
             .map(|(_, input)| input)
             .min_by_key(|input| !input.modal())
+            .or(part_opened.map(Input::Part))
         {
             self.take_keyboard(input, cx);
         }
@@ -363,7 +380,8 @@ pub(super) fn field_box_out<E: InteractiveElement>(
 
 #[cfg(test)]
 mod tests {
-    /// The key handlers `find_key` routes to by `Input`: the only places a key may edit a text.
+    /// The key handlers `find_key` routes to by `Input`: the only places a key may edit a text, a part's field
+    /// through its own (`part_input_key`).
     const ROUTED: [&str; 12] = [
         "ffind_key",
         "palette_key",
@@ -376,7 +394,7 @@ mod tests {
         "compose_key",
         "filter_key",
         "dfind_key",
-        "search_key",
+        "part_input_key",
     ];
 
     /// A text edited from keys outside the router would take keys whether or not it has the

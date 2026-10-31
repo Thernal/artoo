@@ -94,6 +94,8 @@ pub enum Event {
     Read,
     /// More of its history is listed.
     Older,
+    /// ↵ in the commits' search: commit `ix`, the first found, shown.
+    Picked(usize),
     /// A read failed: what to say.
     Failed(String),
 }

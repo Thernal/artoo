@@ -31,21 +31,12 @@ impl Workspace {
     pub(super) fn start_find(&mut self, cx: &mut Context<Self>) {
         self.settings_open = false;
         self.history.update(cx, |h, _| h.open_find());
-        self.take_keyboard(Input::CommitSearch, cx);
+        self.take_keyboard(Input::Part(artoo_branches::find::INPUT), cx);
         cx.notify();
     }
 
     pub(super) fn close_find(&mut self, cx: &mut Context<Self>) {
-        self.history.update(cx, |h, _| h.find.text = None);
-        self.refilter(cx);
-        if let Selection::Commit(ix) = self.history.read(cx).selection
-            && let Some(row) = self.row_of(ix, cx)
-        {
-            self.history
-                .read(cx)
-                .commit_scroll
-                .scroll_to_item(row, gpui::ScrollStrategy::Center);
-        }
+        self.history.update(cx, |h, _| h.close_find());
         cx.notify();
     }
 
@@ -99,7 +90,7 @@ impl Workspace {
                 return;
             }
             Some(Input::DiffFind) => return self.dfind_key(event, cx),
-            Some(Input::CommitSearch) => return self.search_key(event, cx),
+            Some(Input::Part(id)) => return self.part_input_key(id, event, window, cx),
             None => {}
         }
         let key = &event.keystroke;
@@ -199,25 +190,6 @@ impl Workspace {
             Edit::Changed => self.set_dfind(text, cx),
             Edit::Selected => cx.notify(),
             Edit::Enter { shift } => self.step_match(!shift, cx),
-            Edit::Escape => self.leave_input(cx),
-            Edit::Ignored => {}
-        }
-    }
-
-    /// Typing into the commits' search; ↵ opens the first commit found.
-    /// A key in the commits' search (`History::find_key`): ↵ picks the first commit found, esc lets the
-    /// keyboard go.
-    fn search_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
-        match self
-            .history
-            .update(cx, |h, cx| h.find_key(&event.keystroke, cx))
-        {
-            Edit::Changed | Edit::Selected => cx.notify(),
-            Edit::Enter { .. } => {
-                if self.commit_rows(cx) > 0 {
-                    self.select_commit(self.commit_at(0, cx), cx);
-                }
-            }
             Edit::Escape => self.leave_input(cx),
             Edit::Ignored => {}
         }
@@ -356,7 +328,7 @@ impl Workspace {
 
     /// The search field, its qualifier tags and the count line.
     pub(super) fn render_find(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let active = self.has_keyboard(Input::CommitSearch, cx);
+        let active = self.has_keyboard(Input::Part(artoo_branches::find::INPUT), cx);
         let acts = self.history_acts(cx);
         let el = artoo_branches::find::field(
             self.history.read(cx),
@@ -364,8 +336,6 @@ impl Workspace {
             self.history.downgrade(),
             &acts,
         );
-        typing::input_box(el, Input::CommitSearch, cx)
+        typing::input_box(el, Input::Part(artoo_branches::find::INPUT), cx)
     }
 }
-
-use super::Selection;
