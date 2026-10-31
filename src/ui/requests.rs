@@ -1013,7 +1013,8 @@ impl Workspace {
         }
     }
 
-    /// A pending comment: a dashed frame, only its author sees it until the review is submitted.
+    /// A pending comment: a dashed frame, only its author sees it until the review is submitted
+    /// (`artoo_requests::thread::render_draft`).
     pub(super) fn render_draft(
         &self,
         ix: usize,
@@ -1021,122 +1022,30 @@ impl Workspace {
         this: WeakEntity<Self>,
         cx: &App,
     ) -> gpui::AnyElement {
-        use super::discussion::{self, Kind, Source};
-        let Some(d) = self.requests.read(cx).drafts.get(ix) else {
+        use artoo_requests::thread::{self, DraftEvent, DraftLook};
+        let Some(id) = self.requests.read(cx).drafts.get(ix).map(|d| d.id) else {
             return div().into_any_element();
         };
-        let id = d.id;
-        let selecting = self.selecting(this.clone());
-        let (delete, raw, send) = (this.clone(), this.clone(), this);
-        // Waiting on the host: faded, saying what for, nothing to act on (#139).
-        let waits = self.requests.read(cx).draft_waits(id);
-        let acts = waits.is_none() && !super::waiting::is_temp(id);
-        let one = self.sends_one_draft();
-        // GitHub publishes a pending comment only with its review: there it says so (#138).
-        let send = discussion::icon_button(
-            ("draft-send", ix),
-            "send",
-            "Send this now",
-            None,
-            Some(if one {
-                "Publishes this comment alone; the others stay pending"
-            } else {
-                "GitHub sends a pending comment only with its review: Submit review sends it"
-            }),
-            Kind::Plain,
-            self.review.read(cx).tight,
-        )
-        .h(px(24.))
-        .px(px(8.))
-        .map(|b| {
-            if one {
-                b.on_click(move |_, _, cx| {
-                    send.update(cx, |this, cx| this.send_draft_now(id, cx)).ok();
-                })
-            } else {
-                b.opacity(0.45).cursor_default()
-            }
+        let look = DraftLook {
+            indent,
+            focused: self.draft_at == Some(ix),
+            selecting: self.selecting(this.clone()),
+            rich: self.settings.rich_comments,
+            link_base: self.link_base(),
+            tight: self.review.read(cx).tight,
+            one: self.sends_one_draft(),
+            agent: self.draft_agent(id, cx),
+            me: &self.me,
+        };
+        let on: thread::OnDraft = Rc::new(move |event, cx| {
+            this.update(cx, |this, cx| match event {
+                DraftEvent::Send => this.send_draft_now(id, cx),
+                DraftEvent::ToggleRich => this.toggle_rich_comments(cx),
+                DraftEvent::Delete => this.discard_draft(id, cx),
+            })
+            .ok();
         });
-        let bar = discussion::bar(("draft-bar", ix), true)
-            .cursor_default()
-            .child(discussion::source_pill(Source::Pending))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    // A reply says whose discussion it goes into (#166).
-                    .children(
-                        self.requests
-                            .read(cx)
-                            .draft_thread(d)
-                            .and_then(|t| self.requests.read(cx).threads[t].notes.first())
-                            .map(|n| {
-                                super::hover::cut(
-                                    "draft-reply",
-                                    format!("· a reply to {}", n.author),
-                                )
-                            }),
-                    )
-                    // An agent's says who wrote it (#150).
-                    .children(self.draft_agent(id, cx).map(|agent| {
-                        super::hover::cut("draft-agent", format!("· {agent} wrote it"))
-                    })),
-            )
-            .children(super::markdown::has_markdown(&d.body).then(|| {
-                self.rich_switch(("draft-rich", ix))
-                    .on_click(move |_, _, cx| {
-                        raw.update(cx, |this, cx| this.toggle_rich_comments(cx))
-                            .ok();
-                    })
-            }))
-            .children(acts.then_some(send))
-            .children(acts.then(|| {
-                discussion::icon_button(
-                    ("draft-delete", ix),
-                    "trash",
-                    "Delete",
-                    None,
-                    None,
-                    Kind::Danger,
-                    self.review.read(cx).tight,
-                )
-                .h(px(24.))
-                .px(px(8.))
-                .on_click(move |_, _, cx| {
-                    delete
-                        .update(cx, |this, cx| this.discard_draft(id, cx))
-                        .ok();
-                })
-            }));
-        div()
-            .w_full()
-            .pl(px(indent))
-            .pr(px(12.))
-            .py(px(6.))
-            .child(
-                discussion::frame(Source::Pending, self.draft_at == Some(ix))
-                    .when(waits.is_some(), |s| s.opacity(super::waiting::FADED))
-                    .child(bar)
-                    .child(div().child(discussion::note(
-                        &self.me,
-                        true,
-                        None,
-                        waits.unwrap_or_default().to_owned(),
-                        super::markdown::body(
-                            &d.body,
-                            self.settings.rich_comments,
-                            format!("md-draft-{ix}"),
-                            self.link_base(),
-                            Some(selecting),
-                            cx,
-                        ),
-                        true,
-                        None,
-                        None,
-                    ))),
-            )
-            .into_any_element()
+        thread::render_draft(self.requests.read(cx), ix, look, on, cx)
     }
 
     /// A change to the open request, `ops` sent with `work`; a refusal says why in the error bar

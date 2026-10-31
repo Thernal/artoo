@@ -1,7 +1,7 @@
 //! A discussion of the request open, drawn under its line: a frame with a bar that folds it, the notes on a
 //! timeline — their reactions, the hover bar, Edit and Delete on one's own —, and the reply row (Reply… and Resolve,
-//! or the reply's box). On its way to the host it is faded and takes no action until it has an id (#139). What the
-//! tab keeps comes in its `ThreadLook`; a click asks it a `ThreadEvent`.
+//! or the reply's box); and a pending comment (`render_draft`). On its way to the host one is faded and takes no
+//! action until it has an id (#139). What the tab keeps comes in its look; a click asks it an event.
 
 use crate::reactions::Hovered;
 use crate::requests::{Acts, Requests};
@@ -462,6 +462,144 @@ fn delete_button(note: u64, asking: bool, tight: bool, on: OnThread) -> AnyEleme
                     cx.stop_propagation();
                     no(ThreadEvent::KeepNote, cx);
                 }),
+        )
+        .into_any_element()
+}
+
+/// What a pending comment is drawn with that the tab knows.
+pub struct DraftLook<'a> {
+    pub indent: f32,
+    /// It has the keyboard.
+    pub focused: bool,
+    pub selecting: Selecting,
+    pub rich: bool,
+    pub link_base: Option<&'a str>,
+    pub tight: bool,
+    /// The host publishes one pending comment alone (GitLab); GitHub only with its review (#138).
+    pub one: bool,
+    /// The agent that wrote it, when one did (#150).
+    pub agent: Option<&'a str>,
+    pub me: &'a str,
+}
+
+/// A click on a pending comment.
+#[derive(Clone, Copy)]
+pub enum DraftEvent {
+    /// Send this now: published alone.
+    Send,
+    ToggleRich,
+    Delete,
+}
+
+/// What answers a pending comment's clicks.
+pub type OnDraft = Rc<dyn Fn(DraftEvent, &mut App)>;
+
+/// Pending comment `ix` of the request open: a dashed frame, only its author sees it until the review is
+/// submitted.
+pub fn render_draft(
+    rq: &Requests,
+    ix: usize,
+    look: DraftLook,
+    on: OnDraft,
+    cx: &App,
+) -> AnyElement {
+    let Some(d) = rq.drafts.get(ix) else {
+        return div().into_any_element();
+    };
+    let id = d.id;
+    let (delete, raw, send) = (on.clone(), on.clone(), on);
+    // Waiting on the host: faded, saying what for, nothing to act on (#139).
+    let waits = rq.draft_waits(id);
+    let acts = waits.is_none() && !is_temp(id);
+    let one = look.one;
+    // GitHub publishes a pending comment only with its review: there it says so (#138).
+    let send = icon_button(
+        ("draft-send", ix),
+        "send",
+        "Send this now",
+        None,
+        Some(if one {
+            "Publishes this comment alone; the others stay pending"
+        } else {
+            "GitHub sends a pending comment only with its review: Submit review sends it"
+        }),
+        Kind::Plain,
+        look.tight,
+    )
+    .h(px(24.))
+    .px(px(8.))
+    .map(|b| {
+        if one {
+            b.on_click(move |_, _, cx| send(DraftEvent::Send, cx))
+        } else {
+            b.opacity(0.45).cursor_default()
+        }
+    });
+    let bar = discussion::bar(("draft-bar", ix), true)
+        .cursor_default()
+        .child(discussion::source_pill(Source::Pending))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                // A reply says whose discussion it goes into (#166).
+                .children(
+                    rq.draft_thread(d)
+                        .and_then(|t| rq.threads[t].notes.first())
+                        .map(|n| hover::cut("draft-reply", format!("· a reply to {}", n.author))),
+                )
+                // An agent's says who wrote it (#150).
+                .children(
+                    look.agent
+                        .map(|agent| hover::cut("draft-agent", format!("· {agent} wrote it"))),
+                ),
+        )
+        .children(markdown::has_markdown(&d.body).then(|| {
+            discussion::rich_switch(("draft-rich", ix), look.rich)
+                .on_click(move |_, _, cx| raw(DraftEvent::ToggleRich, cx))
+        }))
+        .children(acts.then_some(send))
+        .children(acts.then(|| {
+            icon_button(
+                ("draft-delete", ix),
+                "trash",
+                "Delete",
+                None,
+                None,
+                Kind::Danger,
+                look.tight,
+            )
+            .h(px(24.))
+            .px(px(8.))
+            .on_click(move |_, _, cx| delete(DraftEvent::Delete, cx))
+        }));
+    div()
+        .w_full()
+        .pl(px(look.indent))
+        .pr(px(12.))
+        .py(px(6.))
+        .child(
+            discussion::frame(Source::Pending, look.focused)
+                .when(waits.is_some(), |s| s.opacity(FADED))
+                .child(bar)
+                .child(div().child(discussion::note(
+                    look.me,
+                    true,
+                    None,
+                    waits.unwrap_or_default().to_owned(),
+                    markdown::body(
+                        &d.body,
+                        look.rich,
+                        format!("md-draft-{ix}"),
+                        look.link_base,
+                        Some(look.selecting),
+                        cx,
+                    ),
+                    true,
+                    None,
+                    None,
+                ))),
         )
         .into_any_element()
 }
