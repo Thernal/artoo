@@ -286,6 +286,7 @@ version = "1.3.0"
 dependencies = [
  "anyhow",
  "artoo-core",
+ "artoo-ui-kit",
  "git2",
  "gpui-pre",
 ]

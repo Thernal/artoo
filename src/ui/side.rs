@@ -6,10 +6,12 @@
 use super::nav::Page;
 use super::zones::Zone;
 use super::{Selection, Tip, Workspace, chip, commit_chip, icons, island, plural, px, theme};
+use artoo_branches::history::{Act, Acts};
 use gpui::{
     AnyElement, App, ClickEvent, Context, FontWeight, MouseButton, SharedString, div, prelude::*,
     uniform_list,
 };
+use std::rc::Rc;
 
 /// The height of a section's header, folded or open.
 const HEADER: f32 = 34.;
@@ -22,6 +24,20 @@ enum Section {
 }
 
 impl Workspace {
+    /// How the history's views ask the tab.
+    pub(super) fn history_acts(&self, cx: &Context<Self>) -> Acts {
+        let this = cx.weak_entity();
+        Rc::new(move |act, cx| {
+            this.update(cx, |this, cx| match act {
+                Act::Version { ix, more } => {
+                    let (from, to) = this.history.read(cx).versions_clicked(ix, more);
+                    this.select_versions(from, to, cx)
+                }
+            })
+            .ok();
+        })
+    }
+
     fn section_folded(&self, section: Section) -> bool {
         match section {
             Section::Versions => self.layout.fold_versions,
@@ -263,7 +279,11 @@ impl Workspace {
                                 .id("versions-list")
                                 .max_h(px(240.))
                                 .overflow_y_scroll()
-                                .child(div().pb(px(6.)).child(self.version_rows(cx))),
+                                .child(div().pb(px(6.)).child(artoo_branches::side::version_rows(
+                                    self.history.read(cx),
+                                    self.watch.new_from,
+                                    &self.history_acts(cx),
+                                ))),
                         ),
                     )
                     .into_any_element(),

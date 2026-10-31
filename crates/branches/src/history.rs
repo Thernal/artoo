@@ -78,6 +78,28 @@ pub enum Event {
 
 impl EventEmitter<Event> for History {}
 
+/// What a click in the history's views asks of the tab.
+pub enum Act {
+    /// Version `ix` clicked, with ⌘ (`more`) or not (`History::versions_clicked`).
+    Version { ix: usize, more: bool },
+}
+
+/// How a view asks the tab an `Act`.
+pub type Acts = std::rc::Rc<dyn Fn(Act, &mut gpui::App)>;
+
+impl History {
+    /// The versions a click on version `ix` compares: with ⌘ (`more`) from the one picked to it, on the latest
+    /// the one before it to it, else it to the latest.
+    pub fn versions_clicked(&self, ix: usize, more: bool) -> (usize, usize) {
+        let latest = self.versions.len() - 1;
+        match (self.selection, more) {
+            (Selection::Versions { from, .. }, true) if from != ix => (from.min(ix), from.max(ix)),
+            _ if ix == latest => (latest - 1, latest),
+            _ => (ix, latest),
+        }
+    }
+}
+
 impl Default for History {
     fn default() -> Self {
         History {

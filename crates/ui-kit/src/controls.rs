@@ -254,6 +254,18 @@ pub fn empty_state(
 }
 
 /// A small rounded label in a preview's head: the pipeline, the approvals.
+/// A small label in a thin ring of `color`, beside a row's title: a version's role, a commit's ref, a state.
+pub fn tag(text: impl Into<SharedString>, color: Rgba) -> Div {
+    div()
+        .px(px(6.))
+        .rounded_full()
+        .border_1()
+        .border_color(color)
+        .text_size(px(10.))
+        .text_color(color)
+        .child(text.into())
+}
+
 pub fn pill(text: String, color: Rgba) -> Div {
     div()
         .flex_none()

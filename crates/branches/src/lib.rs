@@ -11,4 +11,5 @@ pub mod find;
 pub mod history;
 pub mod reading;
 pub mod roots;
+pub mod side;
 pub mod working;

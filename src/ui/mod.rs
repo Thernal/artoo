@@ -90,11 +90,11 @@ use artoo_branches::working::WorkingState;
 use artoo_review::diff::{Diff, Header, Notice};
 use artoo_review::diff_view::{self, CODE_SIZE, change_color, file_tag};
 use artoo_review::review::{self, Opt};
-use artoo_ui_kit::controls::chip;
+use artoo_ui_kit::controls::{chip, tag};
 use gpui::{
     App, ClickEvent, Context, CursorStyle, FocusHandle, FontWeight, KeyBinding, KeyDownEvent,
     ListAlignment, ListState, Menu, MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent,
-    PathPromptOptions, Point, Rgba, ScrollStrategy, SharedString, Task, TitlebarOptions,
+    PathPromptOptions, Point, ScrollStrategy, SharedString, Task, TitlebarOptions,
     UniformListScrollHandle, Window, WindowBounds, WindowOptions, actions, canvas, div, font,
     prelude::*, size,
 };
@@ -3179,20 +3179,6 @@ impl Workspace {
         self.toggle_rich_comments(cx);
     }
 
-    /// A click compares that version with the latest; ⌘-click makes it the newer side instead.
-    fn click_version(&mut self, ix: usize, event: &ClickEvent, cx: &mut Context<Self>) {
-        let latest = self.history.read(cx).versions.len() - 1;
-        let (from, to) = match (
-            self.history.read(cx).selection,
-            event.modifiers().secondary(),
-        ) {
-            (Selection::Versions { from, .. }, true) if from != ix => (from.min(ix), from.max(ix)),
-            _ if ix == latest => (latest - 1, latest),
-            _ => (ix, latest),
-        };
-        self.select_versions(from, to, cx);
-    }
-
     // ---- resizing ------------------------------------------------------------------------
 
     fn render_diff(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -4397,17 +4383,6 @@ fn island_label(text: impl Into<SharedString>) -> gpui::Div {
         .px(px(14.))
         .pt(px(10.))
         .pb(px(6.))
-}
-
-fn tag(text: &'static str, color: Rgba) -> impl IntoElement {
-    div()
-        .px(px(6.))
-        .rounded_full()
-        .border_1()
-        .border_color(color)
-        .text_size(px(10.))
-        .text_color(color)
-        .child(text)
 }
 
 /// A square icon button for the title bar; the tooltip names it and its shortcut.
