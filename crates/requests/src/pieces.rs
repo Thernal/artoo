@@ -1,20 +1,21 @@
-//! The requests' pieces of the item page (#165 I5c): over it while a request is being written, its header, and its
-//! switch at the top of the diff's column; on a request's own page once its diff is shown, its line; over a
+//! The requests' pieces of the item page (#165 I5c): over it while a request is being written, its header, its
+//! switch at the top of the diff's column, and its form in the diff's place; on a request's own page once its diff is shown, its line; over a
 //! request's diff reviewed to its last file, the card of what next. They read the review's diff and the tab's
 //! answers to the requests' acts from the tab's services.
 
-use crate::create::Totals;
+use crate::create::{self, CreateLook, Totals};
 use crate::requests::{Act, Acts, Requests};
+use artoo_branches_api::Branches;
 use artoo_core::route::{Place, Route};
 use artoo_requests_api::{
     RequestCommitRoute, RequestCommitsRoute, RequestRoute, RequestVersionsRoute,
 };
 use artoo_review_api::Review;
 use artoo_review_api::diff::Header;
-use artoo_shell_api::{Piece, Services, Slot};
+use artoo_shell_api::{Frame, Piece, Services, Slot};
 use artoo_ui_kit::done::{DoneEvent, DoneLook, render_done_card};
-use artoo_ui_kit::markdown;
-use gpui::{App, Entity, prelude::*};
+use artoo_ui_kit::{island, markdown, theme};
+use gpui::{App, Entity, MouseButton, prelude::*};
 use std::rc::Rc;
 
 /// The header while a request is being written (`Requests::render_create_header`), whatever page it is over.
@@ -45,6 +46,56 @@ pub fn create_switch(requests: Entity<Requests>, services: Rc<Services>) -> Piec
                 .shown(cx)
                 .map_or(0, |d| d.files.len());
             requests.update(cx, |rq, cx| rq.render_create_switch(files, cx))
+        }),
+    }
+}
+
+/// The form in the diff's place while a request is written there (`Requests::render_create_form`), Request | Changes
+/// on top; Changes shows the diff again. A press in it gives it the keyboard, one outside takes it away.
+pub fn create_form(requests: Entity<Requests>, frame: Rc<dyn Frame>) -> Piece {
+    let services = frame.services();
+    Piece {
+        id: "requests.create-form",
+        slot: Slot::Instead,
+        draw: Rc::new(move |_, drawing, cx| {
+            let github = {
+                let rq = requests.read(cx);
+                if !rq.create_in_place() || rq.create_shows_changes() {
+                    return None;
+                }
+                rq.creating.as_ref()?.github
+            };
+            let shown = services.get::<Rc<dyn Review>>()?.shown(cx);
+            let files = shown.as_ref().map_or(0, |d| d.files.len());
+            let branches = services.get::<Rc<dyn Branches>>()?.list(cx);
+            let acts = services.get::<Acts>()?;
+            let look = CreateLook {
+                typing: drawing.typing == Some(create::INPUT),
+                github,
+                base: drawing.web.as_ref().map(|w| w.base.clone()),
+                selecting: Some(drawing.selecting.clone()),
+                totals: shown.as_ref().and_then(|d| Totals::of(d)),
+                branches: &branches,
+            };
+            let (switch, form) = requests.update(cx, |rq, cx| {
+                let switch = rq.render_create_switch(files, cx);
+                (switch, rq.render_create_form(&look, acts, cx))
+            });
+            let (take, leave) = (frame.clone(), frame.clone());
+            let form = form?
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    take.take_keyboard(create::INPUT, cx);
+                })
+                .on_mouse_down_out(move |_, _, cx| leave.leave_keyboard(create::INPUT, cx));
+            Some(
+                island()
+                    .flex_1()
+                    .min_w_0()
+                    .bg(theme::editor())
+                    .children(switch)
+                    .child(form)
+                    .into_any_element(),
+            )
         }),
     }
 }

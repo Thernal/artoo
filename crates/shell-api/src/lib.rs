@@ -79,6 +79,12 @@ pub trait Frame {
     /// Whether tool window `id` has the keyboard: open, its zone the focused one, nothing over it, typing.
     fn tool_typing(&self, id: &str, cx: &App) -> bool;
 
+    /// A part's input given the keyboard by its id (`Input::id`): a press in its field.
+    fn take_keyboard(&self, id: &'static str, cx: &mut App);
+
+    /// A part's input lets the keyboard go while it has it: a press outside its field.
+    fn leave_keyboard(&self, id: &'static str, cx: &mut App);
+
     /// A menu at `at`, a rule between its groups; an item picked runs once the menu has closed.
     fn menu(&self, at: Point<Pixels>, groups: Vec<Vec<MenuItem>>, cx: &mut App);
 
@@ -315,6 +321,8 @@ pub struct Drawing {
     pub web: Option<WebRemote>,
     /// The filter of the list on screen (`Frame::filter`).
     pub filter: String,
+    /// The part's input with the keyboard, by its id (`Input::id`).
+    pub typing: Option<&'static str>,
 }
 
 /// A section of Settings a part can add rows to.

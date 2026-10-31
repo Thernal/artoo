@@ -111,7 +111,7 @@ pub struct NewRequest {
     widths: Widths,
     /// The repository's folder and whether its host is GitHub, as it was opened with (`Here`).
     root: std::path::PathBuf,
-    github: bool,
+    pub(crate) github: bool,
 }
 
 impl NewRequest {
@@ -1501,7 +1501,7 @@ impl Requests {
         )
     }
 
-    /// The form, in place of the diff; the tab gives it the keyboard on a press.
+    /// The form, in place of the diff (`pieces::create_form`, which gives it the keyboard on a press).
     pub fn render_create_form(
         &self,
         look: &CreateLook,

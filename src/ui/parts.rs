@@ -84,6 +84,21 @@ impl Frame for TabFrame {
         })
     }
 
+    fn take_keyboard(&self, id: &'static str, cx: &mut App) {
+        self.later(cx, move |this, cx| {
+            this.take_keyboard(super::typing::Input::Part(id), cx);
+            cx.notify();
+        });
+    }
+
+    fn leave_keyboard(&self, id: &'static str, cx: &mut App) {
+        self.later(cx, move |this, cx| {
+            if this.has_keyboard(super::typing::Input::Part(id), cx) {
+                this.leave_input(cx);
+            }
+        });
+    }
+
     fn menu(&self, at: Point<Pixels>, groups: Vec<Vec<MenuItem>>, cx: &mut App) {
         let groups = groups
             .into_iter()
@@ -299,6 +314,10 @@ impl Workspace {
             selecting: self.selecting(cx.weak_entity()),
             web: self.web.clone(),
             filter: self.bfilter.clone(),
+            typing: match self.typing(cx) {
+                Some(super::typing::Input::Part(id)) => Some(id),
+                _ => None,
+            },
         }
     }
 

@@ -1,14 +1,15 @@
 //! New merge request (`artoo_requests::create` keeps the form and draws it): the tab opens it on a
 //! branch, from an agent's draft for it (#152) when there is one, gives it the keyboard, shows the
-//! diff of the pair it would merge and puts the form in the diff's place or over the branch view.
+//! diff of the pair it would merge and puts the quick way over the branch view (the requests draw the
+//! form in the diff's place).
 
 use super::Workspace;
-use super::typing::{self, Input};
+use super::typing::Input;
 use crate::git::BranchRef;
 use artoo_requests::create::{
     CreateKey, CreateLook, Drafted, Here, INPUT, Pair, Totals, source_of,
 };
-use gpui::{AnyElement, App, Context, prelude::*};
+use gpui::{AnyElement, App, Context};
 
 impl Workspace {
     /// What the form reads of the repository: its folder, its `branches` (the history's), the host.
@@ -106,11 +107,6 @@ impl Workspace {
         self.requests.read(cx).creating.is_some()
     }
 
-    /// The request is written in the diff's place (not asked over it, D).
-    pub(super) fn create_in_place(&self, cx: &App) -> bool {
-        self.requests.read(cx).create_in_place()
-    }
-
     /// From's or Into's list picked. Chosen from a list over the form: the form has the keyboard
     /// again.
     pub(super) fn pick_branch(&mut self, name: String, source: bool, cx: &mut Context<Self>) {
@@ -173,11 +169,6 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Request | Changes is on Changes: the diff of the pair stands in the pane.
-    pub(super) fn create_shows_changes(&self, cx: &App) -> bool {
-        self.requests.read(cx).create_shows_changes()
-    }
-
     /// "3 commits · 8 files · +46 −12": the diff of the pair.
     fn create_totals(&self, cx: &App) -> Option<Totals> {
         Totals::of(self.review.read(cx).diff.as_ref()?)
@@ -193,17 +184,6 @@ impl Workspace {
             totals: self.create_totals(cx),
             branches,
         }
-    }
-
-    /// The form in the diff's place (`Requests::render_create_form`).
-    pub(super) fn render_create_form(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let branches = self.history.read(cx).branches.clone();
-        let look = self.create_look(&branches, cx);
-        let acts = self.request_acts(cx);
-        let form = self
-            .requests
-            .update(cx, |rq, cx| rq.render_create_form(&look, acts, cx))?;
-        Some(typing::input_box(form, Input::Part(INPUT), cx).into_any_element())
     }
 
     /// The quick way over the branch view (`Requests::render_create_quick`).

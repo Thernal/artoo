@@ -3101,15 +3101,10 @@ impl Workspace {
     // ---- resizing ------------------------------------------------------------------------
 
     fn render_diff(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        // A new merge request is written in the diff's place; Changes shows the diff again.
-        if self.create_in_place(cx) && !self.create_shows_changes(cx) {
-            return island()
-                .flex_1()
-                .min_w_0()
-                .bg(theme::editor())
-                .children(self.pieces(Slot::DiffTop, cx))
-                .children(self.render_create_form(cx))
-                .into_any_element();
+        // A part's in the diff's place: a new merge request being written, two versions' commits
+        // paired.
+        if let Some(instead) = self.piece(Slot::Instead, cx) {
+            return instead;
         }
         let Some(diff) = self.review.read(cx).diff.clone() else {
             // Loading: a shimmer of lines where the diff will be (#56, 18).
@@ -3130,43 +3125,32 @@ impl Workspace {
                 .child("Select a commit or a version.")
                 .into_any_element();
         };
-        // A part's in the file's place (two versions' commits paired), else the file's pane.
-        let instead = self.piece(Slot::Instead, cx);
-        let pane = instead.is_none();
         div()
             .flex_1()
             .min_w_0()
             .flex()
             .flex_col()
-            .child(
-                div()
-                    .relative()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .when(pane, |s| {
-                        let file = self.render_file(&diff, cx);
-                        if self.zen_one && self.zen.is_some() {
-                            // One file at a reading width, the next one sliding in as it comes
-                            // (#55).
-                            s.justify_center().child(motion::appear(
-                                div()
-                                    .relative()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .max_w(px(READING_WIDTH))
-                                    .flex()
-                                    .child(file),
-                                ("zen-file", self.review.read(cx).file),
-                                motion::BASE,
-                                |d, v| d.top(px(16. * (1. - v))).opacity(v),
-                            ))
-                        } else {
-                            s.child(file)
-                        }
-                    })
-                    .children(instead),
-            )
+            .child(div().relative().flex_1().min_h_0().flex().map(|s| {
+                let file = self.render_file(&diff, cx);
+                if self.zen_one && self.zen.is_some() {
+                    // One file at a reading width, the next one sliding in as it comes
+                    // (#55).
+                    s.justify_center().child(motion::appear(
+                        div()
+                            .relative()
+                            .flex_1()
+                            .min_w_0()
+                            .max_w(px(READING_WIDTH))
+                            .flex()
+                            .child(file),
+                        ("zen-file", self.review.read(cx).file),
+                        motion::BASE,
+                        |d, v| d.top(px(16. * (1. - v))).opacity(v),
+                    ))
+                } else {
+                    s.child(file)
+                }
+            }))
             .into_any_element()
     }
 

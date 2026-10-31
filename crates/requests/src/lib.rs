@@ -50,6 +50,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
             pieces::create_header(requests.clone(), services.clone()),
             pieces::line(requests.clone(), services.clone()),
             pieces::create_switch(requests.clone(), services.clone()),
+            pieces::create_form(requests.clone(), frame.clone()),
             outdated::since_piece(requests.clone(), services.clone()),
             pieces::done(requests.clone(), services),
         ],
