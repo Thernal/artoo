@@ -13,10 +13,9 @@ use super::{Workspace, island, keys, px, theme};
 use crate::git::BranchRef;
 use crate::mr::{Mr, MrState, Thread};
 pub(super) use artoo_requests::group::Group;
-use artoo_requests::list;
 use artoo_review_api::Seen;
 pub(super) use artoo_ui_kit::controls::skeleton;
-use gpui::{AnyElement, App, ClickEvent, Context, Div, div, prelude::*};
+use gpui::{AnyElement, App, ClickEvent, Context, Div, WeakEntity, div, prelude::*};
 
 /// The width of a root's list.
 impl Workspace {
@@ -89,8 +88,10 @@ impl Workspace {
     /// The request picked in the list: its pipeline and approvals, once per update of it.
     pub(super) fn read_preview(&mut self, cx: &mut Context<Self>) {
         let Some(m) = self
-            .nav
-            .pick_request
+            .requests
+            .read(cx)
+            .rows
+            .picked
             .and_then(|iid| self.requests.read(cx).find(iid))
             .cloned()
         else {
@@ -152,9 +153,17 @@ impl Workspace {
         self.history.read(cx).first_row()
     }
 
+    /// Merge requests' list with nothing picked: the first request listed is.
+    pub(super) fn pick_first_request(&mut self, cx: &mut Context<Self>) {
+        if self.requests.read(cx).rows.picked.is_none() {
+            let first = self.listed_requests(cx).first().map(|m| m.iid);
+            self.requests.update(cx, |rq, _| rq.rows.picked = first);
+        }
+    }
+
     /// A root list's row picked, by a click or ↑ ↓.
     pub(super) fn pick_request(&mut self, iid: u64, cx: &mut Context<Self>) {
-        self.nav.pick_request = Some(iid);
+        self.requests.update(cx, |rq, _| rq.rows.picked = Some(iid));
         self.requests.read(cx).rows.reveal.set(true);
         self.read_preview(cx);
         cx.notify();
@@ -175,12 +184,10 @@ impl Workspace {
     /// the picked one, which stays under its band.
     pub(super) fn listed_requests(&self, cx: &App) -> Vec<Mr> {
         let past = self.requests.read(cx).view != MrState::Opened;
+        let picked = self.requests.read(cx).rows.picked;
         self.shown_requests(cx)
             .into_iter()
-            .filter(|m| {
-                past || self.nav.pick_request == Some(m.iid)
-                    || !self.folds(self.group_of(m, cx), cx)
-            })
+            .filter(|m| past || picked == Some(m.iid) || !self.folds(self.group_of(m, cx), cx))
             .collect()
     }
 
@@ -196,110 +203,6 @@ impl Workspace {
     }
 
     // ---- the pages ------------------------------------------------------------------------
-
-    /// Merge requests' root: the list grouped, the picked one previewed; or one of its states.
-    pub(super) fn render_requests_root(&self, cx: &mut Context<Self>) -> AnyElement {
-        if self.requests.read(cx).connectable {
-            return island()
-                .flex_1()
-                .bg(theme::editor())
-                .child(self.render_connect(cx))
-                .into_any_element();
-        }
-        let shown = self.shown_requests(cx);
-        let acts = super::requests::acts_of(cx.entity().downgrade());
-        // How far your review of each got, as the review has it.
-        let review = self.review.read(cx);
-        let heads = shown
-            .iter()
-            .map(|m| (m.iid, git2::Oid::from_str(&m.head).ok()));
-        let seen = heads
-            .clone()
-            .map(|(iid, head)| (iid, review.request_seen(iid, head)))
-            .collect();
-        let parts = heads
-            .filter_map(|(iid, head)| Some((iid, review.head_part(head?)?)))
-            .collect();
-        let threads = |iid| self.notices.threads_of(iid);
-        let fold = |key, moving: &str, open, row| self.folding(key, moving, open, row);
-        let look = list::ListLook {
-            shown: &shown,
-            picked: self.nav.pick_request,
-            filter: &self.bfilter,
-            compact: self.compact(),
-            rich: self.settings.rich_comments,
-            widths: &self.widths,
-            seen,
-            parts,
-            threads: &threads,
-            fold: &fold,
-        };
-        let rq = self.requests.read(cx);
-        let banner = list::banner(rq, &acts);
-        let body = match list::list(rq, &look, &acts) {
-            list::Body::Loading => div()
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .gap(px(super::gap()))
-                .child(
-                    island()
-                        .w(px(list_width(self.layout.list)))
-                        .flex_none()
-                        .p(px(16.))
-                        .child(skeleton("requests-loading", 7)),
-                )
-                .child(
-                    island()
-                        .flex_1()
-                        .bg(theme::editor())
-                        .px(px(28.))
-                        .py(px(26.))
-                        .child(skeleton("request-preview-loading", 3)),
-                )
-                .into_any_element(),
-            list::Body::Empty(empty) => island()
-                .flex_1()
-                .bg(theme::editor())
-                .child(empty)
-                .into_any_element(),
-            list::Body::List {
-                rows,
-                preview,
-                more,
-            } => {
-                if let Some(near) = more {
-                    let this = cx.entity().downgrade();
-                    cx.defer(move |cx| {
-                        this.update(cx, |this, cx| {
-                            if near {
-                                this.load_past_page(this.requests.read(cx).scope, cx);
-                            } else {
-                                cx.notify();
-                            }
-                        })
-                        .ok();
-                    });
-                }
-                let preview = div()
-                    .id("request-preview")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .children(preview);
-                self.list_page(rows, preview, cx)
-            }
-        };
-        div()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .gap(px(super::gap()))
-            .children(banner)
-            .child(body)
-            .into_any_element()
-    }
 
     /// Opens request `iid` at note `note` (a discussion waiting for you), else as ↵ does.
     pub(super) fn open_at_note(&mut self, iid: u64, note: Option<u64>, cx: &mut Context<Self>) {
@@ -395,5 +298,49 @@ impl Workspace {
                     }),
             )
             .into_any_element()
+    }
+}
+
+/// What Merge requests' own page asks of the tab (`artoo_requests::root::RootHost`).
+pub(super) struct RootHost(pub WeakEntity<Workspace>);
+
+impl artoo_requests::root::RootHost for RootHost {
+    fn connect(&self, cx: &mut App) -> AnyElement {
+        self.0
+            .update(cx, |this, cx| this.render_connect(cx).into_any_element())
+            .unwrap_or_else(|_| div().into_any_element())
+    }
+
+    fn threads(&self, iid: u64, cx: &App) -> Option<Vec<Thread>> {
+        Some(self.0.upgrade()?.read(cx).notices.threads_of(iid)?.to_vec())
+    }
+
+    fn fold(
+        &self,
+        key: String,
+        moving: &str,
+        open: bool,
+        row: AnyElement,
+        cx: &App,
+    ) -> Option<AnyElement> {
+        self.0.upgrade()?.read(cx).folding(key, moving, open, row)
+    }
+
+    fn rich(&self, cx: &App) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|tab| tab.read(cx).settings.rich_comments)
+    }
+
+    fn narrow(&self, cx: &App) -> bool {
+        self.0.upgrade().is_some_and(|tab| tab.read(cx).compact())
+    }
+
+    fn more(&self, cx: &mut App) {
+        self.0
+            .update(cx, |this, cx| {
+                this.load_past_page(this.requests.read(cx).scope, cx)
+            })
+            .ok();
     }
 }

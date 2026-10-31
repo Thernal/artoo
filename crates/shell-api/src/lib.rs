@@ -105,6 +105,10 @@ pub trait Frame {
 
     /// What is typed in the page bar's filter of a space's list (⌘F).
     fn filter(&self, cx: &App) -> String;
+
+    /// The width of a space's list, as the developer gave it (`list_page`), for a page drawn as one while it
+    /// waits.
+    fn list_width(&self, cx: &App) -> f32;
 }
 
 /// What the features of one tab offer one another, by type: a contract's handle, `Rc<dyn …>`.

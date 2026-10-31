@@ -196,6 +196,14 @@ impl artoo_review_api::Review for Handle {
             .upgrade()
             .is_some_and(|rv| rv.read(cx).head_reviewed(tip))
     }
+
+    fn request_seen(&self, iid: u64, head: Option<git2::Oid>, cx: &App) -> artoo_review_api::Seen {
+        self.0
+            .upgrade()
+            .map_or(artoo_review_api::Seen::Never, |rv| {
+                rv.read(cx).request_seen(iid, head)
+            })
+    }
 }
 
 impl Review {

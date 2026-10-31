@@ -66,6 +66,9 @@ pub trait Review {
 
     /// Whether your review of commit `tip` is whole.
     fn head_reviewed(&self, tip: Oid, cx: &App) -> bool;
+
+    /// How far your review of merge request `iid` got, against its head now (`head`).
+    fn request_seen(&self, iid: u64, head: Option<Oid>, cx: &App) -> Seen;
 }
 
 /// The file a page reads through the tab's review.

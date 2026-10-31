@@ -25,7 +25,7 @@ impl Workspace {
     /// The list shows the merged or the closed requests, or the open ones again (#114).
     pub(super) fn set_request_view(&mut self, state: mr::MrState, cx: &mut Context<Self>) {
         self.requests.update(cx, |rq, _| rq.view = state);
-        self.nav.pick_request = None;
+        self.requests.update(cx, |rq, _| rq.rows.picked = None);
         if state != mr::MrState::Opened && self.requests.read(cx).past.of != state {
             // Every scope's first page at once: the chips count them all.
             let mut past = Past {
@@ -1684,40 +1684,12 @@ impl Workspace {
         }
     }
 
-    /// The requests the scope and filter let through, in the order the list shows them.
-    /// Copied: a row is drawn with the tab's context.
+    /// The requests the scope and filter let through, in the order the list shows them
+    /// (`Requests::shown`).
     pub(super) fn shown_requests(&self, cx: &App) -> Vec<Mr> {
-        let filter = self.bfilter.to_lowercase();
-        let words: Vec<&str> = filter.split_whitespace().collect();
-        // The merged or the closed as read, newest first, the host having picked the scope's
-        // (#114, #169); the open by what they need.
-        let past = self.requests.read(cx).view != mr::MrState::Opened;
-        let scope = self.requests.read(cx).scope;
-        let list = if past {
-            &self.requests.read(cx).past.of_scope(scope).list
-        } else {
-            &self.requests.read(cx).list
-        };
-        let mut shown: Vec<&Mr> = list
-            .iter()
-            .filter(|m| past || self.requests.read(cx).in_scope(m, scope))
-            .filter(|m| {
-                let hay = format!(
-                    "{} {} {} {}",
-                    super::words::number(m.iid),
-                    m.title,
-                    m.author,
-                    m.source
-                )
-                .to_lowercase();
-                words.iter().all(|w| crate::rank::word_matches(w, &hay))
-            })
-            .collect();
-        // By what each needs from you, as the list groups them; the latest activity first.
-        if !past {
-            shown.sort_by_key(|m| (self.group_of(m, cx), std::cmp::Reverse(m.updated)));
-        }
-        shown.into_iter().cloned().collect()
+        let review = self.review.read(cx);
+        let seen = |m: &Mr| review.request_seen(m.iid, git2::Oid::from_str(&m.head).ok());
+        self.requests.read(cx).shown(&self.bfilter, &seen)
     }
 
     /// All · To review · Mine with their counts, in Merge requests' bar, once the token's user is

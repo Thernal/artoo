@@ -148,6 +148,12 @@ impl Frame for TabFrame {
             .unwrap_or_default()
     }
 
+    fn list_width(&self, cx: &App) -> f32 {
+        self.0
+            .upgrade()
+            .map_or(0., |tab| super::roots::list_width(tab.read(cx).layout.list))
+    }
+
     fn remember(&self, route: Route, cx: &mut App) {
         self.later(cx, move |this, _| {
             if let Some(Page::File(path)) = Page::from_route(&route) {

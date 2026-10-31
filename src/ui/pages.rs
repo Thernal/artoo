@@ -1,6 +1,6 @@
 //! The page of the space on screen (#71), under its bar (`bar.rs`): the Inbox, Code's project or
-//! a file, the list of branches (the branches') or requests (`roots.rs`) at their space's root
-//! (#72), else a branch's or request's panes with its identity over the diff.
+//! a file, the list of branches or requests at their space's root (#72, their features'), else a
+//! branch's or request's panes with its identity over the diff.
 //! Code is the project's tree beside its folder page or a file's tabs (`code.rs`, #75).
 
 use super::nav::Section;
@@ -20,19 +20,12 @@ impl Workspace {
                 .child(shrinks(self.render_inbox(cx)))
                 .children(self.render_tool(cx)),
             // A page a feature draws: Code's tree beside its folder page or a file's tabs (#75),
-            // Branches' list.
+            // the lists of Branches and Merge requests.
             (space, page) if let Some(pages) = self.pages_drawing(space, page) => {
                 self.render_pages(pages, cx)
             }
-            // Branches' own page is the branches'.
-            (Space::Branches, None) => div().flex_1(),
-            (Space::Requests, None) => div()
-                .relative()
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .child(shrinks(self.render_requests_root(cx)))
-                .children(self.render_tool(cx)),
+            // Their own pages are the features'.
+            (Space::Branches | Space::Requests, None) => div().flex_1(),
             // A request's Overview and Commits, a branch's Commits, are pages of their own
             // (#73, #74).
             (Space::Requests | Space::Branches, Some(_))

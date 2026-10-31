@@ -56,6 +56,14 @@ pub fn set_flat(on: bool) {
     FLAT.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Space between islands; the resize handles live in it. Flat panes have none (`gap`).
+pub const GAP: f32 = 8.;
+
+/// The space between panes: `GAP` for islands, none for flat panes.
+pub fn gap() -> f32 {
+    if flat() { 0. } else { GAP }
+}
+
 /// A rounded pane floating on the window background; square and flush when panes are flat.
 pub fn island() -> gpui::Div {
     use gpui::{Styled, div};

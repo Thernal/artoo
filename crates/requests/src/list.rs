@@ -6,7 +6,7 @@
 use crate::group::Group;
 use crate::requests::{Act, Acts, Requests, Scope};
 use artoo_core::git::{DiffSettings, Repo};
-use artoo_core::{markdown, storage};
+use artoo_core::{markdown, rank, storage};
 use artoo_hosts_api::{Approvals, Host, Mr, MrState, Pipeline, Thread};
 use artoo_review_api::Seen;
 use artoo_ui_kit::controls::{
@@ -62,6 +62,8 @@ pub struct Rows {
     /// (after ↑ ↓ or esc back to the list).
     pub scroll: gpui::ScrollHandle,
     pub reveal: Cell<bool>,
+    /// The request picked, previewed: by a click, by ↑ ↓, or the one open as you came back.
+    pub picked: Option<u64>,
     /// Project `kept_of`'s requests list: the groups folded, and the requests you have opened —
     /// a row's dot is gone once you have (#81).
     folded: HashSet<Group>,
@@ -118,6 +120,40 @@ impl Rows {
 }
 
 impl Requests {
+    /// The requests the scope and `filter` let through, in the order the list shows them: the
+    /// merged or the closed as read, newest first, the host having picked the scope's (#114,
+    /// #169); the open by what they need from you (`seen`, how far your review of each got), the
+    /// latest activity first. Copied: a row is drawn with the tab's context.
+    pub fn shown(&self, filter: &str, seen: &dyn Fn(&Mr) -> Seen) -> Vec<Mr> {
+        let filter = filter.to_lowercase();
+        let terms: Vec<&str> = filter.split_whitespace().collect();
+        let past = self.view != MrState::Opened;
+        let list = if past {
+            &self.past.of_scope(self.scope).list
+        } else {
+            &self.list
+        };
+        let mut shown: Vec<&Mr> = list
+            .iter()
+            .filter(|m| past || self.in_scope(m, self.scope))
+            .filter(|m| {
+                let hay = format!(
+                    "{} {} {} {}",
+                    words::number(m.iid),
+                    m.title,
+                    m.author,
+                    m.source
+                )
+                .to_lowercase();
+                terms.iter().all(|w| rank::word_matches(w, &hay))
+            })
+            .collect();
+        if !past {
+            shown.sort_by_key(|m| (self.group_of(m, seen(m)), std::cmp::Reverse(m.updated)));
+        }
+        shown.into_iter().cloned().collect()
+    }
+
     /// Request `m`'s group in the list, `seen` how far your review of it got.
     pub fn group_of(&self, m: &Mr, seen: Seen) -> Group {
         let me = self.login.as_deref().unwrap_or_default();

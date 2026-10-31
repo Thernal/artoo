@@ -5,8 +5,8 @@ pub(crate) use artoo_ui_kit::{apply_ui_zoom, flat, px, ui_zoom};
 mod hover;
 use artoo_ui_kit::format::plural;
 use artoo_ui_kit::{
-    ISLAND_RADIUS, ROW_RADIUS, discussion, format, icons, island, island_label, keys, markdown,
-    room, row, section_label, theme, words,
+    GAP, ISLAND_RADIUS, ROW_RADIUS, discussion, format, gap, icons, island, island_label, keys,
+    markdown, room, row, section_label, theme, words,
 };
 mod agent;
 mod agent_comments;
@@ -250,8 +250,6 @@ actions!(
 /// The most a file shown alone in zen is wide: a reading width (#55).
 const READING_WIDTH: f32 = 1100.;
 const TITLE_BAR: f32 = 38.;
-/// Space between islands; the resize handles live in it. Flat panes have none (`gap`).
-const GAP: f32 = 8.;
 
 /// How several projects show: `storage::Projects::ALL[n]`. With flat panes (`artoo_ui_kit::flat`), the
 /// window-wide part of the settings: every tab and window reads it, set when settings load or change.
@@ -271,11 +269,6 @@ fn share_settings(settings: &Settings) {
         .position(|p| *p == settings.projects)
         .unwrap_or(0);
     PROJECTS.store(n as u8, Relaxed);
-}
-
-/// The space between panes: `GAP` for islands, none for flat panes.
-fn gap() -> f32 {
-    if flat() { 0. } else { GAP }
 }
 
 /// The keys of the app as shipped; `keymap.txt` changes them (`keymap.rs`).
@@ -1960,6 +1953,9 @@ impl Workspace {
         services.set(this.requests.clone());
         services.set(artoo_requests::requests::handle(&this.requests));
         services.set(requests::acts_of(cx.weak_entity()));
+        services.set::<Rc<dyn artoo_requests::root::RootHost>>(Rc::new(roots::RootHost(
+            cx.weak_entity(),
+        )));
         services.set::<Rc<dyn artoo_code_api::Host>>(Rc::new(code::CodeHost(cx.weak_entity())));
         let frame = Rc::new(parts::TabFrame(cx.weak_entity(), services.clone()));
         this.parts = artoo_shell_api::make_parts(frame, window, cx);

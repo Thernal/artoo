@@ -262,8 +262,6 @@ pub struct Nav {
     pub folded: [bool; 4],
     /// A space and page to show once the request list is in (a project reopened on one).
     pending_show: Option<(Space, Option<Page>)>,
-    /// The request Merge requests' list has selected (Branches' row is the history's).
-    pub pick_request: Option<u64>,
     /// The commit a request's Commits section has selected (#73), and with shift the other end
     /// of a run of them.
     pub pick_commit: Option<Oid>,
@@ -285,7 +283,6 @@ impl Default for Nav {
             open: Vec::new(),
             folded: [false, false, true, false],
             pending_show: None,
-            pick_request: None,
             pick_commit: None,
             picked: Vec::new(),
             pick_to: None,
@@ -702,9 +699,7 @@ impl Workspace {
                 self.read_tree_files(cx);
             }
             Space::Requests => {
-                if self.nav.pick_request.is_none() {
-                    self.nav.pick_request = self.listed_requests(cx).first().map(|m| m.iid);
-                }
+                self.pick_first_request(cx);
                 self.read_preview(cx);
                 self.zone = zones::Zone::Branches;
                 // A project without a token: the connect panel takes the keyboard.
@@ -803,7 +798,7 @@ impl Workspace {
                     .history
                     .update(cx, |h, _| h.roots.picked = Some(BranchRow::WorkingTree)),
                 (_, Some(Item::Request(iid))) => {
-                    self.nav.pick_request = Some(iid);
+                    self.requests.update(cx, |rq, _| rq.rows.picked = Some(iid));
                     self.requests.read(cx).rows.reveal.set(true);
                 }
                 (_, Some(Item::Branch(refname))) => {
@@ -980,9 +975,7 @@ impl Workspace {
         }
         // The list came in under its root: the first request is picked and previewed (#72).
         if self.nav.space == Space::Requests && self.at_root_list() {
-            if self.nav.pick_request.is_none() {
-                self.nav.pick_request = self.listed_requests(cx).first().map(|m| m.iid);
-            }
+            self.pick_first_request(cx);
             self.read_preview(cx);
         }
     }
