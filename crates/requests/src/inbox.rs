@@ -2,7 +2,7 @@
 //! yours an agent answered (#116) —, what it keeps of the one selected (`InboxView`), and the code a notice's
 //! discussion is on, read from the repository (`excerpt`). The tab draws it for now.
 
-use crate::notices::Kind;
+use crate::notices::{Kind, Notices};
 use artoo_core::git::{DiffLine, DiffSettings, LineKind, Repo};
 use artoo_ui_kit::excerpt::{Excerpt, ExcerptLine};
 use gpui::Task;
@@ -60,6 +60,58 @@ pub struct InboxView {
     pub reply: Option<(u64, Option<String>)>,
     /// The agent's answer selected, by its comment's id; none: the notice at `notices.at`.
     pub agent: Option<u64>,
+}
+
+/// Your notes an agent answered that wait for you (#116): each note's id, when the agent last wrote, and the key that
+/// is read once looked at (a new answer is new again).
+pub type Answers<'a> = &'a [(u64, i64, String)];
+
+impl InboxView {
+    /// What the Inbox lists under its filter, newest first: the `notices`, and the agents' `answers`.
+    pub fn rows(&self, notices: &Notices, answers: Answers) -> Vec<InboxRow> {
+        let filter = self.filter;
+        let mut rows: Vec<(i64, InboxRow)> = notices
+            .list
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| filter.lets(n.kind))
+            .map(|(ix, n)| (n.created, InboxRow::Notice(ix)))
+            .collect();
+        if filter.lets_agents() {
+            rows.extend(
+                answers
+                    .iter()
+                    .map(|(id, at, _)| (*at, InboxRow::Agent(*id))),
+            );
+        }
+        rows.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
+        rows.into_iter().map(|(_, row)| row).collect()
+    }
+
+    /// The selected row: an agent's answer while it waits for you, else the notice.
+    pub fn current(&self, notices: &Notices, answers: Answers) -> Option<InboxRow> {
+        match self.agent {
+            Some(id) if answers.iter().any(|(i, ..)| *i == id) => Some(InboxRow::Agent(id)),
+            _ => (!notices.list.is_empty()).then_some(InboxRow::Notice(notices.at)),
+        }
+    }
+
+    /// j k: the row listed after the selected one, or before it; the first when none is.
+    pub fn step(&self, notices: &Notices, answers: Answers, down: bool) -> Option<InboxRow> {
+        let rows = self.rows(notices, answers);
+        if rows.is_empty() {
+            return None;
+        }
+        let at = self
+            .current(notices, answers)
+            .and_then(|r| rows.iter().position(|&o| o == r));
+        let next = match (at, down) {
+            (Some(i), true) => (i + 1).min(rows.len() - 1),
+            (Some(i), false) => i.saturating_sub(1),
+            (None, _) => 0,
+        };
+        Some(rows[next])
+    }
 }
 
 /// The lines around line `new` (or `old`, a removed line) of `path`, as the request changes them:
@@ -179,6 +231,45 @@ mod tests {
         assert_eq!(position(&lines, Some(5), None), Some(2));
         assert_eq!(position(&lines, Some(4), Some(4)), Some(0));
         assert_eq!(position(&lines, Some(9), None), None);
+    }
+
+    #[test]
+    fn the_rows_are_newest_first_and_a_step_stops_at_the_ends() {
+        let notice = |created: i64, kind: Kind| crate::notices::Notice {
+            key: format!("todo:{created}"),
+            kind,
+            iid: 1,
+            title: String::new(),
+            who: String::new(),
+            text: String::new(),
+            created,
+            note: None,
+            todo: None,
+            resolved: None,
+        };
+        let mut notices = Notices::default();
+        notices.list = vec![notice(30, Kind::Review), notice(10, Kind::Mention)];
+        let answers = [(7, 20, "agent:7:1".to_owned())];
+        let mut view = InboxView::default();
+        let rows = view.rows(&notices, &answers);
+        assert_eq!(
+            rows,
+            [InboxRow::Notice(0), InboxRow::Agent(7), InboxRow::Notice(1)]
+        );
+        assert_eq!(view.current(&notices, &answers), Some(InboxRow::Notice(0)));
+        assert_eq!(
+            view.step(&notices, &answers, false),
+            Some(InboxRow::Notice(0))
+        );
+        view.agent = Some(7);
+        assert_eq!(
+            view.step(&notices, &answers, true),
+            Some(InboxRow::Notice(1))
+        );
+        // An answer no longer waiting is not selected.
+        assert_eq!(view.current(&notices, &[]), Some(InboxRow::Notice(0)));
+        view.filter = InboxFilter::Mentions;
+        assert_eq!(view.rows(&notices, &answers), [InboxRow::Notice(1)]);
     }
 
     #[test]

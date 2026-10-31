@@ -20,27 +20,9 @@ use gpui::{AnyElement, Context, div, prelude::*};
 use std::rc::Rc;
 
 impl Workspace {
-    /// What the Inbox lists under its filter, newest first: the notices, and the agents' answers
-    /// waiting for you (#116).
+    /// What the Inbox lists under its filter, newest first (`InboxView::rows`).
     pub(super) fn inbox_rows(&self) -> Vec<InboxRow> {
-        let filter = self.inbox_view.filter;
-        let mut rows: Vec<(i64, InboxRow)> = self
-            .notices
-            .list
-            .iter()
-            .enumerate()
-            .filter(|(_, n)| filter.lets(n.kind))
-            .map(|(ix, n)| (n.created, InboxRow::Notice(ix)))
-            .collect();
-        if filter.lets_agents() {
-            rows.extend(
-                self.agent_notices()
-                    .into_iter()
-                    .map(|(id, at, _)| (at, InboxRow::Agent(id))),
-            );
-        }
-        rows.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
-        rows.into_iter().map(|(_, row)| row).collect()
+        self.inbox_view.rows(&self.notices, &self.agent_notices())
     }
 
     /// Your notes an agent answered that wait for you: it asked something (your answer, once
@@ -66,22 +48,13 @@ impl Workspace {
 
     /// The Inbox's count: notices not read, and agents' answers not looked at.
     pub(super) fn inbox_unread(&self) -> usize {
-        self.notices.unread()
-            + self
-                .agent_notices()
-                .iter()
-                .filter(|(_, _, key)| !self.notices.is_read(key))
-                .count()
+        self.notices.unread_with(&self.agent_notices())
     }
 
-    /// The Inbox's selected row: an agent's answer while it waits for you, else the notice.
+    /// The Inbox's selected row (`InboxView::current`).
     pub(super) fn inbox_current(&self) -> Option<InboxRow> {
-        match self.inbox_view.agent {
-            Some(id) if self.agent_notices().iter().any(|(i, ..)| *i == id) => {
-                Some(InboxRow::Agent(id))
-            }
-            _ => (!self.notices.list.is_empty()).then_some(InboxRow::Notice(self.notices.at)),
-        }
+        self.inbox_view
+            .current(&self.notices, &self.agent_notices())
     }
 
     /// Your answer to agent's question `id` was written in the Inbox: it goes to its chat now,
@@ -98,19 +71,10 @@ impl Workspace {
 
     /// j k in the Inbox: the next or previous listed notice.
     pub(super) fn inbox_step(&mut self, down: bool, cx: &mut Context<Self>) {
-        let rows = self.inbox_rows();
-        if rows.is_empty() {
-            return;
+        let answers = self.agent_notices();
+        if let Some(next) = self.inbox_view.step(&self.notices, &answers, down) {
+            self.inbox_select(next, cx);
         }
-        let at = self
-            .inbox_current()
-            .and_then(|r| rows.iter().position(|&o| o == r));
-        let next = match (at, down) {
-            (Some(i), true) => (i + 1).min(rows.len() - 1),
-            (Some(i), false) => i.saturating_sub(1),
-            (None, _) => 0,
-        };
-        self.inbox_select(rows[next], cx);
     }
 
     fn inbox_select(&mut self, row: InboxRow, cx: &mut Context<Self>) {

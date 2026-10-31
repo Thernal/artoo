@@ -174,6 +174,15 @@ impl Notices {
             .count()
     }
 
+    /// The Inbox's count: notices not read, and the agents' `answers` not looked at (keys last).
+    pub fn unread_with(&self, answers: &[(u64, i64, String)]) -> usize {
+        self.unread()
+            + answers
+                .iter()
+                .filter(|(_, _, key)| !self.is_read(key))
+                .count()
+    }
+
     /// Something about request `iid` is not read yet: the menu's blue dot on it (#71).
     pub fn unread_of(&self, iid: u64) -> bool {
         self.list
