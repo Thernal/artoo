@@ -593,8 +593,27 @@ impl Workspace {
         }
     }
 
+    /// Commit `ix` of the list opened from wherever the window is (a ⌘K result, a link, a place
+    /// opened lately): its page, kept in the history and loaded; where it is none, loaded and
+    /// followed.
+    pub(super) fn open_commit(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let current = self.requests.read(cx).current;
+        match self
+            .history
+            .read(cx)
+            .route_of(Selection::Commit(ix), current)
+            .and_then(|route| Page::from_route(&route))
+        {
+            Some(page) => self.go_page(page, cx),
+            None => {
+                self.select_commit(ix, cx);
+                self.follow_loaded(cx);
+            }
+        }
+    }
+
     /// What is loaded comes on screen as its page, from wherever the window was (a ⌘K result, a
-    /// link to a commit).
+    /// file of the diff).
     pub(super) fn follow_loaded(&mut self, cx: &App) {
         if let Some(page) = self.loaded_page(cx) {
             self.arrive(page, cx);

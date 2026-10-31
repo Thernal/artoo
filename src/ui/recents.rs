@@ -56,10 +56,7 @@ impl Workspace {
                 .iter()
                 .position(|c| c.id == id)
             {
-                Some(ix) => {
-                    self.select_commit(ix, cx);
-                    self.follow_loaded(cx);
-                }
+                Some(ix) => self.open_commit(ix, cx),
                 None => {
                     self.error = Some(
                         format!("{} is not in the open list of commits.", format::short(id)).into(),

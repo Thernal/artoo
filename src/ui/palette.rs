@@ -1238,8 +1238,7 @@ impl Workspace {
                     .iter()
                     .position(|c| c.id == id)
                 {
-                    self.select_commit(ix, cx);
-                    self.follow_loaded(cx);
+                    self.open_commit(ix, cx);
                 }
             }
             // In Code a file opens there, as a tab, changed or not (#75).

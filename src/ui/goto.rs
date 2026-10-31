@@ -95,10 +95,7 @@ impl Workspace {
                     .iter()
                     .position(|c| c.id.to_string().starts_with(&sha))
                 {
-                    Some(ix) => {
-                        self.select_commit(ix, cx);
-                        self.follow_loaded(cx);
-                    }
+                    Some(ix) => self.open_commit(ix, cx),
                     // Elsewhere in the repository: the first branch that has it, at that commit.
                     None => match self.branch_with(&sha, cx) {
                         Some((ix, id)) => self.open_branch(ix, Some(id), cx),
