@@ -291,6 +291,8 @@ pub enum Slot {
     OverDiff,
     /// Over the diff's rows, painted last: every part's that has one, in their order.
     OverRows,
+    /// In the diff's place, instead of the file's pane: the first part's that has one.
+    Instead,
 }
 
 /// A piece of the item page on screen a part draws in a slot (#165 I5c): for the route on screen, or nothing. The

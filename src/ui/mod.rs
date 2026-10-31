@@ -80,7 +80,7 @@ mod welcome;
 mod working;
 mod zones;
 
-use crate::git::{DiffSettings, PairKind, Repo};
+use crate::git::{DiffSettings, Repo};
 use crate::rows::{self, Row};
 use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
 use artoo_branches::head;
@@ -3128,8 +3128,9 @@ impl Workspace {
                 .child("Select a commit or a version.")
                 .into_any_element();
         };
-        let commits_tab = matches!(diff.header, Header::Versions { .. })
-            && self.history.read(cx).version_tab == VersionTab::Commits;
+        // A part's in the file's place (two versions' commits paired), else the file's pane.
+        let instead = self.piece(Slot::Instead, cx);
+        let pane = instead.is_none();
         div()
             .flex_1()
             .min_w_0()
@@ -3141,7 +3142,7 @@ impl Workspace {
                     .flex_1()
                     .min_h_0()
                     .flex()
-                    .when(!commits_tab, |s| {
+                    .when(pane, |s| {
                         let file = self.render_file(&diff, cx);
                         if self.zen_one && self.zen.is_some() {
                             // One file at a reading width, the next one sliding in as it comes
@@ -3162,7 +3163,7 @@ impl Workspace {
                             s.child(file)
                         }
                     })
-                    .when(commits_tab, |s| s.child(self.render_pairs(&diff, cx))),
+                    .children(instead),
             )
             .into_any_element()
     }
