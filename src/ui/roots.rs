@@ -311,18 +311,6 @@ impl artoo_requests::root::RootHost for RootHost {
             .unwrap_or_else(|_| div().into_any_element())
     }
 
-    fn threads(&self, iid: u64, cx: &App) -> Option<Vec<Thread>> {
-        Some(
-            self.0
-                .upgrade()?
-                .read(cx)
-                .notices
-                .read(cx)
-                .threads_of(iid)?
-                .to_vec(),
-        )
-    }
-
     fn fold(
         &self,
         key: String,

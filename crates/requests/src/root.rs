@@ -1,27 +1,25 @@
 //! Merge requests' own page (#72): the list grouped by what each needs from you (`list`), the picked one previewed
 //! beside it, in the tab's frame of a list page (`Frame::list_page`); or the list's states — loading, empty, an
 //! error over it, a host to connect. What the tab keeps that the list draws comes through its `RootHost`; your
-//! review of each request through the review's handle; a click asks the tab an `Act`.
+//! review of each request through the review's handle, the discussions through the notifications; a click asks the
+//! tab an `Act`.
 
 use crate::list::{self, ListLook};
+use crate::notices::Notices;
 use crate::requests::{Acts, Requests};
-use artoo_hosts_api::{Mr, Thread};
+use artoo_hosts_api::Mr;
 use artoo_review_api::{Review, Seen};
 use artoo_shell_api::{Frame, Pages};
 use artoo_ui_kit::controls::skeleton;
 use artoo_ui_kit::room::Widths;
 use artoo_ui_kit::{gap, island, px, theme};
 use gpui::{AnyElement, App, Context, Entity, Render, Window, div, prelude::*};
-use std::collections::HashMap;
 use std::rc::Rc;
 
 /// What Merge requests' own page asks of the tab (`Rc<dyn RootHost>` in its services).
 pub trait RootHost {
     /// The panel that connects the project's host, in the list's place while it has no token.
     fn connect(&self, cx: &mut App) -> AnyElement;
-
-    /// Request `iid`'s discussions, as the notifications read them.
-    fn threads(&self, iid: u64, cx: &App) -> Option<Vec<Thread>>;
 
     /// A row folding with its group (#110): by its key, its group's motion and whether it is open; `None` once it
     /// is shut.
@@ -118,11 +116,10 @@ impl RootPage {
                     Some((m.iid, review.as_ref()?.head_part(head, cx)?))
                 })
                 .collect();
-            let threads: HashMap<u64, Vec<Thread>> = shown
-                .iter()
-                .filter_map(|m| Some((m.iid, host.threads(m.iid, cx)?)))
-                .collect();
-            let threads = |iid| threads.get(&iid).map(Vec::as_slice);
+            // Each one's discussions, as the notifications read them.
+            let notices = services.get::<Entity<Notices>>();
+            let notices = notices.as_ref().map(|n| n.read(cx));
+            let threads = |iid| notices?.threads_of(iid);
             let fold = |key, moving: &str, open, row| host.fold(key, moving, open, row, cx);
             let look = ListLook {
                 shown: &shown,
