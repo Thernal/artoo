@@ -109,6 +109,10 @@ pub trait Frame {
     /// The width of a space's list, as the developer gave it (`list_page`), for a page drawn as one while it
     /// waits.
     fn list_width(&self, cx: &App) -> f32;
+
+    /// The handle beside a space's list (`list_page`), for a page that draws its list itself: it widens or
+    /// narrows the list, a double click setting it back. Asked from a page's own drawing.
+    fn list_handle(&self, cx: &mut App) -> AnyElement;
 }
 
 /// What the features of one tab offer one another, by type: a contract's handle, `Rc<dyn …>`.

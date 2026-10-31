@@ -6,7 +6,7 @@ use super::Workspace;
 use crate::links::Target;
 use artoo_requests::notices::{self, EVERY};
 pub(super) use artoo_requests::notices::{Kind, Notice, Notices};
-use gpui::{App, Context};
+use gpui::Context;
 
 impl Workspace {
     /// Reads the to-dos and the discussions of the user's requests again, in the background.
@@ -66,11 +66,6 @@ impl Workspace {
     pub(super) fn refresh_notices(&mut self, cx: &mut Context<Self>) {
         self.notices.update(cx, |n, _| n.forget());
         self.load_notices(cx);
-    }
-
-    /// Notice `ix` is not read yet.
-    pub(super) fn notice_unread(&self, ix: usize, cx: &App) -> bool {
-        self.notices.read(cx).unread_at(ix)
     }
 
     /// Opens notice `ix`: its request, at its comment.

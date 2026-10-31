@@ -1953,6 +1953,12 @@ impl Workspace {
         services.set::<Rc<dyn artoo_agents::summary::NotesHost>>(Rc::new(agent_notes::NotesHost(
             cx.weak_entity(),
         )));
+        // Its notifications and what the Inbox selected, which the requests' Inbox draws, the tab its host.
+        services.set(this.notices.clone());
+        services.set(this.inbox_view.clone());
+        services.set::<Rc<dyn artoo_requests::inbox_page::InboxHost>>(Rc::new(inbox::InboxHost(
+            cx.weak_entity(),
+        )));
         services.set::<Rc<dyn artoo_requests::root::RootHost>>(Rc::new(roots::RootHost(
             cx.weak_entity(),
         )));

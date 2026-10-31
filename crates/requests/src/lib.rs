@@ -9,6 +9,7 @@ pub mod create;
 pub mod discussions;
 pub mod group;
 pub mod inbox;
+pub mod inbox_page;
 pub mod inbox_view;
 pub mod list;
 pub mod merge;
@@ -30,9 +31,10 @@ use gpui::{App, Entity, Window};
 use std::rc::Rc;
 
 /// The requests' parts in every tab: a request being written's header and a request's line on the item page,
-/// the space's own page.
+/// the space's own page; and the Inbox's (`inbox_parts`).
 pub fn install(cx: &mut App) {
     artoo_shell_api::add_parts(cx, parts);
+    artoo_shell_api::add_parts(cx, inbox_parts);
 }
 
 /// The parts of a tab that offers its requests; none in one that does not.
@@ -49,6 +51,22 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
             pieces::create_switch(requests.clone(), services),
         ],
         pages: Some(root::pages(requests, frame, cx)),
+        ..Default::default()
+    }
+}
+
+/// The Inbox's part in a tab that keeps its notifications: its page.
+fn inbox_parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
+    let services = frame.services();
+    let (Some(notices), Some(view), Some(requests)) = (
+        services.get::<Entity<notices::Notices>>(),
+        services.get::<Entity<inbox::InboxView>>(),
+        services.get::<Entity<requests::Requests>>(),
+    ) else {
+        return Parts::default();
+    };
+    Parts {
+        pages: Some(inbox_page::pages(notices, view, requests, frame, cx)),
         ..Default::default()
     }
 }

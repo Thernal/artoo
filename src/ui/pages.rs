@@ -12,18 +12,13 @@ use gpui::{AnyElement, Context, div, prelude::*};
 impl Workspace {
     pub(super) fn render_space(&self, cx: &mut Context<Self>) -> AnyElement {
         let body = match (self.nav.space, self.nav_page()) {
-            (Space::Inbox, _) => div()
-                .relative()
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .child(shrinks(self.render_inbox(cx)))
-                .children(self.render_tool(cx)),
-            // A page a feature draws: Code's tree beside its folder page or a file's tabs (#75),
-            // the lists of Branches and Merge requests.
+            // A page a feature draws: the Inbox, Code's tree beside its folder page or a file's tabs
+            // (#75), the lists of Branches and Merge requests.
             (space, page) if let Some(pages) = self.pages_drawing(space, page) => {
                 self.render_pages(pages, cx)
             }
+            // The Inbox is the requests'.
+            (Space::Inbox, _) => div().flex_1(),
             // Their own pages are the features'.
             (Space::Branches | Space::Requests, None) => div().flex_1(),
             // A request's Overview and Commits, a branch's Commits, are pages of their own
@@ -157,18 +152,4 @@ impl Workspace {
                     .map(|side| self.drawer(side)),
             )
     }
-}
-
-/// A root page beside the tool window: it gives way to it, never pushing it past the window's
-/// edge — its list keeps its width, its preview narrows (the developer, 2026-10-23: Agents ran off
-/// the Merge requests page).
-fn shrinks(page: impl IntoElement) -> gpui::Div {
-    // A column: the page is stretched across to its width, whatever its content's least width.
-    div()
-        .flex_1()
-        .min_w_0()
-        .min_h_0()
-        .flex()
-        .flex_col()
-        .child(page)
 }

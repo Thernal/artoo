@@ -9,14 +9,15 @@
 
 use super::composer::Target;
 use super::notifications::{Kind, Notice};
-use super::{Workspace, format, island, px, theme};
+use super::{Workspace, px};
 use crate::mr::Thread;
 use artoo_agents::inbox::{AnswerEvent, AnswerLook, From, OnAnswer, answer_preview, answer_row};
 use artoo_requests::inbox::excerpt;
 pub(super) use artoo_requests::inbox::{InboxRow, InboxView};
-use artoo_requests::inbox_view::{self, InboxEvent, NoticeLook, OnInbox, RowLook};
+use artoo_requests::inbox_view::{self, InboxEvent, OnInbox, RowLook};
 pub(super) use artoo_ui_kit::format::now;
-use gpui::{AnyElement, App, Context, div, prelude::*};
+use artoo_ui_kit::markdown::Selecting;
+use gpui::{AnyElement, App, Context, WeakEntity, div, prelude::*};
 use std::rc::Rc;
 
 impl Workspace {
@@ -253,190 +254,41 @@ impl Workspace {
         );
     }
 
-    /// How the Inbox's views ask the tab.
-    fn inbox_on(&self, cx: &Context<Self>) -> OnInbox {
-        let this = cx.weak_entity();
-        Rc::new(move |event, cx| {
-            this.update(cx, |this, cx| match event {
-                InboxEvent::Filter(f) => {
-                    this.inbox_view.update(cx, |v, _| v.filter = f);
-                    if let Some(&first) = this.inbox_rows(cx).first() {
-                        this.inbox_select(first, cx);
-                    }
-                    cx.notify();
+    /// A click in the Inbox (`InboxHost::act`).
+    fn inbox_act(&mut self, event: InboxEvent, cx: &mut Context<Self>) {
+        match event {
+            InboxEvent::Filter(f) => {
+                self.inbox_view.update(cx, |v, _| v.filter = f);
+                if let Some(&first) = self.inbox_rows(cx).first() {
+                    self.inbox_select(first, cx);
                 }
-                InboxEvent::Pick(ix) => {
-                    if this.compact() {
-                        this.inbox = false;
-                        return this.open_notice(ix, cx);
-                    }
-                    this.inbox_select(InboxRow::Notice(ix), cx)
+                cx.notify();
+            }
+            InboxEvent::Pick(ix) => {
+                if self.compact() {
+                    self.inbox = false;
+                    return self.open_notice(ix, cx);
                 }
-                InboxEvent::Open(ix) => {
-                    this.inbox = false;
-                    this.open_notice(ix, cx)
-                }
-                InboxEvent::Done(ix) => this.dismiss_notice(ix, cx),
-                InboxEvent::Reply => this.reply_in_inbox(cx),
-                InboxEvent::Resolve { iid, id, resolved } => {
-                    this.inbox_resolve(iid, id, resolved, cx)
-                }
-                InboxEvent::Menu { iid, at } => this.request_context(iid, at, cx),
-            })
-            .ok();
-        })
+                self.inbox_select(InboxRow::Notice(ix), cx)
+            }
+            InboxEvent::Open(ix) => {
+                self.inbox = false;
+                self.open_notice(ix, cx)
+            }
+            InboxEvent::Done(ix) => self.dismiss_notice(ix, cx),
+            InboxEvent::Reply => self.reply_in_inbox(cx),
+            InboxEvent::Resolve { iid, id, resolved } => self.inbox_resolve(iid, id, resolved, cx),
+            InboxEvent::Menu { iid, at } => self.request_context(iid, at, cx),
+        }
     }
 
     /// The Inbox's filters, in its page bar (#71).
     pub(super) fn inbox_filters(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        inbox_view::filters(self.inbox_view.read(cx).filter, &self.inbox_on(cx))
-    }
-
-    /// The Inbox: its panes, or rows loading before the first read, or one message when nothing
-    /// is listed; a banner over it while the host cannot be read (#72).
-    pub(super) fn render_inbox(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let rows = self.inbox_rows(cx);
-        let body = if !self.notices.read(cx).loaded && rows.is_empty() {
-            inbox_view::loading(self.layout.list)
-        } else if rows.is_empty() {
-            let others = !self.notices.read(cx).list.is_empty() || !self.agent_notices().is_empty();
-            inbox_view::empty(self.inbox_view.read(cx).filter, others, &self.inbox_on(cx))
-        } else {
-            self.render_inbox_panes(&rows, cx).into_any_element()
-        };
-        div()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .gap(px(super::gap()))
-            .children(artoo_requests::list::banner(
-                self.requests.read(cx),
-                &super::requests::acts_of(cx.entity().downgrade()),
-            ))
-            .child(body)
-    }
-
-    /// The Inbox's panes: the list, and the selected notice previewed and answerable.
-    fn render_inbox_panes(
-        &self,
-        rows: &[InboxRow],
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
-        let today = format::date(now());
-        let mut list: Vec<AnyElement> = Vec::new();
-        let mut group = None;
-        let agents = self.agent_notices();
-        for &row in rows {
-            let at = match row {
-                InboxRow::Notice(ix) => self.notices.read(cx).list[ix].created,
-                InboxRow::Agent(id) => agents
-                    .iter()
-                    .find(|(i, ..)| *i == id)
-                    .map_or(0, |(_, at, _)| *at),
-            };
-            let heading = if format::date(at) == today {
-                "Today"
-            } else {
-                "Earlier"
-            };
-            if group != Some(heading) {
-                group = Some(heading);
-                list.push(inbox_view::heading(heading));
-            }
-            list.push(match row {
-                InboxRow::Notice(ix) => self.render_inbox_row(ix, cx).into_any_element(),
-                InboxRow::Agent(id) => self.render_agent_row(id, cx).into_any_element(),
-            });
-        }
-        let preview = self
-            .inbox_current(cx)
-            .filter(|r| rows.contains(r))
-            .and_then(|r| match r {
-                InboxRow::Notice(ix) => self
-                    .notices
-                    .read(cx)
-                    .list
-                    .get(ix)
-                    .cloned()
-                    .map(|n| self.render_inbox_preview(&n, cx).into_any_element()),
-                InboxRow::Agent(id) => self.render_agent_preview(id, cx),
-            })
-            .unwrap_or_else(|| {
-                div()
-                    .flex_1()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_color(theme::muted())
-                    .child("Choose a notification.")
-                    .into_any_element()
-            });
-        div()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .child(
-                if self.compact() {
-                    island().flex_1().min_w_0()
-                } else {
-                    island()
-                        .w(px(super::roots::list_width(self.layout.list)))
-                        .flex_none()
-                }
-                .relative()
-                .child(self.widths.measure("inbox"))
-                .child(
-                    div()
-                        .id("inbox-list")
-                        .flex_1()
-                        .min_h_0()
-                        .overflow_y_scroll()
-                        .pb(px(6.))
-                        .children(list),
-                ),
-            )
-            // Narrow, the list is the page and a notice opens where it points (#80).
-            // Its handle widens or narrows the list, kept for every list page (the developer,
-            // 2026-10-23); a double click sets it back.
-            .children((!self.compact()).then(|| self.handle(super::Split::List, cx)))
-            .children((!self.compact()).then(|| {
-                island()
-                    .flex_1()
-                    .min_w_0()
-                    .bg(theme::editor())
-                    .child(
-                        div()
-                            .id("inbox-preview")
-                            .flex_1()
-                            .min_h_0()
-                            .overflow_y_scroll()
-                            .child(preview),
-                    )
-                    .child(inbox_view::foot_keys(match self.inbox_current(cx) {
-                        Some(InboxRow::Agent(id)) => Some(
-                            self.comments
-                                .iter()
-                                .any(|c| c.id == id && c.state == crate::review::State::Addressed),
-                        ),
-                        _ => None,
-                    }))
-            }))
-    }
-
-    /// One notice's row (`inbox_view::notice_row`).
-    fn render_inbox_row(&self, ix: usize, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let look = RowLook {
-            fresh: self.notice_unread(ix, cx),
-            on: self.inbox_current(cx) == Some(InboxRow::Notice(ix)),
-            wide: self.widths.room("inbox").second(),
-        };
-        inbox_view::notice_row(
-            &self.notices.read(cx).list[ix],
-            ix,
-            look,
-            &self.inbox_on(cx),
-        )
+        let this = cx.weak_entity();
+        let on: OnInbox = Rc::new(move |event, cx| {
+            this.update(cx, |this, cx| this.inbox_act(event, cx)).ok();
+        });
+        inbox_view::filters(self.inbox_view.read(cx).filter, &on)
     }
 
     /// Who an agent's answer is from: the chat's agent ("Claude"), and the chat's title.
@@ -457,8 +309,7 @@ impl Workspace {
     }
 
     /// How the Inbox's agents' answers ask the tab.
-    fn answer_on(&self, cx: &Context<Self>) -> OnAnswer {
-        let this = cx.weak_entity();
+    fn answer_on(this: WeakEntity<Self>) -> OnAnswer {
         Rc::new(move |event, cx| {
             this.update(cx, |this, cx| match event {
                 AnswerEvent::Pick(id) => {
@@ -473,63 +324,81 @@ impl Workspace {
             .ok();
         })
     }
+}
 
-    /// One agent's answer (#116) in the list (`artoo_agents::inbox::answer_row`).
-    fn render_agent_row(&self, id: u64, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let Some(c) = self.comments.iter().find(|c| c.id == id) else {
-            return div().id(("inbox-agent", id as usize));
+/// What the Inbox (`artoo_requests::inbox_page`) asks of the tab: your notes an agent answered, drawn by the agents
+/// (`artoo_agents::inbox`), the composer, the clicks.
+pub(super) struct InboxHost(pub WeakEntity<Workspace>);
+
+impl artoo_requests::inbox_page::InboxHost for InboxHost {
+    fn answers(&self, cx: &App) -> Vec<(u64, i64, String)> {
+        self.0
+            .upgrade()
+            .map(|tab| tab.read(cx).agent_notices())
+            .unwrap_or_default()
+    }
+
+    fn answer_row(&self, id: u64, look: RowLook, cx: &App) -> AnyElement {
+        let Some(tab) = self.0.upgrade() else {
+            return div().into_any_element();
+        };
+        let this = tab.read(cx);
+        let Some(c) = this.comments.iter().find(|c| c.id == id) else {
+            return div().id(("inbox-agent", id as usize)).into_any_element();
         };
         let look = AnswerLook {
-            fresh: self
-                .agent_notices()
+            fresh: look.fresh,
+            on: look.on,
+            wide: look.wide,
+        };
+        let on = Workspace::answer_on(self.0.clone());
+        answer_row(c, this.agent_of(c), look, &on).into_any_element()
+    }
+
+    fn answer_preview(&self, id: u64, cx: &App) -> Option<AnyElement> {
+        let this = self.0.upgrade()?.read(cx);
+        let c = this.comments.iter().find(|c| c.id == id)?;
+        let thread = this.render_thread(id, 0., self.0.clone(), cx);
+        let on = Workspace::answer_on(self.0.clone());
+        Some(answer_preview(c, this.agent_of(c), thread, &on))
+    }
+
+    fn answer_done(&self, id: u64, cx: &App) -> bool {
+        self.0.upgrade().is_some_and(|tab| {
+            tab.read(cx)
+                .comments
                 .iter()
-                .any(|(i, _, key)| *i == id && !self.notices.read(cx).is_read(key)),
-            on: self.inbox_current(cx) == Some(InboxRow::Agent(id)),
-            wide: self.widths.room("inbox").second(),
-        };
-        answer_row(c, self.agent_of(c), look, &self.answer_on(cx))
+                .any(|c| c.id == id && c.state == crate::review::State::Addressed)
+        })
     }
 
-    /// The selected agent's answer, its thread the tab's (`artoo_agents::inbox::answer_preview`).
-    fn render_agent_preview(&self, id: u64, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let c = self.comments.iter().find(|c| c.id == id)?;
-        let thread = self.render_thread(id, 0., cx.entity().downgrade(), cx);
-        Some(answer_preview(
-            c,
-            self.agent_of(c),
-            thread.into_any_element(),
-            &self.answer_on(cx),
-        ))
+    fn writing(&self, cx: &App) -> Option<AnyElement> {
+        let this = self.0.upgrade()?.read(cx);
+        this.compose
+            .as_ref()
+            .is_some_and(|c| c.target == Target::InboxReply)
+            .then(|| {
+                this.reply_editor(self.0.clone(), cx)
+                    .map(|e| e.max_w(px(720.)).into_any_element())
+                    .unwrap_or_else(|| div().into_any_element())
+            })
     }
 
-    /// The selected notice: its request, the code, the discussion, the reply
-    /// (`inbox_view::notice_preview`).
-    fn render_inbox_preview(&self, n: &Notice, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        // A review request has nothing to answer: no composer is drawn for it.
-        let answerable = !matches!(n.kind, Kind::Review | Kind::Todo);
-        let writing = (answerable
-            && self
-                .compose
-                .as_ref()
-                .is_some_and(|c| c.target == Target::InboxReply))
-        .then(|| {
-            self.reply_editor(cx.entity().downgrade(), cx)
-                .map(|e| e.max_w(px(720.)).into_any_element())
-                .unwrap_or_else(|| div().into_any_element())
-        });
-        let on = self.inbox_on(cx);
-        let rq = self.requests.read(cx);
-        let look = NoticeLook {
-            ix: self.notices.read(cx).at,
-            request: rq.find(n.iid),
-            thread: self.inbox_thread(n, cx),
-            view: self.inbox_view.read(cx),
-            waiting: &rq.waiting,
-            me: rq.login.as_deref().unwrap_or_default(),
-            rich: self.settings.rich_comments,
-            selecting: self.selecting(cx.entity().downgrade()),
-            writing,
-        };
-        inbox_view::notice_preview(n, look, &on, cx)
+    fn selecting(&self, cx: &App) -> Option<Selecting> {
+        Some(self.0.upgrade()?.read(cx).selecting(self.0.clone()))
+    }
+
+    fn rich(&self, cx: &App) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|tab| tab.read(cx).settings.rich_comments)
+    }
+
+    fn narrow(&self, cx: &App) -> bool {
+        self.0.upgrade().is_some_and(|tab| tab.read(cx).compact())
+    }
+
+    fn act(&self, event: InboxEvent, cx: &mut App) {
+        self.0.update(cx, |this, cx| this.inbox_act(event, cx)).ok();
     }
 }

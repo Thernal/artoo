@@ -154,6 +154,14 @@ impl Frame for TabFrame {
             .map_or(0., |tab| super::roots::list_width(tab.read(cx).layout.list))
     }
 
+    fn list_handle(&self, cx: &mut App) -> AnyElement {
+        self.0
+            .update(cx, |this, cx| {
+                this.handle(super::Split::List, cx).into_any_element()
+            })
+            .unwrap_or_else(|_| div().into_any_element())
+    }
+
     fn remember(&self, route: Route, cx: &mut App) {
         self.later(cx, move |this, _| {
             if let Some(Page::File(path)) = Page::from_route(&route) {
