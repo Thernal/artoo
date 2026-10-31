@@ -75,7 +75,11 @@ impl Workspace {
                             div()
                                 .flex()
                                 .flex_col()
-                                .child(self.render_zen_head(diff, cx))
+                                .child(
+                                    self.review
+                                        .read(cx)
+                                        .render_zen_head(self.header_title(diff, cx), self.zen_one),
+                                )
                                 .child(div().h(px(gap()))),
                         )
                     }),

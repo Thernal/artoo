@@ -14,7 +14,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   again once the file changed (`anchor`, a comment's and an agent's note's); its `build.rs` gives a build its commit (`artoo_core::version`). `crates/review` (`artoo-review`, #165 stage 4):
   the review — the entity (`review::Review`, its events; its `Host` the contract's), its row drawing (`diff_view`), the file's pane
   (`pane`: its line, its notice, its rows or what stands in their place, the toolbar's options; what others put on it a
-  `PaneLook`, a click a `PaneEvent` to its host), what it does
+  `PaneLook`, a click a `PaneEvent` to its host), zen's head (`zen`: the tab's words for what is shown), what it does
   to the open file's lines (`lines`), the find (`find`), going to a line (`goline`), the comment being written and
   the input it is written in (`composer`: `Compose`, its `Target`, `render_input`), the Changes list as it keeps it (`lists`), and the types it
   keeps: the selection's
@@ -23,8 +23,8 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   (`diff`: what it is of, its files, the working tree's words, the notice of a change not asked for, its undo the
   versions compared before), with the state of images (`image_view`), pages (`md_page`) and Code's file
   (`file_view`), and the Changes list's rows (`changes`); the app's
-  views read them as `ui::diff_view` and `artoo_review::…`, and draw the find bar, the Changes list, the
-  file's head line and the composer's foot (who sees it, its buttons: `ui/composer.rs`). `crates/updates` (`artoo-updates`) asks for
+  views read them as `ui::diff_view` and `artoo_review::…`, and draw the find bar, the Changes list and the
+  composer's foot (who sees it, its buttons: `ui/composer.rs`). `crates/updates` (`artoo-updates`) asks for
   newer releases and draws what it found (its `install` alone is shown). `crates/code` (`artoo-code`): Code — the
   project's tree beside a folder's page or a file's tabs, read at a revision (`space.rs`; its `install` alone is
   shown); `src/ui/code.rs` is the tab's side: what the tab asks of it, the Outline tool window, the tab as its host.

@@ -1,7 +1,7 @@
 //! The head over a diff (#165, H3c): what it is of — a commit with its message, the working tree, a comparison with
 //! why it may look wrong, an interdiff, two versions —, and the left of the diff's toolbar: which range is shown, as
-//! the page offers it (the working tree's halves, a comparison's sides, the versions' tabs). A click asks the tab a
-//! `history::Act`.
+//! the page offers it (the working tree's halves, a comparison's sides, the versions' tabs), and its words for zen's
+//! line (`title`). A click asks the tab a `history::Act`.
 
 use crate::compare::only_pill;
 use crate::history::{Act, Acts, History, VersionTab};
@@ -125,6 +125,20 @@ pub fn what(diff: &Diff, history: &History, narrowed: bool, acts: &Acts) -> AnyE
                 .on_click(asks(acts, Act::VersionTab(VersionTab::Commits))),
             )
             .into_any_element(),
+    }
+}
+
+/// What the diff is of, in a few words: zen's line says it. A comparison narrowed to one of its commits is that
+/// commit's subject (`compare_title`).
+pub fn title(diff: &Diff, compare_title: Option<String>) -> String {
+    match &diff.header {
+        Header::Commit(c) => c.summary.clone(),
+        Header::WorkingTree { .. } => "Working tree".to_owned(),
+        Header::Compare { base, head, .. } => {
+            compare_title.unwrap_or_else(|| format!("{} … {}", base.0, head.0))
+        }
+        Header::Interdiff { new, .. } => format!("Interdiff · {}", new.summary),
+        Header::Versions { from, to, .. } => format!("v{} → v{}", from.number, to.number),
     }
 }
 

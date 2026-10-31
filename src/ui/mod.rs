@@ -3192,7 +3192,7 @@ impl Workspace {
             .into_any_element()
     }
 
-    /// What the screen shows, in a few words: zen's one line on top.
+    /// What the screen shows, in a few words: zen's one line on top, a request's or what the diff is of.
     fn header_title(&self, diff: &Diff, cx: &App) -> String {
         if let Some(m) = self
             .requests
@@ -3203,107 +3203,7 @@ impl Workspace {
         {
             return format!("{} {}", words::number(m.iid), m.title);
         }
-        match &diff.header {
-            Header::Commit(c) => c.summary.clone(),
-            Header::WorkingTree { .. } => "Working tree".to_owned(),
-            Header::Compare { base, head, .. } => self
-                .compare_title(cx)
-                .unwrap_or_else(|| format!("{} … {}", base.0, head.0)),
-            Header::Interdiff { new, .. } => format!("Interdiff · {}", new.summary),
-            Header::Versions { from, to, .. } => format!("v{} → v{}", from.number, to.number),
-        }
-    }
-
-    /// Zen's header: one line — what is shown, the file, how far the review is. One file at a
-    /// time: the file's name and folder, where it is among the files ("file 3 of 8") and a bar
-    /// per file — reviewed, the one shown, the rest (#55).
-    fn render_zen_head(&self, diff: &Diff, cx: &App) -> impl IntoElement + use<> {
-        let file = diff
-            .files
-            .get(self.review.read(cx).file)
-            .map(|f| f.path().to_owned());
-        if self.zen_one
-            && let Some(path) = &file
-        {
-            let order = self.review.read(cx).file_order();
-            let at = order
-                .iter()
-                .position(|&ix| ix == self.review.read(cx).file)
-                .unwrap_or(0);
-            let (dir, name) = match path.rsplit_once('/') {
-                Some((dir, name)) => (format!("{dir}/"), name.to_owned()),
-                None => (String::new(), path.clone()),
-            };
-            let bars = order.iter().map(|&ix| {
-                let color = if ix == self.review.read(cx).file {
-                    theme::accent()
-                } else if self.review.read(cx).review_state(ix)
-                    == Some(artoo_review::reviewed::State::Done)
-                {
-                    theme::added()
-                } else {
-                    theme::hover()
-                };
-                div().w(px(18.)).h(px(4.)).rounded(px(2.)).bg(color)
-            });
-            return island()
-                .flex_none()
-                .flex_row()
-                .items_center()
-                .gap_3()
-                .h(px(36.))
-                .px_4()
-                .child(
-                    div()
-                        .flex_none()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(name),
-                )
-                .child(
-                    hover::cut("header-dir", dir)
-                        .flex_1()
-                        .text_size(px(12.))
-                        .text_color(theme::muted()),
-                )
-                .child(
-                    div()
-                        .flex_none()
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child(format!("file {} of {}", at + 1, order.len())),
-                )
-                // A bar per file while they fit; past 40 the count says it.
-                .children(
-                    (order.len() <= 40)
-                        .then(|| div().flex_none().flex().gap(px(4.)).children(bars)),
-                );
-        }
-        island()
-            .flex_none()
-            .flex_row()
-            .items_center()
-            .gap_3()
-            .h(px(36.))
-            .px_4()
-            .child(
-                hover::cut("header-title", self.header_title(diff, cx))
-                    .max_w(px(520.))
-                    .font_weight(FontWeight::SEMIBOLD),
-            )
-            .children(file.map(|f| {
-                hover::cut("header-file", f)
-                    .flex_1()
-                    .font_family(theme::code_font())
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-            }))
-            .children(self.review.read(cx).review_progress().map(|(done, total)| {
-                div()
-                    .flex_none()
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .child(format!("{done} / {total} reviewed"))
-            }))
+        head::title(diff, self.compare_title(cx))
     }
 
     /// The header row over the panes: the screen's identity (`artoo_branches::head`).
