@@ -421,33 +421,16 @@ impl Workspace {
         matches!(self.nav.space, Space::Branches | Space::Requests) && self.nav_page().is_none()
     }
 
-    /// What is loaded, as a page of Branches or Merge requests.
+    /// What is loaded, as a page of Branches or Merge requests (`History::loaded_route`).
     pub(super) fn loaded_page(&self, cx: &App) -> Option<Page> {
-        // Nothing is, while no branch is open: a request's page is its branch's too.
-        let history = self.history.read(cx);
-        history.branches.get(history.branch?)?;
-        if let Some(iid) = history.open_request.as_ref().map(|r| r.2)
-            && self.requests.read(cx).current == Some(iid)
-        {
-            return Some(match self.history.read(cx).selection {
-                Selection::Commit(ix) => {
-                    Page::RequestCommit(iid, self.history.read(cx).commits.get(ix)?.id)
-                }
-                Selection::Commits { newest, oldest } => Page::RequestCommits(
-                    iid,
-                    self.history.read(cx).commits.get(newest)?.id,
-                    self.history.read(cx).commits.get(oldest)?.id,
-                ),
-                Selection::Versions { from, to } => Page::RequestVersions(iid, from, to),
-                Selection::None | Selection::WorkingTree => Page::Request(iid),
-            });
-        }
-        // A run of a comparison's commits is a filter of its page, not a page (#21).
-        if let Some(page) = self.narrowed_compare(cx) {
-            return Some(page);
-        }
         let shown = self.review.read(cx).diff.as_ref().map(|d| &d.header);
-        Page::from_route(&self.history.read(cx).route(shown)?)
+        let on_screen = self.nav_page().map(Page::route);
+        let route = self.history.read(cx).loaded_route(
+            shown,
+            self.requests.read(cx).current,
+            on_screen.as_ref(),
+        )?;
+        Page::from_route(&route)
     }
 
     /// The commit the page shows, when it shows one.

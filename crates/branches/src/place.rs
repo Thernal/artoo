@@ -1,5 +1,6 @@
-//! Where the history is, as a route of the branches' (#165 I3): what the diff shows of the branch open — the branch,
-//! a commit or a run of its commits, two versions, the working tree, a comparison —, which nav keeps and goes back to.
+//! Where the history is, as a route of the branches' (#165 I3) or a request's (I5d): what the diff shows of the
+//! branch open — the branch, a commit or a run of its commits, two versions, the working tree, a comparison —, or of
+//! the request on it, which nav keeps and goes back to.
 
 use crate::history::{History, Selection};
 use artoo_branches_api::{
@@ -7,6 +8,9 @@ use artoo_branches_api::{
     WorkingTreeRoute,
 };
 use artoo_core::route::{Place, Route};
+use artoo_requests_api::{
+    RequestCommitRoute, RequestCommitsRoute, RequestRoute, RequestVersionsRoute,
+};
 use artoo_review_api::diff::Header;
 
 impl History {
@@ -30,6 +34,47 @@ impl History {
                 Some(b),
             ) if base.1 == main.1 && head.1 == b.tip
         )
+    }
+
+    /// Where what is loaded is, as a route: the page of the request on the branch open while it is request
+    /// `current`, by the selection; the comparison `on_screen` while a run of its commits narrows it (a filter of
+    /// its page, not a page, #21); else where the branch is (`route`). None while no branch is open.
+    pub fn loaded_route(
+        &self,
+        shown: Option<&Header>,
+        current: Option<u64>,
+        on_screen: Option<&Route>,
+    ) -> Option<Route> {
+        self.branches.get(self.branch?)?;
+        if let Some(number) = self.open_request.as_ref().map(|r| r.2)
+            && current == Some(number)
+        {
+            let hex = |ix: usize| Some(self.commits.get(ix)?.id.to_string());
+            return Some(match self.selection {
+                Selection::Commit(ix) => RequestCommitRoute {
+                    number,
+                    commit: hex(ix)?,
+                }
+                .route(),
+                Selection::Commits { newest, oldest } => RequestCommitsRoute {
+                    number,
+                    newest: hex(newest)?,
+                    oldest: hex(oldest)?,
+                }
+                .route(),
+                Selection::Versions { from, to } => {
+                    RequestVersionsRoute { number, from, to }.route()
+                }
+                Selection::None | Selection::WorkingTree => RequestRoute { number }.route(),
+            });
+        }
+        if let Some(route) = on_screen.filter(|r| {
+            self.selection == Selection::None
+                && self.compare_of(r).is_some_and(|c| c.picked.is_some())
+        }) {
+            return Some(route.clone());
+        }
+        self.route(shown)
     }
 
     /// Where the branch open is, by the selection and the diff `shown`: a commit of a branch with its own commits,
