@@ -64,7 +64,7 @@ impl Workspace {
                     cx.notify();
                 }
             },
-            Key::Request(iid) => self.select_request(iid, cx),
+            Key::Request(iid) => self.open_request(iid, cx),
         }
     }
 }

@@ -221,6 +221,12 @@ impl Workspace {
             .update(cx, |rq, cx| rq.read_open(iid, host, cx));
     }
 
+    /// Request `iid` opened as its page: kept in the history, and loaded unless it is (`load_page`,
+    /// which reads it through `select_request`).
+    pub(super) fn open_request(&mut self, iid: u64, cx: &mut Context<Self>) {
+        self.go_page(super::nav::Page::Request(iid), cx);
+    }
+
     /// Opens merge request `iid`: its branch in the lists and, as the diff, what the branch adds to
     /// its target — the diff the discussions and new comments belong to.
     pub(super) fn select_request(&mut self, iid: u64, cx: &mut Context<Self>) {
@@ -369,7 +375,7 @@ impl Workspace {
             return cx.notify();
         };
         self.review.update(cx, |rv, _| rv.done_card = false);
-        self.select_request(next, cx);
+        self.open_request(next, cx);
     }
 
     /// The next request to review below the open one (`Requests::next_request`).

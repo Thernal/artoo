@@ -122,7 +122,7 @@ impl Workspace {
     /// The stepper's comparison left: all the request's changes again.
     pub(super) fn leave_since(&mut self, cx: &mut Context<Self>) {
         if let Some(since) = self.requests.update(cx, |rq, _| rq.since.take()) {
-            self.select_request(since.iid, cx);
+            self.open_request(since.iid, cx);
         }
     }
 

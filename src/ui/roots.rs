@@ -220,7 +220,7 @@ impl Workspace {
                     cx,
                 );
             }
-            None => self.select_request(iid, cx),
+            None => self.open_request(iid, cx),
         }
     }
 

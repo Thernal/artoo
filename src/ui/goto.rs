@@ -84,7 +84,7 @@ impl Workspace {
                     self.arrive(super::nav::Page::Request(iid), cx);
                     self.resolve_spot(true, cx);
                 } else {
-                    self.select_request(iid, cx);
+                    self.open_request(iid, cx);
                 }
             }
             Target::Commit(sha) => {

@@ -550,7 +550,7 @@ impl Workspace {
                             "",
                         )
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.select_request(iid, cx)
+                            this.open_request(iid, cx)
                         }))
                         .into_any_element(),
                     ),

@@ -49,7 +49,7 @@ impl Workspace {
                 Act::BranchMenu { ix, at } => this.branch_context(ix, at, cx),
                 Act::PickRow { row, clicks } => this.pick_branch_row(row, clicks, cx),
                 Act::OpenRow(row) => this.open_branch_row(row, cx),
-                Act::ShowRequest(iid) => this.select_request(iid, cx),
+                Act::ShowRequest(iid) => this.open_request(iid, cx),
                 Act::ToggleRemote(remote) => this.toggle_remote(remote, cx),
                 Act::OnlyUnstaged(on) => this.set_only_unstaged(on, cx),
                 Act::Compare {

@@ -1261,7 +1261,7 @@ impl Workspace {
             }
             Pick::Request(iid) => {
                 self.palette = None;
-                self.select_request(iid, cx);
+                self.open_request(iid, cx);
             }
             Pick::RepoFile(path) => {
                 self.palette = None;

@@ -156,7 +156,7 @@ impl Workspace {
             .requests
             .update(cx, |rq, cx| rq.submit_create(host, cx))
         {
-            self.select_request(iid, cx);
+            self.open_request(iid, cx);
         }
     }
 
@@ -165,7 +165,7 @@ impl Workspace {
     pub(super) fn created(&mut self, iid: u64, source: &str, cx: &mut Context<Self>) {
         self.agent_requests.retain(|(_, d)| d.source != source);
         self.layout.show_sidebar = true;
-        self.select_request(iid, cx);
+        self.open_request(iid, cx);
         cx.notify();
     }
 

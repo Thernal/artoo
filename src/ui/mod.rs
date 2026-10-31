@@ -1286,7 +1286,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         if let Ok(iid) = std::env::var("ARTOO_SNAPSHOT_MR") {
             ws.update(cx, |this, cx| {
                 if let Ok(iid) = iid.parse() {
-                    this.select_request(iid, cx);
+                    this.open_request(iid, cx);
                 }
             });
             wait(2000).await;
