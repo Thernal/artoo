@@ -11,8 +11,10 @@
 //! say where they went through `arrive`.
 
 use super::spaces::Space;
-use super::{Selection, Workspace, zones};
+use super::{Selection, Workspace, recents, zones};
+use artoo_branches::waiting::{Pick, Waiting};
 use artoo_core::route::Route;
+use artoo_ui_kit::format;
 use git2::Oid;
 use gpui::{App, Context, ListOffset};
 
@@ -258,8 +260,6 @@ pub struct Nav {
     pub open: Vec<Opened>,
     /// The spaces whose open items the menu folds away (Branches at first).
     pub folded: [bool; 4],
-    /// A page waiting for what it needs: a request's commits or versions, the request list.
-    pending: Option<Page>,
     /// A space and page to show once the request list is in (a project reopened on one).
     pending_show: Option<(Space, Option<Page>)>,
     /// The row a root list has selected: a request, a branch or the working tree.
@@ -285,7 +285,6 @@ impl Default for Nav {
             from: None,
             open: Vec::new(),
             folded: [false, false, true, false],
-            pending: None,
             pending_show: None,
             pick_request: None,
             pick_commit: None,
@@ -683,7 +682,7 @@ impl Workspace {
         self.keep_place(cx);
         self.nav.space = space;
         self.nav.pages[space.ix()] = page.clone();
-        self.nav.pending = None;
+        self.history.update(cx, |h, _| h.waiting = None);
         self.inbox = space == Space::Inbox;
         self.settings_open = false;
         self.nav.restoring = true;
@@ -793,7 +792,7 @@ impl Workspace {
                 if same_item && to < self.history.read(cx).versions.len() {
                     self.select_versions(from, to, cx);
                 } else if let Some(ix) = self.branch_ix(&refname, cx) {
-                    self.nav.pending = Some(page);
+                    self.wait_for(None, Pick::Versions(from, to), cx);
                     self.select_branch(ix, None, cx);
                 }
             }
@@ -808,18 +807,17 @@ impl Workspace {
                     self.select_request(iid, cx);
                 }
             }
-            Page::RequestCommit(iid, _)
-            | Page::RequestCommits(iid, ..)
-            | Page::RequestVersions(iid, ..) => {
-                self.nav.pending = Some(page);
-                if same_item {
-                    self.finish_pending(cx);
-                } else {
-                    self.select_request(iid, cx);
-                }
+            Page::RequestCommit(iid, id) => {
+                self.load_request_pick(iid, Pick::Commit(id), same_item, cx)
             }
-            Page::BranchCommits(refname, ..) => {
-                self.nav.pending = Some(page);
+            Page::RequestCommits(iid, newest, oldest) => {
+                self.load_request_pick(iid, Pick::Commits(newest, oldest), same_item, cx)
+            }
+            Page::RequestVersions(iid, from, to) => {
+                self.load_request_pick(iid, Pick::Versions(from, to), same_item, cx)
+            }
+            Page::BranchCommits(refname, newest, oldest) => {
+                self.wait_for(None, Pick::Commits(newest, oldest), cx);
                 if same_item {
                     self.finish_pending(cx);
                 } else if let Some(ix) = self.branch_ix(&refname, cx) {
@@ -827,6 +825,22 @@ impl Workspace {
                 }
             }
         }
+    }
+
+    /// A request's commit, run or versions: shown at once when the request is loaded, else once it is.
+    fn load_request_pick(&mut self, iid: u64, pick: Pick, same_item: bool, cx: &mut Context<Self>) {
+        self.wait_for(Some(iid), pick, cx);
+        if same_item {
+            self.finish_pending(cx);
+        } else {
+            self.select_request(iid, cx);
+        }
+    }
+
+    /// `pick` waits for its branch or request (`request`) to be read.
+    fn wait_for(&mut self, request: Option<u64>, pick: Pick, cx: &mut App) {
+        self.history
+            .update(cx, |h, _| h.waiting = Some(Waiting { request, pick }));
     }
 
     fn branch_ix(&self, refname: &str, cx: &App) -> Option<usize> {
@@ -837,71 +851,26 @@ impl Workspace {
             .position(|b| b.refname == refname)
     }
 
-    /// What a page waited for is in (a request's commits, a branch's versions): the page is
-    /// shown. Whether it was.
+    /// What a page waited for is in (a request's commits, a branch's versions): the page is shown
+    /// (`History::finish_waiting`). Whether it was.
     pub(super) fn finish_pending(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(page) = self.nav.pending.clone() else {
+        let review = self.review_handle();
+        let Some(finished) = self
+            .history
+            .update(cx, |h, cx| h.finish_waiting(&*review, cx))
+        else {
             return false;
         };
-        let done = match page {
-            Page::RequestCommit(iid, _)
-            | Page::RequestCommits(iid, ..)
-            | Page::RequestVersions(iid, ..)
-                if self.history.read(cx).open_request.as_ref().map(|r| r.2) != Some(iid) =>
-            {
-                false
-            }
-            Page::RequestCommits(_, newest, oldest) | Page::BranchCommits(_, newest, oldest) => {
-                let at = |id: Oid| {
-                    self.history
-                        .read(cx)
-                        .commits
-                        .iter()
-                        .position(|c| c.id == id)
-                };
-                match (at(newest), at(oldest)) {
-                    (Some(a), Some(b)) => {
-                        self.select_commits(a, b, cx);
-                        true
-                    }
-                    _ => {
-                        // A push rewrote them: the item's own page.
-                        self.nav.pending = None;
-                        return false;
-                    }
-                }
-            }
-            Page::RequestCommit(_, id) => {
-                match self
-                    .history
-                    .read(cx)
-                    .commits
-                    .iter()
-                    .position(|c| c.id == id)
-                {
-                    Some(ix) => {
-                        self.select_commit(ix, cx);
-                        true
-                    }
-                    None => {
-                        // Not among its commits any more (a push rewrote it): the whole request.
-                        self.nav.pending = None;
-                        return false;
-                    }
-                }
-            }
-            Page::RequestVersions(_, from, to) | Page::Versions(_, from, to)
-                if to < self.history.read(cx).versions.len() =>
-            {
-                self.select_versions(from, to, cx);
-                true
-            }
-            _ => false,
-        };
-        if done {
-            self.nav.pending = None;
+        self.record(cx);
+        if let Some(commit) = finished.commit {
+            self.remember_place(
+                recents::Key::Commit(commit.id),
+                commit.summary.clone(),
+                format!("commit {}", format::short(commit.id)),
+            );
         }
-        done
+        cx.notify();
+        true
     }
 
     /// Esc, once nothing smaller is open: one page up; nothing at a space's root.
@@ -1106,6 +1075,7 @@ impl Workspace {
             .filter_map(Nav::read)
             .find(|saved| Some(&saved.repo) == repo.as_ref());
         self.nav = Nav::default();
+        self.history.update(cx, |h, _| h.waiting = None);
         let Some(Saved {
             space, pages, open, ..
         }) = saved

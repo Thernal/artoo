@@ -19,4 +19,5 @@ pub mod reading;
 pub mod roots;
 pub mod shown;
 pub mod side;
+pub mod waiting;
 pub mod working;

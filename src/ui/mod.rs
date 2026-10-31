@@ -2135,6 +2135,7 @@ impl Workspace {
         self.history.update(cx, |h, _| h.branches = Arc::default());
         self.clear_branch(cx);
         self.nav = nav::Nav::default();
+        self.history.update(cx, |h, _| h.waiting = None);
         self.show(spaces::Space::Code, None, cx);
     }
 

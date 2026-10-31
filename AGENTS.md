@@ -58,7 +58,8 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   app's. `crates/branches` (`artoo-branches`, #165 stage 4): what the tab keeps of the repository's branches, an entity
   (`History`) whose reads, of the repository it keeps (`root`), are each its own task (`reading`) — the branch open,
   a merge request on it (waiting for it to be read, or open: `RequestSides`, its commits and the host's versions of
-  it listed), its versions and commits, where
+  it listed), a page waiting for them (`waiting`: a commit, a run, versions, shown once they are in), its versions
+  and commits, where
   their lists are scrolled, the commit's message open or not, and what the diff shows of them (`history`; a
   commit, a run, versions, an interdiff, the working tree, a comparison or a run of its commits shown through the
   review's handle, `shown`), where it is as a route of its own (`place`: the route nav keeps, whether a branch has

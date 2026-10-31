@@ -6,6 +6,7 @@ use crate::facts::Facts;
 use crate::find::Find;
 use crate::reading::Read;
 use crate::roots::Roots;
+use crate::waiting::Waiting;
 use artoo_core::git::{BranchRef, CommitInfo, Deco, Version};
 use gpui::{EventEmitter, Task, UniformListScrollHandle};
 use std::collections::HashMap;
@@ -67,6 +68,8 @@ pub struct History {
     pub pending_request: Option<RequestSides>,
     /// The merge request whose diff is open (or was last opened from the list).
     pub open_request: Option<RequestSides>,
+    /// A page waiting for what it needs: the branch's commits or versions, a request's (`waiting`).
+    pub waiting: Option<Waiting>,
     /// The commit's message open under its title, over its diff (`head`).
     pub message_open: bool,
     /// Where the Commits section's list is scrolled.
@@ -185,6 +188,7 @@ impl Default for History {
             version_tab: VersionTab::Files,
             pending_request: None,
             open_request: None,
+            waiting: None,
             message_open: false,
             commit_scroll: UniformListScrollHandle::new(),
             compare_scroll: UniformListScrollHandle::new(),
