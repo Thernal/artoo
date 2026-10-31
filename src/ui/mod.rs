@@ -4123,11 +4123,11 @@ impl Workspace {
     }
 }
 
-/// The tab as the review's host (`review::Host`): it draws what its features pin on lines and the stack's
+/// The tab as the review's host (`artoo_review_api::Host`): it draws what its features pin on lines and the stack's
 /// headers and notes, and follows what a line's events ask.
 struct TabHost(gpui::WeakEntity<Workspace>);
 
-impl review::Host for TabHost {
+impl artoo_review_api::Host for TabHost {
     fn pin(&self, row: Row, active: bool, indent: f32, cx: &App) -> gpui::AnyElement {
         let Some(workspace) = self.0.upgrade() else {
             return div().into_any_element();
@@ -4186,8 +4186,8 @@ impl review::Host for TabHost {
         })
     }
 
-    fn line(&self, file: usize, active: bool, event: review::LineEvent, cx: &mut App) {
-        use review::LineEvent;
+    fn line(&self, file: usize, active: bool, event: artoo_review_api::LineEvent, cx: &mut App) {
+        use artoo_review_api::LineEvent;
         self.0
             .update(cx, |this, cx| {
                 // A press in another file makes it the active one first.
@@ -4216,8 +4216,8 @@ impl review::Host for TabHost {
             .ok();
     }
 
-    fn file(&self, event: review::FileEvent, cx: &mut App) {
-        use review::FileEvent;
+    fn file(&self, event: artoo_review_api::FileEvent, cx: &mut App) {
+        use artoo_review_api::FileEvent;
         self.0
             .update(cx, |this, cx| match event {
                 FileEvent::Fold(ix) => {

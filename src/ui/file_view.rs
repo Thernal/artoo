@@ -10,7 +10,6 @@ use super::spaces::Space;
 use super::{Header, Workspace, format};
 use artoo_code_api::FilePage;
 use artoo_review::file_view::FileNotes;
-use artoo_review::review;
 use gpui::{App, Context, prelude::*};
 use std::rc::Rc;
 
@@ -110,7 +109,7 @@ impl Workspace {
         let binary = binary.map(|size| self.render_binary(size, cx));
         let notes = self.file_notes(cx);
         let selecting = self.selecting(cx.entity().downgrade());
-        let host: Rc<dyn review::Host> = Rc::new(super::TabHost(cx.entity().downgrade()));
+        let host: Rc<dyn artoo_review_api::Host> = Rc::new(super::TabHost(cx.entity().downgrade()));
         match self.review.update(cx, |rv, cx| {
             rv.render_file_view(host, &notes, binary, selecting, cx)
         }) {

@@ -12,7 +12,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   layer, storage, themes, markdown and the diff helpers, among them the diff's rows (`rows`: a file built to rows in
   the background, laid out for the view options, with what is pinned on its lines merged in) and a line written on found
   again once the file changed (`anchor`, a comment's and an agent's note's); its `build.rs` gives a build its commit (`artoo_core::version`). `crates/review` (`artoo-review`, #165 stage 4):
-  the review — the entity (`review::Review`, its events, its `Host`), its row drawing (`diff_view`), what it does
+  the review — the entity (`review::Review`, its events; its `Host` the contract's), its row drawing (`diff_view`), what it does
   to the open file's lines (`lines`), the find (`find`), going to a line (`goline`), the comment being written and
   the input it is written in (`composer`: `Compose`, its `Target`, `render_input`), the Changes list as it keeps it (`lists`), and the types it
   keeps: the selection's
@@ -29,7 +29,8 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   `crates/code-api` (`artoo-code-api`): Code's contract — its routes (`code.file`, `code.folder`), `Code` (what the
   tab asks of it, offered in the tab's services) and `Host` (what it asks of the tab). `crates/review-api`
   (`artoo-review-api`): what a page asks of the tab's review — what a diff is of (`Source`: a commit, a run,
-  versions, an interdiff, the working tree, a comparison; the review reads it, `Review::open`), the file Code reads
+  versions, an interdiff, the working tree, a comparison; the review reads it, `Review::open`), what its host draws
+  on its rows and does with their events (`Host`, `LineEvent`, `FileEvent`; the tab for now), the file Code reads
   (`FileView`), how far a request's review got (`Seen`).
   `crates/branches-api` (`artoo-branches-api`): branches' contract — the routes of a branch's pages
   (`branches.branch`, `branches.commit`, `branches.commits`, `branches.versions`), of a comparison

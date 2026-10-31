@@ -148,70 +148,8 @@ pub enum ReviewEvent {
 
 impl gpui::EventEmitter<ReviewEvent> for Review {}
 
-/// What a press, a hover or a drag on a diff line asks (`Host::line`); `old` is the removed side.
-pub enum LineEvent {
-    /// The gutter's + was clicked: a comment on the line.
-    Comment { old: bool, line: u32 },
-    /// The gutter's comment mark was clicked: open or fold what is on the line.
-    Toggle { old: bool, line: u32 },
-    /// An annotation was clicked: the commit that wrote the line.
-    Annotation { line: u32 },
-    /// The mouse went down at byte `byte`, `clicks` times, with ⇧ or without.
-    Press {
-        old: bool,
-        line: u32,
-        byte: usize,
-        clicks: usize,
-        shift: bool,
-    },
-    /// The pointer moved over byte `byte` with the button down.
-    Drag { old: bool, line: u32, byte: usize },
-    /// A right click, at a window position.
-    Context {
-        old: bool,
-        line: u32,
-        at: gpui::Point<gpui::Pixels>,
-    },
-    /// The pointer came to rest on the line's number (at a window position), or went off it.
-    Number {
-        old: bool,
-        line: u32,
-        at: Option<gpui::Point<gpui::Pixels>>,
-    },
-    /// The hidden lines of unchanged run `segment` were asked for.
-    Expand { segment: usize },
-}
-
-/// What a click on a file's header or note in the stack asks (`Host::file`).
-pub enum FileEvent {
-    /// File `ix` becomes the active one and folds or opens.
-    Fold(usize),
-    /// File `ix` (an image, which has no rows) is shown on its own.
-    Alone(usize),
-    /// Line `n` (from 1) of the file read in Code is given a note: its number or its + was clicked.
-    Note(u32),
-}
-
-/// What the tab gives the review to draw its rows with (`TabHost`): the rows other features pin on lines, what
-/// they say beside a file's name, a document's page and its switch, whether a file's rows fade in, and what a
-/// line's and a file's events do.
-pub trait Host {
-    /// Pinned row `row` (a discussion, a pending comment, an agent's note, the composer, the `c` prompt),
-    /// `indent` from the left; `active` in the file the keyboard works in.
-    fn pin(&self, row: Row, active: bool, indent: f32, cx: &App) -> gpui::AnyElement;
-    /// What is said beside file `path`'s name in its header: another chat changing it (#77).
-    fn badge(&self, path: &str, cx: &App) -> Option<gpui::AnyElement>;
-    /// The Rendered · Source switch of file `file`, a document.
-    fn page_switch(&self, file: usize, cx: &App) -> Option<gpui::AnyElement>;
-    /// File `file`, a document, drawn as a page.
-    fn page(&self, file: usize, cx: &App) -> gpui::AnyElement;
-    /// File `file` just opened: its rows fade in (#56, 9).
-    fn opening(&self, file: usize, cx: &App) -> bool;
-    /// Event `event` on a line of file `file`; `active` false when the keyboard works in another file.
-    fn line(&self, file: usize, active: bool, event: LineEvent, cx: &mut App);
-    /// Event `event` on a file's header or note.
-    fn file(&self, event: FileEvent, cx: &mut App);
-}
+/// What a line's and a file's events ask and what the review's host draws on its rows: the contract's.
+pub use artoo_review_api::{FileEvent, Host, LineEvent};
 
 impl Review {
     /// The rows in the diff's list (the selected file's, or every file's in one scroll), scrolled
