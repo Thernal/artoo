@@ -8,7 +8,7 @@
 //! answered before `t`, so when it arrives those stop applying and the rest go on top of it.
 
 use super::Workspace;
-pub(super) use artoo_requests::waiting::{At, FADED, Me, Op, Waiting, is_temp, is_temp_thread};
+pub(super) use artoo_requests::waiting::{At, FADED, Op, is_temp, is_temp_thread};
 use gpui::{App, Context};
 
 impl Workspace {
