@@ -212,12 +212,7 @@ impl Section {
     }
 }
 
-/// A row of Branches' list: the working tree, or a branch (#72).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum BranchRow {
-    WorkingTree,
-    Branch(usize),
-}
+pub use artoo_branches::roots::BranchRow;
 
 /// A request or branch open under its space, and where it was left.
 #[derive(Clone)]

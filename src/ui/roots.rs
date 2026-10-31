@@ -109,90 +109,27 @@ impl Workspace {
             .waiting_for_me(self.notices.threads_of(iid).unwrap_or_default())
     }
 
-    /// The branches a search lists, by index: a request's fetched head is none of them (#114).
+    /// The branches a search lists, by index (`History::listed`).
     pub(super) fn listed_branches<'a>(
         &self,
         cx: &'a App,
     ) -> impl Iterator<Item = (usize, &'a BranchRef)> {
-        self.history
-            .read(cx)
-            .branches
-            .iter()
-            .enumerate()
-            .filter(|(_, b)| b.kind != RefKind::Request)
+        self.history.read(cx).listed()
     }
 
-    /// Branches' rows in the order the list shows them: the working tree, local branches, then
-    /// the branches of each open remote; a filter lists the matching branches only.
+    /// Branches' rows in the order the list shows them, its filter typed (`History::rows`).
     pub(super) fn branch_rows(&self, cx: &App) -> Vec<BranchRow> {
-        let filter = self.bfilter.to_lowercase();
-        if !filter.trim().is_empty() {
-            return crate::rank::rank(self.listed_branches(cx), &filter, |(_, b)| &b.name)
-                .into_iter()
-                .map(|(ix, _)| BranchRow::Branch(ix))
-                .collect();
-        }
-        let mut out = vec![BranchRow::WorkingTree];
-        out.extend(
-            self.history
-                .read(cx)
-                .branches
-                .iter()
-                .enumerate()
-                .filter(|(_, b)| b.kind == RefKind::Local)
-                .map(|(ix, _)| BranchRow::Branch(ix)),
-        );
-        for (remote, ixs) in self.remotes(cx) {
-            if self.history.read(cx).roots.open_remotes.contains(&remote) {
-                out.extend(ixs.into_iter().map(BranchRow::Branch));
-            }
-        }
-        out
-    }
-
-    /// The remote branches, by remote.
-    fn remotes(&self, cx: &App) -> std::collections::BTreeMap<String, Vec<usize>> {
-        let mut out: std::collections::BTreeMap<String, Vec<usize>> = Default::default();
-        for (ix, b) in self.history.read(cx).branches.iter().enumerate() {
-            if b.kind == RefKind::Remote {
-                let remote = b.name.split_once('/').map_or("", |(r, _)| r);
-                out.entry(remote.to_owned()).or_default().push(ix);
-            }
-        }
-        out
+        self.history.read(cx).rows(&self.bfilter)
     }
 
     /// "4 local · 6 on origin": the count after Branches' name in the bar.
     pub(super) fn branches_count(&self, cx: &App) -> String {
-        let local = self
-            .history
-            .read(cx)
-            .branches
-            .iter()
-            .filter(|b| b.kind == RefKind::Local)
-            .count();
-        let mut parts = vec![format!("{local} local")];
-        parts.extend(
-            self.remotes(cx)
-                .into_iter()
-                .map(|(remote, ixs)| format!("{} on {remote}", ixs.len())),
-        );
-        parts.join(" · ")
+        self.history.read(cx).count_line()
     }
 
-    /// The row Branches selects when nothing is: the working tree with changes, else the branch
-    /// checked out.
+    /// The row Branches selects when nothing is (`History::first_row`).
     pub(super) fn first_branch_row(&self, cx: &App) -> Option<BranchRow> {
-        if self.wt.count > 0 {
-            return Some(BranchRow::WorkingTree);
-        }
-        self.history
-            .read(cx)
-            .branches
-            .iter()
-            .position(|b| b.is_head)
-            .or(self.history.read(cx).branch)
-            .map(BranchRow::Branch)
+        self.history.read(cx).first_row(self.wt.count)
     }
 
     /// A root list's row picked, by a click or ↑ ↓.
@@ -453,7 +390,7 @@ impl Workspace {
                 self.branch_row(row, picked == Some(row), false, cx)
                     .into_any_element()
             }));
-            for (remote, ixs) in self.remotes(cx) {
+            for (remote, ixs) in self.history.read(cx).remote_branches() {
                 let open = self.history.read(cx).roots.open_remotes.contains(&remote);
                 let name = remote.clone();
                 list.push(

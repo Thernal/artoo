@@ -1,11 +1,19 @@
 //! What the Branches list reads for its rows and previews (#72): each branch's facts, which remotes are open, the
-//! working tree's files — each read the history's own task.
+//! working tree's files — each read the history's own task —; and its rows, in the order it shows them.
 
 use crate::history::History;
-use artoo_core::git::{ChangeKind, DiffSettings, RefKind, Repo};
+use artoo_core::git::{BranchRef, ChangeKind, DiffSettings, RefKind, Repo};
+use artoo_core::rank;
 use gpui::{Context, Task};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
+
+/// A row of Branches' list: the working tree, or a branch (#72).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BranchRow {
+    WorkingTree,
+    Branch(usize),
+}
 
 /// A branch, as its row and preview say it.
 #[derive(Clone)]
@@ -134,5 +142,82 @@ impl History {
         if !self.roots.open_remotes.remove(&remote) {
             self.roots.open_remotes.insert(remote);
         }
+    }
+}
+
+impl History {
+    /// The branches a search lists, by index: a request's fetched head is none of them (#114).
+    pub fn listed(&self) -> impl Iterator<Item = (usize, &BranchRef)> {
+        self.branches
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| b.kind != RefKind::Request)
+    }
+
+    /// Branches' rows in the order the list shows them: the working tree, local branches, then
+    /// the branches of each open remote; a `filter` lists the matching branches only.
+    pub fn rows(&self, filter: &str) -> Vec<BranchRow> {
+        let filter = filter.to_lowercase();
+        if !filter.trim().is_empty() {
+            return rank::rank(self.listed(), &filter, |(_, b)| &b.name)
+                .into_iter()
+                .map(|(ix, _)| BranchRow::Branch(ix))
+                .collect();
+        }
+        let mut out = vec![BranchRow::WorkingTree];
+        out.extend(
+            self.branches
+                .iter()
+                .enumerate()
+                .filter(|(_, b)| b.kind == RefKind::Local)
+                .map(|(ix, _)| BranchRow::Branch(ix)),
+        );
+        for (remote, ixs) in self.remote_branches() {
+            if self.roots.open_remotes.contains(&remote) {
+                out.extend(ixs.into_iter().map(BranchRow::Branch));
+            }
+        }
+        out
+    }
+
+    /// The remote branches, by remote.
+    pub fn remote_branches(&self) -> BTreeMap<String, Vec<usize>> {
+        let mut out: BTreeMap<String, Vec<usize>> = Default::default();
+        for (ix, b) in self.branches.iter().enumerate() {
+            if b.kind == RefKind::Remote {
+                let remote = b.name.split_once('/').map_or("", |(r, _)| r);
+                out.entry(remote.to_owned()).or_default().push(ix);
+            }
+        }
+        out
+    }
+
+    /// "4 local · 6 on origin": the count after Branches' name in the bar.
+    pub fn count_line(&self) -> String {
+        let local = self
+            .branches
+            .iter()
+            .filter(|b| b.kind == RefKind::Local)
+            .count();
+        let mut parts = vec![format!("{local} local")];
+        parts.extend(
+            self.remote_branches()
+                .into_iter()
+                .map(|(remote, ixs)| format!("{} on {remote}", ixs.len())),
+        );
+        parts.join(" · ")
+    }
+
+    /// The row Branches selects when nothing is: the working tree with `changes`, else the branch
+    /// checked out.
+    pub fn first_row(&self, changes: usize) -> Option<BranchRow> {
+        if changes > 0 {
+            return Some(BranchRow::WorkingTree);
+        }
+        self.branches
+            .iter()
+            .position(|b| b.is_head)
+            .or(self.branch)
+            .map(BranchRow::Branch)
     }
 }
