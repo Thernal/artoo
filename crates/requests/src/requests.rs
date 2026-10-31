@@ -146,6 +146,8 @@ pub enum Act {
     Relist,
     /// Settings, at the requests' token.
     RenewToken,
+    /// Back to your branch from the request open.
+    LeaveRequest,
 }
 
 /// How the tab answers what the requests' views ask.

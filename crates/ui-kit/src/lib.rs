@@ -5,6 +5,7 @@
 pub mod complete;
 pub mod controls;
 pub mod discussion;
+pub mod done;
 pub mod excerpt;
 pub mod file_icons;
 pub mod format;

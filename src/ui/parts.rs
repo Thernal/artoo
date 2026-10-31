@@ -298,6 +298,7 @@ impl Workspace {
         Drawing {
             selecting: self.selecting(cx.weak_entity()),
             web: self.web.clone(),
+            filter: self.bfilter.clone(),
         }
     }
 

@@ -1,16 +1,20 @@
 //! The requests' pieces of the item page (#165 I5c): over it while a request is being written, its header, and its
-//! switch at the top of the diff's column; on a request's own page once its diff is shown, its line. They read the review's diff and the tab's answers to the
-//! requests' acts from the tab's services.
+//! switch at the top of the diff's column; on a request's own page once its diff is shown, its line; over a
+//! request's diff reviewed to its last file, the card of what next. They read the review's diff and the tab's
+//! answers to the requests' acts from the tab's services.
 
 use crate::create::Totals;
-use crate::requests::{Acts, Requests};
-use artoo_core::route::Place;
-use artoo_requests_api::RequestRoute;
+use crate::requests::{Act, Acts, Requests};
+use artoo_core::route::{Place, Route};
+use artoo_requests_api::{
+    RequestCommitRoute, RequestCommitsRoute, RequestRoute, RequestVersionsRoute,
+};
 use artoo_review_api::Review;
 use artoo_review_api::diff::Header;
 use artoo_shell_api::{Piece, Services, Slot};
+use artoo_ui_kit::done::{DoneEvent, DoneLook, render_done_card};
 use artoo_ui_kit::markdown;
-use gpui::{Entity, prelude::*};
+use gpui::{App, Entity, prelude::*};
 use std::rc::Rc;
 
 /// The header while a request is being written (`Requests::render_create_header`), whatever page it is over.
@@ -78,6 +82,66 @@ pub fn line(requests: Entity<Requests>, services: Rc<Services>) -> Piece {
                     .request_line(&m, title, acts)
                     .into_any_element(),
             )
+        }),
+    }
+}
+
+/// The request a route of the requests' kinds is of.
+fn request_of(route: &Route) -> Option<u64> {
+    RequestRoute::from_route(route)
+        .map(|r| r.number)
+        .or_else(|| RequestCommitRoute::from_route(route).map(|r| r.number))
+        .or_else(|| RequestCommitsRoute::from_route(route).map(|r| r.number))
+        .or_else(|| RequestVersionsRoute::from_route(route).map(|r| r.number))
+}
+
+/// The card over a request's diff once its last file is marked (`artoo_ui_kit::done`): approve it while you may,
+/// the next request to review (`Requests::next_request`), back to your branch.
+pub fn done(requests: Entity<Requests>, services: Rc<Services>) -> Piece {
+    Piece {
+        id: "requests.done",
+        slot: Slot::OverRows,
+        draw: Rc::new(move |route, drawing, cx| {
+            let iid = request_of(route)?;
+            let review = services.get::<Rc<dyn Review>>()?;
+            let files = review.done(cx)?;
+            let acts = services.get::<Acts>()?;
+            let cx: &App = cx;
+            let rq = requests.read(cx);
+            let seen = |m: &artoo_hosts_api::Mr| {
+                review.request_seen(m.iid, git2::Oid::from_str(&m.head).ok(), cx)
+            };
+            let next = rq.next_request(&drawing.filter, &seen);
+            let look = DoneLook {
+                files,
+                request: Some(iid),
+                approve: rq
+                    .approvals
+                    .as_ref()
+                    .filter(|a| a.can && !a.mine)
+                    .map(|_| format!("Approve !{iid}")),
+                next: next
+                    .as_ref()
+                    .map(|m| (format!("Next: !{} {}", m.iid, m.title), "⌥↓")),
+            };
+            let next = next.map(|m| m.iid);
+            Some(render_done_card(
+                look,
+                Rc::new(move |event, cx| match event {
+                    DoneEvent::Close => review.close_done(cx),
+                    DoneEvent::Approve => acts(Act::ToggleApproval, cx),
+                    DoneEvent::Next => {
+                        review.close_done(cx);
+                        if let Some(iid) = next {
+                            acts(Act::OpenRequest { iid, note: None }, cx);
+                        }
+                    }
+                    DoneEvent::Leave => {
+                        review.close_done(cx);
+                        acts(Act::LeaveRequest, cx);
+                    }
+                }),
+            ))
         }),
     }
 }

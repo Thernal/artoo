@@ -3,7 +3,6 @@
 //! only (see `crate::mr`).
 
 use super::nav::Page;
-use super::roots::Group;
 use super::tools::ToolView;
 use super::waiting::Op;
 use super::{Header, Selection, Workspace};
@@ -372,120 +371,11 @@ impl Workspace {
         self.select_request(next, cx);
     }
 
-    /// The next request to review below the open one, going round the list once: the first that
-    /// is not reviewed at its head and not yours (#81). Counted from where the open one was when
-    /// it was opened — reviewed to the end, it has moved down to Reviewed (#136).
+    /// The next request to review below the open one (`Requests::next_request`).
     fn next_request(&self, cx: &App) -> Option<Mr> {
-        let mut shown = self.shown_requests(cx);
-        let walk = self
-            .requests
-            .read(cx)
-            .walk
-            .filter(|(iid, _)| Some(*iid) == self.requests.read(cx).current);
-        if let Some((walked, was)) = walk
-            && self.requests.read(cx).view == mr::MrState::Opened
-        {
-            shown.sort_by_key(|m| {
-                let group = if m.iid == walked {
-                    was
-                } else {
-                    self.group_of(m, cx)
-                };
-                (group, std::cmp::Reverse(m.updated))
-            });
-        }
-        let at = shown
-            .iter()
-            .position(|m| Some(m.iid) == self.requests.read(cx).current);
-        let open: Vec<bool> = shown
-            .iter()
-            .map(|m| {
-                matches!(
-                    self.group_of(m, cx),
-                    Group::Asks | Group::Updated | Group::New
-                )
-            })
-            .collect();
-        next_to_review(&open, at).map(|ix| shown[ix].clone())
-    }
-
-    /// After branch `self.history.branch` in the branch list, the next branch of the same kind (local or
-    /// remote) whose review is not done, going round; never the checked-out one.
-    fn next_unreviewed_branch(&self, cx: &App) -> Option<usize> {
-        let at = self.history.read(cx).branch?;
-        let kind = self.history.read(cx).branches.get(at)?.kind;
-        let n = self.history.read(cx).branches.len();
-        (1..n).map(|step| (at + step) % n).find(|&ix| {
-            let b = &self.history.read(cx).branches[ix];
-            b.kind == kind && !b.is_head && !self.review.read(cx).head_reviewed(b.tip)
-        })
-    }
-
-    /// The card that comes up when the last file is marked: what to do next, from the keyboard
-    /// (`artoo_review::done`).
-    pub(super) fn render_done_card(
-        &self,
-        cx: &mut Context<Self>,
-    ) -> Option<impl IntoElement + use<>> {
-        use artoo_review::done::{self, DoneEvent, DoneLook};
-        if !self.review.read(cx).done_card {
-            return None;
-        }
-        let files = self.review.read(cx).diff.as_ref()?.files.len();
-        let current = self.requests.read(cx).current;
-        // The next merge request in request mode, else the next branch.
-        let next = match current {
-            Some(_) => self
-                .next_request(cx)
-                .map(|m| (format!("Next: !{} {}", m.iid, m.title), Err(m.iid))),
-            None => self.next_unreviewed_branch(cx).map(|ix| {
-                (
-                    format!("Next: {}", self.history.read(cx).branches[ix].name),
-                    Ok(ix),
-                )
-            }),
-        };
-        let look = DoneLook {
-            files,
-            request: current,
-            approve: self
-                .requests
-                .read(cx)
-                .approvals
-                .as_ref()
-                .filter(|a| a.can && !a.mine && current.is_some())
-                .map(|_| format!("Approve !{}", current.unwrap_or_default())),
-            next: next
-                .as_ref()
-                .map(|(label, to)| (label.clone(), if to.is_err() { "⌥↓" } else { "" })),
-        };
-        let this = cx.weak_entity();
-        let to = next.map(|(_, to)| to);
-        Some(done::render_done_card(
-            look,
-            Rc::new(move |event, cx| {
-                this.update(cx, |this, cx| match event {
-                    DoneEvent::Close => {
-                        this.review.update(cx, |rv, _| rv.done_card = false);
-                        cx.notify();
-                    }
-                    DoneEvent::Approve => this.toggle_approval(cx),
-                    DoneEvent::Next => {
-                        this.review.update(cx, |rv, _| rv.done_card = false);
-                        match to {
-                            Some(Err(iid)) => this.select_request(iid, cx),
-                            Some(Ok(ix)) => this.open_branch(ix, None, cx),
-                            None => {}
-                        }
-                    }
-                    DoneEvent::Leave => {
-                        this.review.update(cx, |rv, _| rv.done_card = false);
-                        this.leave_request(cx);
-                    }
-                })
-                .ok();
-            }),
-        ))
+        let review = self.review.read(cx);
+        let seen = |m: &Mr| review.request_seen(m.iid, git2::Oid::from_str(&m.head).ok());
+        self.requests.read(cx).next_request(&self.bfilter, &seen)
     }
 
     /// Reads the pushes GitLab kept for request `iid` (`Requests::load_versions`); they become the
@@ -1374,6 +1264,7 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
                 this.pick_request(iid, cx);
             }
             Act::OpenRequest { iid, note } => this.open_at_note(iid, note, cx),
+            Act::LeaveRequest => this.leave_request(cx),
             Act::ToggleGroup(g) => {
                 this.mark_motion(&format!("group-{}", g.key()), cx);
                 this.requests.update(cx, |rq, _| rq.rows.toggle(g));
@@ -1399,41 +1290,8 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
     })
 }
 
-/// The row to review after row `at`, going round: the nearest of the lowest tier; a row of no
-/// tier is never one.
-fn next_to_review(open: &[bool], at: Option<usize>) -> Option<usize> {
-    let n = open.len();
-    let start = at.map_or(0, |a| a + 1);
-    (0..n)
-        .map(|step| (start + step) % n)
-        .find(|&ix| Some(ix) != at && open[ix])
-}
-
 #[cfg(test)]
 mod tests {
-    use super::next_to_review;
-
-    #[test]
-    fn the_next_request_to_review_goes_round_to_the_top() {
-        // 0 to review, 1 reviewed, 2 current, 3 reviewed: past the end, back to 0.
-        assert_eq!(
-            next_to_review(&[true, false, true, false], Some(2)),
-            Some(0)
-        );
-        assert_eq!(next_to_review(&[false, true, false], Some(0)), Some(1));
-        assert_eq!(next_to_review(&[false, true], None), Some(1));
-        // Only the current one is left: nowhere to go.
-        assert_eq!(next_to_review(&[false, true, false], Some(1)), None);
-        assert_eq!(next_to_review(&[false, false, false], Some(1)), None);
-    }
-
-    #[test]
-    fn the_one_below_comes_before_the_top() {
-        // 0 needs review, 1 current, 2 reviewed, 3 new to you: on down to 3, not back up to 0
-        // (#136).
-        assert_eq!(next_to_review(&[true, true, false, true], Some(1)), Some(3));
-    }
-
     /// `n` commits in a line from `parent`, each a file of its own; `tag` keeps two lines from
     /// the same parent apart.
     fn line(

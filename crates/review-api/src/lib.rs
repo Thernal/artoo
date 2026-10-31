@@ -69,6 +69,12 @@ pub trait Review {
 
     /// How far your review of merge request `iid` got, against its head now (`head`).
     fn request_seen(&self, iid: u64, head: Option<Oid>, cx: &App) -> Seen;
+
+    /// The files of the diff shown, while the card that comes up as its last one is marked is up.
+    fn done(&self, cx: &App) -> Option<usize>;
+
+    /// That card goes.
+    fn close_done(&self, cx: &mut App);
 }
 
 /// The file a page reads through the tab's review.

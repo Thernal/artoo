@@ -10,7 +10,6 @@ pub mod changes_view;
 pub mod composer;
 pub mod diff;
 pub mod diff_view;
-pub mod done;
 pub mod file_view;
 pub mod find;
 pub mod find_files;

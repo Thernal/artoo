@@ -1,9 +1,10 @@
 //! The card that comes up when the last file of a diff is marked reviewed: what to do next, from the keyboard —
 //! approve the request, the next one to review (a request, or a branch), back to your branch. What the next is and
-//! what each does are the tab's: it gives a `DoneLook` and answers a `DoneEvent`.
+//! what each does are the features': the requests' over a request's diff, the branches' over a branch's; each gives
+//! a `DoneLook` and answers a `DoneEvent`.
 
-use artoo_ui_kit::format::plural;
-use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, hover, keys, px, theme};
+use crate::format::plural;
+use crate::{ISLAND_RADIUS, ROW_RADIUS, hover, keys, px, theme};
 use gpui::{AnyElement, App, ClickEvent, FontWeight, div, prelude::*};
 use std::rc::Rc;
 

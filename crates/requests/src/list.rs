@@ -154,6 +154,37 @@ impl Requests {
         shown.into_iter().cloned().collect()
     }
 
+    /// The next request to review below the open one, going round the list once: the first that is not reviewed
+    /// at its head and not yours (#81). Counted from where the open one was when it was opened — reviewed to the
+    /// end, it has moved down to Reviewed (#136). `filter` the list's, `seen` as `shown`'s.
+    pub fn next_request(&self, filter: &str, seen: &dyn Fn(&Mr) -> Seen) -> Option<Mr> {
+        let mut shown = self.shown(filter, seen);
+        let walk = self.walk.filter(|(iid, _)| Some(*iid) == self.current);
+        if let Some((walked, was)) = walk
+            && self.view == MrState::Opened
+        {
+            shown.sort_by_key(|m| {
+                let group = if m.iid == walked {
+                    was
+                } else {
+                    self.group_of(m, seen(m))
+                };
+                (group, std::cmp::Reverse(m.updated))
+            });
+        }
+        let at = shown.iter().position(|m| Some(m.iid) == self.current);
+        let open: Vec<bool> = shown
+            .iter()
+            .map(|m| {
+                matches!(
+                    self.group_of(m, seen(m)),
+                    Group::Asks | Group::Updated | Group::New
+                )
+            })
+            .collect();
+        next_to_review(&open, at).map(|ix| shown[ix].clone())
+    }
+
     /// Request `m`'s group in the list, `seen` how far your review of it got.
     pub fn group_of(&self, m: &Mr, seen: Seen) -> Group {
         let me = self.login.as_deref().unwrap_or_default();
@@ -1197,6 +1228,16 @@ pub fn banner(rq: &Requests, acts: &Acts) -> Option<AnyElement> {
     )
 }
 
+/// The row to review after row `at`, going round: the nearest of the lowest tier; a row of no
+/// tier is never one.
+fn next_to_review(open: &[bool], at: Option<usize>) -> Option<usize> {
+    let n = open.len();
+    let start = at.map_or(0, |a| a + 1);
+    (0..n)
+        .map(|step| (start + step) % n)
+        .find(|&ix| Some(ix) != at && open[ix])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1294,5 +1335,26 @@ mod tests {
         assert_eq!(held_band(&[0., 200., 300.], 190.), Some((0, -18.)));
         assert_eq!(held_band(&[0., 200., 300.], 250.), Some((1, 0.)));
         assert_eq!(held_band(&[0., 200., 300.], 900.), Some((2, 0.)));
+    }
+
+    #[test]
+    fn the_next_request_to_review_goes_round_to_the_top() {
+        // 0 to review, 1 reviewed, 2 current, 3 reviewed: past the end, back to 0.
+        assert_eq!(
+            next_to_review(&[true, false, true, false], Some(2)),
+            Some(0)
+        );
+        assert_eq!(next_to_review(&[false, true, false], Some(0)), Some(1));
+        assert_eq!(next_to_review(&[false, true], None), Some(1));
+        // Only the current one is left: nowhere to go.
+        assert_eq!(next_to_review(&[false, true, false], Some(1)), None);
+        assert_eq!(next_to_review(&[false, false, false], Some(1)), None);
+    }
+
+    #[test]
+    fn the_one_below_comes_before_the_top() {
+        // 0 needs review, 1 current, 2 reviewed, 3 new to you: on down to 3, not back up to 0
+        // (#136).
+        assert_eq!(next_to_review(&[true, true, false, true], Some(1)), Some(3));
     }
 }

@@ -10,6 +10,7 @@
 
 pub mod card;
 pub mod compare;
+pub mod done;
 pub mod facts;
 pub mod find;
 pub mod head;
@@ -30,8 +31,8 @@ use artoo_shell_api::{Frame, Parts};
 use gpui::{App, Entity, Window};
 use std::rc::Rc;
 
-/// Branches' parts in every tab: the commits' search as one of its inputs, a branch's line and the head over a
-/// diff on the item page, the space's own page.
+/// Branches' parts in every tab: the commits' search as one of its inputs, a branch's line, the head over a diff
+/// and the card of what next on the item page, the space's own page.
 pub fn install(cx: &mut App) {
     artoo_shell_api::add_parts(cx, parts);
 }
@@ -48,7 +49,8 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
         pieces: vec![
             facts::line(history.clone(), services.clone()),
             head::piece(history.clone(), services.clone()),
-            head::bar_piece(history.clone(), services),
+            head::bar_piece(history.clone(), services.clone()),
+            done::piece(history.clone(), services),
         ],
         pages: Some(page::pages(history, frame, cx)),
         ..Default::default()

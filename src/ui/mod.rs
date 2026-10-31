@@ -3264,15 +3264,19 @@ impl Workspace {
             // Painted last, over the rows that come after it.
             self.render_goline(this.clone(), cx)
                 .map(|prompt| gpui::deferred(prompt).with_priority(1).into_any_element()),
-            self.render_done_card(cx)
-                .map(|card| gpui::deferred(card).with_priority(1).into_any_element()),
         ];
+        // What comes next once the last file is marked: the parts' cards.
+        let over = over.into_iter().flatten().chain(
+            self.pieces(Slot::OverRows, cx)
+                .into_iter()
+                .map(|card| gpui::deferred(card).with_priority(1).into_any_element()),
+        );
         let look = artoo_review::pane::PaneLook {
             border: self.zone_border(zones::Zone::Diff),
             top: top.into_iter().flatten().collect(),
             marks: marks.into_iter().collect(),
             open_in: open_in.map(IntoElement::into_any_element),
-            over: over.into_iter().flatten().collect(),
+            over: over.collect(),
             alone,
         };
         let host = Rc::new(TabHost(this));

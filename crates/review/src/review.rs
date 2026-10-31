@@ -214,6 +214,22 @@ impl artoo_review_api::Review for Handle {
                 rv.read(cx).request_seen(iid, head)
             })
     }
+
+    fn done(&self, cx: &App) -> Option<usize> {
+        let rv = self.0.upgrade()?;
+        let rv = rv.read(cx);
+        rv.done_card
+            .then(|| rv.diff.as_ref().map(|d| d.files.len()))?
+    }
+
+    fn close_done(&self, cx: &mut App) {
+        self.0
+            .update(cx, |rv, cx| {
+                rv.done_card = false;
+                cx.notify();
+            })
+            .ok();
+    }
 }
 
 impl Review {

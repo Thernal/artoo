@@ -48,7 +48,8 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
         pieces: vec![
             pieces::create_header(requests.clone(), services.clone()),
             pieces::line(requests.clone(), services.clone()),
-            pieces::create_switch(requests.clone(), services),
+            pieces::create_switch(requests.clone(), services.clone()),
+            pieces::done(requests.clone(), services),
         ],
         pages: Some(root::pages(requests, frame, cx)),
         ..Default::default()

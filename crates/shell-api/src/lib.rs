@@ -289,6 +289,8 @@ pub enum Slot {
     DiffBar,
     /// Over the diff's column, under the identity: every part's that has one, in their order.
     OverDiff,
+    /// Over the diff's rows, painted last: every part's that has one, in their order.
+    OverRows,
 }
 
 /// A piece of the item page on screen a part draws in a slot (#165 I5c): for the route on screen, or nothing. The
@@ -309,6 +311,8 @@ pub struct Drawing {
     pub selecting: Selecting,
     /// The repository's address on the web (`Places::web`).
     pub web: Option<WebRemote>,
+    /// The filter of the list on screen (`Frame::filter`).
+    pub filter: String,
 }
 
 /// A section of Settings a part can add rows to.
