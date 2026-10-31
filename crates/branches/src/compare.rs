@@ -1,9 +1,11 @@
 //! A comparison's own commits (#21, B), read with it — the history's own task —: the run of them its diff is
-//! narrowed to, and what a click or an arrow picks.
+//! narrowed to, what a click or an arrow picks, and the pill that says so over the diff.
 
-use crate::history::{History, NamedTip};
+use crate::history::{Act, Acts, History, NamedTip};
 use artoo_core::git::{CommitInfo, Repo};
-use gpui::Context;
+use artoo_ui_kit::hover::Hover;
+use artoo_ui_kit::{format, icons, keys, px, theme};
+use gpui::{ClickEvent, Context, Div, div, prelude::*};
 use std::path::PathBuf;
 
 /// Two refs compared: the base, the head, and whether since their merge base.
@@ -100,6 +102,51 @@ fn step_to(picked: Option<(usize, usize)>, down: bool, len: usize) -> Option<usi
         (Some((newest, _)), false) => Some(newest.saturating_sub(1)),
         (Some((_, oldest)), true) => Some((oldest + 1).min(last)),
     }
+}
+
+/// Over the diff narrowed to the run `c` picked: "a41f9c0 only" (a run its ends), its × the whole comparison.
+pub fn only_pill(c: &CompareCommits, acts: &Acts) -> Option<Div> {
+    let (newest, oldest) = c.picked_ids()?;
+    let what = if newest == oldest {
+        format::short(newest)
+    } else {
+        format!("{} … {}", format::short(oldest), format::short(newest))
+    };
+    let acts = acts.clone();
+    Some(
+        div()
+            .flex_none()
+            .h(px(24.))
+            .pl(px(8.))
+            .pr(px(4.))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .rounded_full()
+            .bg(theme::selected())
+            .text_size(px(12.))
+            .child(
+                icons::icon("commit")
+                    .size(px(13.))
+                    .text_color(theme::muted()),
+            )
+            .child(div().font_family(theme::code_font()).child(what))
+            .child("only")
+            .child(
+                div()
+                    .id("compare-whole")
+                    .size(px(18.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::hover()))
+                    .child(icons::icon("x").size(px(12.)).text_color(theme::muted()))
+                    .tip(keys::text("The whole comparison  esc").into_owned())
+                    .on_click(move |_: &ClickEvent, _, cx| acts(Act::WholeCompare, cx)),
+            ),
+    )
 }
 
 #[cfg(test)]

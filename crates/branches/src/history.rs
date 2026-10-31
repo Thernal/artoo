@@ -92,6 +92,10 @@ pub enum Act {
         ix: usize,
         at: gpui::Point<gpui::Pixels>,
     },
+    /// A comparison's commit `ix` clicked, with ⇧ (`span`) or not (`CompareCommits::pick`).
+    PickCompare { ix: usize, span: bool },
+    /// The comparison whole again: the "only" pill's ×.
+    WholeCompare,
 }
 
 /// How a view asks the tab an `Act`.

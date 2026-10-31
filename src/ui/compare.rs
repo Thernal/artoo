@@ -3,19 +3,15 @@
 //! parent, a merge's too —, a ⇧-click to a run of them (the oldest's parent against the newest),
 //! as a branch's Commits picks; "a41f9c0 only" over the diff says so, and esc or its × bring the
 //! whole comparison back. The page stays the comparison's: picking is a filter, not a level.
+//! Its rows and the pill are the branches' (`artoo_branches::side`, `compare`); the tab reads and picks.
 
-use super::hover::{CommitCard, CutInTip, Hover};
 use super::nav::Page;
-use super::{Diff, Header, Selection, Workspace, format, icons, px, row, theme};
+use super::{Diff, Header, Selection, Workspace, format};
 use crate::git::Repo;
-use artoo_branches::compare::{CompareCommits, Sides};
-use gpui::{AnyElement, App, ClickEvent, Context, div, prelude::*};
+use artoo_branches::compare::{CompareCommits, Sides, only_pill};
+use artoo_branches::side::{compare_commits, compare_row};
+use gpui::{AnyElement, App, Context, prelude::*};
 use std::sync::Arc;
-
-/// Rows of the list before it scrolls.
-const ROWS: usize = 8;
-/// A row's height.
-const ROW: f32 = 28.;
 
 impl Workspace {
     /// The comparison's commits, while its page is on screen and they are read.
@@ -143,148 +139,36 @@ impl Workspace {
         })
     }
 
-    /// The comparison's commits: a row each — its id, subject and age, its card on a long hover
-    /// —, at most `ROWS` before the list scrolls, and how they are picked.
+    /// The comparison's commits: a row each — its card on a long hover —, as many as there are room for before
+    /// the list scrolls.
     pub(super) fn render_compare_commits(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let n = self.shown_compare(cx)?.list.as_ref()?.len();
-        Some(
-            div()
-                .flex()
-                .flex_col()
-                .child(
-                    gpui::uniform_list(
-                        "compare-commits",
-                        n,
-                        cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
-                            range
-                                .map(|ix| this.render_compare_row(ix, cx))
-                                .collect::<Vec<_>>()
-                        }),
-                    )
-                    .track_scroll(&self.compare_scroll)
-                    .h(px(n.min(ROWS) as f32 * ROW)),
-                )
-                .child(
-                    div()
-                        .px(px(14.))
-                        .pt(px(2.))
-                        .pb(px(8.))
-                        .text_size(px(11.))
-                        .text_color(theme::faint())
-                        .child(super::keys::text(
-                            "a click shows one · ⇧-click a span · esc all",
-                        )),
-                )
-                .into_any_element(),
+        let list = gpui::uniform_list(
+            "compare-commits",
+            n,
+            cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
+                let acts = this.history_acts(cx);
+                let compare = this.history.read(cx).compare.as_ref();
+                range
+                    .map(|ix| {
+                        let card = compare
+                            .and_then(|c| c.list.as_ref()?.get(ix))
+                            .map(|info| this.card_of(info.clone(), cx));
+                        compare_row(compare, ix, card, &acts)
+                    })
+                    .collect::<Vec<_>>()
+            }),
         )
+        .track_scroll(&self.compare_scroll);
+        Some(compare_commits(list, n).into_any_element())
     }
 
-    fn render_compare_row(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
-        let Some((c, info)) = self
-            .history
-            .read(cx)
-            .compare
-            .as_ref()
-            .and_then(|c| Some((c, c.list.as_ref()?.get(ix)?)))
-        else {
-            return div().h(px(ROW)).into_any_element();
-        };
-        let picked = c
-            .picked
-            .is_some_and(|(newest, oldest)| (newest..=oldest).contains(&ix));
-        let card = std::rc::Rc::new(self.card_of(info.clone(), cx));
-        let item = row(("compare-commit", ix), picked)
-            .h(px(ROW - 2.))
-            .gap_2()
-            .child(
-                icons::icon("commit")
-                    .size(px(13.))
-                    .text_color(theme::faint()),
-            )
-            .child(
-                div()
-                    .flex_none()
-                    .font_family(theme::code_font())
-                    .text_size(px(11.))
-                    .text_color(theme::faint())
-                    .child(format::short(info.id)),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_size(px(12.))
-                    .cut_in_tip()
-                    .child(info.summary.clone()),
-            )
-            .child(
-                div()
-                    .flex_none()
-                    .text_size(px(11.))
-                    .text_color(theme::faint())
-                    .child(format::ago(info.time)),
-            )
-            .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
-                // Picked in the drawer, it goes and the diff is on screen (#80).
-                this.close_drawer(cx);
-                this.pick_compare_commit(ix, e.modifiers().shift, cx)
-            }))
-            .card(move |_, cx| CommitCard::show(&card, cx));
-        div()
-            .w_full()
-            .h(px(ROW))
-            .px(px(6.))
-            .py(px(1.))
-            .child(item)
-            .into_any_element()
-    }
-
-    /// Over the narrowed diff: "a41f9c0 only" (a run its ends), its × the whole comparison.
+    /// Over the narrowed diff: "a41f9c0 only", its × the whole comparison.
     pub(super) fn render_compare_only(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         self.narrowed_compare(cx)?;
-        let (newest, oldest) = self.history.read(cx).compare.as_ref()?.picked_ids()?;
-        let what = if newest == oldest {
-            format::short(newest)
-        } else {
-            format!("{} … {}", format::short(oldest), format::short(newest))
-        };
-        Some(
-            div()
-                .flex_none()
-                .h(px(24.))
-                .pl(px(8.))
-                .pr(px(4.))
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .rounded_full()
-                .bg(theme::selected())
-                .text_size(px(12.))
-                .child(
-                    icons::icon("commit")
-                        .size(px(13.))
-                        .text_color(theme::muted()),
-                )
-                .child(div().font_family(theme::code_font()).child(what))
-                .child("only")
-                .child(
-                    div()
-                        .id("compare-whole")
-                        .size(px(18.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded_full()
-                        .cursor_pointer()
-                        .hover(|s| s.bg(theme::hover()))
-                        .child(icons::icon("x").size(px(12.)).text_color(theme::muted()))
-                        .tip(super::keys::text("The whole comparison  esc").into_owned())
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.unpick_compare(cx);
-                        })),
-                )
-                .into_any_element(),
-        )
+        let acts = self.history_acts(cx);
+        let pill = only_pill(self.history.read(cx).compare.as_ref()?, &acts)?;
+        Some(pill.into_any_element())
     }
 }
 

@@ -39,6 +39,14 @@ impl Workspace {
                     this.select_commit(ix, cx)
                 }
                 Act::CommitMenu { ix, at } => this.commit_context(ix, at, cx),
+                Act::PickCompare { ix, span } => {
+                    // Picked in the drawer, it goes and the diff is on screen (#80).
+                    this.close_drawer(cx);
+                    this.pick_compare_commit(ix, span, cx)
+                }
+                Act::WholeCompare => {
+                    this.unpick_compare(cx);
+                }
             })
             .ok();
         })

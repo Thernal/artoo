@@ -1,15 +1,24 @@
-//! The history's sections of the side panel (#49): the versions, newest first, and a commit's row. The tab draws
-//! the panel around them; a click asks it an `Act`.
+//! The history's sections of the side panel (#49): the versions, newest first, a commit's row and a comparison's
+//! commits. The tab draws the panel around them; a click asks it an `Act`.
 
 use crate::card::{CommitCard, deco_tags};
+use crate::compare::CompareCommits;
 use crate::find::summary_text;
 use crate::history::{Act, Acts, History, Selection};
 use artoo_ui_kit::controls::tag;
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, CutInTip, Hover};
 use artoo_ui_kit::room::Room;
-use artoo_ui_kit::{px, row, theme};
-use gpui::{ClickEvent, Div, FontWeight, MouseButton, MouseDownEvent, div, prelude::*};
+use artoo_ui_kit::{icons, keys, px, row, theme};
+use gpui::{
+    AnyElement, ClickEvent, Div, FontWeight, MouseButton, MouseDownEvent, UniformList, div,
+    prelude::*,
+};
+
+/// Rows of a comparison's commits before they scroll.
+const COMPARE_ROWS: usize = 8;
+/// A row's height in a comparison's commits.
+const COMPARE_ROW: f32 = 28.;
 
 /// The versions, newest first, for the side panel's Versions section; those from `new_from` on arrived since the
 /// user last looked.
@@ -255,4 +264,87 @@ pub fn commit_row(
         None => item,
     };
     div().w_full().h(px(64.)).px(px(6.)).py(px(1.)).child(item)
+}
+
+/// A comparison's commits (#21, B): its `n` rows in `list`, at most `COMPARE_ROWS` before it scrolls, and how they
+/// are picked.
+pub fn compare_commits(list: UniformList, n: usize) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .child(list.h(px(n.min(COMPARE_ROWS) as f32 * COMPARE_ROW)))
+        .child(
+            div()
+                .px(px(14.))
+                .pt(px(2.))
+                .pb(px(8.))
+                .text_size(px(11.))
+                .text_color(theme::faint())
+                .child(keys::text("a click shows one · ⇧-click a span · esc all")),
+        )
+}
+
+/// Commit `ix` of the comparison's commits `c`: its id, subject and age, `card` on a long hover.
+pub fn compare_row(
+    c: Option<&CompareCommits>,
+    ix: usize,
+    card: Option<CommitCard>,
+    acts: &Acts,
+) -> AnyElement {
+    let Some((c, info)) = c.and_then(|c| Some((c, c.list.as_ref()?.get(ix)?))) else {
+        return div().h(px(COMPARE_ROW)).into_any_element();
+    };
+    let picked = c
+        .picked
+        .is_some_and(|(newest, oldest)| (newest..=oldest).contains(&ix));
+    let acts = acts.clone();
+    let item = row(("compare-commit", ix), picked)
+        .h(px(COMPARE_ROW - 2.))
+        .gap_2()
+        .child(
+            icons::icon("commit")
+                .size(px(13.))
+                .text_color(theme::faint()),
+        )
+        .child(
+            div()
+                .flex_none()
+                .font_family(theme::code_font())
+                .text_size(px(11.))
+                .text_color(theme::faint())
+                .child(format::short(info.id)),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_size(px(12.))
+                .cut_in_tip()
+                .child(info.summary.clone()),
+        )
+        .child(
+            div()
+                .flex_none()
+                .text_size(px(11.))
+                .text_color(theme::faint())
+                .child(format::ago(info.time)),
+        )
+        .on_click(move |e: &ClickEvent, _, cx| {
+            let span = e.modifiers().shift;
+            acts(Act::PickCompare { ix, span }, cx)
+        });
+    let item = match card {
+        Some(card) => {
+            let card = std::rc::Rc::new(card);
+            item.card(move |_, cx| CommitCard::show(&card, cx))
+        }
+        None => item,
+    };
+    div()
+        .w_full()
+        .h(px(COMPARE_ROW))
+        .px(px(6.))
+        .py(px(1.))
+        .child(item)
+        .into_any_element()
 }
