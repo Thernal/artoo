@@ -1204,12 +1204,7 @@ impl Workspace {
                     }
                     Some(Kind::Head(base)) => {
                         self.palette = None;
-                        let head = (name, id);
-                        self.arrive(
-                            super::nav::Page::Compare(base.clone(), head.clone(), true),
-                            cx,
-                        );
-                        self.run_compare(base, head, true, None, cx);
+                        self.go_page(super::nav::Page::Compare(base, (name, id), true), cx);
                     }
                     _ => self.palette = None,
                 }

@@ -36,7 +36,7 @@ impl Workspace {
                 Act::WholeCompare => {
                     this.unpick_compare(cx);
                 }
-                Act::WorkingTree => this.select_working_tree(cx),
+                Act::WorkingTree => this.open_working_tree(cx),
                 Act::FindCommits => {
                     if this.layout.fold_commits {
                         this.fold_section(1, cx);

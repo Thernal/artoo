@@ -1241,7 +1241,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             wait(1500).await;
         }
         if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("worktree")) {
-            ws.update(cx, |this, cx| this.select_working_tree(cx));
+            ws.update(cx, |this, cx| this.open_working_tree(cx));
             wait(2500).await;
         }
         if let Ok(spec) = std::env::var("ARTOO_SNAPSHOT_COMPARE") {

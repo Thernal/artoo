@@ -280,7 +280,7 @@ impl Workspace {
         let working = self.history.read(cx).wt.count > 0;
         match self.history.read(cx).step_row(down, working) {
             Some(Row::Commit(ix)) => self.pick(super::Selection::Commit(ix), cx),
-            Some(Row::WorkingTree) => self.select_working_tree(cx),
+            Some(Row::WorkingTree) => self.open_working_tree(cx),
             None => {}
         }
     }

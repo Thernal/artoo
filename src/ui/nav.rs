@@ -565,7 +565,7 @@ impl Workspace {
 
     /// Page `page` of the item on screen opened from where the tab is (a pick, a step): it comes
     /// on screen, kept in the history, and what it shows is loaded (`load_page`).
-    fn go_page(&mut self, page: Page, cx: &mut Context<Self>) {
+    pub(super) fn go_page(&mut self, page: Page, cx: &mut Context<Self>) {
         self.arrive(page.clone(), cx);
         self.load_page(page, cx);
         cx.notify();
@@ -761,7 +761,7 @@ impl Workspace {
                 Opening::Finish => {
                     self.finish_pending(cx);
                 }
-                Opening::WorkingTree => self.select_working_tree(cx),
+                Opening::WorkingTree => self.load_working_tree(None, cx),
                 Opening::Compare(base, head, since) => {
                     self.run_compare(base, head, since, None, cx)
                 }

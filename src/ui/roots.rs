@@ -267,7 +267,7 @@ impl Workspace {
     pub(super) fn open_branch_row(&mut self, row: BranchRow, cx: &mut Context<Self>) {
         self.field = None;
         match row {
-            BranchRow::WorkingTree => self.select_working_tree(cx),
+            BranchRow::WorkingTree => self.open_working_tree(cx),
             BranchRow::Branch(ix) => self.open_branch(ix, None, cx),
         }
     }

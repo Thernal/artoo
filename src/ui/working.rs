@@ -130,9 +130,9 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn select_working_tree(&mut self, cx: &mut Context<Self>) {
-        self.arrive(super::nav::Page::WorkingTree, cx);
-        self.load_working_tree(None, cx);
+    /// The working tree opened as the page it is: kept in the history, and shown unless it is.
+    pub(super) fn open_working_tree(&mut self, cx: &mut Context<Self>) {
+        self.go_page(super::nav::Page::WorkingTree, cx);
     }
 
     pub(super) fn load_working_tree(&mut self, keep: Option<String>, cx: &mut Context<Self>) {
