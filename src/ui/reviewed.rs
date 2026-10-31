@@ -21,12 +21,14 @@ impl Workspace {
             self.requests.update(cx, |rq, _| rq.files = files);
         }
         if self.branch_compare(cx)
-            && let (Some(f), Some(d)) = (
-                self.history.page.as_mut(),
-                self.review.read(cx).diff.as_ref(),
-            )
+            && let Some(d) = self.review.read(cx).diff.as_ref()
         {
-            f.files = Some(d.files.len());
+            let files = Some(d.files.len());
+            self.history.update(cx, |h, _| {
+                if let Some(f) = h.page.as_mut() {
+                    f.files = files;
+                }
+            });
         }
     }
 
@@ -55,6 +57,7 @@ impl Workspace {
             .reviewed
             .marked_heads(&format!("{root}|mr:{iid}"));
         self.history
+            .read(cx)
             .versions
             .iter()
             .filter(|v| heads.contains(&Some(v.tip)))
@@ -170,7 +173,7 @@ impl Workspace {
             .and_then(|(scope, f)| self.review.read(cx).reviewed.when(scope, f.path()));
         let at = when.map(|(time, head)| {
             let version = head
-                .and_then(|h| self.history.versions.iter().find(|v| v.tip == h))
+                .and_then(|h| self.history.read(cx).versions.iter().find(|v| v.tip == h))
                 .map(|v| format!(" at v{},", v.number))
                 .unwrap_or_default();
             format!("{version} {}", super::format::ago(time))

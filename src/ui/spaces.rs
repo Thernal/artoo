@@ -317,6 +317,7 @@ impl Workspace {
                     Item::Branch(refname) => {
                         let name = self
                             .history
+                            .read(cx)
                             .branches
                             .iter()
                             .find(|b| &b.refname == refname)

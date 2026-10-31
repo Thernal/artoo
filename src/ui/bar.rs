@@ -52,7 +52,7 @@ impl Workspace {
         }
         let space = self.nav.space;
         let page = self.nav_page().cloned();
-        let (path, id, mono) = self.path_of(space, page.as_ref());
+        let (path, id, mono) = self.path_of(space, page.as_ref(), cx);
         // Narrow, the path is ‹ — one level up — and the id (#80).
         let up = self
             .compact()
@@ -263,10 +263,11 @@ impl Workspace {
         let plain = || style(super::hover::cut("bar-title", text.clone())).into_any_element();
         let commit = |id: &git2::Oid| {
             self.history
+                .read(cx)
                 .commits
                 .iter()
                 .position(|c| c.id == *id)
-                .and_then(|ix| self.commit_card(ix))
+                .and_then(|ix| self.commit_card(ix, cx))
         };
         match page {
             Some(
@@ -287,6 +288,7 @@ impl Workspace {
                 | Page::Versions(refname, ..),
             ) => match self
                 .history
+                .read(cx)
                 .branches
                 .iter()
                 .position(|b| &b.refname == refname)
@@ -316,7 +318,7 @@ impl Workspace {
     }
 
     /// The path above the page, and its own id.
-    fn path_of(&self, space: Space, page: Option<&Page>) -> (Vec<Crumb>, String, bool) {
+    fn path_of(&self, space: Space, page: Option<&Page>, cx: &App) -> (Vec<Crumb>, String, bool) {
         let project = self
             .root
             .as_deref()
@@ -324,17 +326,19 @@ impl Workspace {
             .unwrap_or_default();
         let branch = |refname: &str| {
             self.history
+                .read(cx)
                 .branches
                 .iter()
                 .find(|b| b.refname == refname)
                 .map_or_else(|| refname.to_owned(), |b| b.name.clone())
         };
-        let versions =
-            |a: usize, b: usize| match (self.history.versions.get(a), self.history.versions.get(b))
-            {
-                (Some(a), Some(b)) => format!("v{} → v{}", a.number, b.number),
-                _ => "versions".to_owned(),
-            };
+        let versions = |a: usize, b: usize| match (
+            self.history.read(cx).versions.get(a),
+            self.history.read(cx).versions.get(b),
+        ) {
+            (Some(a), Some(b)) => format!("v{} → v{}", a.number, b.number),
+            _ => "versions".to_owned(),
+        };
         let requests = || Crumb::up("Merge requests", None);
         match page {
             None => (Vec::new(), space_root(space, &project), false),
@@ -456,7 +460,7 @@ impl Workspace {
             {
                 Some(self.requests.read(cx).list.len().to_string())
             }
-            (Space::Branches, None) => Some(self.branches_count()),
+            (Space::Branches, None) => Some(self.branches_count(cx)),
             (Space::Code, Some(Page::File(_))) => self
                 .review
                 .read(cx)
@@ -528,6 +532,7 @@ impl Workspace {
             (Space::Branches, Some(Page::Branch(refname))) => {
                 let ix = self
                     .history
+                    .read(cx)
                     .branches
                     .iter()
                     .position(|b| &b.refname == refname);

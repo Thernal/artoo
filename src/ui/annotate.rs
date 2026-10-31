@@ -49,7 +49,13 @@ impl Workspace {
         else {
             return;
         };
-        match self.history.commits.iter().position(|c| c.id == id) {
+        match self
+            .history
+            .read(cx)
+            .commits
+            .iter()
+            .position(|c| c.id == id)
+        {
             Some(ix) => {
                 // The list may be filtered; show it as it is without the filter.
                 self.select_commit(ix, cx);

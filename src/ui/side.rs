@@ -138,9 +138,9 @@ impl Workspace {
 
     /// The panel shows the versions: a request's page with more than one, not on its commits nor
     /// a branch's.
-    fn side_versions(&self) -> bool {
+    fn side_versions(&self, cx: &App) -> bool {
         let page = self.nav_page();
-        let tabbed = !self.item_sections().is_empty();
+        let tabbed = !self.item_sections(cx).is_empty();
         let commit_level = matches!(
             page,
             Some(
@@ -155,13 +155,13 @@ impl Workspace {
                 page,
                 Some(Page::Branch(_) | Page::BranchCommit(..) | Page::BranchCommits(..))
             );
-        self.history.versions.len() > 1 && !commit_level && !branch && !self.loose_page()
+        self.history.read(cx).versions.len() > 1 && !commit_level && !branch && !self.loose_page()
     }
 
     /// The panel shows the commits: on a page without a Commits tab (the main line), not on a
     /// comparison or the working tree.
-    pub(super) fn side_commits(&self) -> bool {
-        self.item_sections().is_empty() && !self.loose_page()
+    pub(super) fn side_commits(&self, cx: &App) -> bool {
+        self.item_sections(cx).is_empty() && !self.loose_page()
     }
 
     /// A comparison or the working tree: no branch's page, so the versions and commits loaded
@@ -184,16 +184,16 @@ impl Workspace {
             super::spaces::Space::Branches | super::spaces::Space::Requests
                 if self.nav_page().is_some()
                     && !matches!(
-                        self.page_tab(),
+                        self.page_tab(cx),
                         Some(super::nav::Section::Overview | super::nav::Section::Commits)
                     ) =>
             {
                 let mut icons = Vec::new();
-                if self.side_versions() {
+                if self.side_versions(cx) {
                     icons.push(("layers", "Versions", None));
                 }
-                if (self.side_commits() && !self.history.commits.is_empty())
-                    || self.shown_compare().is_some()
+                if (self.side_commits(cx) && !self.history.read(cx).commits.is_empty())
+                    || self.shown_compare(cx).is_some()
                 {
                     icons.push(("commit", "Commits", Some(Zone::Commits)));
                 }
@@ -226,16 +226,17 @@ impl Workspace {
         // A request's or a branch's commits are its Commits tab, a commit of it a level there: on
         // its pages the panel holds the changes — a request's with its versions — and on a commit
         // only the commit's (#73, #74).
-        if self.side_versions() {
+        if self.side_versions(cx) {
             let folded = self.section_folded(Section::Versions);
-            let summary = match self.history.selection {
+            let summary = match self.history.read(cx).selection {
                 Selection::Versions { from, to } => format!(
                     "v{} → v{}",
-                    self.history.versions[from].number, self.history.versions[to].number
+                    self.history.read(cx).versions[from].number,
+                    self.history.read(cx).versions[to].number
                 ),
                 _ => format!(
                     "latest v{}",
-                    self.history.versions[self.history.versions.len() - 1].number
+                    self.history.read(cx).versions[self.history.read(cx).versions.len() - 1].number
                 ),
             };
             sections.push(
@@ -247,7 +248,7 @@ impl Workspace {
                         Section::Versions,
                         "Versions".into(),
                         Some(summary),
-                        vec![count(self.history.versions.len().to_string())],
+                        vec![count(self.history.read(cx).versions.len().to_string())],
                         true,
                         cx,
                     ))
@@ -269,15 +270,15 @@ impl Workspace {
             );
         }
 
-        if self.side_commits() {
+        if self.side_commits(cx) {
             let commits_folded = self.section_folded(Section::Commits);
-            let first = match self.history.selection {
-                Selection::Commit(ix) => self.history.commits.get(ix),
-                _ => self.history.commits.first(),
+            let first = match self.history.read(cx).selection {
+                Selection::Commit(ix) => self.history.read(cx).commits.get(ix),
+                _ => self.history.read(cx).commits.first(),
             };
             let commit_summary = first.map(|c| {
-                if self.history.commits.len() > 1 {
-                    format!("{} +{}", c.summary, self.history.commits.len() - 1)
+                if self.history.read(cx).commits.len() > 1 {
+                    format!("{} +{}", c.summary, self.history.read(cx).commits.len() - 1)
                 } else {
                     c.summary.clone()
                 }
@@ -309,12 +310,15 @@ impl Workspace {
                     .into_any_element(),
             );
             // Older history not read yet: "1000+" (#25).
-            let more = if self.history.older.is_some() {
+            let more = if self.history.read(cx).older.is_some() {
                 "+"
             } else {
                 ""
             };
-            commit_end.push(count(format!("{}{more}", self.history.commits.len())));
+            commit_end.push(count(format!(
+                "{}{more}",
+                self.history.read(cx).commits.len()
+            )));
             if !sections.is_empty() {
                 sections.push(rule().into_any_element());
             }
@@ -346,8 +350,10 @@ impl Workspace {
                         .child(if self.find.shown.as_ref().is_some_and(Vec::is_empty) {
                             // Not found yet: older history is read on (#25).
                             self.want_older_commits(cx);
-                            self.render_no_match().into_any_element()
-                        } else if self.history.commits.is_empty() && self.history.task.is_some() {
+                            self.render_no_match(cx).into_any_element()
+                        } else if self.history.read(cx).commits.is_empty()
+                            && self.history.read(cx).task.is_some()
+                        {
                             // The branch's commits are being read.
                             div()
                                 .px(px(14.))
@@ -357,10 +363,10 @@ impl Workspace {
                         } else {
                             uniform_list(
                                 "commits",
-                                self.commit_rows(),
+                                self.commit_rows(cx),
                                 cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
                                     // Near the end: the next page of history (#25).
-                                    if range.end + 100 >= this.commit_rows() {
+                                    if range.end + 100 >= this.commit_rows(cx) {
                                         this.want_older_commits(cx);
                                     }
                                     range
@@ -379,7 +385,7 @@ impl Workspace {
 
         // A comparison's own commits over its changes, as tall as their rows (#21).
         if let Some(n) = self
-            .shown_compare()
+            .shown_compare(cx)
             .and_then(|c| c.list.as_ref())
             .map(Vec::len)
         {
@@ -400,7 +406,7 @@ impl Workspace {
                     .child(self.section_header(
                         Section::Commits,
                         format!("Commits{}", self.zone_tag(Zone::Commits)),
-                        self.compare_summary(),
+                        self.compare_summary(cx),
                         vec![count(n.to_string())],
                         true,
                         cx,

@@ -12,7 +12,7 @@ use gpui::{App, ClickEvent, Context, FontWeight, SharedString, div, prelude::*};
 impl Workspace {
     pub(super) fn open_settings(&mut self, cx: &mut Context<Self>) {
         self.find.text = None;
-        self.refilter();
+        self.refilter(cx);
         // Set up's "every key in Settings → Keyboard": Settings takes its place.
         self.setup = None;
         self.settings_open = true;

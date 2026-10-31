@@ -267,12 +267,12 @@ impl Workspace {
     }
 
     /// The column heads of Split: the versions compared.
-    fn page_heads(&self) -> (String, String) {
-        match self.history.selection {
+    fn page_heads(&self, cx: &App) -> (String, String) {
+        match self.history.read(cx).selection {
             Selection::Versions { from, to } => {
                 match (
-                    self.history.versions.get(from),
-                    self.history.versions.get(to),
+                    self.history.read(cx).versions.get(from),
+                    self.history.read(cx).versions.get(to),
                 ) {
                     (Some(a), Some(b)) => (
                         format!("v{} · before", a.number),
@@ -282,7 +282,7 @@ impl Workspace {
                 }
             }
             Selection::WorkingTree => ("HEAD · before".into(), "Working tree · now".into()),
-            Selection::Commit(ix) => match self.history.commits.get(ix) {
+            Selection::Commit(ix) => match self.history.read(cx).commits.get(ix) {
                 Some(c) => {
                     let sha = super::format::short(c.id);
                     (format!("{sha}^ · before"), format!("{sha} · now"))
@@ -291,8 +291,8 @@ impl Workspace {
             },
             Selection::Commits { newest, oldest } => {
                 match (
-                    self.history.commits.get(oldest),
-                    self.history.commits.get(newest),
+                    self.history.read(cx).commits.get(oldest),
+                    self.history.read(cx).commits.get(newest),
                 ) {
                     (Some(a), Some(b)) => (
                         format!("{}^ · before", super::format::short(a.id)),
@@ -551,7 +551,7 @@ impl Workspace {
         new_pics: &Rc<DocPictures>,
         cx: &gpui::App,
     ) -> Vec<(AnyElement, bool)> {
-        let (before, now) = self.page_heads();
+        let (before, now) = self.page_heads(cx);
         let head = |text: String| {
             let (version, rest) = text.split_once(" · ").unwrap_or((&text, ""));
             div()

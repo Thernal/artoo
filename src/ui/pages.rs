@@ -38,7 +38,7 @@ impl Workspace {
             // A request's Overview and Commits, a branch's Commits, are pages of their own
             // (#73, #74).
             (Space::Requests | Space::Branches, Some(_))
-                if let Some(tab @ (Section::Overview | Section::Commits)) = self.page_tab() =>
+                if let Some(tab @ (Section::Overview | Section::Commits)) = self.page_tab(cx) =>
             {
                 self.render_tab_page(tab, cx)
             }

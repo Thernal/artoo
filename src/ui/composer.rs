@@ -64,18 +64,19 @@ impl Workspace {
     }
 
     /// Where a comment is written, for the reader of the export: a commit or a version range.
-    fn comment_at(&self) -> String {
-        match self.history.selection {
+    fn comment_at(&self, cx: &App) -> String {
+        match self.history.read(cx).selection {
             Selection::Commit(ix) => self
                 .history
+                .read(cx)
                 .commits
                 .get(ix)
                 .map(|c| format::short(c.id))
                 .unwrap_or_default(),
             Selection::Commits { newest, oldest } => {
                 match (
-                    self.history.commits.get(oldest),
-                    self.history.commits.get(newest),
+                    self.history.read(cx).commits.get(oldest),
+                    self.history.read(cx).commits.get(newest),
                 ) {
                     (Some(a), Some(b)) => {
                         format!("{}..{}", format::short(a.id), format::short(b.id))
@@ -85,8 +86,8 @@ impl Workspace {
             }
             Selection::Versions { from, to } => {
                 match (
-                    self.history.versions.get(from),
-                    self.history.versions.get(to),
+                    self.history.read(cx).versions.get(from),
+                    self.history.read(cx).versions.get(to),
                 ) {
                     (Some(a), Some(b)) => format!("v{}→v{}", a.number, b.number),
                     _ => String::new(),
@@ -138,7 +139,7 @@ impl Workspace {
             line,
             code,
             edit: TextEdit::default(),
-            at: self.comment_at(),
+            at: self.comment_at(cx),
             target: self.comment_target(cx),
             error: None,
             preview: false,
@@ -270,7 +271,7 @@ impl Workspace {
             return;
         };
         let code = data.side(old).line(line).0.to_owned();
-        let (at, target) = (self.comment_at(), self.comment_target(cx));
+        let (at, target) = (self.comment_at(cx), self.comment_target(cx));
         self.compose = Some(Compose {
             path,
             old,

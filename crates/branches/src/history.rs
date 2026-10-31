@@ -5,6 +5,7 @@ use crate::compare::CompareCommits;
 use crate::facts::Facts;
 use artoo_core::git::{BranchRef, CommitInfo, Version};
 use gpui::Task;
+use std::sync::Arc;
 
 /// A ref's name and the commit it points at.
 pub type NamedTip = (String, git2::Oid);
@@ -39,7 +40,8 @@ pub struct Older {
 }
 
 pub struct History {
-    pub branches: Vec<BranchRef>,
+    /// Shared, so what reads them keeps them while the tab changes something else.
+    pub branches: Arc<Vec<BranchRef>>,
     pub branch: Option<usize>,
     /// The loaded branch's page: its main line, how far from it, where it is pushed (#74).
     pub page: Option<Facts>,
@@ -58,7 +60,7 @@ pub struct History {
 impl Default for History {
     fn default() -> Self {
         History {
-            branches: Vec::new(),
+            branches: Arc::default(),
             branch: None,
             page: None,
             compare: None,

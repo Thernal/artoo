@@ -194,7 +194,7 @@ impl Workspace {
     /// The card before a merge goes, over everything (`Requests::render_merge_card`).
     pub(super) fn render_merge_card(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         let look = CardLook {
-            commits: self.history.commits.len(),
+            commits: self.history.read(cx).commits.len(),
             github: self.on_github(),
             active: self.has_keyboard(Input::Merge, cx),
         };

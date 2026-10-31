@@ -4,15 +4,16 @@
 
 use super::Workspace;
 use super::typing::{self, Input};
+use crate::git::BranchRef;
 use artoo_requests::create::{CreateKey, CreateLook, Drafted, Here, Pair, Totals, source_of};
 use gpui::{AnyElement, App, Context, KeyDownEvent, prelude::*};
 
 impl Workspace {
-    /// What the form reads of the repository: its folder, its branches, the host.
-    fn create_here(&self) -> Option<Here<'_>> {
+    /// What the form reads of the repository: its folder, its `branches` (the history's), the host.
+    fn create_here<'a>(&'a self, branches: &'a [BranchRef]) -> Option<Here<'a>> {
         Some(Here {
             root: self.root.as_deref()?,
-            branches: &self.history.branches,
+            branches,
             github: self.on_github(),
         })
     }
@@ -31,8 +32,8 @@ impl Workspace {
             return cx.notify();
         }
         let Some(branch) = ix
-            .or(self.history.branch)
-            .and_then(|i| self.history.branches.get(i))
+            .or(self.history.read(cx).branch)
+            .and_then(|i| self.history.read(cx).branches.get(i))
             .cloned()
         else {
             return;
@@ -58,7 +59,8 @@ impl Workspace {
         self.ctx_menu = None;
         self.bfilter.clear();
         let host = super::host_of(&web, cx);
-        let Some(here) = self.create_here() else {
+        let branches = self.history.read(cx).branches.clone();
+        let Some(here) = self.create_here(&branches) else {
             return;
         };
         let pair = self.requests.update(cx, |rq, cx| {
@@ -116,7 +118,8 @@ impl Workspace {
     /// again.
     pub(super) fn pick_branch(&mut self, name: String, source: bool, cx: &mut Context<Self>) {
         self.take_keyboard(Input::NewRequest, cx);
-        let Some(here) = self.create_here() else {
+        let branches = self.history.read(cx).branches.clone();
+        let Some(here) = self.create_here(&branches) else {
             return;
         };
         let pair = self.requests.update(cx, |rq, _| {
@@ -132,10 +135,10 @@ impl Workspace {
 
     /// ↑ ↓ on From's or Into's list (`Requests::step_branch_list`).
     pub(super) fn step_branch_list(&mut self, down: bool, cx: &mut Context<Self>) -> bool {
-        let branches = &self.history.branches;
+        let branches = self.history.read(cx).branches.clone();
         let took = self
             .requests
-            .update(cx, |rq, _| rq.step_branch_list(branches, down));
+            .update(cx, |rq, _| rq.step_branch_list(&branches, down));
         if took {
             cx.notify();
         }
@@ -144,7 +147,8 @@ impl Workspace {
 
     /// The form's keys (`Requests::create_key`): ⌘↵ creates, a branch picked shows the pair.
     pub(super) fn newreq_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
-        let Some(here) = self.create_here() else {
+        let branches = self.history.read(cx).branches.clone();
+        let Some(here) = self.create_here(&branches) else {
             return;
         };
         let key = self
@@ -204,15 +208,15 @@ impl Workspace {
         })
     }
 
-    /// What the form is drawn with that the tab knows.
-    fn create_look(&self, cx: &Context<Self>) -> CreateLook<'_> {
+    /// What the form is drawn with that the tab knows, the history's `branches` among it.
+    fn create_look<'a>(&self, branches: &'a [BranchRef], cx: &Context<Self>) -> CreateLook<'a> {
         CreateLook {
             typing: self.has_keyboard(Input::NewRequest, cx),
             github: self.on_github(),
             base: self.web.as_ref().map(|w| w.base.clone()),
             selecting: Some(self.selecting(cx.entity().downgrade())),
             totals: self.create_totals(cx),
-            branches: &self.history.branches,
+            branches,
         }
     }
 
@@ -238,7 +242,8 @@ impl Workspace {
 
     /// The form in the diff's place (`Requests::render_create_form`).
     pub(super) fn render_create_form(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let look = self.create_look(cx);
+        let branches = self.history.read(cx).branches.clone();
+        let look = self.create_look(&branches, cx);
         let acts = self.request_acts(cx);
         let form = self
             .requests
@@ -248,7 +253,8 @@ impl Workspace {
 
     /// The quick way over the branch view (`Requests::render_create_quick`).
     pub(super) fn render_create_quick(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let look = self.create_look(cx);
+        let branches = self.history.read(cx).branches.clone();
+        let look = self.create_look(&branches, cx);
         let acts = self.request_acts(cx);
         self.requests
             .update(cx, |rq, cx| rq.render_create_quick(&look, acts, cx))

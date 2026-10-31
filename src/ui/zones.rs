@@ -65,7 +65,7 @@ impl Workspace {
         ) && !self.at_root_list();
         // A request's Overview and Commits: no side panel and no diff (#73).
         let tab_page = matches!(
-            self.page_tab(),
+            self.page_tab(cx),
             Some(super::nav::Section::Overview | super::nav::Section::Commits)
         );
         if !item || tab_page {
@@ -80,7 +80,7 @@ impl Workspace {
         // A tabbed item's commits are its Commits tab, not a section of the panel (#73, #74).
         if self.side_open()
             && !self.layout.fold_commits
-            && (self.side_commits() || self.shown_compare().is_some())
+            && (self.side_commits(cx) || self.shown_compare(cx).is_some())
         {
             out.push(Zone::Commits);
         }
@@ -127,11 +127,11 @@ impl Workspace {
         if self.inbox && self.zone != Zone::Tool {
             return self.inbox_step(down, cx);
         }
-        if self.page_tab() == Some(super::nav::Section::Commits) && self.zone != Zone::Tool {
+        if self.page_tab(cx) == Some(super::nav::Section::Commits) && self.zone != Zone::Tool {
             return self.step_commit_pick(down, cx);
         }
         match self.zone {
-            Zone::Commits if self.shown_compare().is_some() => {
+            Zone::Commits if self.shown_compare(cx).is_some() => {
                 return self.step_compare_pick(down, cx);
             }
             Zone::Commits => self.step_commit_row(down, cx),
@@ -204,7 +204,7 @@ impl Workspace {
         if self.at_root_list() && self.zone == Zone::Branches {
             return self.open_pick(cx);
         }
-        if self.page_tab() == Some(super::nav::Section::Commits) && self.zone != Zone::Tool {
+        if self.page_tab(cx) == Some(super::nav::Section::Commits) && self.zone != Zone::Tool {
             return self.open_commit_pick(cx);
         }
         match self.zone {
@@ -276,9 +276,9 @@ impl Workspace {
 
     /// The working tree entry above the commits counts as the row before the first commit.
     fn step_commit_row(&mut self, down: bool, cx: &mut Context<Self>) {
-        let has_wt = self.wt.count > 0 || self.history.selection == Selection::WorkingTree;
-        match (self.history.selection, down) {
-            (Selection::WorkingTree, true) if self.commit_rows() > 0 => {
+        let has_wt = self.wt.count > 0 || self.history.read(cx).selection == Selection::WorkingTree;
+        match (self.history.read(cx).selection, down) {
+            (Selection::WorkingTree, true) if self.commit_rows(cx) > 0 => {
                 self.select_commit(self.commit_at(0), cx)
             }
             (Selection::WorkingTree, _) => {}
@@ -288,7 +288,7 @@ impl Workspace {
             (Selection::Commit(ix), _) => {
                 if let Some(row) = self.row_of(ix) {
                     let to = if down {
-                        (row + 1 < self.commit_rows()).then(|| row + 1)
+                        (row + 1 < self.commit_rows(cx)).then(|| row + 1)
                     } else {
                         row.checked_sub(1)
                     };
@@ -297,7 +297,7 @@ impl Workspace {
                     }
                 }
             }
-            (_, true) if self.commit_rows() > 0 => self.select_commit(self.commit_at(0), cx),
+            (_, true) if self.commit_rows(cx) > 0 => self.select_commit(self.commit_at(0), cx),
             _ => {}
         }
     }
@@ -323,11 +323,11 @@ impl Workspace {
                 self.pick_request(iid, cx);
             }
         } else {
-            let rows = self.branch_rows();
+            let rows = self.branch_rows(cx);
             let at = self
                 .nav
                 .pick_branch
-                .or_else(|| self.first_branch_row())
+                .or_else(|| self.first_branch_row(cx))
                 .and_then(|r| rows.iter().position(|x| *x == r));
             self.nav.pick_branch = step(at, rows.len()).map(|i| rows[i]);
             if self.nav.pick_branch == Some(super::nav::BranchRow::WorkingTree) {
@@ -346,11 +346,11 @@ impl Workspace {
                 self.open_picked_request(iid, cx);
             }
         } else {
-            let rows = self.branch_rows();
+            let rows = self.branch_rows(cx);
             let pick = self
                 .nav
                 .pick_branch
-                .or_else(|| self.first_branch_row())
+                .or_else(|| self.first_branch_row(cx))
                 .filter(|r| rows.contains(r));
             if let Some(row) = pick.or(rows.first().copied()) {
                 self.open_branch_row(row, cx);

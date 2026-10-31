@@ -187,7 +187,7 @@ impl Workspace {
             (Space::Code, _) => Some((root, 1)),
             // A page showing a diff: not a request's Overview or Commits.
             (_, Some(_))
-                if matches!(self.page_tab(), None | Some(super::nav::Section::Changes)) =>
+                if matches!(self.page_tab(cx), None | Some(super::nav::Section::Changes)) =>
             {
                 let line = self
                     .review

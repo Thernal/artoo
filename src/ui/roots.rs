@@ -56,7 +56,7 @@ impl Workspace {
         let Some(root) = self.root.clone() else {
             return;
         };
-        let branches = self.history.branches.clone();
+        let branches = self.history.read(cx).branches.clone();
         self.roots.facts_task = Some(cx.spawn(async move |this, cx| {
             let facts = cx
                 .background_executor()
@@ -183,8 +183,12 @@ impl Workspace {
     }
 
     /// The branches a search lists, by index: a request's fetched head is none of them (#114).
-    pub(super) fn listed_branches(&self) -> impl Iterator<Item = (usize, &BranchRef)> {
+    pub(super) fn listed_branches<'a>(
+        &self,
+        cx: &'a App,
+    ) -> impl Iterator<Item = (usize, &'a BranchRef)> {
         self.history
+            .read(cx)
             .branches
             .iter()
             .enumerate()
@@ -193,10 +197,10 @@ impl Workspace {
 
     /// Branches' rows in the order the list shows them: the working tree, local branches, then
     /// the branches of each open remote; a filter lists the matching branches only.
-    pub(super) fn branch_rows(&self) -> Vec<BranchRow> {
+    pub(super) fn branch_rows(&self, cx: &App) -> Vec<BranchRow> {
         let filter = self.bfilter.to_lowercase();
         if !filter.trim().is_empty() {
-            return crate::rank::rank(self.listed_branches(), &filter, |(_, b)| &b.name)
+            return crate::rank::rank(self.listed_branches(cx), &filter, |(_, b)| &b.name)
                 .into_iter()
                 .map(|(ix, _)| BranchRow::Branch(ix))
                 .collect();
@@ -204,14 +208,15 @@ impl Workspace {
         let mut out = vec![BranchRow::WorkingTree];
         out.extend(
             self.history
+                .read(cx)
                 .branches
                 .iter()
                 .enumerate()
                 .filter(|(_, b)| b.kind == RefKind::Local)
                 .map(|(ix, _)| BranchRow::Branch(ix)),
         );
-        for (remote, ixs) in self.remotes() {
-            if self.roots.open_remotes.contains(remote) {
+        for (remote, ixs) in self.remotes(cx) {
+            if self.roots.open_remotes.contains(&remote) {
                 out.extend(ixs.into_iter().map(BranchRow::Branch));
             }
         }
@@ -219,28 +224,29 @@ impl Workspace {
     }
 
     /// The remote branches, by remote.
-    fn remotes(&self) -> std::collections::BTreeMap<&str, Vec<usize>> {
-        let mut out: std::collections::BTreeMap<&str, Vec<usize>> = Default::default();
-        for (ix, b) in self.history.branches.iter().enumerate() {
+    fn remotes(&self, cx: &App) -> std::collections::BTreeMap<String, Vec<usize>> {
+        let mut out: std::collections::BTreeMap<String, Vec<usize>> = Default::default();
+        for (ix, b) in self.history.read(cx).branches.iter().enumerate() {
             if b.kind == RefKind::Remote {
                 let remote = b.name.split_once('/').map_or("", |(r, _)| r);
-                out.entry(remote).or_default().push(ix);
+                out.entry(remote.to_owned()).or_default().push(ix);
             }
         }
         out
     }
 
     /// "4 local · 6 on origin": the count after Branches' name in the bar.
-    pub(super) fn branches_count(&self) -> String {
+    pub(super) fn branches_count(&self, cx: &App) -> String {
         let local = self
             .history
+            .read(cx)
             .branches
             .iter()
             .filter(|b| b.kind == RefKind::Local)
             .count();
         let mut parts = vec![format!("{local} local")];
         parts.extend(
-            self.remotes()
+            self.remotes(cx)
                 .into_iter()
                 .map(|(remote, ixs)| format!("{} on {remote}", ixs.len())),
         );
@@ -249,15 +255,16 @@ impl Workspace {
 
     /// The row Branches selects when nothing is: the working tree with changes, else the branch
     /// checked out.
-    pub(super) fn first_branch_row(&self) -> Option<BranchRow> {
+    pub(super) fn first_branch_row(&self, cx: &App) -> Option<BranchRow> {
         if self.wt.count > 0 {
             return Some(BranchRow::WorkingTree);
         }
         self.history
+            .read(cx)
             .branches
             .iter()
             .position(|b| b.is_head)
-            .or(self.history.branch)
+            .or(self.history.read(cx).branch)
             .map(BranchRow::Branch)
     }
 
@@ -470,13 +477,13 @@ impl Workspace {
     /// Branches' root: the working tree, the local branches, the remotes folded; the row picked
     /// previewed.
     pub(super) fn render_branches_root(&self, cx: &mut Context<Self>) -> AnyElement {
-        let rows = self.branch_rows();
+        let rows = self.branch_rows(cx);
         let filtering = !self.bfilter.trim().is_empty();
         let picked = self
             .nav
             .pick_branch
             .filter(|r| rows.contains(r))
-            .or_else(|| self.first_branch_row().filter(|r| rows.contains(r)))
+            .or_else(|| self.first_branch_row(cx).filter(|r| rows.contains(r)))
             .or(rows.first().copied());
         let mut list: Vec<AnyElement> = Vec::new();
         if filtering {
@@ -508,6 +515,7 @@ impl Workspace {
             );
             let local: Vec<usize> = self
                 .history
+                .read(cx)
                 .branches
                 .iter()
                 .enumerate()
@@ -520,9 +528,9 @@ impl Workspace {
                 self.branch_row(row, picked == Some(row), false, cx)
                     .into_any_element()
             }));
-            for (remote, ixs) in self.remotes() {
-                let open = self.roots.open_remotes.contains(remote);
-                let name = remote.to_owned();
+            for (remote, ixs) in self.remotes(cx) {
+                let open = self.roots.open_remotes.contains(&remote);
+                let name = remote.clone();
                 list.push(
                     div()
                         .id(SharedString::from(format!("remote-{remote}")))
@@ -564,6 +572,7 @@ impl Workspace {
         }
         let local = self
             .history
+            .read(cx)
             .branches
             .iter()
             .filter(|b| b.kind == RefKind::Local)
@@ -572,6 +581,7 @@ impl Workspace {
         let preview = if alone {
             let name = self
                 .history
+                .read(cx)
                 .branches
                 .iter()
                 .find(|b| b.kind == RefKind::Local)
@@ -642,6 +652,7 @@ impl Workspace {
         let room = self.widths.room("branches");
         let head_name = self
             .history
+            .read(cx)
             .branches
             .iter()
             .find(|b| b.is_head)
@@ -700,7 +711,7 @@ impl Workspace {
                     ("branch-row-wt".into(), "files", line1, line2)
                 }
                 BranchRow::Branch(ix) => {
-                    let b = &self.history.branches[ix];
+                    let b = &self.history.read(cx).branches[ix];
                     let name = match (b.kind, flat) {
                         (RefKind::Remote, false) => {
                             b.name.split_once('/').map_or(b.name.as_str(), |(_, n)| n)
@@ -903,6 +914,7 @@ impl Workspace {
     fn tree_preview(&self, cx: &mut Context<Self>) -> Div {
         let head = self
             .history
+            .read(cx)
             .branches
             .iter()
             .find(|b| b.is_head)
@@ -1020,7 +1032,7 @@ impl Workspace {
 
     /// A branch picked: its last commit, how far it is from the main line, its request, Open.
     fn branch_preview(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
-        let Some(b) = self.history.branches.get(ix) else {
+        let Some(b) = self.history.read(cx).branches.get(ix) else {
             return div().into_any_element();
         };
         let fact = self.roots.facts.get(&b.refname);

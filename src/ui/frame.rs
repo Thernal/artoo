@@ -346,98 +346,101 @@ impl Workspace {
     /// The menu under the repository name, over a backdrop that closes it.
     /// The versions, newest first, for the side panel's Versions section.
     pub(super) fn version_rows(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let latest = self.history.versions.len() - 1;
-        let (from, to) = match self.history.selection {
+        let latest = self.history.read(cx).versions.len() - 1;
+        let (from, to) = match self.history.read(cx).selection {
             Selection::Versions { from, to } => (Some(from), Some(to)),
             _ => (None, None),
         };
         // Who made a version is only worth a line when more than one person did.
         let several = self
             .history
+            .read(cx)
             .versions
             .iter()
-            .any(|v| v.author != self.history.versions[0].author);
-        div()
-            .flex()
-            .flex_col()
-            .children(
-                self.history
-                    .versions
-                    .iter()
-                    .enumerate()
-                    .rev()
-                    .map(|(ix, v)| {
-                        let role = if Some(ix) == from {
-                            Some("from")
-                        } else if Some(ix) == to {
-                            Some("to")
-                        } else {
-                            None
-                        };
-                        let chosen = role.is_some();
-                        let kind = match format::reason(&v.reason) {
-                            "fetch" => "fetched",
-                            "unknown" => "version",
-                            k => k,
-                        };
-                        let mut detail: Vec<String> = Vec::new();
-                        if several {
-                            detail.push(v.author.clone());
-                        }
-                        detail.push(format::ago(v.time));
-                        match ix.checked_sub(1).and_then(|p| self.history.versions.get(p)) {
-                            None => detail.push(plural(v.commits, "commit")),
-                            Some(prev) => {
-                                if prev.base != v.base {
-                                    detail.push(format!(
-                                        "onto {}",
-                                        v.base.map(format::short).unwrap_or_default()
-                                    ));
-                                }
-                                detail.push(match v.commits.cmp(&prev.commits) {
-                                    std::cmp::Ordering::Greater => {
-                                        format!("+{}", plural(v.commits - prev.commits, "commit"))
-                                    }
-                                    std::cmp::Ordering::Less => {
-                                        format!("−{}", plural(prev.commits - v.commits, "commit"))
-                                    }
-                                    std::cmp::Ordering::Equal => {
-                                        format!("same {}", plural(v.commits, "commit"))
-                                    }
-                                });
+            .any(|v| v.author != self.history.read(cx).versions[0].author);
+        div().flex().flex_col().children(
+            self.history
+                .read(cx)
+                .versions
+                .iter()
+                .enumerate()
+                .rev()
+                .map(|(ix, v)| {
+                    let role = if Some(ix) == from {
+                        Some("from")
+                    } else if Some(ix) == to {
+                        Some("to")
+                    } else {
+                        None
+                    };
+                    let chosen = role.is_some();
+                    let kind = match format::reason(&v.reason) {
+                        "fetch" => "fetched",
+                        "unknown" => "version",
+                        k => k,
+                    };
+                    let mut detail: Vec<String> = Vec::new();
+                    if several {
+                        detail.push(v.author.clone());
+                    }
+                    detail.push(format::ago(v.time));
+                    match ix
+                        .checked_sub(1)
+                        .and_then(|p| self.history.read(cx).versions.get(p))
+                    {
+                        None => detail.push(plural(v.commits, "commit")),
+                        Some(prev) => {
+                            if prev.base != v.base {
+                                detail.push(format!(
+                                    "onto {}",
+                                    v.base.map(format::short).unwrap_or_default()
+                                ));
                             }
+                            detail.push(match v.commits.cmp(&prev.commits) {
+                                std::cmp::Ordering::Greater => {
+                                    format!("+{}", plural(v.commits - prev.commits, "commit"))
+                                }
+                                std::cmp::Ordering::Less => {
+                                    format!("−{}", plural(prev.commits - v.commits, "commit"))
+                                }
+                                std::cmp::Ordering::Equal => {
+                                    format!("same {}", plural(v.commits, "commit"))
+                                }
+                            });
                         }
-                        // The rail: a dot per version and a line to the older one.
-                        let rail = div()
-                            .flex_none()
-                            .relative()
-                            .w(px(14.))
-                            .h(px(44.))
-                            .when(ix > 0, |s| {
-                                s.child(
-                                    div()
-                                        .absolute()
-                                        .left(px(6.5))
-                                        .top(px(18.))
-                                        .w(px(1.))
-                                        .h(px(30.))
-                                        .bg(theme::selected()),
-                                )
-                            })
-                            .child(
+                    }
+                    // The rail: a dot per version and a line to the older one.
+                    let rail = div()
+                        .flex_none()
+                        .relative()
+                        .w(px(14.))
+                        .h(px(44.))
+                        .when(ix > 0, |s| {
+                            s.child(
                                 div()
                                     .absolute()
-                                    .left(px(3.))
-                                    .top(px(13.))
-                                    .size(px(8.))
-                                    .rounded_full()
-                                    .bg(if chosen {
-                                        theme::accent()
-                                    } else {
-                                        theme::faint()
-                                    }),
-                            );
-                        let item = row(("version", ix), chosen)
+                                    .left(px(6.5))
+                                    .top(px(18.))
+                                    .w(px(1.))
+                                    .h(px(30.))
+                                    .bg(theme::selected()),
+                            )
+                        })
+                        .child(
+                            div()
+                                .absolute()
+                                .left(px(3.))
+                                .top(px(13.))
+                                .size(px(8.))
+                                .rounded_full()
+                                .bg(if chosen {
+                                    theme::accent()
+                                } else {
+                                    theme::faint()
+                                }),
+                        );
+                    let item =
+                        row(("version", ix), chosen)
                             // A long hover: who pushed it, exactly when, and what moved the branch (#53).
                             .tip(format!(
                                 "v{} · {} · {} · {}",
@@ -503,9 +506,9 @@ impl Workspace {
                             .on_click(cx.listener(move |this, event, _, cx| {
                                 this.click_version(ix, event, cx)
                             }));
-                        div().px(px(6.)).py(px(1.)).child(item)
-                    }),
-            )
+                    div().px(px(6.)).py(px(1.)).child(item)
+                }),
+        )
     }
 
     /// The commits of two versions, paired; a modified pair opens its interdiff.
@@ -614,8 +617,8 @@ impl Workspace {
         ix: usize,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
-        let commit = &self.history.commits[ix];
-        let selected = self.history.selection == Selection::Commit(ix);
+        let commit = &self.history.read(cx).commits[ix];
+        let selected = self.history.read(cx).selection == Selection::Commit(ix);
         // Its anatomy (#79): the title and sha always; who and when while the panel has 260 px;
         // its labels under 360 px leave first. Its card holds them all.
         let room = self.widths.room("side-commits");
@@ -684,7 +687,7 @@ impl Workspace {
                 this.select_commit(ix, cx)
             }));
         // A long hover: the commit's card (#53) — its whole message start, author, date, id, labels.
-        let item = match self.commit_card(ix) {
+        let item = match self.commit_card(ix, cx) {
             Some(card) => {
                 let card = std::rc::Rc::new(card);
                 item.card(move |_, cx| hover::CommitCard::show(&card, cx))

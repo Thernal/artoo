@@ -9,7 +9,7 @@ use super::nav::Page;
 use super::{Diff, Header, Selection, Workspace, format, icons, px, row, theme};
 use crate::git::Repo;
 use artoo_branches::compare::{CompareCommits, Sides};
-use gpui::{AnyElement, ClickEvent, Context, div, prelude::*};
+use gpui::{AnyElement, App, ClickEvent, Context, div, prelude::*};
 use std::sync::Arc;
 
 /// Rows of the list before it scrolls.
@@ -19,8 +19,9 @@ const ROW: f32 = 28.;
 
 impl Workspace {
     /// The comparison's commits, while its page is on screen and they are read.
-    pub(super) fn shown_compare(&self) -> Option<&CompareCommits> {
+    pub(super) fn shown_compare<'a>(&self, cx: &'a App) -> Option<&'a CompareCommits> {
         self.history
+            .read(cx)
             .compare
             .as_ref()
             .filter(|c| c.list.as_ref().is_some_and(|l| !l.is_empty()))
@@ -28,9 +29,9 @@ impl Workspace {
     }
 
     /// The comparison's page while a run of its commits narrows its diff.
-    pub(super) fn narrowed_compare(&self) -> Option<Page> {
-        self.shown_compare()
-            .filter(|c| c.picked.is_some() && self.history.selection == Selection::None)
+    pub(super) fn narrowed_compare(&self, cx: &App) -> Option<Page> {
+        self.shown_compare(cx)
+            .filter(|c| c.picked.is_some() && self.history.read(cx).selection == Selection::None)
             .map(|c| Page::Compare(c.of.0.clone(), c.of.1.clone(), c.of.2))
     }
 
@@ -38,16 +39,20 @@ impl Workspace {
     /// (esc back from a pick); none picked. Any other diff (`None`) has none.
     pub(super) fn read_compare_commits(&mut self, page: Option<Page>, cx: &mut Context<Self>) {
         let (Some(Page::Compare(base, head, since)), Some(root)) = (page, self.root.clone()) else {
-            self.history.compare = None;
+            self.history.update(cx, |h, _| h.compare = None);
             return;
         };
         let of = (base, head, since);
-        if let Some(c) = self.history.compare.as_mut().filter(|c| c.of == of) {
-            c.picked = None;
+        let read = self.history.update(cx, |h, _| {
+            let c = h.compare.as_mut().filter(|c| c.of == of);
+            c.map(|c| c.picked = None).is_some()
+        });
+        if read {
             return;
         }
         let (from, to) = (of.0.1, of.1.1);
-        self.history.compare = Some(CompareCommits::of(of.clone()));
+        self.history
+            .update(cx, |h, _| h.compare = Some(CompareCommits::of(of.clone())));
         cx.spawn(async move |this, cx| {
             let list = cx
                 .background_executor()
@@ -55,8 +60,11 @@ impl Workspace {
                 .await
                 .unwrap_or_default();
             this.update(cx, |this, cx| {
-                if let Some(c) = this.history.compare.as_mut().filter(|c| c.of == of) {
-                    c.list = Some(list);
+                let read = this.history.update(cx, |h, _| {
+                    let c = h.compare.as_mut().filter(|c| c.of == of);
+                    c.map(|c| c.list = Some(list)).is_some()
+                });
+                if read {
                     cx.notify();
                 }
             })
@@ -67,17 +75,19 @@ impl Workspace {
 
     /// A click on commit `ix`: its diff alone; with ⇧ the run from the one clicked last to it.
     pub(super) fn pick_compare_commit(&mut self, ix: usize, span: bool, cx: &mut Context<Self>) {
-        let Some(c) = self.history.compare.as_mut() else {
+        let picked = self
+            .history
+            .update(cx, |h, _| h.compare.as_mut().map(|c| c.pick(ix, span)));
+        if picked.is_none() {
             return;
-        };
-        c.pick(ix, span);
+        }
         let keep = self.review.read(cx).current_path();
         self.load_compare_pick(keep, cx);
     }
 
     /// ↑ ↓ in the comparison's commits: the one above or below the one picked.
     pub(super) fn step_compare_pick(&mut self, down: bool, cx: &mut Context<Self>) {
-        let Some(to) = self.shown_compare().and_then(|c| c.step(down)) else {
+        let Some(to) = self.shown_compare(cx).and_then(|c| c.step(down)) else {
             return;
         };
         self.pick_compare_commit(to, false, cx);
@@ -90,7 +100,11 @@ impl Workspace {
     pub(super) fn load_compare_pick(&mut self, keep: Option<String>, cx: &mut Context<Self>) {
         let (Some(root), Some((newest, oldest))) = (
             self.root.clone(),
-            self.history.compare.as_ref().and_then(|c| c.picked_ids()),
+            self.history
+                .read(cx)
+                .compare
+                .as_ref()
+                .and_then(|c| c.picked_ids()),
         ) else {
             return;
         };
@@ -126,7 +140,7 @@ impl Workspace {
 
     /// esc or the pill's ×: the whole comparison again. Whether a run was picked.
     pub(super) fn unpick_compare(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(Page::Compare(base, head, since)) = self.narrowed_compare() else {
+        let Some(Page::Compare(base, head, since)) = self.narrowed_compare(cx) else {
             return false;
         };
         self.run_compare(base, head, since, None, cx);
@@ -134,9 +148,9 @@ impl Workspace {
     }
 
     /// The title of a comparison narrowed to one of its commits: the commit's subject.
-    pub(super) fn compare_title(&self) -> Option<String> {
-        self.narrowed_compare()?;
-        let c = self.history.compare.as_ref()?;
+    pub(super) fn compare_title(&self, cx: &App) -> Option<String> {
+        self.narrowed_compare(cx)?;
+        let c = self.history.read(cx).compare.as_ref()?;
         match c.picked? {
             (newest, oldest) if newest == oldest => {
                 Some(c.list.as_ref()?.get(newest)?.summary.clone())
@@ -146,8 +160,8 @@ impl Workspace {
     }
 
     /// The Commits section's line when it is folded: how many are picked, else the newest.
-    pub(super) fn compare_summary(&self) -> Option<String> {
-        let c = self.shown_compare()?;
+    pub(super) fn compare_summary(&self, cx: &App) -> Option<String> {
+        let c = self.shown_compare(cx)?;
         let list = c.list.as_ref()?;
         Some(match c.picked {
             Some((newest, oldest)) => format!("{} of {}", oldest - newest + 1, list.len()),
@@ -159,7 +173,7 @@ impl Workspace {
     /// The comparison's commits: a row each — its id, subject and age, its card on a long hover
     /// —, at most `ROWS` before the list scrolls, and how they are picked.
     pub(super) fn render_compare_commits(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let n = self.shown_compare()?.list.as_ref()?.len();
+        let n = self.shown_compare(cx)?.list.as_ref()?.len();
         Some(
             div()
                 .flex()
@@ -195,6 +209,7 @@ impl Workspace {
     fn render_compare_row(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
         let Some((c, info)) = self
             .history
+            .read(cx)
             .compare
             .as_ref()
             .and_then(|c| Some((c, c.list.as_ref()?.get(ix)?)))
@@ -253,8 +268,8 @@ impl Workspace {
 
     /// Over the narrowed diff: "a41f9c0 only" (a run its ends), its × the whole comparison.
     pub(super) fn render_compare_only(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        self.narrowed_compare()?;
-        let (newest, oldest) = self.history.compare.as_ref()?.picked_ids()?;
+        self.narrowed_compare(cx)?;
+        let (newest, oldest) = self.history.read(cx).compare.as_ref()?.picked_ids()?;
         let what = if newest == oldest {
             format::short(newest)
         } else {

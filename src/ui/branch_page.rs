@@ -11,8 +11,9 @@ use gpui::{AnyElement, App, Context, div, prelude::*};
 
 impl Workspace {
     /// The branch loaded has the tabs Commits · Changes: it forks from the main line.
-    pub(super) fn branch_tabbed(&self, refname: &str) -> bool {
+    pub(super) fn branch_tabbed(&self, refname: &str, cx: &App) -> bool {
         self.history
+            .read(cx)
             .page
             .as_ref()
             .is_some_and(|f| f.refname == refname && f.base.is_some())
@@ -20,11 +21,14 @@ impl Workspace {
 
     /// The diff loaded is the branch page's own: the branch against the main line.
     pub(super) fn branch_compare(&self, cx: &App) -> bool {
-        let (Some(f), Some(ix)) = (self.history.page.as_ref(), self.history.branch) else {
+        let (Some(f), Some(ix)) = (
+            self.history.read(cx).page.as_ref(),
+            self.history.read(cx).branch,
+        ) else {
             return false;
         };
         matches!(
-            (self.review.read(cx).diff.as_ref().map(|d| &d.header), &f.base, self.history.branches.get(ix)),
+            (self.review.read(cx).diff.as_ref().map(|d| &d.header), &f.base, self.history.read(cx).branches.get(ix)),
             (
                 Some(Header::Compare { base, head, request: None, .. }),
                 Some(main),
@@ -36,12 +40,16 @@ impl Workspace {
     /// Shows the branch loaded against the main line since they parted: its Changes.
     pub(super) fn run_branch_compare(&mut self, cx: &mut Context<Self>) {
         let (Some(ix), Some(base)) = (
-            self.history.branch,
-            self.history.page.as_ref().and_then(|f| f.base.clone()),
+            self.history.read(cx).branch,
+            self.history
+                .read(cx)
+                .page
+                .as_ref()
+                .and_then(|f| f.base.clone()),
         ) else {
             return;
         };
-        let Some(b) = self.history.branches.get(ix) else {
+        let Some(b) = self.history.read(cx).branches.get(ix) else {
             return;
         };
         let head = (b.name.clone(), b.tip);
@@ -54,10 +62,10 @@ impl Workspace {
         let Some(Page::Branch(refname)) = self.nav_page() else {
             return None;
         };
-        if !self.branch_tabbed(refname) {
+        if !self.branch_tabbed(refname, cx) {
             return None;
         }
-        let f = self.history.page.as_ref()?;
+        let f = self.history.read(cx).page.as_ref()?;
         let main = f.base.as_ref()?.0.trim_start_matches("origin/").to_owned();
         let remote = match &f.upstream {
             None => "not pushed".to_owned(),
@@ -67,6 +75,7 @@ impl Workspace {
         };
         let request = self
             .history
+            .read(cx)
             .branch
             .and_then(|ix| self.request_of_branch(ix, cx))
             .map_or_else(|| "none yet".to_owned(), |m| super::words::number(m.iid));
@@ -77,7 +86,7 @@ impl Workspace {
                 .child(div().text_color(theme::faint()).child(label))
                 .child(div().child(value))
         };
-        let ix = self.history.branch;
+        let ix = self.history.read(cx).branch;
         Some(
             island()
                 // Its link, the branch's name, a request (#162).

@@ -74,7 +74,7 @@ impl Workspace {
                 || "—".to_owned(),
                 |(done, total)| format!("{done} of {}", plural(total as usize, "file")),
             );
-        let latest = self.history.versions.last().map(|v| v.number);
+        let latest = self.history.read(cx).versions.last().map(|v| v.number);
         let versions = match (self.marked_version(m.iid, cx), latest) {
             (Some(at), Some(latest)) if at < latest => format!("v{at} → v{latest}"),
             (_, Some(latest)) => format!("v{latest}"),
@@ -90,7 +90,7 @@ impl Workspace {
             base: self.web.as_ref().map(|w| w.base.clone()),
             selecting: Some(self.selecting(cx.entity().downgrade())),
             facts: Facts {
-                commits: self.history.commits.len(),
+                commits: self.history.read(cx).commits.len(),
                 reviewed,
                 versions,
             },
@@ -103,11 +103,12 @@ impl Workspace {
     fn render_commits_tab(&self, m: &Mr, cx: &mut Context<Self>) -> AnyElement {
         let tips: Vec<(usize, git2::Oid)> = self
             .history
+            .read(cx)
             .versions
             .iter()
             .map(|v| (v.number, v.tip))
             .collect();
-        let ids: Vec<git2::Oid> = self.history.commits.iter().map(|c| c.id).collect();
+        let ids: Vec<git2::Oid> = self.history.read(cx).commits.iter().map(|c| c.id).collect();
         let versions = commit_versions(&ids, &tips);
         let line = self.request_line(m, cx);
         div()
@@ -129,22 +130,24 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         use super::hover::Hover;
-        let versions = versions.unwrap_or_else(|| vec![None; self.history.commits.len()]);
-        let picked = self.picked_commit();
+        let versions = versions.unwrap_or_else(|| vec![None; self.history.read(cx).commits.len()]);
+        let picked = self.picked_commit(cx);
         // Shift picks a run of them, to review as one diff.
-        let run = self.picked_run();
+        let run = self.picked_run(cx);
         // A commit's anatomy (#79): its sha and title always; when, and who when there are
         // several, while the list has 260 px; the icon and its version under 360 px leave first.
         // The tooltip holds them all.
         let room = self.widths.room("commits");
-        let several = self.history.commits.first().is_some_and(|first| {
+        let several = self.history.read(cx).commits.first().is_some_and(|first| {
             self.history
+                .read(cx)
                 .commits
                 .iter()
                 .any(|c| c.author != first.author)
         });
         let rows: Vec<_> = self
             .history
+            .read(cx)
             .commits
             .iter()
             .enumerate()
@@ -229,18 +232,18 @@ impl Workspace {
                         }),
                     )
                     .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
-                        let id = this.history.commits.get(ix).map(|c| c.id);
+                        let id = this.history.read(cx).commits.get(ix).map(|c| c.id);
                         if event.modifiers().shift {
                             // The run from the one picked to this one.
                             if this.nav.pick_commit.is_none() {
-                                this.nav.pick_commit = this
-                                    .picked_commit()
-                                    .and_then(|at| this.history.commits.get(at).map(|c| c.id));
+                                this.nav.pick_commit = this.picked_commit(cx).and_then(|at| {
+                                    this.history.read(cx).commits.get(at).map(|c| c.id)
+                                });
                             }
                             this.nav.pick_to = id;
                             return cx.notify();
                         }
-                        if this.picked_commit() == Some(ix) && event.click_count() > 1 {
+                        if this.picked_commit(cx) == Some(ix) && event.click_count() > 1 {
                             return this.select_commit(ix, cx);
                         }
                         this.nav.pick_commit = id;
@@ -274,9 +277,9 @@ impl Workspace {
                                 Some((newest, oldest)) => format!(
                                     "{} of {} picked · ↵ reviews them as one",
                                     oldest - newest + 1,
-                                    plural(self.history.commits.len(), "commit")
+                                    plural(self.history.read(cx).commits.len(), "commit")
                                 ),
-                                None => plural(self.history.commits.len(), "commit"),
+                                None => plural(self.history.read(cx).commits.len(), "commit"),
                             })
                             .tip("Newest first · ↵ opens one, esc comes back here · shift and a click picks a run of them to review as one"),
                     )
@@ -288,7 +291,7 @@ impl Workspace {
     /// The section tabs in an item's bar with their counts — a request's Overview, Commits and
     /// Changes, a branch's Commits and Changes (#74); ⌃⇥ walks them.
     pub(super) fn section_tabs(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
-        let at = self.page_section()?;
+        let at = self.page_section(cx)?;
         let (loaded, files) = match self.nav_page()?.item()? {
             Item::Request(iid) => (
                 self.requests.read(cx).current == Some(iid),
@@ -299,15 +302,18 @@ impl Workspace {
                     .map(|(_, n)| n),
             ),
             // Tabbed only while it is the branch loaded.
-            Item::Branch(_) => (true, self.history.page.as_ref().and_then(|f| f.files)),
+            Item::Branch(_) => (
+                true,
+                self.history.read(cx).page.as_ref().and_then(|f| f.files),
+            ),
             Item::Compare(..) | Item::WorkingTree => return None,
         };
         let count = |section: Section| match section {
             Section::Overview => None,
-            Section::Commits => loaded.then_some(self.history.commits.len()),
+            Section::Commits => loaded.then_some(self.history.read(cx).commits.len()),
             Section::Changes => files,
         };
-        Some(self.item_sections().iter().copied().fold(
+        Some(self.item_sections(cx).iter().copied().fold(
             artoo_ui_kit::controls::group(),
             |group, section| {
                 let label = match count(section) {
@@ -329,17 +335,26 @@ impl Workspace {
     }
 
     /// The commit Commits has picked: the one esc came back from, else the newest.
-    fn picked_commit(&self) -> Option<usize> {
-        let at = self
-            .nav
-            .pick_commit
-            .and_then(|id| self.history.commits.iter().position(|c| c.id == id));
-        at.or((!self.history.commits.is_empty()).then_some(0))
+    fn picked_commit(&self, cx: &App) -> Option<usize> {
+        let at = self.nav.pick_commit.and_then(|id| {
+            self.history
+                .read(cx)
+                .commits
+                .iter()
+                .position(|c| c.id == id)
+        });
+        at.or((!self.history.read(cx).commits.is_empty()).then_some(0))
     }
 
     /// The run of commits picked with shift: the newest's index and the oldest's.
-    fn picked_run(&self) -> Option<(usize, usize)> {
-        let at = |id: git2::Oid| self.history.commits.iter().position(|c| c.id == id);
+    fn picked_run(&self, cx: &App) -> Option<(usize, usize)> {
+        let at = |id: git2::Oid| {
+            self.history
+                .read(cx)
+                .commits
+                .iter()
+                .position(|c| c.id == id)
+        };
         let a = at(self.nav.pick_commit?)?;
         let b = at(self.nav.pick_to?)?;
         (a != b).then_some((a.min(b), a.max(b)))
@@ -347,13 +362,13 @@ impl Workspace {
 
     /// ↑ ↓ in a request's Commits: another commit picked, nothing opened.
     pub(super) fn step_commit_pick(&mut self, down: bool, cx: &mut Context<Self>) {
-        let n = self.history.commits.len();
-        let to = match (self.picked_commit(), down) {
+        let n = self.history.read(cx).commits.len();
+        let to = match (self.picked_commit(cx), down) {
             (Some(at), true) => (at + 1).min(n.saturating_sub(1)),
             (Some(at), false) => at.saturating_sub(1),
             (None, _) => return,
         };
-        self.nav.pick_commit = self.history.commits.get(to).map(|c| c.id);
+        self.nav.pick_commit = self.history.read(cx).commits.get(to).map(|c| c.id);
         self.nav.pick_to = None;
         cx.notify();
     }
@@ -361,10 +376,10 @@ impl Workspace {
     /// ↵ in a request's Commits: the commit picked opens as a level under it, or the run picked
     /// as one diff.
     pub(super) fn open_commit_pick(&mut self, cx: &mut Context<Self>) {
-        if let Some((newest, oldest)) = self.picked_run() {
+        if let Some((newest, oldest)) = self.picked_run(cx) {
             return self.select_commits(newest, oldest, cx);
         }
-        if let Some(ix) = self.picked_commit() {
+        if let Some(ix) = self.picked_commit(cx) {
             self.select_commit(ix, cx);
         }
     }
@@ -377,13 +392,19 @@ impl Workspace {
         else {
             return false;
         };
-        let Some(at) = self.history.commits.iter().position(|c| c.id == id) else {
+        let Some(at) = self
+            .history
+            .read(cx)
+            .commits
+            .iter()
+            .position(|c| c.id == id)
+        else {
             return false;
         };
         let to = if forward {
             at.checked_sub(1)
         } else {
-            (at + 1 < self.history.commits.len()).then_some(at + 1)
+            (at + 1 < self.history.read(cx).commits.len()).then_some(at + 1)
         };
         if let Some(to) = to {
             self.select_commit(to, cx);

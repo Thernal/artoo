@@ -447,6 +447,7 @@ impl Workspace {
             });
         let branches = crate::rank::rank(
             self.history
+                .read(cx)
                 .branches
                 .iter()
                 .enumerate()
@@ -681,7 +682,7 @@ impl Workspace {
                 })
                 .chain(self.offered_items("Actions", &words))
                 .collect(),
-            Scope::Branches => crate::rank::rank(self.listed_branches(), query, |(_, b)| &b.name)
+            Scope::Branches => crate::rank::rank(self.listed_branches(cx), query, |(_, b)| &b.name)
                 .into_iter()
                 .take(60)
                 .map(|(ix, b)| Item {
@@ -694,6 +695,7 @@ impl Workspace {
                 .collect(),
             Scope::Commits => self
                 .history
+                .read(cx)
                 .commits
                 .iter()
                 .filter(|c| {
@@ -1019,7 +1021,7 @@ impl Workspace {
         }
         if scope.is_none_or(|s| s == '#') && !words.is_empty() | scope.is_some() {
             items.extend(
-                crate::rank::rank(self.listed_branches(), rest, |(_, b)| &b.name)
+                crate::rank::rank(self.listed_branches(cx), rest, |(_, b)| &b.name)
                     .into_iter()
                     .take(cap(3))
                     .map(|(ix, b)| Item {
@@ -1046,6 +1048,7 @@ impl Workspace {
         if scope.is_none() && !words.is_empty() {
             items.extend(
                 self.history
+                    .read(cx)
                     .commits
                     .iter()
                     .filter(|c| {
@@ -1230,7 +1233,13 @@ impl Workspace {
             // A result opens in its space (#71): a commit or a file of what is loaded on its page.
             Pick::Commit(id) => {
                 self.palette = None;
-                if let Some(ix) = self.history.commits.iter().position(|c| c.id == id) {
+                if let Some(ix) = self
+                    .history
+                    .read(cx)
+                    .commits
+                    .iter()
+                    .position(|c| c.id == id)
+                {
                     self.select_commit(ix, cx);
                     self.follow_loaded(cx);
                 }
@@ -1322,7 +1331,8 @@ impl Workspace {
             return;
         };
         self.clear_diff(cx);
-        self.history.selection = Selection::None;
+        self.history
+            .update(cx, |h, _| h.selection = Selection::None);
         // The whole request is its page; a commit or versions of it were (#71).
         if request.is_some() {
             self.record(cx);

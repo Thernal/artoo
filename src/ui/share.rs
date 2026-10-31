@@ -77,14 +77,20 @@ impl Workspace {
 
     /// Branch, tag or commit `name` as the host has it, its remote dropped; why not when it is a
     /// branch only on this Mac.
-    fn on_host(&self, name: &str) -> Result<String, String> {
-        let Some(branch) = self.history.branches.iter().find(|b| b.name == name) else {
+    fn on_host(&self, name: &str, cx: &App) -> Result<String, String> {
+        let Some(branch) = self
+            .history
+            .read(cx)
+            .branches
+            .iter()
+            .find(|b| b.name == name)
+        else {
             return Ok(name.to_owned());
         };
         if branch.kind == RefKind::Remote {
             return Ok(name.split_once('/').map_or(name, |(_, n)| n).to_owned());
         }
-        let pushed = self.history.branches.iter().any(|b| {
+        let pushed = self.history.read(cx).branches.iter().any(|b| {
             b.kind == RefKind::Remote && b.name.split_once('/').is_some_and(|(_, n)| n == name)
         });
         if pushed {
@@ -95,9 +101,9 @@ impl Workspace {
     }
 
     /// Branch `name`'s page on the host.
-    pub(super) fn branch_link(&self, name: &str) -> Result<Link, String> {
+    pub(super) fn branch_link(&self, name: &str, cx: &App) -> Result<Link, String> {
         let web = self.web_or_why()?;
-        let name = self.on_host(name)?;
+        let name = self.on_host(name, cx)?;
         Ok(Link {
             url: web.tree(&name, ""),
             what: format!("branch {name}"),
@@ -105,7 +111,7 @@ impl Workspace {
     }
 
     /// Whether the host has commit `sha`: a remote branch or a request it fetched has it.
-    fn pushed(&self, sha: git2::Oid) -> bool {
+    fn pushed(&self, sha: git2::Oid, cx: &App) -> bool {
         let Some(repo) = self
             .root
             .as_ref()
@@ -114,6 +120,7 @@ impl Workspace {
             return true;
         };
         self.history
+            .read(cx)
             .branches
             .iter()
             .filter(|b| b.kind != RefKind::Local)
@@ -121,9 +128,9 @@ impl Workspace {
     }
 
     /// Commit `sha`'s page on the host; why not when only this Mac has it.
-    fn pushed_commit_link(&self, sha: git2::Oid) -> Result<Link, String> {
+    fn pushed_commit_link(&self, sha: git2::Oid, cx: &App) -> Result<Link, String> {
         let web = self.web_or_why()?;
-        if self.pushed(sha) {
+        if self.pushed(sha, cx) {
             Ok(Self::commit_link(web, sha))
         } else {
             Err(format!(
@@ -152,7 +159,7 @@ impl Workspace {
         cx: &App,
     ) -> Result<Link, String> {
         let range = format!("{}..{}", format::short(oldest), format::short(newest));
-        if !self.pushed(newest) {
+        if !self.pushed(newest, cx) {
             return Err(format!(
                 "Commits {range} are only on this Mac: push them for a link"
             ));
@@ -189,8 +196,8 @@ impl Workspace {
     fn versions_link(&self, web: &WebRemote, iid: u64, from: usize, to: usize, cx: &App) -> Link {
         let request = self.request_link(web, iid, cx);
         let (Some(a), Some(b)) = (
-            self.history.versions.get(from),
-            self.history.versions.get(to),
+            self.history.read(cx).versions.get(from),
+            self.history.read(cx).versions.get(to),
         ) else {
             return request;
         };
@@ -222,9 +229,9 @@ impl Workspace {
     }
 
     /// What `head` changed against `base` on the host.
-    fn compare_link(&self, base: &str, head: &str, direct: bool) -> Result<Link, String> {
+    fn compare_link(&self, base: &str, head: &str, direct: bool, cx: &App) -> Result<Link, String> {
         let web = self.web_or_why()?;
-        let (base, head) = (self.on_host(base)?, self.on_host(head)?);
+        let (base, head) = (self.on_host(base, cx)?, self.on_host(head, cx)?);
         let dots = if direct { ".." } else { "..." };
         Ok(Link {
             url: web.compare(&base, &head, direct),
@@ -242,13 +249,15 @@ impl Workspace {
             },
             Space::Code => {
                 let rev = match self.code().and_then(|c| c.revision(cx)) {
-                    Some((name, sha)) => self.on_host(&name).unwrap_or_else(|_| sha.to_string()),
+                    Some((name, sha)) => {
+                        self.on_host(&name, cx).unwrap_or_else(|_| sha.to_string())
+                    }
                     None => {
-                        let head = self.history.branches.iter().find(|b| b.is_head);
+                        let head = self.history.read(cx).branches.iter().find(|b| b.is_head);
                         let Some(head) = head else {
                             return Err("No branch is checked out: no link to read it at".into());
                         };
-                        self.on_host(&head.name)?
+                        self.on_host(&head.name, cx)?
                     }
                 };
                 Ok(match self.nav_page() {
@@ -285,11 +294,16 @@ impl Workspace {
                 Ok(self.versions_link(web, *iid, *from, *to, cx))
             }
             Page::Branch(refname) => {
-                let branch = self.history.branches.iter().find(|b| b.refname == *refname);
+                let branch = self
+                    .history
+                    .read(cx)
+                    .branches
+                    .iter()
+                    .find(|b| b.refname == *refname);
                 let name = branch.map_or(refname.as_str(), |b| b.name.as_str());
-                self.branch_link(name)
+                self.branch_link(name, cx)
             }
-            Page::BranchCommit(_, sha) => self.pushed_commit_link(*sha),
+            Page::BranchCommit(_, sha) => self.pushed_commit_link(*sha, cx),
             Page::BranchCommits(_, newest, oldest) => {
                 self.run_link(web, None, *newest, *oldest, cx)
             }
@@ -297,7 +311,9 @@ impl Workspace {
             Page::Versions(..) => {
                 Err("A branch's earlier versions are only on this Mac: no link".into())
             }
-            Page::Compare((base, _), (head, _), direct) => self.compare_link(base, head, *direct),
+            Page::Compare((base, _), (head, _), direct) => {
+                self.compare_link(base, head, *direct, cx)
+            }
             Page::WorkingTree => Err("What is not committed is only on this Mac".into()),
             Page::File(_) | Page::Folder(_) => Err("Open it in Code for its link".into()),
         }
@@ -370,6 +386,7 @@ impl Workspace {
             Item::Branch(refname) => {
                 if let Some(ix) = self
                     .history
+                    .read(cx)
                     .branches
                     .iter()
                     .position(|b| b.refname == *refname)
@@ -380,7 +397,7 @@ impl Workspace {
             }
             Item::Compare(..) => match self.nav.opened(item).map(|o| &o.page) {
                 Some(Page::Compare((base, _), (head, _), direct)) => {
-                    self.compare_link(base, head, *direct)
+                    self.compare_link(base, head, *direct, cx)
                 }
                 _ => return,
             },
@@ -421,18 +438,18 @@ impl Workspace {
     }
 
     /// A commit's link entry, for its right click: Copy link, or why there is none.
-    pub(super) fn commit_link_entry(&self, sha: git2::Oid) -> Option<Entry> {
+    pub(super) fn commit_link_entry(&self, sha: git2::Oid, cx: &App) -> Option<Entry> {
         self.web.as_ref()?;
-        Some(match self.pushed_commit_link(sha) {
+        Some(match self.pushed_commit_link(sha, cx) {
             Ok(link) => Entry::new("Copy link", link.act()).key("↗"),
             Err(_) => Entry::off("No link: only on this Mac"),
         })
     }
 
     /// A branch's link entry, for its right click: Copy link, or why there is none.
-    pub(super) fn branch_link_entry(&self, name: &str) -> Option<Entry> {
+    pub(super) fn branch_link_entry(&self, name: &str, cx: &App) -> Option<Entry> {
         self.web.as_ref()?;
-        Some(match self.branch_link(name) {
+        Some(match self.branch_link(name, cx) {
             Ok(link) => Entry::new("Copy link", link.act()).key("↗"),
             Err(_) => Entry::off("No link: only on this Mac"),
         })

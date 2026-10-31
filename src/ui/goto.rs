@@ -5,7 +5,7 @@
 use super::Workspace;
 use crate::git::Repo;
 use crate::links::{self, Link, Target};
-use gpui::Context;
+use gpui::{App, Context};
 
 /// Where to go once what is needed has loaded: a comment of a request, or a line of its diff.
 #[derive(Clone, Debug)]
@@ -90,6 +90,7 @@ impl Workspace {
             Target::Commit(sha) => {
                 match self
                     .history
+                    .read(cx)
                     .commits
                     .iter()
                     .position(|c| c.id.to_string().starts_with(&sha))
@@ -99,7 +100,7 @@ impl Workspace {
                         self.follow_loaded(cx);
                     }
                     // Elsewhere in the repository: the first branch that has it, at that commit.
-                    None => match self.branch_with(&sha) {
+                    None => match self.branch_with(&sha, cx) {
                         Some((ix, id)) => self.open_branch(ix, Some(id), cx),
                         None => {
                             self.error = Some(
@@ -116,11 +117,12 @@ impl Workspace {
             Target::Branch(name) => {
                 let ix =
                     self.history
+                        .read(cx)
                         .branches
                         .iter()
                         .position(|b| b.name == name)
                         .or_else(|| {
-                            self.history.branches.iter().position(|b| {
+                            self.history.read(cx).branches.iter().position(|b| {
                                 b.name.split_once('/').is_some_and(|(_, n)| n == name)
                             })
                         });
@@ -137,14 +139,16 @@ impl Workspace {
     }
 
     /// A local branch (else a remote one) whose history has commit `sha`, and its full id.
-    fn branch_with(&self, sha: &str) -> Option<(usize, git2::Oid)> {
+    fn branch_with(&self, sha: &str, cx: &App) -> Option<(usize, git2::Oid)> {
         let repo = Repo::open(self.root.as_ref()?).ok()?;
         let id = repo.resolve(sha).ok()?;
-        let mut order: Vec<usize> = (0..self.history.branches.len()).collect();
-        order.sort_by_key(|&ix| self.history.branches[ix].kind != crate::git::RefKind::Local);
+        let mut order: Vec<usize> = (0..self.history.read(cx).branches.len()).collect();
+        order.sort_by_key(|&ix| {
+            self.history.read(cx).branches[ix].kind != crate::git::RefKind::Local
+        });
         order
             .into_iter()
-            .find(|&ix| repo.contains(self.history.branches[ix].tip, id))
+            .find(|&ix| repo.contains(self.history.read(cx).branches[ix].tip, id))
             .map(|ix| (ix, id))
     }
 
@@ -154,8 +158,8 @@ impl Workspace {
         let ready = match &self.pending_link {
             None => return,
             Some(Target::Request { .. }) => self.root.is_some() && !self.requests.read(cx).loading,
-            Some(Target::Commit(_)) => !self.history.commits.is_empty(),
-            Some(Target::Branch(_)) => !self.history.branches.is_empty(),
+            Some(Target::Commit(_)) => !self.history.read(cx).commits.is_empty(),
+            Some(Target::Branch(_)) => !self.history.read(cx).branches.is_empty(),
         };
         if ready && let Some(target) = self.pending_link.take() {
             self.go_to(target, cx);

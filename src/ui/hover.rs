@@ -393,8 +393,8 @@ impl BranchCard {
 
 impl Workspace {
     /// The card of commit `ix` of the list.
-    pub(super) fn commit_card(&self, ix: usize) -> Option<CommitCard> {
-        Some(self.card_of(self.history.commits.get(ix)?.clone()))
+    pub(super) fn commit_card(&self, ix: usize, cx: &App) -> Option<CommitCard> {
+        Some(self.card_of(self.history.read(cx).commits.get(ix)?.clone()))
     }
 
     /// The card of commit `info`, of whatever list.
@@ -456,7 +456,7 @@ impl Workspace {
         let theirs = |l: &str, n: &str| (!login.is_empty() && l == login) || n == name;
         let pushed = m
             .filter(|m| theirs(&m.author_login, &m.author))
-            .and_then(|_| self.history.versions.last())
+            .and_then(|_| self.history.read(cx).versions.last())
             .filter(|v| v.time > 0)
             .map(|v| format!("Pushed v{} {}", v.number, format::ago(v.time)));
         let wrote = m
@@ -502,7 +502,7 @@ impl Workspace {
         ix: usize,
         cx: &App,
     ) -> Option<impl Fn(&mut Window, &mut App) -> AnyView + 'static> {
-        let b = self.history.branches.get(ix)?;
+        let b = self.history.read(cx).branches.get(ix)?;
         let (root, name, tip) = (self.root.clone()?, b.name.clone(), b.tip);
         let against = self
             .roots

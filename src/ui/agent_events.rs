@@ -160,8 +160,8 @@ impl Workspace {
         self.agent_requests.retain(|(_, d)| d.source != source);
         self.agent_requests.push((agent.clone(), draft));
         self.drafts_unseen.insert(source.clone());
-        if let Some(ix) = self.draft_branch(&source) {
-            let page = Page::Branch(self.history.branches[ix].refname.clone());
+        if let Some(ix) = self.draft_branch(&source, cx) {
+            let page = Page::Branch(self.history.read(cx).branches[ix].refname.clone());
             if let Some(item) = page.item() {
                 self.call_reviewer(item, format!("{agent} drafted a merge request: {said}"));
             }
@@ -243,9 +243,10 @@ impl Workspace {
     }
 
     /// The branch a drafted request is for: here, else as origin has it.
-    fn draft_branch(&self, source: &str) -> Option<usize> {
+    fn draft_branch(&self, source: &str, cx: &App) -> Option<usize> {
         let at = |kind: RefKind, name: &str| {
             self.history
+                .read(cx)
                 .branches
                 .iter()
                 .position(|b| b.kind == kind && b.name == name)
@@ -256,11 +257,11 @@ impl Workspace {
     /// Open on that toast: the branch's page, and on it the New merge request card with the
     /// draft once the page is in.
     pub(super) fn open_agent_draft(&mut self, source: String, cx: &mut Context<Self>) {
-        let Some(ix) = self.draft_branch(&source) else {
+        let Some(ix) = self.draft_branch(&source, cx) else {
             self.error = Some(format!("{source} is not a branch here any more.").into());
             return cx.notify();
         };
-        let page = Page::Branch(self.history.branches[ix].refname.clone());
+        let page = Page::Branch(self.history.read(cx).branches[ix].refname.clone());
         let Some(item) = page.item() else {
             return;
         };
@@ -277,9 +278,9 @@ impl Workspace {
         // A draft whose card has not opened yet opens with its branch, however the branch was
         // opened: from its row, a link, the toast (#159).
         if !self.creating(cx)
-            && self.history.task.is_none()
-            && let Some(ix) = self.history.branch
-            && let Some(branch) = self.history.branches.get(ix)
+            && self.history.read(cx).task.is_none()
+            && let Some(ix) = self.history.read(cx).branch
+            && let Some(branch) = self.history.read(cx).branches.get(ix)
             && self.drafts_unseen.contains(match branch.kind {
                 RefKind::Remote => branch.name.split_once('/').map_or("", |(_, n)| n),
                 _ => branch.name.as_str(),
@@ -291,16 +292,16 @@ impl Workspace {
         let Some(ix) = self
             .create_waiting
             .as_deref()
-            .and_then(|source| self.draft_branch(source))
+            .and_then(|source| self.draft_branch(source, cx))
         else {
             self.create_waiting = None;
             return;
         };
-        if self.history.branch == Some(ix) && self.history.task.is_some() {
+        if self.history.read(cx).branch == Some(ix) && self.history.read(cx).task.is_some() {
             return;
         }
         self.create_waiting = None;
-        if self.history.branch == Some(ix) {
+        if self.history.read(cx).branch == Some(ix) {
             self.open_create(Some(ix), cx);
         }
     }
