@@ -82,6 +82,7 @@ pub enum Event {
 impl EventEmitter<Event> for History {}
 
 /// What a click in the history's views asks of the tab.
+#[derive(Clone)]
 pub enum Act {
     /// Version `ix` clicked, with ⌘ (`more`) or not (`History::versions_clicked`).
     Version { ix: usize, more: bool },
@@ -116,6 +117,25 @@ pub enum Act {
     ShowRequest(u64),
     /// A remote's branches folded or open.
     ToggleRemote(String),
+    /// The working tree's halves: what is not staged only, or all of it.
+    OnlyUnstaged(bool),
+    /// What `head` changed against `base`, since their merge base or directly, a request's diff or not.
+    Compare {
+        base: (String, git2::Oid),
+        head: (String, git2::Oid),
+        since: bool,
+        request: Option<u64>,
+    },
+    /// Versions `from` and `to` compared: an interdiff's way back to their commits.
+    Versions { from: usize, to: usize },
+    /// The version comparison's tab: its files, or its commits paired.
+    VersionTab(VersionTab),
+    /// A commit's message open under its title, or folded.
+    Message,
+    /// Text to the clipboard: a commit's id.
+    Copy(String),
+    /// A page on the host: a commit's.
+    OpenUrl(String),
 }
 
 /// How a view asks the tab an `Act`.

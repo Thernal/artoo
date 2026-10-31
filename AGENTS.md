@@ -55,8 +55,10 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   (`History`) whose reads are each its own task (`reading`) — the branch open, its versions and commits and what
   the diff shows of them (`history`), what its page says of it (`facts`), the commits' search (`find`), a
   comparison's own commits (`compare`), the working tree as last looked at (`working`), what the Branches list
-  reads for its rows (`roots`) —, and the views of the side panel's rows (`side`) and a commit's card (`card`), a
-  click asking the tab a `history::Act`; the app's other views read and draw the history, the side panel a
+  reads for its rows (`roots`) —, and the views of the side panel's rows (`side`), a commit's card (`card`) and the
+  head over a diff with its toolbar's left (`head`: what the diff is of, the working tree's halves, a comparison's
+  sides and warnings, the versions' tabs; its text selectable through the tab), a click asking the tab a
+  `history::Act`; the app's other views read and draw the history, the side panel a
   request's page shares among them.
   `crates/shell-api` (`artoo-shell-api`): the
   shell's contract — actions (the app menu and ⌘K list them), parts each tab draws (title-bar items, cards over the

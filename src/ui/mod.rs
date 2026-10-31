@@ -84,6 +84,7 @@ mod zones;
 use crate::git::{DiffSettings, FileDiff, PairKind, Repo};
 use crate::rows::{self, Row};
 use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
+use artoo_branches::head;
 use artoo_branches::history::{self, History, NamedTip, Selection, VersionTab};
 use artoo_branches::reading::COMMIT_PAGE;
 use artoo_branches::working::WorkingState;
@@ -3305,16 +3306,22 @@ impl Workspace {
             }))
     }
 
-    /// The header row over the panes: the screen's identity.
-    fn render_header(&self, diff: &Diff, cx: &mut Context<Self>) -> impl IntoElement {
-        island()
-            .flex_none()
-            .flex_row()
-            .items_start()
-            .gap_4()
-            .px_4()
-            .py(px(8.))
-            .child(self.render_summary(diff, cx))
+    /// The header row over the panes: the screen's identity (`artoo_branches::head`).
+    fn render_header(&self, diff: &Diff, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let look = head::HeadLook {
+            message_open: self.body_expanded,
+            web: self.web.as_ref(),
+            compare_title: self.compare_title(cx),
+        };
+        let acts = self.history_acts(cx);
+        let this = cx.entity().downgrade();
+        let cx: &App = cx;
+        head::head(
+            diff,
+            &look,
+            &|key, text| self.selectable(key, text, this.clone(), cx),
+            &acts,
+        )
     }
 
     /// The diff options, as chips: the review's (`Review::render_options`).
@@ -3323,102 +3330,6 @@ impl Workspace {
         self.review
             .read(cx)
             .render_options(self.ctx_menu.is_some(), host)
-    }
-
-    /// The left of the diff's toolbar: which range is shown, as the screen offers it.
-    fn render_what(&self, diff: &Diff, cx: &mut Context<Self>) -> gpui::AnyElement {
-        match &diff.header {
-            Header::Commit(c) => div()
-                .text_size(px(12.))
-                .text_color(theme::muted())
-                .child(format!("{} · against its parent", format::short(c.id)))
-                .into_any_element(),
-            Header::WorkingTree { only_unstaged } => {
-                let only = *only_unstaged;
-                artoo_ui_kit::controls::group()
-                    .child(chip("wt-all", "All changes", !only).on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.set_only_unstaged(false, cx)
-                        }),
-                    ))
-                    .child(chip("wt-unstaged", "Not staged only", only).on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| this.set_only_unstaged(true, cx)),
-                    ))
-                    .into_any_element()
-            }
-            // A run of a comparison's commits says so, its × the whole again (#21).
-            Header::Compare { .. } if self.narrowed_compare(cx).is_some() => self
-                .render_compare_only(cx)
-                .unwrap_or_else(|| div().into_any_element()),
-            Header::Compare {
-                base,
-                head,
-                since_merge_base,
-                request,
-                ..
-            } => {
-                let (b, h, since, req) = (base.clone(), head.clone(), *since_merge_base, *request);
-                let (b2, h2) = (b.clone(), h.clone());
-                let (b3, h3) = (b.clone(), h.clone());
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        artoo_ui_kit::controls::group()
-                            .child(chip("cmp-since", "Since merge base", since).on_click(
-                                cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                    this.run_compare(b.clone(), h.clone(), true, req, cx)
-                                }),
-                            ))
-                            .child(chip("cmp-direct", "Direct", !since).on_click(cx.listener(
-                                move |this, _: &ClickEvent, _, cx| {
-                                    this.run_compare(b2.clone(), h2.clone(), false, req, cx)
-                                },
-                            ))),
-                    )
-                    .child(chip("cmp-swap", "⇄ Swap", false).on_click(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
-                            this.run_compare(h3.clone(), b3.clone(), since, None, cx)
-                        },
-                    )))
-                    .into_any_element()
-            }
-            Header::Interdiff { from, to, .. } => {
-                let (from, to) = (*from, *to);
-                chip("back-to-commits", "← Commits", false)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.select_versions(from, to, cx)
-                    }))
-                    .into_any_element()
-            }
-            Header::Versions { .. } => artoo_ui_kit::controls::group()
-                .child(
-                    chip(
-                        "tab-files",
-                        "Files",
-                        self.history.read(cx).version_tab == VersionTab::Files,
-                    )
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.history
-                            .update(cx, |h, _| h.version_tab = VersionTab::Files);
-                        cx.notify();
-                    })),
-                )
-                .child(
-                    chip(
-                        "tab-commits",
-                        format!("Commits · {}", diff.pairs.len()),
-                        self.history.read(cx).version_tab == VersionTab::Commits,
-                    )
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.history
-                            .update(cx, |h, _| h.version_tab = VersionTab::Commits);
-                        cx.notify();
-                    })),
-                )
-                .into_any_element(),
-        }
     }
 
     /// The diff's toolbar, read left to right: what is shown, then how it is drawn.
@@ -3435,344 +3346,14 @@ impl Workspace {
             .py(px(6.))
             .border_b_1()
             .border_color(theme::island_border())
-            .child(self.render_what(diff, cx))
+            .child(head::what(
+                diff,
+                self.history.read(cx),
+                self.narrowed_compare(cx).is_some(),
+                &self.history_acts(cx),
+            ))
             .child(div().flex_1())
             .child(self.render_toolbar(cx))
-    }
-
-    fn render_summary(&self, diff: &Diff, cx: &mut Context<Self>) -> impl IntoElement {
-        let (added, removed) = diff
-            .files
-            .iter()
-            .fold((0, 0), |(a, r), f| (a + f.added, r + f.removed));
-        let stats = div()
-            .flex()
-            .gap_2()
-            .text_size(px(12.))
-            .child(
-                div()
-                    .text_color(theme::muted())
-                    .child(plural(diff.file_count(), "file")),
-            )
-            .child(div().text_color(theme::added()).child(format!("+{added}")))
-            .child(
-                div()
-                    .text_color(theme::removed())
-                    .child(format!("−{removed}")),
-            );
-        let header = div().flex_1().min_w_0().flex().flex_col().gap_1();
-        match &diff.header {
-            Header::Commit(commit) => {
-                // The explanation under the title, without the trailers (Co-Authored-By …).
-                let body = commit
-                    .message
-                    .split_once('\n')
-                    .map(|(_, body)| {
-                        body.lines()
-                            .filter(|l| !is_trailer(l))
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                            .trim()
-                            .to_owned()
-                    })
-                    .filter(|b| !b.is_empty());
-                let (full, short) = (commit.id.to_string(), format::short(commit.id));
-                header
-                    // A long hover: the whole id, who and when in full, the message when it is
-                    // folded (the developer, 2026-10-23).
-                    .child({
-                        use hover::Hover;
-                        let mut tip = vec![
-                            commit.id.to_string(),
-                            format!("{} <{}>", commit.author, commit.email),
-                            hover::full_date(commit.time),
-                        ];
-                        if let Some(b) = body.as_ref().filter(|_| !self.body_expanded) {
-                            tip.push(String::new());
-                            tip.extend(b.lines().take(12).map(str::to_owned));
-                        }
-                        div()
-                            .id("commit-summary")
-                            .text_size(px(15.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(self.selectable(
-                                format!("commit-summary-{}", commit.id),
-                                &commit.summary,
-                                cx.entity().downgrade(),
-                                cx,
-                            ))
-                            .tip(tip.join("\n"))
-                    })
-                    .children(body.clone().filter(|_| self.body_expanded).map(|b| {
-                        div()
-                            .id("commit-body")
-                            .max_h(px(220.))
-                            .overflow_y_scroll()
-                            .text_color(theme::muted())
-                            .child(self.selectable(
-                                format!("commit-body-{}", commit.id),
-                                &b,
-                                cx.entity().downgrade(),
-                                cx,
-                            ))
-                    }))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_wrap()
-                            .gap_x(px(12.))
-                            .gap_y(px(2.))
-                            .text_size(px(12.))
-                            .text_color(theme::muted())
-                            .child(
-                                div()
-                                    .flex()
-                                    .gap_2()
-                                    .child(div().font_family(theme::code_font()).child(short))
-                                    .child(
-                                        div()
-                                            .id("copy-hash")
-                                            .text_color(theme::accent())
-                                            .cursor_pointer()
-                                            .hover(|s| s.text_color(theme::text()))
-                                            .child("copy")
-                                            .on_click(cx.listener(move |this, _, _, cx| {
-                                                this.run_act(Act::Copy(full.clone()), cx)
-                                            })),
-                                    ),
-                            )
-                            .child(commit.author.clone())
-                            .children(body.is_some().then(|| {
-                                div()
-                                    .id("body-toggle")
-                                    .text_color(theme::accent())
-                                    .cursor_pointer()
-                                    .hover(|s| s.text_color(theme::text()))
-                                    .child(if self.body_expanded {
-                                        "Message ▴"
-                                    } else {
-                                        "Message ▾"
-                                    })
-                                    .on_click(cx.listener(|this, e: &ClickEvent, _, cx| {
-                                        if e.click_count() > 1 {
-                                            return;
-                                        }
-                                        this.body_expanded = !this.body_expanded;
-                                        cx.notify();
-                                    }))
-                            }))
-                            .child(format::date(commit.time))
-                            .child(stats)
-                            .children(self.web.as_ref().map(|web| {
-                                let url = web.commit(&commit.id.to_string());
-                                div()
-                                    .id("open-web")
-                                    .text_color(theme::accent())
-                                    .cursor_pointer()
-                                    .hover(|s| s.text_color(theme::text()))
-                                    .child(format!("Open in {} ↗", web.name()))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.run_act(Act::OpenUrl(url.clone()), cx)
-                                    }))
-                            })),
-                    )
-            }
-            Header::WorkingTree { only_unstaged } => {
-                let only = *only_unstaged;
-                header
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .flex_wrap()
-                            .gap_x(px(12.))
-                            .gap_y(px(4.))
-                            .child(
-                                div()
-                                    .text_size(px(15.))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(if only {
-                                        "Working tree against the index"
-                                    } else {
-                                        "Working tree against HEAD"
-                                    }),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap_3()
-                            .text_size(px(12.))
-                            .text_color(theme::muted())
-                            .child(stats),
-                    )
-            }
-            Header::Compare {
-                base,
-                head,
-                since_merge_base,
-                start,
-                commits,
-                request,
-                stale,
-            } => {
-                let (since, req) = (*since_merge_base, *request);
-                let (h4, b5, h5) = (head.clone(), base.clone(), head.clone());
-                // Why the result looks wrong, with the one click that fixes it.
-                let warning = |text: String, button: gpui::Stateful<gpui::Div>| {
-                    div()
-                        .w_full()
-                        .flex()
-                        .items_center()
-                        .gap_3()
-                        .px_3()
-                        .py(px(6.))
-                        .rounded(px(ROW_RADIUS))
-                        .bg(theme::warning_bg())
-                        .text_size(px(12.))
-                        .text_color(theme::warning())
-                        .child(div().flex_1().min_w_0().child(text))
-                        .child(
-                            button
-                                .flex_none()
-                                .bg(theme::hover())
-                                .text_color(theme::text()),
-                        )
-                };
-                let stale_note = stale.clone().map(|st| {
-                    let upstream = (st.upstream.clone(), st.tip);
-                    let h = h4.clone();
-                    warning(
-                        format!(
-                            "{} is {} behind {}: their changes show up here too",
-                            base.0,
-                            plural(st.behind, "commit"),
-                            st.upstream
-                        ),
-                        chip("cmp-upstream", format!("Use {}", st.upstream), false).on_click(
-                            cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.run_compare(upstream.clone(), h.clone(), since, req, cx)
-                            }),
-                        ),
-                    )
-                });
-                let empty_note = (since && *commits == 0).then(|| {
-                    warning(
-                        format!(
-                            "{} has nothing {} lacks: are the sides swapped?",
-                            head.0, base.0
-                        ),
-                        chip("cmp-swap-hint", "⇄ Swap", false).on_click(cx.listener(
-                            move |this, _: &ClickEvent, _, cx| {
-                                this.run_compare(h5.clone(), b5.clone(), since, None, cx)
-                            },
-                        )),
-                    )
-                });
-                header
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .flex_wrap()
-                            .gap_x(px(12.))
-                            .gap_y(px(4.))
-                            .child(
-                                div()
-                                    .text_size(px(15.))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(
-                                        self.compare_title(cx)
-                                            .unwrap_or_else(|| format!("{} … {}", base.0, head.0)),
-                                    ),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap_3()
-                            .text_size(px(12.))
-                            .text_color(theme::muted())
-                            .child(format!(
-                                "{} · from {}",
-                                plural(*commits, "commit"),
-                                format::short(*start)
-                            ))
-                            .child(stats),
-                    )
-                    .children(stale_note)
-                    .children(empty_note)
-            }
-            Header::Interdiff { old, new, .. } => header
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .flex_wrap()
-                        .gap_x(px(12.))
-                        .gap_y(px(4.))
-                        .child(
-                            div()
-                                .text_size(px(15.))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(format!("Interdiff · {}", new.summary)),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .gap_3()
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child(format!(
-                            "{} → {} · the old commit's patch against the new one's",
-                            format::short(old.id),
-                            format::short(new.id)
-                        ))
-                        .child(stats),
-                ),
-            Header::Versions {
-                from,
-                to,
-                rebased,
-                conflicts,
-            } => header
-                .child(
-                    div().flex().items_center().gap_3().child(
-                        div()
-                            .text_size(px(15.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(format!("Changes from v{} to v{}", from.number, to.number)),
-                    ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .gap_3()
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child(format!(
-                            "v{} {} → v{} {}",
-                            from.number,
-                            format::short(from.tip),
-                            to.number,
-                            format::short(to.tip)
-                        ))
-                        .when(*rebased, |s| {
-                            s.child(div().text_color(theme::warning()).child(format!(
-                                "rebased onto {} — upstream changes hidden",
-                                to.base.map(format::short).unwrap_or_default()
-                            )))
-                        })
-                        .when(*conflicts > 0, |s| {
-                            s.child(div().text_color(theme::removed()).child(format!(
-                                "{} with rebase conflicts",
-                                plural(*conflicts, "file")
-                            )))
-                        })
-                        .child(stats),
-                ),
-        }
     }
 
     /// The file's pane, the review's (`Review::render_pane`): what the tab's features put on it comes in its
@@ -4050,21 +3631,6 @@ fn section_label(text: impl Into<SharedString>) -> gpui::Div {
         .child(text.into().to_uppercase())
 }
 
-/// A `Key: value` line of the kind git calls a trailer.
-fn is_trailer(line: &str) -> bool {
-    const KEYS: [&str; 7] = [
-        "co-authored-by",
-        "signed-off-by",
-        "reviewed-by",
-        "acked-by",
-        "tested-by",
-        "reported-by",
-        "cc",
-    ];
-    line.split_once(':')
-        .is_some_and(|(key, _)| KEYS.contains(&key.trim().to_lowercase().as_str()))
-}
-
 fn island_label(text: impl Into<SharedString>) -> gpui::Div {
     let text: SharedString = text.into();
     section_label(SharedString::from(words::say(&text).into_owned()))
@@ -4166,15 +3732,6 @@ fn button(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn trailers_are_told_from_prose() {
-        assert!(is_trailer("Co-Authored-By: Someone <a@b.c>"));
-        assert!(is_trailer("signed-off-by: Someone"));
-        assert!(!is_trailer("Fixes: the retry loop"));
-        assert!(!is_trailer("A sentence: with a colon."));
-        assert!(!is_trailer("no colon at all"));
-    }
 
     #[test]
     fn the_window_has_a_default_size() {

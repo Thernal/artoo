@@ -7,7 +7,7 @@
 
 use super::nav::Page;
 use super::{Selection, Source, Workspace};
-use artoo_branches::compare::{CompareCommits, Sides, only_pill};
+use artoo_branches::compare::{CompareCommits, Sides};
 use artoo_branches::side::{compare_commits, compare_row};
 use gpui::{AnyElement, App, Context, prelude::*};
 
@@ -134,14 +134,6 @@ impl Workspace {
         )
         .track_scroll(&self.compare_scroll);
         Some(compare_commits(list, n).into_any_element())
-    }
-
-    /// Over the narrowed diff: "a41f9c0 only", its × the whole comparison.
-    pub(super) fn render_compare_only(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        self.narrowed_compare(cx)?;
-        let acts = self.history_acts(cx);
-        let pill = only_pill(self.history.read(cx).compare.as_ref()?, &acts)?;
-        Some(pill.into_any_element())
     }
 }
 

@@ -59,6 +59,24 @@ impl Workspace {
                 Act::OpenRow(row) => this.open_branch_row(row, cx),
                 Act::ShowRequest(iid) => this.select_request(iid, cx),
                 Act::ToggleRemote(remote) => this.toggle_remote(remote, cx),
+                Act::OnlyUnstaged(on) => this.set_only_unstaged(on, cx),
+                Act::Compare {
+                    base,
+                    head,
+                    since,
+                    request,
+                } => this.run_compare(base, head, since, request, cx),
+                Act::Versions { from, to } => this.select_versions(from, to, cx),
+                Act::VersionTab(tab) => {
+                    this.history.update(cx, |h, _| h.version_tab = tab);
+                    cx.notify();
+                }
+                Act::Message => {
+                    this.body_expanded = !this.body_expanded;
+                    cx.notify();
+                }
+                Act::Copy(text) => this.run_act(super::menu::Act::Copy(text), cx),
+                Act::OpenUrl(url) => this.run_act(super::menu::Act::OpenUrl(url), cx),
             })
             .ok();
         })
