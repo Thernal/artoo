@@ -193,7 +193,8 @@ impl Workspace {
     /// What a click on one opens, its tab on screen.
     fn open_system_note(&mut self, open: Open, cx: &mut Context<Self>) {
         match open {
-            Open::Notice(key) => match self.notices.list.iter().position(|n| n.key == key) {
+            Open::Notice(key) => match self.notices.read(cx).list.iter().position(|n| n.key == key)
+            {
                 Some(ix) => self.open_notice(ix, cx),
                 None => self.go_space(super::spaces::Space::Inbox, cx),
             },

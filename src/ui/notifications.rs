@@ -6,7 +6,7 @@ use super::Workspace;
 use crate::links::Target;
 use artoo_requests::notices::{self, EVERY};
 pub(super) use artoo_requests::notices::{Kind, Notice, Notices};
-use gpui::Context;
+use gpui::{App, Context};
 
 impl Workspace {
     /// Reads the to-dos and the discussions of the user's requests again, in the background.
@@ -16,28 +16,30 @@ impl Workspace {
         };
         let host = super::host_of(&remote, cx);
         if !self.requests.read(cx).available {
-            self.notices.list.clear();
+            self.notices.update(cx, |n, _| n.list.clear());
             return;
         }
-        let reading = self.notices.begin(&remote.base);
+        let reading = self.notices.update(cx, |n, _| n.begin(&remote.base));
         let requests = self.requests.read(cx).list.clone();
         let tick = self.requests.read(cx).waiting.tick();
-        self.notices.task = Some(cx.spawn(async move |this, cx| {
+        let task = cx.spawn(async move |this, cx| {
             let found = cx
                 .background_executor()
                 .spawn(async move { notices::read(&*host, &requests, reading) })
                 .await;
             this.update(cx, |this, cx| {
-                if let Some(mut arrived) = this.notices.arrive(found, tick) {
+                if let Some(mut arrived) = this.notices.update(cx, |n, _| n.arrive(found, tick)) {
                     let news = std::mem::take(&mut arrived.news);
                     this.notify_notices(news, cx);
                     this.settle_waiting(cx);
                     let me = this.requests.read(cx).login.clone().unwrap_or_default();
-                    for iid in this.notices.iids() {
-                        this.notices
-                            .show(iid, &this.requests.read(cx).waiting, (&this.me, &me));
-                    }
-                    this.notices.put(arrived);
+                    let requests = this.requests.clone();
+                    this.notices.update(cx, |n, cx| {
+                        for iid in n.iids() {
+                            n.show(iid, &requests.read(cx).waiting, (&this.me, &me));
+                        }
+                        n.put(arrived);
+                    });
                     if this.inbox {
                         this.inbox_selected(cx);
                     }
@@ -45,33 +47,35 @@ impl Workspace {
                 cx.notify();
             })
             .ok();
-        }));
-        if self.notices.poll.is_none() {
-            self.notices.poll = Some(cx.spawn(async move |this, cx| {
+        });
+        self.notices.update(cx, |n, _| n.task = Some(task));
+        if self.notices.read(cx).poll.is_none() {
+            let poll = cx.spawn(async move |this, cx| {
                 loop {
                     cx.background_executor().timer(EVERY).await;
                     if this.update(cx, |this, cx| this.load_notices(cx)).is_err() {
                         return;
                     }
                 }
-            }));
+            });
+            self.notices.update(cx, |n, _| n.poll = Some(poll));
         }
     }
 
     /// The Inbox opened: everything read afresh, not only what reports a change.
     pub(super) fn refresh_notices(&mut self, cx: &mut Context<Self>) {
-        self.notices.forget();
+        self.notices.update(cx, |n, _| n.forget());
         self.load_notices(cx);
     }
 
     /// Notice `ix` is not read yet.
-    pub(super) fn notice_unread(&self, ix: usize) -> bool {
-        self.notices.unread_at(ix)
+    pub(super) fn notice_unread(&self, ix: usize, cx: &App) -> bool {
+        self.notices.read(cx).unread_at(ix)
     }
 
     /// Opens notice `ix`: its request, at its comment.
     pub(super) fn open_notice(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let Some(n) = self.notices.open(ix) else {
+        let Some(n) = self.notices.update(cx, |n, _| n.open(ix)) else {
             return;
         };
         // On an outdated comment it opens on the diff since it, once that is known (#46).
@@ -92,7 +96,10 @@ impl Workspace {
     /// from now on.
     pub(super) fn dismiss_notice(&mut self, ix: usize, cx: &mut Context<Self>) {
         let base = self.web.as_ref().map(|w| w.base.clone());
-        let Some(n) = self.notices.dismiss(ix, base.as_deref()) else {
+        let Some(n) = self
+            .notices
+            .update(cx, |ns, _| ns.dismiss(ix, base.as_deref()))
+        else {
             return;
         };
         // Gone at once; a refusal puts it back where it was and says why (#139).
@@ -107,7 +114,7 @@ impl Workspace {
                     .await;
                 this.update(cx, |this, cx| {
                     if let Err(e) = done {
-                        this.notices.put_back(ix, n);
+                        this.notices.update(cx, |ns, _| ns.put_back(ix, n));
                         this.error = Some(format!("Not marked done — {e:#}").into());
                         cx.notify();
                     }
@@ -122,7 +129,7 @@ impl Workspace {
     /// Everything listed counts as read.
     pub(super) fn read_all_notices(&mut self, cx: &mut Context<Self>) {
         let agents = self.agent_notices().into_iter().map(|(_, _, key)| key);
-        self.notices.read_all(agents);
+        self.notices.update(cx, |n, _| n.read_all(agents));
         cx.notify();
     }
 }

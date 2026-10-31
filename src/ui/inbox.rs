@@ -16,13 +16,15 @@ use artoo_requests::inbox::excerpt;
 pub(super) use artoo_requests::inbox::{InboxRow, InboxView};
 use artoo_requests::inbox_view::{self, InboxEvent, NoticeLook, OnInbox, RowLook};
 pub(super) use artoo_ui_kit::format::now;
-use gpui::{AnyElement, Context, div, prelude::*};
+use gpui::{AnyElement, App, Context, div, prelude::*};
 use std::rc::Rc;
 
 impl Workspace {
     /// What the Inbox lists under its filter, newest first (`InboxView::rows`).
-    pub(super) fn inbox_rows(&self) -> Vec<InboxRow> {
-        self.inbox_view.rows(&self.notices, &self.agent_notices())
+    pub(super) fn inbox_rows(&self, cx: &App) -> Vec<InboxRow> {
+        self.inbox_view
+            .read(cx)
+            .rows(self.notices.read(cx), &self.agent_notices())
     }
 
     /// Your notes an agent answered that wait for you: it asked something (your answer, once
@@ -47,23 +49,24 @@ impl Workspace {
     }
 
     /// The Inbox's count: notices not read, and agents' answers not looked at.
-    pub(super) fn inbox_unread(&self) -> usize {
-        self.notices.unread_with(&self.agent_notices())
+    pub(super) fn inbox_unread(&self, cx: &App) -> usize {
+        self.notices.read(cx).unread_with(&self.agent_notices())
     }
 
     /// The Inbox's selected row (`InboxView::current`).
-    pub(super) fn inbox_current(&self) -> Option<InboxRow> {
+    pub(super) fn inbox_current(&self, cx: &App) -> Option<InboxRow> {
         self.inbox_view
-            .current(&self.notices, &self.agent_notices())
+            .read(cx)
+            .current(self.notices.read(cx), &self.agent_notices())
     }
 
     /// Your answer to agent's question `id` was written in the Inbox: it goes to its chat now,
     /// and the next row is selected (Design D: "Answer, next").
     pub(super) fn inbox_answered(&mut self, id: u64, cx: &mut Context<Self>) {
-        let rows = self.inbox_rows();
+        let rows = self.inbox_rows(cx);
         let at = rows.iter().position(|r| *r == InboxRow::Agent(id));
         self.send_agent(vec![id], cx);
-        let rows = self.inbox_rows();
+        let rows = self.inbox_rows(cx);
         if let Some(&next) = at.and_then(|a| rows.get(a).or(rows.last())) {
             self.inbox_select(next, cx);
         }
@@ -72,27 +75,31 @@ impl Workspace {
     /// j k in the Inbox: the next or previous listed notice.
     pub(super) fn inbox_step(&mut self, down: bool, cx: &mut Context<Self>) {
         let answers = self.agent_notices();
-        if let Some(next) = self.inbox_view.step(&self.notices, &answers, down) {
+        let next = self
+            .inbox_view
+            .read(cx)
+            .step(self.notices.read(cx), &answers, down);
+        if let Some(next) = next {
             self.inbox_select(next, cx);
         }
     }
 
     fn inbox_select(&mut self, row: InboxRow, cx: &mut Context<Self>) {
-        if Some(row) != self.inbox_current() {
+        if Some(row) != self.inbox_current(cx) {
             self.drop_inbox_reply();
         }
         match row {
             InboxRow::Notice(ix) => {
-                self.inbox_view.agent = None;
-                self.notices.at = ix;
+                self.inbox_view.update(cx, |v, _| v.agent = None);
+                self.notices.update(cx, |n, _| n.at = ix);
                 self.inbox_selected(cx);
             }
             InboxRow::Agent(id) => {
-                self.inbox_view.agent = Some(id);
+                self.inbox_view.update(cx, |v, _| v.agent = Some(id));
                 // Looked at: read, until the agent writes again.
                 if let Some((_, _, key)) = self.agent_notices().into_iter().find(|(i, ..)| *i == id)
                 {
-                    self.notices.mark_read(key);
+                    self.notices.update(cx, |n, _| n.mark_read(key));
                 }
             }
         }
@@ -112,7 +119,7 @@ impl Workspace {
 
     /// ↵ in the Inbox: the notice's request, or the line of the note the agent answered.
     pub(super) fn inbox_open(&mut self, cx: &mut Context<Self>) {
-        match self.inbox_current() {
+        match self.inbox_current(cx) {
             Some(InboxRow::Agent(id)) => self.open_agent_note(id, cx),
             Some(InboxRow::Notice(ix)) => self.open_notice(ix, cx),
             None => {}
@@ -122,7 +129,7 @@ impl Workspace {
     /// e in the Inbox: done with the notice; an agent's question for later (read, the next one
     /// on), its "done" resolved.
     pub(super) fn inbox_done(&mut self, cx: &mut Context<Self>) {
-        match self.inbox_current() {
+        match self.inbox_current(cx) {
             Some(InboxRow::Agent(id)) => {
                 let addressed = self
                     .comments
@@ -159,20 +166,21 @@ impl Workspace {
     }
 
     /// The selected notice's discussion, when it has one and it was read.
-    fn inbox_thread(&self, n: &Notice) -> Option<&Thread> {
-        self.notices.thread_of(n.iid, n.note?)
+    fn inbox_thread<'a>(&self, n: &Notice, cx: &'a App) -> Option<&'a Thread> {
+        self.notices.read(cx).thread_of(n.iid, n.note?)
     }
 
     /// The selected notice changed (or its discussions came in): reads the code its discussion
     /// is on, once, in the background.
     pub(super) fn inbox_selected(&mut self, cx: &mut Context<Self>) {
-        let Some(n) = self.notices.list.get(self.notices.at) else {
+        let notices = self.notices.read(cx);
+        let Some(n) = notices.list.get(notices.at) else {
             return;
         };
-        let Some(t) = self.inbox_thread(n) else {
+        let Some(t) = self.inbox_thread(n, cx) else {
             return;
         };
-        if self.inbox_view.excerpts.contains_key(&t.id) {
+        if self.inbox_view.read(cx).excerpts.contains_key(&t.id) {
             return;
         }
         let (Some(root), Some(path)) = (self.root.clone(), t.path.clone()) else {
@@ -183,36 +191,43 @@ impl Workspace {
         };
         let heads: Vec<String> = t.commit.iter().cloned().chain([m.head.clone()]).collect();
         let (id, target, new, old) = (t.id.clone(), m.target.clone(), t.new_line, t.old_line);
-        self.inbox_view.reading = Some(id.clone());
-        self.inbox_view.task = Some(cx.spawn(async move |this, cx| {
+        let reading = id.clone();
+        let task = cx.spawn(async move |this, cx| {
             let found = cx
                 .background_executor()
                 .spawn(async move { excerpt(&root, &target, &heads, &path, new, old) })
                 .await;
             this.update(cx, |this, cx| {
-                this.inbox_view.reading.take_if(|r| *r == id);
-                this.inbox_view.excerpts.insert(id, found);
+                this.inbox_view.update(cx, |v, _| {
+                    v.reading.take_if(|r| *r == id);
+                    v.excerpts.insert(id, found);
+                });
                 cx.notify();
             })
             .ok();
-        }));
+        });
+        self.inbox_view.update(cx, |v, _| {
+            v.reading = Some(reading);
+            v.task = Some(task);
+        });
     }
 
     /// r in the Inbox: the composer under the selected notice. A review request has nothing to
     /// answer.
     pub(super) fn reply_in_inbox(&mut self, cx: &mut Context<Self>) {
         // An agent's question: your answer, in its thread.
-        if let Some(InboxRow::Agent(id)) = self.inbox_current() {
+        if let Some(InboxRow::Agent(id)) = self.inbox_current(cx) {
             return self.start_answer(id, cx);
         }
-        let Some(n) = self.notices.list.get(self.notices.at) else {
+        let notices = self.notices.read(cx);
+        let Some(n) = notices.list.get(notices.at) else {
             return;
         };
         if matches!(n.kind, Kind::Review | Kind::Todo) {
             return;
         }
         let iid = n.iid;
-        let (discussion, spot) = match self.inbox_thread(n) {
+        let (discussion, spot) = match self.inbox_thread(n, cx) {
             Some(t) => (
                 Some(t.id.clone()),
                 t.path.clone().zip(t.new_line.or(t.old_line)),
@@ -244,8 +259,8 @@ impl Workspace {
         Rc::new(move |event, cx| {
             this.update(cx, |this, cx| match event {
                 InboxEvent::Filter(f) => {
-                    this.inbox_view.filter = f;
-                    if let Some(&first) = this.inbox_rows().first() {
+                    this.inbox_view.update(cx, |v, _| v.filter = f);
+                    if let Some(&first) = this.inbox_rows(cx).first() {
                         this.inbox_select(first, cx);
                     }
                     cx.notify();
@@ -274,18 +289,18 @@ impl Workspace {
 
     /// The Inbox's filters, in its page bar (#71).
     pub(super) fn inbox_filters(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        inbox_view::filters(self.inbox_view.filter, &self.inbox_on(cx))
+        inbox_view::filters(self.inbox_view.read(cx).filter, &self.inbox_on(cx))
     }
 
     /// The Inbox: its panes, or rows loading before the first read, or one message when nothing
     /// is listed; a banner over it while the host cannot be read (#72).
     pub(super) fn render_inbox(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let rows = self.inbox_rows();
-        let body = if !self.notices.loaded && rows.is_empty() {
+        let rows = self.inbox_rows(cx);
+        let body = if !self.notices.read(cx).loaded && rows.is_empty() {
             inbox_view::loading(self.layout.list)
         } else if rows.is_empty() {
-            let others = !self.notices.list.is_empty() || !self.agent_notices().is_empty();
-            inbox_view::empty(self.inbox_view.filter, others, &self.inbox_on(cx))
+            let others = !self.notices.read(cx).list.is_empty() || !self.agent_notices().is_empty();
+            inbox_view::empty(self.inbox_view.read(cx).filter, others, &self.inbox_on(cx))
         } else {
             self.render_inbox_panes(&rows, cx).into_any_element()
         };
@@ -314,7 +329,7 @@ impl Workspace {
         let agents = self.agent_notices();
         for &row in rows {
             let at = match row {
-                InboxRow::Notice(ix) => self.notices.list[ix].created,
+                InboxRow::Notice(ix) => self.notices.read(cx).list[ix].created,
                 InboxRow::Agent(id) => agents
                     .iter()
                     .find(|(i, ..)| *i == id)
@@ -335,14 +350,16 @@ impl Workspace {
             });
         }
         let preview = self
-            .inbox_current()
+            .inbox_current(cx)
             .filter(|r| rows.contains(r))
             .and_then(|r| match r {
                 InboxRow::Notice(ix) => self
                     .notices
+                    .read(cx)
                     .list
                     .get(ix)
-                    .map(|n| self.render_inbox_preview(n, cx).into_any_element()),
+                    .cloned()
+                    .map(|n| self.render_inbox_preview(&n, cx).into_any_element()),
                 InboxRow::Agent(id) => self.render_agent_preview(id, cx),
             })
             .unwrap_or_else(|| {
@@ -396,7 +413,7 @@ impl Workspace {
                             .overflow_y_scroll()
                             .child(preview),
                     )
-                    .child(inbox_view::foot_keys(match self.inbox_current() {
+                    .child(inbox_view::foot_keys(match self.inbox_current(cx) {
                         Some(InboxRow::Agent(id)) => Some(
                             self.comments
                                 .iter()
@@ -410,11 +427,16 @@ impl Workspace {
     /// One notice's row (`inbox_view::notice_row`).
     fn render_inbox_row(&self, ix: usize, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let look = RowLook {
-            fresh: self.notice_unread(ix),
-            on: self.inbox_current() == Some(InboxRow::Notice(ix)),
+            fresh: self.notice_unread(ix, cx),
+            on: self.inbox_current(cx) == Some(InboxRow::Notice(ix)),
             wide: self.widths.room("inbox").second(),
         };
-        inbox_view::notice_row(&self.notices.list[ix], ix, look, &self.inbox_on(cx))
+        inbox_view::notice_row(
+            &self.notices.read(cx).list[ix],
+            ix,
+            look,
+            &self.inbox_on(cx),
+        )
     }
 
     /// Who an agent's answer is from: the chat's agent ("Claude"), and the chat's title.
@@ -461,8 +483,8 @@ impl Workspace {
             fresh: self
                 .agent_notices()
                 .iter()
-                .any(|(i, _, key)| *i == id && !self.notices.is_read(key)),
-            on: self.inbox_current() == Some(InboxRow::Agent(id)),
+                .any(|(i, _, key)| *i == id && !self.notices.read(cx).is_read(key)),
+            on: self.inbox_current(cx) == Some(InboxRow::Agent(id)),
             wide: self.widths.room("inbox").second(),
         };
         answer_row(c, self.agent_of(c), look, &self.answer_on(cx))
@@ -498,10 +520,10 @@ impl Workspace {
         let on = self.inbox_on(cx);
         let rq = self.requests.read(cx);
         let look = NoticeLook {
-            ix: self.notices.at,
+            ix: self.notices.read(cx).at,
             request: rq.find(n.iid),
-            thread: self.inbox_thread(n),
-            view: &self.inbox_view,
+            thread: self.inbox_thread(n, cx),
+            view: self.inbox_view.read(cx),
             waiting: &rq.waiting,
             me: rq.login.as_deref().unwrap_or_default(),
             rich: self.settings.rich_comments,

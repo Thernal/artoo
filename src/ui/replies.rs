@@ -89,15 +89,17 @@ impl Workspace {
         });
         self.take_keyboard(Input::Compose, cx);
         self.reset_field_edit();
-        self.inbox_view.reply = Some((iid, discussion));
+        self.inbox_view
+            .update(cx, |v, _| v.reply = Some((iid, discussion)));
         cx.notify();
     }
 
     /// Posts the Inbox's reply: to its discussion, or as a comment on the request.
     pub(super) fn post_inbox_reply(&mut self, cx: &mut Context<Self>) {
-        let (Some(compose), Some((iid, discussion))) =
-            (self.compose.as_ref(), self.inbox_view.reply.clone())
-        else {
+        let (Some(compose), Some((iid, discussion))) = (
+            self.compose.as_ref(),
+            self.inbox_view.read(cx).reply.clone(),
+        ) else {
             return;
         };
         let body = compose.edit.text().trim().to_owned();
@@ -261,7 +263,7 @@ impl Workspace {
         let Some(mut compose) = self.compose.take() else {
             return;
         };
-        let reply = self.inbox_view.reply.take();
+        let reply = self.inbox_view.update(cx, |v, _| v.reply.take());
         // A reply or an edit comes back to its discussion, wherever it moved.
         let thread = compose
             .thread()
@@ -282,12 +284,10 @@ impl Workspace {
             let shows = match compose.target {
                 Target::InboxReply => {
                     this.inbox
-                        && this.inbox_view.reply.is_none()
+                        && this.inbox_view.read(cx).reply.is_none()
                         && reply.as_ref().is_some_and(|(i, _)| {
-                            this.notices
-                                .list
-                                .get(this.notices.at)
-                                .is_some_and(|n| n.iid == *i)
+                            let notices = this.notices.read(cx);
+                            notices.list.get(notices.at).is_some_and(|n| n.iid == *i)
                         })
                 }
                 Target::Request(_) => {
@@ -305,7 +305,7 @@ impl Workspace {
                     }
                     compose.error = Some(why);
                     if compose.target == Target::InboxReply {
-                        this.inbox_view.reply = reply;
+                        this.inbox_view.update(cx, |v, _| v.reply = reply);
                     }
                     this.compose = Some(compose);
                     this.take_keyboard(Input::Compose, cx);

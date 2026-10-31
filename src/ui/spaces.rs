@@ -192,7 +192,7 @@ impl Workspace {
     /// What waits in a space: the Inbox's unread, the requests that ask for your review.
     fn waiting(&self, space: Space, cx: &App) -> usize {
         match space {
-            Space::Inbox => self.inbox_unread(),
+            Space::Inbox => self.inbox_unread(cx),
             Space::Requests => self
                 .requests
                 .read(cx)
@@ -278,7 +278,7 @@ impl Workspace {
                             mono: false,
                             on,
                             drafts,
-                            news: self.notices.unread_of(*iid),
+                            news: self.notices.read(cx).unread_of(*iid),
                             agent,
                             call: self.agent_calls.get(&open.item).filter(|_| !on).cloned(),
                         }

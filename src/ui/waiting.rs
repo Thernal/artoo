@@ -49,7 +49,7 @@ impl Workspace {
                     }
                 }
                 // The Inbox reads it again on its next look; at once while it is on screen.
-                this.notices.stale(iid);
+                this.notices.update(cx, |n, _| n.stale(iid));
                 if this.inbox {
                     this.load_notices(cx);
                 }
@@ -114,7 +114,9 @@ impl Workspace {
             self.requests.update(cx, |rq, _| rq.approvals = approvals);
             self.refresh_rows(cx);
         }
-        self.notices.show(iid, &self.requests.read(cx).waiting, me);
+        let requests = self.requests.clone();
+        self.notices
+            .update(cx, |n, cx| n.show(iid, &requests.read(cx).waiting, me));
     }
 
     /// What shows of the open request `iid` is made again on the host's answer just taken, and
@@ -130,8 +132,9 @@ impl Workspace {
     /// The changes the request open and the Inbox both hold now are let go.
     pub(super) fn settle_waiting(&mut self, cx: &mut App) {
         let (current, from) = (self.requests.read(cx).current, self.requests.read(cx).from);
-        let notices = &self.notices;
-        self.requests.update(cx, |rq, _| {
+        let notices = self.notices.clone();
+        self.requests.update(cx, |rq, cx| {
+            let notices = notices.read(cx);
             rq.waiting.settle(|iid, done| {
                 (current != Some(iid) || from > done) && notices.holds(iid, done)
             })

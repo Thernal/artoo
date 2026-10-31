@@ -124,10 +124,10 @@ impl Workspace {
 
     /// The discussions of request `iid` waiting for its author (`waiting`). Read with the
     /// notifications (`notices`), so only for requests read there.
-    fn waiting_threads(&self, iid: u64, cx: &App) -> Vec<&Thread> {
+    fn waiting_threads<'a>(&self, iid: u64, cx: &'a App) -> Vec<&'a Thread> {
         self.requests
             .read(cx)
-            .waiting_for_me(self.notices.threads_of(iid).unwrap_or_default())
+            .waiting_for_me(self.notices.read(cx).threads_of(iid).unwrap_or_default())
     }
 
     /// The branches a search lists, by index (`History::listed`).
@@ -312,7 +312,15 @@ impl artoo_requests::root::RootHost for RootHost {
     }
 
     fn threads(&self, iid: u64, cx: &App) -> Option<Vec<Thread>> {
-        Some(self.0.upgrade()?.read(cx).notices.threads_of(iid)?.to_vec())
+        Some(
+            self.0
+                .upgrade()?
+                .read(cx)
+                .notices
+                .read(cx)
+                .threads_of(iid)?
+                .to_vec(),
+        )
     }
 
     fn fold(

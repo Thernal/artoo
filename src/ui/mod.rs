@@ -1559,7 +1559,7 @@ pub struct Workspace {
     /// The window this workspace is in: a repository can open in a new tab of it from anywhere.
     window: gpui::AnyWindowHandle,
     /// The bell and its list (`notifications.rs`).
-    notices: notifications::Notices,
+    notices: gpui::Entity<notifications::Notices>,
     /// The "this tab or a new tab?" card (`opening.rs`).
     open_ask: Option<opening::OpenAsk>,
     /// What is beside a folder of Code's path, listed under it (`beside.rs`, #132).
@@ -1600,7 +1600,7 @@ pub struct Workspace {
     chat_edits_task: Option<Task<()>>,
     /// The Inbox place is shown, and which of its notifications it lists.
     inbox: bool,
-    inbox_view: inbox::InboxView,
+    inbox_view: gpui::Entity<inbox::InboxView>,
     /// The note under the pointer: its reaction bar shows (#9).
     hover_note: Option<u64>,
     /// Settings → Agents: what connecting said, and whether it runs.
@@ -1856,11 +1856,11 @@ impl Workspace {
             chat_edits_in: 0,
             chat_edits_task: None,
             inbox: false,
-            inbox_view: Default::default(),
+            inbox_view: cx.new(|_| Default::default()),
             hover_note: None,
             agent_setup: None,
             agent_setup_busy: false,
-            notices: Default::default(),
+            notices: cx.new(|_| Default::default()),
             title: String::new(),
             history: cx.new(|_| History::default()),
             services: services.clone(),

@@ -243,7 +243,7 @@ impl Workspace {
     pub(super) fn page_link(&self, cx: &gpui::App) -> Result<Link, String> {
         let web = self.web_or_why()?;
         match self.nav.space {
-            Space::Inbox => match self.inbox_request() {
+            Space::Inbox => match self.inbox_request(cx) {
                 Some(iid) => Ok(self.request_link(web, iid, cx)),
                 None => Err("Nothing here has a link: pick a notice of a merge request".into()),
             },
@@ -345,9 +345,9 @@ impl Workspace {
     }
 
     /// The request the Inbox shows: the one of the notice picked.
-    fn inbox_request(&self) -> Option<u64> {
-        match self.inbox_current()? {
-            super::inbox::InboxRow::Notice(ix) => self.notices.list.get(ix).map(|n| n.iid),
+    fn inbox_request(&self, cx: &App) -> Option<u64> {
+        match self.inbox_current(cx)? {
+            super::inbox::InboxRow::Notice(ix) => self.notices.read(cx).list.get(ix).map(|n| n.iid),
             super::inbox::InboxRow::Agent(_) => None,
         }
     }
