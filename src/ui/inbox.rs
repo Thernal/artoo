@@ -8,19 +8,18 @@
 //! among them what your agents answered on your notes (#116): a question, or "done".
 
 use super::composer::Target;
-use super::discussion::{self, Kind as Button, Source};
 use super::hover::CutInTip;
-use super::keys::{self, On};
 use super::notifications::{Kind, Notice};
-use super::{Workspace, chip, format, icons, island, markdown, px, theme, words};
+use super::{Workspace, format, icons, island, px, theme};
 use crate::git::LineKind;
 use crate::mr::Thread;
 use artoo_requests::inbox::excerpt;
-pub(super) use artoo_requests::inbox::{InboxFilter, InboxRow, InboxView};
-use artoo_ui_kit::controls;
+pub(super) use artoo_requests::inbox::{InboxRow, InboxView};
+use artoo_requests::inbox_view::{self, InboxEvent, NoticeLook, OnInbox, RowLook};
 use artoo_ui_kit::excerpt::{Excerpt, ExcerptLine, excerpt_view};
 pub(super) use artoo_ui_kit::format::now;
-use gpui::{AnyElement, ClickEvent, Context, Div, FontWeight, div, prelude::*};
+use gpui::{AnyElement, ClickEvent, Context, FontWeight, div, prelude::*};
+use std::rc::Rc;
 
 impl Workspace {
     /// What the Inbox lists under its filter, newest first: the notices, and the agents' answers
@@ -277,30 +276,43 @@ impl Workspace {
         );
     }
 
-    /// The Inbox's filters, in its page bar (#71).
-    pub(super) fn inbox_filters(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let filter = |f: InboxFilter, label: &'static str| {
-            let id = match f {
-                InboxFilter::All => "inbox-all",
-                InboxFilter::Mentions => "inbox-mentions",
-                InboxFilter::Agents => "inbox-agents",
-                InboxFilter::Reviews => "inbox-reviews",
-            };
-            chip(id, label, self.inbox_view.filter == f).on_click(cx.listener(
-                move |this, _: &ClickEvent, _, cx| {
+    /// How the Inbox's views ask the tab.
+    fn inbox_on(&self, cx: &Context<Self>) -> OnInbox {
+        let this = cx.weak_entity();
+        Rc::new(move |event, cx| {
+            this.update(cx, |this, cx| match event {
+                InboxEvent::Filter(f) => {
                     this.inbox_view.filter = f;
                     if let Some(&first) = this.inbox_rows().first() {
                         this.inbox_select(first, cx);
                     }
                     cx.notify();
-                },
-            ))
-        };
-        artoo_ui_kit::controls::group()
-            .child(filter(InboxFilter::All, "All"))
-            .child(filter(InboxFilter::Mentions, "Mentions"))
-            .child(filter(InboxFilter::Agents, "Agents"))
-            .child(filter(InboxFilter::Reviews, "Reviews"))
+                }
+                InboxEvent::Pick(ix) => {
+                    if this.compact() {
+                        this.inbox = false;
+                        return this.open_notice(ix, cx);
+                    }
+                    this.inbox_select(InboxRow::Notice(ix), cx)
+                }
+                InboxEvent::Open(ix) => {
+                    this.inbox = false;
+                    this.open_notice(ix, cx)
+                }
+                InboxEvent::Done(ix) => this.dismiss_notice(ix, cx),
+                InboxEvent::Reply => this.reply_in_inbox(cx),
+                InboxEvent::Resolve { iid, id, resolved } => {
+                    this.inbox_resolve(iid, id, resolved, cx)
+                }
+                InboxEvent::Menu { iid, at } => this.request_context(iid, at, cx),
+            })
+            .ok();
+        })
+    }
+
+    /// The Inbox's filters, in its page bar (#71).
+    pub(super) fn inbox_filters(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        inbox_view::filters(self.inbox_view.filter, &self.inbox_on(cx))
     }
 
     /// The Inbox: its panes, or rows loading before the first read, or one message when nothing
@@ -308,73 +320,10 @@ impl Workspace {
     pub(super) fn render_inbox(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let rows = self.inbox_rows();
         let body = if !self.notices.loaded && rows.is_empty() {
-            div()
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .gap(px(super::gap()))
-                .child(
-                    island()
-                        .w(px(self.layout.list))
-                        .flex_none()
-                        .p(px(16.))
-                        .child(super::roots::skeleton("inbox-loading", 6)),
-                )
-                .child(
-                    island()
-                        .flex_1()
-                        .bg(theme::editor())
-                        .px(px(28.))
-                        .py(px(26.))
-                        .child(super::roots::skeleton("inbox-preview-loading", 3)),
-                )
-                .into_any_element()
+            inbox_view::loading(self.layout.list)
         } else if rows.is_empty() {
-            let (title, text) = match self.inbox_view.filter {
-                InboxFilter::All => (
-                    "Nothing needs you",
-                    "Review requests, mentions and replies in your discussions land here.",
-                ),
-                InboxFilter::Mentions => (
-                    "No mentions",
-                    "When someone mentions you in this project, it lands here.",
-                ),
-                InboxFilter::Agents => (
-                    "Nothing from your agents",
-                    "When an agent asks about one of your notes, or says it is done, it lands here.",
-                ),
-                InboxFilter::Reviews => (
-                    "No review requests",
-                    "When someone asks for your review, it lands here.",
-                ),
-            };
-            let all = (self.inbox_view.filter != InboxFilter::All
-                && (!self.notices.list.is_empty() || !self.agent_notices().is_empty()))
-            .then(|| {
-                div()
-                    .id("inbox-show-all")
-                    .child(controls::outline_button("Show all"))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.inbox_view.filter = InboxFilter::All;
-                        if let Some(&first) = this.inbox_rows().first() {
-                            this.inbox_select(first, cx);
-                        }
-                        cx.notify();
-                    }))
-                    .into_any_element()
-            });
-            island()
-                .flex_1()
-                .bg(theme::editor())
-                // Its button's room kept when there is none, so switching the filter moves
-                // nothing.
-                .child(controls::empty_state(
-                    "inbox",
-                    title.to_owned(),
-                    text.to_owned(),
-                    Some(all.unwrap_or_else(|| div().h(px(28.)).into_any_element())),
-                ))
-                .into_any_element()
+            let others = !self.notices.list.is_empty() || !self.agent_notices().is_empty();
+            inbox_view::empty(self.inbox_view.filter, others, &self.inbox_on(cx))
         } else {
             self.render_inbox_panes(&rows, cx).into_any_element()
         };
@@ -416,16 +365,7 @@ impl Workspace {
             };
             if group != Some(heading) {
                 group = Some(heading);
-                list.push(
-                    div()
-                        .px(px(16.))
-                        .pt(px(10.))
-                        .pb(px(4.))
-                        .text_size(px(11.))
-                        .text_color(theme::faint())
-                        .child(heading)
-                        .into_any_element(),
-                );
+                list.push(inbox_view::heading(heading));
             }
             list.push(match row {
                 InboxRow::Notice(ix) => self.render_inbox_row(ix, cx).into_any_element(),
@@ -494,7 +434,7 @@ impl Workspace {
                             .overflow_y_scroll()
                             .child(preview),
                     )
-                    .child(inbox_keys(match self.inbox_current() {
+                    .child(inbox_view::foot_keys(match self.inbox_current() {
                         Some(InboxRow::Agent(id)) => Some(
                             self.comments
                                 .iter()
@@ -505,105 +445,14 @@ impl Workspace {
             }))
     }
 
-    /// One notice: unread dot, who did what, the request always; when, and the start of what was
-    /// written, while the list has 260 px (#79); all of it in its tooltip.
+    /// One notice's row (`inbox_view::notice_row`).
     fn render_inbox_row(&self, ix: usize, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        use super::hover::Hover;
-        let n = &self.notices.list[ix];
-        let fresh = self.notice_unread(ix);
-        let on = self.inbox_current() == Some(InboxRow::Notice(ix));
-        let room = self.widths.room("inbox");
-        let text = crate::markdown::plain(&n.text);
-        let gist = text
-            .lines()
-            .find(|l| !l.trim().is_empty())
-            .unwrap_or("")
-            .trim();
-        let mut tip = vec![
-            format!("{} {}", n.who, n.kind_verb()),
-            format!("{} {}", words::number(n.iid), n.title),
-            super::hover::full_date(n.created),
-        ];
-        if !text.trim().is_empty() {
-            tip.push(text.trim().to_owned());
-        }
-        let iid = n.iid;
-        div()
-            .id(("inbox-row", ix))
-            .on_mouse_down(
-                gpui::MouseButton::Right,
-                cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
-                    this.request_context(iid, e.position, cx)
-                }),
-            )
-            .mx(px(6.))
-            .px(px(10.))
-            .py(px(8.))
-            .flex()
-            .items_start()
-            .gap(px(10.))
-            .rounded(px(super::ROW_RADIUS))
-            .cursor_pointer()
-            .when(on, |s| s.bg(theme::selected()))
-            .hover(|s| s.bg(theme::hover()))
-            .child(
-                div()
-                    .flex_none()
-                    .mt(px(6.))
-                    .size(px(7.))
-                    .rounded_full()
-                    .when(fresh, |s| s.bg(theme::accent())),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .cut_in_tip()
-                                    .when(fresh, |s| s.font_weight(FontWeight::SEMIBOLD))
-                                    .child(format!("{} {}", n.who, n.kind_verb())),
-                            )
-                            .children(room.second().then(|| {
-                                div()
-                                    .flex_none()
-                                    .text_size(px(11.))
-                                    .text_color(theme::faint())
-                                    .child(format::ago(n.created))
-                            })),
-                    )
-                    .child(
-                        div()
-                            .cut_in_tip()
-                            .text_size(px(12.))
-                            .text_color(theme::accent())
-                            .child(format!("{} {}", words::number(n.iid), n.title)),
-                    )
-                    .children((room.second() && !gist.is_empty()).then(|| {
-                        div()
-                            .cut_in_tip()
-                            .text_size(px(12.))
-                            .text_color(theme::muted())
-                            .child(gist.to_owned())
-                    })),
-            )
-            .tip(tip.join("\n"))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                if this.compact() {
-                    this.inbox = false;
-                    return this.open_notice(ix, cx);
-                }
-                this.inbox_select(InboxRow::Notice(ix), cx)
-            }))
+        let look = RowLook {
+            fresh: self.notice_unread(ix),
+            on: self.inbox_current() == Some(InboxRow::Notice(ix)),
+            wide: self.widths.room("inbox").second(),
+        };
+        inbox_view::notice_row(&self.notices.list[ix], ix, look, &self.inbox_on(cx))
     }
 
     /// Who an agent's answer is from: the chat's agent ("Claude"), and the chat's title.
@@ -848,209 +697,35 @@ impl Workspace {
         )
     }
 
-    /// The selected notice: its request, the code, the discussion, the reply.
+    /// The selected notice: its request, the code, the discussion, the reply
+    /// (`inbox_view::notice_preview`).
     fn render_inbox_preview(&self, n: &Notice, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let ix = self.notices.at;
-        let mr = self.requests.read(cx).find(n.iid);
-        let thread = self.inbox_thread(n);
-        let me = self.requests.read(cx).login.as_deref().unwrap_or_default();
-        let props = div()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap_2()
-            .text_size(px(12.))
-            .text_color(theme::muted())
-            .child(
-                div()
-                    .font_family(theme::code_font())
-                    .text_color(theme::accent())
-                    .child(words::number(n.iid)),
-            )
-            .children(mr.map(|m| {
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .child(
-                        icons::icon("pull-request")
-                            .size(px(14.))
-                            .text_color(theme::muted()),
-                    )
-                    .child(format!("{} · {} → {}", m.author, m.source, m.target))
-            }))
-            .child(div().flex_1())
-            .child(format!(
-                "{} {} · {}",
-                n.who,
-                n.kind_verb(),
-                format::ago(n.created)
-            ));
-        let title = div()
-            .text_size(px(19.))
-            .line_height(px(26.))
-            .font_weight(FontWeight::SEMIBOLD)
-            .child(n.title.clone());
-        let code = thread.and_then(|t| {
-            let path = t.path.clone()?;
-            let line = t.new_line.or(t.old_line)?;
-            match self.inbox_view.excerpts.get(&t.id) {
-                Some(ex) => Some(excerpt_view(&path, line, Some(ex.as_ref()))),
-                None if self.inbox_view.reading.as_ref() == Some(&t.id) => {
-                    Some(excerpt_view(&path, line, None))
-                }
-                None => None,
-            }
-        });
-        // The discussion, or what the notice says when there is none (a mention in a description).
-        let talk = match thread {
-            Some(t) => {
-                let last = t.notes.len().saturating_sub(1);
-                let notes = t.notes.iter().enumerate().map(|(i, note)| {
-                    // Sent from here or the diff: faded until the host answers; the read after it is
-                    // the Inbox's next look (#139).
-                    let waits = self
-                        .requests
-                        .read(cx)
-                        .waiting
-                        .note(n.iid, u64::MAX, note.id);
-                    discussion::note(
-                        &note.author,
-                        note.login == me,
-                        None,
-                        waits.map_or_else(|| format::ago(note.created), str::to_owned),
-                        markdown::body(
-                            &note.body,
-                            self.settings.rich_comments,
-                            format!("md-inbox-{}", note.id),
-                            None,
-                            Some(self.selecting(cx.entity().downgrade())),
-                            cx,
-                        ),
-                        i == last,
-                        None,
-                        None,
-                    )
-                    .when(waits.is_some(), |s| s.opacity(super::waiting::FADED))
-                });
-                let (iid, id, resolved) = (n.iid, t.id.clone(), t.resolved);
-                let resolving = self
-                    .requests
-                    .read(cx)
-                    .waiting
-                    .thread(iid, u64::MAX, &id)
-                    .filter(|_| t.resolvable);
-                discussion::frame(Source::GitLab, n.note.is_some())
-                    .children(notes)
-                    .children(t.resolvable.then(|| {
-                        div().flex().justify_end().pt(px(6.)).child(
-                            discussion::button(
-                                "inbox-resolve",
-                                match resolving {
-                                    Some(word) => word,
-                                    None if resolved => "Reopen",
-                                    None => "Resolve",
-                                },
-                                None,
-                                Button::Plain,
-                            )
-                            .when(resolving.is_some(), |s| s.opacity(super::waiting::FADED))
-                            .on_click(cx.listener(
-                                move |this, _: &ClickEvent, _, cx| {
-                                    this.inbox_resolve(iid, id.clone(), !resolved, cx)
-                                },
-                            )),
-                        )
-                    }))
-                    .into_any_element()
-            }
-            None if !n.text.trim().is_empty() => discussion::frame(Source::GitLab, false)
-                .child(discussion::note(
-                    &n.who,
-                    false,
-                    None,
-                    format::ago(n.created),
-                    markdown::body(
-                        &n.text,
-                        self.settings.rich_comments,
-                        format!("md-inbox-{}", n.key),
-                        None,
-                        Some(self.selecting(cx.entity().downgrade())),
-                        cx,
-                    ),
-                    true,
-                    None,
-                    None,
-                ))
-                .into_any_element(),
-            None => div().into_any_element(),
-        };
+        // A review request has nothing to answer: no composer is drawn for it.
         let answerable = !matches!(n.kind, Kind::Review | Kind::Todo);
-        let writing = self
-            .compose
-            .as_ref()
-            .is_some_and(|c| c.target == Target::InboxReply);
-        let composer = answerable.then(|| {
-            if writing {
-                self.reply_editor(cx.entity().downgrade(), cx)
-                    .map(|e| e.max_w(px(720.)).into_any_element())
-                    .unwrap_or_else(|| div().into_any_element())
-            } else {
-                let placeholder = if thread.is_some() {
-                    format!("Reply to {}…", n.who)
-                } else {
-                    format!("Comment on {}…", words::number(n.iid))
-                };
-                div()
-                    .id("inbox-reply")
-                    .max_w(px(720.))
-                    .h(px(36.))
-                    .px(px(12.))
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .rounded(px(8.))
-                    .border_1()
-                    .border_color(theme::island_border())
-                    .bg(theme::panel())
-                    .cursor_text()
-                    .text_color(theme::faint())
-                    .child(div().flex_1().child(placeholder))
-                    .child(keys::caps("R", On::Plain))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.reply_in_inbox(cx)))
-                    .into_any_element()
-            }
+        let writing = (answerable
+            && self
+                .compose
+                .as_ref()
+                .is_some_and(|c| c.target == Target::InboxReply))
+        .then(|| {
+            self.reply_editor(cx.entity().downgrade(), cx)
+                .map(|e| e.max_w(px(720.)).into_any_element())
+                .unwrap_or_else(|| div().into_any_element())
         });
-        let actions = div()
-            .flex()
-            .gap_2()
-            .child(
-                // Buttons that look like buttons, the way on filled (the developer, 2026-10-23).
-                super::bar::bar_button("inbox-open", "Open request", "↵", true).on_click(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.inbox = false;
-                        this.open_notice(ix, cx)
-                    }),
-                ),
-            )
-            .child(
-                super::bar::bar_button("inbox-done", "Done", "E", false).on_click(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| this.dismiss_notice(ix, cx)),
-                ),
-            );
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(14.))
-            .px(px(28.))
-            .py(px(22.))
-            .max_w(px(820.))
-            .child(props)
-            .child(title)
-            .children(code)
-            .child(talk)
-            .children(composer)
-            .child(actions)
+        let on = self.inbox_on(cx);
+        let rq = self.requests.read(cx);
+        let look = NoticeLook {
+            ix: self.notices.at,
+            request: rq.find(n.iid),
+            thread: self.inbox_thread(n),
+            view: &self.inbox_view,
+            waiting: &rq.waiting,
+            me: rq.login.as_deref().unwrap_or_default(),
+            rich: self.settings.rich_comments,
+            selecting: self.selecting(cx.entity().downgrade()),
+            writing,
+        };
+        inbox_view::notice_preview(n, look, &on, cx)
     }
 }
 
@@ -1061,48 +736,4 @@ fn note_place(c: &crate::review::Comment) -> String {
     }
     let name = c.path.rsplit('/').next().unwrap_or(&c.path);
     format!("{name}:{}", c.line)
-}
-
-/// The keys of the Inbox, along the preview's foot; `agent`: an agent's answer is selected, and
-/// whether it says it is done.
-fn inbox_keys(agent: Option<bool>) -> Div {
-    let key = |caps: &[&str], what: &'static str| {
-        div()
-            .flex()
-            .items_center()
-            .gap(px(4.))
-            .children(caps.iter().map(|c| keys::caps(c, On::Plain)))
-            .child(div().pl(px(2.)).child(what))
-    };
-    div()
-        .flex_none()
-        .flex()
-        .gap_4()
-        .px(px(16.))
-        .py(px(8.))
-        .border_t_1()
-        .border_color(theme::island_border())
-        .text_size(px(12.))
-        .text_color(theme::muted())
-        .child(key(&["J", "K"], "move"))
-        .child(key(
-            &["↵"],
-            if agent.is_some() {
-                "open at the line"
-            } else {
-                "open request"
-            },
-        ))
-        .child(key(
-            &["E"],
-            match agent {
-                Some(true) => "resolve",
-                Some(false) => "later",
-                None => "done",
-            },
-        ))
-        .child(key(
-            &["R"],
-            if agent.is_some() { "answer" } else { "reply" },
-        ))
 }

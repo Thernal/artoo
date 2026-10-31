@@ -9,6 +9,7 @@ pub mod create;
 pub mod discussions;
 pub mod group;
 pub mod inbox;
+pub mod inbox_view;
 pub mod list;
 pub mod merge;
 pub mod merging;
