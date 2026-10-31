@@ -5,7 +5,8 @@
 
 use super::px;
 use super::review::Review;
-use super::{Selection, Workspace, theme};
+use super::{Workspace, theme};
+use artoo_branches::history::Row;
 use artoo_review::changes::FileItem;
 use gpui::{App, Context, Rgba};
 
@@ -276,29 +277,10 @@ impl Workspace {
 
     /// The working tree entry above the commits counts as the row before the first commit.
     fn step_commit_row(&mut self, down: bool, cx: &mut Context<Self>) {
-        let has_wt = self.wt.count > 0 || self.history.read(cx).selection == Selection::WorkingTree;
-        match (self.history.read(cx).selection, down) {
-            (Selection::WorkingTree, true) if self.commit_rows(cx) > 0 => {
-                self.select_commit(self.commit_at(0, cx), cx)
-            }
-            (Selection::WorkingTree, _) => {}
-            (Selection::Commit(ix), false) if has_wt && self.row_of(ix, cx) == Some(0) => {
-                self.select_working_tree(cx)
-            }
-            (Selection::Commit(ix), _) => {
-                if let Some(row) = self.row_of(ix, cx) {
-                    let to = if down {
-                        (row + 1 < self.commit_rows(cx)).then(|| row + 1)
-                    } else {
-                        row.checked_sub(1)
-                    };
-                    if let Some(to) = to {
-                        self.select_commit(self.commit_at(to, cx), cx);
-                    }
-                }
-            }
-            (_, true) if self.commit_rows(cx) > 0 => self.select_commit(self.commit_at(0, cx), cx),
-            _ => {}
+        match self.history.read(cx).step_row(down, self.wt.count > 0) {
+            Some(Row::Commit(ix)) => self.select_commit(ix, cx),
+            Some(Row::WorkingTree) => self.select_working_tree(cx),
+            None => {}
         }
     }
 

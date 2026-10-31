@@ -9,21 +9,6 @@ use artoo_ui_kit::controls::chip;
 use gpui::{App, ClickEvent, Context, KeyDownEvent, div, prelude::*};
 
 impl Workspace {
-    /// Rows in the commit list.
-    pub(super) fn commit_rows(&self, cx: &App) -> usize {
-        self.history.read(cx).commit_rows()
-    }
-
-    /// The index in `commits` shown at list row `row`.
-    pub(super) fn commit_at(&self, row: usize, cx: &App) -> usize {
-        self.history.read(cx).commit_at(row)
-    }
-
-    /// The list row of commit `ix`, if it is shown.
-    pub(super) fn row_of(&self, ix: usize, cx: &App) -> Option<usize> {
-        self.history.read(cx).row_of(ix)
-    }
-
     pub(super) fn refilter(&mut self, cx: &mut App) {
         self.history.update(cx, |h, _| h.refilter());
     }

@@ -179,6 +179,38 @@ impl History {
             _ => (ix, latest),
         }
     }
+
+    /// ↑ ↓ in the commit list: the row the selection moves to, if it moves. With changes in the working tree
+    /// (`working`) its row is the one above the first commit.
+    pub fn step_row(&self, down: bool, working: bool) -> Option<Row> {
+        let working = working || self.selection == Selection::WorkingTree;
+        let first = (self.commit_rows() > 0).then(|| Row::Commit(self.commit_at(0)));
+        match (self.selection, down) {
+            (Selection::WorkingTree, true) => first,
+            (Selection::WorkingTree, false) => None,
+            (Selection::Commit(ix), false) if working && self.row_of(ix) == Some(0) => {
+                Some(Row::WorkingTree)
+            }
+            (Selection::Commit(ix), _) => {
+                let row = self.row_of(ix)?;
+                let to = if down {
+                    (row + 1 < self.commit_rows()).then(|| row + 1)
+                } else {
+                    row.checked_sub(1)
+                };
+                to.map(|to| Row::Commit(self.commit_at(to)))
+            }
+            (_, true) => first,
+            _ => None,
+        }
+    }
+}
+
+/// A row of the commit list: the working tree's, or commit `ix` of `History::commits`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Row {
+    WorkingTree,
+    Commit(usize),
 }
 
 impl Default for History {
@@ -206,5 +238,43 @@ impl Default for History {
             task: None,
             read: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A history whose list shows the commits `shown`, `selection` selected.
+    fn listing(shown: Vec<usize>, selection: Selection) -> History {
+        let mut h = History {
+            selection,
+            ..Default::default()
+        };
+        h.find.shown = Some(shown);
+        h
+    }
+
+    #[test]
+    fn the_arrows_walk_the_rows_shown_the_working_tree_over_them() {
+        let h = listing(vec![1, 3, 4], Selection::Commit(3));
+        assert_eq!(h.step_row(true, false), Some(Row::Commit(4)));
+        assert_eq!(h.step_row(false, false), Some(Row::Commit(1)));
+        let h = listing(vec![1, 3, 4], Selection::Commit(4));
+        assert_eq!(h.step_row(true, false), None);
+        let h = listing(vec![1, 3, 4], Selection::Commit(1));
+        assert_eq!(h.step_row(false, false), None);
+        assert_eq!(h.step_row(false, true), Some(Row::WorkingTree));
+        let h = listing(vec![1, 3, 4], Selection::WorkingTree);
+        assert_eq!(h.step_row(true, false), Some(Row::Commit(1)));
+        assert_eq!(h.step_row(false, true), None);
+        // Nothing selected, or one the search hides: ↓ the first shown.
+        let h = listing(vec![1, 3, 4], Selection::None);
+        assert_eq!(h.step_row(true, false), Some(Row::Commit(1)));
+        assert_eq!(h.step_row(false, false), None);
+        let h = listing(vec![1, 3, 4], Selection::Commit(2));
+        assert_eq!(h.step_row(true, false), None);
+        let h = listing(Vec::new(), Selection::WorkingTree);
+        assert_eq!(h.step_row(true, true), None);
     }
 }
