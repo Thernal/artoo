@@ -7,6 +7,8 @@
 //! The tab's review offers it as `Rc<dyn FileView>` in the tab's services (`Frame::services`). What it changes is
 //! changed at once: ask it from anywhere but the review's own update.
 
+pub mod diff;
+
 use artoo_core::git::{CommitInfo, PairCommit, Version};
 use artoo_core::rows::Row;
 use git2::Oid;

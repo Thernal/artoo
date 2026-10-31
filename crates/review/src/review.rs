@@ -653,7 +653,7 @@ impl Review {
         let settings = DiffSettings {
             ignore_whitespace: self.options.ignore_whitespace,
         };
-        self.load(keep, move || Diff::read(&root, source, settings), cx);
+        self.load(keep, move || crate::diff::read(&root, source, settings), cx);
     }
 
     /// Loads a diff with `load` in the background; once it came, it is shown (`Review::loaded`) and said

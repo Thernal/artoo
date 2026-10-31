@@ -31,7 +31,8 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   `crates/code-api` (`artoo-code-api`): Code's contract — its routes (`code.file`, `code.folder`), `Code` (what the
   tab asks of it, offered in the tab's services) and `Host` (what it asks of the tab). `crates/review-api`
   (`artoo-review-api`): what a page asks of the tab's review — what a diff is of (`Source`: a commit, a run,
-  versions, an interdiff, the working tree, a comparison; the review reads it, `Review::open`), what its host draws
+  versions, an interdiff, the working tree, a comparison; the review reads it, `Review::open`), the diff it shows
+  (`diff`: `Diff`, what it is of as `Header`, the working tree's `FileTags`), what its host draws
   on its rows and does with their events (`Host`, `LineEvent`, `FileEvent`; the tab for now), the file Code reads
   (`FileView`), how far a request's review got (`Seen`).
   `crates/branches-api` (`artoo-branches-api`): branches' contract — the routes of a branch's pages
