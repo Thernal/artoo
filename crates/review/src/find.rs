@@ -1,11 +1,110 @@
 //! The find over the diff (⌘F): the rows that hold the text and each change's start, stepping through them in
-//! the open file or in every file of the one scroll, the rows brought into view.
+//! the open file or in every file of the one scroll, the rows brought into view; its bar, its field the tab's.
 
 use crate::review::Review;
 use artoo_core::rows::Row;
 use artoo_core::{rows, search};
-use artoo_ui_kit::px;
+use artoo_ui_kit::controls::chip;
+use artoo_ui_kit::hover::{self, Hover};
+use artoo_ui_kit::{ROW_RADIUS, icons, px, theme};
+use gpui::{AnyElement, App, ClickEvent, Div, div, prelude::*};
+use std::rc::Rc;
 use std::sync::Arc;
+
+/// A click on the find bar, for the tab to answer.
+#[derive(Clone, Copy)]
+pub enum BarEvent {
+    /// ↑ or ↓: the match before or after.
+    Step {
+        forward: bool,
+    },
+    /// `.*`: the text read as a regular expression, or as typed.
+    Regex,
+    Close,
+}
+
+impl Review {
+    /// The find bar above the diff: the `field` (the tab's, `active` with the keyboard), "2 of 4 lines",
+    /// previous, next, close; `on` answers its clicks.
+    pub fn render_find_bar(
+        &self,
+        field: AnyElement,
+        active: bool,
+        on: Rc<dyn Fn(BarEvent, &mut App)>,
+    ) -> Option<Div> {
+        self.dfind.as_ref()?;
+        let count = if let Some(error) = &self.dfind_error {
+            format!("Not a regular expression: {error}")
+        } else if self.dterms.is_empty() {
+            String::new()
+        } else if let Some(count) = self.stack_match_count() {
+            count
+        } else if self.matches.is_empty() {
+            "No matches".to_owned()
+        } else {
+            format!("{} of {} lines", self.match_at + 1, self.matches.len())
+        };
+        let click = |event: BarEvent| {
+            let on = on.clone();
+            move |_: &ClickEvent, _: &mut gpui::Window, cx: &mut App| on(event, cx)
+        };
+        let step = |id: &'static str, label: &'static str, forward: bool| {
+            chip(id, label, false).on_click(click(BarEvent::Step { forward }))
+        };
+        Some(
+            div()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap_2()
+                .px(px(10.))
+                .py(px(6.))
+                .border_b_1()
+                .border_color(theme::island_border())
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .h(px(26.))
+                        .px_2()
+                        .rounded(px(ROW_RADIUS))
+                        .border_2()
+                        .border_color(if active {
+                            theme::focus()
+                        } else {
+                            theme::island_border()
+                        })
+                        .bg(theme::base())
+                        .cursor_text()
+                        .child(
+                            icons::icon("search")
+                                .size(px(14.))
+                                .text_color(theme::faint()),
+                        )
+                        .child(field)
+                        .child(
+                            chip("dfind-regex", ".*", self.dfind_regex)
+                                .tip("Regular expression  ⌥R")
+                                .on_click(click(BarEvent::Regex)),
+                        ),
+                )
+                .child(
+                    hover::cut("find-count", count.clone())
+                        .text_size(px(12.))
+                        .text_color(if count == "No matches" || self.dfind_error.is_some() {
+                            theme::removed()
+                        } else {
+                            theme::muted()
+                        }),
+                )
+                .child(step("dfind-prev", "↑", false))
+                .child(step("dfind-next", "↓", true))
+                .child(chip("dfind-close", "✕", false).on_click(click(BarEvent::Close))),
+        )
+    }
+}
 
 impl Review {
     /// The rows of the open diff that hold the find text, and where each change begins.

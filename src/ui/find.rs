@@ -1,12 +1,11 @@
 //! Commit search: the field above the commit list and its keyboard handling; what it finds is the history's
 //! (`artoo_branches::find`).
 
+use super::Workspace;
 use super::input::{self, Edit};
-use super::px;
 use super::typing::{self, Input};
-use super::{Workspace, theme};
-use artoo_ui_kit::controls::chip;
-use gpui::{App, ClickEvent, Context, KeyDownEvent, div, prelude::*};
+use artoo_review::find::BarEvent;
+use gpui::{App, Context, KeyDownEvent, prelude::*};
 
 impl Workspace {
     pub(super) fn refilter(&mut self, cx: &mut App) {
@@ -221,88 +220,23 @@ impl Workspace {
         cx.notify();
     }
 
-    /// The find bar above the diff: the text, "2 of 4 lines", previous, next, close.
+    /// The find bar above the diff (`Review::render_find_bar`), its field the tab's.
     pub(super) fn render_dfind(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         let text = self.review.read(cx).dfind.clone()?;
         let active = self.has_keyboard(Input::DiffFind, cx);
-        let count = if let Some(error) = &self.review.read(cx).dfind_error {
-            format!("Not a regular expression: {error}")
-        } else if self.review.read(cx).dterms.is_empty() {
-            String::new()
-        } else if let Some(count) = self.review.read(cx).stack_match_count() {
-            count
-        } else if self.review.read(cx).matches.is_empty() {
-            "No matches".to_owned()
-        } else {
-            format!(
-                "{} of {} lines",
-                self.review.read(cx).match_at + 1,
-                self.review.read(cx).matches.len()
-            )
-        };
-        let step = |id: &'static str, label: &'static str, forward: bool| {
-            chip(id, label, false).on_click(
-                cx.listener(move |this, _: &ClickEvent, _, cx| this.step_match(forward, cx)),
-            )
-        };
-        let bar = div()
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap_2()
-            .px(px(10.))
-            .py(px(6.))
-            .border_b_1()
-            .border_color(theme::island_border())
-            .child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .h(px(26.))
-                    .px_2()
-                    .rounded(px(super::ROW_RADIUS))
-                    .border_2()
-                    .border_color(if active {
-                        theme::focus()
-                    } else {
-                        theme::island_border()
-                    })
-                    .bg(theme::base())
-                    .cursor_text()
-                    .child(
-                        super::icons::icon("search")
-                            .size(px(14.))
-                            .text_color(theme::faint()),
-                    )
-                    .child(self.field_text(&text, active, "Find in this diff", cx))
-                    .child({
-                        use super::hover::Hover;
-                        chip("dfind-regex", ".*", self.review.read(cx).dfind_regex)
-                            .tip("Regular expression  ⌥R")
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.toggle_dfind_regex(cx)
-                            }))
-                    }),
-            )
-            .child(
-                super::hover::cut("find-count", count.clone())
-                    .text_size(px(12.))
-                    .text_color(
-                        if count == "No matches" || self.review.read(cx).dfind_error.is_some() {
-                            theme::removed()
-                        } else {
-                            theme::muted()
-                        },
-                    ),
-            )
-            .child(step("dfind-prev", "↑", false))
-            .child(step("dfind-next", "↓", true))
-            .child(
-                chip("dfind-close", "✕", false)
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_dfind(cx))),
-            );
+        let field = self
+            .field_text(&text, active, "Find in this diff", cx)
+            .into_any_element();
+        let this = cx.weak_entity();
+        let on = std::rc::Rc::new(move |event, cx: &mut App| {
+            this.update(cx, |this, cx| match event {
+                BarEvent::Step { forward } => this.step_match(forward, cx),
+                BarEvent::Regex => this.toggle_dfind_regex(cx),
+                BarEvent::Close => this.close_dfind(cx),
+            })
+            .ok();
+        });
+        let bar = self.review.read(cx).render_find_bar(field, active, on)?;
         Some(typing::input_box(bar, Input::DiffFind, cx))
     }
 
