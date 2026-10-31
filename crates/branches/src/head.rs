@@ -2,10 +2,10 @@
 //! why it may look wrong, an interdiff, two versions —, and the left of the diff's toolbar: which range is shown, as
 //! the page offers it (the working tree's halves, a comparison's sides, the versions' tabs), and its words for zen's
 //! line (`title`). A click asks the tab a `history::Act`. The head is a piece of the item page (`piece`), the last
-//! identity there.
+//! identity there; the toolbar's left another (`bar_piece`).
 
 use crate::compare::only_pill;
-use crate::history::{Act, Acts, History, VersionTab};
+use crate::history::{Act, Acts, History, Selection, VersionTab};
 use artoo_core::git::WebRemote;
 use artoo_review_api::Review;
 use artoo_review_api::diff::{Diff, Header};
@@ -38,6 +38,24 @@ pub fn piece(history: Entity<History>, services: Rc<Services>) -> Piece {
                 markdown::body(text, false, key, None, Some(drawing.selecting.clone()), cx)
             };
             Some(head(&diff, &look, &text, &acts))
+        }),
+    }
+}
+
+/// The left of the diff's toolbar (`Slot::DiffBar`, `what`): the diff the review's, a comparison narrowed when a
+/// run of its commits is picked on its page.
+pub fn bar_piece(history: Entity<History>, services: Rc<Services>) -> Piece {
+    Piece {
+        id: "branches.what",
+        slot: Slot::DiffBar,
+        draw: Rc::new(move |route, _, cx| {
+            let diff = services.get::<Rc<dyn Review>>()?.shown(cx)?;
+            let acts = services.get::<Acts>()?;
+            let h = history.read(cx);
+            let narrowed = h
+                .compare_of(route)
+                .is_some_and(|c| c.picked.is_some() && h.selection == Selection::None);
+            Some(what(&diff, h, narrowed, &acts))
         }),
     }
 }

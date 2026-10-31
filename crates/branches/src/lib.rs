@@ -45,7 +45,8 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, _: &mut App) -> Parts {
         // A branch's line before the head, which any diff has.
         pieces: vec![
             facts::line(history.clone(), services.clone()),
-            head::piece(history, services),
+            head::piece(history.clone(), services.clone()),
+            head::bar_piece(history, services),
         ],
         ..Default::default()
     }

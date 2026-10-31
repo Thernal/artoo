@@ -3178,7 +3178,7 @@ impl Workspace {
     }
 
     /// The diff's toolbar, read left to right: what is shown, then how it is drawn.
-    fn render_diff_toolbar(&self, diff: &Diff, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_diff_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         // A narrow diff wraps it: how it is drawn goes under what is shown, never out of view.
         div()
             .flex_none()
@@ -3191,12 +3191,7 @@ impl Workspace {
             .py(px(6.))
             .border_b_1()
             .border_color(theme::island_border())
-            .child(head::what(
-                diff,
-                self.history.read(cx),
-                self.narrowed_compare(cx).is_some(),
-                &self.history_acts(cx),
-            ))
+            .children(self.piece(Slot::DiffBar, cx))
             .child(div().flex_1())
             .child(self.render_toolbar(cx))
     }
@@ -3214,7 +3209,7 @@ impl Workspace {
             .map(|_| self.render_page_alone(ix, this.clone(), cx));
         let top = self.pieces(Slot::DiffTop, cx).into_iter().map(Some).chain([
             self.render_since_bar(cx),
-            Some(self.render_diff_toolbar(diff, cx).into_any_element()),
+            Some(self.render_diff_toolbar(cx).into_any_element()),
         ]);
         // With every file in one scroll the card's own header has its switch.
         let marks = file

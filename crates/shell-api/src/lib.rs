@@ -267,6 +267,8 @@ pub enum Slot {
     /// At the top of the diff's column (the file's pane, or what stands in the diff's place), over what the shell
     /// puts there: every part's that has one, in their order.
     DiffTop,
+    /// On the left of the diff's toolbar, saying which range is shown: the first part's that has one.
+    DiffBar,
 }
 
 /// A piece of the item page on screen a part draws in a slot (#165 I5c): for the route on screen, or nothing. The
