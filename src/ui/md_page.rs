@@ -1,31 +1,20 @@
-//! A changed markdown file read as a page (Design #11 A + B, `docs/specs/markdown-viewer.md`): its
-//! card has Rendered | Source (M, the active file's), Rendered by default; a document turned to
-//! Source stays so between launches (`page-source.txt`). The page follows the toolbar's Split |
-//! Unified. Unified draws the new version with the changes in it — a bar in the margin for every
-//! changed block, green added, yellow changed with its words marked, red removed (faded and struck;
-//! a removed section folds to one line). Split draws the old version beside the new, block beside
-//! block, a hatched gap where one side has none. Images come from the repository at each side's
-//! version (`FileDiff::pictures`). A comment on a block goes to the source line it starts on,
-//! written under the block on the page; its count opens the block's comments there.
-//! Viewed one file at a time the page scrolls on its own: n / p step through its changed blocks,
-//! space and ⇧space scroll it.
+//! A changed markdown file read as a page, the review's (`artoo_review::md_page`): the tab gives it what goes under
+//! its blocks (the composer, the comments of a block opened), the marks on its lines and Split's heads, and answers
+//! its clicks (`PageEvent`).
 
-use super::diff_view::{LineNote, NoteTone};
-use super::markdown::{DocPictures, doc_block};
-use super::{Selection, Workspace, px, theme};
+use super::diff_view::NoteTone;
+use super::{Selection, Workspace, px};
 use crate::git::FileDiff;
 use crate::markdown;
-use crate::mddiff::{Change, Row};
-use artoo_review::md_page::{bar, heading};
-use artoo_ui_kit::controls::{chip, group};
-use gpui::{AnyElement, App, ClickEvent, Context, FontWeight, Rgba, WeakEntity, div, prelude::*};
-use std::cell::RefCell;
+use crate::mddiff::Row;
+use artoo_review::md_page::{PageEvent, PageLook};
+use gpui::{AnyElement, App, Context, WeakEntity, div, prelude::*};
 use std::collections::HashMap;
 use std::rc::Rc;
 
 impl Workspace {
     /// Rendered | Source, M, and with `legend` what the bars mean while rendered, for a document's
-    /// header.
+    /// header (`Review::page_switch`).
     pub(super) fn page_switch(
         &self,
         file: &FileDiff,
@@ -33,71 +22,97 @@ impl Workspace {
         this: WeakEntity<Self>,
         cx: &App,
     ) -> Option<AnyElement> {
-        if !markdown::is_document(file.path()) || file.note.is_some() || file.hunks.is_empty() {
-            return None;
-        }
-        let source = self.review.read(cx).page.is_source(file.path());
-        let set = |to: bool| {
-            let this = this.clone();
-            let path = file.path().to_owned();
-            move |_: &ClickEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
-                cx.stop_propagation();
-                this.update(cx, |this, cx| this.set_page_source(&path, to, cx))
-                    .ok();
+        self.review
+            .read(cx)
+            .page_switch(file, legend, Self::page_on(this))
+    }
+
+    /// How a page's clicks come to the tab.
+    fn page_on(this: WeakEntity<Self>) -> artoo_review::md_page::OnPage {
+        Rc::new(move |event, cx| {
+            this.update(cx, |this, cx| this.page_event(event, cx)).ok();
+        })
+    }
+
+    fn page_event(&mut self, event: PageEvent, cx: &mut Context<Self>) {
+        match event {
+            PageEvent::Source { path, to } => self.set_page_source(&path, to, cx),
+            PageEvent::Notes { ix, old, first } => self.toggle_page_notes(ix, old, first, cx),
+            PageEvent::Comment { ix, old, first } => self.start_page_comment(ix, old, first, cx),
+            PageEvent::Fold(path, line) => {
+                self.review
+                    .update(cx, |rv, _| rv.flip_page_fold((path, line)));
+                cx.notify();
             }
+        }
+    }
+
+    /// What file `ix`'s page is drawn with: the marks on its lines, what goes under its blocks,
+    /// Split's heads.
+    fn page_look(&self, ix: usize, this: WeakEntity<Self>, cx: &App) -> PageLook {
+        let rv = self.review.read(cx);
+        let (notes, under) = match rv.diff.as_ref().and_then(|d| d.files.get(ix)) {
+            Some(file) => {
+                let rows = rv.page.rows(file);
+                let path = file.path().to_owned();
+                let data = (ix == rv.file).then_some(rv.data.as_deref()).flatten();
+                let notes = self
+                    .pins_of(&path, cx)
+                    .marks(data)
+                    .into_iter()
+                    .filter(|n| n.tone != NoteTone::Bookmark)
+                    .collect();
+                (notes, self.page_under(ix, &path, &rows, &this, cx))
+            }
+            None => (Vec::new(), HashMap::new()),
         };
-        let key = |color: Rgba, word: &'static str| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(4.))
-                .child(div().w(px(3.)).h(px(12.)).rounded(px(2.)).bg(color))
-                .child(word)
-        };
-        Some(
-            div()
-                .flex_none()
-                .flex()
-                .items_center()
-                .gap_2()
-                .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .child(
-                    group()
-                        .child(
-                            chip(
-                                gpui::ElementId::Name(
-                                    format!("page-rendered-{}", file.path()).into(),
-                                ),
-                                "Rendered",
-                                !source,
-                            )
-                            .on_click(set(false)),
-                        )
-                        .child(
-                            chip(
-                                gpui::ElementId::Name(
-                                    format!("page-source-{}", file.path()).into(),
-                                ),
-                                "Source",
-                                source,
-                            )
-                            .on_click(set(true)),
-                        ),
-                )
-                .child(super::keys::caps("M", super::keys::On::Plain))
-                .children((legend && !source).then(|| {
-                    div()
-                        .flex()
-                        .gap(px(10.))
-                        .ml(px(4.))
-                        .text_size(px(11.))
-                        .text_color(theme::muted())
-                        .child(key(theme::added(), "added"))
-                        .child(key(theme::warning(), "changed"))
-                        .child(key(theme::removed(), "removed"))
-                }))
-                .into_any_element(),
-        )
+        PageLook {
+            notes,
+            under,
+            heads: self.page_heads(cx),
+            selecting: self.selecting(this.clone()),
+            coming: self.motion.recent(&format!("page-{ix}")),
+            on: Self::page_on(this),
+        }
+    }
+
+    /// File `ix` as a page in the list of every file (`Review::render_page`).
+    pub(super) fn render_page(&self, ix: usize, this: WeakEntity<Self>, cx: &App) -> AnyElement {
+        let look = self.page_look(ix, this, cx);
+        self.review.read(cx).render_page(ix, look, cx)
+    }
+
+    /// File `ix` alone as a page that scrolls on its own (`Review::render_page_alone`).
+    pub(super) fn render_page_alone(
+        &self,
+        ix: usize,
+        this: WeakEntity<Self>,
+        cx: &App,
+    ) -> AnyElement {
+        let look = self.page_look(ix, this, cx);
+        self.review.read(cx).render_page_alone(ix, look, cx)
+    }
+
+    /// n / p on a page viewed alone (`Review::step_page`). Whether the page took the keys.
+    pub(super) fn step_page(&mut self, forward: bool, cx: &mut Context<Self>) -> bool {
+        match self.review.update(cx, |rv, _| rv.step_page(forward)) {
+            None => false,
+            Some(went) => {
+                if went {
+                    cx.notify();
+                }
+                true
+            }
+        }
+    }
+
+    /// Space and ⇧space on a page viewed alone (`Review::scroll_page`). Whether the page took it.
+    pub(super) fn scroll_page(&mut self, down: bool, cx: &mut Context<Self>) -> bool {
+        let took = self.review.update(cx, |rv, _| rv.scroll_page(down));
+        if took {
+            cx.notify();
+        }
+        took
     }
 
     /// Document `path` read Rendered or as Source.
@@ -304,566 +319,4 @@ impl Workspace {
             Selection::None => ("Before".into(), "After".into()),
         }
     }
-
-    /// File `ix` as a page in the list of every file: Unified or Split as the toolbar says.
-    pub(super) fn render_page(
-        &self,
-        ix: usize,
-        this: WeakEntity<Self>,
-        cx: &gpui::App,
-    ) -> AnyElement {
-        let blocks = self.page_blocks(ix, this, cx);
-        let page = page_text(div().w_full().py(px(16.)).pl(px(44.)).pr(px(24.))).child(
-            div()
-                .when(self.review.read(cx).options.unified, |s| s.max_w(px(880.)))
-                .flex()
-                .flex_col()
-                .gap(px(12.))
-                .children(blocks.into_iter().map(|(b, _)| b)),
-        );
-        if self.motion.recent(&format!("page-{ix}")) {
-            super::motion::appear(page, ("page-coming", ix), super::motion::FAST, |page, v| {
-                page.opacity(v)
-            })
-            .into_any_element()
-        } else {
-            page.into_any_element()
-        }
-    }
-
-    /// File `ix` alone as a page that scrolls on its own, its blocks its children, so n / p can
-    /// step through the changed ones.
-    pub(super) fn render_page_alone(
-        &self,
-        ix: usize,
-        this: WeakEntity<Self>,
-        cx: &gpui::App,
-    ) -> AnyElement {
-        let blocks = self.page_blocks(ix, this, cx);
-        *self.review.read(cx).page.changes.borrow_mut() = blocks
-            .iter()
-            .enumerate()
-            .filter(|(_, (_, changed))| *changed)
-            .map(|(k, _)| k)
-            .collect();
-        let unified = self.review.read(cx).options.unified;
-        // Laid over its place rather than in it: its blocks never make the pane taller than the
-        // window, so it scrolls.
-        let page = page_text(
-            div()
-                .id("page")
-                .track_scroll(&self.review.read(cx).page.scroll)
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full()
-                .overflow_y_scroll()
-                .flex()
-                .flex_col()
-                .gap(px(12.))
-                .py(px(16.))
-                .pl(px(44.))
-                .pr(px(24.)),
-        )
-        .children(blocks.into_iter().map(|(b, _)| {
-            div()
-                .flex_none()
-                .when(unified, |s| s.max_w(px(880.)))
-                .child(b)
-        }));
-        div()
-            .relative()
-            .flex_1()
-            .min_h_0()
-            .child(page)
-            .into_any_element()
-    }
-
-    /// n / p on a page viewed alone: the next (or previous) changed block, from the last one gone
-    /// to, else from the top of the view. Whether the page took the keys.
-    pub(super) fn step_page(&mut self, forward: bool, cx: &mut Context<Self>) -> bool {
-        if !self.review.read(cx).page_alone() {
-            return false;
-        }
-        let changes = self.review.read(cx).page.changes.borrow().clone();
-        let top = self.review.read(cx).page.scroll.top_item();
-        let from = self.review.read(cx).page.at.filter(|&at| at + 1 >= top);
-        let to = if forward {
-            changes
-                .iter()
-                .copied()
-                .find(|&c| from.map_or(c >= top, |at| c > at))
-        } else {
-            changes
-                .iter()
-                .rev()
-                .copied()
-                .find(|&c| c < from.unwrap_or(top))
-        };
-        if let Some(to) = to {
-            self.review.update(cx, |rv, _| rv.page.at = Some(to));
-            self.review.read(cx).page.scroll.scroll_to_top_of_item(to);
-            cx.notify();
-        }
-        true
-    }
-
-    /// Space and ⇧space on a page viewed alone: a screen down or up. Whether the page took it.
-    pub(super) fn scroll_page(&mut self, down: bool, cx: &mut Context<Self>) -> bool {
-        if !self.review.read(cx).page_alone() {
-            return false;
-        }
-        let s = &self.review.read(cx).page.scroll;
-        let step = s.bounds().size.height * 0.85;
-        let y = if down {
-            (s.offset().y - step).max(-s.max_offset().y)
-        } else {
-            (s.offset().y + step).min(px(0.))
-        };
-        s.set_offset(gpui::point(s.offset().x, y));
-        self.review.update(cx, |rv, _| rv.page.at = None);
-        cx.notify();
-        true
-    }
-
-    /// File `ix`'s blocks: Unified or Split as the toolbar says, each with whether it is a change.
-    fn page_blocks(
-        &self,
-        ix: usize,
-        this: WeakEntity<Self>,
-        cx: &gpui::App,
-    ) -> Vec<(AnyElement, bool)> {
-        let Some(file) = self
-            .review
-            .read(cx)
-            .diff
-            .as_ref()
-            .and_then(|d| d.files.get(ix))
-        else {
-            return Vec::new();
-        };
-        let rows = self.review.read(cx).page.rows(file);
-        let path = file.path().to_owned();
-        let side = |old: bool| {
-            let pictures: DocPictures = file
-                .pictures
-                .iter()
-                .filter(|p| p.old == old)
-                .map(|p| {
-                    (
-                        p.src.clone(),
-                        (self.review.read(cx).images.image(&p.image), p.image.size),
-                    )
-                })
-                .collect();
-            Rc::new(pictures)
-        };
-        let (old_pics, new_pics) = (side(true), side(false));
-        let data = (ix == self.review.read(cx).file)
-            .then_some(self.review.read(cx).data.as_deref())
-            .flatten();
-        let notes: Vec<LineNote> = self
-            .pins_of(&path, cx)
-            .marks(data)
-            .into_iter()
-            .filter(|n| n.tone != NoteTone::Bookmark)
-            .collect();
-        let under = self.page_under(ix, &path, &rows, &this, cx);
-        let ctx = BlockCtx {
-            ix,
-            sel: self.selecting(this.clone()),
-            this,
-            notes: Rc::new(notes),
-            under: RefCell::new(under),
-        };
-        if self.review.read(cx).options.unified {
-            self.unified(&rows, &path, &ctx, &old_pics, &new_pics, cx)
-        } else {
-            self.split(&rows, &ctx, &old_pics, &new_pics, cx)
-        }
-    }
-
-    /// Unified's blocks, each with whether it is a change.
-    fn unified(
-        &self,
-        rows: &[Row],
-        path: &str,
-        ctx: &BlockCtx,
-        old_pics: &Rc<DocPictures>,
-        new_pics: &Rc<DocPictures>,
-        cx: &gpui::App,
-    ) -> Vec<(AnyElement, bool)> {
-        let mut out: Vec<(AnyElement, bool)> = Vec::new();
-        let mut k = 0;
-        while k < rows.len() {
-            let row = &rows[k];
-            // A run of removed blocks that starts a section folds to one line.
-            if row.change == Change::Removed
-                && let Some((first, (line, _))) = &row.old
-                && heading(first).is_some()
-            {
-                let end = k + rows[k..]
-                    .iter()
-                    .take_while(|r| r.change == Change::Removed)
-                    .count();
-                let names: Vec<String> = rows[k..end]
-                    .iter()
-                    .filter_map(|r| r.old.as_ref().and_then(|(b, _)| heading(b)))
-                    .collect();
-                let key = (path.to_owned(), *line);
-                let open = self.review.read(cx).page.open.contains(&key);
-                out.push((fold_line(&names, open, key, ctx.this.clone(), k), true));
-                if open {
-                    // Opened, its blocks fade in (#56, 15).
-                    for (n, r) in rows[k..end].iter().enumerate() {
-                        let block = super::motion::appear(
-                            div().child(ctx.block(r, true, old_pics, k + n, true, cx)),
-                            ("removed-opening", k + n),
-                            super::motion::BASE,
-                            |block, v| block.opacity(v),
-                        );
-                        out.push((block.into_any_element(), false));
-                    }
-                }
-                k = end;
-                continue;
-            }
-            let pics = if row.change == Change::Removed {
-                old_pics
-            } else {
-                new_pics
-            };
-            out.push((
-                ctx.block(row, row.change == Change::Removed, pics, k, true, cx),
-                row.change != Change::Same,
-            ));
-            k += 1;
-        }
-        out
-    }
-
-    /// Split's column heads, then its rows, each with whether it is a change.
-    fn split(
-        &self,
-        rows: &[Row],
-        ctx: &BlockCtx,
-        old_pics: &Rc<DocPictures>,
-        new_pics: &Rc<DocPictures>,
-        cx: &gpui::App,
-    ) -> Vec<(AnyElement, bool)> {
-        let (before, now) = self.page_heads(cx);
-        let head = |text: String| {
-            let (version, rest) = text.split_once(" · ").unwrap_or((&text, ""));
-            div()
-                .flex_1()
-                .min_w_0()
-                .pb(px(6.))
-                .border_b_1()
-                .border_color(theme::island_border())
-                .text_size(px(12.))
-                .text_color(theme::faint())
-                .flex()
-                .gap(px(4.))
-                .child(
-                    div()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::text())
-                        .child(version.to_owned()),
-                )
-                .children((!rest.is_empty()).then(|| format!("· {rest}")))
-        };
-        let hatch = || {
-            div()
-                .flex_1()
-                .min_w_0()
-                .min_h(px(24.))
-                .mr(px(64.))
-                .rounded(px(4.))
-                .bg(gpui::pattern_slash(theme::selected(), 1., 6.))
-                .into_any_element()
-        };
-        let cell = |el: AnyElement| div().flex_1().min_w_0().child(el).into_any_element();
-        let heads = div()
-            .flex()
-            .gap(px(56.))
-            .child(head(before))
-            .child(head(now))
-            .into_any_element();
-        std::iter::once((heads, false))
-            .chain(rows.iter().enumerate().map(|(k, r)| {
-                let (left, right) = match r.change {
-                    Change::Added => (hatch(), cell(ctx.side_block(r, false, new_pics, k, cx))),
-                    Change::Removed => (cell(ctx.side_block(r, true, old_pics, k, cx)), hatch()),
-                    _ => (
-                        cell(ctx.side_block(r, true, old_pics, k, cx)),
-                        cell(ctx.side_block(r, false, new_pics, k, cx)),
-                    ),
-                };
-                (
-                    div()
-                        .flex()
-                        .gap(px(56.))
-                        .child(left)
-                        .child(right)
-                        .into_any_element(),
-                    r.change != Change::Same,
-                )
-            }))
-            .collect()
-    }
-}
-
-/// What every block of one page needs.
-struct BlockCtx {
-    ix: usize,
-    /// A block's text can be selected and copied, as a comment's.
-    sel: super::markdown::Selecting,
-    this: WeakEntity<Workspace>,
-    notes: Rc<Vec<LineNote>>,
-    /// What goes under a block (the composer, its opened comments), by side and first line.
-    under: RefCell<HashMap<(bool, u32), Vec<AnyElement>>>,
-}
-
-impl BlockCtx {
-    /// A block of Unified: the old one when `old` (removed: faded and struck), else the new one,
-    /// or for a changed block the two read together.
-    fn block(
-        &self,
-        r: &Row,
-        old: bool,
-        pics: &Rc<DocPictures>,
-        k: usize,
-        unified: bool,
-        cx: &gpui::App,
-    ) -> AnyElement {
-        let (block, lines) = match (old, r) {
-            (
-                true,
-                Row {
-                    old: Some((b, l)), ..
-                },
-            ) => (b, *l),
-            (
-                false,
-                Row {
-                    merged: Some(m),
-                    new: Some((_, l)),
-                    ..
-                },
-            ) if unified => (m, *l),
-            (
-                _,
-                Row {
-                    new: Some((b, l)), ..
-                },
-            ) => (b, *l),
-            (
-                _,
-                Row {
-                    old: Some((b, l)), ..
-                },
-            ) => (b, *l),
-            _ => return div().into_any_element(),
-        };
-        let struck = unified && r.change == Change::Removed;
-        self.frame(
-            doc_block(
-                block,
-                format!("page-{}-{k}-{old}", self.ix),
-                pics.clone(),
-                self.sel.clone(),
-                cx,
-            ),
-            bar(r.change),
-            struck,
-            old,
-            lines,
-            k,
-        )
-    }
-
-    /// A block of Split: one side's own (a changed one with its side's words marked).
-    fn side_block(
-        &self,
-        r: &Row,
-        old: bool,
-        pics: &Rc<DocPictures>,
-        k: usize,
-        cx: &gpui::App,
-    ) -> AnyElement {
-        self.block(r, old, pics, k, false, cx)
-    }
-
-    /// A block in its margin: the change's bar left, the comments on its lines and a comment
-    /// button right (on hover).
-    fn frame(
-        &self,
-        body: AnyElement,
-        color: Option<Rgba>,
-        struck: bool,
-        old: bool,
-        (first, last): (u32, u32),
-        k: usize,
-    ) -> AnyElement {
-        let count: usize = self
-            .notes
-            .iter()
-            .filter(|n| n.old == old && (first..=last).contains(&n.line))
-            .map(|n| n.count)
-            .sum();
-        let (ix, show, write) = (self.ix, self.this.clone(), self.this.clone());
-        let under = self
-            .under
-            .borrow_mut()
-            .remove(&(old, first))
-            .unwrap_or_default();
-        let group_name = "page-block";
-        div()
-            .id(("page-block", k * 2 + old as usize))
-            .group(group_name)
-            .relative()
-            .children(color.map(|c| {
-                div()
-                    .absolute()
-                    .left(px(-20.))
-                    .top(px(2.))
-                    .bottom(px(2.))
-                    .w(px(3.))
-                    .rounded(px(2.))
-                    .bg(c)
-            }))
-            .child(
-                div()
-                    .pr(px(64.))
-                    .when(struck, |s| s.opacity(0.6).line_through())
-                    .child(body),
-            )
-            .children(under)
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .right_0()
-                    .flex()
-                    .gap(px(4.))
-                    .children((count > 0).then(|| {
-                        div()
-                            .id(("page-notes", k * 2 + old as usize))
-                            .px(px(6.))
-                            .h(px(20.))
-                            .flex()
-                            .items_center()
-                            .gap(px(4.))
-                            .rounded_full()
-                            .bg(theme::info_bg())
-                            .text_size(px(11.))
-                            .text_color(theme::accent())
-                            .cursor_pointer()
-                            .child(
-                                super::icons::icon("message")
-                                    .size(px(12.))
-                                    .text_color(theme::accent()),
-                            )
-                            .child(count.to_string())
-                            .on_click(move |e: &ClickEvent, _, cx| {
-                                if e.click_count() > 1 {
-                                    return;
-                                }
-                                show.update(cx, |this, cx| {
-                                    this.toggle_page_notes(ix, old, first, cx)
-                                })
-                                .ok();
-                            })
-                    }))
-                    .child(
-                        div()
-                            .id(("page-comment", k * 2 + old as usize))
-                            .size(px(20.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(4.))
-                            .invisible()
-                            .group_hover(group_name, |s| s.visible())
-                            .bg(theme::hover())
-                            .text_color(theme::muted())
-                            .cursor_pointer()
-                            .hover(|s| s.text_color(theme::text()))
-                            .child(super::icons::icon("plus").size(px(14.)))
-                            .on_click(move |_: &ClickEvent, _, cx| {
-                                write
-                                    .update(cx, |this, cx| {
-                                        this.start_page_comment(ix, old, first, cx)
-                                    })
-                                    .ok();
-                            }),
-                    ),
-            )
-            .into_any_element()
-    }
-}
-
-/// A page's type: the document reads in the interface's font, a size up.
-fn page_text<E: Styled>(el: E) -> E {
-    el.font_family(theme::ui_font())
-        .text_size(px(14.))
-        .line_height(px(22.))
-        .text_color(theme::text())
-}
-
-/// "1 section removed: Known issues", and a click shows it where it was.
-fn fold_line(
-    names: &[String],
-    open: bool,
-    key: (String, u32),
-    this: WeakEntity<Workspace>,
-    k: usize,
-) -> AnyElement {
-    let what = match names.len() {
-        1 => "1 section removed".to_owned(),
-        n => format!("{n} sections removed"),
-    };
-    div()
-        .id(("page-fold", k))
-        .flex()
-        .items_center()
-        .gap(px(8.))
-        .px(px(10.))
-        .h(px(28.))
-        .rounded(px(4.))
-        .bg(theme::removed_line())
-        .text_size(px(12.))
-        .text_color(theme::removed())
-        .cursor_pointer()
-        .child(
-            super::icons::icon("x")
-                .size(px(13.))
-                .text_color(theme::removed()),
-        )
-        .child(div().flex_none().child(format!("{what}:")))
-        .child(
-            super::hover::cut(
-                gpui::SharedString::from(format!("{what}-names")),
-                names.join(", "),
-            )
-            .flex_1()
-            .font_weight(FontWeight::SEMIBOLD),
-        )
-        .child(
-            div()
-                .text_color(theme::faint())
-                .child(if open { "hide" } else { "show" }),
-        )
-        .on_click(move |_: &ClickEvent, _, cx| {
-            this.update(cx, |this, cx| {
-                if !this.review.update(cx, |rv, _| rv.page.open.remove(&key)) {
-                    this.review
-                        .update(cx, |rv, _| rv.page.open.insert(key.clone()));
-                }
-                this.review.update(cx, |rv, _| rv.remeasure_pages());
-                cx.notify();
-            })
-            .ok();
-        })
-        .into_any_element()
 }
