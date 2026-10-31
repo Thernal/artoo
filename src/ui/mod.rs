@@ -90,6 +90,7 @@ use artoo_branches::working::WorkingState;
 use artoo_review::diff::{Diff, Header, Notice};
 use artoo_review::diff_view::{self, CODE_SIZE, change_color, file_tag};
 use artoo_review::review::{self, Opt};
+use artoo_review_api::Source;
 use artoo_ui_kit::controls::{chip, tag};
 use gpui::{
     App, ClickEvent, Context, CursorStyle, FocusHandle, FontWeight, KeyBinding, KeyDownEvent,
@@ -2255,8 +2256,8 @@ impl Workspace {
 
     /// Shows commit `ix`; `keep` re-selects a file by path.
     fn load_commit(&mut self, ix: usize, keep: Option<String>, cx: &mut Context<Self>) {
-        let (Some(root), Some(commit)) = (
-            self.root.clone(),
+        let (Some(_), Some(commit)) = (
+            self.root.as_ref(),
             self.history.read(cx).commits.get(ix).cloned(),
         ) else {
             return;
@@ -2274,17 +2275,7 @@ impl Workspace {
             self.commit_scroll
                 .scroll_to_item(row, ScrollStrategy::Nearest);
         }
-        let id = commit.id;
-        let settings = self.settings(cx);
-        self.load_diff(keep, cx, move || {
-            let files = Repo::open(&root)?.commit_diff(id, settings)?;
-            Ok(Diff {
-                header: Header::Commit(commit),
-                files: Arc::new(files),
-                pairs: Vec::new(),
-                tags: Default::default(),
-            })
-        });
+        self.open_diff(Source::Commit(commit), keep, cx);
     }
 
     /// A run of the list's commits, `newest` to `oldest` (indexes, newest first), as one diff.
@@ -2304,8 +2295,8 @@ impl Workspace {
         if newest == oldest {
             return self.load_commit(newest, keep, cx);
         }
-        let (Some(root), Some(head), Some(tail)) = (
-            self.root.clone(),
+        let (Some(_), Some(head), Some(tail)) = (
+            self.root.as_ref(),
             self.history.read(cx).commits.get(newest).map(|c| c.id),
             self.history.read(cx).commits.get(oldest).map(|c| c.id),
         ) else {
@@ -2316,27 +2307,11 @@ impl Workspace {
             h.selection = Selection::Commits { newest, oldest }
         });
         self.record(cx);
-        let settings = self.settings(cx);
-        self.load_diff(keep, cx, move || {
-            let repo = Repo::open(&root)?;
-            // A first commit has no parent: the run is then from it.
-            let base = repo.parent_of(tail).unwrap_or(tail);
-            let c = repo.compare(base, head, false, settings)?;
-            Ok(Diff {
-                header: Header::Compare {
-                    base: (format!("{}^", format::short(tail)), base),
-                    head: (format::short(head), head),
-                    since_merge_base: false,
-                    start: c.start,
-                    commits: c.commits,
-                    request: None,
-                    stale: None,
-                },
-                files: Arc::new(c.files),
-                pairs: Vec::new(),
-                tags: Default::default(),
-            })
-        });
+        let run = Source::Commits {
+            newest: head,
+            oldest: tail,
+        };
+        self.open_diff(run, keep, cx);
     }
 
     fn select_versions(&mut self, from: usize, to: usize, cx: &mut Context<Self>) {
@@ -2350,8 +2325,8 @@ impl Workspace {
         keep: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        let (Some(root), Some(a), Some(b)) = (
-            self.root.clone(),
+        let (Some(_), Some(a), Some(b)) = (
+            self.root.as_ref(),
             self.history.read(cx).versions.get(from).cloned(),
             self.history.read(cx).versions.get(to).cloned(),
         ) else {
@@ -2370,29 +2345,13 @@ impl Workspace {
         self.history
             .update(cx, |h, _| h.selection = Selection::Versions { from, to });
         self.record(cx);
-        let settings = self.settings(cx);
-        self.load_diff(keep, cx, move || {
-            let repo = Repo::open(&root)?;
-            let diff = repo.version_diff(&a, &b, settings)?;
-            let pairs = repo.range_pairs(&a, &b).unwrap_or_default();
-            Ok(Diff {
-                header: Header::Versions {
-                    from: a,
-                    to: b,
-                    rebased: diff.rebased,
-                    conflicts: diff.conflicts.len(),
-                },
-                files: Arc::new(diff.files),
-                pairs,
-                tags: Default::default(),
-            })
-        });
+        self.open_diff(Source::Versions { from: a, to: b }, keep, cx);
     }
 
     /// The interdiff of one modified commit of the comparison `from`..`to`.
     fn select_interdiff(&mut self, pair: usize, cx: &mut Context<Self>) {
-        let (Some(root), Selection::Versions { from, to }) =
-            (self.root.clone(), self.history.read(cx).selection)
+        let (Some(_), Selection::Versions { from, to }) =
+            (self.root.as_ref(), self.history.read(cx).selection)
         else {
             return;
         };
@@ -2409,16 +2368,7 @@ impl Workspace {
         self.clear_diff(cx);
         self.history
             .update(cx, |h, _| h.selection = Selection::Versions { from, to });
-        let settings = self.settings(cx);
-        self.load_diff(None, cx, move || {
-            let diff = Repo::open(&root)?.interdiff(old.id, new.id, settings)?;
-            Ok(Diff {
-                header: Header::Interdiff { from, to, old, new },
-                files: Arc::new(diff.files),
-                pairs: Vec::new(),
-                tags: Default::default(),
-            })
-        });
+        self.open_diff(Source::Interdiff { from, to, old, new }, None, cx);
     }
 
     fn settings(&self, cx: &App) -> DiffSettings {
@@ -2427,14 +2377,9 @@ impl Workspace {
         }
     }
 
-    /// Loads a diff with `load` in the review's task (`Review::load`); `keep` is the file to open in it.
-    fn load_diff(
-        &mut self,
-        keep: Option<String>,
-        cx: &mut Context<Self>,
-        load: impl FnOnce() -> anyhow::Result<Diff> + Send + 'static,
-    ) {
-        self.review.update(cx, |rv, cx| rv.load(keep, load, cx));
+    /// Shows what `source` is (`Review::open`); `keep` is the file to open in it.
+    fn open_diff(&mut self, source: Source, keep: Option<String>, cx: &mut Context<Self>) {
+        self.review.update(cx, |rv, cx| rv.open(source, keep, cx));
         cx.notify();
     }
 

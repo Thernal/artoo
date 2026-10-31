@@ -7,9 +7,10 @@ use crate::diff::{Diff, Header, Notice};
 use crate::diff_view::{self, CODE_SIZE, DIFF_ROW, RowStyle};
 use crate::pins::Pins;
 use crate::select::Sel;
-use artoo_core::git::FileDiff;
+use artoo_core::git::{DiffSettings, FileDiff};
 use artoo_core::rows::{self, FileData, Row};
 use artoo_core::storage::{DiffMode, Settings, ViewOptions};
+use artoo_review_api::Source;
 use artoo_ui_kit::{ISLAND_RADIUS, flat, motion, px, theme};
 use gpui::{
     App, Context, ListState, ScrollStrategy, ScrollWheelEvent, Task, UniformListScrollHandle,
@@ -700,6 +701,18 @@ impl Review {
         self.diff_task = None;
         self.clear_file();
         self.file = 0;
+    }
+
+    /// Shows what `source` is, read with the review's root and settings in its task (`load`); `keep` is the file
+    /// to open in it. Nothing without a root.
+    pub fn open(&mut self, source: Source, keep: Option<String>, cx: &mut Context<Self>) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let settings = DiffSettings {
+            ignore_whitespace: self.options.ignore_whitespace,
+        };
+        self.load(keep, move || Diff::read(&root, source, settings), cx);
     }
 
     /// Loads a diff with `load` in the background; once it came, it is shown (`Review::loaded`) and said

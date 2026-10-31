@@ -6,9 +6,7 @@
 use super::input::{self, Edit};
 use super::px;
 use super::spaces::Space;
-use super::{
-    Diff, Header, ISLAND_RADIUS, ROW_RADIUS, Selection, Workspace, format, island_label, theme,
-};
+use super::{ISLAND_RADIUS, ROW_RADIUS, Selection, Source, Workspace, format, island_label, theme};
 use crate::git::{NamedRef, Repo};
 use git2::Oid;
 use gpui::{Action, App, Context, KeyDownEvent, MouseButton, Window, div, prelude::*};
@@ -1327,9 +1325,9 @@ impl Workspace {
         request: Option<u64>,
         cx: &mut Context<Self>,
     ) {
-        let Some(root) = self.root.clone() else {
+        if self.root.is_none() {
             return;
-        };
+        }
         self.clear_diff(cx);
         self.history
             .update(cx, |h, _| h.selection = Selection::None);
@@ -1349,29 +1347,13 @@ impl Workspace {
         // A comparison's own page lists its commits (#21); a request's or a branch's has its own.
         let own = request.is_none() && self.nav_page() == Some(&page);
         self.read_compare_commits(own.then_some(page), cx);
-        let settings = self.settings(cx);
-        self.load_diff(None, cx, move || {
-            let repo = Repo::open(&root)?;
-            let c = repo.compare(base.1, head.1, since_merge_base, settings)?;
-            // Only a local branch that still points where it was picked can be stale.
-            let stale = repo
-                .stale(&base.0)
-                .filter(|_| repo.resolve(&base.0).ok() == Some(base.1));
-            Ok(Diff {
-                header: Header::Compare {
-                    base,
-                    head,
-                    since_merge_base,
-                    start: c.start,
-                    commits: c.commits,
-                    request,
-                    stale,
-                },
-                files: Arc::new(c.files),
-                pairs: Vec::new(),
-                tags: Default::default(),
-            })
-        });
+        let compare = Source::Compare {
+            base,
+            head,
+            since: since_merge_base,
+            request,
+        };
+        self.open_diff(compare, None, cx);
         cx.notify();
     }
 

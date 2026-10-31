@@ -28,7 +28,9 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   shown); `src/ui/code.rs` is the tab's side: what the tab asks of it, the Outline tool window, the tab as its host.
   `crates/code-api` (`artoo-code-api`): Code's contract — its routes (`code.file`, `code.folder`), `Code` (what the
   tab asks of it, offered in the tab's services) and `Host` (what it asks of the tab). `crates/review-api`
-  (`artoo-review-api`): what a page asks of the tab's review, for now the file Code reads (`FileView`).
+  (`artoo-review-api`): what a page asks of the tab's review — what a diff is of (`Source`: a commit, a run,
+  versions, an interdiff, the working tree, a comparison; the review reads it, `Review::open`), the file Code reads
+  (`FileView`), how far a request's review got (`Seen`).
   `crates/branches-api` (`artoo-branches-api`): branches' contract — the routes of a branch's pages
   (`branches.branch`, `branches.commit`, `branches.commits`, `branches.versions`), of a comparison
   (`branches.compare`) and of the working tree (`branches.working-tree`).

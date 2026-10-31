@@ -7,5 +7,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+# A source names the core's commits and versions.
+artoo-core = { path = "../core" }
 git2.workspace = true
 gpui.workspace = true

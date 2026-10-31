@@ -2,11 +2,9 @@
 //! works. Read-only — Artoo never stages or commits. Its chip on the Commits label is the branches'
 //! (`artoo_branches::side::working_chip`).
 
-use super::{Diff, Header, Selection, WorkingState, Workspace};
+use super::{Selection, Source, WorkingState, Workspace};
 use crate::git::Repo;
-use artoo_review::diff::FileTags;
 use gpui::Context;
-use std::sync::Arc;
 use std::time::Duration;
 
 /// How often the working tree is looked at.
@@ -128,9 +126,9 @@ impl Workspace {
     }
 
     pub(super) fn load_working_tree(&mut self, keep: Option<String>, cx: &mut Context<Self>) {
-        let Some(root) = self.root.clone() else {
+        if self.root.is_none() {
             return;
-        };
+        }
         let only_unstaged = self.wt.only_unstaged;
         let at = self.review.read(cx).file;
         self.clear_diff(cx);
@@ -138,24 +136,7 @@ impl Workspace {
         self.review.update(cx, |rv, _| rv.file = at);
         self.history
             .update(cx, |h, _| h.selection = Selection::WorkingTree);
-        let settings = self.settings(cx);
-        self.load_diff(keep, cx, move || {
-            // All changes as `git status` groups them (#22); Not staged only is that group alone.
-            let repo = Repo::open(&root)?;
-            let tree = match only_unstaged {
-                true => repo.working_tree(settings, true)?,
-                false => repo.working_groups(settings)?,
-            };
-            Ok(Diff {
-                header: Header::WorkingTree { only_unstaged },
-                files: Arc::new(tree.files),
-                pairs: Vec::new(),
-                tags: FileTags {
-                    words: tree.tags,
-                    staged: tree.staged,
-                },
-            })
-        });
+        self.open_diff(Source::WorkingTree { only_unstaged }, keep, cx);
         cx.notify();
     }
 

@@ -6,12 +6,10 @@
 //! Its rows and the pill are the branches' (`artoo_branches::side`, `compare`); the tab reads and picks.
 
 use super::nav::Page;
-use super::{Diff, Header, Selection, Workspace, format};
-use crate::git::Repo;
+use super::{Selection, Source, Workspace};
 use artoo_branches::compare::{CompareCommits, Sides, only_pill};
 use artoo_branches::side::{compare_commits, compare_row};
 use gpui::{AnyElement, App, Context, prelude::*};
-use std::sync::Arc;
 
 impl Workspace {
     /// The comparison's commits, while its page is on screen and they are read.
@@ -67,8 +65,8 @@ impl Workspace {
     /// Shows the run picked: what the newest holds against the oldest's parent (one commit
     /// against its first parent), under the comparison's own page; `keep` stays on that file.
     pub(super) fn load_compare_pick(&mut self, keep: Option<String>, cx: &mut Context<Self>) {
-        let (Some(root), Some((newest, oldest))) = (
-            self.root.clone(),
+        let (Some(_), Some((newest, oldest))) = (
+            self.root.as_ref(),
             self.history
                 .read(cx)
                 .compare
@@ -78,32 +76,7 @@ impl Workspace {
             return;
         };
         self.clear_diff(cx);
-        let settings = self.settings(cx);
-        self.load_diff(keep, cx, move || {
-            let repo = Repo::open(&root)?;
-            // A first commit has no parent: its diff is all it adds.
-            let base = repo.parent_of(oldest).unwrap_or(oldest);
-            let (files, start, commits) = if newest == oldest {
-                (repo.commit_diff(newest, settings)?, base, 1)
-            } else {
-                let c = repo.compare(base, newest, false, settings)?;
-                (c.files, c.start, c.commits)
-            };
-            Ok(Diff {
-                header: Header::Compare {
-                    base: (format!("{}^", format::short(oldest)), base),
-                    head: (format::short(newest), newest),
-                    since_merge_base: false,
-                    start,
-                    commits,
-                    request: None,
-                    stale: None,
-                },
-                files: Arc::new(files),
-                pairs: Vec::new(),
-                tags: Default::default(),
-            })
-        });
+        self.open_diff(Source::Commits { newest, oldest }, keep, cx);
         cx.notify();
     }
 
