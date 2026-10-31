@@ -12,19 +12,6 @@ use gpui::{
     WeakEntity, Window, div, prelude::*,
 };
 
-/// What a status letter stands for.
-pub fn status_word(change: crate::git::ChangeKind, old: Option<&str>) -> String {
-    use crate::git::ChangeKind::*;
-    match change {
-        Added => "Added".into(),
-        Deleted => "Deleted".into(),
-        Renamed => format!("Renamed from {}", old.unwrap_or_default()),
-        Copied => format!("Copied from {}", old.unwrap_or_default()),
-        TypeChanged => "Type changed".into(),
-        Modified => "Modified".into(),
-    }
-}
-
 /// A person (#51): who they are here, and a way to mention them or open their page.
 pub struct PersonCard {
     pub name: String,

@@ -2,7 +2,7 @@
 //! commit, a run of commits, two versions, an interdiff, the working tree, a comparison — the review reads it. The
 //! file Code reads (#71, #75): read at a revision, which one is read, closed. The review draws it; the page puts it
 //! where it goes. What the review's host draws on its rows and does with their events (`Host`, `LineEvent`,
-//! `FileEvent`, `PaneEvent`). And how far your review of a merge request got (`Seen`), which the requests list groups by.
+//! `FileEvent`, `PaneEvent`, `ChangesEvent`). And how far your review of a merge request got (`Seen`), which the requests list groups by.
 //!
 //! The tab's review offers it as `Rc<dyn FileView>` in the tab's services (`Frame::services`). What it changes is
 //! changed at once: ask it from anywhere but the review's own update.
@@ -112,9 +112,29 @@ pub enum FileEvent {
     Note(u32),
 }
 
+/// What a click on the Changes list asks (`Host::changes`).
+pub enum ChangesEvent {
+    /// File `ix`'s box: marked reviewed, or unmarked when it is.
+    ToggleReviewed(usize),
+    /// Folder `folder`'s box: every file under it marked (`done`) or unmarked.
+    FolderReviewed { folder: String, done: bool },
+    /// Mark all / Unmark all: every file the list shows.
+    ReviewAll,
+    /// File `ix` picked.
+    Pick(usize),
+    /// A right click on file `ix` at `at`: its menu.
+    Menu {
+        ix: usize,
+        at: gpui::Point<gpui::Pixels>,
+    },
+    /// A folder, or a group by its key, folded or opened.
+    Fold(String),
+}
+
 /// What the review's host gives it to draw its rows with (the tab, for now): the rows other features pin on
-/// lines, what they say beside a file's name, a document's page and its switch, whether a file's rows fade in, and
-/// what a line's and a file's events do.
+/// lines, what they say beside a file's name, a document's page and its switch, whether a file's rows fade in, a
+/// tree's rows fading in under a folder opened, the versions marks were made at, and what a line's, a file's, the
+/// pane's and the Changes list's events do.
 pub trait Host {
     /// Pinned row `row` (a discussion, a pending comment, an agent's note, the composer, the `c` prompt),
     /// `indent` from the left; `active` in the file the keyboard works in.
@@ -133,6 +153,12 @@ pub trait Host {
     fn file(&self, event: FileEvent, cx: &mut App);
     /// Event `event` on the file's pane.
     fn pane(&self, event: PaneEvent, cx: &mut App);
+    /// Row `path` of the Changes tree, fading in when a folder just opened above it.
+    fn tree_row(&self, path: &str, row: gpui::AnyElement, cx: &App) -> gpui::AnyElement;
+    /// The number of the version whose tip is `tip`, of those read: the one a file was marked reviewed at.
+    fn version_of(&self, tip: Oid, cx: &App) -> Option<usize>;
+    /// Event `event` on the Changes list.
+    fn changes(&self, event: ChangesEvent, cx: &mut App);
 }
 
 /// What a click on the file's pane asks (`Host::pane`).

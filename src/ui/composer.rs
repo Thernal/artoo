@@ -641,29 +641,11 @@ impl Workspace {
         }
     }
 
-    /// On the files list's row of `path`: a pencil while a comment written there waits without
-    /// the keyboard (#168).
-    pub(super) fn draft_mark(&self, path: &str, cx: &App) -> Option<gpui::AnyElement> {
+    /// The file whose comment being written waits without the keyboard: Changes puts a pencil on its row (#168).
+    pub(super) fn draft_path(&self, cx: &App) -> Option<String> {
         let c = self.compose.as_ref()?;
-        if c.path != path
-            || c.edit.text().trim().is_empty()
-            || self.has_keyboard(Input::Compose, cx)
-        {
-            return None;
-        }
-        Some(
-            div()
-                .id("draft-mark")
-                .flex_none()
-                .child(
-                    super::icons::icon("pencil")
-                        .size(px(13.))
-                        .text_color(theme::focus()),
-                )
-                .tooltip_show_delay(crate::ui::hover::LONG)
-                .tooltip(|_, cx| cx.new(|_| super::Tip("A comment being written")).into())
-                .into_any_element(),
-        )
+        (!c.edit.text().trim().is_empty() && !self.has_keyboard(Input::Compose, cx))
+            .then(|| c.path.clone())
     }
 
     /// The list for the token being typed in the composer, if one is open.

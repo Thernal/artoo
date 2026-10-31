@@ -81,7 +81,7 @@ mod welcome;
 mod working;
 mod zones;
 
-use crate::git::{DiffSettings, FileDiff, PairKind, Repo};
+use crate::git::{DiffSettings, PairKind, Repo};
 use crate::rows::{self, Row};
 use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
 use artoo_branches::head;
@@ -89,7 +89,7 @@ use artoo_branches::history::{self, History, NamedTip, Selection, VersionTab};
 use artoo_branches::reading::COMMIT_PAGE;
 use artoo_branches::working::WorkingState;
 use artoo_review::diff::{Diff, Header, Notice};
-use artoo_review::diff_view::{self, CODE_SIZE, change_color, file_tag};
+use artoo_review::diff_view::{self, CODE_SIZE};
 use artoo_review::review::{self, Opt};
 use artoo_review_api::Source;
 use artoo_ui_kit::controls::{chip, tag};
@@ -3474,51 +3474,48 @@ impl artoo_review_api::Host for TabHost {
             })
             .ok();
     }
-}
 
-/// "generated" beside a lock or generated file.
-pub(super) fn generated_tag(file: &FileDiff) -> Option<gpui::Div> {
-    crate::generated::is_generated(file.path()).then(|| {
-        div()
-            .flex_none()
-            .text_size(px(10.))
-            .text_color(theme::faint())
-            .child("generated")
-    })
-}
+    fn tree_row(&self, path: &str, row: gpui::AnyElement, cx: &App) -> gpui::AnyElement {
+        match self.0.upgrade() {
+            Some(workspace) => workspace.read(cx).tree_row(path, row),
+            None => row,
+        }
+    }
 
-/// A file's added and removed line counts.
-fn stats(file: &FileDiff) -> impl IntoElement + use<> {
-    line_counts(file.added, file.removed)
-}
+    fn version_of(&self, tip: git2::Oid, cx: &App) -> Option<usize> {
+        let workspace = self.0.upgrade()?;
+        let history = workspace.read(cx).history.read(cx);
+        history
+            .versions
+            .iter()
+            .find(|v| v.tip == tip)
+            .map(|v| v.number)
+    }
 
-/// Lines added and removed, green and red, each only when there are some.
-fn line_counts(added: usize, removed: usize) -> gpui::Div {
-    div()
-        .flex()
-        .gap_1()
-        .text_size(px(11.))
-        .when(added > 0, |s| {
-            s.child(div().text_color(theme::added()).child(format!("+{added}")))
-        })
-        .when(removed > 0, |s| {
-            s.child(
-                div()
-                    .text_color(theme::removed())
-                    .child(format!("−{removed}")),
-            )
-        })
-}
-
-/// What a long hover on a file's name says: its change, its whole path, its +/−.
-fn change_tip(file: &FileDiff) -> String {
-    format!(
-        "{} · {} · +{} −{}",
-        hover::status_word(file.change, file.old_path.as_deref()),
-        file.path(),
-        file.added,
-        file.removed
-    )
+    fn changes(&self, event: artoo_review_api::ChangesEvent, cx: &mut App) {
+        use artoo_review_api::ChangesEvent;
+        self.0
+            .update(cx, |this, cx| match event {
+                ChangesEvent::ToggleReviewed(ix) => {
+                    let done = this.review.read(cx).review_state(ix)
+                        == Some(artoo_review::reviewed::State::Done);
+                    this.set_reviewed(ix, !done, cx);
+                }
+                ChangesEvent::FolderReviewed { folder, done } => {
+                    let ixs = this.review.read(cx).files_under(&folder);
+                    this.set_reviewed_many(&ixs, done, cx);
+                }
+                ChangesEvent::ReviewAll => this.toggle_all_reviewed(cx),
+                ChangesEvent::Pick(ix) => {
+                    // Picked in the drawer, it goes and the file is on screen (#80).
+                    this.close_drawer(cx);
+                    this.select_file(ix, cx)
+                }
+                ChangesEvent::Menu { ix, at } => this.file_context(ix, at, cx),
+                ChangesEvent::Fold(path) => this.toggle_dir(&path, cx),
+            })
+            .ok();
+    }
 }
 
 fn section_label(text: impl Into<SharedString>) -> gpui::Div {

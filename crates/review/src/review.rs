@@ -152,7 +152,7 @@ pub enum ReviewEvent {
 impl gpui::EventEmitter<ReviewEvent> for Review {}
 
 /// What a line's and a file's events ask and what the review's host draws on its rows: the contract's.
-pub use artoo_review_api::{FileEvent, Host, LineEvent, PaneEvent};
+pub use artoo_review_api::{ChangesEvent, FileEvent, Host, LineEvent, PaneEvent};
 
 impl Review {
     /// The rows in the diff's list (the selected file's, or every file's in one scroll), scrolled

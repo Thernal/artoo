@@ -16,15 +16,16 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   (`pane`: its line, its notice, its rows or what stands in their place, the toolbar's options; what others put on it a
   `PaneLook`, a click a `PaneEvent` to its host), zen's head (`zen`: the tab's words for what is shown), what it does
   to the open file's lines (`lines`), the find (`find`), going to a line (`goline`), the comment being written and
-  the input it is written in (`composer`: `Compose`, its `Target`, `render_input`), the Changes list as it keeps it (`lists`), and the types it
+  the input it is written in (`composer`: `Compose`, its `Target`, `render_input`), the Changes list as it keeps it (`lists`) and draws it (`changes_view`: the progress with Mark all, the
+  files' total, a file's and a folder's box, the rows of the tree or the flat list, a group's header; the tab's field
+  and width a `ChangesLook`, a click a `ChangesEvent`, a tree's rows fading in and a mark's version the host's), and the types it
   keeps: the selection's
   (`select`), the reviewed marks' store (`reviewed`), blame's (`annotate`), the one scroll's blocks (`stack`), what
   other features pin on a file's lines (`pins`: the agents' comments and notes as `Anchored` lines) and the diff shown
   (`diff`: what it is of, its files, the working tree's words, the notice of a change not asked for, its undo the
   versions compared before), with the state of images (`image_view`), pages (`md_page`) and Code's file
   (`file_view`), and the Changes list's rows (`changes`); the app's
-  views read them as `ui::diff_view` and `artoo_review::…`, and draw the find bar, the Changes list and the
-  composer's foot (who sees it, its buttons: `ui/composer.rs`). `crates/updates` (`artoo-updates`) asks for
+  views read them as `ui::diff_view` and `artoo_review::…`, and draw the find bar and the composer's foot (who sees it, its buttons: `ui/composer.rs`). `crates/updates` (`artoo-updates`) asks for
   newer releases and draws what it found (its `install` alone is shown). `crates/code` (`artoo-code`): Code — the
   project's tree beside a folder's page or a file's tabs, read at a revision (`space.rs`; its `install` alone is
   shown); `src/ui/code.rs` is the tab's side: what the tab asks of it, the Outline tool window, the tab as its host.
