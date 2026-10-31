@@ -166,6 +166,17 @@ impl artoo_review_api::Review for Handle {
         self.0.update(cx, |rv, cx| rv.open(source, keep, cx)).ok();
     }
 
+    fn reopen(&self, source: Source, keep: Option<String>, cx: &mut App) {
+        self.0
+            .update(cx, |rv, cx| {
+                let at = rv.file;
+                rv.clear();
+                rv.file = at;
+                rv.open(source, keep, cx)
+            })
+            .ok();
+    }
+
     fn clear(&self, cx: &mut App) {
         self.0.update(cx, |rv, _| rv.clear()).ok();
     }

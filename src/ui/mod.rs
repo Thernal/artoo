@@ -91,7 +91,6 @@ use artoo_branches::working::WorkingState;
 use artoo_review::diff::{Diff, Header, Notice};
 use artoo_review::diff_view::{self, CODE_SIZE};
 use artoo_review::review::{self, Opt};
-use artoo_review_api::Source;
 use artoo_ui_kit::controls::{chip, tag};
 use gpui::{
     App, ClickEvent, Context, CursorStyle, FocusHandle, FontWeight, KeyBinding, KeyDownEvent,
@@ -2362,12 +2361,6 @@ impl Workspace {
         DiffSettings {
             ignore_whitespace: self.review.read(cx).options.ignore_whitespace,
         }
-    }
-
-    /// Shows what `source` is (`Review::open`); `keep` is the file to open in it.
-    fn open_diff(&mut self, source: Source, keep: Option<String>, cx: &mut Context<Self>) {
-        self.review.update(cx, |rv, cx| rv.open(source, keep, cx));
-        cx.notify();
     }
 
     /// What the review said: the tab follows a diff that came (the agents' lines on it, the pages' counts, its

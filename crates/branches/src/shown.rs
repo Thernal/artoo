@@ -1,6 +1,7 @@
-//! What the diff shows of the history (#165 I1): a commit, a run of them, two versions compared or an interdiff of
-//! theirs picked — the selection on it, its diff opened through the review's contract. Where the page goes and
-//! what it keeps of it (the history of pages, the places opened lately) stay the tab's.
+//! What the diff shows of the history (#165 I1, I2): a commit, a run of them, two versions compared or an interdiff
+//! of theirs, the working tree, a comparison or a run of its commits — the selection on it, its diff opened through
+//! the review's contract. Where the page goes and what it keeps of it (the history of pages, the places opened
+//! lately, a comparison's own commits) stay the tab's.
 
 use crate::history::{History, Selection, VersionTab};
 use artoo_core::git::CommitInfo;
@@ -93,6 +94,57 @@ impl History {
         };
         review.clear(cx);
         review.open(Source::Interdiff { from, to, old, new }, None, cx);
+        true
+    }
+
+    /// The working tree against `HEAD`, or what is not staged only, read again in place: the file open keeps its
+    /// place, `keep` the one to open.
+    pub fn show_working_tree(
+        &mut self,
+        only_unstaged: bool,
+        keep: Option<String>,
+        review: &dyn Review,
+        cx: &mut App,
+    ) {
+        self.selection = Selection::WorkingTree;
+        review.reopen(Source::WorkingTree { only_unstaged }, keep, cx);
+    }
+
+    /// What `head` changed against `base`, since their merge base or directly, a request's diff or not.
+    pub fn show_compare(
+        &mut self,
+        base: (String, git2::Oid),
+        head: (String, git2::Oid),
+        since: bool,
+        request: Option<u64>,
+        review: &dyn Review,
+        cx: &mut App,
+    ) {
+        review.clear(cx);
+        self.selection = Selection::None;
+        let compare = Source::Compare {
+            base,
+            head,
+            since,
+            request,
+        };
+        review.open(compare, None, cx);
+    }
+
+    /// The run of the comparison's commits picked, as one diff under the comparison's page: what the newest holds
+    /// against the oldest's parent; `keep` the file to open. Whether a run is picked.
+    pub fn show_compare_pick(
+        &mut self,
+        keep: Option<String>,
+        review: &dyn Review,
+        cx: &mut App,
+    ) -> bool {
+        let Some((newest, oldest)) = self.compare.as_ref().and_then(|c| c.picked_ids()) else {
+            return false;
+        };
+        review.clear(cx);
+        self.selection = Selection::None;
+        review.open(Source::Commits { newest, oldest }, keep, cx);
         true
     }
 }

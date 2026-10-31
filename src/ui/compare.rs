@@ -6,7 +6,7 @@
 //! Its rows and the pill are the branches' (`artoo_branches::side`, `compare`); the tab reads and picks.
 
 use super::nav::Page;
-use super::{Selection, Source, Workspace};
+use super::{Selection, Workspace};
 use artoo_branches::compare::{CompareCommits, Sides};
 use artoo_branches::side::{compare_commits, compare_row};
 use gpui::{AnyElement, App, Context, prelude::*};
@@ -62,22 +62,20 @@ impl Workspace {
             .scroll_to_item(to, gpui::ScrollStrategy::Nearest);
     }
 
-    /// Shows the run picked: what the newest holds against the oldest's parent (one commit
-    /// against its first parent), under the comparison's own page; `keep` stays on that file.
+    /// Shows the run picked under the comparison's own page (`History::show_compare_pick`); `keep` stays on that
+    /// file.
     pub(super) fn load_compare_pick(&mut self, keep: Option<String>, cx: &mut Context<Self>) {
-        let (Some(_), Some((newest, oldest))) = (
-            self.root.as_ref(),
-            self.history
-                .read(cx)
-                .compare
-                .as_ref()
-                .and_then(|c| c.picked_ids()),
-        ) else {
+        if self.root.is_none() {
             return;
-        };
-        self.clear_diff(cx);
-        self.open_diff(Source::Commits { newest, oldest }, keep, cx);
-        cx.notify();
+        }
+        let review = self.review_handle();
+        if self
+            .history
+            .update(cx, |h, cx| h.show_compare_pick(keep, &*review, cx))
+        {
+            self.body_expanded = false;
+            cx.notify();
+        }
     }
 
     /// esc or the pill's ×: the whole comparison again. Whether a run was picked.

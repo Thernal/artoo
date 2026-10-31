@@ -51,6 +51,10 @@ pub trait Review {
     /// What `source` is, read and shown in place of what was; `keep` the file to open in it.
     fn open(&self, source: Source, keep: Option<String>, cx: &mut App);
 
+    /// What `source` is, read again in place of what is shown: the file open keeps its place in the list, so a
+    /// reload finds a file partly staged where it was (#22).
+    fn reopen(&self, source: Source, keep: Option<String>, cx: &mut App);
+
     /// Nothing shown: the diff let go, its read dropped, the first file the open one.
     fn clear(&self, cx: &mut App);
 

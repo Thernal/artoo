@@ -2,7 +2,7 @@
 //! works. Read-only — Artoo never stages or commits. Its chip on the Commits label is the branches'
 //! (`artoo_branches::side::working_chip`).
 
-use super::{Selection, Source, WorkingState, Workspace};
+use super::{Selection, WorkingState, Workspace};
 use crate::git::Repo;
 use gpui::Context;
 use std::time::Duration;
@@ -130,13 +130,12 @@ impl Workspace {
             return;
         }
         let only_unstaged = self.wt.only_unstaged;
-        let at = self.review.read(cx).file;
-        self.clear_diff(cx);
+        self.body_expanded = false;
         // A reload finds a file partly staged at its place, in the group it was in (#22).
-        self.review.update(cx, |rv, _| rv.file = at);
-        self.history
-            .update(cx, |h, _| h.selection = Selection::WorkingTree);
-        self.open_diff(Source::WorkingTree { only_unstaged }, keep, cx);
+        let review = self.review_handle();
+        self.history.update(cx, |h, cx| {
+            h.show_working_tree(only_unstaged, keep, &*review, cx)
+        });
         cx.notify();
     }
 

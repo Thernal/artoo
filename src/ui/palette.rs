@@ -6,7 +6,7 @@
 use super::input::{self, Edit};
 use super::px;
 use super::spaces::Space;
-use super::{ISLAND_RADIUS, ROW_RADIUS, Selection, Source, Workspace, format, island_label, theme};
+use super::{ISLAND_RADIUS, ROW_RADIUS, Workspace, format, island_label, theme};
 use crate::git::{NamedRef, Repo};
 use git2::Oid;
 use gpui::{Action, App, Context, KeyDownEvent, MouseButton, Window, div, prelude::*};
@@ -1328,9 +1328,12 @@ impl Workspace {
         if self.root.is_none() {
             return;
         }
-        self.clear_diff(cx);
-        self.history
-            .update(cx, |h, _| h.selection = Selection::None);
+        self.body_expanded = false;
+        let review = self.review_handle();
+        let (b, h) = (base.clone(), head.clone());
+        self.history.update(cx, |hist, cx| {
+            hist.show_compare(b, h, since_merge_base, request, &*review, cx)
+        });
         // The whole request is its page; a commit or versions of it were (#71).
         if request.is_some() {
             self.record(cx);
@@ -1347,13 +1350,6 @@ impl Workspace {
         // A comparison's own page lists its commits (#21); a request's or a branch's has its own.
         let own = request.is_none() && self.nav_page() == Some(&page);
         self.read_compare_commits(own.then_some(page), cx);
-        let compare = Source::Compare {
-            base,
-            head,
-            since: since_merge_base,
-            request,
-        };
-        self.open_diff(compare, None, cx);
         cx.notify();
     }
 
