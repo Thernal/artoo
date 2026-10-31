@@ -5,9 +5,9 @@
 
 use super::nav::Page;
 use super::zones::Zone;
-use super::{Selection, Tip, Workspace, chip, commit_chip, icons, island, plural, px, theme};
+use super::{Selection, Workspace, chip, icons, island, plural, px, theme};
 use artoo_branches::history::{Act, Acts};
-use artoo_branches::side::commit_row;
+use artoo_branches::side::{commit_row, search_chip, working_chip};
 use gpui::{
     AnyElement, App, ClickEvent, Context, FontWeight, MouseButton, SharedString, div, prelude::*,
     uniform_list,
@@ -47,6 +47,14 @@ impl Workspace {
                 Act::WholeCompare => {
                     this.unpick_compare(cx);
                 }
+                Act::WorkingTree => this.select_working_tree(cx),
+                Act::FindCommits => {
+                    if this.layout.fold_commits {
+                        this.fold_section(1, cx);
+                    }
+                    this.start_find(cx)
+                }
+                Act::BranchMenu { ix, at } => this.branch_context(ix, at, cx),
             })
             .ok();
         })
@@ -318,31 +326,13 @@ impl Workspace {
                 }
             });
             let mut commit_end: Vec<AnyElement> = Vec::new();
+            let acts = self.history_acts(cx);
+            let h = self.history.read(cx);
             commit_end.extend(
-                self.render_working_chip(cx)
+                working_chip(self.wt.count, h.selection == Selection::WorkingTree, &acts)
                     .map(IntoElement::into_any_element),
             );
-            commit_end.push(
-                commit_chip("commit-search", self.history.read(cx).find.text.is_some())
-                    .px(px(5.))
-                    .child(icons::icon("search").size(px(15.)).text_color(
-                        if self.history.read(cx).find.text.is_some() {
-                            theme::text()
-                        } else {
-                            theme::muted()
-                        },
-                    ))
-                    .tooltip_show_delay(crate::ui::hover::LONG)
-                    .tooltip(|_, cx| cx.new(|_| Tip("Search commits  ⌘⇧F")).into())
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        cx.stop_propagation();
-                        if this.layout.fold_commits {
-                            this.fold_section(1, cx);
-                        }
-                        this.start_find(cx)
-                    }))
-                    .into_any_element(),
-            );
+            commit_end.push(search_chip(h.find.text.is_some(), &acts).into_any_element());
             // Older history not read yet: "1000+" (#25).
             let more = if self.history.read(cx).older.is_some() {
                 "+"

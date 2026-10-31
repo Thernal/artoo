@@ -1,18 +1,18 @@
-//! The history's sections of the side panel (#49): the versions, newest first, a commit's row and a comparison's
-//! commits. The tab draws the panel around them; a click asks it an `Act`.
+//! The history's sections of the side panel (#49): the versions, newest first, a commit's row, the chips on the
+//! Commits label and a comparison's commits. The tab draws the panel around them; a click asks it an `Act`.
 
 use crate::card::{CommitCard, deco_tags};
 use crate::compare::CompareCommits;
 use crate::find::summary_text;
 use crate::history::{Act, Acts, History, Selection};
-use artoo_ui_kit::controls::tag;
+use artoo_ui_kit::controls::{section_chip, tag};
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, CutInTip, Hover};
 use artoo_ui_kit::room::Room;
 use artoo_ui_kit::{icons, keys, px, row, theme};
 use gpui::{
-    AnyElement, ClickEvent, Div, FontWeight, MouseButton, MouseDownEvent, UniformList, div,
-    prelude::*,
+    AnyElement, ClickEvent, Div, FontWeight, MouseButton, MouseDownEvent, Stateful, UniformList,
+    div, prelude::*,
 };
 
 /// Rows of a comparison's commits before they scroll.
@@ -347,4 +347,39 @@ pub fn compare_row(
         .py(px(1.))
         .child(item)
         .into_any_element()
+}
+
+/// The working tree as a chip on the Commits label, its `count` changes; one click opens it.
+pub fn working_chip(count: usize, selected: bool, acts: &Acts) -> Option<Stateful<Div>> {
+    (count > 0 || selected).then(|| {
+        let acts = acts.clone();
+        section_chip("working-tree", selected)
+            .child("WT")
+            .tooltip_show_delay(hover::LONG)
+            .tooltip(|_, cx| cx.new(|_| hover::Tip("Working tree against HEAD")).into())
+            .child(div().text_color(theme::warning()).child(count.to_string()))
+            // In the Commits heading: picking it does not fold the section.
+            .on_click(move |_, _, cx| {
+                cx.stop_propagation();
+                acts(Act::WorkingTree, cx)
+            })
+    })
+}
+
+/// The commits' search as a chip on the Commits label, lit while it is open (`on`).
+pub fn search_chip(on: bool, acts: &Acts) -> Stateful<Div> {
+    let acts = acts.clone();
+    section_chip("commit-search", on)
+        .px(px(5.))
+        .child(icons::icon("search").size(px(15.)).text_color(if on {
+            theme::text()
+        } else {
+            theme::muted()
+        }))
+        .tooltip_show_delay(hover::LONG)
+        .tooltip(|_, cx| cx.new(|_| hover::Tip("Search commits  ⌘⇧F")).into())
+        .on_click(move |_: &ClickEvent, _, cx| {
+            cx.stop_propagation();
+            acts(Act::FindCommits, cx)
+        })
 }

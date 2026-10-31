@@ -6,8 +6,9 @@
 //! goes out. The main line itself has no base: its page is the commit browser it always was.
 
 use super::nav::Page;
-use super::{Header, Workspace, island, plural, px, theme};
-use gpui::{AnyElement, App, Context, div, prelude::*};
+use super::{Header, Workspace};
+use artoo_branches::facts::branch_line;
+use gpui::{AnyElement, App, Context, prelude::*};
 
 impl Workspace {
     /// The branch loaded has the tabs Commits · Changes: it forks from the main line.
@@ -56,8 +57,7 @@ impl Workspace {
         self.run_compare(base, head, true, None, cx);
     }
 
-    /// One line over a branch's Changes and Commits: ahead of the main line, behind it, where it
-    /// is pushed, its request.
+    /// One line over a branch's Changes and Commits, on its page: the branches' (`artoo_branches::facts`).
     pub(super) fn render_branch_line(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let Some(Page::Branch(refname)) = self.nav_page() else {
             return None;
@@ -65,51 +65,12 @@ impl Workspace {
         if !self.branch_tabbed(refname, cx) {
             return None;
         }
-        let f = self.history.read(cx).page.as_ref()?;
-        let main = f.base.as_ref()?.0.trim_start_matches("origin/").to_owned();
-        let remote = match &f.upstream {
-            None => "not pushed".to_owned(),
-            Some((up, 0, 0)) => format!("pushed to {}", up.split('/').next().unwrap_or(up)),
-            Some((_, ahead, 0)) => format!("{} not pushed", plural(*ahead, "commit")),
-            Some((up, _, behind)) => format!("{behind} behind {up}"),
-        };
-        let request = self
-            .history
-            .read(cx)
-            .branch
-            .and_then(|ix| self.request_of_branch(ix, cx))
-            .map_or_else(|| "none yet".to_owned(), |m| super::words::number(m.iid));
-        let fact = |label: String, value: String| {
-            div()
-                .flex()
-                .gap(px(6.))
-                .child(div().text_color(theme::faint()).child(label))
-                .child(div().child(value))
-        };
         let ix = self.history.read(cx).branch;
-        Some(
-            island()
-                // Its link, the branch's name, a request (#162).
-                .on_mouse_down(
-                    gpui::MouseButton::Right,
-                    cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
-                        if let Some(ix) = ix {
-                            this.branch_context(ix, e.position, cx)
-                        }
-                    }),
-                )
-                .flex_none()
-                .flex_row()
-                .items_center()
-                .gap(px(20.))
-                .h(px(40.))
-                .px(px(14.))
-                .text_size(px(12.))
-                .child(fact(format!("Ahead of {main}"), plural(f.ahead, "commit")))
-                .child(fact("Behind".to_owned(), f.behind.to_string()))
-                .child(fact("Remote".to_owned(), remote))
-                .child(fact(super::words::say("Request").into_owned(), request))
-                .into_any_element(),
-        )
+        let request = ix
+            .and_then(|ix| self.request_of_branch(ix, cx))
+            .map(|m| m.iid);
+        let acts = self.history_acts(cx);
+        let line = branch_line(self.history.read(cx).page.as_ref()?, ix, request, &acts)?;
+        Some(line.into_any_element())
     }
 }

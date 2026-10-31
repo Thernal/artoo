@@ -4356,24 +4356,6 @@ fn is_trailer(line: &str) -> bool {
         .is_some_and(|(key, _)| KEYS.contains(&key.trim().to_lowercase().as_str()))
 }
 
-/// A small pill on the Commits label.
-fn commit_chip(id: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .flex_none()
-        .h(px(22.))
-        .px(px(8.))
-        .flex()
-        .items_center()
-        .gap(px(5.))
-        .rounded(px(ROW_RADIUS))
-        .text_size(px(12.))
-        .text_color(if on { theme::text() } else { theme::muted() })
-        .cursor_pointer()
-        .when(on, |s| s.bg(theme::selected()))
-        .hover(|s| s.bg(theme::hover()))
-}
-
 fn island_label(text: impl Into<SharedString>) -> gpui::Div {
     let text: SharedString = text.into();
     section_label(SharedString::from(words::say(&text).into_owned()))

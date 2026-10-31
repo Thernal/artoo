@@ -330,3 +330,21 @@ pub fn progress_badge(done: u32, total: u32) -> gpui::Div {
         .text_color(theme::muted())
         .child(format!("{done}/{total}"))
 }
+
+/// A small pill on a section's header (the side panel's Commits: the working tree, the search), lit while `on`.
+pub fn section_chip(id: &'static str, on: bool) -> gpui::Stateful<Div> {
+    div()
+        .id(id)
+        .flex_none()
+        .h(px(22.))
+        .px(px(8.))
+        .flex()
+        .items_center()
+        .gap(px(5.))
+        .rounded(px(ROW_RADIUS))
+        .text_size(px(12.))
+        .text_color(if on { theme::text() } else { theme::muted() })
+        .cursor_pointer()
+        .when(on, |s| s.bg(theme::selected()))
+        .hover(|s| s.bg(theme::hover()))
+}

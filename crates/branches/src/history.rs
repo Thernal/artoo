@@ -96,6 +96,15 @@ pub enum Act {
     PickCompare { ix: usize, span: bool },
     /// The comparison whole again: the "only" pill's ×.
     WholeCompare,
+    /// The working tree's chip: its diff against HEAD.
+    WorkingTree,
+    /// The search's chip: the commits' search, their section open.
+    FindCommits,
+    /// A right click on the branch line at `at`: branch `ix`'s menu.
+    BranchMenu {
+        ix: usize,
+        at: gpui::Point<gpui::Pixels>,
+    },
 }
 
 /// How a view asks the tab an `Act`.

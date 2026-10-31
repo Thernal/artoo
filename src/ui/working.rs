@@ -1,10 +1,11 @@
 //! The working tree against `HEAD`: a pinned entry above the commits, kept current while an agent
-//! works. Read-only — Artoo never stages or commits.
+//! works. Read-only — Artoo never stages or commits. Its chip on the Commits label is the branches'
+//! (`artoo_branches::side::working_chip`).
 
-use super::{Diff, Header, Selection, WorkingState, Workspace, theme};
+use super::{Diff, Header, Selection, WorkingState, Workspace};
 use crate::git::Repo;
 use artoo_review::diff::FileTags;
-use gpui::{Context, div, prelude::*};
+use gpui::Context;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -162,26 +163,5 @@ impl Workspace {
         self.wt.only_unstaged = on;
         let keep = self.review.read(cx).current_path();
         self.load_working_tree(keep, cx);
-    }
-
-    /// The working tree as a chip on the Commits label: how many changes, one click to open.
-    pub(super) fn render_working_chip(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let selected = self.history.read(cx).selection == Selection::WorkingTree;
-        (self.wt.count > 0 || selected).then(|| {
-            super::commit_chip("working-tree", selected)
-                .child("WT")
-                .tooltip_show_delay(crate::ui::hover::LONG)
-                .tooltip(|_, cx| cx.new(|_| super::Tip("Working tree against HEAD")).into())
-                .child(
-                    div()
-                        .text_color(theme::warning())
-                        .child(self.wt.count.to_string()),
-                )
-                // In the Commits heading: picking it does not fold the section.
-                .on_click(cx.listener(|this, _, _, cx| {
-                    cx.stop_propagation();
-                    this.select_working_tree(cx)
-                }))
-        })
     }
 }
