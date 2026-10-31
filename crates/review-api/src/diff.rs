@@ -39,6 +39,19 @@ pub enum Header {
     },
 }
 
+impl Header {
+    /// The commit whose changes it shows; none for the working tree.
+    pub fn head(&self) -> Option<git2::Oid> {
+        match self {
+            Header::Commit(c) => Some(c.id),
+            Header::Versions { to, .. } => Some(to.tip),
+            Header::Compare { head, .. } => Some(head.1),
+            Header::Interdiff { new, .. } => Some(new.id),
+            Header::WorkingTree { .. } => None,
+        }
+    }
+}
+
 /// A diff to review: what it is of, and its files.
 pub struct Diff {
     pub header: Header,

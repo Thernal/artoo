@@ -1654,8 +1654,8 @@ pub struct Workspace {
     agent_lines: std::collections::HashMap<u64, u32>,
     agent_task: Option<Task<()>>,
     /// Agents' notes on the lines of their changes (#151), and where those whose line changed
-    /// since went, by note id.
-    agent_notes: Vec<crate::notes::Notes>,
+    /// since went (`artoo_agents::notes::AgentNotes`).
+    agent_notes: gpui::Entity<artoo_agents::notes::AgentNotes>,
     /// Merge requests agents drafted (#152), with who did: the last one for each branch, until
     /// the reviewer creates it.
     agent_requests: Vec<(String, crate::agents::RequestDraft)>,
@@ -1667,8 +1667,6 @@ pub struct Workspace {
     /// Rows an agent put something on for the reviewer, with what, until opened: an orange dot
     /// (#160).
     agent_calls: std::collections::HashMap<nav::Item, String>,
-    note_lines: std::collections::HashMap<u64, u32>,
-    note_task: Option<Task<()>>,
     tabs: shell::TabModel,
     settings: Settings,
     settings_open: bool,
@@ -1896,13 +1894,11 @@ impl Workspace {
             since_on_open: None,
             agent_lines: Default::default(),
             agent_task: None,
-            agent_notes: Vec::new(),
+            agent_notes: cx.new(|_| Default::default()),
             agent_requests: Vec::new(),
             create_waiting: None,
             drafts_unseen: HashSet::new(),
             agent_calls: Default::default(),
-            note_lines: Default::default(),
-            note_task: None,
             tabs: Default::default(),
             settings,
             settings_open: false,
@@ -1967,6 +1963,12 @@ impl Workspace {
         cx.observe(&this.history, |_, _, cx| cx.notify()).detach();
         cx.subscribe(&this.history, Self::history_event).detach();
         cx.observe(&this.requests, |_, _, cx| cx.notify()).detach();
+        // The notes' lines followed to the head shown: they are pinned again.
+        cx.observe(&this.agent_notes, |this, _, cx| {
+            this.refresh_rows(cx);
+            cx.notify();
+        })
+        .detach();
         cx.subscribe(&this.requests, Self::requests_event).detach();
         cx.observe_window_activation(window, |this, window, cx| {
             if window.is_window_active() {
@@ -2031,7 +2033,8 @@ impl Workspace {
                         }
                         if this.root.as_ref() != Some(&root) {
                             this.comments = crate::review::load(&project);
-                            this.agent_notes = crate::notes::load(&project);
+                            let notes = crate::notes::load(&project);
+                            this.agent_notes.update(cx, |n, _| n.all = notes);
                             this.answers_stamp = None;
                             this.marks_stamp = None;
                             this.compose = None;

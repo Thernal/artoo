@@ -451,13 +451,7 @@ impl Review {
 
     /// The commit the shown diff's new side is: what a comment written now is read from.
     pub fn shown_head(&self) -> Option<git2::Oid> {
-        match &self.diff.as_ref()?.header {
-            Header::Commit(c) => Some(c.id),
-            Header::Versions { to, .. } => Some(to.tip),
-            Header::Compare { head, .. } => Some(head.1),
-            Header::Interdiff { new, .. } => Some(new.id),
-            Header::WorkingTree { .. } => None,
-        }
+        self.diff.as_ref()?.header.head()
     }
 
     /// What the diff's top shows: the file, the line of the nearest row with one (none on its

@@ -2,14 +2,15 @@
 //! the agent's colour, apart from the reviewer's comments, with the summary over the diff, while
 //! the diff shows the changes they are on — the working tree, or a head the agent named (its
 //! branch's pages, a comparison or a request with that head). Answer opens a comment for the agent
-//! on the note's line; the reviewer dismisses one, or all of them at once.
+//! on the note's line; the reviewer dismisses one, or all of them at once. The notes kept, which are
+//! on the diff and where they followed their lines are the agents' (`AgentNotes`).
 
+use super::Workspace;
 use super::nav::Page;
 use super::rows::FileData;
 use super::toast::Act;
-use super::{Header, Workspace};
 use crate::agents::{Event, What};
-use crate::notes::{Note, Notes, On};
+use crate::notes::{Notes, On};
 use crate::review::Place;
 use artoo_agents::view::{self, NoteEvent, NoteLook, OnNote};
 use gpui::{App, Context, WeakEntity, div, prelude::*};
@@ -41,18 +42,17 @@ impl Workspace {
         };
         let agent = event.agent;
         let count = notes.len();
-        crate::notes::take(
-            &mut self.agent_notes,
-            Notes {
-                uid: event.uid,
-                agent: agent.clone(),
-                at: event.at,
-                on,
-                summary,
-                notes,
-            },
-        );
-        self.save_agent_notes();
+        let notes = Notes {
+            uid: event.uid,
+            agent: agent.clone(),
+            at: event.at,
+            on,
+            summary,
+            notes,
+        };
+        self.agent_notes
+            .update(cx, |n, _| crate::notes::take(&mut n.all, notes));
+        self.save_agent_notes(cx);
         self.map_agent_notes(cx);
         self.refresh_rows(cx);
         if open {
@@ -90,34 +90,18 @@ impl Workspace {
         self.show_changes(&item, unstaged, cx);
     }
 
-    pub(super) fn save_agent_notes(&self) {
+    pub(super) fn save_agent_notes(&self, cx: &App) {
         if let Some(project) = &self.project {
-            crate::notes::save(project, &self.agent_notes);
+            crate::notes::save(project, &self.agent_notes.read(cx).all);
         }
     }
 
-    /// The notes on the changes the diff shows: the working tree's on the working tree; a head's
-    /// where the diff's head is its commit or bears its name.
-    pub(super) fn notes_shown(&self, cx: &App) -> Vec<&Notes> {
-        let Some(header) = self.review.read(cx).diff.as_ref().map(|d| &d.header) else {
+    /// The notes on the changes the diff shows (`AgentNotes::shown`), by the page's branch.
+    pub(super) fn notes_shown<'a>(&self, cx: &'a App) -> Vec<&'a Notes> {
+        let Some(diff) = self.review.read(cx).diff.as_deref() else {
             return Vec::new();
         };
-        let head = self.review.read(cx).shown_head().map(|h| h.to_string());
-        let named = match header {
-            Header::Compare { head, .. } => Some(head.0.clone()),
-            _ => None,
-        }
-        .or_else(|| self.page_branch(cx));
-        self.agent_notes
-            .iter()
-            .filter(|n| match (&n.on, header) {
-                (On::WorkingTree, Header::WorkingTree { .. }) => true,
-                (_, Header::WorkingTree { .. }) | (On::WorkingTree, _) => false,
-                (On::Head { name, commit }, _) => {
-                    head.as_ref() == Some(commit) || named.as_ref() == Some(name)
-                }
-            })
-            .collect()
+        self.agent_notes.read(cx).shown(diff, self.page_branch(cx))
     }
 
     /// The notes shown on lines of file `path`, built as `data`: (id, line on the new side).
@@ -130,77 +114,36 @@ impl Workspace {
             .filter_map(|n| {
                 match crate::review::find_line(n.line, &n.code, side.count(), |l| side.line(l).0) {
                     Place::Line(line) => Some((n.id, line)),
-                    Place::Outdated => self.note_lines.get(&n.id).map(|&line| (n.id, line)),
+                    Place::Outdated => self
+                        .agent_notes
+                        .read(cx)
+                        .lines
+                        .get(&n.id)
+                        .map(|&line| (n.id, line)),
                 }
             })
             .collect()
     }
 
     /// Follows the line of every note on a head the diff has moved on from, from the commit it was
-    /// written on to the one shown, in the background (#46).
+    /// written on to the one shown, in the background (#46, `AgentNotes::follow`).
     pub(super) fn map_agent_notes(&mut self, cx: &mut Context<Self>) {
-        self.note_lines.clear();
-        let (Some(root), Some(head)) = (self.root.clone(), self.review.read(cx).shown_head())
-        else {
-            return;
-        };
-        let asks: Vec<(u64, String, String, u32)> = self
-            .notes_shown(cx)
-            .into_iter()
-            .filter_map(|n| match &n.on {
-                On::Head { commit, .. } if !head.to_string().starts_with(commit.as_str()) => Some(
-                    n.notes
-                        .iter()
-                        .map(move |x| (x.id, commit.clone(), x.path.clone(), x.line)),
-                ),
-                _ => None,
-            })
-            .flatten()
-            .collect();
-        if asks.is_empty() {
-            return;
-        }
-        self.note_task = Some(cx.spawn(async move |this, cx| {
-            let found = cx
-                .background_executor()
-                .spawn(async move {
-                    let Ok(repo) = crate::git::Repo::open(&root) else {
-                        return std::collections::HashMap::new();
-                    };
-                    asks.into_iter()
-                        .filter_map(|(id, commit, path, line)| {
-                            let from = git2::Oid::from_str(&commit).ok()?;
-                            match repo.follow_line(from, head, &path, line) {
-                                crate::git::Fate::Same(n) | crate::git::Fate::Changed(n, _) => {
-                                    Some((id, n))
-                                }
-                                crate::git::Fate::Gone => None,
-                            }
-                        })
-                        .collect()
-                })
-                .await;
-            this.update(cx, |this, cx| {
-                this.note_lines = found;
-                this.refresh_rows(cx);
-                cx.notify();
-            })
-            .ok();
-        }));
-    }
-
-    /// Note `id`, and the notes it is one of.
-    fn agent_note(&self, id: u64) -> Option<(&Notes, &Note)> {
+        let (root, diff, branch) = (
+            self.root.clone(),
+            self.review.read(cx).diff.clone(),
+            self.page_branch(cx),
+        );
         self.agent_notes
-            .iter()
-            .find_map(|n| Some((n, n.notes.iter().find(|x| x.id == id)?)))
+            .update(cx, |n, cx| n.follow(root, diff.as_deref(), branch, cx));
     }
 
     /// Answer on a note: a comment for the agent on its line, as comments for it are written; it
     /// carries the note, so the agent reads what it answers.
     pub(super) fn answer_note(&mut self, id: u64, cx: &mut Context<Self>) {
         let Some((path, body)) = self
-            .agent_note(id)
+            .agent_notes
+            .read(cx)
+            .note(id)
             .map(|(_, n)| (n.path.clone(), n.body.clone()))
         else {
             return;
@@ -259,20 +202,16 @@ impl Workspace {
 
     /// Dismisses note `id`; its notes go with their last.
     pub(super) fn dismiss_note(&mut self, id: u64, cx: &mut Context<Self>) {
-        for n in &mut self.agent_notes {
-            n.notes.retain(|x| x.id != id);
-        }
-        self.agent_notes
-            .retain(|n| !n.notes.is_empty() || !n.summary.is_empty());
-        self.save_agent_notes();
+        self.agent_notes.update(cx, |n, _| n.dismiss(id));
+        self.save_agent_notes(cx);
         self.refresh_rows(cx);
         cx.notify();
     }
 
     /// Dismiss all on a summary: those notes and their summary go.
     pub(super) fn dismiss_agent_notes(&mut self, uid: &str, cx: &mut Context<Self>) {
-        self.agent_notes.retain(|n| n.uid != uid);
-        self.save_agent_notes();
+        self.agent_notes.update(cx, |n, _| n.dismiss_all(uid));
+        self.save_agent_notes(cx);
         self.refresh_rows(cx);
         cx.notify();
     }
@@ -299,7 +238,7 @@ impl Workspace {
         this: WeakEntity<Self>,
         cx: &App,
     ) -> gpui::AnyElement {
-        let Some((notes, note)) = self.agent_note(id) else {
+        let Some((notes, note)) = self.agent_notes.read(cx).note(id) else {
             return div().into_any_element();
         };
         let look = NoteLook {

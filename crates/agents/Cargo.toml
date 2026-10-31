@@ -14,6 +14,8 @@ artoo-agents-api = { path = "../agents-api" }
 artoo-hosts-api = { path = "../hosts-api" }
 # How its notes and chats are drawn (`view`).
 artoo-ui-kit = { path = "../ui-kit" }
+# Which notes are on the diff shown (`notes::AgentNotes`).
+artoo-review-api = { path = "../review-api" }
 git2.workspace = true
 gpui.workspace = true
 serde.workspace = true

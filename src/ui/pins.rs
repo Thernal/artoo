@@ -103,7 +103,7 @@ impl Workspace {
                 old: false,
                 line: n.line,
                 code: n.code.clone(),
-                followed: self.note_lines.get(&n.id).copied(),
+                followed: self.agent_notes.read(cx).lines.get(&n.id).copied(),
             })
             .collect();
         let comments = self
