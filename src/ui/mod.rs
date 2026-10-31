@@ -2334,7 +2334,9 @@ impl Workspace {
         cx.notify();
     }
 
-    /// The interdiff of one modified commit of the comparison shown (`History::show_interdiff`).
+    /// The interdiff of one modified commit of the comparison shown (`History::show_interdiff`): a
+    /// picture's; a click on a pair is the branches' (`artoo_branches::pairs`).
+    #[cfg(feature = "snapshot")]
     fn select_interdiff(&mut self, pair: usize, cx: &mut Context<Self>) {
         if self.root.is_none() {
             return;

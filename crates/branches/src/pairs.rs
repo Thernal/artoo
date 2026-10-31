@@ -10,8 +10,11 @@ use artoo_ui_kit::{format, hover, island, island_label, px, row, theme};
 use gpui::{App, ClickEvent, Entity, FontWeight, div, prelude::*};
 use std::rc::Rc;
 
+/// What a click on a modified pair does: its interdiff opened, by its index.
+pub type OnPair = Rc<dyn Fn(usize, &mut App)>;
+
 /// The pairs of `diff`; `on` opens pair `ix`'s interdiff.
-pub fn pairs(diff: &Diff, on: Rc<dyn Fn(usize, &mut App)>) -> impl IntoElement {
+pub fn pairs(diff: &Diff, on: OnPair) -> impl IntoElement {
     island()
         .flex_1()
         .min_w_0()
@@ -125,7 +128,7 @@ pub fn piece(history: Entity<History>, services: Rc<Services>) -> Piece {
                 return None;
             }
             let history = history.downgrade();
-            let on = Rc::new(move |pair, cx: &mut App| {
+            let on: OnPair = Rc::new(move |pair, cx: &mut App| {
                 history
                     .update(cx, |h, cx| {
                         if h.show_interdiff(pair, &*review, cx) {
