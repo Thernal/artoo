@@ -3228,12 +3228,7 @@ impl Workspace {
         // With every file in one scroll the card's own header has its switch.
         let marks = file
             .filter(|_| !stacked)
-            .and_then(|f| self.page_switch(f, false, this.clone(), cx))
-            .into_iter()
-            .chain(
-                self.render_review_chip(cx)
-                    .map(IntoElement::into_any_element),
-            );
+            .and_then(|f| self.page_switch(f, false, this.clone(), cx));
         let open_in = self
             .open_target(cx)
             .and_then(|(path, _)| self.open_app(&path))
@@ -3275,7 +3270,7 @@ impl Workspace {
         let look = artoo_review::pane::PaneLook {
             border: self.zone_border(zones::Zone::Diff),
             top: top.into_iter().flatten().collect(),
-            marks: marks.collect(),
+            marks: marks.into_iter().collect(),
             open_in: open_in.map(IntoElement::into_any_element),
             over: over.into_iter().flatten().collect(),
             alone,
@@ -3402,6 +3397,14 @@ impl artoo_review_api::Host for TabHost {
                     let at = Point::new(under.right() - px(menu::WIDTH), under.bottom() + px(6.));
                     let groups = this.view_menu(cx);
                     this.open_titled(at, groups, cx);
+                }
+                PaneEvent::Review => {
+                    let rv = this.review.read(cx);
+                    if rv.review_state(rv.file) == Some(artoo_review::reviewed::State::Done) {
+                        this.toggle_reviewed(cx)
+                    } else {
+                        this.mark_and_advance(cx)
+                    }
                 }
             })
             .ok();

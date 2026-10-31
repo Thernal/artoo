@@ -3,10 +3,9 @@
 //! range or merge request on this Mac; a file that changes in a newer version loses its mark.
 //! Designed in `../Design/mockups/ide-ideas/a-ideas.html` (1).
 
-use super::px;
-use super::{Header, ROW_RADIUS, Workspace, theme};
+use super::{Header, Workspace};
 use artoo_review::reviewed::State;
-use gpui::{App, ClickEvent, Context, IntoElement, div, prelude::*};
+use gpui::{App, Context};
 
 impl Workspace {
     /// Called when a diff arrives (the review indexed it, `Review::index`): a request's and a branch's pages
@@ -99,50 +98,5 @@ impl Workspace {
             self.select_file(ix, cx);
             self.review.read(cx).scroll_file_into_view(ix);
         }
-    }
-
-    /// The chip in the file header: mark it read, and the key.
-    pub(super) fn render_review_chip(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let state = self
-            .review
-            .read(cx)
-            .review_state(self.review.read(cx).file)?;
-        Some(
-            div()
-                .id("review-chip")
-                .flex_none()
-                .h(px(24.))
-                .px(px(8.))
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .rounded(px(ROW_RADIUS))
-                .text_size(px(12.))
-                .text_color(if state == State::Done {
-                    theme::added()
-                } else {
-                    theme::muted()
-                })
-                .cursor_pointer()
-                .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
-                .child(match state {
-                    State::Done => "✓ Reviewed",
-                    State::Stale => "↻ Changed — mark again",
-                    State::Open => "Mark reviewed",
-                })
-                .child(super::keys::caps(
-                    if state == State::Done { "⇧V" } else { "V" },
-                    super::keys::On::Plain,
-                ))
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    if this.review.read(cx).review_state(this.review.read(cx).file)
-                        == Some(State::Done)
-                    {
-                        this.toggle_reviewed(cx)
-                    } else {
-                        this.mark_and_advance(cx)
-                    }
-                })),
-        )
     }
 }

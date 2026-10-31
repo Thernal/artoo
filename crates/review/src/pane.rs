@@ -6,11 +6,13 @@
 
 use crate::diff_view::{change_color, file_tag};
 use crate::review::{Host, PaneEvent, Review};
+use crate::reviewed::State;
 use artoo_ui_kit::controls::{chip, group};
 use artoo_ui_kit::format::plural;
-use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, hover, icons, island, px, theme};
+use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, hover, icons, island, keys, px, theme};
 use gpui::{
-    AnyElement, ClickEvent, Context, Div, FontWeight, MouseButton, Rgba, canvas, div, prelude::*,
+    AnyElement, ClickEvent, Context, Div, FontWeight, MouseButton, Rgba, Stateful, canvas, div,
+    prelude::*,
 };
 use std::rc::Rc;
 
@@ -20,7 +22,7 @@ pub struct PaneLook {
     pub border: Rgba,
     /// Over the file's line, in order: a new request's switch, the since bar, the toolbar.
     pub top: Vec<AnyElement>,
-    /// On the file's line after its words: a document's switch, the review's chip.
+    /// On the file's line after its words, before the review's chip: a document's switch.
     pub marks: Vec<AnyElement>,
     /// On the file's line after its changes: the app it opens in.
     pub open_in: Option<AnyElement>,
@@ -175,6 +177,10 @@ impl Review {
                         }),
                     )
                     .children(marks)
+                    .children(
+                        self.review_chip(self.file)
+                            .map(|chip| chip.on_click(event(|| PaneEvent::Review))),
+                    )
                     .children(
                         (!f.hunks.is_empty())
                             .then_some(f.note.clone())
@@ -334,5 +340,38 @@ impl Review {
                         }),
                 ),
             )
+    }
+
+    /// The chip on the file's line: mark file `ix` read, and the key; none where nothing is marked.
+    fn review_chip(&self, ix: usize) -> Option<Stateful<Div>> {
+        let state = self.review_state(ix)?;
+        Some(
+            div()
+                .id("review-chip")
+                .flex_none()
+                .h(px(24.))
+                .px(px(8.))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .rounded(px(ROW_RADIUS))
+                .text_size(px(12.))
+                .text_color(if state == State::Done {
+                    theme::added()
+                } else {
+                    theme::muted()
+                })
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
+                .child(match state {
+                    State::Done => "✓ Reviewed",
+                    State::Stale => "↻ Changed — mark again",
+                    State::Open => "Mark reviewed",
+                })
+                .child(keys::caps(
+                    if state == State::Done { "⇧V" } else { "V" },
+                    keys::On::Plain,
+                )),
+        )
     }
 }

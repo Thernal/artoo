@@ -207,4 +207,6 @@ pub enum PaneEvent {
     ExpandAll { folded: bool },
     /// View ▾ pressed: its menu hangs from `under`, the button.
     ViewMenu { under: gpui::Bounds<gpui::Pixels> },
+    /// The review's chip: the open file, marked read, unmarked, else marked and the next one not read opened.
+    Review,
 }
