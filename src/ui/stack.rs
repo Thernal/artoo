@@ -151,16 +151,6 @@ impl Workspace {
         }
     }
 
-    /// The match `at` of every file's: its file becomes active and opens, the row comes into view.
-    pub(super) fn go_to_stack_match(&mut self, at: usize, cx: &mut Context<Self>) {
-        let Some((file, row)) = self.review.update(cx, |rv, _| rv.stack_match(at)) else {
-            return;
-        };
-        self.activate_file(file, cx);
-        self.review.update(cx, |rv, _| rv.scroll_to_row(row));
-        cx.notify();
-    }
-
     // ---- drawing ------------------------------------------------------------------------------
 
     /// Shows file `ix` alone (an image, which has no rows), until all files are asked for again.

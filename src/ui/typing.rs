@@ -37,8 +37,6 @@ pub(super) enum Input {
     Compose,
     /// The number of a line to write a note on.
     GoLine,
-    /// The find bar over the diff.
-    DiffFind,
     /// The New merge request form.
     NewRequest,
     /// Submit review's summary.
@@ -46,12 +44,12 @@ pub(super) enum Input {
     /// A feature's tool window being written in (`artoo_shell_api::Tool`): Report a problem's title and
     /// description.
     Tool,
-    /// A part's field (`artoo_shell_api::Input`), by its id: the commits' search.
+    /// A part's field (`artoo_shell_api::Input`), by its id: the commits' search, the find bar over the diff.
     Part(&'static str),
 }
 
 impl Input {
-    const ALL: [Input; 15] = [
+    const ALL: [Input; 14] = [
         Input::Palette,
         Input::FindFiles,
         Input::OpenAsk,
@@ -63,7 +61,6 @@ impl Input {
         Input::Field,
         Input::Compose,
         Input::GoLine,
-        Input::DiffFind,
         Input::NewRequest,
         Input::Submit,
         Input::Tool,
@@ -138,7 +135,6 @@ impl Workspace {
             Input::Field => self.field.is_some(),
             Input::Compose => self.compose.is_some(),
             Input::GoLine => self.review.read(cx).goline.is_some(),
-            Input::DiffFind => self.review.read(cx).dfind.is_some(),
             Input::Part(id) => self.part_input(id).is_some_and(|i| (i.open)(cx)),
             Input::NewRequest => self.creating(cx),
             Input::Submit => self.submitting(cx),
@@ -236,9 +232,6 @@ impl Workspace {
         };
         match h.input {
             Input::Field => self.field = None,
-            Input::DiffFind if self.review.read(cx).dfind.as_deref() == Some("") => {
-                self.close_dfind(cx)
-            }
             Input::Part(id) => {
                 if let Some(left) = self.part_input(id).map(|i| i.left.clone()) {
                     left(cx);
@@ -382,7 +375,7 @@ pub(super) fn field_box_out<E: InteractiveElement>(
 mod tests {
     /// The key handlers `find_key` routes to by `Input`: the only places a key may edit a text, a part's field
     /// through its own (`part_input_key`).
-    const ROUTED: [&str; 12] = [
+    const ROUTED: [&str; 11] = [
         "ffind_key",
         "palette_key",
         "beside_key",
@@ -393,7 +386,6 @@ mod tests {
         "goline_key",
         "compose_key",
         "filter_key",
-        "dfind_key",
         "part_input_key",
     ];
 

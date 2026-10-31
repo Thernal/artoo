@@ -37,6 +37,7 @@ fn main() {
         artoo_updates::install(cx);
         artoo_reports::install(cx);
         artoo_code::install(cx);
+        artoo_review::install(cx);
         // The requests' pieces of the item page before the branches': a request's identity over a branch's.
         artoo_requests::install(cx);
         artoo_branches::install(cx);

@@ -104,6 +104,8 @@ pub struct Review {
     /// ⌘F's `.*`: the text is a regular expression (#113); what is wrong with it, when it is.
     pub dfind_regex: bool,
     pub dfind_error: Option<String>,
+    /// The find bar's field: its caret, selection and undo.
+    pub find_area: artoo_ui_kit::input::Area,
     /// Find in files (⌘⌥F), while it is open (`find_files`).
     pub ffind: Option<crate::find_files::FindFiles>,
     /// Rows where a change begins, and the one stepped to (F7).
@@ -149,6 +151,9 @@ pub enum ReviewEvent {
     FileRead,
     /// What is drawn changed (blame came, a tip to show): the tab draws again.
     Changed,
+    /// The find went to row `row` of file `file` in the one scroll: the tab makes the file the active one, its
+    /// pins laid out, and the row comes into view.
+    Found { file: usize, row: usize },
 }
 
 impl gpui::EventEmitter<ReviewEvent> for Review {}

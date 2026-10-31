@@ -1792,6 +1792,7 @@ impl Workspace {
             dterms: Arc::default(),
             dfind_regex: false,
             dfind_error: None,
+            find_area: Default::default(),
             ffind: None,
             changes: Vec::new(),
             change_at: None,
@@ -1941,6 +1942,8 @@ impl Workspace {
         // The tab's review as its pages ask it, the tab as Code's host.
         services.set(artoo_review::file_view::file_view(&review));
         services.set(artoo_review::review::handle(&review));
+        // The review itself, which its parts read and type in.
+        services.set(review.clone());
         // Its history, which the branches' parts read and type in, and its answers to the history's acts.
         services.set(this.history.clone());
         services.set(this.history_acts(cx));
@@ -1971,6 +1974,7 @@ impl Workspace {
         Self::start_watching(this.on_screen.clone(), cx);
         cx.subscribe(&this.review, Self::review_event).detach();
         cx.observe(&this.history, |_, _, cx| cx.notify()).detach();
+        cx.observe(&this.review, |_, _, cx| cx.notify()).detach();
         cx.subscribe(&this.history, Self::history_event).detach();
         cx.observe(&this.requests, |_, _, cx| cx.notify()).detach();
         // The notes' lines followed to the head shown: they are pinned again.
@@ -2381,6 +2385,7 @@ impl Workspace {
             ReviewEvent::StackBuilt(ix) => self.stack_built(*ix, cx),
             ReviewEvent::FileRead => self.file_read(cx),
             ReviewEvent::Changed => {}
+            ReviewEvent::Found { file, row } => self.go_found(Some((*file, *row)), cx),
         }
         cx.notify();
     }

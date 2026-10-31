@@ -1,36 +1,38 @@
 //! The find over the diff (⌘F): the rows that hold the text and each change's start, stepping through them in
-//! the open file or in every file of the one scroll, the rows brought into view; its bar, its field the tab's.
+//! the open file or in every file of the one scroll, the rows brought into view; its bar, and its field as one of
+//! the tab's inputs (`input`).
 
-use crate::review::Review;
+use crate::review::{Review, ReviewEvent};
 use artoo_core::rows::Row;
 use artoo_core::{rows, search};
+use artoo_shell_api::{Input, Typed};
 use artoo_ui_kit::controls::chip;
 use artoo_ui_kit::hover::{self, Hover};
+use artoo_ui_kit::input::{self, Area, Edit};
 use artoo_ui_kit::{ROW_RADIUS, icons, px, theme};
-use gpui::{AnyElement, App, ClickEvent, Div, div, prelude::*};
+use gpui::{App, ClickEvent, Context, Div, Entity, WeakEntity, div, prelude::*};
 use std::rc::Rc;
 use std::sync::Arc;
 
-/// A click on the find bar, for the tab to answer.
-#[derive(Clone, Copy)]
-pub enum BarEvent {
-    /// ↑ or ↓: the match before or after.
-    Step {
-        forward: bool,
-    },
-    /// `.*`: the text read as a regular expression, or as typed.
-    Regex,
-    Close,
-}
+/// The find bar's field among the tab's inputs.
+pub const INPUT: &str = "review.find";
 
-/// What answers the find bar's clicks.
-pub type OnBar = Rc<dyn Fn(BarEvent, &mut App)>;
+/// Where a find goes in the one scroll: a file and its row.
+pub type Found = Option<(usize, usize)>;
 
 impl Review {
-    /// The find bar above the diff: the `field` (the tab's, `active` with the keyboard), "2 of 4 lines",
-    /// previous, next, close; `on` answers its clicks.
-    pub fn render_find_bar(&self, field: AnyElement, active: bool, on: OnBar) -> Option<Div> {
-        self.dfind.as_ref()?;
+    /// The find bar above the diff: its field (`active` with the keyboard), "2 of 4 lines", previous, next,
+    /// close; `this` answers its clicks.
+    pub fn render_find_bar(&self, active: bool, this: WeakEntity<Review>) -> Option<Div> {
+        let text = self.dfind.as_ref()?;
+        let field = self.find_area.field_of(
+            text,
+            active,
+            "Find in this diff",
+            false,
+            |rv: &mut Review| Some(&mut rv.find_area),
+            this.clone(),
+        );
         let count = if let Some(error) = &self.dfind_error {
             format!("Not a regular expression: {error}")
         } else if self.dterms.is_empty() {
@@ -42,12 +44,14 @@ impl Review {
         } else {
             format!("{} of {} lines", self.match_at + 1, self.matches.len())
         };
-        let click = |event: BarEvent| {
-            let on = on.clone();
-            move |_: &ClickEvent, _: &mut gpui::Window, cx: &mut App| on(event, cx)
+        let click = |act: fn(&mut Review, &mut Context<Review>)| {
+            let this = this.clone();
+            move |_: &ClickEvent, _: &mut gpui::Window, cx: &mut App| {
+                this.update(cx, act).ok();
+            }
         };
-        let step = |id: &'static str, label: &'static str, forward: bool| {
-            chip(id, label, false).on_click(click(BarEvent::Step { forward }))
+        let step = |id: &'static str, label: &'static str, act| {
+            chip(id, label, false).on_click(click(act))
         };
         Some(
             div()
@@ -85,7 +89,10 @@ impl Review {
                         .child(
                             chip("dfind-regex", ".*", self.dfind_regex)
                                 .tip("Regular expression  ⌥R")
-                                .on_click(click(BarEvent::Regex)),
+                                .on_click(click(|rv, cx| {
+                                    let found = rv.toggle_find_regex(cx);
+                                    rv.found(found, cx)
+                                })),
                         ),
                 )
                 .child(
@@ -97,9 +104,18 @@ impl Review {
                             theme::muted()
                         }),
                 )
-                .child(step("dfind-prev", "↑", false))
-                .child(step("dfind-next", "↓", true))
-                .child(chip("dfind-close", "✕", false).on_click(click(BarEvent::Close))),
+                .child(step("dfind-prev", "↑", |rv, cx| {
+                    let found = rv.step_find(false);
+                    rv.found(found, cx)
+                }))
+                .child(step("dfind-next", "↓", |rv, cx| {
+                    let found = rv.step_find(true);
+                    rv.found(found, cx)
+                }))
+                .child(chip("dfind-close", "✕", false).on_click(click(|rv, cx| {
+                    rv.close_find();
+                    cx.notify();
+                }))),
         )
     }
 }
@@ -234,5 +250,102 @@ impl Review {
         {
             self.scroll_to_row(row);
         }
+    }
+
+    /// ⌘F: the bar open, with what it had while it is.
+    pub fn open_find(&mut self) {
+        if self.dfind.is_none() {
+            self.find_area = Area::default();
+            self.dfind = Some(String::new());
+        }
+    }
+
+    /// Find `text` (`set_find`): in the one scroll the folded files are built to be searched too, and the first
+    /// match from the file in view on is where it goes.
+    pub fn find(&mut self, text: String, cx: &mut Context<Self>) -> Found {
+        self.set_find(text);
+        self.stack.as_ref()?;
+        self.build_stack(cx);
+        let at = self.first_stack_match()?;
+        self.stack_match(at)
+    }
+
+    /// The match after (or before) the current one: in the open file it comes into view; in the one scroll, it
+    /// is where it goes.
+    pub fn step_find(&mut self, forward: bool) -> Found {
+        if self.stack.is_none() {
+            self.step_match(forward);
+            return None;
+        }
+        let at = self.next_stack_match(forward)?;
+        self.stack_match(at)
+    }
+
+    /// `.*` or ⌥R: the text read as a regular expression, or as typed again (#113).
+    pub fn toggle_find_regex(&mut self, cx: &mut Context<Self>) -> Found {
+        self.dfind_regex = !self.dfind_regex;
+        let text = self.dfind.clone().unwrap_or_default();
+        self.find(text, cx)
+    }
+
+    /// Where a find went, for the tab to follow (`ReviewEvent::Found`); else it draws again.
+    fn found(&mut self, found: Found, cx: &mut Context<Self>) {
+        match found {
+            Some((file, row)) => cx.emit(ReviewEvent::Found { file, row }),
+            None => cx.notify(),
+        }
+    }
+}
+
+/// The find bar's field as one of the tab's inputs: a change finds anew, ↵ and ⇧↵ step, ⌥R reads the text as a
+/// regular expression; one left empty closes.
+pub fn input(review: Entity<Review>) -> Input {
+    let (open, key, left, selected) = (
+        review.downgrade(),
+        review.downgrade(),
+        review.downgrade(),
+        review.downgrade(),
+    );
+    Input {
+        id: INPUT,
+        open: Rc::new(move |cx| open.upgrade().is_some_and(|rv| rv.read(cx).dfind.is_some())),
+        key: Rc::new(move |event, _, cx| {
+            key.update(cx, |rv, cx| {
+                let key = &event.keystroke;
+                let Some(mut text) = rv.dfind.clone() else {
+                    return Typed::Kept;
+                };
+                let (typed, found) = if key.modifiers.alt && key.key == "r" {
+                    (Typed::Kept, rv.toggle_find_regex(cx))
+                } else {
+                    match input::edit(&mut text, &mut rv.find_area.edit, key, cx) {
+                        Edit::Changed => (Typed::Kept, rv.find(text, cx)),
+                        Edit::Enter { shift } => (Typed::Kept, rv.step_find(!shift)),
+                        Edit::Escape => (Typed::Leave, None),
+                        Edit::Selected | Edit::Ignored => (Typed::Kept, None),
+                    }
+                };
+                rv.found(found, cx);
+                typed
+            })
+            .unwrap_or(Typed::Kept)
+        }),
+        left: Rc::new(move |cx| {
+            left.update(cx, |rv, cx| {
+                if rv.dfind.as_deref() == Some("") {
+                    rv.close_find();
+                    cx.notify();
+                }
+            })
+            .ok();
+        }),
+        selected: Rc::new(move |cx| {
+            let rv = selected.upgrade()?;
+            rv.read(cx)
+                .find_area
+                .edit
+                .selected_text()
+                .map(str::to_owned)
+        }),
     }
 }
