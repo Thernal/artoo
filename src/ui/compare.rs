@@ -4,7 +4,7 @@
 //! as a branch's Commits picks; "a41f9c0 only" over the diff says so, and esc or its × bring the
 //! whole comparison back. The page stays the comparison's: picking is a filter, not a level.
 
-use super::hover::{CutInTip, Hover};
+use super::hover::{CommitCard, CutInTip, Hover};
 use super::nav::Page;
 use super::{Diff, Header, Selection, Workspace, format, icons, px, row, theme};
 use crate::git::Repo;
@@ -192,7 +192,7 @@ impl Workspace {
         let picked = c
             .picked
             .is_some_and(|(newest, oldest)| (newest..=oldest).contains(&ix));
-        let card = std::rc::Rc::new(self.card_of(info.clone()));
+        let card = std::rc::Rc::new(self.card_of(info.clone(), cx));
         let item = row(("compare-commit", ix), picked)
             .h(px(ROW - 2.))
             .gap_2()
@@ -229,7 +229,7 @@ impl Workspace {
                 this.close_drawer(cx);
                 this.pick_compare_commit(ix, e.modifiers().shift, cx)
             }))
-            .card(move |_, cx| super::hover::CommitCard::show(&card, cx));
+            .card(move |_, cx| CommitCard::show(&card, cx));
         div()
             .w_full()
             .h(px(ROW))

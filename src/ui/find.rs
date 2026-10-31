@@ -5,12 +5,8 @@ use super::input::{self, Edit};
 use super::px;
 use super::typing::{self, Input};
 use super::{Workspace, theme};
-use crate::search;
 use artoo_ui_kit::controls::chip;
-use gpui::{
-    App, ClickEvent, Context, HighlightStyle, KeyDownEvent, SharedString, StyledText, div,
-    prelude::*,
-};
+use gpui::{App, ClickEvent, Context, KeyDownEvent, div, prelude::*};
 
 /// Qualifiers offered as tags under the field.
 const QUALIFIERS: [&str; 3] = ["author:", "path:", "since:"];
@@ -495,21 +491,6 @@ impl Workspace {
             .children(tags)
             .children(count);
         typing::input_box(el, Input::CommitSearch, cx)
-    }
-
-    /// The summary of commit `ix`, with the search words highlighted.
-    pub(super) fn summary_text(&self, summary: &SharedString, cx: &App) -> StyledText {
-        let ranges = search::highlights(summary, self.history.read(cx).find.query.words());
-        StyledText::new(summary.clone()).with_highlights(ranges.into_iter().map(|range| {
-            (
-                range,
-                HighlightStyle {
-                    color: Some(theme::warning().into()),
-                    background_color: Some(theme::warning_bg().into()),
-                    ..Default::default()
-                },
-            )
-        }))
     }
 
     /// Shown instead of the list when nothing matches.

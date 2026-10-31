@@ -7,6 +7,7 @@ use super::nav::Page;
 use super::zones::Zone;
 use super::{Selection, Tip, Workspace, chip, commit_chip, icons, island, plural, px, theme};
 use artoo_branches::history::{Act, Acts};
+use artoo_branches::side::commit_row;
 use gpui::{
     AnyElement, App, ClickEvent, Context, FontWeight, MouseButton, SharedString, div, prelude::*,
     uniform_list,
@@ -33,6 +34,11 @@ impl Workspace {
                     let (from, to) = this.history.read(cx).versions_clicked(ix, more);
                     this.select_versions(from, to, cx)
                 }
+                Act::Commit(ix) => {
+                    this.close_drawer(cx);
+                    this.select_commit(ix, cx)
+                }
+                Act::CommitMenu { ix, at } => this.commit_context(ix, at, cx),
             })
             .ok();
         })
@@ -404,9 +410,19 @@ impl Workspace {
                                     if range.end + 100 >= this.commit_rows(cx) {
                                         this.want_older_commits(cx);
                                     }
+                                    // Its anatomy (#79): the parts its list has room for.
+                                    let room = this.widths.room("side-commits");
+                                    let acts = this.history_acts(cx);
                                     range
                                         .map(|row| {
-                                            this.render_commit_row(this.commit_at(row, cx), cx)
+                                            let ix = this.commit_at(row, cx);
+                                            commit_row(
+                                                this.history.read(cx),
+                                                ix,
+                                                room,
+                                                this.commit_card(ix, cx),
+                                                &acts,
+                                            )
                                         })
                                         .collect::<Vec<_>>()
                                 }),

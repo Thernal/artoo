@@ -1716,8 +1716,6 @@ pub struct Workspace {
     /// The branch filter, and which filter (if any) takes the keyboard.
     bfilter: String,
     field: Option<Field>,
-    /// Labels on commits: where branches, remote branches and tags point.
-    decor: std::collections::HashMap<git2::Oid, Vec<crate::git::Deco>>,
     /// A context menu open at the pointer, and the repository's address on the web.
     ctx_menu: Option<CtxMenu>,
     web: Option<crate::git::WebRemote>,
@@ -1947,7 +1945,6 @@ impl Workspace {
             view_bounds: Rc::new(Shared::new(None)),
             bfilter: String::new(),
             field: None,
-            decor: Default::default(),
             ctx_menu: None,
             web: None,
             host: None,
@@ -2041,7 +2038,7 @@ impl Workspace {
                         this.project = Some(project.clone());
                         this.host = web.as_ref().map(|w| host_of(w, cx));
                         this.web = web;
-                        this.decor = decor;
+                        this.history.update(cx, |h, _| h.decor = decor);
                         this.me = me.unwrap_or_else(|| "You".to_owned());
                         this.recent = storage::remember(&root);
                         if this.root.as_ref() != Some(&root) {

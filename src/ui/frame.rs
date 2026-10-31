@@ -1,8 +1,8 @@
 //! The window's frame: the root view and what surrounds the diff — the title bar, the rail, the
-//! welcome, the sidebar (versions and commits), zen's line and the splitters.
+//! welcome, the sidebar's pairs of commits (its versions and commit rows are the branches',
+//! `artoo_branches::side`), zen's line and the splitters.
 
 use super::*;
-use hover::{CutInTip, Hover};
 use typing::Input;
 
 impl Workspace {
@@ -442,91 +442,6 @@ impl Workspace {
                         div().w_full().py(px(1.)).child(item)
                     })),
             )
-    }
-
-    pub(super) fn render_commit_row(
-        &self,
-        ix: usize,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
-        let commit = &self.history.read(cx).commits[ix];
-        let selected = self.history.read(cx).selection == Selection::Commit(ix);
-        // Its anatomy (#79): the title and sha always; who and when while the panel has 260 px;
-        // its labels under 360 px leave first. Its card holds them all.
-        let room = self.widths.room("side-commits");
-        let item = row(("commit", ix), selected)
-            .h(px(62.))
-            .flex_col()
-            .items_start()
-            .justify_center()
-            .child(
-                div()
-                    .w_full()
-                    .line_height(px(17.))
-                    .clamp_in_tip(2)
-                    .child(self.summary_text(&commit.summary.clone().into(), cx)),
-            )
-            .child(
-                div()
-                    .w_full()
-                    .flex()
-                    .gap_2()
-                    .text_size(px(11.))
-                    .text_color(theme::muted())
-                    .child(
-                        div()
-                            .font_family(theme::code_font())
-                            .child(format::short(commit.id)),
-                    )
-                    .when(room.third(), |s| {
-                        s.child(
-                            div().flex().min_w_0().flex_shrink(1.).gap_2().children(
-                                self.decor
-                                    .get(&commit.id)
-                                    // The first label and "+N" for the rest; the card names them all.
-                                    .map(|d| lists::deco_tags(d))
-                                    .unwrap_or_default(),
-                            ),
-                        )
-                    })
-                    // A branch of one's own still has commits by others under it. The labels give
-                    // way first; the card has the whole name.
-                    .when(room.second(), |s| {
-                        s.child(
-                            div()
-                                .flex_none()
-                                .max_w(px(160.))
-                                .cut_in_tip()
-                                .child(commit.author.clone()),
-                        )
-                        .child(div().flex_1())
-                        .child(
-                            div()
-                                .flex_none()
-                                .whitespace_nowrap()
-                                .child(format::ago(commit.time)),
-                        )
-                    }),
-            )
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(move |this, event: &MouseDownEvent, _, cx| {
-                    this.commit_context(ix, event.position, cx)
-                }),
-            )
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.close_drawer(cx);
-                this.select_commit(ix, cx)
-            }));
-        // A long hover: the commit's card (#53) — its whole message start, author, date, id, labels.
-        let item = match self.commit_card(ix, cx) {
-            Some(card) => {
-                let card = std::rc::Rc::new(card);
-                item.card(move |_, cx| hover::CommitCard::show(&card, cx))
-            }
-            None => item,
-        };
-        div().w_full().h(px(64.)).px(px(6.)).py(px(1.)).child(item)
     }
 }
 

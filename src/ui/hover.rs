@@ -1,9 +1,11 @@
-//! Cards on a long hover (#53, Design `docs/specs/hover.md`): a commit, a person (#51) and a branch,
-//! which stay while the pointer is on them and hold their actions (copy, open, mention). Tooltips and
-//! the cut are the kit's (`artoo_ui_kit::hover`), re-exported here.
+//! Cards on a long hover (#53, Design `docs/specs/hover.md`): a person (#51) and a branch, which
+//! stay while the pointer is on them and hold their actions (copy, open, mention). A commit's card is
+//! the branches' (`artoo_branches::card`), tooltips and the cut the kit's (`artoo_ui_kit::hover`):
+//! both re-exported here.
 
-use super::{ROW_RADIUS, Workspace, format, px, theme};
-use crate::git::{CommitInfo, Deco, DecoKind};
+use super::{Workspace, format, px, theme};
+use crate::git::CommitInfo;
+pub(super) use artoo_branches::card::CommitCard;
 pub(super) use artoo_ui_kit::hover::*;
 use gpui::{
     AnyView, App, ClickEvent, Context, FontWeight, IntoElement, Render, StatefulInteractiveElement,
@@ -20,197 +22,6 @@ pub fn status_word(change: crate::git::ChangeKind, old: Option<&str>) -> String 
         Copied => format!("Copied from {}", old.unwrap_or_default()),
         TypeChanged => "Type changed".into(),
         Modified => "Modified".into(),
-    }
-}
-
-/// The frame every card is drawn in.
-fn frame() -> gpui::Div {
-    div()
-        .mt(px(6.))
-        .w(px(360.))
-        .p(px(12.))
-        .rounded(px(10.))
-        .border_1()
-        .border_color(theme::island_border())
-        .bg(theme::panel())
-        .shadow_lg()
-        .flex()
-        .flex_col()
-        .gap(px(8.))
-        .text_size(px(12.))
-        .text_color(theme::text())
-}
-
-fn action(id: &'static str, label: &'static str) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .px(px(8.))
-        .h(px(24.))
-        .flex()
-        .items_center()
-        .rounded(px(ROW_RADIUS))
-        .border_1()
-        .border_color(theme::island_border())
-        .cursor_pointer()
-        .hover(|s| s.bg(theme::hover()))
-        .child(label)
-}
-
-/// A commit: its whole message's start, who and when, the full id, every branch and tag on it.
-pub struct CommitCard {
-    pub info: CommitInfo,
-    pub refs: Vec<Deco>,
-    /// The commit on GitLab or GitHub.
-    pub url: Option<String>,
-    /// The repository, to read what it changed when the card shows.
-    pub root: Option<std::path::PathBuf>,
-    /// (files, lines added, lines removed), once read (X58).
-    pub stat: Option<(usize, usize, usize)>,
-}
-
-impl CommitCard {
-    pub fn clone_of(other: &CommitCard) -> CommitCard {
-        CommitCard {
-            info: other.info.clone(),
-            refs: other.refs.clone(),
-            url: other.url.clone(),
-            root: other.root.clone(),
-            stat: other.stat,
-        }
-    }
-
-    /// The card, shown: what the commit changed is read in the background and drawn when known.
-    pub fn show(other: &CommitCard, cx: &mut App) -> AnyView {
-        let card = cx.new(|_| CommitCard::clone_of(other));
-        if let Some(root) = other.root.clone() {
-            let (id, view) = (other.info.id, card.downgrade());
-            cx.spawn(async move |cx| {
-                let stat = cx
-                    .background_executor()
-                    .spawn(async move { crate::git::Repo::open(&root)?.commit_stat(id) })
-                    .await;
-                view.update(cx, |card, cx| {
-                    card.stat = stat.ok();
-                    cx.notify();
-                })
-                .ok();
-            })
-            .detach();
-        }
-        card.into()
-    }
-}
-
-impl Render for CommitCard {
-    // It fades in after the long rest (#56, 7).
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        super::motion::appear(self.body(), "card-in", super::motion::FAST, |c, v| {
-            c.opacity(v)
-        })
-    }
-}
-
-impl CommitCard {
-    fn body(&mut self) -> gpui::Div {
-        let c = &self.info;
-        let body: Vec<String> = c
-            .message
-            .lines()
-            .skip(1)
-            .skip_while(|l| l.trim().is_empty())
-            .take(4)
-            .map(str::to_owned)
-            .collect();
-        let sha = c.id.to_string();
-        let url = self.url.clone();
-        frame()
-            .child(
-                div()
-                    .text_size(px(13.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(c.summary.clone()),
-            )
-            .children((!body.is_empty()).then(|| {
-                div()
-                    .text_color(theme::muted())
-                    .children(body.into_iter().map(|l| div().child(l)))
-            }))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(super::discussion::avatar(&c.author, false, 20.))
-                    .child(
-                        div().flex().flex_col().child(c.author.clone()).child(
-                            div()
-                                .text_size(px(11.))
-                                .text_color(theme::faint())
-                                .child(format!("{} · {}", c.email, full_date(c.time))),
-                        ),
-                    ),
-            )
-            .children(self.stat.map(|(files, added, removed)| {
-                div()
-                    .flex()
-                    .gap(px(6.))
-                    .text_size(px(11.))
-                    .child(
-                        div()
-                            .text_color(theme::muted())
-                            .child(super::plural(files, "file")),
-                    )
-                    .child(div().text_color(theme::added()).child(format!("+{added}")))
-                    .child(
-                        div()
-                            .text_color(theme::removed())
-                            .child(format!("−{removed}")),
-                    )
-            }))
-            .children((!self.refs.is_empty()).then(|| {
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap(px(4.))
-                    .children(self.refs.iter().map(|d| {
-                        let (text, color) = match d.kind {
-                            DecoKind::Head => (format!("HEAD → {}", d.name), theme::accent()),
-                            DecoKind::Local => (d.name.clone(), theme::accent()),
-                            DecoKind::Remote => (d.name.clone(), theme::faint()),
-                            DecoKind::Tag => (d.name.clone(), theme::warning()),
-                        };
-                        div()
-                            .px(px(6.))
-                            .rounded_full()
-                            .border_1()
-                            .border_color(color)
-                            .text_size(px(10.))
-                            .text_color(color)
-                            .child(text)
-                    }))
-            }))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .child(
-                        cut("card-sha", sha.clone())
-                            .flex_1()
-                            .font_family(theme::code_font())
-                            .text_size(px(11.))
-                            .text_color(theme::muted()),
-                    )
-                    .child(action("card-copy-sha", "Copy").on_click(
-                        move |_: &ClickEvent, _, cx| {
-                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(sha.clone()))
-                        },
-                    ))
-                    .children(url.map(|url| {
-                        action("card-open-commit", "Open ↗")
-                            .on_click(move |_: &ClickEvent, _, cx| cx.open_url(&url))
-                    })),
-            )
     }
 }
 
@@ -253,7 +64,7 @@ impl PersonCard {
         let login = self.login.clone();
         let ws = self.ws.clone();
         let url = self.url.clone();
-        frame()
+        card_frame()
             .w(px(300.))
             .child(
                 div()
@@ -292,12 +103,14 @@ impl PersonCard {
                     .flex()
                     .gap(px(6.))
                     .children((!login.is_empty()).then(|| {
-                        action("card-mention", "Mention").on_click(move |_: &ClickEvent, _, cx| {
-                            ws.update(cx, |this, cx| this.mention(&login, cx)).ok();
-                        })
+                        card_action("card-mention", "Mention").on_click(
+                            move |_: &ClickEvent, _, cx| {
+                                ws.update(cx, |this, cx| this.mention(&login, cx)).ok();
+                            },
+                        )
                     }))
                     .children(url.map(|url| {
-                        action("card-open-person", "Open ↗")
+                        card_action("card-open-person", "Open ↗")
                             .on_click(move |_: &ClickEvent, _, cx| cx.open_url(&url))
                     })),
             )
@@ -342,7 +155,7 @@ impl Render for BranchCard {
 
 impl BranchCard {
     fn body(&mut self) -> gpui::Div {
-        frame()
+        card_frame()
             .child(
                 div()
                     .font_family(theme::code_font())
@@ -394,13 +207,15 @@ impl BranchCard {
 impl Workspace {
     /// The card of commit `ix` of the list.
     pub(super) fn commit_card(&self, ix: usize, cx: &App) -> Option<CommitCard> {
-        Some(self.card_of(self.history.read(cx).commits.get(ix)?.clone()))
+        Some(self.card_of(self.history.read(cx).commits.get(ix)?.clone(), cx))
     }
 
     /// The card of commit `info`, of whatever list.
-    pub(super) fn card_of(&self, info: crate::git::CommitInfo) -> CommitCard {
+    pub(super) fn card_of(&self, info: crate::git::CommitInfo, cx: &App) -> CommitCard {
         CommitCard {
-            refs: self.decor.get(&info.id).cloned().unwrap_or_default(),
+            refs: (self.history.read(cx).decor.get(&info.id))
+                .cloned()
+                .unwrap_or_default(),
             url: self.web.as_ref().map(|w| w.commit(&info.id.to_string())),
             info,
             root: self.root.clone(),

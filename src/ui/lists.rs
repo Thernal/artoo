@@ -7,58 +7,9 @@ use super::input::{self, Edit};
 use super::px;
 use super::typing::{self, Input};
 use super::{Workspace, change_color, change_tip, plural, row, theme};
-use crate::git::{Deco, DecoKind};
 use artoo_review::changes::{FileItem, Group, folder_of};
 use gpui::{App, ClickEvent, Context, KeyDownEvent, MouseButton, MouseDownEvent, div, prelude::*};
 use std::collections::HashSet;
-
-// ---- labels on commits ------------------------------------------------------------------
-
-/// "HEAD → main", "origin/main", "v1.2": the first label and a count of the rest.
-pub fn deco_tags(decos: &[Deco]) -> Vec<gpui::AnyElement> {
-    let tag = |text: String, color: gpui::Rgba| {
-        // The pill gives way (its text is cut with …) before the time beside it does.
-        div()
-            .flex_shrink(1.)
-            .min_w_0()
-            .px(px(6.))
-            .rounded_full()
-            .border_1()
-            .border_color(color)
-            .text_size(px(10.))
-            .text_color(color)
-            .max_w(px(120.))
-            .cut_in_tip()
-            .child(text)
-            .into_any_element()
-    };
-    let mut out: Vec<_> = decos
-        .iter()
-        .take(1)
-        .map(|d| match d.kind {
-            DecoKind::Head => tag(format!("HEAD → {}", d.name), theme::accent()),
-            DecoKind::Local => tag(d.name.clone(), theme::accent()),
-            DecoKind::Remote => tag(d.name.clone(), theme::faint()),
-            DecoKind::Tag => tag(d.name.clone(), theme::warning()),
-        })
-        .collect();
-    // The count never gives way: it says there is more.
-    if decos.len() > 1 {
-        out.push(
-            div()
-                .flex_none()
-                .px(px(6.))
-                .rounded_full()
-                .border_1()
-                .border_color(theme::faint())
-                .text_size(px(10.))
-                .text_color(theme::faint())
-                .child(format!("+{}", decos.len() - 1))
-                .into_any_element(),
-        );
-    }
-    out
-}
 
 impl Workspace {
     /// The one-line field of `field` in a list's head, inset from the list's edges.

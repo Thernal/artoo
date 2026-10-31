@@ -120,8 +120,10 @@ The target above is reached stage by stage; until then:
   How far your review got (`Seen`) it reads from `artoo-review-api`. Its space's pages go through the registry with
   the branches' (the review's diff and the side panel they share), the Inbox with the agents' views; a thread on the
   diff's lines with the composer as an entity (R4d).
-- `artoo-branches` (stage 4, B) holds what the tab keeps of the repository's branches: the history (`History`: the
-  branches, the one open and what its page says, its versions and commits, what the diff shows of them), a
-  comparison's commits, the working tree's state and the Branches list's facts. The app's views read them and draw
-  the side panel (Versions · Commits · Changes) a branch's and a request's pages share.
+- `artoo-branches` (stage 4, B) holds what the tab keeps of the repository's branches as an entity (`History`, each
+  read its own task, the tab hearing what follows as a `history::Event`): the branches, the one open and what its
+  page says, its versions and commits, what the diff shows of them, the commits' search, a comparison's commits, the
+  working tree's state and the Branches list's facts. Its views draw the side panel's rows (versions, commits) and a
+  commit's card, a click asking the tab an `Act`; the app's other views read the history and draw the side panel
+  (Versions · Commits · Changes) a branch's and a request's pages share.
 - Every implementation's surface is wide (`OPEN`) until its views move with it.

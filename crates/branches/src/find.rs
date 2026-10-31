@@ -3,9 +3,10 @@
 
 use crate::history::History;
 use artoo_core::git::Repo;
-use artoo_core::search::Query;
+use artoo_core::search::{self, Query};
+use artoo_ui_kit::theme;
 use git2::Oid;
-use gpui::{Context, Task};
+use gpui::{Context, HighlightStyle, SharedString, StyledText, Task};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -127,4 +128,19 @@ impl History {
             .ok();
         }));
     }
+}
+
+/// A commit's subject, the `words` searched for marked in it.
+pub fn summary_text(summary: SharedString, words: &[String]) -> StyledText {
+    let ranges = search::highlights(&summary, words);
+    StyledText::new(summary).with_highlights(ranges.into_iter().map(|range| {
+        (
+            range,
+            HighlightStyle {
+                color: Some(theme::warning().into()),
+                background_color: Some(theme::warning_bg().into()),
+                ..Default::default()
+            },
+        )
+    }))
 }

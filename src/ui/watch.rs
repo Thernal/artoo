@@ -202,7 +202,7 @@ impl Workspace {
                 .await;
             this.update(cx, |this, cx| match loaded {
                 Ok((branches, refname, open, decor)) => {
-                    this.decor = decor;
+                    this.history.update(cx, |h, _| h.decor = decor);
                     this.apply_reload(branches, refname, open, cx)
                 }
                 // Mid-rebase the repository can be unreadable for a moment; the next change retries.

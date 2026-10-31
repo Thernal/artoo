@@ -1,12 +1,15 @@
-//! The history's sections of the side panel (#49): the versions, newest first. The tab draws the panel around
-//! them; a click asks it an `Act`.
+//! The history's sections of the side panel (#49): the versions, newest first, and a commit's row. The tab draws
+//! the panel around them; a click asks it an `Act`.
 
+use crate::card::{CommitCard, deco_tags};
+use crate::find::summary_text;
 use crate::history::{Act, Acts, History, Selection};
 use artoo_ui_kit::controls::tag;
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, CutInTip, Hover};
+use artoo_ui_kit::room::Room;
 use artoo_ui_kit::{px, row, theme};
-use gpui::{ClickEvent, Div, FontWeight, div, prelude::*};
+use gpui::{ClickEvent, Div, FontWeight, MouseButton, MouseDownEvent, div, prelude::*};
 
 /// The versions, newest first, for the side panel's Versions section; those from `new_from` on arrived since the
 /// user last looked.
@@ -161,4 +164,95 @@ pub fn version_rows(h: &History, new_from: Option<usize>, acts: &Acts) -> Div {
                 });
             div().px(px(6.)).py(px(1.)).child(item)
         }))
+}
+
+/// Commit `ix`'s row in the Commits section, the parts `room` leaves it; `card` on a long hover.
+pub fn commit_row(
+    h: &History,
+    ix: usize,
+    room: Room,
+    card: Option<CommitCard>,
+    acts: &Acts,
+) -> Div {
+    let commit = &h.commits[ix];
+    let selected = h.selection == Selection::Commit(ix);
+    // Its anatomy (#79): the title and sha always; who and when while the panel has 260 px;
+    // its labels under 360 px leave first. Its card holds them all.
+    let (menu, pick) = (acts.clone(), acts.clone());
+    let item = row(("commit", ix), selected)
+        .h(px(62.))
+        .flex_col()
+        .items_start()
+        .justify_center()
+        .child(
+            div()
+                .w_full()
+                .line_height(px(17.))
+                .clamp_in_tip(2)
+                .child(summary_text(
+                    commit.summary.clone().into(),
+                    h.find.query.words(),
+                )),
+        )
+        .child(
+            div()
+                .w_full()
+                .flex()
+                .gap_2()
+                .text_size(px(11.))
+                .text_color(theme::muted())
+                .child(
+                    div()
+                        .font_family(theme::code_font())
+                        .child(format::short(commit.id)),
+                )
+                .when(room.third(), |s| {
+                    s.child(
+                        div().flex().min_w_0().flex_shrink(1.).gap_2().children(
+                            h.decor
+                                .get(&commit.id)
+                                // The first label and "+N" for the rest; the card names them all.
+                                .map(|d| deco_tags(d))
+                                .unwrap_or_default(),
+                        ),
+                    )
+                })
+                // A branch of one's own still has commits by others under it. The labels give
+                // way first; the card has the whole name.
+                .when(room.second(), |s| {
+                    s.child(
+                        div()
+                            .flex_none()
+                            .max_w(px(160.))
+                            .cut_in_tip()
+                            .child(commit.author.clone()),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .flex_none()
+                            .whitespace_nowrap()
+                            .child(format::ago(commit.time)),
+                    )
+                }),
+        )
+        .on_mouse_down(MouseButton::Right, move |event: &MouseDownEvent, _, cx| {
+            menu(
+                Act::CommitMenu {
+                    ix,
+                    at: event.position,
+                },
+                cx,
+            )
+        })
+        .on_click(move |_, _, cx| pick(Act::Commit(ix), cx));
+    // A long hover: the commit's card (#53) — its whole message start, author, date, id, labels.
+    let item = match card {
+        Some(card) => {
+            let card = std::rc::Rc::new(card);
+            item.card(move |_, cx| CommitCard::show(&card, cx))
+        }
+        None => item,
+    };
+    div().w_full().h(px(64.)).px(px(6.)).py(px(1.)).child(item)
 }

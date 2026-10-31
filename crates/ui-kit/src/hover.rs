@@ -190,6 +190,40 @@ fn full_date_at(time: i64) -> String {
     )
 }
 
+/// The frame every card is drawn in.
+pub fn card_frame() -> gpui::Div {
+    div()
+        .mt(px(6.))
+        .w(px(360.))
+        .p(px(12.))
+        .rounded(px(10.))
+        .border_1()
+        .border_color(theme::island_border())
+        .bg(theme::panel())
+        .shadow_lg()
+        .flex()
+        .flex_col()
+        .gap(px(8.))
+        .text_size(px(12.))
+        .text_color(theme::text())
+}
+
+/// One of a card's actions: Copy, Open ↗, Mention.
+pub fn card_action(id: &'static str, label: &'static str) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .px(px(8.))
+        .h(px(24.))
+        .flex()
+        .items_center()
+        .rounded(px(ROW_RADIUS))
+        .border_1()
+        .border_color(theme::island_border())
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::hover()))
+        .child(label)
+}
+
 /// A tooltip: a small panel with a line of text.
 pub struct Tip(pub &'static str);
 

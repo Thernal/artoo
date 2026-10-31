@@ -6,8 +6,9 @@ use crate::facts::Facts;
 use crate::find::Find;
 use crate::reading::Read;
 use crate::roots::Roots;
-use artoo_core::git::{BranchRef, CommitInfo, Version};
+use artoo_core::git::{BranchRef, CommitInfo, Deco, Version};
 use gpui::{EventEmitter, Task};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// A ref's name and the commit it points at.
@@ -56,6 +57,8 @@ pub struct History {
     pub older: Option<Older>,
     pub selection: Selection,
     pub version_tab: VersionTab,
+    /// Labels on commits: where branches, remote branches and tags point.
+    pub decor: HashMap<git2::Oid, Vec<Deco>>,
     /// The commits' search (⌘⇧F).
     pub find: Find,
     /// What the Branches list reads for its rows and previews (#72).
@@ -82,6 +85,13 @@ impl EventEmitter<Event> for History {}
 pub enum Act {
     /// Version `ix` clicked, with ⌘ (`more`) or not (`History::versions_clicked`).
     Version { ix: usize, more: bool },
+    /// Commit `ix` clicked: its diff, the drawer gone.
+    Commit(usize),
+    /// A right click on commit `ix` at `at`: its menu.
+    CommitMenu {
+        ix: usize,
+        at: gpui::Point<gpui::Pixels>,
+    },
 }
 
 /// How a view asks the tab an `Act`.
@@ -112,6 +122,7 @@ impl Default for History {
             older: None,
             selection: Selection::None,
             version_tab: VersionTab::Files,
+            decor: HashMap::new(),
             find: Find::default(),
             roots: Roots::default(),
             task: None,
