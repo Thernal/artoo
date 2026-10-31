@@ -5,10 +5,11 @@
 
 use super::nav::Page;
 use super::zones::Zone;
-use super::{Selection, Workspace, chip, plural, px};
+use super::{Workspace, chip, plural};
 use artoo_branches::history::{Act, Acts};
-use artoo_branches::panel::{Fold, Head, count, head, open_share, panel, rule};
-use artoo_branches::side::{search_chip, working_chip};
+use artoo_branches::panel::{
+    CommitsLook, Fold, Folding, Head, count, head, open_share, panel, rule,
+};
 use gpui::{AnyElement, App, ClickEvent, Context, MouseButton, div, prelude::*};
 use std::rc::Rc;
 
@@ -44,6 +45,7 @@ impl Workspace {
                 }
                 Act::FindField => this.start_find(cx),
                 Act::Fold(fold) => this.fold_section(fold as u8, cx),
+                Act::CommitsZone => this.set_zone(Zone::Commits, cx),
                 Act::BranchMenu { ix, at } => this.branch_context(ix, at, cx),
                 Act::PickRow { row, clicks } => this.pick_branch_row(row, clicks, cx),
                 Act::OpenRow(row) => this.open_branch_row(row, cx),
@@ -221,164 +223,66 @@ impl Workspace {
         // its pages the panel holds the changes — a request's with its versions — and on a commit
         // only the commit's (#73, #74).
         if self.side_versions(cx) {
-            let folded = self.section_folded(Fold::Versions);
-            let summary = match self.history.read(cx).selection {
-                Selection::Versions { from, to } => format!(
-                    "v{} → v{}",
-                    self.history.read(cx).versions[from].number,
-                    self.history.read(cx).versions[to].number
-                ),
-                _ => format!(
-                    "latest v{}",
-                    self.history.read(cx).versions[self.history.read(cx).versions.len() - 1].number
-                ),
+            let fold = Folding {
+                folds: &self.folds,
+                heights: &self.heights,
+                moving: self.motion.recent("fold-0"),
             };
-            sections.push(
-                div()
-                    .flex_none()
-                    .flex()
-                    .flex_col()
-                    .child(self.section_header(
-                        Fold::Versions,
-                        "Versions".into(),
-                        Some(summary),
-                        vec![count(self.history.read(cx).versions.len().to_string())],
-                        true,
-                        cx,
-                    ))
-                    // Opening and folding alike, to its own height and back (#110); the padding
-                    // inside, so nothing is left of it at the end.
-                    .children(
-                        self.folding(
-                            "versions",
-                            "fold-0",
-                            !folded,
-                            div()
-                                .id("versions-list")
-                                .max_h(px(240.))
-                                .overflow_y_scroll()
-                                .child(div().pb(px(6.)).child(artoo_branches::side::version_rows(
-                                    self.history.read(cx),
-                                    self.watch.new_from,
-                                    &self.history_acts(cx),
-                                ))),
-                        ),
-                    )
-                    .into_any_element(),
-            );
+            sections.push(self.history.read(cx).versions_section(
+                self.section_folded(Fold::Versions),
+                fold,
+                self.watch.new_from,
+                &self.history_acts(cx),
+            ));
         }
 
         if self.side_commits(cx) {
-            let commits_folded = self.section_folded(Fold::Commits);
-            let first = match self.history.read(cx).selection {
-                Selection::Commit(ix) => self.history.read(cx).commits.get(ix),
-                _ => self.history.read(cx).commits.first(),
+            let folded = self.section_folded(Fold::Commits);
+            let rows = !folded || self.motion.recent("fold-1");
+            let look = CommitsLook {
+                folded,
+                rows,
+                tag: self.zone_tag(Zone::Commits).into_owned(),
+                working: self.wt.count,
+                field: (rows && self.history.read(cx).find.text.is_some())
+                    .then(|| self.render_find(cx).into_any_element()),
+                pill: rows
+                    .then(|| self.render_pill(cx).map(IntoElement::into_any_element))
+                    .flatten(),
+                widths: self.widths.clone(),
+                web: self.web.clone(),
             };
-            let commit_summary = first.map(|c| {
-                if self.history.read(cx).commits.len() > 1 {
-                    format!("{} +{}", c.summary, self.history.read(cx).commits.len() - 1)
-                } else {
-                    c.summary.clone()
-                }
-            });
-            let mut commit_end: Vec<AnyElement> = Vec::new();
-            let acts = self.history_acts(cx);
-            let h = self.history.read(cx);
-            commit_end.extend(
-                working_chip(self.wt.count, h.selection == Selection::WorkingTree, &acts)
-                    .map(IntoElement::into_any_element),
-            );
-            commit_end.push(search_chip(h.find.text.is_some(), &acts).into_any_element());
-            // Older history not read yet: "1000+" (#25).
-            let more = if self.history.read(cx).older.is_some() {
-                "+"
-            } else {
-                ""
-            };
-            commit_end.push(count(format!(
-                "{}{more}",
-                self.history.read(cx).commits.len()
-            )));
             if !sections.is_empty() {
                 sections.push(rule().into_any_element());
             }
-            if !commits_folded {
+            if !folded {
                 open_lists += 1;
             }
-            let commits_rows = !commits_folded || self.motion.recent("fold-1");
-            let commits = div()
-                .relative()
-                .flex()
-                .flex_col()
-                .overflow_hidden()
-                .child(self.widths.measure("side-commits"))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, cx| this.set_zone(Zone::Commits, cx)),
-                )
-                .child(self.section_header(
-                    Fold::Commits,
-                    format!("Commits{}", self.zone_tag(Zone::Commits)),
-                    commit_summary,
-                    commit_end,
-                    true,
-                    cx,
-                ))
-                .when(commits_rows, |s| {
-                    s.children(
-                        self.history
-                            .read(cx)
-                            .find
-                            .text
-                            .is_some()
-                            .then(|| self.render_find(cx)),
-                    )
-                    .children(self.render_pill(cx))
-                    .child({
-                        let (widths, web) = (self.widths.clone(), self.web.clone());
-                        let acts = self.history_acts(cx);
-                        self.history
-                            .update(cx, |h, cx| h.render_commits(widths, web, acts, cx))
-                    })
-                });
-            sections.push(open_share(commits, "commits-open", !commits_folded).into_any_element());
+            let acts = self.history_acts(cx);
+            sections.push(
+                self.history
+                    .update(cx, |h, cx| h.commits_section(look, acts, cx)),
+            );
         }
 
         // A comparison's own commits over its changes, as tall as their rows (#21).
-        if let Some(n) = self
-            .shown_compare(cx)
-            .and_then(|c| c.list.as_ref())
-            .map(Vec::len)
-        {
-            let folded = self.section_folded(Fold::Commits);
+        if self.shown_compare(cx).is_some() {
             if !sections.is_empty() {
                 sections.push(rule().into_any_element());
             }
-            let rows = self.render_compare_commits(cx);
-            sections.push(
-                div()
-                    .flex_none()
-                    .flex()
-                    .flex_col()
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _, _, cx| this.set_zone(Zone::Commits, cx)),
-                    )
-                    .child(self.section_header(
-                        Fold::Commits,
-                        format!("Commits{}", self.zone_tag(Zone::Commits)),
-                        self.compare_summary(cx),
-                        vec![count(n.to_string())],
-                        true,
-                        cx,
-                    ))
-                    .children(
-                        rows.and_then(|rows| {
-                            self.folding("compare-commits", "fold-1", !folded, rows)
-                        }),
-                    )
-                    .into_any_element(),
+            let (web, acts) = (self.web.clone(), self.history_acts(cx));
+            let (folded, tag) = (
+                self.section_folded(Fold::Commits),
+                self.zone_tag(Zone::Commits),
             );
+            let fold = Folding {
+                folds: &self.folds,
+                heights: &self.heights,
+                moving: self.motion.recent("fold-1"),
+            };
+            sections.extend(self.history.update(cx, |h, cx| {
+                h.compare_section(folded, fold, &tag, web, acts, cx)
+            }));
         }
 
         if let Some(diff) = self

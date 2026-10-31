@@ -8,7 +8,7 @@
 use super::nav::Page;
 use super::{Selection, Workspace};
 use artoo_branches::compare::{CompareCommits, Sides};
-use gpui::{AnyElement, App, Context, prelude::*};
+use gpui::{App, Context};
 
 impl Workspace {
     /// The comparison's commits, while its page is on screen and they are read.
@@ -97,26 +97,6 @@ impl Workspace {
             }
             _ => None,
         }
-    }
-
-    /// The Commits section's line when it is folded: how many are picked, else the newest.
-    pub(super) fn compare_summary(&self, cx: &App) -> Option<String> {
-        let c = self.shown_compare(cx)?;
-        let list = c.list.as_ref()?;
-        Some(match c.picked {
-            Some((newest, oldest)) => format!("{} of {}", oldest - newest + 1, list.len()),
-            None if list.len() > 1 => format!("{} +{}", list[0].summary, list.len() - 1),
-            None => list[0].summary.clone(),
-        })
-    }
-
-    /// The comparison's commits, while its page is on screen and they are read (`History::render_compare_commits`).
-    pub(super) fn render_compare_commits(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        self.shown_compare(cx)?;
-        let (web, acts) = (self.web.clone(), self.history_acts(cx));
-        self.history
-            .update(cx, |h, cx| h.render_compare_commits(web, acts, cx))
-            .map(IntoElement::into_any_element)
     }
 }
 

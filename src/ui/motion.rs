@@ -35,11 +35,8 @@ impl super::Workspace {
         }
     }
 
-    /// Something that folds open and shut (#110; the developer, 2026-10-23: every fold moves, in
-    /// size and in alpha): it grows from nothing to the height its content was last drawn at,
-    /// fading in, and back the same way. `moving` names the mark its toggle set
-    /// (`mark_motion`); shut and still, it is not drawn. Open and still, it takes whatever height
-    /// its content has.
+    /// Something that folds open and shut (the kit's `folding`): `moving` names the mark its toggle set
+    /// (`mark_motion`).
     pub(super) fn folding(
         &self,
         key: impl Into<String>,
@@ -47,38 +44,13 @@ impl super::Workspace {
         open: bool,
         content: impl IntoElement + 'static,
     ) -> Option<gpui::AnyElement> {
-        use gpui::{div, prelude::*};
-        let key: String = key.into();
-        // Shut, it is drawn only on its way there; open, it comes in while its mark is fresh.
-        let shutting = self.folds.shutting(&key, open);
-        if !open && !shutting {
-            return None;
-        }
-        let moving = self.motion.recent(moving);
-        let height = self.heights.get(&key);
-        let inner = div()
-            .relative()
-            .flex_none()
-            .child(content)
-            .child(self.heights.measure(key.clone()));
-        Some(
-            toward(
-                div().flex_none().overflow_hidden().child(inner),
-                gpui::SharedString::from(format!("folding-{key}")),
-                open,
-                moving,
-                BASE,
-                move |fold, v| {
-                    // Not yet measured, it starts from nothing; open and still, it is free.
-                    let fold = if v >= 0.999 {
-                        fold
-                    } else {
-                        fold.max_h(super::px(height * v))
-                    };
-                    fold.opacity(v)
-                },
-            )
-            .into_any_element(),
+        folding(
+            &self.folds,
+            &self.heights,
+            self.motion.recent(moving),
+            key,
+            open,
+            content,
         )
     }
 }

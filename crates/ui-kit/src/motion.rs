@@ -196,6 +196,52 @@ pub fn mix(from: f32, to: f32, v: f32) -> f32 {
     from + (to - from) * v
 }
 
+/// Something that folds open and shut (#110; the developer, 2026-10-23: every fold moves, in size and in alpha):
+/// it grows from nothing to the height its content was last drawn at (`heights`), fading in, and back the same
+/// way. `moving` while the mark its toggle set is fresh; shut and still (`folds`), it is not drawn. Open and still,
+/// it takes whatever height its content has.
+pub fn folding(
+    folds: &Folds,
+    heights: &crate::room::Heights,
+    moving: bool,
+    key: impl Into<String>,
+    open: bool,
+    content: impl IntoElement + 'static,
+) -> Option<gpui::AnyElement> {
+    use gpui::{div, prelude::*};
+    let key: String = key.into();
+    // Shut, it is drawn only on its way there; open, it comes in while its mark is fresh.
+    let shutting = folds.shutting(&key, open);
+    if !open && !shutting {
+        return None;
+    }
+    let height = heights.get(&key);
+    let inner = div()
+        .relative()
+        .flex_none()
+        .child(content)
+        .child(heights.measure(key.clone()));
+    Some(
+        toward(
+            div().flex_none().overflow_hidden().child(inner),
+            gpui::SharedString::from(format!("folding-{key}")),
+            open,
+            moving,
+            BASE,
+            move |fold, v| {
+                // Not yet measured, it starts from nothing; open and still, it is free.
+                let fold = if v >= 0.999 {
+                    fold
+                } else {
+                    fold.max_h(crate::px(height * v))
+                };
+                fold.opacity(v)
+            },
+        )
+        .into_any_element(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

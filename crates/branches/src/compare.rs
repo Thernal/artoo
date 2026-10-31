@@ -23,6 +23,16 @@ pub struct CompareCommits {
 }
 
 impl CompareCommits {
+    /// The Commits section's line when it is folded: how many are picked, else the newest.
+    pub fn summary(&self) -> Option<String> {
+        let list = self.list.as_ref().filter(|l| !l.is_empty())?;
+        Some(match self.picked {
+            Some((newest, oldest)) => format!("{} of {}", oldest - newest + 1, list.len()),
+            None if list.len() > 1 => format!("{} +{}", list[0].summary, list.len() - 1),
+            None => list[0].summary.clone(),
+        })
+    }
+
     /// The commits of the comparison `of`, before they are read.
     pub fn of(of: Sides) -> Self {
         CompareCommits {

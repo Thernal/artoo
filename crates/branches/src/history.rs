@@ -124,6 +124,8 @@ pub enum Act {
     FindField,
     /// A section of the side panel folded or opened.
     Fold(crate::panel::Fold),
+    /// A press in the Commits section: its list takes the keyboard (↑ ↓).
+    CommitsZone,
     /// A right click on the branch line at `at`: branch `ix`'s menu.
     BranchMenu {
         ix: usize,
