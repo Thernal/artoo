@@ -14,6 +14,10 @@ for someone using the app, not for someone reading the code; the commits follow 
   restart to see Artoo's tools. macOS asks again before notifications and before a JetBrains IDE's token is
   copied, as it does for any new app.
 
+- **A commit of the main line is a page of its own.** Picking one in the side panel opens it as a commit's page,
+  as a commit of a branch with its own commits already was: Previous and Next in its bar, esc back to the branch
+  (its newest commit), ⌘[ and ⌘] through the commits you looked at.
+
 ## 1.3.0 — 2026-10-29
 
 - **Pin a tab in Code.** Pin tab — in a tab's right click, ⌘K or ⌥⌘P — keeps a file or a folder first among the
