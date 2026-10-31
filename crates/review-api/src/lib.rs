@@ -181,8 +181,6 @@ pub trait Host {
     fn pin(&self, row: Row, active: bool, indent: f32, cx: &App) -> gpui::AnyElement;
     /// What is said beside file `path`'s name in its header: another chat changing it (#77).
     fn badge(&self, path: &str, cx: &App) -> Option<gpui::AnyElement>;
-    /// The Rendered · Source switch of file `file`, a document.
-    fn page_switch(&self, file: usize, cx: &App) -> Option<gpui::AnyElement>;
     /// File `file`, a document, drawn as a page.
     fn page(&self, file: usize, cx: &App) -> gpui::AnyElement;
     /// File `file` just opened: its rows fade in (#56, 9).

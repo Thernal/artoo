@@ -1,10 +1,9 @@
 //! A changed markdown file read as a page, the review's (`artoo_review::md_page`): the tab gives it what goes under
 //! its blocks (the composer, the comments of a block opened), the marks on its lines and Split's heads, and answers
-//! its clicks (`PageEvent`).
+//! its clicks and its switch's (`PageEvent`).
 
 use super::diff_view::NoteTone;
 use super::{Selection, Workspace, px};
-use crate::git::FileDiff;
 use crate::markdown;
 use crate::mddiff::Row;
 use artoo_review::md_page::{PageEvent, PageLook};
@@ -13,20 +12,6 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 impl Workspace {
-    /// Rendered | Source, M, and with `legend` what the bars mean while rendered, for a document's
-    /// header (`Review::page_switch`).
-    pub(super) fn page_switch(
-        &self,
-        file: &FileDiff,
-        legend: bool,
-        this: WeakEntity<Self>,
-        cx: &App,
-    ) -> Option<AnyElement> {
-        self.review
-            .read(cx)
-            .page_switch(file, legend, Self::page_on(this))
-    }
-
     /// How a page's clicks come to the tab.
     fn page_on(this: WeakEntity<Self>) -> artoo_review::md_page::OnPage {
         Rc::new(move |event, cx| {
@@ -34,7 +19,8 @@ impl Workspace {
         })
     }
 
-    fn page_event(&mut self, event: PageEvent, cx: &mut Context<Self>) {
+    /// A click on a document's page or its switch.
+    pub(super) fn page_event(&mut self, event: PageEvent, cx: &mut Context<Self>) {
         match event {
             PageEvent::Source { path, to } => self.set_page_source(&path, to, cx),
             PageEvent::Notes { ix, old, first } => self.toggle_page_notes(ix, old, first, cx),

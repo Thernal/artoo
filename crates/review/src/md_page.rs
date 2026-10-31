@@ -11,7 +11,7 @@
 //! (`PageEvent`).
 
 use crate::diff_view::LineNote;
-use crate::review::Review;
+use crate::review::{Review, ReviewEvent};
 use artoo_core::git::FileDiff;
 use artoo_core::markdown::Block;
 use artoo_core::mddiff::{self, Change, Row};
@@ -19,7 +19,7 @@ use artoo_core::{markdown, storage};
 use artoo_ui_kit::controls::{chip, group};
 use artoo_ui_kit::markdown::{DocPictures, Selecting, doc_block};
 use artoo_ui_kit::{hover, icons, keys, motion, px, theme};
-use gpui::{AnyElement, App, ClickEvent, FontWeight, Rgba, div, prelude::*};
+use gpui::{AnyElement, App, ClickEvent, FontWeight, Rgba, WeakEntity, div, prelude::*};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -197,7 +197,26 @@ pub struct PageLook {
     pub on: OnPage,
 }
 
+/// A page's clicks said to the tab that holds `this` (`ReviewEvent::Page`).
+pub fn emitting(this: WeakEntity<Review>) -> OnPage {
+    Rc::new(move |event, cx| {
+        this.update(cx, |_, cx| cx.emit(ReviewEvent::Page(event)))
+            .ok();
+    })
+}
+
 impl Review {
+    /// File `ix`'s switch (`page_switch`), its clicks said to the tab (`emitting`).
+    pub fn switch_of(
+        &self,
+        ix: usize,
+        legend: bool,
+        this: WeakEntity<Review>,
+    ) -> Option<AnyElement> {
+        let file = self.diff.as_ref()?.files.get(ix)?;
+        self.page_switch(file, legend, emitting(this))
+    }
+
     /// Rendered | Source, M, and with `legend` what the bars mean while rendered, for a document's header.
     pub fn page_switch(&self, file: &FileDiff, legend: bool, on: OnPage) -> Option<AnyElement> {
         if !markdown::is_document(file.path()) || file.note.is_some() || file.hunks.is_empty() {

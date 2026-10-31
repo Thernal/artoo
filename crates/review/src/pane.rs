@@ -22,8 +22,6 @@ pub struct PaneLook {
     pub border: Rgba,
     /// Over the file's line, in order: a new request's switch, the since bar, the toolbar.
     pub top: Vec<AnyElement>,
-    /// On the file's line after its words, before the review's chip: a document's switch.
-    pub marks: Vec<AnyElement>,
     /// On the file's line after its changes: the app it opens in.
     pub open_in: Option<AnyElement>,
     /// Over the rows, in order: the find bar, the go-to-line prompt, the done card.
@@ -46,7 +44,6 @@ impl Review {
         let PaneLook {
             border,
             top,
-            marks,
             open_in,
             over,
             alone,
@@ -177,7 +174,13 @@ impl Review {
                                 )
                         }),
                     )
-                    .children(marks)
+                    // With every file in one scroll the card's own header has the document's switch.
+                    .children(
+                        self.stack
+                            .is_none()
+                            .then(|| self.switch_of(self.file, false, cx.entity().downgrade()))
+                            .flatten(),
+                    )
                     .children(
                         self.review_chip(self.file)
                             .map(|chip| chip.on_click(event(|| PaneEvent::Review))),

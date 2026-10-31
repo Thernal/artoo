@@ -2385,6 +2385,7 @@ impl Workspace {
             ReviewEvent::Changed => {}
             ReviewEvent::Found { file, row } => self.go_found(Some((*file, *row)), cx),
             ReviewEvent::GoLine(done) => self.goline_done(*done, cx),
+            ReviewEvent::Page(event) => self.page_event(event.clone(), cx),
         }
         cx.notify();
     }
@@ -3221,10 +3222,6 @@ impl Workspace {
         // The parts' (a new request's switch, an outdated discussion's stepper), then the toolbar.
         let mut top = self.pieces(Slot::DiffTop, cx);
         top.push(self.render_diff_toolbar(cx).into_any_element());
-        // With every file in one scroll the card's own header has its switch.
-        let marks = file
-            .filter(|_| !stacked)
-            .and_then(|f| self.page_switch(f, false, this.clone(), cx));
         let open_in = self
             .open_target(cx)
             .and_then(|(path, _)| self.open_app(&path))
@@ -3270,7 +3267,6 @@ impl Workspace {
         let look = artoo_review::pane::PaneLook {
             border: self.zone_border(zones::Zone::Diff),
             top,
-            marks: marks.into_iter().collect(),
             open_in: open_in.map(IntoElement::into_any_element),
             over: over.collect(),
             alone,
@@ -3322,12 +3318,6 @@ impl artoo_review_api::Host for TabHost {
                 .child(format!("{name} is changing it"))
                 .into_any_element(),
         )
-    }
-
-    fn page_switch(&self, file: usize, cx: &App) -> Option<gpui::AnyElement> {
-        let workspace = self.0.upgrade()?.read(cx);
-        let diff = workspace.review.read(cx).diff.clone()?;
-        workspace.page_switch(diff.files.get(file)?, true, self.0.clone(), cx)
     }
 
     fn page(&self, file: usize, cx: &App) -> gpui::AnyElement {

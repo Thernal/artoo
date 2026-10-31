@@ -159,6 +159,8 @@ pub enum ReviewEvent {
     /// The line typed after `c` moved the marker, asks to write there, or closed: the tab lays the rows out with
     /// what is pinned on them, and opens the composer.
     GoLine(crate::goline::GoLineKey),
+    /// A click on a document's switch (`md_page::emitting`).
+    Page(crate::md_page::PageEvent),
 }
 
 impl gpui::EventEmitter<ReviewEvent> for Review {}

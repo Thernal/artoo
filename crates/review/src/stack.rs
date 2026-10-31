@@ -178,6 +178,7 @@ impl Review {
         let state = self.review_state(ix);
         let active = ix == self.file;
         let first = self.stack.as_ref().and_then(|s| s.block_of(ix)) == Some(0);
+        let switch = self.switch_of(ix, true, this.clone());
         let (fold, mark) = (host.clone(), this);
         div()
             .id(("file-header", ix))
@@ -247,7 +248,7 @@ impl Review {
                     ))
                     // Another chat is changing it (#77).
                     .children(host.badge(file.path(), cx))
-                    .children(host.page_switch(ix, cx))
+                    .children(switch)
                     .child(
                         div()
                             .flex_none()
