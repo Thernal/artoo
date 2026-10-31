@@ -13,8 +13,8 @@ use artoo_core::storage::{DiffMode, Settings, ViewOptions};
 use artoo_review_api::Source;
 use artoo_ui_kit::{ISLAND_RADIUS, flat, motion, px, theme};
 use gpui::{
-    App, Context, ListState, ScrollStrategy, ScrollWheelEvent, Task, UniformListScrollHandle,
-    canvas, div, list, prelude::*,
+    App, Context, Entity, ListState, ScrollStrategy, ScrollWheelEvent, Task,
+    UniformListScrollHandle, WeakEntity, canvas, div, list, prelude::*,
 };
 use std::cell::Cell as Shared;
 use std::cell::Cell;
@@ -153,6 +153,27 @@ impl gpui::EventEmitter<ReviewEvent> for Review {}
 
 /// What a line's and a file's events ask and what the review's host draws on its rows: the contract's.
 pub use artoo_review_api::{ChangesEvent, FileEvent, Host, LineEvent, PaneEvent};
+
+/// What a page asks of `review` for the diff it shows (`artoo_review_api::Review`), as the tab offers it.
+pub fn handle(review: &Entity<Review>) -> Rc<dyn artoo_review_api::Review> {
+    Rc::new(Handle(review.downgrade()))
+}
+
+struct Handle(WeakEntity<Review>);
+
+impl artoo_review_api::Review for Handle {
+    fn open(&self, source: Source, keep: Option<String>, cx: &mut App) {
+        self.0.update(cx, |rv, cx| rv.open(source, keep, cx)).ok();
+    }
+
+    fn clear(&self, cx: &mut App) {
+        self.0.update(cx, |rv, _| rv.clear()).ok();
+    }
+
+    fn shown(&self, cx: &App) -> Option<Arc<Diff>> {
+        self.0.upgrade()?.read(cx).diff.clone()
+    }
+}
 
 impl Review {
     /// The rows in the diff's list (the selected file's, or every file's in one scroll), scrolled

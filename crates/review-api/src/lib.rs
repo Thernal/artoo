@@ -1,5 +1,6 @@
 //! The review's contract (#165 stage 4): what a page asks of the tab's review. What a diff is of (`Source`): a
-//! commit, a run of commits, two versions, an interdiff, the working tree, a comparison — the review reads it. The
+//! commit, a run of commits, two versions, an interdiff, the working tree, a comparison — the review reads it, a page
+//! opening one through the review's handle (`Review`). The
 //! file Code reads (#71, #75): read at a revision, which one is read, closed. The review draws it; the page puts it
 //! where it goes. What the review's host draws on its rows and does with their events (`Host`, `LineEvent`,
 //! `FileEvent`, `PaneEvent`, `ChangesEvent`). And how far your review of a merge request got (`Seen`), which the requests list groups by.
@@ -14,6 +15,7 @@ use artoo_core::rows::Row;
 use git2::Oid;
 use gpui::App;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// What a diff the review shows is of; it reads it from the repository with its own root and settings.
 pub enum Source {
@@ -41,6 +43,19 @@ pub enum Source {
         since: bool,
         request: Option<u64>,
     },
+}
+
+/// The diff a page shows through the tab's review (`Rc<dyn Review>` in the tab's services): what it reads, let go,
+/// what is shown of it.
+pub trait Review {
+    /// What `source` is, read and shown in place of what was; `keep` the file to open in it.
+    fn open(&self, source: Source, keep: Option<String>, cx: &mut App);
+
+    /// Nothing shown: the diff let go, its read dropped, the first file the open one.
+    fn clear(&self, cx: &mut App);
+
+    /// The diff shown, once it is read.
+    fn shown(&self, cx: &App) -> Option<Arc<diff::Diff>>;
 }
 
 /// The file a page reads through the tab's review.

@@ -1972,6 +1972,7 @@ impl Workspace {
         };
         // The tab's review as its pages ask it, the tab as Code's host.
         services.set(artoo_review::file_view::file_view(&review));
+        services.set(artoo_review::review::handle(&review));
         services.set::<Rc<dyn artoo_code_api::Host>>(Rc::new(code::CodeHost(cx.weak_entity())));
         let frame = Rc::new(parts::TabFrame(cx.weak_entity(), services.clone()));
         this.parts = artoo_shell_api::make_parts(frame, window, cx);
@@ -2254,17 +2255,19 @@ impl Workspace {
         self.load_commit(ix, None, cx);
     }
 
-    /// Shows commit `ix`; `keep` re-selects a file by path.
+    /// Shows commit `ix` (`History::show_commit`); `keep` re-selects a file by path. The page follows it.
     fn load_commit(&mut self, ix: usize, keep: Option<String>, cx: &mut Context<Self>) {
-        let (Some(_), Some(commit)) = (
-            self.root.as_ref(),
-            self.history.read(cx).commits.get(ix).cloned(),
-        ) else {
+        if self.root.is_none() {
+            return;
+        }
+        let review = self.review_handle();
+        let Some(commit) = self
+            .history
+            .update(cx, |h, cx| h.show_commit(ix, keep, &*review, cx))
+        else {
             return;
         };
-        self.clear_diff(cx);
-        self.history
-            .update(cx, |h, _| h.selection = Selection::Commit(ix));
+        self.body_expanded = false;
         self.record(cx);
         self.remember_place(
             recents::Key::Commit(commit.id),
@@ -2275,7 +2278,7 @@ impl Workspace {
             self.commit_scroll
                 .scroll_to_item(row, ScrollStrategy::Nearest);
         }
-        self.open_diff(Source::Commit(commit), keep, cx);
+        cx.notify();
     }
 
     /// A run of the list's commits, `newest` to `oldest` (indexes, newest first), as one diff.
@@ -2283,8 +2286,7 @@ impl Workspace {
         self.load_commits(newest, oldest, None, cx);
     }
 
-    /// Shows the run as one diff: what the newest holds against the oldest's parent, as a
-    /// request's Changes shows all its commits; its marks are kept for that range.
+    /// Shows the run as one diff (`History::show_commits`); its marks are kept for that range. The page follows it.
     fn load_commits(
         &mut self,
         newest: usize,
@@ -2295,29 +2297,25 @@ impl Workspace {
         if newest == oldest {
             return self.load_commit(newest, keep, cx);
         }
-        let (Some(_), Some(head), Some(tail)) = (
-            self.root.as_ref(),
-            self.history.read(cx).commits.get(newest).map(|c| c.id),
-            self.history.read(cx).commits.get(oldest).map(|c| c.id),
-        ) else {
+        if self.root.is_none() {
             return;
-        };
-        self.clear_diff(cx);
-        self.history.update(cx, |h, _| {
-            h.selection = Selection::Commits { newest, oldest }
-        });
+        }
+        let review = self.review_handle();
+        if !self.history.update(cx, |h, cx| {
+            h.show_commits(newest, oldest, keep, &*review, cx)
+        }) {
+            return;
+        }
+        self.body_expanded = false;
         self.record(cx);
-        let run = Source::Commits {
-            newest: head,
-            oldest: tail,
-        };
-        self.open_diff(run, keep, cx);
+        cx.notify();
     }
 
     fn select_versions(&mut self, from: usize, to: usize, cx: &mut Context<Self>) {
         self.load_versions(from, to, None, cx);
     }
 
+    /// Shows versions `from` and `to` compared (`History::show_versions`). The page follows it.
     fn load_versions(
         &mut self,
         from: usize,
@@ -2325,50 +2323,39 @@ impl Workspace {
         keep: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        let (Some(_), Some(a), Some(b)) = (
-            self.root.as_ref(),
-            self.history.read(cx).versions.get(from).cloned(),
-            self.history.read(cx).versions.get(to).cloned(),
-        ) else {
+        if self.root.is_none() {
             return;
-        };
-        if keep.is_none() {
-            self.history.update(cx, |h, _| {
-                h.version_tab = if b.commits > 1 {
-                    VersionTab::Commits
-                } else {
-                    VersionTab::Files
-                }
-            });
         }
-        self.clear_diff(cx);
-        self.history
-            .update(cx, |h, _| h.selection = Selection::Versions { from, to });
+        let review = self.review_handle();
+        if !self
+            .history
+            .update(cx, |h, cx| h.show_versions(from, to, keep, &*review, cx))
+        {
+            return;
+        }
+        self.body_expanded = false;
         self.record(cx);
-        self.open_diff(Source::Versions { from: a, to: b }, keep, cx);
+        cx.notify();
     }
 
-    /// The interdiff of one modified commit of the comparison `from`..`to`.
+    /// The interdiff of one modified commit of the comparison shown (`History::show_interdiff`).
     fn select_interdiff(&mut self, pair: usize, cx: &mut Context<Self>) {
-        let (Some(_), Selection::Versions { from, to }) =
-            (self.root.as_ref(), self.history.read(cx).selection)
-        else {
+        if self.root.is_none() {
             return;
-        };
-        let Some((old, new)) = self
-            .review
-            .read(cx)
-            .diff
-            .as_ref()
-            .and_then(|d| d.pairs.get(pair))
-            .and_then(|p| Some((p.old.clone()?, p.new.clone()?)))
-        else {
-            return;
-        };
-        self.clear_diff(cx);
-        self.history
-            .update(cx, |h, _| h.selection = Selection::Versions { from, to });
-        self.open_diff(Source::Interdiff { from, to, old, new }, None, cx);
+        }
+        let review = self.review_handle();
+        if self
+            .history
+            .update(cx, |h, cx| h.show_interdiff(pair, &*review, cx))
+        {
+            self.body_expanded = false;
+            cx.notify();
+        }
+    }
+
+    /// The tab's review as a page asks it (`artoo_review_api::Review`).
+    fn review_handle(&self) -> Rc<dyn artoo_review_api::Review> {
+        artoo_review::review::handle(&self.review)
     }
 
     fn settings(&self, cx: &App) -> DiffSettings {
