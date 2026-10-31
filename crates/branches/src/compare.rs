@@ -1,8 +1,10 @@
 //! A comparison's own commits (#21, B), read with it — the history's own task —: the run of them its diff is
 //! narrowed to, what a click or an arrow picks, and the pill that says so over the diff.
 
-use crate::history::{Act, Acts, History, NamedTip};
+use crate::history::{Act, Acts, History, NamedTip, Selection};
+use artoo_branches_api::CompareRoute;
 use artoo_core::git::{CommitInfo, Repo};
+use artoo_core::route::{Place, Route};
 use artoo_ui_kit::hover::Hover;
 use artoo_ui_kit::{format, icons, keys, px, theme};
 use gpui::{ClickEvent, Context, Div, div, prelude::*};
@@ -65,6 +67,34 @@ impl CompareCommits {
 }
 
 impl History {
+    /// The comparison's commits while `route` is its page and they are read.
+    pub fn compare_of(&self, route: &Route) -> Option<&CompareCommits> {
+        let r = CompareRoute::from_route(route)?;
+        let oid = |hex: &str| git2::Oid::from_str(hex).ok();
+        self.compare
+            .as_ref()
+            .filter(|c| c.list.as_ref().is_some_and(|l| !l.is_empty()))
+            .filter(|c| {
+                let ((base, base_at), (head, head_at), since) = &c.of;
+                (base, head, since) == (&r.base, &r.head, &r.since)
+                    && oid(&r.base_commit) == Some(*base_at)
+                    && oid(&r.head_commit) == Some(*head_at)
+            })
+    }
+
+    /// The title of `route`'s comparison while it is narrowed to one of its commits: the commit's subject.
+    pub fn compare_title(&self, route: &Route) -> Option<String> {
+        let c = self
+            .compare_of(route)
+            .filter(|_| self.selection == Selection::None)?;
+        match c.picked? {
+            (newest, oldest) if newest == oldest => {
+                Some(c.list.as_ref()?.get(newest)?.summary.clone())
+            }
+            _ => None,
+        }
+    }
+
     /// The commits of the comparison `of`, read unless they are these already (esc back from a pick); none
     /// picked.
     pub fn read_compare(&mut self, of: Sides, cx: &mut Context<Self>) {

@@ -27,7 +27,8 @@ use artoo_shell_api::{Frame, Parts};
 use gpui::{App, Entity, Window};
 use std::rc::Rc;
 
-/// Branches' parts in every tab: the commits' search as one of its inputs, a branch's line over its page.
+/// Branches' parts in every tab: the commits' search as one of its inputs, a branch's line and the head over a
+/// diff on the item page.
 pub fn install(cx: &mut App) {
     artoo_shell_api::add_parts(cx, parts);
 }
@@ -40,7 +41,11 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, _: &mut App) -> Parts {
     };
     Parts {
         inputs: vec![find::input(history.clone())],
-        pieces: vec![facts::line(history, services)],
+        // A branch's line before the head, which any diff has.
+        pieces: vec![
+            facts::line(history.clone(), services.clone()),
+            head::piece(history, services),
+        ],
         ..Default::default()
     }
 }

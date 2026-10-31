@@ -92,23 +92,16 @@ impl Workspace {
     /// A branch's or a request's page under its bar: the side panel; the item's identity over the
     /// diff; the tool window.
     fn render_item(&self, cx: &mut Context<Self>) -> gpui::Div {
+        // What the page is of: the parts' (a request being written, a request's line, a branch's, the head over
+        // a diff).
         let identity = self
             .review
             .read(cx)
             .diff
-            .clone()
+            .is_some()
+            .then_some(())
             .filter(|_| self.zen.is_none() || self.motion.recent("zen"))
-            .map(|diff| {
-                if let Some(head) = self.render_create_header(cx) {
-                    head
-                } else if let Some(head) = self.render_request_line(cx) {
-                    head
-                } else if let Some(head) = self.piece(Slot::Identity, cx) {
-                    head
-                } else {
-                    self.render_header(&diff, cx).into_any_element()
-                }
-            });
+            .and_then(|_| self.piece(Slot::Identity, cx));
         div()
             .relative()
             .flex_1()

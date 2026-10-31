@@ -87,16 +87,10 @@ impl Workspace {
         true
     }
 
-    /// The title of a comparison narrowed to one of its commits: the commit's subject.
+    /// The title of a comparison narrowed to one of its commits: the commit's subject (`History::compare_title`).
     pub(super) fn compare_title(&self, cx: &App) -> Option<String> {
-        self.narrowed_compare(cx)?;
-        let c = self.history.read(cx).compare.as_ref()?;
-        match c.picked? {
-            (newest, oldest) if newest == oldest => {
-                Some(c.list.as_ref()?.get(newest)?.summary.clone())
-            }
-            _ => None,
-        }
+        let route = self.nav_page()?.route();
+        self.history.read(cx).compare_title(&route)
     }
 }
 

@@ -45,7 +45,8 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   `crates/requests-api` (`artoo-requests-api`): merge requests' contract — the routes of a request's pages
   (`requests.request`, `requests.commit`, `requests.commits`, `requests.versions`) and what others ask of them, a
   tab's service (`Requests::of_branch`; `artoo_requests::requests::handle` makes it). `crates/requests`
-  (`artoo-requests`, #165 stage 4): what the tab keeps of merge requests — the lists and their groups (`group`),
+  (`artoo-requests`, #165 stage 4; a part, `install`: its pieces of the item page, a request being written's header
+  and a request's line, `pieces`): what the tab keeps of merge requests — the lists and their groups (`group`),
   the request open (`requests`), the changes sent to its host and not read back (`waiting`), what became of an
   outdated discussion's line (`outdated`, its history drawn), the reactions on its notes (`reactions`: the pills,
   the hover bar, ☺+'s grid), where merging it stands (`merge`) — and what they read from their host
@@ -67,14 +68,14 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   its own commits), what its page says of it (`facts`; its line a piece over the page, `facts::line`), the commits' search (`find`: its field an `Area`, its keys `History::find_key`, the field a part's, `find::input`), a
   comparison's own commits (`compare`), the working tree as last looked at (`working`), what the Branches list
   reads for its rows (`roots`) —, and its sections of the side panel (`panel`: their folds, `Act::Fold`; the Versions, Commits and a comparison's commits sections, the tab giving what is its in a `CommitsLook`), the views of its rows and its lists, the commits' and a comparison's, each its own `uniform_list` (`side`), a commit's card (`card`) and the
-  head over a diff with its toolbar's left (`head`: what the diff is of, the working tree's halves, a comparison's
+  head over a diff with its toolbar's left (`head`: a piece of the item page, `head::piece`; what the diff is of, the working tree's halves, a comparison's
   sides and warnings, the versions' tabs; its text selectable through the tab), a click asking the tab a
   `history::Act`; the app's other views read and draw the history, the side panel a
   request's page shares among them.
   `crates/shell-api` (`artoo-shell-api`): the
   shell's contract — actions (the app menu and ⌘K list them), parts each tab draws (title-bar items, cards over the
   window, Settings rows, snapshot views, a space's pages, fields that take the keyboard: `Input`, pieces of the item page in its slots:
-  `Piece`, `Slot`), the `Frame` a part asks and the tab's `Services`;
+  `Piece`, `Slot`, handed a `Drawing`), the `Frame` a part asks and the tab's `Services`;
   `src/ui/parts.rs` is the tab's side. `crates/hosts-api` (`artoo-hosts-api`): the hosts' contract — the models GitLab and GitHub answer
   in, the traits (`Account`, `Requests`, `Discussions`, `Reviews`, `Merging`; `Host` the five; `Hosts::of(remote)`)
   and the handle (`provide` / `get`). `crates/hosts` (`artoo-hosts`): GitLab and GitHub behind it (`hosts.rs`),

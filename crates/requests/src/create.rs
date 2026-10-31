@@ -149,6 +149,24 @@ pub struct Totals {
     pub removed: usize,
 }
 
+impl Totals {
+    /// The totals of a comparison's diff; none of any other.
+    pub fn of(d: &artoo_review_api::diff::Diff) -> Option<Totals> {
+        if !matches!(d.header, artoo_review_api::diff::Header::Compare { .. }) {
+            return None;
+        }
+        let (added, removed) = d
+            .files
+            .iter()
+            .fold((0, 0), |(a, r), f| (a + f.added, r + f.removed));
+        Some(Totals {
+            files: d.files.len(),
+            added,
+            removed,
+        })
+    }
+}
+
 /// What the form is drawn with that the tab knows.
 pub struct CreateLook<'a> {
     /// The fields show their caret only while the form has the keyboard (#168).

@@ -191,21 +191,7 @@ impl Workspace {
 
     /// "3 commits · 8 files · +46 −12": the diff of the pair.
     fn create_totals(&self, cx: &App) -> Option<Totals> {
-        let d = self
-            .review
-            .read(cx)
-            .diff
-            .as_ref()
-            .filter(|d| matches!(d.header, super::Header::Compare { .. }))?;
-        let (added, removed) = d
-            .files
-            .iter()
-            .fold((0, 0), |(a, r), f| (a + f.added, r + f.removed));
-        Some(Totals {
-            files: d.files.len(),
-            added,
-            removed,
-        })
+        Totals::of(self.review.read(cx).diff.as_ref()?)
     }
 
     /// What the form is drawn with that the tab knows, the history's `branches` among it.
@@ -218,14 +204,6 @@ impl Workspace {
             totals: self.create_totals(cx),
             branches,
         }
-    }
-
-    /// The header row while a request is being written (`Requests::render_create_header`).
-    pub(super) fn render_create_header(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let totals = self.create_totals(cx);
-        let acts = self.request_acts(cx);
-        self.requests
-            .update(cx, |rq, cx| rq.render_create_header(totals, acts, cx))
     }
 
     /// The Request | Changes switch at the top of the pane (`Requests::render_create_switch`).

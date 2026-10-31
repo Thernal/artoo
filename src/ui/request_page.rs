@@ -10,7 +10,6 @@ use super::nav::{Item, Page, Section};
 use super::{Workspace, format, icons, island, plural, px, theme};
 use crate::mr::Mr;
 use artoo_requests::page::{Facts, OverviewLook};
-use artoo_shell_api::Slot;
 use gpui::{AnyElement, App, ClickEvent, Context, Div, SharedString, div, prelude::*};
 
 impl Workspace {
@@ -31,7 +30,7 @@ impl Workspace {
         let body = match (self.page_request(cx).cloned(), tab) {
             _ if matches!(self.nav_page(), Some(Page::Branch(_))) => {
                 let line = self
-                    .piece(Slot::Identity, cx)
+                    .piece_named("branches.line", cx)
                     .unwrap_or_else(|| div().into_any_element());
                 div()
                     .flex_1()
@@ -411,18 +410,6 @@ impl Workspace {
             self.select_commit(to, cx);
         }
         true
-    }
-
-    /// One line of a request's identity, over its Commits and its Changes: the title, its state,
-    /// the pipeline (#73).
-    pub(super) fn render_request_line(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let m = self
-            .requests
-            .read(cx)
-            .current
-            .filter(|_| self.showing_request(cx))
-            .and_then(|iid| self.requests.read(cx).find(iid).cloned())?;
-        Some(self.request_line(&m, cx).into_any_element())
     }
 
     fn request_line(&self, m: &Mr, cx: &mut Context<Self>) -> Div {

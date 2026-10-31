@@ -267,14 +267,24 @@ pub enum Slot {
 }
 
 /// A piece of the item page on screen a part draws in a slot (#165 I5c): for the route on screen, or nothing. The
-/// shell calls it from inside its own update, as it does a hook.
+/// shell calls it from inside its own update, as it does a hook, so what it would ask the `Frame` it is handed.
 pub struct Piece {
+    /// A stable id (`branches.line`), by which a page of the tab's own draws it too.
+    pub id: &'static str,
     pub slot: Slot,
     pub draw: Draw,
 }
 
 /// What a piece draws for a route (`Piece::draw`).
-pub type Draw = Rc<dyn Fn(&Route, &mut App) -> Option<AnyElement>>;
+pub type Draw = Rc<dyn Fn(&Route, &Drawing, &mut App) -> Option<AnyElement>>;
+
+/// What the shell hands a piece as it draws it: what the piece cannot ask the `Frame` while it is drawn.
+pub struct Drawing {
+    /// The tab's text selection (`Frame::selecting`).
+    pub selecting: Selecting,
+    /// The repository's address on the web (`Places::web`).
+    pub web: Option<WebRemote>,
+}
 
 /// A section of Settings a part can add rows to.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

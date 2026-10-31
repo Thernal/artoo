@@ -1958,8 +1958,11 @@ impl Workspace {
         // Its history, which the branches' parts read and type in, and its answers to the history's acts.
         services.set(this.history.clone());
         services.set(this.history_acts(cx));
-        // Its requests as the other features ask them.
+        // Its requests, which the requests' parts read and draw, as the other features ask them, and its answers
+        // to their acts.
+        services.set(this.requests.clone());
         services.set(artoo_requests::requests::handle(&this.requests));
+        services.set(requests::acts_of(cx.weak_entity()));
         services.set::<Rc<dyn artoo_code_api::Host>>(Rc::new(code::CodeHost(cx.weak_entity())));
         let frame = Rc::new(parts::TabFrame(cx.weak_entity(), services.clone()));
         this.parts = artoo_shell_api::make_parts(frame, window, cx);
@@ -3165,24 +3168,6 @@ impl Workspace {
             return format!("{} {}", words::number(m.iid), m.title);
         }
         head::title(diff, self.compare_title(cx))
-    }
-
-    /// The header row over the panes: the screen's identity (`artoo_branches::head`).
-    fn render_header(&self, diff: &Diff, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let look = head::HeadLook {
-            message_open: self.history.read(cx).message_open,
-            web: self.web.as_ref(),
-            compare_title: self.compare_title(cx),
-        };
-        let acts = self.history_acts(cx);
-        let this = cx.entity().downgrade();
-        let cx: &App = cx;
-        head::head(
-            diff,
-            &look,
-            &|key, text| self.selectable(key, text, this.clone(), cx),
-            &acts,
-        )
     }
 
     /// The diff options, as chips: the review's (`Review::render_options`).

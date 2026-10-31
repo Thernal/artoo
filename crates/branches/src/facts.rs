@@ -61,8 +61,9 @@ impl Facts {
 /// click on it the tab's answer to the history's acts (`Acts`), both from the tab's `services`.
 pub fn line(history: Entity<History>, services: Rc<Services>) -> Piece {
     Piece {
+        id: "branches.line",
         slot: Slot::Identity,
-        draw: Rc::new(move |route, cx| {
+        draw: Rc::new(move |route, _, cx| {
             let BranchRoute { refname } = BranchRoute::from_route(route)?;
             let acts = services.get::<Acts>()?;
             let h = history.read(cx);

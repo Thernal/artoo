@@ -1,17 +1,46 @@
 //! The head over a diff (#165, H3c): what it is of — a commit with its message, the working tree, a comparison with
 //! why it may look wrong, an interdiff, two versions —, and the left of the diff's toolbar: which range is shown, as
 //! the page offers it (the working tree's halves, a comparison's sides, the versions' tabs), and its words for zen's
-//! line (`title`). A click asks the tab a `history::Act`.
+//! line (`title`). A click asks the tab a `history::Act`. The head is a piece of the item page (`piece`), the last
+//! identity there.
 
 use crate::compare::only_pill;
 use crate::history::{Act, Acts, History, VersionTab};
 use artoo_core::git::WebRemote;
+use artoo_review_api::Review;
 use artoo_review_api::diff::{Diff, Header};
+use artoo_shell_api::{Piece, Services, Slot};
 use artoo_ui_kit::controls::{chip, group};
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, Hover};
+use artoo_ui_kit::markdown;
 use artoo_ui_kit::{ROW_RADIUS, island, px, theme};
-use gpui::{AnyElement, App, ClickEvent, FontWeight, IntoElement, Window, div, prelude::*};
+use gpui::{AnyElement, App, ClickEvent, Entity, FontWeight, IntoElement, Window, div, prelude::*};
+use std::rc::Rc;
+
+/// The head over the diff shown (`Slot::Identity`), when no other part has said what the page is of: the diff the
+/// review's (`Review` in the tab's `services`), a click on it the tab's answer to the history's acts (`Acts`).
+pub fn piece(history: Entity<History>, services: Rc<Services>) -> Piece {
+    Piece {
+        id: "branches.head",
+        slot: Slot::Identity,
+        draw: Rc::new(move |route, drawing, cx| {
+            let diff = services.get::<Rc<dyn Review>>()?.shown(cx)?;
+            let acts = services.get::<Acts>()?;
+            let h = history.read(cx);
+            let look = HeadLook {
+                message_open: h.message_open,
+                web: drawing.web.as_ref(),
+                compare_title: h.compare_title(route),
+            };
+            let cx: &App = cx;
+            let text = |key: String, text: &str| {
+                markdown::body(text, false, key, None, Some(drawing.selecting.clone()), cx)
+            };
+            Some(head(&diff, &look, &text, &acts))
+        }),
+    }
+}
 
 /// What the head reads of the tab.
 pub struct HeadLook<'a> {

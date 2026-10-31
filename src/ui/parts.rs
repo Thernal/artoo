@@ -10,7 +10,9 @@ use super::tools::Tool;
 use super::zones::Zone;
 use super::{Workspace, motion, px};
 use artoo_core::route::Route;
-use artoo_shell_api::{Frame, MenuItem, Overlay, Pages, Places, Run, Section, Services, Slot};
+use artoo_shell_api::{
+    Drawing, Frame, MenuItem, Overlay, Pages, Places, Run, Section, Services, Slot,
+};
 use artoo_ui_kit::markdown::Selecting;
 use gpui::{
     AnyElement, AnyView, App, Context, Div, KeyDownEvent, Pixels, Point, SharedString, WeakEntity,
@@ -228,14 +230,36 @@ impl Workspace {
         self.zone == Zone::Tool && self.part_tool(id).is_some_and(|t| t.typing.get())
     }
 
-    /// The first piece the parts draw in `slot` for the route on screen (`artoo_shell_api::Piece`).
-    pub(super) fn piece(&self, slot: Slot, cx: &mut App) -> Option<AnyElement> {
+    /// The first piece the parts draw in `slot` for the route on screen (`artoo_shell_api::Piece`), in the order
+    /// they were installed.
+    pub(super) fn piece(&self, slot: Slot, cx: &mut Context<Self>) -> Option<AnyElement> {
         let route = self.nav_page()?.route();
+        let drawing = self.drawing(cx);
         self.parts
             .iter()
             .flat_map(|p| &p.pieces)
             .filter(|p| p.slot == slot)
-            .find_map(|p| (p.draw)(&route, cx))
+            .find_map(|p| (p.draw)(&route, &drawing, cx))
+    }
+
+    /// What a piece is handed as it is drawn.
+    fn drawing(&self, cx: &Context<Self>) -> Drawing {
+        Drawing {
+            selecting: self.selecting(cx.weak_entity()),
+            web: self.web.clone(),
+        }
+    }
+
+    /// Piece `id` of a part's, for the route on screen.
+    pub(super) fn piece_named(&self, id: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let route = self.nav_page()?.route();
+        let drawing = self.drawing(cx);
+        let piece = self
+            .parts
+            .iter()
+            .flat_map(|p| &p.pieces)
+            .find(|p| p.id == id)?;
+        (piece.draw)(&route, &drawing, cx)
     }
 
     /// Field `id` of a part's (`artoo_shell_api::Input`).

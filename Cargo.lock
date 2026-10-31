@@ -418,6 +418,7 @@ dependencies = [
  "artoo-hosts-api",
  "artoo-requests-api",
  "artoo-review-api",
+ "artoo-shell-api",
  "artoo-ui-kit",
  "git2",
  "gpui-pre",
