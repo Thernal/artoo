@@ -1,17 +1,24 @@
 //! What became of the line an outdated discussion was written on, version by version (#46), followed in the
-//! background, and the comparison opened from one to step through them.
+//! background, and the comparison opened from one to step through them, its bar over the diff (`since_piece`).
 
 use crate::requests::{Act, Acts, Event, Requests};
 use artoo_core::git::{Fate, Repo};
+use artoo_core::route::Place;
 use artoo_core::worddiff::{self, Piece};
 use artoo_hosts_api::Thread;
+use artoo_requests_api::RequestVersionsRoute;
+use artoo_review_api::Review;
+use artoo_review_api::diff::Header;
+use artoo_shell_api::{Services, Slot};
+use artoo_ui_kit::controls::{chip, group};
 use artoo_ui_kit::{px, theme};
 use gpui::{
-    AnyElement, Context, FontWeight, HighlightStyle, StrikethroughStyle, StyledText, div,
-    prelude::*,
+    AnyElement, ClickEvent, Context, Entity, FontWeight, HighlightStyle, StrikethroughStyle,
+    StyledText, div, prelude::*,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 /// One later version that changed the line.
 #[derive(Clone, Debug)]
@@ -65,6 +72,82 @@ pub struct Since {
     pub path: String,
     /// Version numbers, oldest first, with where the line is in each (`None`: gone).
     pub stops: Vec<(usize, Option<u32>)>,
+}
+
+impl Requests {
+    /// Over the diff while it is one of the stepper's comparisons (`shown`, the versions compared): the versions
+    /// that changed the comment's line, and the way back to all changes.
+    pub fn since_bar(&self, shown: (usize, usize), acts: &Acts) -> Option<AnyElement> {
+        let since = self.since.as_ref()?;
+        let last = since.stops.len() - 1;
+        let mut pairs = vec![(0, last)];
+        if last > 1 {
+            pairs.extend((0..last).map(|i| (i, i + 1)));
+        }
+        let number = |i: usize| since.stops[i].0;
+        if !pairs.iter().any(|&(a, b)| (number(a), number(b)) == shown) {
+            return None;
+        }
+        let yours = self
+            .threads
+            .iter()
+            .find(|t| t.id == since.thread)
+            .is_some_and(|t| self.yours(t));
+        let (line, whose) = if yours {
+            ("Your comment's line", "your comment")
+        } else {
+            ("The commented line", "the comment")
+        };
+        let all = acts.clone();
+        Some(
+            div()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap_2()
+                .px(px(12.))
+                .py(px(6.))
+                .border_b_1()
+                .border_color(theme::island_border())
+                .text_size(px(12.))
+                .child(div().text_color(theme::warning()).child(line))
+                .child(group().children(pairs.into_iter().map(|(a, b)| {
+                    let label = if (a, b) == (0, last) {
+                        format!("v{} → v{} · {whose}", number(a), number(b))
+                    } else {
+                        format!("v{} → v{}", number(a), number(b))
+                    };
+                    let on = (number(a), number(b)) == shown;
+                    let acts = acts.clone();
+                    chip(("since-step", a * 100 + b), label, on)
+                        .on_click(move |_: &ClickEvent, _, cx| acts(Act::SinceStep { a, b }, cx))
+                })))
+                .child(div().flex_1())
+                .child(
+                    chip("since-all", "All changes", false)
+                        .on_click(move |_: &ClickEvent, _, cx| all(Act::SinceAll, cx)),
+                )
+                .into_any_element(),
+        )
+    }
+}
+
+/// The stepper's bar at the top of the diff's column (`Requests::since_bar`): on a request's versions compared,
+/// while they are one of its comparisons.
+pub fn since_piece(requests: Entity<Requests>, services: Rc<Services>) -> artoo_shell_api::Piece {
+    artoo_shell_api::Piece {
+        id: "requests.since",
+        slot: Slot::DiffTop,
+        draw: Rc::new(move |route, _, cx| {
+            RequestVersionsRoute::from_route(route)?;
+            let diff = services.get::<Rc<dyn Review>>()?.shown(cx)?;
+            let Header::Versions { from, to, .. } = &diff.header else {
+                return None;
+            };
+            let acts = services.get::<Acts>()?;
+            requests.read(cx).since_bar((from.number, to.number), &acts)
+        }),
+    }
 }
 
 impl Requests {

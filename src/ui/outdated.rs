@@ -6,9 +6,9 @@
 //! history, and Compare v1 → v3; a thread whose line is gone stays only in the Discussions window,
 //! grouped by the version it was written on.
 
-use super::{Selection, Workspace, px, theme};
+use super::{Selection, Workspace};
 pub(super) use artoo_requests::outdated::{LineHistory, Since};
-use gpui::{AnyElement, App, Context, div, prelude::*};
+use gpui::{App, Context};
 
 impl Workspace {
     /// The timeline's last version: what an outdated discussion's is compared with.
@@ -46,18 +46,20 @@ impl Workspace {
         let stops = h.stops(t.new_line.or(t.old_line), latest);
         let last = stops.len() - 1;
         let thread = t.id.clone();
-        self.since = Some(Since {
-            iid,
-            thread,
-            path,
-            stops,
+        self.requests.update(cx, |rq, _| {
+            rq.since = Some(Since {
+                iid,
+                thread,
+                path,
+                stops,
+            })
         });
         self.go_since(0, last, cx);
     }
 
     /// The stepper: versions `a` → `b` of the stops, at the line in `b`.
-    fn go_since(&mut self, a: usize, b: usize, cx: &mut Context<Self>) {
-        let Some(since) = self.since.clone() else {
+    pub(super) fn go_since(&mut self, a: usize, b: usize, cx: &mut Context<Self>) {
+        let Some(since) = self.requests.read(cx).since.clone() else {
             return;
         };
         let index = |number: usize| {
@@ -88,7 +90,13 @@ impl Workspace {
     /// The stepper's comparison of file `path` shown: its discussion pinned on the line, in the
     /// later version or, gone there, in the earlier one (#46 C).
     pub(super) fn since_thread_in(&self, path: &str, cx: &App) -> Vec<(usize, bool, u32)> {
-        let Some(since) = self.since.as_ref().filter(|s| s.path == path) else {
+        let Some(since) = self
+            .requests
+            .read(cx)
+            .since
+            .as_ref()
+            .filter(|s| s.path == path)
+        else {
             return Vec::new();
         };
         let Selection::Versions { from, to } = self.history.read(cx).selection else {
@@ -111,75 +119,11 @@ impl Workspace {
             .unwrap_or_default()
     }
 
-    /// Over the diff while it is one of the stepper's comparisons: the versions that changed the
-    /// comment's line, and the way back to all changes.
-    pub(super) fn render_since_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let since = self.since.as_ref()?;
-        let Selection::Versions { from, to } = self.history.read(cx).selection else {
-            return None;
-        };
-        let shown = (
-            self.history.read(cx).versions.get(from)?.number,
-            self.history.read(cx).versions.get(to)?.number,
-        );
-        let last = since.stops.len() - 1;
-        let mut pairs = vec![(0, last)];
-        if last > 1 {
-            pairs.extend((0..last).map(|i| (i, i + 1)));
+    /// The stepper's comparison left: all the request's changes again.
+    pub(super) fn leave_since(&mut self, cx: &mut Context<Self>) {
+        if let Some(since) = self.requests.update(cx, |rq, _| rq.since.take()) {
+            self.select_request(since.iid, cx);
         }
-        let number = |i: usize| since.stops[i].0;
-        if !pairs.iter().any(|&(a, b)| (number(a), number(b)) == shown) {
-            return None;
-        }
-        let iid = since.iid;
-        let yours = self
-            .requests
-            .read(cx)
-            .threads
-            .iter()
-            .find(|t| t.id == since.thread)
-            .is_some_and(|t| self.requests.read(cx).yours(t));
-        let (line, whose) = if yours {
-            ("Your comment's line", "your comment")
-        } else {
-            ("The commented line", "the comment")
-        };
-        Some(
-            div()
-                .flex_none()
-                .flex()
-                .items_center()
-                .gap_2()
-                .px(px(12.))
-                .py(px(6.))
-                .border_b_1()
-                .border_color(theme::island_border())
-                .text_size(px(12.))
-                .child(div().text_color(theme::warning()).child(line))
-                .child(
-                    artoo_ui_kit::controls::group().children(pairs.into_iter().map(|(a, b)| {
-                        let label = if (a, b) == (0, last) {
-                            format!("v{} → v{} · {whose}", number(a), number(b))
-                        } else {
-                            format!("v{} → v{}", number(a), number(b))
-                        };
-                        let on = (number(a), number(b)) == shown;
-                        super::chip(("since-step", a * 100 + b), label, on).on_click(cx.listener(
-                            move |this, _: &gpui::ClickEvent, _, cx| this.go_since(a, b, cx),
-                        ))
-                    })),
-                )
-                .child(div().flex_1())
-                .child(
-                    super::chip("since-all", "All changes", false).on_click(cx.listener(
-                        move |this, _: &gpui::ClickEvent, _, cx| {
-                            this.since = None;
-                            this.select_request(iid, cx);
-                        },
-                    )),
-                )
-                .into_any_element(),
-        )
     }
 
     /// Shows the unchanged lines of the function around `line` (the side `old`), so a comparison

@@ -1644,8 +1644,6 @@ pub struct Workspace {
     token_input: String,
     /// A token is being checked against GitLab.
     testing: bool,
-    /// A comparison opened from an outdated discussion, with the versions that changed its line.
-    since: Option<outdated::Since>,
     /// A notification opened on a comment: once its line's history is in, an outdated one opens
     /// on the diff since it (request, note).
     since_on_open: Option<(u64, u64)>,
@@ -1892,7 +1890,6 @@ impl Workspace {
             thread_at: None,
             token_input: String::new(),
             testing: false,
-            since: None,
             since_on_open: None,
             agent_lines: Default::default(),
             agent_task: None,
@@ -3221,10 +3218,9 @@ impl Workspace {
         let alone = file
             .filter(|f| !stacked && !rv.generated_folded(f) && rv.shows_page(f))
             .map(|_| self.render_page_alone(ix, this.clone(), cx));
-        let top = self.pieces(Slot::DiffTop, cx).into_iter().map(Some).chain([
-            self.render_since_bar(cx),
-            Some(self.render_diff_toolbar(cx).into_any_element()),
-        ]);
+        // The parts' (a new request's switch, an outdated discussion's stepper), then the toolbar.
+        let mut top = self.pieces(Slot::DiffTop, cx);
+        top.push(self.render_diff_toolbar(cx).into_any_element());
         // With every file in one scroll the card's own header has its switch.
         let marks = file
             .filter(|_| !stacked)
@@ -3273,7 +3269,7 @@ impl Workspace {
         );
         let look = artoo_review::pane::PaneLook {
             border: self.zone_border(zones::Zone::Diff),
-            top: top.into_iter().flatten().collect(),
+            top,
             marks: marks.into_iter().collect(),
             open_in: open_in.map(IntoElement::into_any_element),
             over: over.collect(),

@@ -148,6 +148,10 @@ pub enum Act {
     RenewToken,
     /// Back to your branch from the request open.
     LeaveRequest,
+    /// The outdated discussion's stepper: its stops `a` → `b` compared, at its line.
+    SinceStep { a: usize, b: usize },
+    /// The outdated discussion's comparison left for all the request's changes.
+    SinceAll,
 }
 
 /// How the tab answers what the requests' views ask.
@@ -231,6 +235,8 @@ pub struct Requests {
     pub reaction_grid: Option<crate::reactions::Grid>,
     /// The pushes GitLab kept for a request, as versions of this repository.
     pub versions: Option<(u64, Vec<Version>)>,
+    /// A comparison opened from an outdated discussion, with the versions that changed its line.
+    pub since: Option<crate::outdated::Since>,
     /// The base and head the host compares that request from — its latest push's, as given, here
     /// or not (#145).
     pub host: Option<(u64, HostSides)>,

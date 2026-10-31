@@ -1265,6 +1265,8 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
             }
             Act::OpenRequest { iid, note } => this.open_at_note(iid, note, cx),
             Act::LeaveRequest => this.leave_request(cx),
+            Act::SinceStep { a, b } => this.go_since(a, b, cx),
+            Act::SinceAll => this.leave_since(cx),
             Act::ToggleGroup(g) => {
                 this.mark_motion(&format!("group-{}", g.key()), cx);
                 this.requests.update(cx, |rq, _| rq.rows.toggle(g));
