@@ -1,14 +1,15 @@
 //! The composer (#9, #51, #129, #168): a comment being written — under a line of the diff, on a page, a file or a
 //! folder in Code, for the agent, a merge request, a reply or an edit — and its own editing: completion, markdown
-//! helpers, preview —, and the one input component it is drawn in. Who sees it, the buttons along its edge, where
-//! it is drawn, its keys routed and what it writes sent are the tab's.
+//! helpers, preview —, the one input component it is drawn in and a new comment's foot (who sees it, the ways to
+//! send it). Who it goes to, where it is drawn, its keys routed and what it writes sent are the tab's.
 
 use artoo_core::markdown::Helper;
 use artoo_core::textedit::TextEdit;
 use artoo_ui_kit::complete::Choice;
+use artoo_ui_kit::discussion::{self, Kind, Source};
 use artoo_ui_kit::input::{self, Edit};
-use artoo_ui_kit::{hover, icons, markdown, px, theme};
-use gpui::{AnyElement, App, Div, Keystroke, Pixels, Point, Rgba, div, prelude::*};
+use artoo_ui_kit::{hover, icons, keys, markdown, px, theme};
+use gpui::{AnyElement, App, Div, Keystroke, Pixels, Point, Rgba, SharedString, div, prelude::*};
 use std::rc::Rc;
 
 /// Who a comment is for.
@@ -529,6 +530,393 @@ impl Compose {
                 }
             })
             .into_any_element()
+    }
+}
+
+/// What a comment's foot is drawn with that the tab knows.
+pub struct FootLook {
+    /// Who it goes to, in words: everyone on a request, the agent's chat.
+    pub audience: String,
+    /// A request's page: Tab switches who sees it.
+    pub switchable: bool,
+    /// The diff narrow: the secondary buttons are their icons, the audience its dot (`compose_narrow`).
+    pub narrow: bool,
+    /// The box's room (#129).
+    pub room: Room,
+    /// The comments for the agent waiting, which Send all sends with this one.
+    pub drafts: usize,
+}
+
+/// A click on a comment's foot.
+#[derive(Clone, Copy)]
+pub enum FootEvent {
+    Cancel,
+    /// Tab: who sees it switched.
+    Switch,
+    /// Added to the review of request `0`, pending until it is submitted.
+    AddToReview(u64),
+    /// Added for the agent, and every draft sent.
+    SendAll,
+    /// The agent's ▾ at a point: Send this only, the chat, Copy (#50 F).
+    More(Point<Pixels>),
+    /// The primary: added for the agent, or posted.
+    Add,
+    /// The primary's own ▾ at S, at a point: what folded into it.
+    Folded(Point<Pixels>),
+}
+
+/// What answers a foot's clicks.
+pub type OnFoot = Rc<dyn Fn(FootEvent, &mut App)>;
+
+impl Compose {
+    /// Who sees the comment: your agent or everyone on the request.
+    pub fn source(&self) -> Source {
+        match self.target {
+            Target::Agent
+            | Target::Edit(Change::Agent(_))
+            | Target::ThreadNote(_)
+            | Target::Answer(_)
+            | Target::AnswerValue(_) => Source::Agent,
+            Target::Request(_)
+            | Target::Reply(_)
+            | Target::Edit(Change::Note { .. })
+            | Target::InboxReply => Source::GitLab,
+        }
+    }
+
+    /// A new comment's foot by its room (Design shell round 6, #129): who sees it (its chip, first), then
+    /// Cancel, the other ways to send and the primary. At S "Add to drafts" is "Add" (named in full in its
+    /// tooltip), and the other ways to send fold into its own ▾.
+    pub fn foot(&self, look: FootLook, on: OnFoot) -> (AnyElement, Vec<AnyElement>) {
+        let source = self.source();
+        let tone = source.color();
+        let narrow = look.narrow;
+        // Narrow, who it goes to is its colour's dot, the words in the tooltip.
+        let said: SharedString = if look.switchable {
+            format!("{} — Tab switches who sees it", look.audience).into()
+        } else {
+            look.audience.clone().into()
+        };
+        let switch = on.clone();
+        let chip = div()
+            .id("compose-audience")
+            .h(px(26.))
+            .px(px(8.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(6.))
+            .rounded(px(6.))
+            .bg(match source {
+                Source::Agent => theme::agent_bg(),
+                _ => theme::warning_bg(),
+            })
+            .text_size(px(12.))
+            .text_color(tone)
+            .whitespace_nowrap()
+            .child(div().size(px(7.)).rounded_full().bg(tone))
+            .when(!narrow, |s| s.child(look.audience))
+            .tooltip_show_delay(hover::LONG)
+            .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(said.clone())).into())
+            .when(look.switchable, |s| {
+                s.cursor_pointer()
+                    .child(icons::icon("chevron").size(px(12.)).text_color(tone))
+                    .on_click(move |_, _, cx| switch(FootEvent::Switch, cx))
+            });
+        let folded = look.room == Room::S;
+        let primary = match &self.target {
+            Target::Agent if folded => "Add",
+            Target::Agent => "Add to drafts",
+            _ => "Comment",
+        };
+        // An agent comment's bar (#50 F): Send all beside Add to drafts, Send this only in ▾.
+        let agent = self.target == Target::Agent;
+        let send_label = if look.drafts > 0 {
+            format!("Send all {}", look.drafts + 1)
+        } else {
+            "Send".to_owned()
+        };
+        let request = match self.target {
+            Target::Request(iid) => Some(iid),
+            _ => None,
+        };
+        let pad = px(if narrow { 6. } else { 10. });
+        let cancel = on.clone();
+        let mut tail = vec![
+            // Narrow, Cancel is its × icon, named in the tooltip.
+            if narrow {
+                discussion::icon_button(
+                    "compose-cancel",
+                    "x",
+                    "Cancel",
+                    Some("esc"),
+                    None,
+                    Kind::Quiet,
+                    true,
+                )
+            } else {
+                discussion::button("compose-cancel", "Cancel", None, Kind::Quiet)
+                    .tooltip_show_delay(hover::LONG)
+                    .tooltip(|_, cx| cx.new(|_| hover::Tip("Esc")).into())
+            }
+            .h(px(28.))
+            .px(pad)
+            .on_click(move |_, _, cx| cancel(FootEvent::Cancel, cx))
+            .into_any_element(),
+        ];
+        // The secondary buttons are one weight, bare as Cancel and ▾ are; only the primary is
+        // filled.
+        if let Some(iid) = request.filter(|_| !folded) {
+            let review = on.clone();
+            tail.push(
+                discussion::icon_button(
+                    "compose-review",
+                    "layers",
+                    "Add to review",
+                    Some("⇧⌘↵"),
+                    Some("Pending until you submit the review"),
+                    Kind::Quiet,
+                    narrow,
+                )
+                .h(px(28.))
+                .px(pad)
+                .on_click(move |_, _, cx| review(FootEvent::AddToReview(iid), cx))
+                .into_any_element(),
+            );
+        }
+        if agent && !folded {
+            let (send_all, more) = (on.clone(), on.clone());
+            tail.push(
+                discussion::icon_button(
+                    "compose-send-all",
+                    "send",
+                    send_label,
+                    Some("⇧⌘↵"),
+                    Some("Adds it and sends every draft to your agent's chat"),
+                    Kind::Quiet,
+                    narrow,
+                )
+                .h(px(28.))
+                .px(pad)
+                .on_click(move |_, _, cx| send_all(FootEvent::SendAll, cx))
+                .into_any_element(),
+            );
+            // ▾: Send this only, the chat it goes to, Copy as markdown (#50 F).
+            tail.push(
+                discussion::icon_button(
+                    "compose-more",
+                    "chevron",
+                    "Send this only, choose the chat, copy",
+                    None,
+                    None,
+                    Kind::Quiet,
+                    true,
+                )
+                .h(px(28.))
+                .px(px(6.))
+                .on_click(move |event, _, cx| more(FootEvent::More(event.position()), cx))
+                .into_any_element(),
+            );
+        }
+        let add = on.clone();
+        let add_button = discussion::button(
+            "compose-add",
+            primary,
+            (!narrow).then_some("⌘↵"),
+            Kind::Primary(tone),
+        )
+        .h(px(28.))
+        .px(px(10.))
+        .when(narrow, |s| {
+            s.tooltip_show_delay(hover::LONG).tooltip(move |_, cx| {
+                cx.new(|_| {
+                    hover::Tip(if agent {
+                        "Add to drafts  ⌘↵"
+                    } else {
+                        "Comment  ⌘↵"
+                    })
+                })
+                .into()
+            })
+        })
+        .on_click(move |_, _, cx| add(FootEvent::Add, cx));
+        // At S, what folded: into the primary's own ▾.
+        let more = folded && (agent || request.is_some());
+        tail.push(if !more {
+            add_button.into_any_element()
+        } else {
+            div()
+                .flex()
+                .flex_none()
+                .gap(px(1.))
+                .child(add_button.rounded_r(px(0.)))
+                .child(
+                    discussion::icon_button(
+                        "compose-add-more",
+                        "chevron",
+                        if agent {
+                            "Send all, send this only, choose the chat, copy"
+                        } else {
+                            "Add to review"
+                        },
+                        None,
+                        None,
+                        Kind::Primary(tone),
+                        true,
+                    )
+                    .h(px(28.))
+                    .px(px(6.))
+                    .rounded_l(px(0.))
+                    .on_click(move |event, _, cx| on(FootEvent::Folded(event.position()), cx)),
+                )
+                .into_any_element()
+        });
+        (chip.into_any_element(), tail)
+    }
+
+    /// A reply's foot, the same as a new comment's (#129) at `room`: which of the two it writes on a discussion,
+    /// a reply or a note for the agent, and ⇥ to switch (#50 G); Cancel and the primary (Send answer in the Inbox,
+    /// `inbox`). With its placeholder.
+    pub fn reply_foot(
+        &self,
+        room: Room,
+        inbox: bool,
+        on: OnFoot,
+    ) -> (Option<AnyElement>, Vec<AnyElement>, &'static str) {
+        // ⇥ turned it into a note for the agent: purple, and it stays on this Mac (#50 G).
+        let agent = self.source() == Source::Agent;
+        let tone = self.source().color();
+        let cancel = on.clone();
+        // Narrow, Cancel is its ×, who sees it its dot.
+        let narrow = room != Room::L;
+        let tail = vec![
+            if narrow {
+                discussion::icon_button(
+                    "reply-cancel",
+                    "x",
+                    "Cancel",
+                    Some("esc"),
+                    None,
+                    Kind::Quiet,
+                    true,
+                )
+            } else {
+                discussion::button("reply-cancel", "Cancel", None, Kind::Quiet)
+                    .tooltip_show_delay(hover::LONG)
+                    .tooltip(|_, cx| cx.new(|_| hover::Tip("Esc")).into())
+            }
+            .h(px(28.))
+            .px(px(if narrow { 6. } else { 10. }))
+            .on_click(move |_, _, cx| cancel(FootEvent::Cancel, cx))
+            .into_any_element(),
+            discussion::button(
+                "reply-send",
+                if agent && inbox && matches!(self.target, Target::Answer(_)) {
+                    "Send answer"
+                } else if agent {
+                    "Add to drafts"
+                } else {
+                    "Reply"
+                },
+                (!narrow).then_some("⌘↵"),
+                Kind::Primary(tone),
+            )
+            .h(px(28.))
+            .px(px(10.))
+            .on_click(move |_, _, cx| on(FootEvent::Add, cx))
+            .into_any_element(),
+        ];
+        let lead = matches!(self.target, Target::Reply(_) | Target::ThreadNote(_)).then(|| {
+            let said = if agent {
+                "🔒 For your agent"
+            } else {
+                "Reply on the merge request"
+            };
+            div()
+                .id("reply-audience")
+                .h(px(26.))
+                .px(px(8.))
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(6.))
+                .rounded(px(6.))
+                .bg(if agent {
+                    theme::agent_bg()
+                } else {
+                    theme::warning_bg()
+                })
+                .text_size(px(12.))
+                .text_color(tone)
+                .whitespace_nowrap()
+                .map(|s| {
+                    if narrow {
+                        // Narrow, its colour's dot; the words and ⇥ in the tooltip.
+                        s.child(div().size(px(7.)).rounded_full().bg(tone))
+                            .tooltip_show_delay(hover::LONG)
+                            .tooltip(move |_, cx| {
+                                cx.new(|_| hover::TipOwned(format!("{said} — ⇥ switches").into()))
+                                    .into()
+                            })
+                    } else {
+                        s.child(said).child(keys::caps("⇥", keys::On::Plain))
+                    }
+                })
+                .into_any_element()
+        });
+        let placeholder = match (self.target, room) {
+            (Target::ThreadNote(_), _) => "Note for your agent",
+            (Target::Answer(_), Room::S) => "Note with your answer",
+            (Target::Answer(_), _) => "A note for the agent with your answer",
+            (Target::AnswerValue(_), _) => "Your own value",
+            _ => "Reply…",
+        };
+        (lead, tail, placeholder)
+    }
+
+    /// An edit's foot: Cancel and Save, its keys unless the diff is `narrow`.
+    pub fn edit_foot(&self, narrow: bool, on: OnFoot) -> Vec<AnyElement> {
+        let cancel = on.clone();
+        vec![
+            discussion::button("edit-cancel", "Cancel", None, Kind::Quiet)
+                .h(px(28.))
+                .px(px(10.))
+                .tooltip_show_delay(hover::LONG)
+                .tooltip(|_, cx| cx.new(|_| hover::Tip("Esc")).into())
+                .on_click(move |_, _, cx| cancel(FootEvent::Cancel, cx))
+                .into_any_element(),
+            discussion::button(
+                "edit-save",
+                "Save",
+                (!narrow).then_some("⌘↵"),
+                Kind::Primary(self.source().color()),
+            )
+            .h(px(28.))
+            .px(px(10.))
+            .on_click(move |_, _, cx| on(FootEvent::Add, cx))
+            .into_any_element(),
+        ]
+    }
+
+    /// The box `input` of a comment on several lines: which, over it.
+    pub fn with_lines(&self, input: Div) -> Div {
+        match self.first {
+            Some(first) => div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .child(
+                    div()
+                        .font_family(theme::ui_font())
+                        .text_size(px(12.))
+                        .text_color(theme::muted())
+                        .child(format!("Lines {first}–{}", self.line)),
+                )
+                .child(input),
+            None => input,
+        }
     }
 }
 

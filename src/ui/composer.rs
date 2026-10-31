@@ -1,22 +1,24 @@
 //! The composer (#9, #51, #129, #168): a + in the gutter opens it under the line — on a page, a file or a folder
 //! in Code too —, for the agent, a merge request, a reply or an edit; its keys routed, the completion's choices,
-//! and drawing it. The comment itself and its editing are the review's (`artoo_review::composer`). What it writes
+//! who it goes to and what its foot's buttons do. The comment itself, its editing and its drawing, the foot's
+//! too, are the review's (`artoo_review::composer`). What it writes
 //! goes to its owner: the agents' comments (`agent_comments.rs`), a
 //! request (`replies.rs`). Comments for an agent are kept on this Mac (`crate::review`), never in the reviewed
 //! repository. Designed in `../Design/mockups/line-comments/a-agent-comments.html`.
 
-use super::discussion::{self, Kind, Source};
+use super::discussion::{self, Kind};
 use super::input;
 use super::markdown;
 use super::px;
 use super::typing::{self, Input};
 use super::waiting::Op;
-use super::{Selection, Workspace, format, theme};
+use super::{Selection, Workspace, format};
 use crate::markdown::Helper;
 use crate::review::{Comment, State};
 use crate::textedit::TextEdit;
 pub(super) use artoo_review::composer::{
-    Change, Compose, ComposeAct, ComposeActs, Look, Room, Short, Target, Typed, room_for,
+    Change, Compose, ComposeAct, ComposeActs, FootEvent, FootLook, Look, Room, Short, Target,
+    Typed, room_for,
 };
 use gpui::{App, Context, KeyDownEvent, WeakEntity, div, prelude::*};
 
@@ -423,37 +425,16 @@ impl Workspace {
             .compose
             .as_ref()
             .filter(|c| c.target == Target::Edit(change))?;
-        let tone = match change {
-            Change::Agent(_) => Source::Agent.color(),
-            Change::Note { .. } => Source::GitLab.color(),
-        };
-        let (cancel, save) = (this.clone(), this.clone());
-        let tail = vec![
-            discussion::button("edit-cancel", "Cancel", None, Kind::Quiet)
-                .h(px(28.))
-                .px(px(10.))
-                .tooltip_show_delay(crate::ui::hover::LONG)
-                .tooltip(|_, cx| cx.new(|_| super::Tip("Esc")).into())
-                .on_click(move |_, _, cx| {
-                    cancel.update(cx, |this, cx| this.cancel_comment(cx)).ok();
-                })
-                .into_any_element(),
-            discussion::button(
-                "edit-save",
-                "Save",
-                (!self.compose_narrow(cx)).then_some("⌘↵"),
-                Kind::Primary(tone),
-            )
-            .h(px(28.))
-            .px(px(10.))
-            .on_click(move |_, _, cx| {
-                save.update(cx, |this, cx| this.add_comment(cx)).ok();
-            })
-            .into_any_element(),
-        ];
+        let on = this.clone();
+        let tail = compose.edit_foot(
+            self.compose_narrow(cx),
+            std::rc::Rc::new(move |event, cx| {
+                on.update(cx, |this, cx| this.foot_event(event, cx)).ok();
+            }),
+        );
         Some(self.open_input(
             compose,
-            tone,
+            compose.source().color(),
             "The comment…",
             None,
             &[
@@ -810,23 +791,6 @@ impl Workspace {
     /// The new comment's input: the one input component (variant D) with who sees it on its edge.
     pub(super) fn compose_box(&self, this: WeakEntity<Self>, cx: &gpui::App) -> Option<gpui::Div> {
         let compose = self.compose.as_ref()?;
-        let request = self.compose_request(cx);
-        let source = match compose.target {
-            Target::Agent
-            | Target::Edit(Change::Agent(_))
-            | Target::ThreadNote(_)
-            | Target::Answer(_)
-            | Target::AnswerValue(_) => Source::Agent,
-            Target::Request(_)
-            | Target::Reply(_)
-            | Target::Edit(Change::Note { .. })
-            | Target::InboxReply => Source::GitLab,
-        };
-        let tone = source.color();
-        let (cancel, add, review, switch) =
-            (this.clone(), this.clone(), this.clone(), this.clone());
-        let switchable = request.is_some();
-        let narrow = self.compose_narrow(cx);
         let audience = match compose.target {
             Target::Request(iid) => format!("Everyone on !{iid}"),
             // The chat it will go to, by its page's branch (#77).
@@ -837,381 +801,100 @@ impl Workspace {
             },
             _ => "Your agent".to_owned(),
         };
-        // Narrow, who it goes to is its colour's dot, the words in the tooltip.
-        let said: gpui::SharedString = if switchable {
-            format!("{audience} — Tab switches who sees it").into()
-        } else {
-            audience.clone().into()
+        let look = FootLook {
+            audience,
+            switchable: self.compose_request(cx).is_some(),
+            narrow: self.compose_narrow(cx),
+            room: self.compose_room(cx),
+            drafts: self.agent_drafts().len(),
         };
-        let chip = div()
-            .id("compose-audience")
-            .h(px(26.))
-            .px(px(8.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(6.))
-            .rounded(px(6.))
-            .bg(match source {
-                Source::Agent => theme::agent_bg(),
-                _ => theme::warning_bg(),
-            })
-            .text_size(px(12.))
-            .text_color(tone)
-            .whitespace_nowrap()
-            .child(div().size(px(7.)).rounded_full().bg(tone))
-            .when(!narrow, |s| s.child(audience))
-            .tooltip_show_delay(crate::ui::hover::LONG)
-            .tooltip(move |_, cx| cx.new(|_| super::TipOwned(said.clone())).into())
-            .when(switchable, |s| {
-                s.cursor_pointer()
-                    .child(super::icons::icon("chevron").size(px(12.)).text_color(tone))
-                    .on_click(move |_, _, cx| {
-                        switch.update(cx, |this, cx| this.toggle_target(cx)).ok();
-                    })
-            });
-        // The foot by its room (Design shell round 6, #129): at S "Add to drafts" is "Add" (named in
-        // full in its tooltip), and the other ways to send fold into its own ▾.
-        let room = self.compose_room(cx);
-        let folded = room == Room::S;
-        let primary = match &compose.target {
-            Target::Agent if room == Room::S => "Add",
-            Target::Agent => "Add to drafts",
-            _ => "Comment",
-        };
-        // An agent comment's bar (#50 F): Send all beside Add to drafts, Send this only in ▾.
-        let drafts = self.agent_drafts().len();
-        let compose_agent = compose.target == Target::Agent;
-        let send_label = if drafts > 0 {
-            format!("Send all {}", drafts + 1)
-        } else {
-            "Send".to_owned()
-        };
-        let review_iid = match compose.target {
-            Target::Request(iid) => Some(iid),
-            _ => None,
-        };
-        let (send_all, send_one, fold_menu) = (this.clone(), this.clone(), this.clone());
-        let mut tail = vec![
-            // Narrow, Cancel is its × icon, named in the tooltip.
-            if narrow {
-                discussion::icon_button(
-                    "compose-cancel",
-                    "x",
-                    "Cancel",
-                    Some("esc"),
-                    None,
-                    Kind::Quiet,
-                    true,
-                )
-            } else {
-                discussion::button("compose-cancel", "Cancel", None, Kind::Quiet)
-                    .tooltip_show_delay(crate::ui::hover::LONG)
-                    .tooltip(|_, cx| cx.new(|_| super::Tip("Esc")).into())
-            }
-            .h(px(28.))
-            .px(px(if narrow { 6. } else { 10. }))
-            .on_click(move |_, _, cx| {
-                cancel.update(cx, |this, cx| this.cancel_comment(cx)).ok();
-            })
-            .into_any_element(),
-        ];
-        // The secondary buttons are one weight, bare as Cancel and ▾ are; only the primary is
-        // filled.
-        if let Some(iid) = review_iid.filter(|_| !folded) {
-            tail.push(
-                discussion::icon_button(
-                    "compose-review",
-                    "layers",
-                    "Add to review",
-                    Some("⇧⌘↵"),
-                    Some("Pending until you submit the review"),
-                    Kind::Quiet,
-                    narrow,
-                )
-                .h(px(28.))
-                .px(px(if narrow { 6. } else { 10. }))
-                .on_click(move |_, _, cx| {
-                    review
-                        .update(cx, |this, cx| this.post_comment(iid, true, cx))
-                        .ok();
-                })
-                .into_any_element(),
-            );
-        }
-        if compose_agent && !folded {
-            tail.push(
-                discussion::icon_button(
-                    "compose-send-all",
-                    "send",
-                    send_label.clone(),
-                    Some("⇧⌘↵"),
-                    Some("Adds it and sends every draft to your agent's chat"),
-                    Kind::Quiet,
-                    narrow,
-                )
-                .h(px(28.))
-                .px(px(if narrow { 6. } else { 10. }))
-                .on_click(move |_, _, cx| {
-                    send_all
-                        .update(cx, |this, cx| this.add_and_send(false, cx))
-                        .ok();
-                })
-                .into_any_element(),
-            );
-            // ▾: Send this only, the chat it goes to, Copy as markdown (#50 F).
-            tail.push(
-                discussion::icon_button(
-                    "compose-more",
-                    "chevron",
-                    "Send this only, choose the chat, copy",
-                    None,
-                    None,
-                    Kind::Quiet,
-                    true,
-                )
-                .h(px(28.))
-                .px(px(6.))
-                .on_click(move |event, _, cx| {
-                    let at = event.position();
-                    send_one
-                        .update(cx, |this, cx| {
-                            use super::menu::{Act, Entry};
-                            this.open_menu(
-                                at,
-                                vec![
-                                    vec![
-                                        Entry::new("Send this only", Act::AgentSendOnly).key("⌥⌘↵"),
-                                        Entry::new("Choose the chat…", Act::AgentChooseChat),
-                                    ],
-                                    vec![Entry::new("Copy as markdown", Act::AgentCopy)],
-                                ],
-                                cx,
-                            )
-                        })
-                        .ok();
-                })
-                .into_any_element(),
-            );
-        }
-        // At S, what folded: into the primary's own ▾.
-        let more = {
-            use super::menu::{Act, Entry};
-            match (folded, compose.target) {
-                (true, Target::Agent) => vec![
-                    vec![
-                        Entry::new(send_label, Act::AgentSendAll).key("⇧⌘↵"),
-                        Entry::new("Send this only", Act::AgentSendOnly).key("⌥⌘↵"),
-                        Entry::new("Choose the chat…", Act::AgentChooseChat),
-                    ],
-                    vec![Entry::new("Copy as markdown", Act::AgentCopy)],
-                ],
-                (true, Target::Request(iid)) => vec![vec![
-                    Entry::new("Add to review", Act::AddToReview(iid)).key("⇧⌘↵"),
-                ]],
-                _ => Vec::new(),
-            }
-        };
-        let add_button = discussion::button(
-            "compose-add",
-            primary,
-            (!narrow).then_some("⌘↵"),
-            Kind::Primary(tone),
-        )
-        .h(px(28.))
-        .px(px(10.))
-        .when(narrow, |s| {
-            s.tooltip_show_delay(crate::ui::hover::LONG)
-                .tooltip(move |_, cx| {
-                    cx.new(|_| {
-                        super::Tip(if compose_agent {
-                            "Add to drafts  ⌘↵"
-                        } else {
-                            "Comment  ⌘↵"
-                        })
-                    })
-                    .into()
-                })
-        })
-        .on_click(move |_, _, cx| {
-            add.update(cx, |this, cx| this.add_comment(cx)).ok();
-        });
-        tail.push(if more.is_empty() {
-            add_button.into_any_element()
-        } else {
-            div()
-                .flex()
-                .flex_none()
-                .gap(px(1.))
-                .child(add_button.rounded_r(px(0.)))
-                .child(
-                    discussion::icon_button(
-                        "compose-add-more",
-                        "chevron",
-                        if compose_agent {
-                            "Send all, send this only, choose the chat, copy"
-                        } else {
-                            "Add to review"
-                        },
-                        None,
-                        None,
-                        Kind::Primary(tone),
-                        true,
-                    )
-                    .h(px(28.))
-                    .px(px(6.))
-                    .rounded_l(px(0.))
-                    .on_click(move |event, _, cx| {
-                        let (at, more) = (event.position(), more.clone());
-                        fold_menu
-                            .update(cx, |this, cx| this.open_menu(at, more, cx))
-                            .ok();
-                    }),
-                )
-                .into_any_element()
-        });
+        let on = this.clone();
+        let (chip, tail) = compose.foot(
+            look,
+            std::rc::Rc::new(move |event, cx| {
+                on.update(cx, |this, cx| this.foot_event(event, cx)).ok();
+            }),
+        );
         let placeholder = match compose.target {
             Target::Agent => "Note for your agent",
             _ => "Comment",
         };
         let input = self.open_input(
             compose,
-            tone,
+            compose.source().color(),
             placeholder,
-            Some(chip.into_any_element()),
+            Some(chip),
             &[Helper::Bold, Helper::Code, Helper::Link, Helper::Bullet],
             tail,
             this,
             cx,
         );
-        // Several lines: which, above the box.
-        Some(match compose.first {
-            Some(first) => div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .child(
-                    div()
-                        .font_family(theme::ui_font())
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child(format!("Lines {first}–{}", compose.line)),
-                )
-                .child(input),
-            None => input,
-        })
+        Some(compose.with_lines(input))
+    }
+
+    /// A click on a new comment's foot (`Compose::foot`).
+    fn foot_event(&mut self, event: FootEvent, cx: &mut Context<Self>) {
+        use super::menu::{Act, Entry};
+        let drafts = self.agent_drafts().len();
+        let send_label = if drafts > 0 {
+            format!("Send all {}", drafts + 1)
+        } else {
+            "Send".to_owned()
+        };
+        match event {
+            FootEvent::Cancel => self.cancel_comment(cx),
+            FootEvent::Switch => self.toggle_target(cx),
+            FootEvent::AddToReview(iid) => self.post_comment(iid, true, cx),
+            FootEvent::SendAll => self.add_and_send(false, cx),
+            FootEvent::Add => self.add_comment(cx),
+            // ▾: Send this only, the chat it goes to, Copy as markdown (#50 F).
+            FootEvent::More(at) => self.open_menu(
+                at,
+                vec![
+                    vec![
+                        Entry::new("Send this only", Act::AgentSendOnly).key("⌥⌘↵"),
+                        Entry::new("Choose the chat…", Act::AgentChooseChat),
+                    ],
+                    vec![Entry::new("Copy as markdown", Act::AgentCopy)],
+                ],
+                cx,
+            ),
+            // At S, what folded: into the primary's own ▾.
+            FootEvent::Folded(at) => {
+                let more = match self.compose.as_ref().map(|c| c.target) {
+                    Some(Target::Agent) => vec![
+                        vec![
+                            Entry::new(send_label, Act::AgentSendAll).key("⇧⌘↵"),
+                            Entry::new("Send this only", Act::AgentSendOnly).key("⌥⌘↵"),
+                            Entry::new("Choose the chat…", Act::AgentChooseChat),
+                        ],
+                        vec![Entry::new("Copy as markdown", Act::AgentCopy)],
+                    ],
+                    Some(Target::Request(iid)) => vec![vec![
+                        Entry::new("Add to review", Act::AddToReview(iid)).key("⇧⌘↵"),
+                    ]],
+                    _ => Vec::new(),
+                };
+                self.open_menu(at, more, cx)
+            }
+        }
     }
 
     /// A reply: the discussion's own one-line field, grown inside its outline (variant D).
     pub(super) fn reply_editor(&self, this: WeakEntity<Self>, cx: &gpui::App) -> Option<gpui::Div> {
         let compose = self.compose.as_ref()?;
-        // ⇥ turned it into a note for the agent: purple, and it stays on this Mac (#50 G).
-        let agent = matches!(
-            compose.target,
-            Target::ThreadNote(_) | Target::Answer(_) | Target::AnswerValue(_)
+        let on = this.clone();
+        let (lead, tail, placeholder) = compose.reply_foot(
+            self.compose_room(cx),
+            self.inbox,
+            std::rc::Rc::new(move |event, cx| {
+                on.update(cx, |this, cx| this.foot_event(event, cx)).ok();
+            }),
         );
-        let tone = if agent {
-            Source::Agent.color()
-        } else {
-            Source::GitLab.color()
-        };
-        let (cancel, send) = (this.clone(), this.clone());
-        // The same foot as a new comment's (#129): narrow, Cancel is its ×, who sees it its dot.
-        let room = self.compose_room(cx);
-        let narrow = room != Room::L;
-        let tail = vec![
-            if narrow {
-                discussion::icon_button(
-                    "reply-cancel",
-                    "x",
-                    "Cancel",
-                    Some("esc"),
-                    None,
-                    Kind::Quiet,
-                    true,
-                )
-            } else {
-                discussion::button("reply-cancel", "Cancel", None, Kind::Quiet)
-                    .tooltip_show_delay(crate::ui::hover::LONG)
-                    .tooltip(|_, cx| cx.new(|_| super::Tip("Esc")).into())
-            }
-            .h(px(28.))
-            .px(px(if narrow { 6. } else { 10. }))
-            .on_click(move |_, _, cx| {
-                cancel.update(cx, |this, cx| this.cancel_comment(cx)).ok();
-            })
-            .into_any_element(),
-            discussion::button(
-                "reply-send",
-                if agent && self.inbox && matches!(compose.target, Target::Answer(_)) {
-                    "Send answer"
-                } else if agent {
-                    "Add to drafts"
-                } else {
-                    "Reply"
-                },
-                (!narrow).then_some("⌘↵"),
-                Kind::Primary(tone),
-            )
-            .h(px(28.))
-            .px(px(10.))
-            .on_click(move |_, _, cx| {
-                send.update(cx, |this, cx| this.add_comment(cx)).ok();
-            })
-            .into_any_element(),
-        ];
-        // Which of the two the field writes, and ⇥ to switch, on a discussion (#50 G).
-        let lead = matches!(compose.target, Target::Reply(_) | Target::ThreadNote(_)).then(|| {
-            let said = if agent {
-                "🔒 For your agent"
-            } else {
-                "Reply on the merge request"
-            };
-            div()
-                .id("reply-audience")
-                .h(px(26.))
-                .px(px(8.))
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(6.))
-                .rounded(px(6.))
-                .bg(if agent {
-                    theme::agent_bg()
-                } else {
-                    theme::warning_bg()
-                })
-                .text_size(px(12.))
-                .text_color(tone)
-                .whitespace_nowrap()
-                .map(|s| {
-                    if narrow {
-                        // Narrow, its colour's dot; the words and ⇥ in the tooltip.
-                        s.child(div().size(px(7.)).rounded_full().bg(tone))
-                            .tooltip_show_delay(crate::ui::hover::LONG)
-                            .tooltip(move |_, cx| {
-                                cx.new(|_| super::TipOwned(format!("{said} — ⇥ switches").into()))
-                                    .into()
-                            })
-                    } else {
-                        s.child(said)
-                            .child(super::keys::caps("⇥", super::keys::On::Plain))
-                    }
-                })
-                .into_any_element()
-        });
         Some(self.open_input(
             compose,
-            tone,
-            match (compose.target, room) {
-                (Target::ThreadNote(_), _) => "Note for your agent",
-                (Target::Answer(_), Room::S) => "Note with your answer",
-                (Target::Answer(_), _) => "A note for the agent with your answer",
-                (Target::AnswerValue(_), _) => "Your own value",
-                _ => "Reply…",
-            },
+            compose.source().color(),
+            placeholder,
             lead,
             &[
                 Helper::Bold,
