@@ -1,5 +1,5 @@
-//! The requests' pieces of the item page (#165 I5c): over it while a request is being written, its header; on a
-//! request's own page once its diff is shown, its line. They read the review's diff and the tab's answers to the
+//! The requests' pieces of the item page (#165 I5c): over it while a request is being written, its header, and its
+//! switch at the top of the diff's column; on a request's own page once its diff is shown, its line. They read the review's diff and the tab's answers to the
 //! requests' acts from the tab's services.
 
 use crate::create::Totals;
@@ -25,6 +25,22 @@ pub fn create_header(requests: Entity<Requests>, services: Rc<Services>) -> Piec
                 .and_then(|d| Totals::of(&d));
             let acts = services.get::<Acts>()?;
             requests.update(cx, |rq, cx| rq.render_create_header(totals, acts, cx))
+        }),
+    }
+}
+
+/// The Request | Changes switch at the top of the diff's column while a request is being written
+/// (`Requests::render_create_switch`), with the count of the files it changes.
+pub fn create_switch(requests: Entity<Requests>, services: Rc<Services>) -> Piece {
+    Piece {
+        id: "requests.create-switch",
+        slot: Slot::DiffTop,
+        draw: Rc::new(move |_, _, cx| {
+            let files = services
+                .get::<Rc<dyn Review>>()?
+                .shown(cx)
+                .map_or(0, |d| d.files.len());
+            requests.update(cx, |rq, cx| rq.render_create_switch(files, cx))
         }),
     }
 }

@@ -206,18 +206,6 @@ impl Workspace {
         }
     }
 
-    /// The Request | Changes switch at the top of the pane (`Requests::render_create_switch`).
-    pub(super) fn render_create_switch(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let files = self
-            .review
-            .read(cx)
-            .diff
-            .as_ref()
-            .map_or(0, |d| d.files.len());
-        self.requests
-            .update(cx, |rq, cx| rq.render_create_switch(files, cx))
-    }
-
     /// The form in the diff's place (`Requests::render_create_form`).
     pub(super) fn render_create_form(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let branches = self.history.read(cx).branches.clone();

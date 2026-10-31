@@ -91,6 +91,7 @@ use artoo_branches::working::WorkingState;
 use artoo_review::diff::{Diff, Header, Notice};
 use artoo_review::diff_view::{self, CODE_SIZE};
 use artoo_review::review::{self, Opt};
+use artoo_shell_api::Slot;
 use artoo_ui_kit::controls::{chip, tag};
 use gpui::{
     App, ClickEvent, Context, CursorStyle, FocusHandle, FontWeight, KeyBinding, KeyDownEvent,
@@ -3094,7 +3095,7 @@ impl Workspace {
                 .flex_1()
                 .min_w_0()
                 .bg(theme::editor())
-                .children(self.render_create_switch(cx))
+                .children(self.pieces(Slot::DiffTop, cx))
                 .children(self.render_create_form(cx))
                 .into_any_element();
         }
@@ -3220,11 +3221,10 @@ impl Workspace {
         } else {
             None
         };
-        let top = [
-            self.render_create_switch(cx),
+        let top = self.pieces(Slot::DiffTop, cx).into_iter().map(Some).chain([
             self.render_since_bar(cx),
             Some(self.render_diff_toolbar(diff, cx).into_any_element()),
-        ];
+        ]);
         // With every file in one scroll the card's own header has its switch.
         let marks = file
             .filter(|_| !stacked)

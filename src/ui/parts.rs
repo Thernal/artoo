@@ -242,6 +242,20 @@ impl Workspace {
             .find_map(|p| (p.draw)(&route, &drawing, cx))
     }
 
+    /// Every piece the parts draw in `slot` for the route on screen, in the order they were installed.
+    pub(super) fn pieces(&self, slot: Slot, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let Some(route) = self.nav_page().map(|p| p.route()) else {
+            return Vec::new();
+        };
+        let drawing = self.drawing(cx);
+        self.parts
+            .iter()
+            .flat_map(|p| &p.pieces)
+            .filter(|p| p.slot == slot)
+            .filter_map(|p| (p.draw)(&route, &drawing, cx))
+            .collect()
+    }
+
     /// What a piece is handed as it is drawn.
     fn drawing(&self, cx: &Context<Self>) -> Drawing {
         Drawing {

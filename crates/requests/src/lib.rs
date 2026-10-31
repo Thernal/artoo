@@ -39,7 +39,8 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, _: &mut App) -> Parts {
         // The request being written first: it is over whatever page it was opened on.
         pieces: vec![
             pieces::create_header(requests.clone(), services.clone()),
-            pieces::line(requests, services),
+            pieces::line(requests.clone(), services.clone()),
+            pieces::create_switch(requests, services),
         ],
         ..Default::default()
     }
