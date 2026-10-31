@@ -2,7 +2,7 @@
 //! commit, a run of commits, two versions, an interdiff, the working tree, a comparison — the review reads it. The
 //! file Code reads (#71, #75): read at a revision, which one is read, closed. The review draws it; the page puts it
 //! where it goes. What the review's host draws on its rows and does with their events (`Host`, `LineEvent`,
-//! `FileEvent`). And how far your review of a merge request got (`Seen`), which the requests list groups by.
+//! `FileEvent`, `PaneEvent`). And how far your review of a merge request got (`Seen`), which the requests list groups by.
 //!
 //! The tab's review offers it as `Rc<dyn FileView>` in the tab's services (`Frame::services`). What it changes is
 //! changed at once: ask it from anywhere but the review's own update.
@@ -129,4 +129,22 @@ pub trait Host {
     fn line(&self, file: usize, active: bool, event: LineEvent, cx: &mut App);
     /// Event `event` on a file's header or note.
     fn file(&self, event: FileEvent, cx: &mut App);
+    /// Event `event` on the file's pane.
+    fn pane(&self, event: PaneEvent, cx: &mut App);
+}
+
+/// What a click on the file's pane asks (`Host::pane`).
+pub enum PaneEvent {
+    /// The pane was pressed: the keyboard works in the diff.
+    Pressed,
+    /// ↑ or ↓ beside the file's changes: the one before or after it.
+    Step { forward: bool },
+    /// Generated file `path`, folded, shown anyway.
+    Unfold(String),
+    /// An SVG read as its source (`true`) or shown as its picture.
+    SvgSource(bool),
+    /// The notice's Undo: what it says changed is taken back.
+    UndoNotice,
+    /// The notice's ✕.
+    DismissNotice,
 }

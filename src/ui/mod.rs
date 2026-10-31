@@ -3826,305 +3826,92 @@ impl Workspace {
         }
     }
 
-    fn render_file(&self, diff: &Diff, cx: &mut Context<Self>) -> impl IntoElement {
-        let file = diff.files.get(self.review.read(cx).file);
-        let body = match (file, &self.review.read(cx).data) {
-            _ if self.review.read(cx).stack.is_some() => self.render_rows(cx).into_any_element(),
-            (Some(f), _) if self.review.read(cx).generated_folded(f) => {
-                let path = f.path().to_owned();
-                div()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .justify_center()
-                    .gap_2()
-                    .text_color(theme::muted())
-                    .child(format!(
-                        "{} is generated: {} changed lines are folded.",
-                        path.rsplit('/').next().unwrap_or(&path),
-                        f.added + f.removed
-                    ))
-                    .child(
-                        div()
-                            .id("unfold-generated")
-                            .px_3()
-                            .h(px(26.))
-                            .flex()
-                            .items_center()
-                            .rounded(px(ROW_RADIUS))
-                            .bg(theme::hover())
-                            .text_color(theme::text())
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme::selected()))
-                            .child("Show it anyway  ↵")
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.unfold(&path, cx)
-                            })),
-                    )
-                    .into_any_element()
-            }
-            (None, _) => div()
-                .flex_1()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(theme::muted())
-                .child("No changes")
-                .into_any_element(),
-            (Some(file), _) if self.review.read(cx).shows_page(file) => {
-                self.render_page_alone(self.review.read(cx).file, cx.entity().downgrade(), cx)
-            }
-            (Some(file), _) if self.review.read(cx).shows_image(file) => {
-                self.render_image(file, cx)
-            }
-            (Some(file), _) if file.hunks.is_empty() => div()
-                .flex_1()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(theme::muted())
-                .child(
-                    file.note
-                        .clone()
-                        .unwrap_or_else(|| "No content changes".to_owned()),
-                )
-                .into_any_element(),
-            (Some(_), None) => div().flex_1().into_any_element(),
-            (Some(_), Some(_)) => self.render_rows(cx).into_any_element(),
+    /// The file's pane, the review's (`Review::render_pane`): what the tab's features put on it comes in its
+    /// `PaneLook`, its rows' pins and its clicks through the tab as its host.
+    fn render_file(&self, diff: &Diff, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let this = cx.entity().downgrade();
+        let rv = self.review.read(cx);
+        let (ix, stacked) = (rv.file, rv.stack.is_some());
+        let file = diff.files.get(ix);
+        // The file as a page or a picture, where the review shows it so.
+        let (page, image) = file
+            .filter(|f| !stacked && !rv.generated_folded(f))
+            .map_or((false, false), |f| (rv.shows_page(f), rv.shows_image(f)));
+        let alone = if page {
+            Some(self.render_page_alone(ix, this.clone(), cx))
+        } else if image {
+            file.map(|f| self.render_image(f, cx))
+        } else {
+            None
         };
-        let mode_note = self
-            .review
-            .read(cx)
-            .data
-            .as_ref()
-            .and_then(|d| d.mode_note.clone());
-        island()
-            .relative()
-            .flex_1()
-            .min_w_0()
-            // Never taller than the window: a page scrolls inside it (#11).
-            .min_h_0()
-            .bg(theme::editor())
-            .border_2()
-            .border_color(self.zone_border(zones::Zone::Diff))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| this.set_zone(zones::Zone::Diff, cx)),
-            )
-            .children(self.render_create_switch(cx))
-            .children(self.render_since_bar(cx))
-            .child(self.render_diff_toolbar(diff, cx))
-            .children(file.map(|f| {
-                let path = match (&f.old_path, &f.new_path) {
-                    (Some(old), Some(new)) if old != new => format!("{old} → {new}"),
-                    _ => f.path().to_owned(),
+        let top = [
+            self.render_create_switch(cx),
+            self.render_since_bar(cx),
+            Some(self.render_diff_toolbar(diff, cx).into_any_element()),
+        ];
+        // With every file in one scroll the card's own header has its switch.
+        let marks = file
+            .filter(|_| !stacked)
+            .and_then(|f| self.page_switch(f, false, this.clone(), cx))
+            .into_iter()
+            .chain(
+                self.render_review_chip(cx)
+                    .map(IntoElement::into_any_element),
+            );
+        let open_in = self
+            .open_target(cx)
+            .and_then(|(path, _)| self.open_app(&path))
+            .map(|app| {
+                // A diff under 600 px keeps its ↗, the app in its tooltip (#80).
+                let label = if self.review.read(cx).tight {
+                    "↗".to_owned()
+                } else {
+                    format!("Open in {} ↗", app.name())
                 };
                 div()
-                    .flex_none()
                     .flex()
-                    .items_center()
-                    .gap_2()
-                    .h(px(36.))
-                    .px_4()
-                    .border_b_1()
-                    .border_color(theme::island_border())
-                    .child(icons::file_icon(f.path(), 16.))
+                    .flex_none()
                     .child(
-                        hover::cut("file-path", path)
-                            .flex_1()
-                            .text_color(change_color(f, false)),
-                    )
-                    // The working tree's part it is (#22): staged, not staged, untracked; with
-                    // every file in one scroll the card's own header has it.
-                    .children(
-                        self.review
-                            .read(cx)
-                            .stack
-                            .is_none()
-                            .then(|| file_tag(diff.tags.word(self.review.read(cx).file)))
-                            .flatten(),
-                    )
-                    // An SVG read as its source can go back to the picture.
-                    .children(
-                        (self.review.read(cx).images.source && artoo_review::image_view::is_svg(f))
-                            .then(|| image_view::source_switch(true, cx)),
-                    )
-                    // With every file in one scroll the card's own header has it.
-                    .children(
-                        self.review
-                            .read(cx)
-                            .stack
-                            .is_none()
-                            .then(|| self.page_switch(f, false, cx.entity().downgrade(), cx))
-                            .flatten(),
-                    )
-                    .children(self.render_review_chip(cx))
-                    .children(
-                        (!f.hunks.is_empty())
-                            .then_some(f.note.clone())
-                            .flatten()
-                            .map(|n| div().text_color(theme::warning()).child(n)),
-                    )
-                    .children((!self.review.read(cx).changes.is_empty()).then(|| {
-                        div()
-                            .flex_none()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            // A diff under 600 px keeps the arrows (#80).
-                            .when(!self.review.read(cx).tight, |s| {
-                                s.child(div().text_size(px(12.)).text_color(theme::muted()).child(
-                                    match self.review.read(cx).change_at {
-                                        Some(at) => {
-                                            format!(
-                                                "change {} of {}",
-                                                at + 1,
-                                                self.review.read(cx).changes.len()
-                                            )
-                                        }
-                                        None => {
-                                            plural(self.review.read(cx).changes.len(), "change")
-                                        }
-                                    },
-                                ))
+                        chip("open-editor", label, false)
+                            .tooltip_show_delay(hover::LONG)
+                            .tooltip({
+                                let tip: SharedString =
+                                    format!("Open in {}  ⌥⌘O", app.name()).into();
+                                move |_, cx| cx.new(|_| TipOwned(tip.clone())).into()
                             })
-                            .child(
-                                artoo_ui_kit::controls::group()
-                                    .child(chip("prev-change", "↑", false).on_click(cx.listener(
-                                        |this, _: &ClickEvent, _, cx| this.step_change(false, cx),
-                                    )))
-                                    .child(chip("next-change", "↓", false).on_click(cx.listener(
-                                        |this, _: &ClickEvent, _, cx| this.step_change(true, cx),
-                                    ))),
-                            )
-                    }))
-                    // The file in the app it belongs to, at the change (#78); ▾ the others.
-                    .children(
-                        self.open_target(cx)
-                            .and_then(|(path, _)| self.open_app(&path))
-                            .map(|app| {
-                                // A diff under 600 px keeps its ↗, the app in its tooltip (#80).
-                                let label = if self.review.read(cx).tight {
-                                    "↗".to_owned()
-                                } else {
-                                    format!("Open in {} ↗", app.name())
-                                };
-                                div()
-                                    .flex()
-                                    .flex_none()
-                                    .child(
-                                        chip("open-editor", label, false)
-                                            .tooltip_show_delay(hover::LONG)
-                                            .tooltip({
-                                                let tip: SharedString =
-                                                    format!("Open in {}  ⌥⌘O", app.name()).into();
-                                                move |_, cx| {
-                                                    cx.new(|_| TipOwned(tip.clone())).into()
-                                                }
-                                            })
-                                            .on_click(cx.listener(
-                                                |this, _: &ClickEvent, _, cx| this.open_in(cx),
-                                            )),
-                                    )
-                                    .child(chip("open-in-more", "▾", false).on_mouse_down(
-                                        MouseButton::Left,
-                                        cx.listener(|this, e: &MouseDownEvent, _, cx| {
-                                            this.open_in_menu(e.position, cx)
-                                        }),
-                                    ))
-                            }),
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_in(cx))),
                     )
-                    .children(mode_note.clone().map(|n| {
-                        let unavailable = n.starts_with("Structural diff");
-                        div()
-                            .flex_none()
-                            .text_size(px(12.))
-                            .text_color(if unavailable {
-                                theme::warning()
-                            } else {
-                                theme::faint()
-                            })
-                            .child(n)
-                    }))
-            }))
-            .children(self.render_dfind(cx))
+                    .child(chip("open-in-more", "▾", false).on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, e: &MouseDownEvent, _, cx| {
+                            this.open_in_menu(e.position, cx)
+                        }),
+                    ))
+            });
+        let over = [
+            self.render_dfind(cx).map(IntoElement::into_any_element),
             // Painted last, over the rows that come after it.
-            .children(
-                self.render_goline(cx.entity().downgrade(), cx)
-                    .map(|prompt| gpui::deferred(prompt).with_priority(1)),
-            )
-            .children(
-                self.render_done_card(cx)
-                    .map(|card| gpui::deferred(card).with_priority(1)),
-            )
-            .children(self.review.read(cx).notice.as_ref().map(|notice| {
-                div()
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .mx(px(8.))
-                    .mt(px(6.))
-                    .px_3()
-                    .py(px(6.))
-                    .rounded(px(ROW_RADIUS))
-                    .bg(theme::warning_bg())
-                    .text_size(px(12.))
-                    .text_color(theme::warning())
-                    .child(div().flex_1().child(notice.text.clone()))
-                    .child(
-                        div()
-                            .id("notice-undo")
-                            .px_2()
-                            .rounded(px(ROW_RADIUS))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme::hover()))
-                            .child("Undo")
-                            .on_click(cx.listener(|this, _, _, cx| this.undo_notice(cx))),
-                    )
-                    .child(
-                        div()
-                            .id("notice-dismiss")
-                            .px_2()
-                            .rounded(px(ROW_RADIUS))
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme::hover()))
-                            .child("✕")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.review.update(cx, |rv, _| rv.notice = None);
-                                cx.notify();
-                            })),
-                    )
-            }))
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .flex_col()
-                    .when(self.review.read(cx).stack.is_none(), |s| {
-                        s.px(px(4.)).pt(px(4.)).pb(px(6.))
-                    })
-                    .when(self.review.read(cx).stack.is_some(), |s| {
-                        s.bg(theme::base()).rounded_b(px(ISLAND_RADIUS))
-                    })
-                    .child(body),
-            )
-    }
-}
-
-impl Workspace {
-    /// The selected file's rows, drawn by the review (`Review::render_rows`) with the tab as its host.
-    fn render_rows(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let host = Rc::new(TabHost(cx.entity().downgrade()));
-        self.review.update(cx, |rv, cx| rv.render_rows(host, cx))
+            self.render_goline(this.clone(), cx)
+                .map(|prompt| gpui::deferred(prompt).with_priority(1).into_any_element()),
+            self.render_done_card(cx)
+                .map(|card| gpui::deferred(card).with_priority(1).into_any_element()),
+        ];
+        let look = artoo_review::pane::PaneLook {
+            border: self.zone_border(zones::Zone::Diff),
+            top: top.into_iter().flatten().collect(),
+            marks: marks.collect(),
+            open_in: open_in.map(IntoElement::into_any_element),
+            over: over.into_iter().flatten().collect(),
+            alone,
+        };
+        let host = Rc::new(TabHost(this));
+        self.review
+            .update(cx, |rv, cx| rv.render_pane(look, host, cx))
     }
 }
 
 /// The tab as the review's host (`artoo_review_api::Host`): it draws what its features pin on lines and the stack's
-/// headers and notes, and follows what a line's events ask.
+/// headers and notes, and follows what a line's events and the pane's clicks ask.
 struct TabHost(gpui::WeakEntity<Workspace>);
 
 impl artoo_review_api::Host for TabHost {
@@ -4211,6 +3998,26 @@ impl artoo_review_api::Host for TabHost {
                         this.hover_line_number(file, old, line, at, cx)
                     }
                     LineEvent::Expand { segment } => this.expand_gap(segment, cx),
+                }
+            })
+            .ok();
+    }
+
+    fn pane(&self, event: artoo_review_api::PaneEvent, cx: &mut App) {
+        use artoo_review_api::PaneEvent;
+        self.0
+            .update(cx, |this, cx| match event {
+                PaneEvent::Pressed => this.set_zone(zones::Zone::Diff, cx),
+                PaneEvent::Step { forward } => this.step_change(forward, cx),
+                PaneEvent::Unfold(path) => this.unfold(&path, cx),
+                PaneEvent::SvgSource(source) => {
+                    this.review.update(cx, |rv, _| rv.images.source = source);
+                    cx.notify();
+                }
+                PaneEvent::UndoNotice => this.undo_notice(cx),
+                PaneEvent::DismissNotice => {
+                    this.review.update(cx, |rv, _| rv.notice = None);
+                    cx.notify();
                 }
             })
             .ok();

@@ -12,7 +12,8 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   layer, storage, themes, markdown and the diff helpers, among them the diff's rows (`rows`: a file built to rows in
   the background, laid out for the view options, with what is pinned on its lines merged in) and a line written on found
   again once the file changed (`anchor`, a comment's and an agent's note's); its `build.rs` gives a build its commit (`artoo_core::version`). `crates/review` (`artoo-review`, #165 stage 4):
-  the review — the entity (`review::Review`, its events; its `Host` the contract's), its row drawing (`diff_view`), what it does
+  the review — the entity (`review::Review`, its events; its `Host` the contract's), its row drawing (`diff_view`), the file's pane
+  (`pane`: its line, its notice, its rows or what stands in their place; what others put on it a `PaneLook`), what it does
   to the open file's lines (`lines`), the find (`find`), going to a line (`goline`), the comment being written and
   the input it is written in (`composer`: `Compose`, its `Target`, `render_input`), the Changes list as it keeps it (`lists`), and the types it
   keeps: the selection's

@@ -15,6 +15,7 @@ pub mod image_view;
 pub mod lines;
 pub mod lists;
 pub mod md_page;
+pub mod pane;
 pub mod pins;
 pub mod review;
 pub mod reviewed;
