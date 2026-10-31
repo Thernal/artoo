@@ -259,7 +259,7 @@ pub struct Input {
     /// The text selected in it, for Copy.
     pub selected: Selected,
     /// ↑ ↓ are its own while it has the keyboard: they move its caret or what it points at.
-    pub caret: bool,
+    pub caret: Rc<dyn Fn(&App) -> bool>,
 }
 
 /// A key typed in a part's input (`Input::key`).

@@ -76,6 +76,8 @@ pub enum Event {
     },
     /// The host created request `iid` from branch `source`.
     Created { iid: u64, source: String },
+    /// A key on the New merge request form asks the tab: create, or the pair's diff.
+    Create(crate::create::CreateKey),
     /// A call to the host was refused, and why.
     Failed(String),
 }

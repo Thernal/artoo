@@ -5,8 +5,10 @@
 use super::Workspace;
 use super::typing::{self, Input};
 use crate::git::BranchRef;
-use artoo_requests::create::{CreateKey, CreateLook, Drafted, Here, Pair, Totals, source_of};
-use gpui::{AnyElement, App, Context, KeyDownEvent, prelude::*};
+use artoo_requests::create::{
+    CreateKey, CreateLook, Drafted, Here, INPUT, Pair, Totals, source_of,
+};
+use gpui::{AnyElement, App, Context, prelude::*};
 
 impl Workspace {
     /// What the form reads of the repository: its folder, its `branches` (the history's), the host.
@@ -66,7 +68,7 @@ impl Workspace {
         let pair = self.requests.update(cx, |rq, cx| {
             rq.open_create(&here, &branch, drafted, host, cx)
         });
-        self.take_keyboard(Input::NewRequest, cx);
+        self.take_keyboard(Input::Part(INPUT), cx);
         self.compare_pair(pair, cx);
         cx.notify();
     }
@@ -80,7 +82,7 @@ impl Workspace {
 
     /// Templates ▾ chose `ix`. Chosen from a list over the form: the form has the keyboard again.
     pub(super) fn use_template(&mut self, ix: usize, cx: &mut Context<Self>) {
-        self.take_keyboard(Input::NewRequest, cx);
+        self.take_keyboard(Input::Part(INPUT), cx);
         self.requests.update(cx, |rq, _| rq.use_template(ix));
         cx.notify();
     }
@@ -109,15 +111,10 @@ impl Workspace {
         self.requests.read(cx).create_in_place()
     }
 
-    /// The description has the keyboard: ↑ ↓ move between its lines.
-    pub(super) fn typing_description(&self, cx: &App) -> bool {
-        self.requests.read(cx).typing_description()
-    }
-
     /// From's or Into's list picked. Chosen from a list over the form: the form has the keyboard
     /// again.
     pub(super) fn pick_branch(&mut self, name: String, source: bool, cx: &mut Context<Self>) {
-        self.take_keyboard(Input::NewRequest, cx);
+        self.take_keyboard(Input::Part(INPUT), cx);
         let branches = self.history.read(cx).branches.clone();
         let Some(here) = self.create_here(&branches) else {
             return;
@@ -145,19 +142,11 @@ impl Workspace {
         took
     }
 
-    /// The form's keys (`Requests::create_key`): ⌘↵ creates, a branch picked shows the pair.
-    pub(super) fn newreq_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
-        let branches = self.history.read(cx).branches.clone();
-        let Some(here) = self.create_here(&branches) else {
-            return;
-        };
-        let key = self
-            .requests
-            .update(cx, |rq, cx| rq.create_key(event, &here, cx));
-        match key {
-            Some(CreateKey::Create) => self.submit_create(cx),
-            Some(CreateKey::Compare(pair)) => self.compare_pair(Some(pair), cx),
-            None => {}
+    /// What a key on the form asked (`Event::Create`): the request created, or the pair's diff.
+    pub(super) fn create_asked(&mut self, asked: CreateKey, cx: &mut Context<Self>) {
+        match asked {
+            CreateKey::Create => self.submit_create(cx),
+            CreateKey::Compare(pair) => self.compare_pair(Some(pair), cx),
         }
     }
 
@@ -197,7 +186,7 @@ impl Workspace {
     /// What the form is drawn with that the tab knows, the history's `branches` among it.
     fn create_look<'a>(&self, branches: &'a [BranchRef], cx: &Context<Self>) -> CreateLook<'a> {
         CreateLook {
-            typing: self.has_keyboard(Input::NewRequest, cx),
+            typing: self.has_keyboard(Input::Part(INPUT), cx),
             github: self.on_github(),
             base: self.web.as_ref().map(|w| w.base.clone()),
             selecting: Some(self.selecting(cx.entity().downgrade())),
@@ -214,7 +203,7 @@ impl Workspace {
         let form = self
             .requests
             .update(cx, |rq, cx| rq.render_create_form(&look, acts, cx))?;
-        Some(typing::input_box(form, Input::NewRequest, cx).into_any_element())
+        Some(typing::input_box(form, Input::Part(INPUT), cx).into_any_element())
     }
 
     /// The quick way over the branch view (`Requests::render_create_quick`).

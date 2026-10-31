@@ -35,20 +35,18 @@ pub(super) enum Input {
     Field,
     /// A comment, a reply or a note being written.
     Compose,
-    /// The New merge request form.
-    NewRequest,
     /// Submit review's summary.
     Submit,
     /// A feature's tool window being written in (`artoo_shell_api::Tool`): Report a problem's title and
     /// description.
     Tool,
     /// A part's field (`artoo_shell_api::Input`), by its id: the commits' search, the find bar over the diff, the line typed after
-    /// `c`.
+    /// `c`, the New merge request form.
     Part(&'static str),
 }
 
 impl Input {
-    const ALL: [Input; 13] = [
+    const ALL: [Input; 12] = [
         Input::Palette,
         Input::FindFiles,
         Input::OpenAsk,
@@ -59,7 +57,6 @@ impl Input {
         Input::Merge,
         Input::Field,
         Input::Compose,
-        Input::NewRequest,
         Input::Submit,
         Input::Tool,
     ];
@@ -133,7 +130,6 @@ impl Workspace {
             Input::Field => self.field.is_some(),
             Input::Compose => self.compose.is_some(),
             Input::Part(id) => self.part_input(id).is_some_and(|i| (i.open)(cx)),
-            Input::NewRequest => self.creating(cx),
             Input::Submit => self.submitting(cx),
             Input::Tool => self.tool_typing(),
         }
@@ -371,14 +367,13 @@ pub(super) fn field_box_out<E: InteractiveElement>(
 mod tests {
     /// The key handlers `find_key` routes to by `Input`: the only places a key may edit a text, a part's field
     /// through its own (`part_input_key`).
-    const ROUTED: [&str; 10] = [
+    const ROUTED: [&str; 9] = [
         "ffind_key",
         "palette_key",
         "beside_key",
         "merge_key",
         "reaction_key",
         "submit_key",
-        "newreq_key",
         "compose_key",
         "filter_key",
         "part_input_key",

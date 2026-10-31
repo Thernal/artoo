@@ -8,13 +8,16 @@
 //! the quick way (D): the same request asked one question at a time over the branch view — Into,
 //! Title, Description — ↵ next, ⇧⇥ back, ⇥ the whole form, ⌘↵ create. The one outward
 //! action besides posting comments; it never pushes, so a branch only on this Mac is told to be
-//! pushed first. The form keeps its fields' caret itself; the tab opens it on a branch, gives it the
-//! keyboard, shows the pair's diff (`Pair`) and hears the request was created (`Event::Created`).
+//! pushed first. The form keeps its fields' caret itself, and its field is one of the requests' inputs (`input`);
+//! the tab opens it on a branch, gives it the keyboard, shows the pair's diff (`Event::Create`) and hears the
+//! request was created (`Event::Created`).
 
 use crate::requests::{Act, Acts, Event, Requests};
+use artoo_branches_api::Branches;
 use artoo_core::codeowners;
 use artoo_core::git::{BranchRef, RefKind, Repo};
 use artoo_hosts_api::{Host, Label, Milestone, NewOptions};
+use artoo_shell_api::{Input, Services, Typed};
 use artoo_ui_kit::complete::{list_key, render_list};
 use artoo_ui_kit::controls::chip;
 use artoo_ui_kit::format::{mid, plural};
@@ -26,8 +29,11 @@ use artoo_ui_kit::{
     ISLAND_RADIUS, ROW_RADIUS, discussion, hover, island, keys, motion, px, theme, words,
 };
 use git2::Oid;
-use gpui::{AnyElement, ClickEvent, Context, FontWeight, KeyDownEvent, div, prelude::*};
+use gpui::{
+    AnyElement, App, ClickEvent, Context, Entity, FontWeight, KeyDownEvent, div, prelude::*,
+};
 use std::path::Path;
+use std::rc::Rc;
 use std::sync::Arc;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -103,6 +109,9 @@ pub struct NewRequest {
     closed: Option<usize>,
     /// From's and Into's widths, which their lists take.
     widths: Widths,
+    /// The repository's folder and whether its host is GitHub, as it was opened with (`Here`).
+    root: std::path::PathBuf,
+    github: bool,
 }
 
 impl NewRequest {
@@ -181,6 +190,7 @@ pub struct CreateLook<'a> {
 }
 
 /// What a key on the form asks of the tab.
+#[derive(Clone)]
 pub enum CreateKey {
     /// ⌘↵: create the request, or open the one there is.
     Create,
@@ -336,6 +346,8 @@ impl Requests {
             pick: 0,
             closed: None,
             widths: Widths::default(),
+            root: here.root.to_owned(),
+            github: here.github,
         });
         let pair = self.refresh_create(here);
         // The description: the target's template, else the one commit's message body.
@@ -662,15 +674,21 @@ impl Requests {
         true
     }
 
-    /// The form's keys; what they ask of the tab.
+    /// The form's keys, the repository's `branches` listed; what they ask of the tab.
     pub fn create_key(
         &mut self,
         event: &KeyDownEvent,
-        here: &Here,
+        branches: &[BranchRef],
         cx: &mut Context<Self>,
     ) -> Option<CreateKey> {
         let key = &event.keystroke;
         let n = self.creating.as_ref()?;
+        let root = n.root.clone();
+        let here = &Here {
+            root: &root,
+            branches,
+            github: n.github,
+        };
         if n.posting {
             return None;
         }
@@ -2214,6 +2232,51 @@ impl Requests {
                 )
                 .into_any_element(),
         )
+    }
+}
+
+/// The New merge request form's field among the tab's inputs.
+pub const INPUT: &str = "requests.create";
+
+/// The form's fields as one of the tab's inputs: its keys read the branches (`Branches` in `services`); what
+/// they ask of the tab comes to it as `Event::Create`. ↑ ↓ are its own while the description types.
+pub fn input(requests: Entity<Requests>, services: Rc<Services>) -> Input {
+    let (open, key, selected, caret) = (
+        requests.downgrade(),
+        requests.downgrade(),
+        requests.downgrade(),
+        requests.downgrade(),
+    );
+    Input {
+        id: INPUT,
+        open: Rc::new(move |cx| {
+            open.upgrade()
+                .is_some_and(|rq| rq.read(cx).creating.is_some())
+        }),
+        key: Rc::new(move |event, _, cx| {
+            let Some(branches) = services.get::<Rc<dyn Branches>>().map(|b| b.list(cx)) else {
+                return Typed::Kept;
+            };
+            key.update(cx, |rq, cx| {
+                if let Some(asked) = rq.create_key(event, &branches, cx) {
+                    cx.emit(Event::Create(asked));
+                }
+            })
+            .ok();
+            Typed::Kept
+        }),
+        left: Rc::new(|_| {}),
+        selected: Rc::new(move |cx| {
+            let rq = selected.upgrade()?;
+            let rq = rq.read(cx);
+            let n = rq.creating.as_ref()?;
+            n.area.edit.selected_text().map(str::to_owned)
+        }),
+        caret: Rc::new(move |cx: &App| {
+            caret
+                .upgrade()
+                .is_some_and(|rq| rq.read(cx).typing_description())
+        }),
     }
 }
 

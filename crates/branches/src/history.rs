@@ -245,6 +245,22 @@ impl Default for History {
     }
 }
 
+/// The history's branches as a part reads them (`artoo_branches_api::Branches`).
+pub fn handle(history: &gpui::Entity<History>) -> std::rc::Rc<dyn artoo_branches_api::Branches> {
+    std::rc::Rc::new(Handle(history.downgrade()))
+}
+
+struct Handle(gpui::WeakEntity<History>);
+
+impl artoo_branches_api::Branches for Handle {
+    fn list(&self, cx: &gpui::App) -> Arc<Vec<BranchRef>> {
+        self.0
+            .upgrade()
+            .map(|h| h.read(cx).branches.clone())
+            .unwrap_or_default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

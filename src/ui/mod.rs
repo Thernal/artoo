@@ -1942,8 +1942,10 @@ impl Workspace {
         services.set(artoo_review::review::handle(&review));
         // The review itself, which its parts read and type in.
         services.set(review.clone());
-        // Its history, which the branches' parts read and type in, and its answers to the history's acts.
+        // Its history, which the branches' parts read and type in, its branches as the other parts read them,
+        // and its answers to the history's acts.
         services.set(this.history.clone());
+        services.set(artoo_branches::history::handle(&this.history));
         services.set(this.history_acts(cx));
         // Its requests, which the requests' parts read and draw, as the other features ask them, and its answers
         // to their acts.

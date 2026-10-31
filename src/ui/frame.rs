@@ -442,10 +442,7 @@ impl Render for Workspace {
                     Some(Input::Compose | Input::Submit | Input::Tool | Input::Overlay) => {
                         "Workspace Typing Caret"
                     }
-                    Some(Input::Part(id)) if self.part_input(id).is_some_and(|i| i.caret) => {
-                        "Workspace Typing Caret"
-                    }
-                    Some(Input::NewRequest) if self.typing_description(cx) => {
+                    Some(Input::Part(id)) if self.part_input(id).is_some_and(|i| (i.caret)(cx)) => {
                         "Workspace Typing Caret"
                     }
                     Some(_) => "Workspace Typing",

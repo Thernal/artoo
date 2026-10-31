@@ -67,7 +67,6 @@ impl Workspace {
             Some(Input::Merge) => return self.merge_key(event, cx),
             Some(Input::Reactions) => return self.reaction_key(event, cx),
             Some(Input::Submit) => return self.submit_key(event, cx),
-            Some(Input::NewRequest) => return self.newreq_key(event, cx),
             Some(Input::Tool) => return self.tool_key(event, window, cx),
             Some(Input::Compose) => return self.compose_key(event, cx),
             Some(Input::Field) => {

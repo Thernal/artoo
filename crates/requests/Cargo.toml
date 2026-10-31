@@ -8,6 +8,8 @@ publish = false
 
 [dependencies]
 artoo-core = { path = "../core" }
+# The New merge request form reads the branches listed.
+artoo-branches-api = { path = "../branches-api" }
 artoo-hosts-api = { path = "../hosts-api" }
 artoo-requests-api = { path = "../requests-api" }
 artoo-shell-api = { path = "../shell-api" }

@@ -9,4 +9,5 @@ publish = false
 [dependencies]
 # Its routes are the core's `Place`s.
 artoo-core = { path = "../core" }
+gpui.workspace = true
 serde.workspace = true

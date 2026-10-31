@@ -1,9 +1,18 @@
 //! Branches' contract (#165 stage 4): the routes of a branch's pages — the branch, a commit of it, a run of its
 //! commits, two of its versions compared —, of two refs compared and of the working tree, which anyone opens through
-//! the `Frame`.
+//! the `Frame`; and the branches listed, as a part reads them (`Branches`).
 
+use artoo_core::git::BranchRef;
 use artoo_core::route::Place;
+use gpui::App;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+/// What a part reads of the tab's branches (`Rc<dyn Branches>` in its services).
+pub trait Branches {
+    /// The branches listed, local and remote.
+    fn list(&self, cx: &App) -> Arc<Vec<BranchRef>>;
+}
 
 /// A branch, by its refname.
 #[derive(Serialize, Deserialize)]

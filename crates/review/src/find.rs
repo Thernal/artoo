@@ -347,6 +347,6 @@ pub fn input(review: Entity<Review>) -> Input {
                 .selected_text()
                 .map(str::to_owned)
         }),
-        caret: false,
+        caret: Rc::new(|_| false),
     }
 }
