@@ -286,6 +286,7 @@ name = "artoo-branches"
 version = "1.3.0"
 dependencies = [
  "anyhow",
+ "artoo-branches-api",
  "artoo-core",
  "artoo-review-api",
  "artoo-ui-kit",

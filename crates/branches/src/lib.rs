@@ -14,6 +14,7 @@ pub mod find;
 pub mod head;
 pub mod history;
 pub mod list;
+pub mod place;
 pub mod reading;
 pub mod roots;
 pub mod shown;

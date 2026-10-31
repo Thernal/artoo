@@ -5,39 +5,12 @@
 //! shift is one diff there. Its pages carry review marks, so your own work is reviewed before it
 //! goes out. The main line itself has no base: its page is the commit browser it always was.
 
+use super::Workspace;
 use super::nav::Page;
-use super::{Header, Workspace};
 use artoo_branches::facts::branch_line;
-use gpui::{AnyElement, App, Context, prelude::*};
+use gpui::{AnyElement, Context, prelude::*};
 
 impl Workspace {
-    /// The branch loaded has the tabs Commits · Changes: it forks from the main line.
-    pub(super) fn branch_tabbed(&self, refname: &str, cx: &App) -> bool {
-        self.history
-            .read(cx)
-            .page
-            .as_ref()
-            .is_some_and(|f| f.refname == refname && f.base.is_some())
-    }
-
-    /// The diff loaded is the branch page's own: the branch against the main line.
-    pub(super) fn branch_compare(&self, cx: &App) -> bool {
-        let (Some(f), Some(ix)) = (
-            self.history.read(cx).page.as_ref(),
-            self.history.read(cx).branch,
-        ) else {
-            return false;
-        };
-        matches!(
-            (self.review.read(cx).diff.as_ref().map(|d| &d.header), &f.base, self.history.read(cx).branches.get(ix)),
-            (
-                Some(Header::Compare { base, head, request: None, .. }),
-                Some(main),
-                Some(b),
-            ) if base.1 == main.1 && head.1 == b.tip
-        )
-    }
-
     /// Shows the branch loaded against the main line since they parted: its Changes.
     pub(super) fn run_branch_compare(&mut self, cx: &mut Context<Self>) {
         let (Some(ix), Some(base)) = (
@@ -62,7 +35,7 @@ impl Workspace {
         let Some(Page::Branch(refname)) = self.nav_page() else {
             return None;
         };
-        if !self.branch_tabbed(refname, cx) {
+        if !self.history.read(cx).tabbed(refname) {
             return None;
         }
         let ix = self.history.read(cx).branch;

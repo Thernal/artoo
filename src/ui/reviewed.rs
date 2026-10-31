@@ -20,7 +20,10 @@ impl Workspace {
             let files = Some((iid, d.files.len()));
             self.requests.update(cx, |rq, _| rq.files = files);
         }
-        if self.branch_compare(cx)
+        if self
+            .history
+            .read(cx)
+            .shows_branch(self.review.read(cx).diff.as_ref().map(|d| &d.header))
             && let Some(d) = self.review.read(cx).diff.as_ref()
         {
             let files = Some(d.files.len());

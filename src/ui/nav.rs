@@ -11,7 +11,7 @@
 //! say where they went through `arrive`.
 
 use super::spaces::Space;
-use super::{Header, Selection, Workspace, zones};
+use super::{Selection, Workspace, zones};
 use artoo_core::route::Route;
 use git2::Oid;
 use gpui::{App, Context, ListOffset};
@@ -424,13 +424,9 @@ impl Workspace {
 
     /// What is loaded, as a page of Branches or Merge requests.
     pub(super) fn loaded_page(&self, cx: &App) -> Option<Page> {
-        let refname = self
-            .history
-            .read(cx)
-            .branches
-            .get(self.history.read(cx).branch?)?
-            .refname
-            .clone();
+        // Nothing is, while no branch is open: a request's page is its branch's too.
+        let history = self.history.read(cx);
+        history.branches.get(history.branch?)?;
         if let Some((_, _, iid)) = &self.open_request
             && self.requests.read(cx).current == Some(*iid)
         {
@@ -452,37 +448,8 @@ impl Workspace {
         if let Some(page) = self.narrowed_compare(cx) {
             return Some(page);
         }
-        let tabbed = self.branch_tabbed(&refname, cx);
-        Some(
-            match (
-                self.history.read(cx).selection,
-                self.review.read(cx).diff.as_ref().map(|d| &d.header),
-            ) {
-                (Selection::WorkingTree, _) => Page::WorkingTree,
-                (Selection::Versions { from, to }, _) => Page::Versions(refname, from, to),
-                (Selection::Commit(ix), _) if tabbed => {
-                    Page::BranchCommit(refname, self.history.read(cx).commits.get(ix)?.id)
-                }
-                (Selection::Commits { newest, oldest }, _) => Page::BranchCommits(
-                    refname,
-                    self.history.read(cx).commits.get(newest)?.id,
-                    self.history.read(cx).commits.get(oldest)?.id,
-                ),
-                (Selection::None, Some(Header::Compare { .. })) if self.branch_compare(cx) => {
-                    Page::Branch(refname)
-                }
-                (
-                    Selection::None,
-                    Some(Header::Compare {
-                        base,
-                        head,
-                        since_merge_base,
-                        ..
-                    }),
-                ) => Page::Compare(base.clone(), head.clone(), *since_merge_base),
-                _ => Page::Branch(refname),
-            },
-        )
+        let shown = self.review.read(cx).diff.as_ref().map(|d| &d.header);
+        Page::from_route(&self.history.read(cx).route(shown)?)
     }
 
     /// The commit the page shows, when it shows one.
@@ -528,7 +495,7 @@ impl Workspace {
                 Page::Branch(refname)
                 | Page::BranchCommit(refname, _)
                 | Page::BranchCommits(refname, ..),
-            ) if self.branch_tabbed(refname, cx) => &[Section::Commits, Section::Changes],
+            ) if self.history.read(cx).tabbed(refname) => &[Section::Commits, Section::Changes],
             _ => &[],
         }
     }
@@ -787,7 +754,7 @@ impl Workspace {
         }
         match page.clone() {
             Page::File(_) | Page::Folder(_) => {}
-            Page::Branch(refname) if same_item && self.branch_tabbed(&refname, cx) => {
+            Page::Branch(refname) if same_item && self.history.read(cx).tabbed(&refname) => {
                 self.run_branch_compare(cx)
             }
             Page::BranchCommit(refname, id) => {
