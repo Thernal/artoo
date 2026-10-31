@@ -3,11 +3,10 @@
 //! only (see `crate::mr`).
 
 use super::nav::Page;
-use super::px;
 use super::roots::Group;
 use super::tools::ToolView;
 use super::waiting::Op;
-use super::{Header, Selection, Workspace, plural, theme};
+use super::{Header, Selection, Workspace};
 use crate::git::Repo;
 use crate::mr::{self, Mr};
 use artoo_branches::opening::RequestOf;
@@ -15,7 +14,7 @@ use artoo_requests::discussions::Listing;
 use artoo_requests::requests::{Act, Acts};
 pub(super) use artoo_requests::requests::{Past, Requests, Scope, Sides, sides};
 pub(super) use artoo_ui_kit::controls::group_heading;
-use gpui::{App, ClickEvent, Context, FontWeight, WeakEntity, div, prelude::*};
+use gpui::{App, ClickEvent, Context, WeakEntity, div, prelude::*};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -422,15 +421,17 @@ impl Workspace {
         })
     }
 
-    /// The card that comes up when the last file is marked: what to do next, from the keyboard.
+    /// The card that comes up when the last file is marked: what to do next, from the keyboard
+    /// (`artoo_review::done`).
     pub(super) fn render_done_card(
         &self,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
+        use artoo_review::done::{self, DoneEvent, DoneLook};
         if !self.review.read(cx).done_card {
             return None;
         }
-        let total = self.review.read(cx).diff.as_ref()?.files.len();
+        let files = self.review.read(cx).diff.as_ref()?.files.len();
         let current = self.requests.read(cx).current;
         // The next merge request in request mode, else the next branch.
         let next = match current {
@@ -444,132 +445,47 @@ impl Workspace {
                 )
             }),
         };
-        let button = |id: &'static str, label: String, key: &'static str, primary: bool| {
-            div()
-                .id(id)
-                .h(px(28.))
-                .px(px(10.))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .rounded(px(super::ROW_RADIUS))
-                .cursor_pointer()
-                .when(primary, |s| s.bg(theme::added()).text_color(theme::base()))
-                .when(!primary, |s| s.bg(theme::hover()).text_color(theme::text()))
-                .hover(|s| s.opacity(0.85))
-                .child(super::hover::cut("label", label))
-                .child(super::keys::caps(
-                    key,
-                    if primary {
-                        super::keys::On::Filled
-                    } else {
-                        super::keys::On::Plain
-                    },
-                ))
+        let look = DoneLook {
+            files,
+            request: current,
+            approve: self
+                .requests
+                .read(cx)
+                .approvals
+                .as_ref()
+                .filter(|a| a.can && !a.mine && current.is_some())
+                .map(|_| format!("Approve !{}", current.unwrap_or_default())),
+            next: next
+                .as_ref()
+                .map(|(label, to)| (label.clone(), if to.is_err() { "⌥↓" } else { "" })),
         };
-        Some(
-            div()
-                .absolute()
-                .bottom(px(16.))
-                .right(px(16.))
-                .max_w(px(460.))
-                .flex()
-                .flex_col()
-                .gap_2()
-                .p_3()
-                .rounded(px(super::ISLAND_RADIUS))
-                .border_2()
-                .border_color(theme::added())
-                .bg(theme::panel())
-                .shadow_lg()
-                .font_family(theme::ui_font())
-                .text_size(px(12.))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            div()
-                                .flex_1()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(theme::added())
-                                .child(match current {
-                                    Some(iid) => format!(
-                                        "All {} of !{iid} reviewed ✓",
-                                        plural(total, "file")
-                                    ),
-                                    None => format!("All {} reviewed ✓", plural(total, "file")),
-                                }),
-                        )
-                        .child(
-                            div()
-                                .id("done-card-close")
-                                .px_1()
-                                .rounded(px(4.))
-                                .text_color(theme::faint())
-                                .cursor_pointer()
-                                .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
-                                .child("esc")
-                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                    this.review.update(cx, |rv, _| rv.done_card = false);
-                                    cx.notify();
-                                })),
-                        ),
-                )
-                .children(
-                    self.requests
-                        .read(cx)
-                        .approvals
-                        .as_ref()
-                        .filter(|a| a.can && !a.mine && current.is_some())
-                        .map(|_| {
-                            button(
-                                "done-approve",
-                                format!("Approve !{}", current.unwrap_or_default()),
-                                "a",
-                                false,
-                            )
-                            .on_click(
-                                cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_approval(cx)),
-                            )
-                        }),
-                )
-                .children(next.clone().map(|(label, to)| {
-                    button(
-                        "done-next",
-                        label,
-                        if to.is_err() { "⌥↓" } else { "" },
-                        true,
-                    )
-                    .on_click(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
-                            this.review.update(cx, |rv, _| rv.done_card = false);
-                            match to {
-                                Err(iid) => this.select_request(iid, cx),
-                                Ok(ix) => this.open_branch(ix, None, cx),
-                            }
-                        },
-                    ))
-                }))
-                .children(current.map(|_| {
-                    button("done-leave", "Back to your branch".to_owned(), "⌥⌘L", false).on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.review.update(cx, |rv, _| rv.done_card = false);
-                            this.leave_request(cx);
-                        }),
-                    )
-                }))
-                .children(next.is_none().then(|| {
-                    div()
-                        .text_color(theme::muted())
-                        .child(if current.is_some() {
-                            "Nothing left to review: every other merge request is reviewed too."
-                        } else {
-                            "Nothing left to review: every other branch is reviewed too."
-                        })
-                })),
-        )
+        let this = cx.weak_entity();
+        let to = next.map(|(_, to)| to);
+        Some(done::render_done_card(
+            look,
+            Rc::new(move |event, cx| {
+                this.update(cx, |this, cx| match event {
+                    DoneEvent::Close => {
+                        this.review.update(cx, |rv, _| rv.done_card = false);
+                        cx.notify();
+                    }
+                    DoneEvent::Approve => this.toggle_approval(cx),
+                    DoneEvent::Next => {
+                        this.review.update(cx, |rv, _| rv.done_card = false);
+                        match to {
+                            Some(Err(iid)) => this.select_request(iid, cx),
+                            Some(Ok(ix)) => this.open_branch(ix, None, cx),
+                            None => {}
+                        }
+                    }
+                    DoneEvent::Leave => {
+                        this.review.update(cx, |rv, _| rv.done_card = false);
+                        this.leave_request(cx);
+                    }
+                })
+                .ok();
+            }),
+        ))
     }
 
     /// Reads the pushes GitLab kept for request `iid` (`Requests::load_versions`); they become the
