@@ -632,7 +632,7 @@ impl Workspace {
                     .w_full()
                     .line_height(px(17.))
                     .clamp_in_tip(2)
-                    .child(self.summary_text(&commit.summary.clone().into())),
+                    .child(self.summary_text(&commit.summary.clone().into(), cx)),
             )
             .child(
                 div()

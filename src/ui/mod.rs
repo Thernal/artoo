@@ -84,7 +84,8 @@ mod zones;
 use crate::git::{DiffSettings, FileDiff, PairKind, Repo};
 use crate::rows::{self, Row};
 use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
-use artoo_branches::history::{History, NamedTip, Older, Selection, VersionTab};
+use artoo_branches::history::{self, History, NamedTip, Selection, VersionTab};
+use artoo_branches::reading::COMMIT_PAGE;
 use artoo_branches::working::WorkingState;
 use artoo_review::diff::{Diff, Header, Notice};
 use artoo_review::diff_view::{self, CODE_SIZE, change_color, file_tag};
@@ -245,9 +246,6 @@ actions!(
         Quit
     ]
 );
-
-/// How much of a branch's history is read at first; more is read as the list is scrolled (#25).
-const COMMIT_PAGE: usize = 1000;
 
 /// The most a file shown alone in zen is wide: a reading width (#55).
 const READING_WIDTH: f32 = 1100.;
@@ -1232,7 +1230,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         }
         if let Ok(text) = std::env::var("ARTOO_SNAPSHOT_SEARCH") {
             ws.update(cx, |this, cx| {
-                this.find.text = Some(text);
+                this.history.update(cx, |h, _| h.find.text = Some(text));
                 this.refilter(cx);
                 this.review.update(cx, |rv, _| rv.recompute_matches());
                 cx.notify();
@@ -1694,7 +1692,6 @@ pub struct Workspace {
     settings_open: bool,
     /// Set up Artoo, while it is open (#143).
     setup: Option<setup::Setup>,
-    find: find::Find,
     watch: watch::Watch,
     /// Review comments of this repository, the one being written, and the Review island.
     comments: Vec<crate::review::Comment>,
@@ -1938,7 +1935,6 @@ impl Workspace {
             settings,
             settings_open: false,
             setup: None,
-            find: find::Find::default(),
             watch: watch::Watch::default(),
             comments: Vec::new(),
             compose: None,
@@ -1989,6 +1985,8 @@ impl Workspace {
         }
         Self::start_watching(this.on_screen.clone(), cx);
         cx.subscribe(&this.review, Self::review_event).detach();
+        cx.observe(&this.history, |_, _, cx| cx.notify()).detach();
+        cx.subscribe(&this.history, Self::history_event).detach();
         cx.observe(&this.requests, |_, _, cx| cx.notify()).detach();
         cx.subscribe(&this.requests, Self::requests_event).detach();
         cx.observe_window_activation(window, |this, window, cx| {
@@ -2050,7 +2048,7 @@ impl Workspace {
                         this.me = me.unwrap_or_else(|| "You".to_owned());
                         this.recent = storage::remember(&root);
                         if this.root.as_ref() != Some(&root) {
-                            this.find.reset();
+                            this.history.update(cx, |h, _| h.find.reset());
                         }
                         if this.root.as_ref() != Some(&root) {
                             this.comments = crate::review::load(&project);
@@ -2134,7 +2132,7 @@ impl Workspace {
         self.recent = storage::remember(&root);
         self.project = Some(root.clone());
         if self.root.as_ref() != Some(&root) {
-            self.find.reset();
+            self.history.update(cx, |h, _| h.find.reset());
             self.comments = crate::review::load(&root);
             self.answers_stamp = None;
             self.marks_stamp = None;
@@ -2182,108 +2180,79 @@ impl Workspace {
     fn select_branch(&mut self, ix: usize, keep: Option<git2::Oid>, cx: &mut Context<Self>) {
         self.open_request = None;
         self.sync_request(ix, cx);
-        let (Some(root), Some(branch)) =
-            (self.root.clone(), self.history.read(cx).branches.get(ix))
-        else {
+        let Some(root) = self.root.clone() else {
             return;
         };
-        let (refname, name, tip) = (branch.refname.clone(), branch.name.clone(), branch.tip);
+        if self.history.read(cx).branches.get(ix).is_none() {
+            return;
+        }
         self.clear_branch(cx);
-        self.history.update(cx, |h, _| h.branch = Some(ix));
-        let task = Some(cx.spawn(async move |this, cx| {
-            let loaded = cx
-                .background_executor()
-                .spawn(async move {
-                    let repo = Repo::open(&root)?;
-                    // A ref without a reflog simply has no earlier versions.
-                    let versions = repo.versions(&refname).unwrap_or_default();
-                    let facts = artoo_branches::facts::Facts::read(&repo, &refname, &name, tip);
-                    // A branch off the main line lists its own commits (#74).
-                    let own = facts
-                        .base
-                        .as_ref()
-                        .and_then(|(_, base)| repo.range_log(*base, tip, true).ok())
-                        .filter(|own| !own.is_empty());
-                    // Down to the commit asked for, however old (#25).
-                    let log = repo.log(tip, 0, COMMIT_PAGE, keep)?;
-                    anyhow::Ok((versions, log, facts, own))
-                })
-                .await;
-            this.update(cx, |this, cx| {
-                // Read: the commits list stops shimmering.
-                this.history.update(cx, |h, _| h.task = None);
-                match loaded {
-                    Ok((versions, commits, facts, own)) => {
-                        this.history.update(cx, |h, _| h.versions = versions);
-                        // Its page shows the branch against the main line, unless a commit of it
-                        // or a request on it is what was asked for.
-                        let tabbed = own.is_some()
-                            && this.pending_compare.is_none()
-                            && keep.is_none_or(|id| {
-                                own.as_ref().is_some_and(|o| o.iter().any(|c| c.id == id))
-                            });
-                        this.history.update(cx, |h, _| {
-                            h.commits = match own {
-                                Some(own) if tabbed => own,
-                                _ => {
-                                    let more = commits.len() >= COMMIT_PAGE;
-                                    h.older = more.then_some(Older { tip, task: None });
-                                    commits
-                                }
-                            }
-                        });
-                        this.history.update(cx, |h, _| {
-                            h.page = Some(artoo_branches::facts::Facts {
-                                base: facts.base.filter(|_| tabbed),
-                                ..facts
-                            })
-                        });
-                        this.refilter(cx);
-                        this.index_paths(cx);
-                        let ix = keep
-                            .and_then(|id| {
-                                this.history
-                                    .read(cx)
-                                    .commits
-                                    .iter()
-                                    .position(|c| c.id == id)
-                            })
-                            .unwrap_or(0);
-                        if tabbed && keep.is_none() {
-                            if !this.finish_pending(cx) {
-                                this.run_branch_compare(cx);
-                            }
-                            this.follow_pending_link(cx);
-                            this.open_waiting_draft(cx);
-                            cx.notify();
-                            return;
-                        }
-                        if !this.history.read(cx).commits.is_empty() {
-                            this.select_commit(ix, cx);
-                        }
-                        if let Some((base, head, iid)) = this.pending_compare.take() {
-                            this.open_request = Some((base.clone(), head.clone(), iid));
-                            this.show_request_commits(&base, &head, cx);
-                            this.apply_mr_versions(cx);
-                            // A commit or versions of it waited for its commits (#71); else the
-                            // whole request.
-                            if !this.finish_pending(cx) {
-                                this.run_compare(base, head, true, Some(iid), cx);
-                            }
-                        } else {
-                            this.finish_pending(cx);
-                        }
-                        this.follow_pending_link(cx);
-                        this.open_waiting_draft(cx);
-                    }
-                    Err(err) => this.error = Some(format!("{err:#}").into()),
-                }
-                cx.notify();
-            })
-            .ok();
-        }));
-        self.history.update(cx, |h, _| h.task = task);
+        self.history
+            .update(cx, |h, cx| h.read_branch(root, ix, keep, cx));
         cx.notify();
+    }
+
+    /// What the history said: a branch read is shown, more of its history searched, a failed read said.
+    fn history_event(
+        &mut self,
+        _: gpui::Entity<History>,
+        event: &history::Event,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            history::Event::Read => self.branch_read(cx),
+            history::Event::Older => {
+                self.refilter(cx);
+                self.index_paths(cx);
+            }
+            history::Event::Failed(err) => self.error = Some(err.clone().into()),
+        }
+        cx.notify();
+    }
+
+    /// The branch open was read: its page — the branch against the main line, or the commit asked for —, or a
+    /// request on it waiting for its commits.
+    fn branch_read(&mut self, cx: &mut Context<Self>) {
+        let request = self.pending_compare.is_some();
+        let Some(shown) = self.history.update(cx, |h, _| h.settle(request)) else {
+            return;
+        };
+        self.refilter(cx);
+        self.index_paths(cx);
+        let ix = shown
+            .keep
+            .and_then(|id| {
+                self.history
+                    .read(cx)
+                    .commits
+                    .iter()
+                    .position(|c| c.id == id)
+            })
+            .unwrap_or(0);
+        if shown.tabbed && shown.keep.is_none() {
+            if !self.finish_pending(cx) {
+                self.run_branch_compare(cx);
+            }
+            self.follow_pending_link(cx);
+            self.open_waiting_draft(cx);
+            return;
+        }
+        if !self.history.read(cx).commits.is_empty() {
+            self.select_commit(ix, cx);
+        }
+        if let Some((base, head, iid)) = self.pending_compare.take() {
+            self.open_request = Some((base.clone(), head.clone(), iid));
+            self.show_request_commits(&base, &head, cx);
+            self.apply_mr_versions(cx);
+            // A commit or versions of it waited for its commits (#71); else the whole request.
+            if !self.finish_pending(cx) {
+                self.run_compare(base, head, true, Some(iid), cx);
+            }
+        } else {
+            self.finish_pending(cx);
+        }
+        self.follow_pending_link(cx);
+        self.open_waiting_draft(cx);
     }
 
     fn select_commit(&mut self, ix: usize, cx: &mut Context<Self>) {
@@ -2307,7 +2276,7 @@ impl Workspace {
             commit.summary.clone(),
             format!("commit {}", format::short(commit.id)),
         );
-        if let Some(row) = self.row_of(ix) {
+        if let Some(row) = self.row_of(ix, cx) {
             self.commit_scroll
                 .scroll_to_item(row, ScrollStrategy::Nearest);
         }

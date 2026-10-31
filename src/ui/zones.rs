@@ -279,25 +279,25 @@ impl Workspace {
         let has_wt = self.wt.count > 0 || self.history.read(cx).selection == Selection::WorkingTree;
         match (self.history.read(cx).selection, down) {
             (Selection::WorkingTree, true) if self.commit_rows(cx) > 0 => {
-                self.select_commit(self.commit_at(0), cx)
+                self.select_commit(self.commit_at(0, cx), cx)
             }
             (Selection::WorkingTree, _) => {}
-            (Selection::Commit(ix), false) if has_wt && self.row_of(ix) == Some(0) => {
+            (Selection::Commit(ix), false) if has_wt && self.row_of(ix, cx) == Some(0) => {
                 self.select_working_tree(cx)
             }
             (Selection::Commit(ix), _) => {
-                if let Some(row) = self.row_of(ix) {
+                if let Some(row) = self.row_of(ix, cx) {
                     let to = if down {
                         (row + 1 < self.commit_rows(cx)).then(|| row + 1)
                     } else {
                         row.checked_sub(1)
                     };
                     if let Some(to) = to {
-                        self.select_commit(self.commit_at(to), cx);
+                        self.select_commit(self.commit_at(to, cx), cx);
                     }
                 }
             }
-            (_, true) if self.commit_rows(cx) > 0 => self.select_commit(self.commit_at(0), cx),
+            (_, true) if self.commit_rows(cx) > 0 => self.select_commit(self.commit_at(0, cx), cx),
             _ => {}
         }
     }

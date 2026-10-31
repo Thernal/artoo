@@ -489,7 +489,7 @@ impl Workspace {
         };
         self.field = None;
         self.review.update(cx, |rv, _| rv.dfind = None);
-        self.find.text = None;
+        self.history.update(cx, |h, _| h.find.text = None);
         self.ctx_menu = None;
         self.reset_field_edit();
         let theme = matches!(kind, Kind::Theme);

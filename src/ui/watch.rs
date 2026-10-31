@@ -5,6 +5,7 @@
 use super::px;
 use super::{COMMIT_PAGE, Selection, Workspace, theme};
 use crate::git::{self, BranchRef, CommitInfo, Repo, Version};
+use artoo_branches::history::Older;
 use gpui::{App, ClickEvent, Context, Rgba, Task, div, prelude::*};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -292,7 +293,7 @@ impl Workspace {
             h.commits = pending.commits;
             // Older history goes on from the new tip.
             if h.older.is_some() {
-                h.older = h.commits.first().map(|tip| super::Older {
+                h.older = h.commits.first().map(|tip| Older {
                     tip: tip.id,
                     task: None,
                 });

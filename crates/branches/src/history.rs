@@ -3,8 +3,10 @@
 
 use crate::compare::CompareCommits;
 use crate::facts::Facts;
+use crate::find::Find;
+use crate::reading::Read;
 use artoo_core::git::{BranchRef, CommitInfo, Version};
-use gpui::Task;
+use gpui::{EventEmitter, Task};
 use std::sync::Arc;
 
 /// A ref's name and the commit it points at.
@@ -53,9 +55,25 @@ pub struct History {
     pub older: Option<Older>,
     pub selection: Selection,
     pub version_tab: VersionTab,
+    /// The commits' search (⌘⇧F).
+    pub find: Find,
     /// The branch being read; replacing it drops, and so cancels, the one it replaces.
     pub task: Option<Task<()>>,
+    /// The branch read, until the tab shows it (`History::settle`).
+    pub(crate) read: Option<Read>,
 }
+
+/// What the tab hears of the history's reads.
+pub enum Event {
+    /// The branch open was read: the tab shows it (`History::settle`).
+    Read,
+    /// More of its history is listed.
+    Older,
+    /// A read failed: what to say.
+    Failed(String),
+}
+
+impl EventEmitter<Event> for History {}
 
 impl Default for History {
     fn default() -> Self {
@@ -69,7 +87,9 @@ impl Default for History {
             older: None,
             selection: Selection::None,
             version_tab: VersionTab::Files,
+            find: Find::default(),
             task: None,
+            read: None,
         }
     }
 }

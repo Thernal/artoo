@@ -138,7 +138,7 @@ impl Workspace {
             Input::Compose => self.compose.is_some(),
             Input::GoLine => self.review.read(cx).goline.is_some(),
             Input::DiffFind => self.review.read(cx).dfind.is_some(),
-            Input::CommitSearch => self.find.text.is_some(),
+            Input::CommitSearch => self.history.read(cx).find.text.is_some(),
             Input::NewRequest => self.creating(cx),
             Input::Submit => self.submitting(cx),
             Input::Tool => self.tool_typing(),
@@ -238,7 +238,9 @@ impl Workspace {
             Input::DiffFind if self.review.read(cx).dfind.as_deref() == Some("") => {
                 self.close_dfind(cx)
             }
-            Input::CommitSearch if self.find.text.as_deref() == Some("") => self.close_find(cx),
+            Input::CommitSearch if self.history.read(cx).find.text.as_deref() == Some("") => {
+                self.close_find(cx)
+            }
             Input::GoLine => self.close_goline(cx),
             _ => {}
         }

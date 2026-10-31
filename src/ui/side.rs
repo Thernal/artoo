@@ -289,10 +289,10 @@ impl Workspace {
                     .map(IntoElement::into_any_element),
             );
             commit_end.push(
-                commit_chip("commit-search", self.find.text.is_some())
+                commit_chip("commit-search", self.history.read(cx).find.text.is_some())
                     .px(px(5.))
                     .child(icons::icon("search").size(px(15.)).text_color(
-                        if self.find.text.is_some() {
+                        if self.history.read(cx).find.text.is_some() {
                             theme::text()
                         } else {
                             theme::muted()
@@ -345,9 +345,24 @@ impl Workspace {
                     cx,
                 ))
                 .when(commits_rows, |s| {
-                    s.children(self.find.text.is_some().then(|| self.render_find(cx)))
-                        .children(self.render_pill(cx))
-                        .child(if self.find.shown.as_ref().is_some_and(Vec::is_empty) {
+                    s.children(
+                        self.history
+                            .read(cx)
+                            .find
+                            .text
+                            .is_some()
+                            .then(|| self.render_find(cx)),
+                    )
+                    .children(self.render_pill(cx))
+                    .child(
+                        if self
+                            .history
+                            .read(cx)
+                            .find
+                            .shown
+                            .as_ref()
+                            .is_some_and(Vec::is_empty)
+                        {
                             // Not found yet: older history is read on (#25).
                             self.want_older_commits(cx);
                             self.render_no_match(cx).into_any_element()
@@ -370,7 +385,9 @@ impl Workspace {
                                         this.want_older_commits(cx);
                                     }
                                     range
-                                        .map(|row| this.render_commit_row(this.commit_at(row), cx))
+                                        .map(|row| {
+                                            this.render_commit_row(this.commit_at(row, cx), cx)
+                                        })
                                         .collect::<Vec<_>>()
                                 }),
                             )
@@ -378,7 +395,8 @@ impl Workspace {
                             .flex_1()
                             .pb(px(6.))
                             .into_any_element()
-                        })
+                        },
+                    )
                 });
             sections.push(open_share(commits, "commits-open", !commits_folded).into_any_element());
         }

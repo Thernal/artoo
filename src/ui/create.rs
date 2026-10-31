@@ -54,7 +54,7 @@ impl Workspace {
                 reviewers: d.reviewers.clone(),
             });
         self.field = None;
-        self.find.text = None;
+        self.history.update(cx, |h, _| h.find.text = None);
         self.palette = None;
         self.ctx_menu = None;
         self.bfilter.clear();

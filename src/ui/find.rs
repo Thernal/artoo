@@ -1,132 +1,42 @@
-//! Commit search: the field above the commit list, its keyboard handling, and the filtered view of
-//! `History::commits`. The matching itself is `crate::search`.
+//! Commit search: the field above the commit list and its keyboard handling; what it finds is the history's
+//! (`artoo_branches::find`).
 
 use super::input::{self, Edit};
 use super::px;
 use super::typing::{self, Input};
-use super::{COMMIT_PAGE, Older, Workspace, theme};
-use crate::git::Repo;
-use crate::search::{self, Query};
+use super::{Workspace, theme};
+use crate::search;
 use artoo_ui_kit::controls::chip;
-use git2::Oid;
 use gpui::{
-    App, ClickEvent, Context, HighlightStyle, KeyDownEvent, SharedString, StyledText, Task, div,
+    App, ClickEvent, Context, HighlightStyle, KeyDownEvent, SharedString, StyledText, div,
     prelude::*,
 };
-use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Qualifiers offered as tags under the field.
 const QUALIFIERS: [&str; 3] = ["author:", "path:", "since:"];
-/// Commits whose paths are read per background step.
-const PATH_CHUNK: usize = 250;
-
-#[derive(Default)]
-pub struct Find {
-    /// The text in the field; `None` while the field is not active.
-    pub text: Option<String>,
-    pub query: Query,
-    /// Indices into `History::commits` of the commits that match; `None` shows every commit.
-    pub shown: Option<Vec<usize>>,
-    /// Paths each commit touched, read in the background after a branch loads.
-    paths: HashMap<Oid, Vec<String>>,
-    /// Paths are still being read.
-    pub indexing: bool,
-    task: Option<Task<()>>,
-}
-
-impl Find {
-    /// A new repository: nothing known about its commits.
-    pub fn reset(&mut self) {
-        self.paths.clear();
-        self.indexing = false;
-        self.task = None;
-        self.shown = None;
-    }
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
-}
-
 impl Workspace {
     /// Rows in the commit list.
     pub(super) fn commit_rows(&self, cx: &App) -> usize {
-        self.find
-            .shown
-            .as_ref()
-            .map_or(self.history.read(cx).commits.len(), Vec::len)
+        self.history.read(cx).commit_rows()
     }
 
     /// The index in `commits` shown at list row `row`.
-    pub(super) fn commit_at(&self, row: usize) -> usize {
-        self.find.shown.as_ref().map_or(row, |s| s[row])
+    pub(super) fn commit_at(&self, row: usize, cx: &App) -> usize {
+        self.history.read(cx).commit_at(row)
     }
 
     /// The list row of commit `ix`, if it is shown.
-    pub(super) fn row_of(&self, ix: usize) -> Option<usize> {
-        match &self.find.shown {
-            None => Some(ix),
-            Some(shown) => shown.iter().position(|&i| i == ix),
-        }
+    pub(super) fn row_of(&self, ix: usize, cx: &App) -> Option<usize> {
+        self.history.read(cx).row_of(ix)
     }
 
     /// The branch's older history, a page more (#25): as the list is scrolled near its end, and
-    /// on and on while a search has not found what it looks for. A page is as long as what is
-    /// listed, so a search through a long history reads it in a few.
+    /// on and on while a search has not found what it looks for (`History::read_older`).
     pub(super) fn load_older_commits(&mut self, cx: &mut Context<Self>) {
-        let history = self.history.read(cx);
-        let (Some(root), Some(older)) = (self.root.clone(), history.older.as_ref()) else {
+        let Some(root) = self.root.clone() else {
             return;
         };
-        if older.task.is_some() {
-            return;
-        }
-        let (tip, skip) = (older.tip, history.commits.len());
-        let count = skip.max(COMMIT_PAGE);
-        let task = cx.spawn(async move |this, cx| {
-            let read = cx
-                .background_executor()
-                .spawn(async move { Repo::open(&root)?.log(tip, skip, count, None) })
-                .await;
-            this.update(cx, |this, cx| {
-                // Another branch, or the history read again meanwhile: not these.
-                if this
-                    .history
-                    .read(cx)
-                    .older
-                    .as_ref()
-                    .is_none_or(|o| o.tip != tip)
-                    || this.history.read(cx).commits.len() != skip
-                {
-                    return;
-                }
-                match read {
-                    Ok(page) => {
-                        let more = page.len() >= count;
-                        this.history.update(cx, |h, _| {
-                            h.commits.extend(page);
-                            h.older = more.then_some(Older { tip, task: None });
-                        });
-                        this.refilter(cx);
-                        this.index_paths(cx);
-                    }
-                    Err(e) => {
-                        this.history.update(cx, |h, _| h.older = None);
-                        this.error = Some(format!("{e:#}").into());
-                    }
-                }
-                cx.notify();
-            })
-            .ok();
-        });
-        self.history.update(cx, |h, _| {
-            if let Some(older) = h.older.as_mut() {
-                older.task = Some(task);
-            }
-        });
+        self.history.update(cx, |h, cx| h.read_older(root, cx));
     }
 
     /// Reads a page more of history once this frame is drawn, unless one is on its way.
@@ -146,43 +56,29 @@ impl Workspace {
         });
     }
 
-    /// Filters `commits` by the field's text; the selection stays where it is.
-    pub(super) fn refilter(&mut self, cx: &App) {
-        let text = self.find.text.clone().unwrap_or_default();
-        self.find.query = Query::parse(&text, now());
-        self.find.shown = (!self.find.query.is_empty()).then(|| {
-            self.history
-                .read(cx)
-                .commits
-                .iter()
-                .enumerate()
-                .filter(|(_, c)| {
-                    let paths = self.find.paths.get(&c.id).map(Vec::as_slice);
-                    // A path condition cannot be judged before the paths are known.
-                    self.find.query.matches(c, paths)
-                })
-                .map(|(ix, _)| ix)
-                .collect()
-        });
+    /// Filters the commits by the search's text (`History::refilter`).
+    pub(super) fn refilter(&mut self, cx: &mut App) {
+        self.history.update(cx, |h, _| h.refilter());
     }
 
     pub(super) fn start_find(&mut self, cx: &mut Context<Self>) {
-        if self.find.text.is_none() {
+        if self.history.read(cx).find.text.is_none() {
             self.reset_field_edit();
         }
         self.settings_open = false;
-        if self.find.text.is_none() {
-            self.find.text = Some(String::new());
+        if self.history.read(cx).find.text.is_none() {
+            self.history
+                .update(cx, |h, _| h.find.text = Some(String::new()));
         }
         self.take_keyboard(Input::CommitSearch, cx);
         cx.notify();
     }
 
     pub(super) fn close_find(&mut self, cx: &mut Context<Self>) {
-        self.find.text = None;
+        self.history.update(cx, |h, _| h.find.text = None);
         self.refilter(cx);
         if let Selection::Commit(ix) = self.history.read(cx).selection
-            && let Some(row) = self.row_of(ix)
+            && let Some(row) = self.row_of(ix, cx)
         {
             self.commit_scroll
                 .scroll_to_item(row, gpui::ScrollStrategy::Center);
@@ -191,10 +87,10 @@ impl Workspace {
     }
 
     fn set_find_text(&mut self, text: String, cx: &mut Context<Self>) {
-        self.find.text = Some(text);
+        self.history.update(cx, |h, _| h.find.text = Some(text));
         self.refilter(cx);
         if let Selection::Commit(ix) = self.history.read(cx).selection
-            && let Some(row) = self.row_of(ix)
+            && let Some(row) = self.row_of(ix, cx)
         {
             self.commit_scroll
                 .scroll_to_item(row, gpui::ScrollStrategy::Nearest);
@@ -287,7 +183,7 @@ impl Workspace {
                 cx.notify();
             } else if self.review.read(cx).dfind.is_some() {
                 self.close_dfind(cx);
-            } else if self.find.text.is_some() {
+            } else if self.history.read(cx).find.text.is_some() {
                 self.close_find(cx);
             } else if self.side_drawer() {
                 self.close_drawer(cx);
@@ -359,7 +255,7 @@ impl Workspace {
 
     /// Typing into the commits' search; ↵ opens the first commit found.
     fn search_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
-        let Some(mut text) = self.find.text.clone() else {
+        let Some(mut text) = self.history.read(cx).find.text.clone() else {
             return;
         };
         match input::edit(&mut text, &mut self.field_edit, &event.keystroke, cx) {
@@ -367,7 +263,7 @@ impl Workspace {
             Edit::Selected => cx.notify(),
             Edit::Enter { .. } => {
                 if self.commit_rows(cx) > 0 {
-                    self.select_commit(self.commit_at(0), cx);
+                    self.select_commit(self.commit_at(0, cx), cx);
                 }
             }
             Edit::Escape => self.leave_input(cx),
@@ -501,59 +397,18 @@ impl Workspace {
         Some(typing::input_box(bar, Input::DiffFind, cx))
     }
 
-    /// Reads the paths of every loaded commit, a chunk at a time; the filter updates as they arrive.
+    /// Reads the paths of every loaded commit (`History::index_paths`).
     pub(super) fn index_paths(&mut self, cx: &mut Context<Self>) {
         let Some(root) = self.root.clone() else {
             return;
         };
-        let ids: Vec<Oid> = self
-            .history
-            .read(cx)
-            .commits
-            .iter()
-            .map(|c| c.id)
-            .filter(|id| !self.find.paths.contains_key(id))
-            .collect();
-        if ids.is_empty() {
-            self.find.indexing = false;
-            return;
-        }
-        self.find.indexing = true;
-        self.find.task = Some(cx.spawn(async move |this, cx| {
-            for chunk in ids.chunks(PATH_CHUNK) {
-                let chunk = chunk.to_vec();
-                let root = root.clone();
-                let read = cx
-                    .background_executor()
-                    .spawn(async move {
-                        Repo::open(&root)
-                            .map(|repo| repo.changed_paths(&chunk))
-                            .unwrap_or_default()
-                    })
-                    .await;
-                let alive = this.update(cx, |this, cx| {
-                    this.find.paths.extend(read);
-                    if this.find.query.needs_paths() || this.find.text.is_some() {
-                        this.refilter(cx);
-                    }
-                    cx.notify();
-                });
-                if alive.is_err() {
-                    return;
-                }
-            }
-            this.update(cx, |this, cx| {
-                this.find.indexing = false;
-                cx.notify();
-            })
-            .ok();
-        }));
+        self.history.update(cx, |h, cx| h.index_paths(root, cx));
     }
 
     /// The search field, its qualifier tags and the count line.
     pub(super) fn render_find(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let active = self.has_keyboard(Input::CommitSearch, cx);
-        let text = self.find.text.clone().unwrap_or_default();
+        let text = self.history.read(cx).find.text.clone().unwrap_or_default();
         let field = div()
             .id("find")
             .flex_none()
@@ -603,7 +458,8 @@ impl Workspace {
                         .hover(|s| s.text_color(theme::text()))
                         .child(q)
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            let mut text = this.find.text.clone().unwrap_or_default();
+                            let mut text =
+                                this.history.read(cx).find.text.clone().unwrap_or_default();
                             if !text.is_empty() && !text.ends_with(' ') {
                                 text.push(' ');
                             }
@@ -612,7 +468,7 @@ impl Workspace {
                         }))
                 }))
         });
-        let count = self.find.shown.as_ref().map(|shown| {
+        let count = self.history.read(cx).find.shown.as_ref().map(|shown| {
             let mut line = format!(
                 "{} of {} commits",
                 shown.len(),
@@ -621,7 +477,7 @@ impl Workspace {
             // Older history still being read for it (#25).
             if self.history.read(cx).older.is_some() {
                 line.push_str(" · reading older ones…");
-            } else if self.find.indexing {
+            } else if self.history.read(cx).find.indexing {
                 line.push_str(" · reading paths…");
             }
             div()
@@ -642,8 +498,8 @@ impl Workspace {
     }
 
     /// The summary of commit `ix`, with the search words highlighted.
-    pub(super) fn summary_text(&self, summary: &SharedString) -> StyledText {
-        let ranges = search::highlights(summary, self.find.query.words());
+    pub(super) fn summary_text(&self, summary: &SharedString, cx: &App) -> StyledText {
+        let ranges = search::highlights(summary, self.history.read(cx).find.query.words());
         StyledText::new(summary.clone()).with_highlights(ranges.into_iter().map(|range| {
             (
                 range,
@@ -658,7 +514,7 @@ impl Workspace {
 
     /// Shown instead of the list when nothing matches.
     pub(super) fn render_no_match(&self, cx: &App) -> impl IntoElement + use<> {
-        let text = self.find.text.clone().unwrap_or_default();
+        let text = self.history.read(cx).find.text.clone().unwrap_or_default();
         div()
             .flex_1()
             .flex()
