@@ -12,6 +12,7 @@
 
 use super::spaces::Space;
 use super::{Selection, Workspace, recents, zones};
+use artoo_branches::opening::Opening;
 use artoo_branches::waiting::{Pick, Waiting};
 use artoo_core::route::Route;
 use artoo_ui_kit::format;
@@ -750,54 +751,29 @@ impl Workspace {
                 rv.restore_scroll = opened.as_ref().and_then(|o| o.place.clone())
             });
         }
+        // A branch's kinds: what showing it takes is the history's (`History::opening`).
+        let remembered = opened.as_ref().and_then(|o| o.commit);
+        if let Some(opening) = self
+            .history
+            .update(cx, |h, _| h.opening(&page.route(), same_item, remembered))
+        {
+            match opening {
+                Opening::Branch { ix, keep } => self.select_branch(ix, keep, cx),
+                Opening::Changes => self.run_branch_compare(cx),
+                Opening::Commit(ix) => self.select_commit(ix, cx),
+                Opening::Versions(from, to) => self.select_versions(from, to, cx),
+                Opening::Finish => {
+                    self.finish_pending(cx);
+                }
+                Opening::WorkingTree => self.select_working_tree(cx),
+                Opening::Compare(base, head, since) => {
+                    self.run_compare(base, head, since, None, cx)
+                }
+                Opening::Stay => {}
+            }
+            return;
+        }
         match page.clone() {
-            Page::File(_) | Page::Folder(_) => {}
-            Page::Branch(refname) if same_item && self.history.read(cx).tabbed(&refname) => {
-                self.run_branch_compare(cx)
-            }
-            Page::BranchCommit(refname, id) => {
-                if same_item
-                    && let Some(ix) = self
-                        .history
-                        .read(cx)
-                        .commits
-                        .iter()
-                        .position(|c| c.id == id)
-                {
-                    self.select_commit(ix, cx);
-                } else if let Some(ix) = self.branch_ix(&refname, cx) {
-                    self.select_branch(ix, Some(id), cx);
-                }
-            }
-            Page::Branch(refname) => {
-                let commit = opened.and_then(|o| o.commit);
-                if same_item {
-                    let ix = commit
-                        .and_then(|id| {
-                            self.history
-                                .read(cx)
-                                .commits
-                                .iter()
-                                .position(|c| c.id == id)
-                        })
-                        .unwrap_or(0);
-                    if !self.history.read(cx).commits.is_empty() {
-                        self.select_commit(ix, cx);
-                    }
-                } else if let Some(ix) = self.branch_ix(&refname, cx) {
-                    self.select_branch(ix, commit, cx);
-                }
-            }
-            Page::Versions(refname, from, to) => {
-                if same_item && to < self.history.read(cx).versions.len() {
-                    self.select_versions(from, to, cx);
-                } else if let Some(ix) = self.branch_ix(&refname, cx) {
-                    self.wait_for(None, Pick::Versions(from, to), cx);
-                    self.select_branch(ix, None, cx);
-                }
-            }
-            Page::WorkingTree => self.select_working_tree(cx),
-            Page::Compare(base, head, since) => self.run_compare(base, head, since, None, cx),
             Page::Request(iid) => {
                 if same_item {
                     if let Some((base, head, iid)) = self.history.read(cx).open_request.clone() {
@@ -816,14 +792,7 @@ impl Workspace {
             Page::RequestVersions(iid, from, to) => {
                 self.load_request_pick(iid, Pick::Versions(from, to), same_item, cx)
             }
-            Page::BranchCommits(refname, newest, oldest) => {
-                self.wait_for(None, Pick::Commits(newest, oldest), cx);
-                if same_item {
-                    self.finish_pending(cx);
-                } else if let Some(ix) = self.branch_ix(&refname, cx) {
-                    self.select_branch(ix, None, cx);
-                }
-            }
+            _ => {}
         }
     }
 

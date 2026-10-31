@@ -65,7 +65,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   their lists are scrolled, the commit's message open or not, and what the diff shows of them (`history`; a
   commit, a run, versions, an interdiff, the working tree, a comparison or a run of its commits shown through the
   review's handle, `shown`), where it is as a route of its own (`place`: the route nav keeps, whether a branch has
-  its own commits), what its page says of it (`facts`; its line a piece over the page, `facts::line`), the commits' search (`find`: its field an `Area`, its keys `History::find_key`, the field a part's, `find::input`), a
+  its own commits), what opening a route of its kinds takes (`opening`: `History::opening`, an `Opening` the tab acts on), what its page says of it (`facts`; its line a piece over the page, `facts::line`), the commits' search (`find`: its field an `Area`, its keys `History::find_key`, the field a part's, `find::input`), a
   comparison's own commits (`compare`), the working tree as last looked at (`working`), what the Branches list
   reads for its rows (`roots`) —, and its sections of the side panel (`panel`: their folds, `Act::Fold`; the Versions, Commits and a comparison's commits sections, the tab giving what is its in a `CommitsLook`), the views of its rows and its lists, the commits' and a comparison's, each its own `uniform_list` (`side`), a commit's card (`card`) and the
   head over a diff with its toolbar's left (`head`: a piece of the item page, `head::piece`; what the diff is of, the working tree's halves, a comparison's
