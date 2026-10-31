@@ -62,29 +62,20 @@ pub struct RequestOf<'a> {
 }
 
 impl History {
-    /// What showing `route` takes; `same` when its branch is the one open (the item loaded), `remembered` the
-    /// commit last shown on the branch's page. A run's or versions' page asked of a branch not open waits for it
-    /// (`waiting`). `None` for a route of another kind.
-    pub fn opening(
-        &mut self,
-        route: &Route,
-        same: bool,
-        remembered: Option<Oid>,
-    ) -> Option<Opening> {
+    /// What showing `route` takes; `same` when its branch is the one open (the item loaded). A branch's own page
+    /// is its Changes when it has its own commits, else its newest commit: another commit is a page of its own (the
+    /// developer, 2026-11-01). A run's or versions' page asked of a branch not open waits for it (`waiting`). `None`
+    /// for a route of another kind.
+    pub fn opening(&mut self, route: &Route, same: bool) -> Option<Opening> {
         if let Some(BranchRoute { refname }) = BranchRoute::from_route(route) {
             return Some(if same && self.tabbed(&refname) {
                 Opening::Changes
+            } else if same && self.commits.is_empty() {
+                Opening::Stay
             } else if same {
-                let ix = remembered
-                    .and_then(|id| self.commits.iter().position(|c| c.id == id))
-                    .unwrap_or(0);
-                if self.commits.is_empty() {
-                    Opening::Stay
-                } else {
-                    Opening::Commit(ix)
-                }
+                Opening::Commit(0)
             } else {
-                self.reopen(&refname, remembered)
+                self.reopen(&refname, None)
             });
         }
         if let Some(BranchCommitRoute { refname, commit }) = BranchCommitRoute::from_route(route) {
@@ -263,29 +254,23 @@ mod tests {
     #[test]
     fn a_branch_open_shows_what_is_asked_one_not_open_is_read() {
         let mut h = history();
+        // A branch without its own commits: its page is its newest commit.
+        assert_eq!(h.opening(&branch(), true), Some(Opening::Commit(0)));
         assert_eq!(
-            h.opening(&branch(), true, Some(id(2))),
-            Some(Opening::Commit(1))
-        );
-        assert_eq!(h.opening(&branch(), true, None), Some(Opening::Commit(0)));
-        assert_eq!(
-            h.opening(&branch(), false, Some(id(2))),
-            Some(Opening::Branch {
-                ix: 0,
-                keep: Some(id(2))
-            })
+            h.opening(&branch(), false),
+            Some(Opening::Branch { ix: 0, keep: None })
         );
         let commit = BranchCommitRoute {
             refname: "refs/heads/feature".into(),
             commit: id(1).to_string(),
         }
         .route();
-        assert_eq!(h.opening(&commit, true, None), Some(Opening::Commit(2)));
+        assert_eq!(h.opening(&commit, true), Some(Opening::Commit(2)));
         let gone = BranchRoute {
             refname: "refs/heads/gone".into(),
         }
         .route();
-        assert_eq!(h.opening(&gone, false, None), Some(Opening::Stay));
+        assert_eq!(h.opening(&gone, false), Some(Opening::Stay));
     }
 
     #[test]
@@ -298,7 +283,7 @@ mod tests {
         }
         .route();
         assert_eq!(
-            h.opening(&run, false, None),
+            h.opening(&run, false),
             Some(Opening::Branch { ix: 0, keep: None })
         );
         assert_eq!(h.waiting.map(|w| w.pick), Some(Pick::Commits(id(3), id(2))));
@@ -310,17 +295,17 @@ mod tests {
         .route();
         h.waiting = None;
         assert_eq!(
-            h.opening(&versions, false, None),
+            h.opening(&versions, false),
             Some(Opening::Branch { ix: 0, keep: None })
         );
         assert_eq!(h.waiting.map(|w| w.pick), Some(Pick::Versions(0, 1)));
         let request = RequestRoute { number: 1 }.route();
-        assert_eq!(h.opening(&request, false, None), Some(Opening::Request(1)));
+        assert_eq!(h.opening(&request, false), Some(Opening::Request(1)));
         let other = Route {
             kind: "code.file".into(),
             args: r#"{"path":"a.rs"}"#.into(),
         };
-        assert_eq!(h.opening(&other, false, None), None);
+        assert_eq!(h.opening(&other, false), None);
     }
 
     #[test]

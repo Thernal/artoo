@@ -11,7 +11,7 @@
 //! say where they went through `arrive`.
 
 use super::spaces::Space;
-use super::{Selection, Workspace, recents, zones};
+use super::{Workspace, recents, zones};
 use artoo_branches::opening::Opening;
 use artoo_core::route::Route;
 use artoo_ui_kit::format;
@@ -222,8 +222,6 @@ pub struct Opened {
     pub item: Item,
     /// The page it was on.
     pub page: Page,
-    /// The commit its branch page showed.
-    commit: Option<Oid>,
     /// The file and scroll it was at.
     place: Option<(String, ListOffset)>,
     /// The files of its diff when it was last shown: an agent draft on one is unsent work here.
@@ -241,12 +239,11 @@ struct Saved {
     open: Vec<(Item, Option<Page>)>,
 }
 
-/// A page seen: ⌘[ ⌘] come back to it, with the commit a branch's page showed.
+/// A page seen: ⌘[ ⌘] come back to it.
 #[derive(Clone, PartialEq, Debug)]
 struct Moment {
     space: Space,
     page: Option<Page>,
-    commit: Option<Oid>,
 }
 
 pub struct Nav {
@@ -300,17 +297,10 @@ impl Nav {
         self.at + 1 < self.time.len()
     }
 
-    /// A new moment; the ones ahead of it are dropped, the same one twice is one. A branch's page
-    /// shown before its commit was in becomes the one with the commit.
+    /// A new moment; the ones ahead of it are dropped, the same one twice is one.
     fn remember(&mut self, moment: Moment) {
-        if let Some(last) = self.time.get_mut(self.at) {
-            if *last == moment {
-                return;
-            }
-            if last.space == moment.space && last.page == moment.page && last.commit.is_none() {
-                *last = moment;
-                return;
-            }
+        if self.time.get(self.at) == Some(&moment) {
+            return;
         }
         let keep = (self.at + 1).min(self.time.len());
         self.time.truncate(keep);
@@ -428,14 +418,6 @@ impl Workspace {
         Page::from_route(&route)
     }
 
-    /// The commit the page shows, when it shows one.
-    fn shown_commit(&self, cx: &App) -> Option<Oid> {
-        match self.history.read(cx).selection {
-            Selection::Commit(ix) => self.history.read(cx).commits.get(ix).map(|c| c.id),
-            _ => None,
-        }
-    }
-
     /// Something was opened: its space and page come on screen, over the Inbox or Settings. From
     /// another space it was a link, and the page says where it came from.
     pub(super) fn arrive(&mut self, page: Page, cx: &App) {
@@ -540,21 +522,13 @@ impl Workspace {
         self.nav.space = space;
         self.nav.pages[space.ix()] = Some(page.clone());
         if let Some(item) = page.item() {
-            // The commit shown is this item's only when it is the one loaded.
-            let commit = self
-                .shown_commit(cx)
-                .filter(|_| self.loaded_page(cx).and_then(|p| p.item()).as_ref() == Some(&item));
             match self.nav.opened_mut(&item) {
-                Some(open) => {
-                    open.page = page.clone();
-                    open.commit = commit.or(open.commit);
-                }
+                Some(open) => open.page = page.clone(),
                 None => {
                     let section = self.first_section(&item, cx);
                     self.nav.open.push(Opened {
                         item: item.clone(),
                         page: page.clone(),
-                        commit,
                         place: None,
                         paths: Vec::new(),
                         section,
@@ -585,7 +559,7 @@ impl Workspace {
                 open.section = section;
             }
         }
-        self.remember_moment(cx);
+        self.remember_moment();
         self.save_nav();
     }
 
@@ -611,16 +585,13 @@ impl Workspace {
         }
     }
 
-    fn remember_moment(&mut self, cx: &App) {
+    fn remember_moment(&mut self) {
         if self.nav.restoring {
             return;
         }
         let moment = Moment {
             space: self.nav.space,
             page: self.nav_page().cloned(),
-            commit: self
-                .shown_commit(cx)
-                .filter(|_| matches!(self.nav_page(), Some(Page::Branch(_)))),
         };
         self.nav.remember(moment);
     }
@@ -634,7 +605,6 @@ impl Workspace {
             return;
         };
         let place = self.review.read(cx).scroll_place();
-        let commit = self.shown_commit(cx);
         let paths: Vec<String> = self
             .review
             .read(cx)
@@ -647,7 +617,6 @@ impl Workspace {
             if place.is_some() {
                 open.place = place;
             }
-            open.commit = commit.or(open.commit);
             if !paths.is_empty() {
                 open.paths = paths;
             }
@@ -669,7 +638,7 @@ impl Workspace {
             Some(page) => self.load_page(page, cx),
         }
         self.nav.restoring = false;
-        self.remember_moment(cx);
+        self.remember_moment();
         self.save_nav();
         cx.notify();
     }
@@ -731,10 +700,9 @@ impl Workspace {
             });
         }
         // A branch's or a request's kinds: what showing it takes is the history's (`History::opening`).
-        let remembered = opened.as_ref().and_then(|o| o.commit);
         if let Some(opening) = self
             .history
-            .update(cx, |h, _| h.opening(&page.route(), same_item, remembered))
+            .update(cx, |h, _| h.opening(&page.route(), same_item))
         {
             match opening {
                 Opening::Branch { ix, keep } => self.select_branch(ix, keep, cx),
@@ -834,31 +802,6 @@ impl Workspace {
             return;
         };
         let at = self.nav.at;
-        // The commit a branch's page showed then is the one it shows again.
-        if let (Some(Page::Branch(refname)), Some(id)) = (&moment.page, moment.commit) {
-            let item = Item::Branch(refname.clone());
-            if let Some(open) = self.nav.opened_mut(&item) {
-                open.commit = Some(id);
-            }
-            let loaded = self.loaded_page(cx).and_then(|p| p.item()) == Some(item);
-            if loaded && self.page_of(Space::Branches) == moment.page.as_ref() {
-                self.nav.space = Space::Branches;
-                self.nav.restoring = true;
-                if let Some(ix) = self
-                    .history
-                    .read(cx)
-                    .commits
-                    .iter()
-                    .position(|c| c.id == id)
-                {
-                    self.select_commit(ix, cx);
-                }
-                self.nav.restoring = false;
-                self.inbox = false;
-                self.nav.at = at;
-                return cx.notify();
-            }
-        }
         self.nav.from = None;
         self.show(moment.space, moment.page, cx);
         // Showing it is not a new moment.
@@ -908,7 +851,6 @@ impl Workspace {
         self.nav.open.push(Opened {
             item,
             page,
-            commit: None,
             place: None,
             paths: Vec::new(),
             section: Section::Changes,
@@ -1017,7 +959,6 @@ impl Workspace {
             self.nav.open.push(Opened {
                 item,
                 page,
-                commit: None,
                 place: None,
                 paths: Vec::new(),
                 section: Section::Changes,
@@ -1292,7 +1233,6 @@ mod tests {
             nav.open.push(Opened {
                 page,
                 item,
-                commit: None,
                 place: None,
                 paths: Vec::new(),
                 section: Section::Changes,
@@ -1361,28 +1301,19 @@ mod tests {
     #[test]
     fn time_drops_what_was_ahead_and_keeps_one_of_a_kind() {
         let mut nav = Nav::default();
-        let at = |space, page: Option<Page>| Moment {
-            space,
-            page,
-            commit: None,
-        };
+        let at = |space, page: Option<Page>| Moment { space, page };
         nav.remember(at(Space::Inbox, None));
         nav.remember(at(Space::Requests, Some(Page::Request(1))));
         nav.remember(at(Space::Requests, Some(Page::Request(1))));
         nav.remember(at(Space::Branches, None));
         assert_eq!(nav.time.len(), 3);
-        // The branch's page, then the same with its commit in: one moment.
+        // A commit of the main line is a page of its own: a moment after its branch's.
         let id = Oid::from_str("0123456789012345678901234567890123456789").unwrap();
-        let branch = Some(Page::Branch("refs/heads/main".into()));
-        nav.remember(at(Space::Branches, branch.clone()));
-        nav.remember(Moment {
-            commit: Some(id),
-            ..at(Space::Branches, branch)
-        });
-        assert_eq!(nav.time.len(), 4);
-        assert_eq!(nav.time[3].commit, Some(id));
+        let main = "refs/heads/main".to_owned();
+        nav.remember(at(Space::Branches, Some(Page::Branch(main.clone()))));
+        nav.remember(at(Space::Branches, Some(Page::BranchCommit(main, id))));
+        assert_eq!(nav.time.len(), 5);
         nav.time.truncate(3);
-        nav.at = 2;
         nav.at = 0;
         assert!(nav.can_forward() && !nav.can_back());
         nav.remember(at(Space::Code, None));

@@ -77,9 +77,10 @@ impl History {
         self.route(shown)
     }
 
-    /// Where the branch open is, by the selection and the diff `shown`: a commit of a branch with its own commits,
-    /// not the main line's; the branch's own comparison is its page, another comparison its own. None while no
-    /// branch is open, or a commit picked is gone.
+    /// Where the branch open is, by the selection and the diff `shown`: a commit of it — on a branch without its
+    /// own commits any but the newest, which is the branch's own page there (the developer, 2026-11-01) —; the
+    /// branch's own comparison is its page, another comparison its own. None while no branch is open, or a commit
+    /// picked is gone.
     pub fn route(&self, shown: Option<&Header>) -> Option<Route> {
         let refname = self.branches.get(self.branch?)?.refname.clone();
         let hex = |id: git2::Oid| id.to_string();
@@ -87,7 +88,7 @@ impl History {
         Some(match (self.selection, shown) {
             (Selection::WorkingTree, _) => WorkingTreeRoute {}.route(),
             (Selection::Versions { from, to }, _) => VersionsRoute { refname, from, to }.route(),
-            (Selection::Commit(ix), _) if tabbed => BranchCommitRoute {
+            (Selection::Commit(ix), _) if tabbed || ix > 0 => BranchCommitRoute {
                 refname,
                 commit: hex(self.commits.get(ix)?.id),
             }

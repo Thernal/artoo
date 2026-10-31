@@ -117,15 +117,11 @@ impl Workspace {
     fn side_versions(&self, cx: &App) -> bool {
         let page = self.nav_page();
         let tabbed = !self.item_sections(cx).is_empty();
+        // A commit of the main line is its page's own level: the panel stays as on its branch.
         let commit_level = matches!(
             page,
-            Some(
-                Page::RequestCommit(..)
-                    | Page::BranchCommit(..)
-                    | Page::RequestCommits(..)
-                    | Page::BranchCommits(..)
-            )
-        );
+            Some(Page::RequestCommit(..) | Page::RequestCommits(..) | Page::BranchCommits(..))
+        ) || (tabbed && matches!(page, Some(Page::BranchCommit(..))));
         let branch = tabbed
             && matches!(
                 page,
