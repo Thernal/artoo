@@ -158,6 +158,14 @@ impl Workspace {
         self.typing(cx) == Some(input)
     }
 
+    /// The part's input with the keyboard, by its id.
+    pub(super) fn part_typing(&self, cx: &App) -> Option<&'static str> {
+        match self.typing(cx) {
+            Some(Input::Part(id)) => Some(id),
+            _ => None,
+        }
+    }
+
     fn spot(&self, cx: &App) -> Spot {
         Spot {
             settings: self.settings_open,

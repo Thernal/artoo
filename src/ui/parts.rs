@@ -314,10 +314,7 @@ impl Workspace {
             selecting: self.selecting(cx.weak_entity()),
             web: self.web.clone(),
             filter: self.bfilter.clone(),
-            typing: match self.typing(cx) {
-                Some(super::typing::Input::Part(id)) => Some(id),
-                _ => None,
-            },
+            typing: self.part_typing(cx),
         }
     }
 

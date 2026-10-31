@@ -180,17 +180,6 @@ impl Workspace {
         self.go_found(found, cx);
     }
 
-    /// The find bar above the diff, the review's (`Review::render_find_bar`).
-    pub(super) fn render_dfind(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
-        let input = Input::Part(artoo_review::find::INPUT);
-        let active = self.has_keyboard(input, cx);
-        let bar = self
-            .review
-            .read(cx)
-            .render_find_bar(active, self.review.downgrade())?;
-        Some(typing::input_box(bar, input, cx))
-    }
-
     /// Reads the paths of every loaded commit (`History::index_paths`).
     pub(super) fn index_paths(&mut self, cx: &mut Context<Self>) {
         self.history.update(cx, |h, cx| h.index_paths(cx));

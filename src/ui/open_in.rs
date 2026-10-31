@@ -11,13 +11,16 @@ use super::{Workspace, icons, px, theme};
 use crate::editor::{self, Editor};
 use crate::files::binary;
 use crate::platform;
-use gpui::{AnyElement, ClickEvent, Context, MouseButton, MouseDownEvent, div, prelude::*};
+use gpui::{
+    AnyElement, ClickEvent, Context, MouseButton, MouseDownEvent, SharedString, div, prelude::*,
+};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 const FILE: &str = "open-with.txt";
 
-use artoo_ui_kit::controls::{self, REVEAL};
+use artoo_ui_kit::controls::{self, REVEAL, chip};
+use artoo_ui_kit::hover;
 
 /// An app a file opens in.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -414,6 +417,38 @@ impl Workspace {
                 .flex_none()
                 .child(main.rounded_r(px(0.)))
                 .child(more)
+                .into_any_element(),
+        )
+    }
+
+    /// The file's line's chips: the app the diff's file opens in, ▾ the others. A diff under 600 px
+    /// keeps its ↗, the app in its tooltip (#80).
+    pub(super) fn open_in_chips(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let app = self
+            .open_target(cx)
+            .and_then(|(path, _)| self.open_app(&path))?;
+        let label = if self.review.read(cx).tight {
+            "↗".to_owned()
+        } else {
+            format!("Open in {} ↗", app.name())
+        };
+        let tip: SharedString = format!("Open in {}  ⌥⌘O", app.name()).into();
+        Some(
+            div()
+                .flex()
+                .flex_none()
+                .child(
+                    chip("open-editor", label, false)
+                        .tooltip_show_delay(hover::LONG)
+                        .tooltip(move |_, cx| cx.new(|_| super::TipOwned(tip.clone())).into())
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_in(cx))),
+                )
+                .child(chip("open-in-more", "▾", false).on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, e: &MouseDownEvent, _, cx| {
+                        this.open_in_menu(e.position, cx)
+                    }),
+                ))
                 .into_any_element(),
         )
     }

@@ -125,21 +125,6 @@ impl Workspace {
         }
     }
 
-    /// The prompt of `c` over the diff, while the line is on no row (`Review::render_goline`).
-    pub(super) fn render_goline(
-        &self,
-        this: WeakEntity<Self>,
-        cx: &App,
-    ) -> Option<impl IntoElement + use<>> {
-        let input = Input::Part(artoo_review::goline::INPUT);
-        let active = self.has_keyboard(input, cx);
-        let card = self
-            .review
-            .read(cx)
-            .render_goline(active, self.review.downgrade())?;
-        Some(typing::input_box_of(card, input, this))
-    }
-
     /// Shows a comment: in the open file, scrolled to; in another file of the diff, that file first.
     pub(super) fn jump_to(&mut self, id: u64, cx: &mut Context<Self>) {
         let Some((path, line, old)) = self

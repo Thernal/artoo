@@ -24,7 +24,10 @@
 use artoo_core::git::WebRemote;
 use artoo_core::route::Route;
 use artoo_ui_kit::markdown::Selecting;
-use gpui::{AnyElement, AnyView, App, Global, KeyDownEvent, Pixels, Point, SharedString, Window};
+use gpui::{
+    AnyElement, AnyView, App, Global, InteractiveElement, KeyDownEvent, MouseButton, Pixels, Point,
+    SharedString, Window,
+};
 use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -266,6 +269,16 @@ pub struct Input {
     pub selected: Selected,
     /// ↑ ↓ are its own while it has the keyboard: they move its caret or what it points at.
     pub caret: Rc<dyn Fn(&App) -> bool>,
+}
+
+/// `el` as the box of a part's input `id` (`Input::id`): a press in it gives the input the keyboard, one outside
+/// takes it away.
+pub fn input_box<E: InteractiveElement>(el: E, id: &'static str, frame: &Rc<dyn Frame>) -> E {
+    let (take, leave) = (frame.clone(), frame.clone());
+    el.on_mouse_down(MouseButton::Left, move |_, _, cx| {
+        take.take_keyboard(id, cx)
+    })
+    .on_mouse_down_out(move |_, _, cx| leave.leave_keyboard(id, cx))
 }
 
 /// A key typed in a part's input (`Input::key`).

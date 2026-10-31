@@ -91,9 +91,9 @@ use artoo_review::diff::{Diff, Header, Notice};
 use artoo_review::diff_view::{self, CODE_SIZE};
 use artoo_review::review::{self, Opt};
 use artoo_shell_api::Slot;
-use artoo_ui_kit::controls::{chip, tag};
+use artoo_ui_kit::controls::tag;
 use gpui::{
-    App, ClickEvent, Context, CursorStyle, FocusHandle, FontWeight, KeyBinding, KeyDownEvent,
+    AnyElement, App, Context, CursorStyle, FocusHandle, FontWeight, KeyBinding, KeyDownEvent,
     ListAlignment, ListState, Menu, MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent,
     PathPromptOptions, Point, SharedString, Task, TitlebarOptions, UniformListScrollHandle, Window,
     WindowBounds, WindowOptions, actions, div, font, prelude::*, size,
@@ -247,8 +247,6 @@ actions!(
     ]
 );
 
-/// The most a file shown alone in zen is wide: a reading width (#55).
-const READING_WIDTH: f32 = 1100.;
 const TITLE_BAR: f32 = 38.;
 
 /// How several projects show: `storage::Projects::ALL[n]`. With flat panes (`artoo_ui_kit::flat`), the
@@ -1547,6 +1545,8 @@ pub struct Workspace {
     history: gpui::Entity<History>,
     /// What the tab's features offer one another (`Frame::services`): Code among them (#165).
     services: Rc<artoo_shell_api::Services>,
+    /// The tab as its parts reach it.
+    frame: Rc<dyn artoo_shell_api::Frame>,
     /// The project is a plain folder, not a git repository: Code is all it has (#75).
     plain: bool,
     /// The project's main working tree: where its notes for the agents are kept, whatever
@@ -1811,6 +1811,8 @@ impl Workspace {
             view_task: None,
         });
         let services = Rc::new(artoo_shell_api::Services::default());
+        let frame: Rc<dyn artoo_shell_api::Frame> =
+            Rc::new(parts::TabFrame(cx.weak_entity(), services.clone()));
         let mut this = Self {
             focus,
             layout: Layout::load(),
@@ -1864,6 +1866,7 @@ impl Workspace {
             title: String::new(),
             history: cx.new(|_| History::default()),
             services: services.clone(),
+            frame: frame.clone(),
             plain: false,
             project: None,
             palette: None,
@@ -1966,7 +1969,6 @@ impl Workspace {
             cx.weak_entity(),
         )));
         services.set::<Rc<dyn artoo_code_api::Host>>(Rc::new(code::CodeHost(cx.weak_entity())));
-        let frame = Rc::new(parts::TabFrame(cx.weak_entity(), services.clone()));
         this.parts = artoo_shell_api::make_parts(frame, window, cx);
         if let Some(path) = start {
             this.open_repo(path, None, cx);
@@ -3100,58 +3102,41 @@ impl Workspace {
 
     // ---- resizing ------------------------------------------------------------------------
 
-    fn render_diff(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        // A part's in the diff's place: a new merge request being written, two versions' commits
-        // paired.
+    /// The diff's column, the review's (`Review::render_column`), or a part's in its place (a new merge
+    /// request being written, two versions' commits paired). What the tab's features put on it comes in its
+    /// `ColumnLook`, its rows' pins and its clicks through the tab as its host.
+    fn render_diff(&self, cx: &mut Context<Self>) -> AnyElement {
         if let Some(instead) = self.piece(Slot::Instead, cx) {
             return instead;
         }
-        let Some(diff) = self.review.read(cx).diff.clone() else {
-            // Loading: a shimmer of lines where the diff will be (#56, 18).
-            if self.review.read(cx).diff_task.is_some() {
-                return island()
-                    .flex_1()
-                    .bg(theme::editor())
-                    .p(px(24.))
-                    .child(motion::shimmer("diff-loading", 9))
-                    .into_any_element();
-            }
-            return island()
-                .flex_1()
-                .items_center()
-                .justify_center()
-                .bg(theme::editor())
-                .text_color(theme::muted())
-                .child("Select a commit or a version.")
-                .into_any_element();
+        let this = cx.entity().downgrade();
+        // The file as a page, where the review shows it so.
+        let alone = {
+            let rv = self.review.read(cx);
+            let ix = rv.file;
+            rv.diff
+                .as_ref()
+                .and_then(|d| d.files.get(ix))
+                .filter(|f| rv.stack.is_none() && !rv.generated_folded(f) && rv.shows_page(f))
+                .map(|_| ix)
+        }
+        .map(|ix| self.render_page_alone(ix, this.clone(), cx));
+        let look = artoo_review::column::ColumnLook {
+            border: self.zone_border(zones::Zone::Diff),
+            // The parts' (a new request's switch, an outdated discussion's stepper).
+            top: self.pieces(Slot::DiffTop, cx),
+            bar: self.piece(Slot::DiffBar, cx),
+            menu_open: self.ctx_menu.is_some(),
+            open_in: self.open_in_chips(cx),
+            // What comes next once the last file is marked.
+            cards: self.pieces(Slot::OverRows, cx),
+            alone,
+            zen_one: self.zen_one && self.zen.is_some(),
+            typing: self.part_typing(cx),
         };
-        div()
-            .flex_1()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .child(div().relative().flex_1().min_h_0().flex().map(|s| {
-                let file = self.render_file(&diff, cx);
-                if self.zen_one && self.zen.is_some() {
-                    // One file at a reading width, the next one sliding in as it comes
-                    // (#55).
-                    s.justify_center().child(motion::appear(
-                        div()
-                            .relative()
-                            .flex_1()
-                            .min_w_0()
-                            .max_w(px(READING_WIDTH))
-                            .flex()
-                            .child(file),
-                        ("zen-file", self.review.read(cx).file),
-                        motion::BASE,
-                        |d, v| d.top(px(16. * (1. - v))).opacity(v),
-                    ))
-                } else {
-                    s.child(file)
-                }
-            }))
-            .into_any_element()
+        let host = Rc::new(TabHost(this));
+        self.review
+            .update(cx, |rv, cx| rv.render_column(look, &self.frame, host, cx))
     }
 
     /// What the screen shows, in a few words: zen's one line on top, a request's or what the diff is of.
@@ -3166,101 +3151,6 @@ impl Workspace {
             return format!("{} {}", words::number(m.iid), m.title);
         }
         head::title(diff, self.compare_title(cx))
-    }
-
-    /// The diff options, as chips: the review's (`Review::render_options`).
-    fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let host = Rc::new(TabHost(cx.entity().downgrade()));
-        self.review
-            .read(cx)
-            .render_options(self.ctx_menu.is_some(), host)
-    }
-
-    /// The diff's toolbar, read left to right: what is shown, then how it is drawn.
-    fn render_diff_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        // A narrow diff wraps it: how it is drawn goes under what is shown, never out of view.
-        div()
-            .flex_none()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap_2()
-            .min_h(px(40.))
-            .px(px(12.))
-            .py(px(6.))
-            .border_b_1()
-            .border_color(theme::island_border())
-            .children(self.piece(Slot::DiffBar, cx))
-            .child(div().flex_1())
-            .child(self.render_toolbar(cx))
-    }
-
-    /// The file's pane, the review's (`Review::render_pane`): what the tab's features put on it comes in its
-    /// `PaneLook`, its rows' pins and its clicks through the tab as its host.
-    fn render_file(&self, diff: &Diff, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let this = cx.entity().downgrade();
-        let rv = self.review.read(cx);
-        let (ix, stacked) = (rv.file, rv.stack.is_some());
-        let file = diff.files.get(ix);
-        // The file as a page, where the review shows it so.
-        let alone = file
-            .filter(|f| !stacked && !rv.generated_folded(f) && rv.shows_page(f))
-            .map(|_| self.render_page_alone(ix, this.clone(), cx));
-        // The parts' (a new request's switch, an outdated discussion's stepper), then the toolbar.
-        let mut top = self.pieces(Slot::DiffTop, cx);
-        top.push(self.render_diff_toolbar(cx).into_any_element());
-        let open_in = self
-            .open_target(cx)
-            .and_then(|(path, _)| self.open_app(&path))
-            .map(|app| {
-                // A diff under 600 px keeps its ↗, the app in its tooltip (#80).
-                let label = if self.review.read(cx).tight {
-                    "↗".to_owned()
-                } else {
-                    format!("Open in {} ↗", app.name())
-                };
-                div()
-                    .flex()
-                    .flex_none()
-                    .child(
-                        chip("open-editor", label, false)
-                            .tooltip_show_delay(hover::LONG)
-                            .tooltip({
-                                let tip: SharedString =
-                                    format!("Open in {}  ⌥⌘O", app.name()).into();
-                                move |_, cx| cx.new(|_| TipOwned(tip.clone())).into()
-                            })
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_in(cx))),
-                    )
-                    .child(chip("open-in-more", "▾", false).on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, e: &MouseDownEvent, _, cx| {
-                            this.open_in_menu(e.position, cx)
-                        }),
-                    ))
-            });
-        let over = [
-            self.render_dfind(cx).map(IntoElement::into_any_element),
-            // Painted last, over the rows that come after it.
-            self.render_goline(this.clone(), cx)
-                .map(|prompt| gpui::deferred(prompt).with_priority(1).into_any_element()),
-        ];
-        // What comes next once the last file is marked: the parts' cards.
-        let over = over.into_iter().flatten().chain(
-            self.pieces(Slot::OverRows, cx)
-                .into_iter()
-                .map(|card| gpui::deferred(card).with_priority(1).into_any_element()),
-        );
-        let look = artoo_review::pane::PaneLook {
-            border: self.zone_border(zones::Zone::Diff),
-            top,
-            open_in: open_in.map(IntoElement::into_any_element),
-            over: over.collect(),
-            alone,
-        };
-        let host = Rc::new(TabHost(this));
-        self.review
-            .update(cx, |rv, cx| rv.render_pane(look, host, cx))
     }
 }
 

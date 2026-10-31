@@ -12,10 +12,10 @@ use artoo_requests_api::{
 };
 use artoo_review_api::Review;
 use artoo_review_api::diff::Header;
-use artoo_shell_api::{Frame, Piece, Services, Slot};
+use artoo_shell_api::{Frame, Piece, Services, Slot, input_box};
 use artoo_ui_kit::done::{DoneEvent, DoneLook, render_done_card};
 use artoo_ui_kit::{island, markdown, theme};
-use gpui::{App, Entity, MouseButton, prelude::*};
+use gpui::{App, Entity, prelude::*};
 use std::rc::Rc;
 
 /// The header while a request is being written (`Requests::render_create_header`), whatever page it is over.
@@ -81,12 +81,7 @@ pub fn create_form(requests: Entity<Requests>, frame: Rc<dyn Frame>) -> Piece {
                 let switch = rq.render_create_switch(files, cx);
                 (switch, rq.render_create_form(&look, acts, cx))
             });
-            let (take, leave) = (frame.clone(), frame.clone());
-            let form = form?
-                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                    take.take_keyboard(create::INPUT, cx);
-                })
-                .on_mouse_down_out(move |_, _, cx| leave.leave_keyboard(create::INPUT, cx));
+            let form = input_box(form?, create::INPUT, &frame);
             Some(
                 island()
                     .flex_1()
