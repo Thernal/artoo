@@ -5,8 +5,8 @@ pub(crate) use artoo_ui_kit::{apply_ui_zoom, flat, px, ui_zoom};
 mod hover;
 use artoo_ui_kit::format::plural;
 use artoo_ui_kit::{
-    ISLAND_RADIUS, ROW_RADIUS, discussion, format, icons, island, keys, markdown, room, row, theme,
-    words,
+    ISLAND_RADIUS, ROW_RADIUS, discussion, format, icons, island, island_label, keys, markdown,
+    room, row, section_label, theme, words,
 };
 mod agent;
 mod agent_comments;
@@ -1641,7 +1641,6 @@ pub struct Workspace {
     open_with: std::collections::HashMap<String, open_in::App>,
     open_cache: open_in::Cache,
     /// The search over all files of the diff, while it is open.
-    ffind: Option<findfiles::FindFiles>,
     /// The window's width in logical pixels, as of the last frame.
     win_width: f32,
     /// Discussions whose open or folded state differs from the default (a resolved one is folded).
@@ -1804,6 +1803,7 @@ impl Workspace {
             dterms: Arc::default(),
             dfind_regex: false,
             dfind_error: None,
+            ffind: None,
             changes: Vec::new(),
             change_at: None,
             matches: Vec::new(),
@@ -1896,7 +1896,6 @@ impl Workspace {
             motion: Default::default(),
             last_tool: None,
             menu_leaving: None,
-            ffind: None,
             win_width: 1480.,
             toggled_mr: HashSet::new(),
             toggled_agent: HashSet::new(),
@@ -2996,7 +2995,7 @@ impl Workspace {
     }
 
     fn palette_up(&mut self, _: &PaletteUp, _: &mut Window, cx: &mut Context<Self>) {
-        if self.ffind.is_some() {
+        if self.review.read(cx).find_files_open() {
             return self.ffind_step(false, cx);
         }
         if self.beside.is_some() {
@@ -3006,7 +3005,7 @@ impl Workspace {
     }
 
     fn palette_down(&mut self, _: &PaletteDown, _: &mut Window, cx: &mut Context<Self>) {
-        if self.ffind.is_some() {
+        if self.review.read(cx).find_files_open() {
             return self.ffind_step(true, cx);
         }
         if self.beside.is_some() {
@@ -3474,24 +3473,6 @@ impl artoo_review_api::Host for TabHost {
             })
             .ok();
     }
-}
-
-fn section_label(text: impl Into<SharedString>) -> gpui::Div {
-    div()
-        .flex_none()
-        .pb_1()
-        .text_size(px(11.))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(theme::faint())
-        .child(text.into().to_uppercase())
-}
-
-fn island_label(text: impl Into<SharedString>) -> gpui::Div {
-    let text: SharedString = text.into();
-    section_label(SharedString::from(words::say(&text).into_owned()))
-        .px(px(14.))
-        .pt(px(10.))
-        .pb(px(6.))
 }
 
 /// A square icon button for the title bar; the tooltip names it and its shortcut.

@@ -104,6 +104,8 @@ pub struct Review {
     /// ⌘F's `.*`: the text is a regular expression (#113); what is wrong with it, when it is.
     pub dfind_regex: bool,
     pub dfind_error: Option<String>,
+    /// Find in files (⌘⌥F), while it is open (`find_files`).
+    pub ffind: Option<crate::find_files::FindFiles>,
     /// Rows where a change begins, and the one stepped to (F7).
     pub changes: Vec<usize>,
     pub change_at: Option<usize>,

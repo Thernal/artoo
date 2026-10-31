@@ -69,6 +69,28 @@ pub fn island() -> gpui::Div {
         .bg(theme::panel())
 }
 
+/// A section's name, small and in capitals.
+pub fn section_label(text: impl Into<gpui::SharedString>) -> gpui::Div {
+    use gpui::{ParentElement, Styled, div};
+    div()
+        .flex_none()
+        .pb_1()
+        .text_size(px(11.))
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .text_color(theme::faint())
+        .child(text.into().to_uppercase())
+}
+
+/// The name at the top of an island, in the words of the app (`words::say`).
+pub fn island_label(text: impl Into<gpui::SharedString>) -> gpui::Div {
+    use gpui::Styled;
+    let text: gpui::SharedString = text.into();
+    section_label(gpui::SharedString::from(words::say(&text).into_owned()))
+        .px(px(14.))
+        .pt(px(10.))
+        .pb(px(6.))
+}
+
 /// A clickable list row: a rounded pill, filled when selected.
 pub fn row(id: impl Into<gpui::ElementId>, selected: bool) -> gpui::Stateful<gpui::Div> {
     use gpui::{InteractiveElement, Styled, div, prelude::FluentBuilder};

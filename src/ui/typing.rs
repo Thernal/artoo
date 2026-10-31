@@ -128,7 +128,7 @@ impl Workspace {
     fn input_open(&self, input: Input, cx: &App) -> bool {
         match input {
             Input::Palette => self.palette.is_some(),
-            Input::FindFiles => self.ffind.is_some(),
+            Input::FindFiles => self.review.read(cx).find_files_open(),
             Input::OpenAsk => self.open_ask.is_some(),
             Input::AgentPick => self.agent_pick.is_some(),
             Input::Reactions => self.requests.read(cx).reaction_grid.is_some(),
