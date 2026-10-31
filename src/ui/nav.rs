@@ -13,7 +13,6 @@
 use super::spaces::Space;
 use super::{Selection, Workspace, recents, zones};
 use artoo_branches::opening::Opening;
-use artoo_branches::waiting::{Pick, Waiting};
 use artoo_core::route::Route;
 use artoo_ui_kit::format;
 use git2::Oid;
@@ -751,7 +750,7 @@ impl Workspace {
                 rv.restore_scroll = opened.as_ref().and_then(|o| o.place.clone())
             });
         }
-        // A branch's kinds: what showing it takes is the history's (`History::opening`).
+        // A branch's or a request's kinds: what showing it takes is the history's (`History::opening`).
         let remembered = opened.as_ref().and_then(|o| o.commit);
         if let Some(opening) = self
             .history
@@ -769,47 +768,13 @@ impl Workspace {
                 Opening::Compare(base, head, since) => {
                     self.run_compare(base, head, since, None, cx)
                 }
+                Opening::Request(iid) => self.select_request(iid, cx),
+                Opening::RequestChanges((base, head, iid)) => {
+                    self.run_compare(base, head, true, Some(iid), cx)
+                }
                 Opening::Stay => {}
             }
-            return;
         }
-        match page.clone() {
-            Page::Request(iid) => {
-                if same_item {
-                    if let Some((base, head, iid)) = self.history.read(cx).open_request.clone() {
-                        self.run_compare(base, head, true, Some(iid), cx);
-                    }
-                } else {
-                    self.select_request(iid, cx);
-                }
-            }
-            Page::RequestCommit(iid, id) => {
-                self.load_request_pick(iid, Pick::Commit(id), same_item, cx)
-            }
-            Page::RequestCommits(iid, newest, oldest) => {
-                self.load_request_pick(iid, Pick::Commits(newest, oldest), same_item, cx)
-            }
-            Page::RequestVersions(iid, from, to) => {
-                self.load_request_pick(iid, Pick::Versions(from, to), same_item, cx)
-            }
-            _ => {}
-        }
-    }
-
-    /// A request's commit, run or versions: shown at once when the request is loaded, else once it is.
-    fn load_request_pick(&mut self, iid: u64, pick: Pick, same_item: bool, cx: &mut Context<Self>) {
-        self.wait_for(Some(iid), pick, cx);
-        if same_item {
-            self.finish_pending(cx);
-        } else {
-            self.select_request(iid, cx);
-        }
-    }
-
-    /// `pick` waits for its branch or request (`request`) to be read.
-    fn wait_for(&mut self, request: Option<u64>, pick: Pick, cx: &mut App) {
-        self.history
-            .update(cx, |h, _| h.waiting = Some(Waiting { request, pick }));
     }
 
     fn branch_ix(&self, refname: &str, cx: &App) -> Option<usize> {

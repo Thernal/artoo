@@ -9,8 +9,9 @@ use super::roots::Group;
 use super::tools::ToolView;
 use super::waiting::Op;
 use super::{Header, Selection, Workspace, plural, theme};
-use crate::git::{RefKind, Repo};
+use crate::git::Repo;
 use crate::mr::{self, Mr};
+use artoo_branches::opening::RequestOf;
 use artoo_requests::discussions::Listing;
 use artoo_requests::reactions::Hovered;
 use artoo_requests::requests::{Act, Acts};
@@ -236,37 +237,20 @@ impl Workspace {
             self.remember_place(super::recents::Key::Request(iid), label, detail);
         }
         self.history.update(cx, |h, _| h.pending_request = None);
-        let pick = |name: &str| {
-            let remote = self.history.read(cx).branches.iter().position(|b| {
-                b.kind == RefKind::Remote && b.name.split_once('/').is_some_and(|(_, n)| n == name)
-            });
-            remote.or_else(|| {
-                self.history
-                    .read(cx)
-                    .branches
-                    .iter()
-                    .position(|b| b.kind == RefKind::Local && b.name == name)
-            })
-        };
         // A GitHub pull request from a fork has no branch here; `pr/<n>` is where the hint below
         // fetches its head.
         let github = self.web.as_ref().is_some_and(|w| w.github);
-        let head = crate::git::request_ref(iid);
-        let found = pick(&source)
-            // A merged or closed one's branch may have moved on since.
-            .filter(|&ix| {
-                m.state == mr::MrState::Opened
-                    || self.history.read(cx).branches[ix].tip.to_string() == m.head
-            })
-            .or_else(|| github.then(|| pick(&format!("pr/{iid}"))).flatten())
-            .or_else(|| {
-                self.history
-                    .read(cx)
-                    .branches
-                    .iter()
-                    .position(|b| b.refname == head)
-            });
-        let Some(src) = found else {
+        let of = RequestOf {
+            number: iid,
+            source: &source,
+            target: &target,
+            head: &m.head,
+            open: m.state == mr::MrState::Opened,
+            merged_with: m.merged_with.as_deref(),
+            github,
+        };
+        let found = self.history.read(cx).request_branch(&of);
+        let Some((src, sides)) = found else {
             // Not here: its head is fetched from the host, once, and then it opens (#114).
             if self
                 .requests
@@ -290,31 +274,11 @@ impl Workspace {
             return;
         };
         self.error = None;
-        let tgt = pick(&target);
         // Its page now, before the branch it is read from replaces what is loaded (#71).
         self.arrive(super::nav::Page::Request(iid), cx);
-        if let Some(tgt) = tgt {
-            let side = |ix: usize| {
-                (
-                    self.history.read(cx).branches[ix].name.clone(),
-                    self.history.read(cx).branches[ix].tip,
-                )
-            };
-            let mut base = side(tgt);
-            // Merged: the target as it was, the merge commit's first parent, so the diff is what
-            // the request brought, not empty.
-            if let Some(parent) = m
-                .merged_with
-                .as_deref()
-                .and_then(|sha| git2::Oid::from_str(sha).ok())
-                .zip(self.root.as_deref())
-                .and_then(|(id, root)| Repo::open(root).ok()?.parent_of(id).ok())
-            {
-                base.1 = parent;
-            }
-            let head = side(src);
+        if let Some(sides) = sides {
             self.history
-                .update(cx, |h, _| h.pending_request = Some((base, head, iid)));
+                .update(cx, |h, _| h.pending_request = Some(sides));
         }
         self.select_branch(src, None, cx);
     }

@@ -1,15 +1,21 @@
-//! A route of a branch's kind opened (#165 I5d): what showing it takes, by what the history has open — the branch
-//! read anew, or only a commit, a run, versions, its own Changes picked on the branch open; the working tree; a
-//! comparison. A page that waits for its branch to be read is kept as `waiting`. What the tab does with each, and
-//! what it keeps of it, stays the tab's for now.
+//! A route of a branch's or a request's kind opened (#165 I5d): what showing it takes, by what the history has open —
+//! the branch read anew, or only a commit, a run, versions, its own Changes picked on the branch open; the working
+//! tree; a comparison; a request opened (its branch read with it), or its whole diff, a commit, a run or versions of
+//! it. A page that waits for its branch or its request to be read is kept as `waiting`. Which branch a request is
+//! read from is the history's too (`request_branch`). What the tab does with each, and what it keeps of it, stays
+//! the tab's for now.
 
-use crate::history::{History, NamedTip};
+use crate::history::{History, NamedTip, RequestSides};
 use crate::waiting::{Pick, Waiting};
 use artoo_branches_api::{
     BranchCommitRoute, BranchCommitsRoute, BranchRoute, CompareRoute, VersionsRoute,
     WorkingTreeRoute,
 };
+use artoo_core::git::{RefKind, Repo};
 use artoo_core::route::{Place, Route};
+use artoo_requests_api::{
+    RequestCommitRoute, RequestCommitsRoute, RequestRoute, RequestVersionsRoute,
+};
 use git2::Oid;
 
 /// What the tab does to show a route of a branch's kind (`History::opening`).
@@ -31,8 +37,28 @@ pub enum Opening {
     WorkingTree,
     /// Two refs compared, since their merge base or not.
     Compare(NamedTip, NamedTip, bool),
+    /// Request `number` opened: its branch read with it.
+    Request(u64),
+    /// The request open's whole diff: its sides, as it is open (`open_request`).
+    RequestChanges(RequestSides),
     /// Nothing: the branch it is of is not here, or nothing is listed yet.
     Stay,
+}
+
+/// What a merge request is read from (`History::request_branch`): its own fields, as its host says them.
+pub struct RequestOf<'a> {
+    pub number: u64,
+    /// The branch it is from, and the one it goes into.
+    pub source: &'a str,
+    pub target: &'a str,
+    /// Its head, as the host has it.
+    pub head: &'a str,
+    /// Open, not merged nor closed.
+    pub open: bool,
+    /// The commit it was merged with, once it is.
+    pub merged_with: Option<&'a str>,
+    /// On GitHub, where a fork's pull request is fetched to `pr/<n>`.
+    pub github: bool,
 }
 
 impl History {
@@ -102,12 +128,84 @@ impl History {
         if WorkingTreeRoute::from_route(route).is_some() {
             return Some(Opening::WorkingTree);
         }
+        if let Some(RequestRoute { number }) = RequestRoute::from_route(route) {
+            return Some(match self.open_request.clone() {
+                Some(sides) if same => Opening::RequestChanges(sides),
+                _ if same => Opening::Stay,
+                _ => Opening::Request(number),
+            });
+        }
+        let request_pick = if let Some(r) = RequestCommitRoute::from_route(route) {
+            Some((r.number, Pick::Commit(Oid::from_str(&r.commit).ok()?)))
+        } else if let Some(r) = RequestCommitsRoute::from_route(route) {
+            let (newest, oldest) = (
+                Oid::from_str(&r.newest).ok()?,
+                Oid::from_str(&r.oldest).ok()?,
+            );
+            Some((r.number, Pick::Commits(newest, oldest)))
+        } else {
+            RequestVersionsRoute::from_route(route)
+                .map(|r| (r.number, Pick::Versions(r.from, r.to)))
+        };
+        if let Some((number, pick)) = request_pick {
+            // A request's commit, run or versions: shown at once when the request is loaded, else once it is.
+            self.waiting = Some(Waiting {
+                request: Some(number),
+                pick,
+            });
+            return Some(if same {
+                Opening::Finish
+            } else {
+                Opening::Request(number)
+            });
+        }
         let r = CompareRoute::from_route(route)?;
         Some(Opening::Compare(
             (r.base, Oid::from_str(&r.base_commit).ok()?),
             (r.head, Oid::from_str(&r.head_commit).ok()?),
             r.since,
         ))
+    }
+
+    /// The branch request `m` is read from, and the sides it is compared on once it is (none while its target is
+    /// not here): its source branch here — a remote one first —, a merged or closed one's only where it was left,
+    /// else `pr/<n>` on GitHub, else its own ref. A merged one's base is the merge commit's first parent, so its
+    /// diff is what it brought. `None` while none of them is here.
+    pub fn request_branch(&self, m: &RequestOf) -> Option<(usize, Option<RequestSides>)> {
+        let pick = |name: &str| {
+            let remote = self.branches.iter().position(|b| {
+                b.kind == RefKind::Remote && b.name.split_once('/').is_some_and(|(_, n)| n == name)
+            });
+            remote.or_else(|| {
+                self.branches
+                    .iter()
+                    .position(|b| b.kind == RefKind::Local && b.name == name)
+            })
+        };
+        let own = artoo_core::git::request_ref(m.number);
+        let src = pick(m.source)
+            // A merged or closed one's branch may have moved on since.
+            .filter(|&ix| m.open || self.branches[ix].tip.to_string() == m.head)
+            .or_else(|| {
+                m.github
+                    .then(|| pick(&format!("pr/{}", m.number)))
+                    .flatten()
+            })
+            .or_else(|| self.branches.iter().position(|b| b.refname == own))?;
+        let side = |ix: usize| (self.branches[ix].name.clone(), self.branches[ix].tip);
+        let sides = pick(m.target).map(|tgt| {
+            let mut base = side(tgt);
+            if let Some(parent) = m
+                .merged_with
+                .and_then(|sha| Oid::from_str(sha).ok())
+                .zip(self.root.as_deref())
+                .and_then(|(id, root)| Repo::open(root).ok()?.parent_of(id).ok())
+            {
+                base.1 = parent;
+            }
+            (base, side(src), m.number)
+        });
+        Some((src, sides))
     }
 
     /// Branch `refname` read anew, `keep` selected once it is; `Stay` when it is not here.
@@ -216,10 +314,46 @@ mod tests {
             Some(Opening::Branch { ix: 0, keep: None })
         );
         assert_eq!(h.waiting.map(|w| w.pick), Some(Pick::Versions(0, 1)));
+        let request = RequestRoute { number: 1 }.route();
+        assert_eq!(h.opening(&request, false, None), Some(Opening::Request(1)));
         let other = Route {
-            kind: "requests.request".into(),
-            args: r#"{"number":1}"#.into(),
+            kind: "code.file".into(),
+            args: r#"{"path":"a.rs"}"#.into(),
         };
         assert_eq!(h.opening(&other, false, None), None);
+    }
+
+    #[test]
+    fn a_request_is_read_from_its_remote_branch_against_its_target() {
+        let branch = |name: &str, kind: RefKind, n: u8| BranchRef {
+            name: name.into(),
+            refname: format!("refs/x/{name}"),
+            kind,
+            tip: id(n),
+            is_head: false,
+        };
+        let h = History {
+            branches: Arc::new(vec![
+                branch("feature", RefKind::Local, 1),
+                branch("origin/feature", RefKind::Remote, 2),
+                branch("origin/main", RefKind::Remote, 3),
+            ]),
+            ..Default::default()
+        };
+        let mut m = RequestOf {
+            number: 7,
+            source: "feature",
+            target: "main",
+            head: "",
+            open: true,
+            merged_with: None,
+            github: false,
+        };
+        let main = ("origin/main".to_owned(), id(3));
+        let feature = ("origin/feature".to_owned(), id(2));
+        assert_eq!(h.request_branch(&m), Some((1, Some((main, feature, 7)))));
+        // A closed one's branch has moved on: not read from it.
+        m.open = false;
+        assert_eq!(h.request_branch(&m), None);
     }
 }
