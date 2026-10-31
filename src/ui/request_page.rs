@@ -10,6 +10,7 @@ use super::nav::{Item, Page, Section};
 use super::{Workspace, format, icons, island, plural, px, theme};
 use crate::mr::Mr;
 use artoo_requests::page::{Facts, OverviewLook};
+use artoo_shell_api::Slot;
 use gpui::{AnyElement, App, ClickEvent, Context, Div, SharedString, div, prelude::*};
 
 impl Workspace {
@@ -30,7 +31,7 @@ impl Workspace {
         let body = match (self.page_request(cx).cloned(), tab) {
             _ if matches!(self.nav_page(), Some(Page::Branch(_))) => {
                 let line = self
-                    .render_branch_line(cx)
+                    .piece(Slot::Identity, cx)
                     .unwrap_or_else(|| div().into_any_element());
                 div()
                     .flex_1()

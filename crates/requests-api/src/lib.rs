@@ -1,8 +1,18 @@
 //! Merge requests' contract (#165 stage 4): the routes of a request's pages — the request, a commit of it, a run of
-//! its commits, two of its versions compared —, which anyone opens through the `Frame`.
+//! its commits, two of its versions compared —, which anyone opens through the `Frame`; and what other features ask
+//! of the requests read (`Requests`, a tab's service).
 
+use artoo_core::git::BranchRef;
 use artoo_core::route::Place;
+use gpui::App;
 use serde::{Deserialize, Serialize};
+
+/// What other features ask of a tab's merge requests, from its services (`Rc<dyn Requests>`).
+pub trait Requests {
+    /// The request on branch `branch` (a local or remote one by its name, a request's own ref by its number): its
+    /// number and title.
+    fn of_branch(&self, branch: &BranchRef, cx: &App) -> Option<(u64, String)>;
+}
 
 /// A merge request, by its number.
 #[derive(Serialize, Deserialize)]

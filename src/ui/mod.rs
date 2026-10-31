@@ -1955,8 +1955,11 @@ impl Workspace {
         // The tab's review as its pages ask it, the tab as Code's host.
         services.set(artoo_review::file_view::file_view(&review));
         services.set(artoo_review::review::handle(&review));
-        // Its history, which the branches' parts read and type in.
+        // Its history, which the branches' parts read and type in, and its answers to the history's acts.
         services.set(this.history.clone());
+        services.set(this.history_acts(cx));
+        // Its requests as the other features ask them.
+        services.set(artoo_requests::requests::handle(&this.requests));
         services.set::<Rc<dyn artoo_code_api::Host>>(Rc::new(code::CodeHost(cx.weak_entity())));
         let frame = Rc::new(parts::TabFrame(cx.weak_entity(), services.clone()));
         this.parts = artoo_shell_api::make_parts(frame, window, cx);

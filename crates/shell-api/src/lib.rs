@@ -5,7 +5,8 @@
 //!   list them; the tab that has the keys runs one through its parts (`Parts::actions`).
 //! - **Parts** (`add_parts`): what a feature draws in every tab — an item in the title bar, a card over the
 //!   window, a tool window on the right, rows in Settings, the views a snapshot run opens, a space's pages, the
-//!   fields it types in (`Input`) —, made for each tab with its `Frame`.
+//!   fields it types in (`Input`), its pieces of the item page on screen (`Piece`) —, made for each tab with its
+//!   `Frame`.
 //! - **Pages**: the routes of some kinds and a space's own page, drawn by the feature that owns them. The shell
 //!   keeps which is on screen — its history, `nav.txt` — and says so (`Pages::show`); a feature opens one of its
 //!   own through the `Frame` like any other.
@@ -258,6 +259,23 @@ pub enum Typed {
     Leave,
 }
 
+/// Where a part's piece of an item page goes (`Piece`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Slot {
+    /// Over the page, saying what it is of: the first part's that has one for the route.
+    Identity,
+}
+
+/// A piece of the item page on screen a part draws in a slot (#165 I5c): for the route on screen, or nothing. The
+/// shell calls it from inside its own update, as it does a hook.
+pub struct Piece {
+    pub slot: Slot,
+    pub draw: Draw,
+}
+
+/// What a piece draws for a route (`Piece::draw`).
+pub type Draw = Rc<dyn Fn(&Route, &mut App) -> Option<AnyElement>>;
+
 /// A section of Settings a part can add rows to.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Section {
@@ -307,6 +325,8 @@ pub struct Parts {
     pub pages: Option<Pages>,
     /// The fields it types in.
     pub inputs: Vec<Input>,
+    /// Its pieces of the item page on screen.
+    pub pieces: Vec<Piece>,
 }
 
 type Maker = Rc<dyn Fn(Rc<dyn Frame>, &mut Window, &mut App) -> Parts>;

@@ -13,6 +13,7 @@ artoo-ui-kit = { path = "../ui-kit" }
 artoo-branches-api = { path = "../branches-api" }
 # The head draws what a diff is of.
 artoo-review-api = { path = "../review-api" }
+artoo-requests-api = { path = "../requests-api" }
 artoo-shell-api = { path = "../shell-api" }
 anyhow.workspace = true
 git2.workspace = true

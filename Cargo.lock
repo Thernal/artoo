@@ -288,6 +288,7 @@ dependencies = [
  "anyhow",
  "artoo-branches-api",
  "artoo-core",
+ "artoo-requests-api",
  "artoo-review-api",
  "artoo-shell-api",
  "artoo-ui-kit",
@@ -415,6 +416,7 @@ dependencies = [
  "anyhow",
  "artoo-core",
  "artoo-hosts-api",
+ "artoo-requests-api",
  "artoo-review-api",
  "artoo-ui-kit",
  "git2",
@@ -426,6 +428,7 @@ name = "artoo-requests-api"
 version = "1.3.0"
 dependencies = [
  "artoo-core",
+ "gpui-pre",
  "serde",
 ]
 

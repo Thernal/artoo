@@ -101,19 +101,7 @@ impl Workspace {
     /// whose head it is.
     pub(super) fn request_of_branch<'a>(&self, ix: usize, cx: &'a App) -> Option<&'a Mr> {
         let b = self.history.read(cx).branches.get(ix)?;
-        let name = match b.kind {
-            RefKind::Remote => b.name.split_once('/').map_or(b.name.as_str(), |(_, n)| n),
-            RefKind::Local => b.name.as_str(),
-            RefKind::Request => {
-                let iid = b.name.rsplit('/').next()?.parse().ok()?;
-                return self.requests.read(cx).find(iid);
-            }
-        };
-        self.requests
-            .read(cx)
-            .list
-            .iter()
-            .find(|m| m.source == name)
+        self.requests.read(cx).of_branch(b)
     }
 
     /// Reads the current request's discussions, pending comments and approvals again

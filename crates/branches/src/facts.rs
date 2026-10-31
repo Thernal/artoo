@@ -1,12 +1,17 @@
 //! What a branch's page says of it (#74), read when the branch loads: the main line it forks from, how far it is
-//! from it, where it is pushed; and the line that says it.
+//! from it, where it is pushed; and the line that says it, a piece over the branch's page (`line`).
 
-use crate::history::{Act, Acts, NamedTip};
+use crate::history::{Act, Acts, History, NamedTip};
+use artoo_branches_api::BranchRoute;
 use artoo_core::git::Repo;
+use artoo_core::route::Place;
+use artoo_requests_api::Requests;
+use artoo_shell_api::{Piece, Services, Slot};
 use artoo_ui_kit::format::plural;
 use artoo_ui_kit::{island, px, theme, words};
 use git2::Oid;
-use gpui::{Div, MouseButton, MouseDownEvent, div, prelude::*};
+use gpui::{Div, Entity, MouseButton, MouseDownEvent, div, prelude::*};
+use std::rc::Rc;
 
 /// What a branch's page says of it, read when the branch loads.
 #[derive(Clone, Debug, Default)]
@@ -49,6 +54,29 @@ impl Facts {
             upstream: repo.tracking(name),
             files: None,
         }
+    }
+}
+
+/// A branch's line over its page with tabs (`Slot::Identity`): its request's number the requests' (`Requests`), a
+/// click on it the tab's answer to the history's acts (`Acts`), both from the tab's `services`.
+pub fn line(history: Entity<History>, services: Rc<Services>) -> Piece {
+    Piece {
+        slot: Slot::Identity,
+        draw: Rc::new(move |route, cx| {
+            let BranchRoute { refname } = BranchRoute::from_route(route)?;
+            let acts = services.get::<Acts>()?;
+            let h = history.read(cx);
+            if !h.tabbed(&refname) {
+                return None;
+            }
+            let request = h
+                .branch
+                .and_then(|ix| h.branches.get(ix))
+                .and_then(|b| services.get::<Rc<dyn Requests>>()?.of_branch(b, cx))
+                .map(|(iid, _)| iid);
+            let line = branch_line(h.page.as_ref()?, h.branch, request, &acts)?;
+            Some(line.into_any_element())
+        }),
     }
 }
 

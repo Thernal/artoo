@@ -6,9 +6,7 @@
 //! goes out. The main line itself has no base: its page is the commit browser it always was.
 
 use super::Workspace;
-use super::nav::Page;
-use artoo_branches::facts::branch_line;
-use gpui::{AnyElement, Context, prelude::*};
+use gpui::Context;
 
 impl Workspace {
     /// Shows the branch loaded against the main line since they parted: its Changes.
@@ -28,22 +26,5 @@ impl Workspace {
         };
         let head = (b.name.clone(), b.tip);
         self.run_compare(base, head, true, None, cx);
-    }
-
-    /// One line over a branch's Changes and Commits, on its page: the branches' (`artoo_branches::facts`).
-    pub(super) fn render_branch_line(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let Some(Page::Branch(refname)) = self.nav_page() else {
-            return None;
-        };
-        if !self.history.read(cx).tabbed(refname) {
-            return None;
-        }
-        let ix = self.history.read(cx).branch;
-        let request = ix
-            .and_then(|ix| self.request_of_branch(ix, cx))
-            .map(|m| m.iid);
-        let acts = self.history_acts(cx);
-        let line = branch_line(self.history.read(cx).page.as_ref()?, ix, request, &acts)?;
-        Some(line.into_any_element())
     }
 }

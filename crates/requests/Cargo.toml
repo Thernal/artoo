@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 artoo-core = { path = "../core" }
 artoo-hosts-api = { path = "../hosts-api" }
+artoo-requests-api = { path = "../requests-api" }
 # How far your review of a request got: the list groups by it.
 artoo-review-api = { path = "../review-api" }
 artoo-ui-kit = { path = "../ui-kit" }

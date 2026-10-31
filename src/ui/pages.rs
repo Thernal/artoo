@@ -6,6 +6,7 @@
 use super::nav::Section;
 use super::spaces::Space;
 use super::{Split, Workspace, gap, motion, px};
+use artoo_shell_api::Slot;
 use gpui::{AnyElement, Context, div, prelude::*};
 
 impl Workspace {
@@ -102,7 +103,7 @@ impl Workspace {
                     head
                 } else if let Some(head) = self.render_request_line(cx) {
                     head
-                } else if let Some(head) = self.render_branch_line(cx) {
+                } else if let Some(head) = self.piece(Slot::Identity, cx) {
                     head
                 } else {
                     self.render_header(&diff, cx).into_any_element()

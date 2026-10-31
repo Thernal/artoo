@@ -10,11 +10,11 @@ use super::tools::Tool;
 use super::zones::Zone;
 use super::{Workspace, motion, px};
 use artoo_core::route::Route;
-use artoo_shell_api::{Frame, MenuItem, Overlay, Pages, Places, Run, Section, Services};
+use artoo_shell_api::{Frame, MenuItem, Overlay, Pages, Places, Run, Section, Services, Slot};
 use artoo_ui_kit::markdown::Selecting;
 use gpui::{
-    AnyView, App, Context, Div, KeyDownEvent, Pixels, Point, SharedString, WeakEntity, Window, div,
-    prelude::*,
+    AnyElement, AnyView, App, Context, Div, KeyDownEvent, Pixels, Point, SharedString, WeakEntity,
+    Window, div, prelude::*,
 };
 use std::rc::Rc;
 
@@ -226,6 +226,16 @@ impl Workspace {
             return false;
         };
         self.zone == Zone::Tool && self.part_tool(id).is_some_and(|t| t.typing.get())
+    }
+
+    /// The first piece the parts draw in `slot` for the route on screen (`artoo_shell_api::Piece`).
+    pub(super) fn piece(&self, slot: Slot, cx: &mut App) -> Option<AnyElement> {
+        let route = self.nav_page()?.route();
+        self.parts
+            .iter()
+            .flat_map(|p| &p.pieces)
+            .filter(|p| p.slot == slot)
+            .find_map(|p| (p.draw)(&route, cx))
     }
 
     /// Field `id` of a part's (`artoo_shell_api::Input`).

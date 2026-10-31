@@ -3,9 +3,10 @@
 //! sent to it not yet read back. The tab reads and draws them.
 
 use crate::group::Group;
-use artoo_core::git::{Repo, Version};
+use artoo_core::git::{BranchRef, RefKind, Repo, Version};
 use artoo_hosts_api::{self as mr, Draft, Mr, Pipeline, Thread};
-use gpui::Task;
+use gpui::{App, Entity, Task, WeakEntity};
+use std::rc::Rc;
 
 /// Which requests the list shows: All · To review · Mine in Merge requests' bar (#70, #72).
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
@@ -275,6 +276,20 @@ pub fn sides(repo: &Repo, host: HostSides, here: (git2::Oid, git2::Oid)) -> Side
 }
 
 impl Requests {
+    /// The request on branch `b`: a local or remote branch's, by the branch it is from; a request's own ref's, by
+    /// its number.
+    pub fn of_branch(&self, b: &BranchRef) -> Option<&Mr> {
+        let name = match b.kind {
+            RefKind::Remote => b.name.split_once('/').map_or(b.name.as_str(), |(_, n)| n),
+            RefKind::Local => b.name.as_str(),
+            RefKind::Request => {
+                let iid = b.name.rsplit('/').next()?.parse().ok()?;
+                return self.find(iid);
+            }
+        };
+        self.list.iter().find(|m| m.source == name)
+    }
+
     /// Request `iid` wherever it was read: the open list, the merged or closed, or the ones that
     /// left the open list while open in the menu.
     pub fn find(&self, iid: u64) -> Option<&Mr> {
@@ -383,5 +398,20 @@ impl Requests {
     /// Whether the token's user approved the current request already.
     pub fn approved_already(&self) -> bool {
         self.approvals.as_ref().is_some_and(|a| a.mine)
+    }
+}
+
+/// The tab's requests as other features ask them (`artoo_requests_api::Requests`, a service).
+pub fn handle(requests: &Entity<Requests>) -> Rc<dyn artoo_requests_api::Requests> {
+    Rc::new(Handle(requests.downgrade()))
+}
+
+struct Handle(WeakEntity<Requests>);
+
+impl artoo_requests_api::Requests for Handle {
+    fn of_branch(&self, branch: &BranchRef, cx: &App) -> Option<(u64, String)> {
+        let requests = self.0.upgrade()?;
+        let m = requests.read(cx).of_branch(branch)?;
+        Some((m.iid, m.title.clone()))
     }
 }
