@@ -112,8 +112,17 @@ impl Workspace {
                     .map(str::to_owned);
             }
             Input::Field => self.field != Some(super::lists::Field::Token),
-            Input::CommitSearch
-            | Input::DiffFind
+            Input::CommitSearch => {
+                return self
+                    .history
+                    .read(cx)
+                    .find
+                    .area
+                    .edit
+                    .selected_text()
+                    .map(str::to_owned);
+            }
+            Input::DiffFind
             | Input::Palette
             | Input::FindFiles
             | Input::GoLine

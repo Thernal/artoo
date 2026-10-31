@@ -54,6 +54,7 @@ impl Workspace {
                     }
                     this.start_find(cx)
                 }
+                Act::FindField => this.start_find(cx),
                 Act::BranchMenu { ix, at } => this.branch_context(ix, at, cx),
                 Act::PickRow { row, clicks } => this.pick_branch_row(row, clicks, cx),
                 Act::OpenRow(row) => this.open_branch_row(row, cx),
@@ -412,7 +413,7 @@ impl Workspace {
                         {
                             // Not found yet: older history is read on (#25).
                             self.want_older_commits(cx);
-                            self.render_no_match(cx).into_any_element()
+                            artoo_branches::find::no_match(self.history.read(cx)).into_any_element()
                         } else if self.history.read(cx).commits.is_empty()
                             && self.history.read(cx).task.is_some()
                         {

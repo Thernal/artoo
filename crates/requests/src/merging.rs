@@ -3,13 +3,13 @@
 //! itself; the tab gives it the keyboard and answers what it asks (`Act`), and hears the host merged
 //! (`Event::Merged`).
 
-use crate::area::Area;
 use crate::merge::{self, Merge, Method, Squash};
 use crate::requests::{Act, Acts, Event, Requests};
 use crate::waiting::FADED;
 use artoo_hosts_api::Host;
 use artoo_ui_kit::discussion::{Kind, button};
 use artoo_ui_kit::format::plural;
+use artoo_ui_kit::input::Area;
 use artoo_ui_kit::input::{self, Edit};
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, icons, keys, px, theme};
 use gpui::{

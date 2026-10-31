@@ -8,8 +8,6 @@ use super::{Workspace, theme};
 use artoo_ui_kit::controls::chip;
 use gpui::{App, ClickEvent, Context, KeyDownEvent, div, prelude::*};
 
-/// Qualifiers offered as tags under the field.
-const QUALIFIERS: [&str; 3] = ["author:", "path:", "since:"];
 impl Workspace {
     /// Rows in the commit list.
     pub(super) fn commit_rows(&self, cx: &App) -> usize {
@@ -55,14 +53,8 @@ impl Workspace {
     }
 
     pub(super) fn start_find(&mut self, cx: &mut Context<Self>) {
-        if self.history.read(cx).find.text.is_none() {
-            self.reset_field_edit();
-        }
         self.settings_open = false;
-        if self.history.read(cx).find.text.is_none() {
-            self.history
-                .update(cx, |h, _| h.find.text = Some(String::new()));
-        }
+        self.history.update(cx, |h, _| h.open_find());
         self.take_keyboard(Input::CommitSearch, cx);
         cx.notify();
     }
@@ -77,20 +69,6 @@ impl Workspace {
                 .read(cx)
                 .commit_scroll
                 .scroll_to_item(row, gpui::ScrollStrategy::Center);
-        }
-        cx.notify();
-    }
-
-    fn set_find_text(&mut self, text: String, cx: &mut Context<Self>) {
-        self.history.update(cx, |h, _| h.find.text = Some(text));
-        self.refilter(cx);
-        if let Selection::Commit(ix) = self.history.read(cx).selection
-            && let Some(row) = self.row_of(ix, cx)
-        {
-            self.history
-                .read(cx)
-                .commit_scroll
-                .scroll_to_item(row, gpui::ScrollStrategy::Nearest);
         }
         cx.notify();
     }
@@ -251,13 +229,14 @@ impl Workspace {
     }
 
     /// Typing into the commits' search; ↵ opens the first commit found.
+    /// A key in the commits' search (`History::find_key`): ↵ picks the first commit found, esc lets the
+    /// keyboard go.
     fn search_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
-        let Some(mut text) = self.history.read(cx).find.text.clone() else {
-            return;
-        };
-        match input::edit(&mut text, &mut self.field_edit, &event.keystroke, cx) {
-            Edit::Changed => self.set_find_text(text, cx),
-            Edit::Selected => cx.notify(),
+        match self
+            .history
+            .update(cx, |h, cx| h.find_key(&event.keystroke, cx))
+        {
+            Edit::Changed | Edit::Selected => cx.notify(),
             Edit::Enter { .. } => {
                 if self.commit_rows(cx) > 0 {
                     self.select_commit(self.commit_at(0, cx), cx);
@@ -402,120 +381,14 @@ impl Workspace {
     /// The search field, its qualifier tags and the count line.
     pub(super) fn render_find(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let active = self.has_keyboard(Input::CommitSearch, cx);
-        let text = self.history.read(cx).find.text.clone().unwrap_or_default();
-        let field = div()
-            .id("find")
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap_2()
-            .mx(px(6.))
-            .mb(px(6.))
-            .px_2()
-            .h(px(28.))
-            .rounded(px(super::ROW_RADIUS))
-            .border_2()
-            .border_color(if active {
-                theme::focus()
-            } else {
-                theme::island_border()
-            })
-            .bg(theme::base())
-            .cursor_text()
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.start_find(cx)))
-            .child(
-                super::icons::icon("search")
-                    .size(px(14.))
-                    .text_color(theme::faint()),
-            )
-            .child(self.field_text(&text, active, "Search commits", cx))
-            .child(div().text_size(px(11.)).text_color(theme::faint()).child(
-                super::keys::text(if text.is_empty() { "⌘⇧F" } else { "esc" }).into_owned(),
-            ));
-        let tags = active.then(|| {
-            div()
-                .flex_none()
-                .flex()
-                .gap_1()
-                .px(px(8.))
-                .pb(px(6.))
-                .children(QUALIFIERS.into_iter().map(|q| {
-                    div()
-                        .id(q)
-                        .px(px(6.))
-                        .rounded_full()
-                        .border_1()
-                        .border_color(theme::faint())
-                        .text_size(px(10.))
-                        .text_color(theme::muted())
-                        .cursor_pointer()
-                        .hover(|s| s.text_color(theme::text()))
-                        .child(q)
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            let mut text =
-                                this.history.read(cx).find.text.clone().unwrap_or_default();
-                            if !text.is_empty() && !text.ends_with(' ') {
-                                text.push(' ');
-                            }
-                            text.push_str(q);
-                            this.set_find_text(text, cx);
-                        }))
-                }))
-        });
-        let count = self.history.read(cx).find.shown.as_ref().map(|shown| {
-            let mut line = format!(
-                "{} of {} commits",
-                shown.len(),
-                self.history.read(cx).commits.len()
-            );
-            // Older history still being read for it (#25).
-            if self.history.read(cx).older.is_some() {
-                line.push_str(" · reading older ones…");
-            } else if self.history.read(cx).find.indexing {
-                line.push_str(" · reading paths…");
-            }
-            div()
-                .flex_none()
-                .px(px(14.))
-                .pb(px(4.))
-                .text_size(px(11.))
-                .text_color(theme::faint())
-                .child(line)
-        });
-        let el = div()
-            .flex()
-            .flex_col()
-            .child(field)
-            .children(tags)
-            .children(count);
+        let acts = self.history_acts(cx);
+        let el = artoo_branches::find::field(
+            self.history.read(cx),
+            active,
+            self.history.downgrade(),
+            &acts,
+        );
         typing::input_box(el, Input::CommitSearch, cx)
-    }
-
-    /// Shown instead of the list when nothing matches.
-    pub(super) fn render_no_match(&self, cx: &App) -> impl IntoElement + use<> {
-        let text = self.history.read(cx).find.text.clone().unwrap_or_default();
-        div()
-            .flex_1()
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_center()
-            .gap_1()
-            .px_4()
-            .text_color(theme::muted())
-            .child(format!("No commit matches “{text}”."))
-            .child(div().text_size(px(11.)).text_color(theme::faint()).child(
-                match self.history.read(cx).older {
-                    Some(_) => format!(
-                        "Searched the {} newest commits; reading older ones…",
-                        self.history.read(cx).commits.len()
-                    ),
-                    None => format!(
-                        "Searched all {} commits.",
-                        self.history.read(cx).commits.len()
-                    ),
-                },
-            ))
     }
 }
 

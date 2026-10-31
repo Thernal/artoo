@@ -4,7 +4,6 @@
 //! with what it does, the summary. The card keeps its summary and the summary's completion; the tab gives it the
 //! keyboard, sends what it submits (`Submission`) and puts it in the window.
 
-use crate::area::Area;
 use crate::discussions::{draft_line, send_now_chip};
 use crate::requests::{Act, Acts, Requests};
 use crate::waiting::{Op, is_temp};
@@ -12,6 +11,7 @@ use artoo_hosts_api::{Host, Verdict};
 use artoo_ui_kit::complete::{list_key, render_list};
 use artoo_ui_kit::format::plural;
 use artoo_ui_kit::hover::{self, Tip};
+use artoo_ui_kit::input::Area;
 use artoo_ui_kit::input::{self, Edit};
 use artoo_ui_kit::keys::{self, On};
 use artoo_ui_kit::{ROW_RADIUS, px, theme, words};

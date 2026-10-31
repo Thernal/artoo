@@ -1,6 +1,6 @@
 //! Editing the text of a field from key events and drawing it. A field's text is a `String` its
 //! owner keeps; the caret, the selection and undo live in one `TextEdit` the workspace shares, since
-//! one field has the keyboard at a time. When the owner's text changed behind its back (cleared,
+//! one field has the keyboard at a time, or in the owner's own `Area`. When the owner's text changed behind its back (cleared,
 //! filled from a tag), `sync` starts the edit over with the caret at the end.
 
 use super::{px, theme};
@@ -520,5 +520,95 @@ pub fn cut_unless_wrapped(wrap: bool, placeholder: &str, text: String) -> gpui::
         div().id(id).min_w_0().child(text)
     } else {
         super::hover::cut(id, text)
+    }
+}
+
+/// A field kept by what it belongs to rather than in the tab's one field (Merge's message, Submit review's
+/// summary, the New merge request form's, the commits' search): its caret, selection and undo, its layout as
+/// drawn, its scroll and the x ↑ ↓ keep.
+pub struct Area {
+    pub edit: TextEdit,
+    pub lines: Lines,
+    scroll: Rc<Cell<f32>>,
+    pub goal: Option<Pixels>,
+}
+
+impl Default for Area {
+    fn default() -> Self {
+        Area::new(String::new())
+    }
+}
+
+impl Area {
+    /// The caret at the end of `text`.
+    pub fn new(text: String) -> Self {
+        Area {
+            edit: TextEdit::new(text),
+            lines: Lines::default(),
+            scroll: Rc::new(Cell::new(0.)),
+            goal: None,
+        }
+    }
+
+    /// The caret in `text`; at its end until the field is edited.
+    pub fn caret(&self, text: &str) -> usize {
+        if self.edit.text() == text {
+            self.edit.caret()
+        } else {
+            text.len()
+        }
+    }
+
+    /// The field showing `text`, wrapping or on one line: as edited while it has the keyboard
+    /// (`active`), else as it stands; a click places the caret, ⇧ or a drag selecting, a double
+    /// click taking the word. `of` finds the area again in its owner when the click lands.
+    pub fn field<T: 'static>(
+        &self,
+        text: &str,
+        active: bool,
+        placeholder: &'static str,
+        wrap: bool,
+        of: fn(&mut T) -> Option<&mut Area>,
+        cx: &gpui::Context<T>,
+    ) -> Div {
+        self.field_of(text, active, placeholder, wrap, of, cx.entity().downgrade())
+    }
+
+    /// `field`, its owner `this` drawn from another's view.
+    pub fn field_of<T: 'static>(
+        &self,
+        text: &str,
+        active: bool,
+        placeholder: &'static str,
+        wrap: bool,
+        of: fn(&mut T) -> Option<&mut Area>,
+        this: gpui::WeakEntity<T>,
+    ) -> Div {
+        let look = Look {
+            wrap,
+            ..Default::default()
+        };
+        field(text, active, placeholder, &look, || {
+            let shown = text.to_owned();
+            let place: Place = Rc::new(move |at, shift, clicks, drag, lower, cx| {
+                this.update(cx, |owner, cx| {
+                    if let Some(area) = of(owner) {
+                        sync(&shown, &mut area.edit);
+                        area.goal = None;
+                        area.edit.click(at, clicks, shift || drag);
+                        if clicks == 1 && !shift && !drag {
+                            area.edit.set_downstream(lower);
+                        }
+                        cx.notify();
+                    }
+                })
+                .ok();
+            });
+            let look = Look {
+                lines: wrap.then(|| self.lines.clone()),
+                ..look.clone()
+            };
+            text_body(text, &self.edit, look, self.scroll.clone(), Some(place))
+        })
     }
 }

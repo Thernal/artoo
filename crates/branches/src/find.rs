@@ -1,12 +1,17 @@
 //! The commits' search (⌘⇧F): what is typed, the commits it finds among those listed, and the paths each commit
-//! touched, read in the background so `path:` can be judged. The matching itself is the core's `search`.
+//! touched, read in the background so `path:` can be judged. The matching itself is the core's `search`. Its
+//! field (`field`), its words when nothing matches (`no_match`); the tab gives it the keyboard.
 
-use crate::history::History;
+use crate::history::{Act, Acts, History, Selection};
 use artoo_core::git::Repo;
 use artoo_core::search::{self, Query};
-use artoo_ui_kit::theme;
+use artoo_ui_kit::input::{self, Area, Edit};
+use artoo_ui_kit::{ROW_RADIUS, icons, keys, px, theme};
 use git2::Oid;
-use gpui::{Context, HighlightStyle, SharedString, StyledText, Task};
+use gpui::{
+    App, ClickEvent, Context, Div, HighlightStyle, Keystroke, ScrollStrategy, SharedString,
+    StyledText, Task, WeakEntity, div, prelude::*,
+};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -17,6 +22,8 @@ const PATH_CHUNK: usize = 250;
 pub struct Find {
     /// The text in the field; `None` while the field is not active.
     pub text: Option<String>,
+    /// The field's caret, selection and layout.
+    pub area: Area,
     pub query: Query,
     /// Indices into `History::commits` of the commits that match; `None` shows every commit.
     pub shown: Option<Vec<usize>>,
@@ -37,6 +44,9 @@ impl Find {
     }
 }
 
+/// Qualifiers offered as tags under the field.
+const QUALIFIERS: [&str; 3] = ["author:", "path:", "since:"];
+
 fn now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -44,6 +54,38 @@ fn now() -> i64 {
 }
 
 impl History {
+    /// The search's field open, empty unless it is open already.
+    pub fn open_find(&mut self) {
+        if self.find.text.is_none() {
+            self.find.area = Area::default();
+            self.find.text = Some(String::new());
+        }
+    }
+
+    /// A key typed in the search's field: what it found as the text changes. What the key did.
+    pub fn find_key(&mut self, key: &Keystroke, cx: &mut App) -> Edit {
+        let Some(mut text) = self.find.text.clone() else {
+            return Edit::Ignored;
+        };
+        let edit = input::edit(&mut text, &mut self.find.area.edit, key, cx);
+        if matches!(edit, Edit::Changed) {
+            self.set_find(text);
+        }
+        edit
+    }
+
+    /// The search's text `text`: the commits it finds, the one selected kept in view.
+    pub fn set_find(&mut self, text: String) {
+        self.find.text = Some(text);
+        self.refilter();
+        if let Selection::Commit(ix) = self.selection
+            && let Some(row) = self.row_of(ix)
+        {
+            self.commit_scroll
+                .scroll_to_item(row, ScrollStrategy::Nearest);
+        }
+    }
+
     /// Rows in the commit list.
     pub fn commit_rows(&self) -> usize {
         self.find
@@ -144,4 +186,134 @@ pub fn summary_text(summary: SharedString, words: &[String]) -> StyledText {
             },
         )
     }))
+}
+
+/// The search's field over the commits, the qualifiers' tags under it while it has the keyboard (`active`), and
+/// how many it found; a click in it asks the tab for the keyboard (`Act::FindField`). `this` is the history, which
+/// a click on a tag or in the text changes.
+pub fn field(h: &History, active: bool, this: WeakEntity<History>, acts: &Acts) -> Div {
+    let text = h.find.text.clone().unwrap_or_default();
+    let on_click = acts.clone();
+    let field = div()
+        .id("find")
+        .flex_none()
+        .flex()
+        .items_center()
+        .gap_2()
+        .mx(px(6.))
+        .mb(px(6.))
+        .px_2()
+        .h(px(28.))
+        .rounded(px(ROW_RADIUS))
+        .border_2()
+        .border_color(if active {
+            theme::focus()
+        } else {
+            theme::island_border()
+        })
+        .bg(theme::base())
+        .cursor_text()
+        .on_click(move |_: &ClickEvent, _, cx| on_click(Act::FindField, cx))
+        .child(
+            icons::icon("search")
+                .size(px(14.))
+                .text_color(theme::faint()),
+        )
+        .child(h.find.area.field_of(
+            &text,
+            active,
+            "Search commits",
+            false,
+            |h: &mut History| Some(&mut h.find.area),
+            this.clone(),
+        ))
+        .child(
+            div()
+                .text_size(px(11.))
+                .text_color(theme::faint())
+                .child(keys::text(if text.is_empty() { "⌘⇧F" } else { "esc" }).into_owned()),
+        );
+    let tags = active.then(|| {
+        div()
+            .flex_none()
+            .flex()
+            .gap_1()
+            .px(px(8.))
+            .pb(px(6.))
+            .children(QUALIFIERS.into_iter().map(|q| {
+                let this = this.clone();
+                div()
+                    .id(q)
+                    .px(px(6.))
+                    .rounded_full()
+                    .border_1()
+                    .border_color(theme::faint())
+                    .text_size(px(10.))
+                    .text_color(theme::muted())
+                    .cursor_pointer()
+                    .hover(|s| s.text_color(theme::text()))
+                    .child(q)
+                    .on_click(move |_: &ClickEvent, _, cx| {
+                        this.update(cx, |h, cx| {
+                            let mut text = h.find.text.clone().unwrap_or_default();
+                            if !text.is_empty() && !text.ends_with(' ') {
+                                text.push(' ');
+                            }
+                            text.push_str(q);
+                            h.set_find(text);
+                            cx.notify();
+                        })
+                        .ok();
+                    })
+            }))
+    });
+    let count = h.find.shown.as_ref().map(|shown| {
+        let mut line = format!("{} of {} commits", shown.len(), h.commits.len());
+        // Older history still being read for it (#25).
+        if h.older.is_some() {
+            line.push_str(" · reading older ones…");
+        } else if h.find.indexing {
+            line.push_str(" · reading paths…");
+        }
+        div()
+            .flex_none()
+            .px(px(14.))
+            .pb(px(4.))
+            .text_size(px(11.))
+            .text_color(theme::faint())
+            .child(line)
+    });
+    div()
+        .flex()
+        .flex_col()
+        .child(field)
+        .children(tags)
+        .children(count)
+}
+
+/// Shown instead of the list when nothing matches.
+pub fn no_match(h: &History) -> Div {
+    let text = h.find.text.clone().unwrap_or_default();
+    div()
+        .flex_1()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap_1()
+        .px_4()
+        .text_color(theme::muted())
+        .child(format!("No commit matches “{text}”."))
+        .child(
+            div()
+                .text_size(px(11.))
+                .text_color(theme::faint())
+                .child(match h.older {
+                    Some(_) => format!(
+                        "Searched the {} newest commits; reading older ones…",
+                        h.commits.len()
+                    ),
+                    None => format!("Searched all {} commits.", h.commits.len()),
+                }),
+        )
 }

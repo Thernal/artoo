@@ -63,7 +63,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   their lists are scrolled, the commit's message open or not, and what the diff shows of them (`history`; a
   commit, a run, versions, an interdiff, the working tree, a comparison or a run of its commits shown through the
   review's handle, `shown`), where it is as a route of its own (`place`: the route nav keeps, whether a branch has
-  its own commits), what its page says of it (`facts`), the commits' search (`find`), a
+  its own commits), what its page says of it (`facts`), the commits' search (`find`: its field an `Area`, its keys `History::find_key`), a
   comparison's own commits (`compare`), the working tree as last looked at (`working`), what the Branches list
   reads for its rows (`roots`) —, and the views of the side panel's rows (`side`), a commit's card (`card`) and the
   head over a diff with its toolbar's left (`head`: what the diff is of, the working tree's halves, a comparison's
@@ -86,7 +86,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   theme, the interface size (`px`, `ui_zoom`), panes and rows (`island`, `row`), icons, keycaps, motion, row room,
   formats, words, the dragged label, Reveal's words and the toggle chips on their track (`controls`: `chip`, `group`), a list's row pieces and a page's empty state (`unread_dot`,
   `progress_badge`, `pill`, `primary_button`, `outline_button`, `empty_state`), tooltips and the
-  cut (`hover`: `Hover`, `Tip`, `TipOwned`, `cut`, `mid`), the text field and its editing (`input`), the token completed in one (`@`, `:`) and its list
+  cut (`hover`: `Hover`, `Tip`, `TipOwned`, `cut`, `mid`), the text field and its editing (`input`; `Area`, a field its owner keeps), the token completed in one (`@`, `:`) and its list
   (`complete`), file and folder icons (`file_icons`), comments drawn as markdown
   (`markdown`), the port for the web pictures it draws (`pictures`: `Pictures`, provided by hosts' `install`), a
   discussion's pieces (`discussion`: its frame, an avatar, a note, the buttons) and the port for the people an avatar

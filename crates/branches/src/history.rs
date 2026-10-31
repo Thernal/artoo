@@ -120,6 +120,8 @@ pub enum Act {
     WorkingTree,
     /// The search's chip: the commits' search, their section open.
     FindCommits,
+    /// A click in the search's field: it takes the keyboard.
+    FindField,
     /// A right click on the branch line at `at`: branch `ix`'s menu.
     BranchMenu {
         ix: usize,

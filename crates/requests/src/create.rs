@@ -11,7 +11,6 @@
 //! pushed first. The form keeps its fields' caret itself; the tab opens it on a branch, gives it the
 //! keyboard, shows the pair's diff (`Pair`) and hears the request was created (`Event::Created`).
 
-use crate::area::Area;
 use crate::requests::{Act, Acts, Event, Requests};
 use artoo_core::codeowners;
 use artoo_core::git::{BranchRef, RefKind, Repo};
@@ -19,6 +18,7 @@ use artoo_hosts_api::{Host, Label, Milestone, NewOptions};
 use artoo_ui_kit::complete::{list_key, render_list};
 use artoo_ui_kit::controls::chip;
 use artoo_ui_kit::format::{mid, plural};
+use artoo_ui_kit::input::Area;
 use artoo_ui_kit::input::{self, Edit};
 use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::room::Widths;
