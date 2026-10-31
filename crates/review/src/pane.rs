@@ -9,7 +9,9 @@ use crate::review::{Host, PaneEvent, Review};
 use artoo_ui_kit::controls::{chip, group};
 use artoo_ui_kit::format::plural;
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, hover, icons, island, px, theme};
-use gpui::{AnyElement, ClickEvent, Context, FontWeight, MouseButton, Rgba, div, prelude::*};
+use gpui::{
+    AnyElement, ClickEvent, Context, Div, FontWeight, MouseButton, Rgba, canvas, div, prelude::*,
+};
 use std::rc::Rc;
 
 /// What other features put on the file's pane, drawn by them.
@@ -274,5 +276,63 @@ impl Review {
                     .child(body),
             )
             .into_any_element()
+    }
+
+    /// How the diff is drawn, the toolbar's right: Split · Unified, Expand all or Collapse all with every file in
+    /// one scroll, View ▾ (`menu_open` while its menu is); the same toggles live in the View menu.
+    pub fn render_options(&self, menu_open: bool, host: Rc<dyn Host>) -> Div {
+        let event = |event: PaneEvent| {
+            let host = host.clone();
+            move |_: &ClickEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
+                host.pane(event.clone(), cx)
+            }
+        };
+        let o = self.options;
+        let (bounds, menu) = (self.view_button.clone(), host.clone());
+        div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(
+                group()
+                    .child(
+                        chip("split", "Split", !o.unified)
+                            .on_click(event(PaneEvent::Unified(false))),
+                    )
+                    .child(
+                        chip("unified", "Unified", o.unified)
+                            .on_click(event(PaneEvent::Unified(true))),
+                    ),
+            )
+            .children(self.stack.is_some().then(|| {
+                let folded = self.any_folded();
+                group().child(
+                    chip(
+                        "expand-all",
+                        if folded { "Expand all" } else { "Collapse all" },
+                        false,
+                    )
+                    .on_click(event(PaneEvent::ExpandAll { folded })),
+                )
+            }))
+            .child(
+                group().child(
+                    chip("view", "View ▾", menu_open)
+                        .relative()
+                        .child({
+                            let bounds = bounds.clone();
+                            canvas(move |b, _, _| bounds.set(Some(b)), |_, _, _, _| {})
+                                .absolute()
+                                .size_full()
+                        })
+                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                            // The menu hangs from the button.
+                            if let Some(under) = bounds.get() {
+                                menu.pane(PaneEvent::ViewMenu { under }, cx)
+                            }
+                        }),
+                ),
+            )
     }
 }

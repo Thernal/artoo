@@ -17,6 +17,7 @@ use gpui::{
     canvas, div, list, prelude::*,
 };
 use std::cell::Cell as Shared;
+use std::cell::Cell;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -81,6 +82,8 @@ pub struct Review {
     /// The diff is narrower than 600 px: a comment's secondary buttons keep only their icon, the
     /// keycaps go and its indent gives way (#69).
     pub tight: bool,
+    /// Where the toolbar's View ▾ was last drawn: its menu hangs from it.
+    pub view_button: Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
     /// The line number being typed for a quick comment.
     pub goline: Option<String>,
     /// The diff row the `c` marker stands on.

@@ -96,8 +96,8 @@ use gpui::{
     App, ClickEvent, Context, CursorStyle, FocusHandle, FontWeight, KeyBinding, KeyDownEvent,
     ListAlignment, ListState, Menu, MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent,
     PathPromptOptions, Point, ScrollStrategy, SharedString, Task, TitlebarOptions,
-    UniformListScrollHandle, Window, WindowBounds, WindowOptions, actions, canvas, div, font,
-    prelude::*, size,
+    UniformListScrollHandle, Window, WindowBounds, WindowOptions, actions, div, font, prelude::*,
+    size,
 };
 use lists::Field;
 use menu::{Act, CtxMenu, Entry};
@@ -1713,7 +1713,6 @@ pub struct Workspace {
     /// Where the window is: each space's page, back and forward, the open items (#71).
     nav: nav::Nav,
     /// Where the View button was painted, so its menu hangs from it.
-    view_bounds: Rc<Shared<Option<gpui::Bounds<gpui::Pixels>>>>,
     /// The branch filter, and which filter (if any) takes the keyboard.
     bfilter: String,
     field: Option<Field>,
@@ -1787,6 +1786,7 @@ impl Workspace {
             options: ViewOptions::load(&settings),
             notes: Vec::new(),
             images: Default::default(),
+            view_button: Default::default(),
             page: Default::default(),
             annotate: false,
             annotations: Vec::new(),
@@ -1943,7 +1943,6 @@ impl Workspace {
             field_lines: Rc::default(),
             field_goal: None,
             nav: nav::Nav::default(),
-            view_bounds: Rc::new(Shared::new(None)),
             bfilter: String::new(),
             field: None,
             ctx_menu: None,
@@ -3318,62 +3317,12 @@ impl Workspace {
             .child(self.render_summary(diff, cx))
     }
 
-    /// The diff options, as chips; the same toggles live in the View menu.
+    /// The diff options, as chips: the review's (`Review::render_options`).
     fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let set = |opt: Opt, value: bool| {
-            cx.listener(move |this: &mut Self, _: &ClickEvent, _: &mut Window, cx| {
-                this.set_option(opt, value, cx)
-            })
-        };
-        let o = self.review.read(cx).options;
-        div()
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap_2()
-            .child(
-                artoo_ui_kit::controls::group()
-                    .child(chip("split", "Split", !o.unified).on_click(set(Opt::Unified, false)))
-                    .child(chip("unified", "Unified", o.unified).on_click(set(Opt::Unified, true))),
-            )
-            .children(self.review.read(cx).stack.is_some().then(|| {
-                let folded = self.review.read(cx).any_folded();
-                artoo_ui_kit::controls::group().child(
-                    chip(
-                        "expand-all",
-                        if folded { "Expand all" } else { "Collapse all" },
-                        false,
-                    )
-                    .on_click(
-                        cx.listener(move |this, _: &ClickEvent, _, cx| this.expand_all(folded, cx)),
-                    ),
-                )
-            }))
-            .child(
-                artoo_ui_kit::controls::group().child(
-                    chip("view", "View ▾", self.ctx_menu.is_some())
-                        .relative()
-                        .child({
-                            let bounds = self.view_bounds.clone();
-                            canvas(move |b, _, _| bounds.set(Some(b)), |_, _, _, _| {})
-                                .absolute()
-                                .size_full()
-                        })
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                                // The menu hangs from the button, its right edge on the button's.
-                                let Some(b) = this.view_bounds.get() else {
-                                    return;
-                                };
-                                let at =
-                                    Point::new(b.right() - px(menu::WIDTH), b.bottom() + px(6.));
-                                let groups = this.view_menu(cx);
-                                this.open_titled(at, groups, cx);
-                            }),
-                        ),
-                ),
-            )
+        let host = Rc::new(TabHost(cx.entity().downgrade()));
+        self.review
+            .read(cx)
+            .render_options(self.ctx_menu.is_some(), host)
     }
 
     /// The left of the diff's toolbar: which range is shown, as the screen offers it.
@@ -4018,6 +3967,14 @@ impl artoo_review_api::Host for TabHost {
                 PaneEvent::DismissNotice => {
                     this.review.update(cx, |rv, _| rv.notice = None);
                     cx.notify();
+                }
+                PaneEvent::Unified(on) => this.set_option(Opt::Unified, on, cx),
+                PaneEvent::ExpandAll { folded } => this.expand_all(folded, cx),
+                PaneEvent::ViewMenu { under } => {
+                    // The menu hangs from the button, its right edge on the button's.
+                    let at = Point::new(under.right() - px(menu::WIDTH), under.bottom() + px(6.));
+                    let groups = this.view_menu(cx);
+                    this.open_titled(at, groups, cx);
                 }
             })
             .ok();

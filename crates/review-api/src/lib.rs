@@ -134,6 +134,7 @@ pub trait Host {
 }
 
 /// What a click on the file's pane asks (`Host::pane`).
+#[derive(Clone)]
 pub enum PaneEvent {
     /// The pane was pressed: the keyboard works in the diff.
     Pressed,
@@ -147,4 +148,10 @@ pub enum PaneEvent {
     UndoNotice,
     /// The notice's ✕.
     DismissNotice,
+    /// Split (`false`) or Unified (`true`).
+    Unified(bool),
+    /// Every file in one scroll opened (`folded`: some were) or folded.
+    ExpandAll { folded: bool },
+    /// View ▾ pressed: its menu hangs from `under`, the button.
+    ViewMenu { under: gpui::Bounds<gpui::Pixels> },
 }
