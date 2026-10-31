@@ -281,6 +281,8 @@ pub enum Slot {
     DiffTop,
     /// On the left of the diff's toolbar, saying which range is shown: the first part's that has one.
     DiffBar,
+    /// Over the diff's column, under the identity: every part's that has one, in their order.
+    OverDiff,
 }
 
 /// A piece of the item page on screen a part draws in a slot (#165 I5c): for the route on screen, or nothing. The

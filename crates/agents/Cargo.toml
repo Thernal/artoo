@@ -16,6 +16,8 @@ artoo-hosts-api = { path = "../hosts-api" }
 artoo-ui-kit = { path = "../ui-kit" }
 # Which notes are on the diff shown (`notes::AgentNotes`).
 artoo-review-api = { path = "../review-api" }
+# The notes' summary, a piece of the item page (`summary`).
+artoo-shell-api = { path = "../shell-api" }
 git2.workspace = true
 gpui.workspace = true
 serde.workspace = true

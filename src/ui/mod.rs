@@ -1949,6 +1949,10 @@ impl Workspace {
         services.set(this.requests.clone());
         services.set(artoo_requests::requests::handle(&this.requests));
         services.set(requests::acts_of(cx.weak_entity()));
+        services.set(this.agent_notes.clone());
+        services.set::<Rc<dyn artoo_agents::summary::NotesHost>>(Rc::new(agent_notes::NotesHost(
+            cx.weak_entity(),
+        )));
         services.set::<Rc<dyn artoo_requests::root::RootHost>>(Rc::new(roots::RootHost(
             cx.weak_entity(),
         )));

@@ -249,23 +249,30 @@ impl Workspace {
         };
         view::note_card(notes, note, indent, look, Self::note_on(this), cx)
     }
+}
 
-    /// Over the diff, the summary of each agent's notes on these changes
-    /// (`artoo_agents::view::notes_summary`).
-    pub(super) fn render_notes_summary(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        let this = cx.entity().downgrade();
-        let shown: Vec<_> = self
-            .notes_shown(cx)
-            .into_iter()
-            .map(|n| (n, self.agent_mark(&n.agent)))
-            .collect();
-        view::notes_summary(
-            &shown,
-            self.settings.rich_comments,
-            self.selecting(this.clone()),
-            super::gap(),
-            Self::note_on(this),
-            cx,
-        )
+/// What the agents' notes' summary asks of the tab (`artoo_agents::summary::NotesHost`).
+pub(super) struct NotesHost(pub WeakEntity<Workspace>);
+
+impl artoo_agents::summary::NotesHost for NotesHost {
+    fn branch(&self, cx: &App) -> Option<String> {
+        self.0.upgrade()?.read(cx).page_branch(cx)
+    }
+
+    fn mark(&self, agent: &str, cx: &App) -> (char, gpui::Rgba) {
+        match self.0.upgrade() {
+            Some(tab) => tab.read(cx).agent_mark(agent),
+            None => (agent.chars().next().unwrap_or('?'), super::theme::accent()),
+        }
+    }
+
+    fn rich(&self, cx: &App) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|tab| tab.read(cx).settings.rich_comments)
+    }
+
+    fn note(&self, event: NoteEvent, cx: &mut App) {
+        Workspace::note_on(self.0.clone())(event, cx)
     }
 }
