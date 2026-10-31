@@ -106,6 +106,8 @@ pub struct Review {
     pub dfind_error: Option<String>,
     /// The find bar's field: its caret, selection and undo.
     pub find_area: artoo_ui_kit::input::Area,
+    /// The field of the line typed after `c`.
+    pub goline_area: artoo_ui_kit::input::Area,
     /// Find in files (⌘⌥F), while it is open (`find_files`).
     pub ffind: Option<crate::find_files::FindFiles>,
     /// Rows where a change begins, and the one stepped to (F7).
@@ -154,6 +156,9 @@ pub enum ReviewEvent {
     /// The find went to row `row` of file `file` in the one scroll: the tab makes the file the active one, its
     /// pins laid out, and the row comes into view.
     Found { file: usize, row: usize },
+    /// The line typed after `c` moved the marker, asks to write there, or closed: the tab lays the rows out with
+    /// what is pinned on them, and opens the composer.
+    GoLine(crate::goline::GoLineKey),
 }
 
 impl gpui::EventEmitter<ReviewEvent> for Review {}

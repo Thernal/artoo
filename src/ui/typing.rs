@@ -35,8 +35,6 @@ pub(super) enum Input {
     Field,
     /// A comment, a reply or a note being written.
     Compose,
-    /// The number of a line to write a note on.
-    GoLine,
     /// The New merge request form.
     NewRequest,
     /// Submit review's summary.
@@ -44,12 +42,13 @@ pub(super) enum Input {
     /// A feature's tool window being written in (`artoo_shell_api::Tool`): Report a problem's title and
     /// description.
     Tool,
-    /// A part's field (`artoo_shell_api::Input`), by its id: the commits' search, the find bar over the diff.
+    /// A part's field (`artoo_shell_api::Input`), by its id: the commits' search, the find bar over the diff, the line typed after
+    /// `c`.
     Part(&'static str),
 }
 
 impl Input {
-    const ALL: [Input; 14] = [
+    const ALL: [Input; 13] = [
         Input::Palette,
         Input::FindFiles,
         Input::OpenAsk,
@@ -60,7 +59,6 @@ impl Input {
         Input::Merge,
         Input::Field,
         Input::Compose,
-        Input::GoLine,
         Input::NewRequest,
         Input::Submit,
         Input::Tool,
@@ -134,7 +132,6 @@ impl Workspace {
             Input::Merge => self.requests.read(cx).merging.is_some(),
             Input::Field => self.field.is_some(),
             Input::Compose => self.compose.is_some(),
-            Input::GoLine => self.review.read(cx).goline.is_some(),
             Input::Part(id) => self.part_input(id).is_some_and(|i| (i.open)(cx)),
             Input::NewRequest => self.creating(cx),
             Input::Submit => self.submitting(cx),
@@ -237,7 +234,6 @@ impl Workspace {
                     left(cx);
                 }
             }
-            Input::GoLine => self.close_goline(cx),
             _ => {}
         }
         self.keyboard.left = Some(h);
@@ -375,7 +371,7 @@ pub(super) fn field_box_out<E: InteractiveElement>(
 mod tests {
     /// The key handlers `find_key` routes to by `Input`: the only places a key may edit a text, a part's field
     /// through its own (`part_input_key`).
-    const ROUTED: [&str; 11] = [
+    const ROUTED: [&str; 10] = [
         "ffind_key",
         "palette_key",
         "beside_key",
@@ -383,7 +379,6 @@ mod tests {
         "reaction_key",
         "submit_key",
         "newreq_key",
-        "goline_key",
         "compose_key",
         "filter_key",
         "part_input_key",

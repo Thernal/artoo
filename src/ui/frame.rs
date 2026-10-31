@@ -540,13 +540,12 @@ impl Render for Workspace {
                     }
                     // ↑ ↓ belong to the field: they move its caret or its line. The new
                     // version's card scrolls with them (#135).
-                    Some(
-                        Input::Compose
-                        | Input::GoLine
-                        | Input::Submit
-                        | Input::Tool
-                        | Input::Overlay,
-                    ) => "Workspace Typing Caret",
+                    Some(Input::Compose | Input::Submit | Input::Tool | Input::Overlay) => {
+                        "Workspace Typing Caret"
+                    }
+                    Some(Input::Part(id)) if self.part_input(id).is_some_and(|i| i.caret) => {
+                        "Workspace Typing Caret"
+                    }
                     Some(Input::NewRequest) if self.typing_description(cx) => {
                         "Workspace Typing Caret"
                     }

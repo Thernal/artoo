@@ -1793,6 +1793,7 @@ impl Workspace {
             dfind_regex: false,
             dfind_error: None,
             find_area: Default::default(),
+            goline_area: Default::default(),
             ffind: None,
             changes: Vec::new(),
             change_at: None,
@@ -2386,6 +2387,7 @@ impl Workspace {
             ReviewEvent::FileRead => self.file_read(cx),
             ReviewEvent::Changed => {}
             ReviewEvent::Found { file, row } => self.go_found(Some((*file, *row)), cx),
+            ReviewEvent::GoLine(done) => self.goline_done(*done, cx),
         }
         cx.notify();
     }

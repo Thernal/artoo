@@ -380,5 +380,6 @@ pub fn input(history: Entity<History>) -> Input {
             let h = selected.upgrade()?;
             h.read(cx).find.area.edit.selected_text().map(str::to_owned)
         }),
+        caret: false,
     }
 }

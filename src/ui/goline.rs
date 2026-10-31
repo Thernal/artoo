@@ -1,13 +1,13 @@
 //! Going to a line (#7), the tab's side: `c` opens the composer on the lines selected at once, on a folder's page
-//! or a file in Code its note, else the review's marker (`artoo_review::goline`), whose line has the keyboard here
-//! and is drawn as the tab's field. And a comment's place shown: its file, its line in view, from the Agents window
-//! or the Inbox.
+//! or a file in Code its note, else the review's marker (`artoo_review::goline`), whose line is one of the review's
+//! inputs; what it did comes back here, where the rows are laid out and the composer opens. And a comment's place
+//! shown: its file, its line in view, from the Agents window or the Inbox.
 
 use super::Workspace;
 use super::rows::Row;
 use super::typing::{self, Input};
 use artoo_review::goline::GoLineKey;
-use gpui::{App, Context, KeyDownEvent, WeakEntity, div, prelude::*};
+use gpui::{App, Context, WeakEntity, div, prelude::*};
 
 impl Workspace {
     /// `c`: on the lines selected in the diff, the composer at once; else a marker appears on the
@@ -36,9 +36,8 @@ impl Workspace {
         }
         // On a file read in Code: the number of the line to write a note on (#75).
         if self.code_file_shown(cx) && !self.settings_open && self.compose.is_none() {
-            self.reset_field_edit();
             self.review.update(cx, |rv, _| rv.open_goline());
-            self.take_keyboard(Input::GoLine, cx);
+            self.take_keyboard(Input::Part(artoo_review::goline::INPUT), cx);
             return cx.notify();
         }
         if self.review.read(cx).data.is_none() || self.settings_open || self.compose.is_some() {
@@ -48,10 +47,9 @@ impl Workspace {
             self.zone = super::zones::Zone::Diff;
             return self.start_comment_on(old, Some(first), last, cx);
         }
-        self.reset_field_edit();
         self.zone = super::zones::Zone::Diff;
         self.review.update(cx, |rv, _| rv.open_goline());
-        self.take_keyboard(Input::GoLine, cx);
+        self.take_keyboard(Input::Part(artoo_review::goline::INPUT), cx);
         self.move_marker(cx);
         cx.notify();
     }
@@ -62,19 +60,15 @@ impl Workspace {
         self.refresh_rows(cx);
     }
 
-    /// A key while the line after `c` has the keyboard.
-    pub(super) fn goline_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
-        let edit = &mut self.field_edit;
-        let done = self
-            .review
-            .update(cx, |rv, cx| rv.goline_key(&event.keystroke, edit, cx));
+    /// What the line typed after `c` did (`ReviewEvent::GoLine`): the marker moved, the composer opens on its
+    /// line, or it closed; the rows laid out again with what is pinned on them.
+    pub(super) fn goline_done(&mut self, done: GoLineKey, cx: &mut Context<Self>) {
         match done {
-            GoLineKey::Close => self.close_goline(cx),
             GoLineKey::Moved => self.move_marker(cx),
-            GoLineKey::Finish => return self.finish_goline(cx),
+            GoLineKey::Finish => self.finish_goline(cx),
+            GoLineKey::Close => self.refresh_rows(cx),
             GoLineKey::Kept => {}
         }
-        cx.notify();
     }
 
     /// Puts the marker on the row of the typed line and scrolls it into view.
@@ -111,38 +105,39 @@ impl Workspace {
         }
     }
 
-    /// The line typed after `c`, as a field: with its caret while it has the keyboard.
-    fn goline_field(&self, text: &str, this: WeakEntity<Self>, cx: &App) -> gpui::AnyElement {
-        let active = self.has_keyboard(Input::GoLine, cx);
-        self.field_look(text, active, "first change", Default::default(), this)
-            .into_any_element()
-    }
-
-    /// The prompt of `c` under the marked line.
+    /// The prompt of `c` under the marked line, the review's (`Review::render_goline_row`).
     pub(super) fn render_goline_row(
         &self,
         indent: f32,
         this: WeakEntity<Self>,
         cx: &App,
     ) -> gpui::AnyElement {
-        let Some(text) = self.review.read(cx).goline.clone() else {
-            return div().into_any_element();
-        };
-        let field = self.goline_field(&text, this.clone(), cx);
-        let row = self.review.read(cx).render_goline_row(indent, field);
-        typing::input_box_of(row, Input::GoLine, this).into_any_element()
+        let input = Input::Part(artoo_review::goline::INPUT);
+        let active = self.has_keyboard(input, cx);
+        let review = self.review.downgrade();
+        match self
+            .review
+            .read(cx)
+            .render_goline_row(indent, active, review)
+        {
+            Some(row) => typing::input_box_of(row, input, this).into_any_element(),
+            None => div().into_any_element(),
+        }
     }
 
-    /// The prompt of `c` over the diff, while the line is on no row.
+    /// The prompt of `c` over the diff, while the line is on no row (`Review::render_goline`).
     pub(super) fn render_goline(
         &self,
         this: WeakEntity<Self>,
         cx: &App,
     ) -> Option<impl IntoElement + use<>> {
-        let text = self.review.read(cx).goline.clone()?;
-        let field = self.goline_field(&text, this.clone(), cx);
-        let card = self.review.read(cx).render_goline(field)?;
-        Some(typing::input_box_of(card, Input::GoLine, this))
+        let input = Input::Part(artoo_review::goline::INPUT);
+        let active = self.has_keyboard(input, cx);
+        let card = self
+            .review
+            .read(cx)
+            .render_goline(active, self.review.downgrade())?;
+        Some(typing::input_box_of(card, input, this))
     }
 
     /// Shows a comment: in the open file, scrolled to; in another file of the diff, that file first.

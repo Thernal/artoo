@@ -258,6 +258,8 @@ pub struct Input {
     pub left: Hook,
     /// The text selected in it, for Copy.
     pub selected: Selected,
+    /// ↑ ↓ are its own while it has the keyboard: they move its caret or what it points at.
+    pub caret: bool,
 }
 
 /// A key typed in a part's input (`Input::key`).
