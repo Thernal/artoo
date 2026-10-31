@@ -19,6 +19,7 @@ pub mod reading;
 pub mod requests;
 pub mod root;
 pub mod submit;
+pub mod thread;
 pub mod waiting;
 
 use artoo_shell_api::{Frame, Parts};

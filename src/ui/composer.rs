@@ -738,19 +738,7 @@ impl Workspace {
 
     /// The *Raw* / *Rich* switch beside a comment that has markdown.
     pub(super) fn rich_switch(&self, id: impl Into<gpui::ElementId>) -> gpui::Stateful<gpui::Div> {
-        discussion::lite(
-            id,
-            if self.settings.rich_comments {
-                "Raw"
-            } else {
-                "Rich"
-            },
-        )
-        .tooltip_show_delay(crate::ui::hover::LONG)
-        .tooltip(|_, cx| {
-            cx.new(|_| super::Tip("Markdown as written or formatted  ⌥M"))
-                .into()
-        })
+        discussion::rich_switch(id, self.settings.rich_comments)
     }
 
     /// The composer of a new comment, drawn under its line: my avatar beside the box. A reply is

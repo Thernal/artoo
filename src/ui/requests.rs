@@ -2,7 +2,6 @@
 //! branch, and the discussions other people left on one, in the review panel. Read-only; GitLab
 //! only (see `crate::mr`).
 
-use super::hover::CutInTip;
 use super::nav::Page;
 use super::px;
 use super::roots::Group;
@@ -13,7 +12,6 @@ use crate::git::Repo;
 use crate::mr::{self, Mr};
 use artoo_branches::opening::RequestOf;
 use artoo_requests::discussions::Listing;
-use artoo_requests::reactions::Hovered;
 use artoo_requests::requests::{Act, Acts};
 pub(super) use artoo_requests::requests::{Past, Requests, Scope, Sides, sides};
 pub(super) use artoo_ui_kit::controls::group_heading;
@@ -774,9 +772,8 @@ impl Workspace {
             .unwrap_or_default()
     }
 
-    /// A discussion of the request, drawn under its line: a frame with a header bar (it folds the
-    /// discussion), the notes on a timeline, and a footer to reply and resolve. A click anywhere
-    /// gives it the keyboard, so `r` `x` `o` act on it.
+    /// A discussion of the request, drawn under its line (`artoo_requests::thread`). A click
+    /// anywhere gives it the keyboard, so `r` `x` `o` act on it.
     pub(super) fn render_request_thread(
         &self,
         ix: usize,
@@ -784,120 +781,7 @@ impl Workspace {
         this: WeakEntity<Self>,
         cx: &App,
     ) -> gpui::AnyElement {
-        use super::discussion::{self, Kind, Source};
-        let Some(t) = self.requests.read(cx).threads.get(ix) else {
-            return div().into_any_element();
-        };
-        let open = self.mr_open(ix, cx);
-        let focused = self.thread_at == Some(ix);
-        // On its way to the host: faded, and nothing to act on until it has an id (#139).
-        let waits = self.requests.read(cx).thread_waits(&t.id);
-        let sending = super::waiting::is_temp_thread(&t.id);
-        let can_act = self.request_target(cx).is_some() && !sending;
-        let (fold, pick, reply, resolve, raw, edit) = (
-            this.clone(),
-            this.clone(),
-            this.clone(),
-            this.clone(),
-            this.clone(),
-            this.clone(),
-        );
-        let history = self.requests.read(cx).render_history(
-            ix,
-            self.latest_version(cx),
-            acts_of(this.clone()),
-        );
-        let selecting = self.selecting(this.clone());
-        let first = &t.notes[0];
-        let author = self
-            .requests
-            .read(cx)
-            .current
-            .and_then(|iid| self.requests.read(cx).find(iid))
-            .map(|m| m.author.clone());
-        let rich = t
-            .notes
-            .iter()
-            .any(|n| super::markdown::has_markdown(&n.body));
-        let bar = discussion::bar(("thread-bar", ix), open)
-            .child(discussion::source_pill(Source::GitLab))
-            .children((!open).then(|| {
-                div()
-                    .flex_none()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme::text())
-                    .child(first.author.clone())
-            }))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .cut_in_tip()
-                    .when(open, |s| {
-                        s.child(
-                            div()
-                                .flex()
-                                .gap(px(6.))
-                                .child(
-                                    div()
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .text_color(theme::text())
-                                        .child("Discussion"),
-                                )
-                                .child(format!("· {}", plural(t.notes.len(), "comment"))),
-                        )
-                    })
-                    .when(!open, |s| s.child(self.one_line(&first.body))),
-            )
-            .children((open && rich).then(|| {
-                self.rich_switch(("thread-rich", ix))
-                    .on_click(move |_, _, cx| {
-                        cx.stop_propagation();
-                        raw.update(cx, |this, cx| this.toggle_rich_comments(cx))
-                            .ok();
-                    })
-            }))
-            .children(t.resolvable.then(|| {
-                discussion::state(t.resolved).when(waits.is_some() && !sending, |s| {
-                    s.opacity(super::waiting::FADED)
-                })
-            }))
-            .children(
-                waits
-                    .filter(|_| !sending)
-                    .map(|word| div().flex_none().text_color(theme::muted()).child(word)),
-            )
-            .tooltip_show_delay(crate::ui::hover::LONG)
-            // Folded, a long hover reads its start and how many replied (X59).
-            .tooltip({
-                let said: gpui::SharedString = if open {
-                    "Collapse  O".into()
-                } else {
-                    let text = crate::markdown::plain(&first.body);
-                    let start = match text.char_indices().nth(280) {
-                        Some((at, _)) => format!("{}…", &text[..at]),
-                        None => text,
-                    };
-                    let replies = match t.notes.len() - 1 {
-                        0 => "no replies".to_owned(),
-                        n => plural(n, "reply"),
-                    };
-                    format!("{start}\n{} · {replies}\nExpand  O", first.author).into()
-                };
-                move |_, cx| cx.new(|_| super::TipOwned(said.clone())).into()
-            })
-            // A double click folds or opens it once, as one click does.
-            .on_click(move |e: &ClickEvent, _, cx| {
-                if e.click_count() > 1 {
-                    return;
-                }
-                fold.update(cx, |this, cx| {
-                    this.thread_at = Some(ix);
-                    this.set_thread_open(ix, !open, cx)
-                })
-                .ok();
-            });
-        // Replying: the timeline runs on from the last note to my avatar.
+        use artoo_requests::thread::{self, ThreadLook};
         let replying = self.compose.as_ref().is_some_and(|c| {
             matches!(
                 c.target,
@@ -905,231 +789,102 @@ impl Workspace {
                     if i == ix
             )
         });
-        let last = t.notes.len() - 1;
-        let mine = self.my_note_in(ix, cx);
-        let notes = t.notes.iter().enumerate().map(|(n, note)| {
-            let change = super::composer::Change::Note {
-                thread: ix,
-                note: note.id,
-            };
-            let edit_box = self.edit_box(change, edit.clone(), cx);
-            let own = self.requests.read(cx).login.as_deref() == Some(note.login.as_str());
-            // Waiting on the host: faded, its time saying what for; a new one takes no actions.
-            let (time, note_waits) = self.requests.read(cx).note_time(note.id, note.created);
-            let can_act = can_act && !super::waiting::is_temp(note.id);
-            let editable = can_act && self.compose.is_none() && own && !note_waits;
-            let acts = acts_of(edit.clone());
-            let rq = self.requests.read(cx);
-            let (hover, pills) = (
-                edit.clone(),
-                rq.reaction_pills(note.id, &self.motion, acts.clone()),
-            );
-            let at = Hovered {
-                thread: ix,
-                note: note.id,
-                author: note.login.clone(),
-                hovered: self.hover_note == Some(note.id),
-                github: self.on_github(),
-            };
-            let bar = can_act
-                .then(|| rq.hover_bar(at, self.requests.downgrade(), acts))
-                .flatten();
-            let note_id = note.id;
-            let note_el = discussion::note(
-                &note.author,
-                own,
-                (author.as_deref() == Some(note.author.as_str())).then_some("Author"),
-                time,
-                div()
-                    .child(match edit_box {
-                        Some(edit_box) => edit_box.into_any_element(),
-                        None => super::markdown::body(
-                            &note.body,
-                            self.settings.rich_comments,
-                            format!("md-note-{ix}-{n}"),
-                            self.link_base(),
-                            Some(selecting.clone()),
-                            cx,
-                        ),
-                    })
-                    .children(pills)
-                    .into_any_element(),
-                n == last && !replying,
-                (bar.is_some() || editable).then(|| {
-                    // `e` edits the last of one's notes in the discussion with the keyboard.
-                    let key = (focused && mine == Some(note.id)).then_some("e");
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .children(bar)
-                        .children(editable.then(|| {
-                            super::composer::edit_button(
-                                ("edit-note", note.id as usize),
-                                key,
-                                self.review.read(cx).tight,
-                                change,
-                                edit.clone(),
-                            )
-                        }))
-                        // One's own note goes from GitLab too, after a confirm (#76).
-                        .children(
-                            editable
-                                .then(|| self.delete_note_button(ix, note_id, edit.clone(), cx)),
-                        )
-                        .into_any_element()
-                }),
-                (!own).then(|| {
-                    let card = std::rc::Rc::new(self.person_card(
-                        &note.author,
-                        &note.login,
-                        this.clone(),
-                        cx,
-                    ));
-                    let build: discussion::Card = std::rc::Rc::new(move |_, cx| {
-                        let c = card.clone();
-                        cx.new(|_| super::hover::PersonCard::clone_of(&c)).into()
-                    });
-                    (build, note.created)
-                }),
-            );
-            // Hovering a note shows its reaction bar.
-            div()
-                .id(("note-hover", note_id as usize))
-                .when(note_waits && !sending, |s| s.opacity(super::waiting::FADED))
-                .child(note_el)
-                .on_hover(move |hovered: &bool, _, cx| {
-                    let hovered = *hovered;
-                    hover
-                        .update(cx, |this, cx| {
-                            if hovered && this.hover_note != Some(note_id) {
-                                this.hover_note = Some(note_id);
-                                cx.notify();
-                            } else if !hovered && this.hover_note == Some(note_id) {
-                                this.hover_note = None;
-                                cx.notify();
-                            }
-                        })
-                        .ok();
-                })
+        let editing = match self.compose.as_ref().map(|c| c.target) {
+            Some(super::composer::Target::Edit(
+                change @ super::composer::Change::Note { thread, note },
+            )) if thread == ix => self
+                .edit_box(change, this.clone(), cx)
+                .map(|edit_box| (note, edit_box.into_any_element())),
+            _ => None,
+        };
+        let tab = this.clone();
+        let card = |name: &str, login: &str| -> super::discussion::Card {
+            let card = Rc::new(self.person_card(name, login, tab.clone(), cx));
+            Rc::new(move |_, cx| {
+                let c = card.clone();
+                cx.new(|_| super::hover::PersonCard::clone_of(&c)).into()
+            })
+        };
+        let fold =
+            |key: String, moving: &str, open, content| self.folding(key, moving, open, content);
+        let look = ThreadLook {
+            indent,
+            open: self.mr_open(ix, cx),
+            focused: self.thread_at == Some(ix),
+            target: self.request_target(cx).is_some(),
+            latest: self.latest_version(cx),
+            selecting: self.selecting(this.clone()),
+            rich: self.settings.rich_comments,
+            link_base: self.link_base(),
+            tight: self.review.read(cx).tight,
+            editing,
+            replying: replying.then(|| {
+                self.reply_editor(this.clone(), cx)
+                    .map(IntoElement::into_any_element)
+            }),
+            composing: self.compose.is_some(),
+            mine: self.my_note_in(ix, cx),
+            hovered: self.hover_note,
+            confirm: self.confirm_note,
+            github: self.on_github(),
+            marks: &self.motion,
+            me: &self.me,
+            card: &card,
+            fold: &fold,
+            moving: self.motion.recent(&format!("thread-{ix}")),
+        };
+        let acts = acts_of(this.clone());
+        let on: thread::OnThread = Rc::new(move |event, cx| {
+            this.update(cx, |this, cx| this.thread_event(ix, event, cx))
+                .ok();
         });
-        // Replying: the box opens where "Reply…" was, inside the discussion.
-        // The reply row: my avatar on the timeline's column, then the one input — closed, one line
-        // with Resolve beside it; open, grown inside its own outline (`composer::reply_editor`).
-        let my_avatar = || {
-            div()
-                .w(px(28.))
-                .flex()
-                .flex_none()
-                .justify_center()
-                .pt(px(5.))
-                .child(discussion::avatar(&self.me, true, 24.))
-        };
-        let reply_row = if replying {
-            self.reply_editor(reply.clone(), cx).map(|editor| {
-                div()
-                    .flex()
-                    .items_start()
-                    .gap(px(12.))
-                    .child(my_avatar())
-                    .child(editor)
-            })
-        } else {
-            can_act.then(|| {
-                div()
-                    .flex()
-                    .items_start()
-                    .gap(px(12.))
-                    .child(my_avatar())
-                    .child(
-                        div()
-                            .id(("thread-reply", ix))
-                            .flex_1()
-                            .h(px(34.))
-                            .pl(px(10.))
-                            .pr(px(6.))
-                            .flex()
-                            .items_center()
-                            .rounded(px(8.))
-                            .border_1()
-                            .border_color(theme::selected())
-                            .bg(theme::base())
-                            .text_color(theme::muted())
-                            .cursor_text()
-                            .hover(|s| s.border_color(theme::muted()))
-                            .child(div().flex_1().child("Reply…"))
-                            .children(
-                                (!self.review.read(cx).tight)
-                                    .then(|| super::keys::caps("r", super::keys::On::Plain)),
-                            )
-                            .on_click(move |_, _, cx| {
-                                reply.update(cx, |this, cx| this.start_reply(ix, cx)).ok();
-                            }),
-                    )
-                    .children(t.resolvable.then(|| {
-                        let (icon, label) = if t.resolved {
-                            ("rotate-ccw", "Reopen")
-                        } else {
-                            ("check", "Resolve")
-                        };
-                        discussion::icon_button(
-                            ("thread-resolve", ix),
-                            icon,
-                            label,
-                            Some("x"),
-                            None,
-                            Kind::Plain,
-                            self.review.read(cx).tight,
-                        )
-                        .h(px(34.))
-                        .on_click(move |_, _, cx| {
-                            resolve
-                                .update(cx, |this, cx| this.toggle_resolved(ix, cx))
-                                .ok();
-                        })
-                    }))
-            })
-        };
-        div()
-            .w_full()
-            .pl(px(indent))
-            .pr(px(12.))
-            .py(px(6.))
-            .child(
-                discussion::frame(Source::GitLab, focused)
-                    .id(("thread", ix))
-                    .when(sending, |s| s.opacity(super::waiting::FADED))
-                    .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
-                        pick.update(cx, |this, cx| {
-                            if this.thread_at != Some(ix) {
-                                this.thread_at = Some(ix);
-                                cx.notify();
-                            }
-                        })
-                        .ok();
-                    })
-                    .child(bar)
-                    // Its notes open and fold in size and alpha (#56, 10; #110).
-                    // Built only while it shows: a folded one draws no notes.
-                    .children(
-                        (open || self.motion.recent(&format!("thread-{ix}")))
-                            .then(|| {
-                                self.folding(
-                                    format!("thread-body-{ix}"),
-                                    &format!("thread-{ix}"),
-                                    open,
-                                    div()
-                                        .flex()
-                                        .flex_col()
-                                        .children(history)
-                                        .child(div().flex().flex_col().children(notes))
-                                        .children(reply_row),
-                                )
-                            })
-                            .flatten(),
-                    ),
-            )
-            .into_any_element()
+        thread::render_thread(&self.requests, ix, look, acts, on, cx)
+    }
+
+    /// A click on discussion `ix` (`artoo_requests::thread::ThreadEvent`).
+    fn thread_event(
+        &mut self,
+        ix: usize,
+        event: artoo_requests::thread::ThreadEvent,
+        cx: &mut Context<Self>,
+    ) {
+        use artoo_requests::thread::ThreadEvent;
+        match event {
+            ThreadEvent::Fold(open) => {
+                self.thread_at = Some(ix);
+                self.set_thread_open(ix, open, cx)
+            }
+            ThreadEvent::Pick => {
+                if self.thread_at != Some(ix) {
+                    self.thread_at = Some(ix);
+                    cx.notify();
+                }
+            }
+            ThreadEvent::ToggleRich => self.toggle_rich_comments(cx),
+            ThreadEvent::Hover { note, on } => {
+                if on && self.hover_note != Some(note) {
+                    self.hover_note = Some(note);
+                    cx.notify();
+                } else if !on && self.hover_note == Some(note) {
+                    self.hover_note = None;
+                    cx.notify();
+                }
+            }
+            ThreadEvent::Reply => self.start_reply(ix, cx),
+            ThreadEvent::Resolve => self.toggle_resolved(ix, cx),
+            ThreadEvent::Edit(note) => {
+                self.start_edit(super::composer::Change::Note { thread: ix, note }, cx)
+            }
+            ThreadEvent::AskDelete(note) => {
+                self.confirm_note = Some(note);
+                cx.notify()
+            }
+            ThreadEvent::Delete(note) => self.delete_own_note(ix, note, cx),
+            ThreadEvent::KeepNote => {
+                self.confirm_note = None;
+                cx.notify()
+            }
+        }
     }
 
     /// The discussions on lines of the files of this diff, in reading order.
@@ -1547,91 +1302,6 @@ impl Workspace {
     /// whole review (#138).
     pub(super) fn sends_one_draft(&self) -> bool {
         self.web.as_ref().is_some_and(|w| !w.github)
-    }
-
-    /// Delete on one's own note, then "Delete on GitLab?" with Delete and Cancel (#76).
-    fn delete_note_button(
-        &self,
-        thread: usize,
-        note: u64,
-        this: gpui::WeakEntity<Self>,
-        cx: &App,
-    ) -> gpui::AnyElement {
-        use super::discussion::{Kind, icon_button};
-        if self.confirm_note != Some(note) {
-            let ask = this.clone();
-            return icon_button(
-                ("delete-note", note as usize),
-                "trash",
-                "Delete",
-                None,
-                None,
-                Kind::Quiet,
-                self.review.read(cx).tight,
-            )
-            .h(px(22.))
-            .px(px(6.))
-            .on_click(move |_, _, cx| {
-                cx.stop_propagation();
-                ask.update(cx, |this, cx| {
-                    this.confirm_note = Some(note);
-                    cx.notify()
-                })
-                .ok();
-            })
-            .into_any_element();
-        }
-        let (yes, no) = (this.clone(), this);
-        div()
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .text_size(px(12.))
-            .child(
-                div()
-                    .text_color(theme::removed())
-                    .child(super::words::say("Delete on GitLab?").into_owned()),
-            )
-            .child(
-                icon_button(
-                    ("delete-note-yes", note as usize),
-                    "trash",
-                    "Delete",
-                    None,
-                    None,
-                    Kind::Danger,
-                    false,
-                )
-                .h(px(22.))
-                .px(px(6.))
-                .on_click(move |_, _, cx| {
-                    cx.stop_propagation();
-                    yes.update(cx, |this, cx| this.delete_own_note(thread, note, cx))
-                        .ok();
-                }),
-            )
-            .child(
-                div()
-                    .id(("delete-note-no", note as usize))
-                    .px(px(6.))
-                    .h(px(22.))
-                    .flex()
-                    .items_center()
-                    .rounded(px(super::ROW_RADIUS))
-                    .text_color(theme::muted())
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme::hover()))
-                    .child("Cancel")
-                    .on_click(move |_, _, cx| {
-                        cx.stop_propagation();
-                        no.update(cx, |this, cx| {
-                            this.confirm_note = None;
-                            cx.notify()
-                        })
-                        .ok();
-                    }),
-            )
-            .into_any_element()
     }
 
     /// Deletes one's own note `note` of discussion number `thread` on GitLab or GitHub.

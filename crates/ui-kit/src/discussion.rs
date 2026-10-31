@@ -436,3 +436,13 @@ pub fn lite(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Statefu
         .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
         .child(label.into())
 }
+
+/// ⌥M's switch on a discussion: Raw while comments are drawn `rich`, else Rich.
+pub fn rich_switch(id: impl Into<ElementId>, rich: bool) -> Stateful<Div> {
+    lite(id, if rich { "Raw" } else { "Rich" })
+        .tooltip_show_delay(crate::hover::LONG)
+        .tooltip(|_, cx| {
+            cx.new(|_| crate::hover::Tip("Markdown as written or formatted  ⌥M"))
+                .into()
+        })
+}
