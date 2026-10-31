@@ -1,10 +1,16 @@
 //! How images are looked at in a diff — 2-up, swipe or onion skin —, each decoded once, and the words on what
-//! changed between the sides.
+//! changed between the sides. A changed image is shown as an image, as GitLab does: the two sides next to each
+//! other with their sizes (2-up), the new one wiped over the old (Swipe), or laid over it (Onion skin). An SVG can
+//! switch to its source, the text diff. A click goes to the host (`PaneEvent`).
 
-use crate::review::Review;
+use crate::review::{Host, PaneEvent, Review};
 use artoo_core::git::{ChangeKind, FileDiff, ImageKind, ImageSide};
+use artoo_ui_kit::controls::{chip, group};
 use artoo_ui_kit::{px, theme};
-use gpui::{Bounds, FontWeight, ImageFormat, ObjectFit, Pixels, div, img, prelude::*};
+use gpui::{
+    AnyElement, Bounds, ClickEvent, FontWeight, ImageFormat, MouseButton, ObjectFit, Pixels, div,
+    img, prelude::*,
+};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -14,25 +20,8 @@ use std::sync::Arc;
 pub const MAX_W: f32 = 720.;
 pub const MAX_H: f32 = 520.;
 
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
-pub enum Mode {
-    #[default]
-    TwoUp,
-    Swipe,
-    Onion,
-}
-
-impl Mode {
-    pub const ALL: [Mode; 3] = [Mode::TwoUp, Mode::Swipe, Mode::Onion];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Mode::TwoUp => "2-up",
-            Mode::Swipe => "Swipe",
-            Mode::Onion => "Onion skin",
-        }
-    }
-}
+/// How a changed image is looked at.
+pub use artoo_review_api::ImageMode as Mode;
 
 /// How images are being looked at, and the decoded images kept between frames.
 pub struct Images {
@@ -233,6 +222,198 @@ impl Review {
             .gap_4()
             .when(!added, |s| s.child(side(file.old_image.as_ref(), true)))
             .when(!deleted, |s| s.child(side(file.new_image.as_ref(), false)))
+    }
+}
+
+impl Review {
+    /// Changed image `file` with its toolbar: how it is looked at, an SVG's Image | Source, what changed.
+    pub fn render_image(&self, file: &FileDiff, host: Rc<dyn Host>) -> AnyElement {
+        let both = file.old_image.is_some() && file.new_image.is_some();
+        let mode = if both { self.images.mode } else { Mode::TwoUp };
+        let event = |event: PaneEvent| {
+            let host = host.clone();
+            move |_: &ClickEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
+                host.pane(event.clone(), cx)
+            }
+        };
+        let modes = group().children(Mode::ALL.map(|m| {
+            chip(m.label(), m.label(), mode == m)
+                .when(!both && m != Mode::TwoUp, |s| s.opacity(0.4))
+                .on_click(event(PaneEvent::ImageMode(m)))
+        }));
+        let summary = match (&file.old_image, &file.new_image) {
+            (Some(old), Some(new)) => change(old, new),
+            (None, Some(new)) => format!("Added · {}", describe(new)),
+            (Some(old), None) => format!("Deleted · {}", describe(old)),
+            (None, None) => String::new(),
+        };
+        let toolbar = div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap_3()
+            .px_4()
+            .py(px(8.))
+            .border_b_1()
+            .border_color(theme::island_border())
+            .child(modes)
+            .children(is_svg(file).then(|| {
+                group()
+                    .child(
+                        chip("svg-image", "Image", true)
+                            .on_click(event(PaneEvent::SvgSource(false))),
+                    )
+                    .child(
+                        chip("svg-source", "Source", false)
+                            .on_click(event(PaneEvent::SvgSource(true))),
+                    )
+            }))
+            .child(div().flex_1())
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(theme::muted())
+                    .child(summary),
+            );
+        let body = match (mode, &file.old_image, &file.new_image) {
+            (Mode::Swipe | Mode::Onion, Some(old), Some(new)) => self
+                .render_overlay(mode, old, new, host.clone())
+                .into_any_element(),
+            _ => self.render_two_up(file).into_any_element(),
+        };
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .child(toolbar)
+            .child(
+                div()
+                    .id("image-body")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .p_4()
+                    .flex()
+                    .justify_center()
+                    .child(body),
+            )
+            .into_any_element()
+    }
+
+    /// The new side over the old: wiped in from the left up to the handle (Swipe), or faded in (Onion skin). A
+    /// drag in the box or on the bar moves it.
+    fn render_overlay(
+        &self,
+        mode: Mode,
+        old: &ImageSide,
+        new: &ImageSide,
+        host: Rc<dyn Host>,
+    ) -> impl IntoElement + use<> {
+        // One box for both, sized by the larger side.
+        let size = match (old.size, new.size) {
+            (Some(a), Some(b)) => Some((a.0.max(b.0), a.1.max(b.1))),
+            (a, b) => a.or(b),
+        };
+        let (w, h) = fit(size, MAX_W, MAX_H);
+        let mix = self.images.mix;
+        let picture = |side: &ImageSide| {
+            img(self.images.image(side))
+                .absolute()
+                .top_0()
+                .left_0()
+                .w(px(w))
+                .h(px(h))
+                .object_fit(ObjectFit::Contain)
+        };
+        let area = self.images.area.clone();
+        let set = {
+            let area = area.clone();
+            move |x: Pixels, cx: &mut gpui::App| {
+                if let Some(b) = area.get() {
+                    let at = f32::from(x - b.origin.x) / f32::from(b.size.width).max(1.);
+                    host.pane(PaneEvent::ImageMix(at.clamp(0., 1.)), cx);
+                }
+            }
+        };
+        let (down, drag) = (set.clone(), set);
+        let stage = div()
+            .relative()
+            .w(px(w))
+            .h(px(h))
+            .flex_none()
+            .rounded(px(4.))
+            .overflow_hidden()
+            .bg(theme::panel())
+            .border_1()
+            .border_color(theme::island_border())
+            .child(picture(old))
+            .child(match mode {
+                Mode::Swipe => div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .h(px(h))
+                    .w(px(w * mix))
+                    .overflow_hidden()
+                    .child(picture(new))
+                    .into_any_element(),
+                _ => picture(new).opacity(mix).into_any_element(),
+            })
+            .when(mode == Mode::Swipe, |s| {
+                s.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left(px(w * mix - 1.))
+                        .w(px(2.))
+                        .h(px(h))
+                        .bg(theme::accent()),
+                )
+            })
+            .child(
+                gpui::canvas(move |bounds, _, _| area.set(Some(bounds)), |_, _, _, _| {})
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full(),
+            )
+            .cursor_col_resize()
+            .on_mouse_down(MouseButton::Left, move |event, _, cx| {
+                down(event.position.x, cx)
+            })
+            .on_mouse_move(move |event, _, cx| {
+                if event.pressed_button == Some(MouseButton::Left) {
+                    drag(event.position.x, cx)
+                }
+            });
+        let (left, right) = match mode {
+            Mode::Swipe => ("After ←", "→ Before"),
+            _ => ("Before", "After"),
+        };
+        div()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_2()
+            .child(stage)
+            .child(
+                div()
+                    .w(px(w.max(240.)))
+                    .flex()
+                    .justify_between()
+                    .text_size(px(12.))
+                    .text_color(theme::muted())
+                    .child(left)
+                    .child(format!("{}%", (mix * 100.).round()))
+                    .child(right),
+            )
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(theme::faint())
+                    .child("Drag across the image to move it"),
+            )
     }
 }
 

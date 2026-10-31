@@ -32,7 +32,6 @@ mod fonts;
 mod frame;
 mod goline;
 mod goto;
-mod image_view;
 mod inbox;
 mod input;
 mod keymap;
@@ -3209,17 +3208,10 @@ impl Workspace {
         let rv = self.review.read(cx);
         let (ix, stacked) = (rv.file, rv.stack.is_some());
         let file = diff.files.get(ix);
-        // The file as a page or a picture, where the review shows it so.
-        let (page, image) = file
-            .filter(|f| !stacked && !rv.generated_folded(f))
-            .map_or((false, false), |f| (rv.shows_page(f), rv.shows_image(f)));
-        let alone = if page {
-            Some(self.render_page_alone(ix, this.clone(), cx))
-        } else if image {
-            file.map(|f| self.render_image(f, cx))
-        } else {
-            None
-        };
+        // The file as a page, where the review shows it so.
+        let alone = file
+            .filter(|f| !stacked && !rv.generated_folded(f) && rv.shows_page(f))
+            .map(|_| self.render_page_alone(ix, this.clone(), cx));
         let top = self.pieces(Slot::DiffTop, cx).into_iter().map(Some).chain([
             self.render_since_bar(cx),
             Some(self.render_diff_toolbar(diff, cx).into_any_element()),
@@ -3396,6 +3388,14 @@ impl artoo_review_api::Host for TabHost {
                     let at = Point::new(under.right() - px(menu::WIDTH), under.bottom() + px(6.));
                     let groups = this.view_menu(cx);
                     this.open_titled(at, groups, cx);
+                }
+                PaneEvent::ImageMode(mode) => {
+                    this.review.update(cx, |rv, _| rv.images.mode = mode);
+                    cx.notify();
+                }
+                PaneEvent::ImageMix(mix) => {
+                    this.review.update(cx, |rv, _| rv.images.mix = mix);
+                    cx.notify();
                 }
                 PaneEvent::Review => {
                     let rv = this.review.read(cx);

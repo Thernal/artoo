@@ -209,4 +209,30 @@ pub enum PaneEvent {
     ViewMenu { under: gpui::Bounds<gpui::Pixels> },
     /// The review's chip: the open file, marked read, unmarked, else marked and the next one not read opened.
     Review,
+    /// A changed image looked at another way.
+    ImageMode(ImageMode),
+    /// The swipe's place, or how opaque the new image is: 0 … 1.
+    ImageMix(f32),
+}
+
+/// How a changed image is looked at: the two sides next to each other with their sizes (2-up), the new one wiped
+/// over the old (Swipe), or laid over it (Onion skin).
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum ImageMode {
+    #[default]
+    TwoUp,
+    Swipe,
+    Onion,
+}
+
+impl ImageMode {
+    pub const ALL: [ImageMode; 3] = [ImageMode::TwoUp, ImageMode::Swipe, ImageMode::Onion];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ImageMode::TwoUp => "2-up",
+            ImageMode::Swipe => "Swipe",
+            ImageMode::Onion => "Onion skin",
+        }
+    }
 }

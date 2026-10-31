@@ -28,7 +28,7 @@ pub struct PaneLook {
     pub open_in: Option<AnyElement>,
     /// Over the rows, in order: the find bar, the go-to-line prompt, the done card.
     pub over: Vec<AnyElement>,
-    /// The file as a page or a picture, when it is shown so (`shows_page`, `shows_image`).
+    /// The file as a page, when it is shown so (`shows_page`).
     pub alone: Option<AnyElement>,
 }
 
@@ -101,9 +101,10 @@ impl Review {
                 .text_color(theme::muted())
                 .child("No changes")
                 .into_any_element(),
-            (Some(file), _) if self.shows_page(file) || self.shows_image(file) => {
+            (Some(file), _) if self.shows_page(file) => {
                 alone.unwrap_or_else(|| div().flex_1().into_any_element())
             }
+            (Some(file), _) if self.shows_image(file) => self.render_image(file, host.clone()),
             (Some(file), _) if file.hunks.is_empty() => div()
                 .flex_1()
                 .flex()
