@@ -65,7 +65,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   review's handle, `shown`), where it is as a route of its own (`place`: the route nav keeps, whether a branch has
   its own commits), what its page says of it (`facts`), the commits' search (`find`: its field an `Area`, its keys `History::find_key`), a
   comparison's own commits (`compare`), the working tree as last looked at (`working`), what the Branches list
-  reads for its rows (`roots`) —, and the views of the side panel's rows and its lists, the commits' and a comparison's, each its own `uniform_list` (`side`), a commit's card (`card`) and the
+  reads for its rows (`roots`) —, and the side panel's frame (`panel`: its sections' headers and folds, `Act::Fold`), the views of its rows and its lists, the commits' and a comparison's, each its own `uniform_list` (`side`), a commit's card (`card`) and the
   head over a diff with its toolbar's left (`head`: what the diff is of, the working tree's halves, a comparison's
   sides and warnings, the versions' tabs; its text selectable through the tab), a click asking the tab a
   `history::Act`; the app's other views read and draw the history, the side panel a

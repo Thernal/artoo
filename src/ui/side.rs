@@ -5,23 +5,12 @@
 
 use super::nav::Page;
 use super::zones::Zone;
-use super::{Selection, Workspace, chip, icons, island, plural, px, theme};
+use super::{Selection, Workspace, chip, plural, px};
 use artoo_branches::history::{Act, Acts};
+use artoo_branches::panel::{Fold, Head, count, head, open_share, panel, rule};
 use artoo_branches::side::{search_chip, working_chip};
-use gpui::{
-    AnyElement, App, ClickEvent, Context, FontWeight, MouseButton, SharedString, div, prelude::*,
-};
+use gpui::{AnyElement, App, ClickEvent, Context, MouseButton, div, prelude::*};
 use std::rc::Rc;
-
-/// The height of a section's header, folded or open.
-const HEADER: f32 = 34.;
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Section {
-    Versions,
-    Commits,
-    Changes,
-}
 
 impl Workspace {
     /// How the history's views ask the tab.
@@ -54,6 +43,7 @@ impl Workspace {
                     this.start_find(cx)
                 }
                 Act::FindField => this.start_find(cx),
+                Act::Fold(fold) => this.fold_section(fold as u8, cx),
                 Act::BranchMenu { ix, at } => this.branch_context(ix, at, cx),
                 Act::PickRow { row, clicks } => this.pick_branch_row(row, clicks, cx),
                 Act::OpenRow(row) => this.open_branch_row(row, cx),
@@ -83,11 +73,11 @@ impl Workspace {
         })
     }
 
-    fn section_folded(&self, section: Section) -> bool {
+    fn section_folded(&self, section: Fold) -> bool {
         match section {
-            Section::Versions => self.layout.fold_versions,
-            Section::Commits => self.layout.fold_commits,
-            Section::Changes => !self.layout.show_files,
+            Fold::Versions => self.layout.fold_versions,
+            Fold::Commits => self.layout.fold_commits,
+            Fold::Changes => !self.layout.show_files,
         }
     }
 
@@ -120,81 +110,25 @@ impl Workspace {
         cx.notify();
     }
 
-    /// A section's header: the fold chevron, its title, what it holds when folded, and on the
-    /// right its count and controls. `fold` is None for a section that cannot open.
+    /// A section's header (`artoo_branches::panel::head`); `opens` is false for a section that cannot open.
     fn section_header(
         &self,
-        section: Section,
+        section: Fold,
         title: String,
         summary: Option<String>,
         end: Vec<AnyElement>,
-        fold: bool,
+        opens: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
-        let folded = self.section_folded(section) || !fold;
-        let id = match section {
-            Section::Versions => "fold-versions",
-            Section::Commits => "fold-commits",
-            Section::Changes => "fold-changes",
+        let look = Head {
+            fold: section,
+            title,
+            summary,
+            end,
+            folded: self.section_folded(section) || !opens,
+            opens,
         };
-        let which = section as u8;
-        div()
-            .id(id)
-            .flex_none()
-            .h(px(HEADER))
-            .pl(px(8.))
-            .pr(px(10.))
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .when(fold, |s| {
-                s.cursor_pointer().on_click(
-                    // A double click folds or opens it once, as one click does.
-                    cx.listener(move |this, e: &ClickEvent, _, cx| {
-                        if e.click_count() < 2 {
-                            this.fold_section(which, cx)
-                        }
-                    }),
-                )
-            })
-            // The chevron turns as it folds (#56, 1).
-            .child(super::motion::toward(
-                icons::icon("chevron").size(px(14.)).text_color(if fold {
-                    theme::faint()
-                } else {
-                    theme::panel()
-                }),
-                (id, 1usize),
-                !folded,
-                false,
-                super::motion::FAST,
-                |chevron, v| {
-                    chevron.with_transformation(gpui::Transformation::rotate(gpui::radians(
-                        -std::f32::consts::FRAC_PI_2 * (1. - v),
-                    )))
-                },
-            ))
-            .child(
-                div()
-                    .flex_none()
-                    .text_size(px(11.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme::muted())
-                    .child(title.to_uppercase()),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .children(
-                        summary
-                            .filter(|_| folded)
-                            .map(|said| super::hover::cut("summary", said)),
-                    ),
-            )
-            .children(end)
+        head(look, &self.history_acts(cx))
     }
 
     /// The panel shows the versions: a request's page with more than one, not on its commits nor
@@ -282,13 +216,12 @@ impl Workspace {
         let keyboard = matches!(self.zone, Zone::Commits | Zone::Files);
         let mut open_lists = 0;
         let mut sections: Vec<AnyElement> = Vec::new();
-        let rule = || div().flex_none().h(px(1.)).bg(theme::island_border());
 
         // A request's or a branch's commits are its Commits tab, a commit of it a level there: on
         // its pages the panel holds the changes — a request's with its versions — and on a commit
         // only the commit's (#73, #74).
         if self.side_versions(cx) {
-            let folded = self.section_folded(Section::Versions);
+            let folded = self.section_folded(Fold::Versions);
             let summary = match self.history.read(cx).selection {
                 Selection::Versions { from, to } => format!(
                     "v{} → v{}",
@@ -306,7 +239,7 @@ impl Workspace {
                     .flex()
                     .flex_col()
                     .child(self.section_header(
-                        Section::Versions,
+                        Fold::Versions,
                         "Versions".into(),
                         Some(summary),
                         vec![count(self.history.read(cx).versions.len().to_string())],
@@ -336,7 +269,7 @@ impl Workspace {
         }
 
         if self.side_commits(cx) {
-            let commits_folded = self.section_folded(Section::Commits);
+            let commits_folded = self.section_folded(Fold::Commits);
             let first = match self.history.read(cx).selection {
                 Selection::Commit(ix) => self.history.read(cx).commits.get(ix),
                 _ => self.history.read(cx).commits.first(),
@@ -384,7 +317,7 @@ impl Workspace {
                     cx.listener(|this, _, _, cx| this.set_zone(Zone::Commits, cx)),
                 )
                 .child(self.section_header(
-                    Section::Commits,
+                    Fold::Commits,
                     format!("Commits{}", self.zone_tag(Zone::Commits)),
                     commit_summary,
                     commit_end,
@@ -417,7 +350,7 @@ impl Workspace {
             .and_then(|c| c.list.as_ref())
             .map(Vec::len)
         {
-            let folded = self.section_folded(Section::Commits);
+            let folded = self.section_folded(Fold::Commits);
             if !sections.is_empty() {
                 sections.push(rule().into_any_element());
             }
@@ -432,7 +365,7 @@ impl Workspace {
                         cx.listener(|this, _, _, cx| this.set_zone(Zone::Commits, cx)),
                     )
                     .child(self.section_header(
-                        Section::Commits,
+                        Fold::Commits,
                         format!("Commits{}", self.zone_tag(Zone::Commits)),
                         self.compare_summary(cx),
                         vec![count(n.to_string())],
@@ -456,7 +389,7 @@ impl Workspace {
             .filter(|d| !d.files.is_empty())
         {
             let one = diff.files.len() == 1;
-            let folded = one || self.section_folded(Section::Changes);
+            let folded = one || self.section_folded(Fold::Changes);
             let summary = if one {
                 Some(diff.files[0].path().to_owned())
             } else {
@@ -506,7 +439,7 @@ impl Workspace {
                     }),
                 )
                 .child(self.section_header(
-                    Section::Changes,
+                    Fold::Changes,
                     format!(
                         "Changes{}{}",
                         if done { " ✓" } else { "" },
@@ -521,41 +454,6 @@ impl Workspace {
             sections.push(open_share(changes, "changes-open", !folded).into_any_element());
         }
 
-        Some(
-            island()
-                .w(px(self.layout.sidebar))
-                .flex_none()
-                .h_full()
-                .border_2()
-                .border_color(if keyboard {
-                    theme::splitter()
-                } else {
-                    theme::island_border()
-                })
-                .children(sections)
-                // Everything folded: the sections sit at the top.
-                .when(open_lists == 0, |s| s.child(div().flex_1())),
-        )
+        Some(panel(self.layout.sidebar, keyboard, sections, open_lists))
     }
-}
-
-/// A section that shares the panel's height with the other open one: its share grows from nothing
-/// (its header alone) as it opens, and back as it folds (#56, 1).
-fn open_share(section: gpui::Div, id: &'static str, open: bool) -> impl IntoElement {
-    super::motion::toward(section, id, open, false, super::motion::BASE, |s, v| {
-        s.flex_grow(v)
-            .flex_shrink(1.)
-            .flex_basis(px(0.))
-            .min_h(px(super::motion::mix(HEADER, 120., v)))
-    })
-}
-
-/// A section's count, at the right of its header.
-fn count(n: String) -> AnyElement {
-    div()
-        .flex_none()
-        .text_size(px(11.))
-        .text_color(theme::faint())
-        .child(SharedString::from(n))
-        .into_any_element()
 }
