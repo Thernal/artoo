@@ -1328,7 +1328,6 @@ impl Workspace {
         if self.root.is_none() {
             return;
         }
-        self.body_expanded = false;
         let review = self.review_handle();
         let (b, h) = (base.clone(), head.clone());
         self.history.update(cx, |hist, cx| {

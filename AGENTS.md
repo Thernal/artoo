@@ -56,8 +56,8 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   the banner while it cannot be read); a card's text keeps its own caret (`area`). The tab gives each what it
   knows (a `…Look`) and puts it in its frame; the Inbox and a thread drawn on the diff's lines are still the
   app's. `crates/branches` (`artoo-branches`, #165 stage 4): what the tab keeps of the repository's branches, an entity
-  (`History`) whose reads are each its own task (`reading`) — the branch open, its versions and commits and what
-  the diff shows of them (`history`; a commit, a run, versions, an interdiff, the working tree, a comparison or a run
+  (`History`) whose reads are each its own task (`reading`) — the branch open, its versions and commits, where
+  their lists are scrolled, the commit's message open or not, and what the diff shows of them (`history`; a commit, a run, versions, an interdiff, the working tree, a comparison or a run
   of its commits shown through the review's handle, `shown`), what its page says of it (`facts`), the commits' search (`find`), a
   comparison's own commits (`compare`), the working tree as last looked at (`working`), what the Branches list
   reads for its rows (`roots`) —, and the views of the side panel's rows (`side`), a commit's card (`card`) and the

@@ -1,15 +1,15 @@
 //! What the diff shows of the history (#165 I1, I2): a commit, a run of them, two versions compared or an interdiff
 //! of theirs, the working tree, a comparison or a run of its commits — the selection on it, its diff opened through
-//! the review's contract. Where the page goes and what it keeps of it (the history of pages, the places opened
+//! the review's contract, the message folded. Where the page goes and what it keeps of it (the history of pages, the places opened
 //! lately, a comparison's own commits) stay the tab's.
 
 use crate::history::{History, Selection, VersionTab};
 use artoo_core::git::CommitInfo;
 use artoo_review_api::{Review, Source};
-use gpui::App;
+use gpui::{App, ScrollStrategy};
 
 impl History {
-    /// Commit `ix` shown, `keep` the file to open in it: the commit, when there is one.
+    /// Commit `ix` shown, its row in view, `keep` the file to open in it: the commit, when there is one.
     pub fn show_commit(
         &mut self,
         ix: usize,
@@ -19,7 +19,12 @@ impl History {
     ) -> Option<CommitInfo> {
         let commit = self.commits.get(ix)?.clone();
         review.clear(cx);
+        self.message_open = false;
         self.selection = Selection::Commit(ix);
+        if let Some(row) = self.row_of(ix) {
+            self.commit_scroll
+                .scroll_to_item(row, ScrollStrategy::Nearest);
+        }
         review.open(Source::Commit(commit.clone()), keep, cx);
         Some(commit)
     }
@@ -41,6 +46,7 @@ impl History {
             return false;
         };
         review.clear(cx);
+        self.message_open = false;
         self.selection = Selection::Commits { newest, oldest };
         let run = Source::Commits {
             newest: head,
@@ -74,6 +80,7 @@ impl History {
             };
         }
         review.clear(cx);
+        self.message_open = false;
         self.selection = Selection::Versions { from, to };
         review.open(Source::Versions { from: a, to: b }, keep, cx);
         true
@@ -93,6 +100,7 @@ impl History {
             return false;
         };
         review.clear(cx);
+        self.message_open = false;
         review.open(Source::Interdiff { from, to, old, new }, None, cx);
         true
     }
@@ -106,6 +114,7 @@ impl History {
         review: &dyn Review,
         cx: &mut App,
     ) {
+        self.message_open = false;
         self.selection = Selection::WorkingTree;
         review.reopen(Source::WorkingTree { only_unstaged }, keep, cx);
     }
@@ -121,6 +130,7 @@ impl History {
         cx: &mut App,
     ) {
         review.clear(cx);
+        self.message_open = false;
         self.selection = Selection::None;
         let compare = Source::Compare {
             base,
@@ -143,6 +153,7 @@ impl History {
             return false;
         };
         review.clear(cx);
+        self.message_open = false;
         self.selection = Selection::None;
         review.open(Source::Commits { newest, oldest }, keep, cx);
         true

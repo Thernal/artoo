@@ -95,9 +95,8 @@ use artoo_ui_kit::controls::{chip, tag};
 use gpui::{
     App, ClickEvent, Context, CursorStyle, FocusHandle, FontWeight, KeyBinding, KeyDownEvent,
     ListAlignment, ListState, Menu, MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent,
-    PathPromptOptions, Point, ScrollStrategy, SharedString, Task, TitlebarOptions,
-    UniformListScrollHandle, Window, WindowBounds, WindowOptions, actions, div, font, prelude::*,
-    size,
+    PathPromptOptions, Point, SharedString, Task, TitlebarOptions, UniformListScrollHandle, Window,
+    WindowBounds, WindowOptions, actions, div, font, prelude::*, size,
 };
 use lists::Field;
 use menu::{Act, CtxMenu, Entry};
@@ -1721,8 +1720,6 @@ pub struct Workspace {
     web: Option<crate::git::WebRemote>,
     /// The host `web` is on, set with it.
     host: Option<Arc<dyn Host>>,
-    /// The commit message's full body is shown.
-    body_expanded: bool,
     /// Each list's width as last drawn: its rows keep what it has room for (#79).
     widths: room::Widths,
     /// What folds, its open height (#110, `folding`).
@@ -1749,8 +1746,6 @@ pub struct Workspace {
     on_screen: Rc<Shared<bool>>,
     /// The face `char_width` was measured in.
     char_face: SharedString,
-    commit_scroll: UniformListScrollHandle,
-    compare_scroll: UniformListScrollHandle,
     // Replacing a task drops, and so cancels, the one it replaces.
     repo_task: Option<Task<()>>,
 }
@@ -1948,7 +1943,6 @@ impl Workspace {
             ctx_menu: None,
             web: None,
             host: None,
-            body_expanded: false,
             widths: Default::default(),
             heights: Default::default(),
             folds: Default::default(),
@@ -1965,8 +1959,6 @@ impl Workspace {
             file_jump: None,
             on_screen: Rc::new(Shared::new(true)),
             char_face: theme::code_font(),
-            commit_scroll: UniformListScrollHandle::new(),
-            compare_scroll: UniformListScrollHandle::new(),
             repo_task: None,
         };
         // The tab's review as its pages ask it, the tab as Code's host.
@@ -2166,9 +2158,10 @@ impl Workspace {
     }
 
     fn clear_diff(&mut self, cx: &mut App) {
-        self.body_expanded = false;
-        self.history
-            .update(cx, |h, _| h.selection = Selection::None);
+        self.history.update(cx, |h, _| {
+            h.message_open = false;
+            h.selection = Selection::None
+        });
         self.review.update(cx, |rv, _| rv.clear());
     }
 
@@ -2266,17 +2259,12 @@ impl Workspace {
         else {
             return;
         };
-        self.body_expanded = false;
         self.record(cx);
         self.remember_place(
             recents::Key::Commit(commit.id),
             commit.summary.clone(),
             format!("commit {}", format::short(commit.id)),
         );
-        if let Some(row) = self.row_of(ix, cx) {
-            self.commit_scroll
-                .scroll_to_item(row, ScrollStrategy::Nearest);
-        }
         cx.notify();
     }
 
@@ -2305,7 +2293,6 @@ impl Workspace {
         }) {
             return;
         }
-        self.body_expanded = false;
         self.record(cx);
         cx.notify();
     }
@@ -2332,7 +2319,6 @@ impl Workspace {
         {
             return;
         }
-        self.body_expanded = false;
         self.record(cx);
         cx.notify();
     }
@@ -2347,7 +2333,6 @@ impl Workspace {
             .history
             .update(cx, |h, cx| h.show_interdiff(pair, &*review, cx))
         {
-            self.body_expanded = false;
             cx.notify();
         }
     }
@@ -3189,7 +3174,7 @@ impl Workspace {
     /// The header row over the panes: the screen's identity (`artoo_branches::head`).
     fn render_header(&self, diff: &Diff, cx: &mut Context<Self>) -> gpui::AnyElement {
         let look = head::HeadLook {
-            message_open: self.body_expanded,
+            message_open: self.history.read(cx).message_open,
             web: self.web.as_ref(),
             compare_title: self.compare_title(cx),
         };

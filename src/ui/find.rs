@@ -76,7 +76,9 @@ impl Workspace {
         if let Selection::Commit(ix) = self.history.read(cx).selection
             && let Some(row) = self.row_of(ix, cx)
         {
-            self.commit_scroll
+            self.history
+                .read(cx)
+                .commit_scroll
                 .scroll_to_item(row, gpui::ScrollStrategy::Center);
         }
         cx.notify();
@@ -88,7 +90,9 @@ impl Workspace {
         if let Selection::Commit(ix) = self.history.read(cx).selection
             && let Some(row) = self.row_of(ix, cx)
         {
-            self.commit_scroll
+            self.history
+                .read(cx)
+                .commit_scroll
                 .scroll_to_item(row, gpui::ScrollStrategy::Nearest);
         }
         cx.notify();

@@ -7,7 +7,7 @@ use crate::find::Find;
 use crate::reading::Read;
 use crate::roots::Roots;
 use artoo_core::git::{BranchRef, CommitInfo, Deco, Version};
-use gpui::{EventEmitter, Task};
+use gpui::{EventEmitter, Task, UniformListScrollHandle};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -57,6 +57,12 @@ pub struct History {
     pub older: Option<Older>,
     pub selection: Selection,
     pub version_tab: VersionTab,
+    /// The commit's message open under its title, over its diff (`head`).
+    pub message_open: bool,
+    /// Where the Commits section's list is scrolled.
+    pub commit_scroll: UniformListScrollHandle,
+    /// Where a comparison's commits are scrolled (#21).
+    pub compare_scroll: UniformListScrollHandle,
     /// Labels on commits: where branches, remote branches and tags point.
     pub decor: HashMap<git2::Oid, Vec<Deco>>,
     /// The commits' search (⌘⇧F).
@@ -166,6 +172,9 @@ impl Default for History {
             older: None,
             selection: Selection::None,
             version_tab: VersionTab::Files,
+            message_open: false,
+            commit_scroll: UniformListScrollHandle::new(),
+            compare_scroll: UniformListScrollHandle::new(),
             decor: HashMap::new(),
             find: Find::default(),
             roots: Roots::default(),

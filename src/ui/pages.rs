@@ -148,7 +148,11 @@ impl Workspace {
                         self.zen_strip(
                             "identity-zen",
                             self.zen.is_none(),
-                            if self.body_expanded { 320. } else { 110. },
+                            if self.history.read(cx).message_open {
+                                320.
+                            } else {
+                                110.
+                            },
                             div()
                                 .flex()
                                 .flex_col()

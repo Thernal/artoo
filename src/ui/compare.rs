@@ -58,7 +58,9 @@ impl Workspace {
             return;
         };
         self.pick_compare_commit(to, false, cx);
-        self.compare_scroll
+        self.history
+            .read(cx)
+            .compare_scroll
             .scroll_to_item(to, gpui::ScrollStrategy::Nearest);
     }
 
@@ -73,7 +75,6 @@ impl Workspace {
             .history
             .update(cx, |h, cx| h.show_compare_pick(keep, &*review, cx))
         {
-            self.body_expanded = false;
             cx.notify();
         }
     }
@@ -130,7 +131,7 @@ impl Workspace {
                     .collect::<Vec<_>>()
             }),
         )
-        .track_scroll(&self.compare_scroll);
+        .track_scroll(&self.history.read(cx).compare_scroll);
         Some(compare_commits(list, n).into_any_element())
     }
 }

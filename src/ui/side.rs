@@ -72,7 +72,8 @@ impl Workspace {
                     cx.notify();
                 }
                 Act::Message => {
-                    this.body_expanded = !this.body_expanded;
+                    this.history
+                        .update(cx, |h, _| h.message_open = !h.message_open);
                     cx.notify();
                 }
                 Act::Copy(text) => this.run_act(super::menu::Act::Copy(text), cx),
@@ -447,7 +448,7 @@ impl Workspace {
                                         .collect::<Vec<_>>()
                                 }),
                             )
-                            .track_scroll(&self.commit_scroll)
+                            .track_scroll(&self.history.read(cx).commit_scroll)
                             .flex_1()
                             .pb(px(6.))
                             .into_any_element()

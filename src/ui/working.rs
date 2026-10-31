@@ -130,7 +130,6 @@ impl Workspace {
             return;
         }
         let only_unstaged = self.wt.only_unstaged;
-        self.body_expanded = false;
         // A reload finds a file partly staged at its place, in the group it was in (#22).
         let review = self.review_handle();
         self.history.update(cx, |h, cx| {
