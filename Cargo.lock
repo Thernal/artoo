@@ -267,6 +267,7 @@ dependencies = [
  "artoo-core",
  "artoo-hosts",
  "artoo-hosts-api",
+ "artoo-ui-kit",
  "git2",
  "gpui-pre",
  "serde",

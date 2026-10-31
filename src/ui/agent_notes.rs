@@ -4,15 +4,16 @@
 //! branch's pages, a comparison or a request with that head). Answer opens a comment for the agent
 //! on the note's line; the reviewer dismisses one, or all of them at once.
 
-use super::discussion::{self, Kind};
 use super::nav::Page;
 use super::rows::FileData;
 use super::toast::Act;
-use super::{Header, Workspace, markdown, px, theme};
+use super::{Header, Workspace};
 use crate::agents::{Event, What};
 use crate::notes::{Note, Notes, On};
 use crate::review::Place;
-use gpui::{App, Context, FontWeight, WeakEntity, div, prelude::*};
+use artoo_agents::view::{self, NoteEvent, NoteLook, OnNote};
+use gpui::{App, Context, WeakEntity, div, prelude::*};
+use std::rc::Rc;
 
 impl Workspace {
     /// An agent's notes on its changes (`What::Notes`) come in: kept, its earlier ones on the
@@ -278,6 +279,19 @@ impl Workspace {
 
     /// A note under its line: the agent's mark and name in its colour, Answer and Dismiss, the
     /// note.
+    /// What answers a note's clicks.
+    fn note_on(this: WeakEntity<Self>) -> OnNote {
+        Rc::new(move |event, cx| {
+            this.update(cx, |this, cx| match event {
+                NoteEvent::Answer(id) => this.answer_note(id, cx),
+                NoteEvent::Dismiss(id) => this.dismiss_note(id, cx),
+                NoteEvent::DismissAll(uid) => this.dismiss_agent_notes(&uid, cx),
+            })
+            .ok();
+        })
+    }
+
+    /// Note `id` under its line (`artoo_agents::view::note_card`).
     pub(super) fn render_agent_note(
         &self,
         id: u64,
@@ -288,181 +302,31 @@ impl Workspace {
         let Some((notes, note)) = self.agent_note(id) else {
             return div().into_any_element();
         };
-        let (letter, hue) = self.agent_mark(&notes.agent);
-        let (answer, dismiss, selecting) = (this.clone(), this.clone(), self.selecting(this));
-        let bar = div()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .child(super::agent::chat_badge(letter, hue, false))
-            .child(
-                div()
-                    .flex_none()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(notes.agent.clone()),
-            )
-            .child(
-                super::hover::cut("note-hint", "· a note on its change")
-                    .flex_1()
-                    .text_color(theme::muted()),
-            )
-            .child(
-                discussion::icon_button(
-                    ("note-answer", id as usize),
-                    "message",
-                    "Answer",
-                    None,
-                    Some("A comment for the agent on this line"),
-                    Kind::Plain,
-                    self.review.read(cx).tight,
-                )
-                .h(px(24.))
-                .px(px(8.))
-                .on_click(move |_, _, cx| {
-                    cx.stop_propagation();
-                    answer.update(cx, |this, cx| this.answer_note(id, cx)).ok();
-                }),
-            )
-            .child(
-                discussion::icon_button(
-                    ("note-dismiss", id as usize),
-                    "x",
-                    "Dismiss",
-                    None,
-                    None,
-                    Kind::Quiet,
-                    true,
-                )
-                .h(px(24.))
-                .px(px(6.))
-                .on_click(move |_, _, cx| {
-                    cx.stop_propagation();
-                    dismiss
-                        .update(cx, |this, cx| this.dismiss_note(id, cx))
-                        .ok();
-                }),
-            );
-        div()
-            .w_full()
-            .pl(px(indent))
-            .pr(px(12.))
-            .py(px(6.))
-            .child(note_frame(hue).child(bar).child(markdown::body(
-                &note.body,
-                self.settings.rich_comments,
-                format!("md-agent-note-{id}"),
-                None,
-                Some(selecting),
-                cx,
-            )))
-            .into_any_element()
+        let look = NoteLook {
+            mark: self.agent_mark(&notes.agent),
+            rich: self.settings.rich_comments,
+            tight: self.review.read(cx).tight,
+            selecting: self.selecting(this.clone()),
+        };
+        view::note_card(notes, note, indent, look, Self::note_on(this), cx)
     }
 
-    /// Over the diff, the summary of each agent's notes on these changes: its mark, how many notes
-    /// on how many files, the summary, Dismiss all.
+    /// Over the diff, the summary of each agent's notes on these changes
+    /// (`artoo_agents::view::notes_summary`).
     pub(super) fn render_notes_summary(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        let shown = self.notes_shown(cx);
-        if shown.is_empty() {
-            return None;
-        }
         let this = cx.entity().downgrade();
-        let cards = shown.into_iter().map(|n| {
-            let (letter, hue) = self.agent_mark(&n.agent);
-            let mut files: Vec<&str> = n.notes.iter().map(|x| x.path.as_str()).collect();
-            files.sort_unstable();
-            files.dedup();
-            let count = match n.notes.len() {
-                0 => String::new(),
-                notes => format!(
-                    "· {} on {}",
-                    super::plural(notes, "note"),
-                    super::plural(files.len(), "file")
-                ),
-            };
-            let (dismiss, uid) = (this.clone(), n.uid.clone());
-            note_frame(hue)
-                .max_w_full()
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .child(super::agent::chat_badge(letter, hue, false))
-                        .child(
-                            div()
-                                .flex_none()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(format!("{}'s notes", n.agent)),
-                        )
-                        .child(
-                            super::hover::cut("notes-count", count)
-                                .flex_1()
-                                .text_color(theme::muted()),
-                        )
-                        .child(
-                            discussion::button(
-                                gpui::SharedString::from(format!("notes-dismiss-{}", n.uid)),
-                                "Dismiss all",
-                                None,
-                                Kind::Quiet,
-                            )
-                            .h(px(24.))
-                            .px(px(8.))
-                            .on_click(move |_, _, cx| {
-                                dismiss
-                                    .update(cx, |this, cx| this.dismiss_agent_notes(&uid, cx))
-                                    .ok();
-                            }),
-                        ),
-                )
-                // A long one scrolls in its card; the diff keeps the room.
-                .children((!n.summary.is_empty()).then(|| {
-                    div()
-                        .id(gpui::SharedString::from(format!("notes-summary-{}", n.uid)))
-                        .max_h(px(160.))
-                        .overflow_y_scroll()
-                        .child(markdown::body(
-                            &n.summary,
-                            self.settings.rich_comments,
-                            format!("md-notes-summary-{}", n.uid),
-                            None,
-                            Some(self.selecting(this.clone())),
-                            cx,
-                        ))
-                }))
-        });
-        Some(
-            div()
-                .flex_none()
-                .flex()
-                .flex_col()
-                .gap(px(super::gap()))
-                .pb(px(super::gap()))
-                .children(cards)
-                .into_any_element(),
+        let shown: Vec<_> = self
+            .notes_shown(cx)
+            .into_iter()
+            .map(|n| (n, self.agent_mark(&n.agent)))
+            .collect();
+        view::notes_summary(
+            &shown,
+            self.settings.rich_comments,
+            self.selecting(this.clone()),
+            super::gap(),
+            Self::note_on(this),
+            cx,
         )
     }
-}
-
-/// A note's frame: a discussion's, its rail in the agent's colour.
-fn note_frame(hue: gpui::Rgba) -> gpui::Div {
-    const RAIL: f32 = 3.;
-    div()
-        .w_full()
-        .max_w(px(720.))
-        .flex()
-        .flex_col()
-        .gap(px(6.))
-        .rounded(px(10.))
-        .bg(theme::panel())
-        .border_l(px(RAIL))
-        .border_color(hue)
-        .pl(px(14. - RAIL))
-        .pr(px(14.))
-        .pt(px(8.))
-        .pb(px(10.))
-        .font_family(theme::ui_font())
-        .text_size(px(13.))
-        .line_height(px(20.))
-        .text_color(theme::text())
 }

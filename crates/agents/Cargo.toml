@@ -12,6 +12,8 @@ artoo-core = { path = "../core" }
 artoo-agents-api = { path = "../agents-api" }
 # `mcp` reads requests through the hosts' contract; the app hands it the implementation.
 artoo-hosts-api = { path = "../hosts-api" }
+# How its notes and chats are drawn (`view`).
+artoo-ui-kit = { path = "../ui-kit" }
 git2.workspace = true
 gpui.workspace = true
 serde.workspace = true

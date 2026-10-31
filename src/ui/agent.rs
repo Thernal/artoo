@@ -12,6 +12,7 @@ use super::tools::ToolView;
 use super::{ISLAND_RADIUS, ROW_RADIUS, Workspace, theme};
 use crate::agents::{self, Bus};
 use crate::review::State;
+pub(super) use artoo_agents::view::chat_badge;
 use gpui::{
     App, ClickEvent, ClipboardItem, Context, FontWeight, KeyDownEvent, MouseButton, div, prelude::*,
 };
@@ -2377,24 +2378,6 @@ fn foot_button(id: &'static str, label: String) -> gpui::Stateful<gpui::Div> {
         .cursor_pointer()
         .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
         .child(label)
-}
-
-/// A chat's mark: its letter on its hue, hollow when it is gone.
-pub(super) fn chat_badge(letter: char, hue: gpui::Rgba, gone: bool) -> gpui::Div {
-    div()
-        .flex_none()
-        .size(px(18.))
-        .rounded_full()
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_size(px(10.))
-        .font_weight(FontWeight::BOLD)
-        .border_1()
-        .border_color(hue)
-        .when(!gone, |s| s.bg(hue).text_color(theme::base()))
-        .when(gone, |s| s.text_color(hue))
-        .child(letter.to_string())
 }
 
 /// "limited" beside a Codex chat (#18; the developer, 2026-10-23: not "beta"), what it cannot do
