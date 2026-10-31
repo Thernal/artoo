@@ -62,6 +62,9 @@ pub enum SearchEvent {
     Open(usize),
 }
 
+/// What answers the search's clicks.
+pub type OnSearch = Rc<dyn Fn(SearchEvent, &mut Window, &mut App)>;
+
 /// What a key typed in the search came to.
 pub enum Keyed {
     Kept,
@@ -313,11 +316,7 @@ impl Review {
     }
 
     /// The search over the window, its `field` drawn by the tab; `on` answers its clicks.
-    pub fn render_find_files(
-        &self,
-        field: AnyElement,
-        on: Rc<dyn Fn(SearchEvent, &mut Window, &mut App)>,
-    ) -> Option<AnyElement> {
+    pub fn render_find_files(&self, field: AnyElement, on: OnSearch) -> Option<AnyElement> {
         let f = self.ffind.as_ref()?;
         let diff = self.diff.as_ref()?;
         let click = |event: SearchEvent| {

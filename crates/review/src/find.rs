@@ -23,15 +23,13 @@ pub enum BarEvent {
     Close,
 }
 
+/// What answers the find bar's clicks.
+pub type OnBar = Rc<dyn Fn(BarEvent, &mut App)>;
+
 impl Review {
     /// The find bar above the diff: the `field` (the tab's, `active` with the keyboard), "2 of 4 lines",
     /// previous, next, close; `on` answers its clicks.
-    pub fn render_find_bar(
-        &self,
-        field: AnyElement,
-        active: bool,
-        on: Rc<dyn Fn(BarEvent, &mut App)>,
-    ) -> Option<Div> {
+    pub fn render_find_bar(&self, field: AnyElement, active: bool, on: OnBar) -> Option<Div> {
         self.dfind.as_ref()?;
         let count = if let Some(error) = &self.dfind_error {
             format!("Not a regular expression: {error}")
