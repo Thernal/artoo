@@ -7,6 +7,7 @@ use crate::find::Find;
 use crate::reading::Read;
 use crate::roots::Roots;
 use crate::waiting::Waiting;
+use crate::working::WorkingState;
 use artoo_core::git::{BranchRef, CommitInfo, Deco, Version};
 use gpui::{EventEmitter, Task, UniformListScrollHandle};
 use std::collections::HashMap;
@@ -82,6 +83,8 @@ pub struct History {
     pub find: Find,
     /// What the Branches list reads for its rows and previews (#72).
     pub roots: Roots,
+    /// The working tree as last looked at: the tab's poll keeps it.
+    pub wt: WorkingState,
     /// The branch being read; replacing it drops, and so cancels, the one it replaces.
     pub task: Option<Task<()>>,
     /// The branch read, until the tab shows it (`History::settle`).
@@ -235,6 +238,7 @@ impl Default for History {
             decor: HashMap::new(),
             find: Find::default(),
             roots: Roots::default(),
+            wt: WorkingState::default(),
             task: None,
             read: None,
         }

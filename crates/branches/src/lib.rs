@@ -5,7 +5,8 @@
 //! entity's own task, the tab hearing what follows as a `history::Event`. Its views draw the side panel's rows
 //! (`side`), a commit's card (`card`), the line over a branch's page (`facts`), a comparison's pill (`compare`) and
 //! the Branches list (`list`) and the head over a diff with its toolbar's left (`head`), a click asking the tab a
-//! `history::Act`; the app's other views read and draw the history for now.
+//! `history::Act`; the Branches space's own page is theirs (`page`). The app's other views read and draw the
+//! history for now.
 
 pub mod card;
 pub mod compare;
@@ -15,6 +16,7 @@ pub mod head;
 pub mod history;
 pub mod list;
 pub mod opening;
+pub mod page;
 pub mod panel;
 pub mod place;
 pub mod reading;
@@ -29,13 +31,13 @@ use gpui::{App, Entity, Window};
 use std::rc::Rc;
 
 /// Branches' parts in every tab: the commits' search as one of its inputs, a branch's line and the head over a
-/// diff on the item page.
+/// diff on the item page, the space's own page.
 pub fn install(cx: &mut App) {
     artoo_shell_api::add_parts(cx, parts);
 }
 
 /// The parts of a tab that offers its history; none in one that does not.
-fn parts(frame: Rc<dyn Frame>, _: &mut Window, _: &mut App) -> Parts {
+fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     let services = frame.services();
     let Some(history) = services.get::<Entity<history::History>>() else {
         return Parts::default();
@@ -46,8 +48,9 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, _: &mut App) -> Parts {
         pieces: vec![
             facts::line(history.clone(), services.clone()),
             head::piece(history.clone(), services.clone()),
-            head::bar_piece(history, services),
+            head::bar_piece(history.clone(), services),
         ],
+        pages: Some(page::pages(history, frame, cx)),
         ..Default::default()
     }
 }

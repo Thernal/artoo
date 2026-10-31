@@ -60,6 +60,12 @@ pub trait Review {
 
     /// The diff shown, once it is read.
     fn shown(&self, cx: &App) -> Option<Arc<diff::Diff>>;
+
+    /// How far your review of commit `tip` got, files done of all: once begun, until it is whole.
+    fn head_part(&self, tip: Oid, cx: &App) -> Option<(u32, u32)>;
+
+    /// Whether your review of commit `tip` is whole.
+    fn head_reviewed(&self, tip: Oid, cx: &App) -> bool;
 }
 
 /// The file a page reads through the tab's review.

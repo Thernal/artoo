@@ -1561,7 +1561,6 @@ pub struct Workspace {
     project: Option<PathBuf>,
     palette: Option<palette::Palette>,
     zone: zones::Zone,
-    wt: WorkingState,
     fetch: fetch::Fetch,
     shell: Option<gpui::WeakEntity<shell::Shell>>,
     /// The window this workspace is in: a repository can open in a new tab of it from anywhere.
@@ -1878,7 +1877,6 @@ impl Workspace {
             project: None,
             palette: None,
             zone: zones::Zone::default(),
-            wt: WorkingState::default(),
             fetch: fetch::Fetch::default(),
             shell: None,
             requests: cx.new(|_| requests::Requests::default()),

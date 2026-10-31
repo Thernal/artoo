@@ -314,7 +314,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if let Some(on) = unstaged {
-            self.wt.only_unstaged = on;
+            self.history.update(cx, |h, _| h.wt.only_unstaged = on);
         }
         self.show_open(item, cx);
         // On screen already, it is read again as asked.

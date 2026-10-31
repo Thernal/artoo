@@ -1,11 +1,13 @@
 //! A commit on a long hover (#53): its card — its whole message's start, who and when, what it changed, its
-//! labels, its id to copy, its page on the host —, and the labels on commits as a row shows them.
+//! labels, its id to copy, its page on the host —, the labels on commits as a row shows them, and a branch's card
+//! (its upstream, how far from the main line, its request, its last commit).
 
+use crate::history::History;
 use artoo_core::git::{CommitInfo, Deco, DecoKind, Repo};
 use artoo_ui_kit::controls::tag;
-use artoo_ui_kit::format::plural;
+use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{CutInTip, card_action, card_frame, cut, full_date};
-use artoo_ui_kit::{discussion, motion, px, theme};
+use artoo_ui_kit::{discussion, motion, px, theme, words};
 use gpui::{
     AnyView, App, ClickEvent, Context, FontWeight, IntoElement, Render, Rgba, Window, div,
     prelude::*,
@@ -220,4 +222,100 @@ impl crate::history::History {
             stat: None,
         }
     }
+}
+
+/// A branch: its upstream and how far apart, its last commit.
+struct BranchCard {
+    name: String,
+    tracking: Option<(String, usize, usize)>,
+    /// ↑ ↓ against the main line, and its request: what its row shows when it has room (#79).
+    against: Option<(String, usize, usize)>,
+    request: Option<String>,
+    last: Option<CommitInfo>,
+}
+
+impl Render for BranchCard {
+    // It fades in after the long rest (#56, 7).
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        motion::appear(self.body(), "card-in", motion::FAST, |c, v| c.opacity(v))
+    }
+}
+
+impl BranchCard {
+    fn body(&mut self) -> gpui::Div {
+        card_frame()
+            .child(
+                div()
+                    .font_family(theme::code_font())
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(self.name.clone()),
+            )
+            .child(
+                div()
+                    .text_color(theme::muted())
+                    .child(match &self.tracking {
+                        Some((up, 0, 0)) => format!("Up to date with {up}"),
+                        Some((up, ahead, behind)) => {
+                            format!("{up} · ↑{ahead} ahead · ↓{behind} behind")
+                        }
+                        None => "No upstream".to_owned(),
+                    }),
+            )
+            .children(
+                self.against
+                    .as_ref()
+                    .filter(|(on, ..)| self.tracking.as_ref().is_none_or(|(up, ..)| up != on))
+                    .map(|(on, ahead, behind)| {
+                        div()
+                            .text_color(theme::muted())
+                            .child(format!("↑{ahead} ↓{behind} against {on}"))
+                    }),
+            )
+            .children(
+                self.request
+                    .clone()
+                    .map(|r| div().text_color(theme::accent()).child(r)),
+            )
+            .children(self.last.as_ref().map(|c| {
+                div().flex().flex_col().child(c.summary.clone()).child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(theme::faint())
+                        .child(format!(
+                            "{} · {} · {}",
+                            format::short(c.id),
+                            c.author,
+                            full_date(c.time)
+                        )),
+                )
+            }))
+    }
+}
+
+/// What builds the card of branch `ix` of `h` when it shows, its request (`request`, its number and title) named on
+/// it: the repository is read then, not at every frame.
+pub fn branch_card(
+    h: &History,
+    ix: usize,
+    request: Option<(u64, String)>,
+) -> Option<impl Fn(&mut Window, &mut App) -> AnyView + 'static> {
+    let b = h.branches.get(ix)?;
+    let (root, name, tip) = (h.root.clone()?, b.name.clone(), b.tip);
+    let against = h
+        .roots
+        .facts
+        .get(&b.refname)
+        .and_then(|f| f.against.clone());
+    let request = request.map(|(iid, title)| format!("{} {title}", words::number(iid)));
+    Some(move |_: &mut Window, cx: &mut App| {
+        let repo = Repo::open(&root).ok();
+        let card = BranchCard {
+            name: name.clone(),
+            tracking: repo.as_ref().and_then(|r| r.tracking(&name)),
+            against: against.clone(),
+            request: request.clone(),
+            last: repo.as_ref().and_then(|r| r.commit(tip).ok()),
+        };
+        cx.new(|_| card).into()
+    })
 }

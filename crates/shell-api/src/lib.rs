@@ -97,6 +97,14 @@ pub trait Frame {
 
     /// What the tab's features offer one another.
     fn services(&self) -> Rc<Services>;
+
+    /// A space's own page as a list beside a preview, in the tab's frame: the list at the width the developer
+    /// gave it, bordered while it has the keyboard, its handle, the preview beside; narrow, the list alone. Asked
+    /// from a page's own drawing, never from inside the tab's update.
+    fn list_page(&self, list: AnyElement, preview: AnyElement, cx: &mut App) -> AnyElement;
+
+    /// What is typed in the page bar's filter of a space's list (⌘F).
+    fn filter(&self, cx: &App) -> String;
 }
 
 /// What the features of one tab offer one another, by type: a contract's handle, `Rc<dyn …>`.

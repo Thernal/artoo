@@ -262,13 +262,12 @@ pub struct Nav {
     pub folded: [bool; 4],
     /// A space and page to show once the request list is in (a project reopened on one).
     pending_show: Option<(Space, Option<Page>)>,
-    /// The row a root list has selected: a request, a branch or the working tree.
+    /// The request Merge requests' list has selected (Branches' row is the history's).
     pub pick_request: Option<u64>,
     /// The commit a request's Commits section has selected (#73), and with shift the other end
     /// of a run of them.
     pub pick_commit: Option<Oid>,
     pub pick_to: Option<Oid>,
-    pub pick_branch: Option<BranchRow>,
     /// The menu's open items picked with shift, the first the one it began from: ⌘W closes them.
     pub picked: Vec<Item>,
     /// Loading what a page needs, or coming back to a moment: no new moment, no link.
@@ -288,7 +287,6 @@ impl Default for Nav {
             pending_show: None,
             pick_request: None,
             pick_commit: None,
-            pick_branch: None,
             picked: Vec::new(),
             pick_to: None,
             restoring: false,
@@ -696,7 +694,9 @@ impl Workspace {
             }
             Space::Code => self.show_pages(space, None, false, cx),
             Space::Branches => {
-                self.nav.pick_branch = self.nav.pick_branch.or_else(|| self.first_branch_row(cx));
+                let first = self.first_branch_row(cx);
+                self.history
+                    .update(cx, |h, _| h.roots.picked = h.roots.picked.or(first));
                 self.zone = zones::Zone::Branches;
                 self.read_branch_facts(cx);
                 self.read_tree_files(cx);
@@ -718,7 +718,7 @@ impl Workspace {
     /// Loads what `page` shows, unless it is what is loaded.
     fn load_page(&mut self, page: Page, cx: &mut Context<Self>) {
         // A feature's pages load what they show themselves.
-        if self.space_pages(page.space()).is_some() {
+        if self.pages_drawing(page.space(), Some(&page)).is_some() {
             return self.show_pages(page.space(), Some(&page), false, cx);
         }
         let loaded = self.loaded_page(cx);
@@ -799,13 +799,16 @@ impl Workspace {
         if up.is_none() {
             // Back at the root: the list selects what was open.
             match (&page, page.item()) {
-                (Page::WorkingTree, _) => self.nav.pick_branch = Some(BranchRow::WorkingTree),
+                (Page::WorkingTree, _) => self
+                    .history
+                    .update(cx, |h, _| h.roots.picked = Some(BranchRow::WorkingTree)),
                 (_, Some(Item::Request(iid))) => {
                     self.nav.pick_request = Some(iid);
                     self.requests.read(cx).rows.reveal.set(true);
                 }
                 (_, Some(Item::Branch(refname))) => {
-                    self.nav.pick_branch = self.branch_ix(&refname, cx).map(BranchRow::Branch)
+                    let row = self.branch_ix(&refname, cx).map(BranchRow::Branch);
+                    self.history.update(cx, |h, _| h.roots.picked = row);
                 }
                 (_, Some(Item::Compare(..) | Item::WorkingTree) | None) => {}
             }

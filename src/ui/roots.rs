@@ -4,14 +4,14 @@
 //! folds (#81), and Mine counts the discussions waiting for you and lists them first. Branches list the working tree first, then
 //! the local branches with how far they are from the main line and their request; a remote's
 //! branches fold under its name. Each list's rows and preview are their feature's
-//! (`artoo_branches::list`, `artoo_requests::list`); the tab draws the islands around them.
+//! (`artoo_requests::list`; Branches' whole page, `artoo_branches::page`); the tab draws the
+//! islands around them (`list_page`).
 
 use super::lists::Field;
 use super::nav::BranchRow;
 use super::{Workspace, island, keys, px, theme};
 use crate::git::BranchRef;
 use crate::mr::{Mr, MrState, Thread};
-use artoo_branches::list::{self as branches, Beside, Card, ListLook};
 pub(super) use artoo_requests::group::Group;
 use artoo_requests::list;
 use artoo_review_api::Seen;
@@ -27,6 +27,35 @@ impl Workspace {
         } else {
             island().w(px(list_width(self.layout.list))).flex_none()
         }
+    }
+
+    /// A root's list beside its preview (`Frame::list_page`): the list bordered while it has the
+    /// keyboard; its handle widens or narrows it, kept for every list page (the developer,
+    /// 2026-10-23), a double click setting it back; narrow, the list alone (#80).
+    pub(super) fn list_page(
+        &self,
+        list: impl IntoElement,
+        preview: impl IntoElement,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .child(
+                self.root_list()
+                    .border_color(self.zone_border(super::zones::Zone::Branches))
+                    .child(list),
+            )
+            .children((!self.compact()).then(|| self.handle(super::Split::List, cx)))
+            .children((!self.compact()).then(|| {
+                island()
+                    .flex_1()
+                    .min_w_0()
+                    .bg(theme::editor())
+                    .child(preview)
+            }))
+            .into_any_element()
     }
 }
 
@@ -53,9 +82,8 @@ impl Workspace {
 
     /// Reads the working tree's files again when they changed since the last read (`History::read_tree`).
     pub(super) fn read_tree_files(&mut self, cx: &mut Context<Self>) {
-        let (wt, settings) = ((self.wt.count, self.wt.hash), self.settings(cx));
-        self.history
-            .update(cx, |h, cx| h.read_tree(wt, settings, cx));
+        let settings = self.settings(cx);
+        self.history.update(cx, |h, cx| h.read_tree(settings, cx));
     }
 
     /// The request picked in the list: its pipeline and approvals, once per update of it.
@@ -121,7 +149,7 @@ impl Workspace {
 
     /// The row Branches selects when nothing is (`History::first_row`).
     pub(super) fn first_branch_row(&self, cx: &App) -> Option<BranchRow> {
-        self.history.read(cx).first_row(self.wt.count)
+        self.history.read(cx).first_row()
     }
 
     /// A root list's row picked, by a click or ↑ ↓.
@@ -253,29 +281,13 @@ impl Workspace {
                         .ok();
                     });
                 }
-                div()
+                let preview = div()
+                    .id("request-preview")
                     .flex_1()
                     .min_h_0()
-                    .flex()
-                    .child(
-                        self.root_list()
-                            .border_color(self.zone_border(super::zones::Zone::Branches))
-                            .child(rows),
-                    )
-                    // Its handle widens or narrows the list, kept for every list page (the
-                    // developer, 2026-10-23); a double click sets it back.
-                    .children((!self.compact()).then(|| self.handle(super::Split::List, cx)))
-                    .children((!self.compact()).then(|| {
-                        island().flex_1().min_w_0().bg(theme::editor()).child(
-                            div()
-                                .id("request-preview")
-                                .flex_1()
-                                .min_h_0()
-                                .overflow_y_scroll()
-                                .children(preview),
-                        )
-                    }))
-                    .into_any_element()
+                    .overflow_y_scroll()
+                    .children(preview);
+                self.list_page(rows, preview, cx)
             }
         };
         div()
@@ -328,86 +340,6 @@ impl Workspace {
         self.open_at_note(iid, note, cx);
     }
 
-    /// Branches' root: the working tree, the local branches, the remotes folded; the row picked
-    /// previewed.
-    pub(super) fn render_branches_root(&self, cx: &mut Context<Self>) -> AnyElement {
-        let rows = self.branch_rows(cx);
-        let picked = self
-            .nav
-            .pick_branch
-            .filter(|r| rows.contains(r))
-            .or_else(|| self.first_branch_row(cx).filter(|r| rows.contains(r)))
-            .or(rows.first().copied());
-        let acts = self.history_acts(cx);
-        let (list, preview) = {
-            let beside = |ix: usize| self.beside_branch(ix, cx);
-            let look = ListLook {
-                room: self.widths.room("branches"),
-                changes: self.wt.count,
-                filter: self.bfilter.trim(),
-                picked,
-                beside: &beside,
-            };
-            let h = self.history.read(cx);
-            (
-                branches::rows(h, &rows, &look, &acts),
-                branches::preview(h, &look, &acts),
-            )
-        };
-        div()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .child(
-                self.root_list()
-                    .relative()
-                    .border_color(self.zone_border(super::zones::Zone::Branches))
-                    .child(self.widths.measure("branches"))
-                    .child(
-                        div()
-                            .id("branches")
-                            .flex_1()
-                            .min_h_0()
-                            .overflow_y_scroll()
-                            .pb(px(6.))
-                            .children(list),
-                    ),
-            )
-            // Its handle widens or narrows the list, kept for every list page (the developer,
-            // 2026-10-23); a double click sets it back.
-            .children((!self.compact()).then(|| self.handle(super::Split::List, cx)))
-            .children((!self.compact()).then(|| {
-                island().flex_1().min_w_0().bg(theme::editor()).child(
-                    div()
-                        .id("branch-preview")
-                        .flex_1()
-                        .min_h_0()
-                        .flex()
-                        .flex_col()
-                        .overflow_y_scroll()
-                        .child(preview),
-                )
-            }))
-            .into_any_element()
-    }
-
-    /// What the Branches list shows of branch `ix` that other features know: your review of its tip, its request,
-    /// its card.
-    fn beside_branch(&self, ix: usize, cx: &App) -> Beside {
-        let Some(b) = self.history.read(cx).branches.get(ix) else {
-            return Beside::default();
-        };
-        let review = self.review.read(cx);
-        Beside {
-            part: review.head_part(b.tip),
-            reviewed: review.head_reviewed(b.tip),
-            request: self
-                .request_of_branch(ix, cx)
-                .map(|m| (m.iid, m.title.clone())),
-            card: self.branch_card(ix, cx).map(|card| Box::new(card) as Card),
-        }
-    }
-
     /// A row of Branches clicked: a second click on the one picked opens it, as one click does
     /// narrow (#80); else it is picked, the working tree's files read.
     pub(super) fn pick_branch_row(
@@ -416,12 +348,12 @@ impl Workspace {
         clicks: usize,
         cx: &mut Context<Self>,
     ) {
-        let open = self.nav.pick_branch == Some(row) && clicks > 1;
+        let open = self.history.read(cx).roots.picked == Some(row) && clicks > 1;
         if open || self.compact() {
             return self.open_branch_row(row, cx);
         }
         self.zone = super::zones::Zone::Branches;
-        self.nav.pick_branch = Some(row);
+        self.history.update(cx, |h, _| h.roots.picked = Some(row));
         if row == BranchRow::WorkingTree {
             self.read_tree_files(cx);
         }

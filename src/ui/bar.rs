@@ -292,8 +292,12 @@ impl Workspace {
                 .branches
                 .iter()
                 .position(|b| &b.refname == refname)
-                .and_then(|ix| self.branch_card(ix, cx))
-            {
+                .and_then(|ix| {
+                    let request = self
+                        .request_of_branch(ix, cx)
+                        .map(|m| (m.iid, m.title.clone()));
+                    artoo_branches::card::branch_card(self.history.read(cx), ix, request)
+                }) {
                 Some(build) => title.card(build).into_any_element(),
                 None => plain(),
             },

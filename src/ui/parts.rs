@@ -135,6 +135,19 @@ impl Frame for TabFrame {
         self.1.clone()
     }
 
+    fn list_page(&self, list: AnyElement, preview: AnyElement, cx: &mut App) -> AnyElement {
+        self.0
+            .update(cx, |this, cx| this.list_page(list, preview, cx))
+            .unwrap_or_else(|_| div().into_any_element())
+    }
+
+    fn filter(&self, cx: &App) -> String {
+        self.0
+            .upgrade()
+            .map(|tab| tab.read(cx).bfilter.clone())
+            .unwrap_or_default()
+    }
+
     fn remember(&self, route: Route, cx: &mut App) {
         self.later(cx, move |this, _| {
             if let Some(Page::File(path)) = Page::from_route(&route) {
@@ -151,6 +164,16 @@ impl Workspace {
             .iter()
             .filter_map(|p| p.pages.as_ref())
             .find(|p| p.space == space.name())
+    }
+
+    /// The pages a feature draws in `space` when they draw `page`: one of their kinds, or the
+    /// space's own (`None`).
+    pub(super) fn pages_drawing(&self, space: Space, page: Option<&Page>) -> Option<&Pages> {
+        self.space_pages(space).filter(|p| {
+            page.is_none_or(|page| {
+                !p.kinds.is_empty() && p.kinds.contains(&page.route().kind.as_str())
+            })
+        })
     }
 
     /// The pages of `space` told what is on screen: `page`, or the space's own (`None`); `opened`

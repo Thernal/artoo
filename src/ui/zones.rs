@@ -277,7 +277,8 @@ impl Workspace {
 
     /// The working tree entry above the commits counts as the row before the first commit.
     fn step_commit_row(&mut self, down: bool, cx: &mut Context<Self>) {
-        match self.history.read(cx).step_row(down, self.wt.count > 0) {
+        let working = self.history.read(cx).wt.count > 0;
+        match self.history.read(cx).step_row(down, working) {
             Some(Row::Commit(ix)) => self.select_commit(ix, cx),
             Some(Row::WorkingTree) => self.select_working_tree(cx),
             None => {}
@@ -307,12 +308,15 @@ impl Workspace {
         } else {
             let rows = self.branch_rows(cx);
             let at = self
-                .nav
-                .pick_branch
+                .history
+                .read(cx)
+                .roots
+                .picked
                 .or_else(|| self.first_branch_row(cx))
                 .and_then(|r| rows.iter().position(|x| *x == r));
-            self.nav.pick_branch = step(at, rows.len()).map(|i| rows[i]);
-            if self.nav.pick_branch == Some(super::nav::BranchRow::WorkingTree) {
+            let picked = step(at, rows.len()).map(|i| rows[i]);
+            self.history.update(cx, |h, _| h.roots.picked = picked);
+            if picked == Some(super::nav::BranchRow::WorkingTree) {
                 self.read_tree_files(cx);
             }
         }
@@ -330,8 +334,10 @@ impl Workspace {
         } else {
             let rows = self.branch_rows(cx);
             let pick = self
-                .nav
-                .pick_branch
+                .history
+                .read(cx)
+                .roots
+                .picked
                 .or_else(|| self.first_branch_row(cx))
                 .filter(|r| rows.contains(r));
             if let Some(row) = pick.or(rows.first().copied()) {

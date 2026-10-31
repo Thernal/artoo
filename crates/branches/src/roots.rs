@@ -42,6 +42,8 @@ pub struct Roots {
     facts_task: Option<Task<()>>,
     /// The remotes whose branches the list shows; the rest are folded to their name.
     pub open_remotes: HashSet<String>,
+    /// The row picked, previewed: by a click, by ↑ ↓, or the one open as you came back.
+    pub picked: Option<BranchRow>,
     /// The working tree's files as last read, with the fingerprint they were read at.
     pub tree: Option<(u64, Vec<TreeFile>)>,
     tree_task: Option<Task<()>>,
@@ -98,17 +100,12 @@ impl History {
         }));
     }
 
-    /// Reads the working tree's files again when they changed since the last read: it has `count` changes,
-    /// `hash` its fingerprint.
-    pub fn read_tree(
-        &mut self,
-        (count, hash): (usize, u64),
-        settings: DiffSettings,
-        cx: &mut Context<Self>,
-    ) {
+    /// Reads the working tree's files again when they changed since the last read (`wt`).
+    pub fn read_tree(&mut self, settings: DiffSettings, cx: &mut Context<Self>) {
         let Some(root) = self.root.clone() else {
             return;
         };
+        let (count, hash) = (self.wt.count, self.wt.hash);
         if count == 0 || self.roots.tree.as_ref().is_some_and(|t| t.0 == hash) {
             return;
         }
@@ -211,10 +208,10 @@ impl History {
         parts.join(" · ")
     }
 
-    /// The row Branches selects when nothing is: the working tree with `changes`, else the branch
+    /// The row Branches selects when nothing is: the working tree with changes, else the branch
     /// checked out.
-    pub fn first_row(&self, changes: usize) -> Option<BranchRow> {
-        if changes > 0 {
+    pub fn first_row(&self) -> Option<BranchRow> {
+        if self.wt.count > 0 {
             return Some(BranchRow::WorkingTree);
         }
         self.branches

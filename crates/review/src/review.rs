@@ -186,6 +186,16 @@ impl artoo_review_api::Review for Handle {
     fn shown(&self, cx: &App) -> Option<Arc<Diff>> {
         self.0.upgrade()?.read(cx).diff.clone()
     }
+
+    fn head_part(&self, tip: git2::Oid, cx: &App) -> Option<(u32, u32)> {
+        self.0.upgrade()?.read(cx).head_part(tip)
+    }
+
+    fn head_reviewed(&self, tip: git2::Oid, cx: &App) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|rv| rv.read(cx).head_reviewed(tip))
+    }
 }
 
 impl Review {

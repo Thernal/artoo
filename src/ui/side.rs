@@ -222,7 +222,7 @@ impl Workspace {
                 folded,
                 rows,
                 tag: self.zone_tag(Zone::Commits).into_owned(),
-                working: self.wt.count,
+                working: self.history.read(cx).wt.count,
                 field: (rows && self.history.read(cx).find.text.is_some())
                     .then(|| self.render_find(cx).into_any_element()),
                 pill: rows
