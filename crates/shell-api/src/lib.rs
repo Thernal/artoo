@@ -306,7 +306,7 @@ pub struct Tool {
     /// The spaces it is in, by their names (`code`, `branches`, `requests`, `inbox`); none, every one.
     pub spaces: &'static [&'static str],
     /// What its icon in the stripe says, asked as the stripe is drawn; its count is said after the title too.
-    pub badge: Option<Rc<dyn Fn(&App) -> Badge>>,
+    pub badge: Option<OnBadge>,
     /// What is under the title: a body that scrolls itself and its foot, if it has one (the kit's
     /// `controls::tool_foot`).
     pub view: AnyView,
@@ -319,6 +319,9 @@ pub struct Tool {
     /// A window that lists: ↑ ↓ ↵ while it has the keyboard, ⌫ while it is open, as the shell's lists take them.
     pub list_key: Option<OnListKey>,
 }
+
+/// What a tool window's icon says, asked as the stripe is drawn.
+pub type OnBadge = Rc<dyn Fn(&App) -> Badge>;
 
 /// What a tool window's icon in the stripe says (`Tool::badge`).
 pub struct Badge {
