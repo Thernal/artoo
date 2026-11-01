@@ -523,7 +523,7 @@ impl Workspace {
                     } else {
                         reply.answered.as_ref()
                     };
-                    self.render_form_record(form, answered)
+                    artoo_agents::form::record(form, answered)
                 });
             div()
                 .flex()
@@ -548,7 +548,7 @@ impl Workspace {
                 .children(record)
         });
         // The agent asked with a form: answered here, the pick going to the drafts (#10 C).
-        let form = self.render_agent_form(id, asking.clone(), cx);
+        let form = self.agent_form(comment, asking.clone(), cx);
         let answering = self.compose.as_ref().is_some_and(
             |c| matches!(c.target, Target::Answer(i) | Target::AnswerValue(i) if i == id),
         );
