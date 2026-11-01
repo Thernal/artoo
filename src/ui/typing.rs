@@ -25,7 +25,7 @@ pub enum Input {
     /// The reactions' grid and its search.
     Reactions,
     /// A feature's card over the window (`artoo_shell_api::Overlay`): the new version's (#135),
-    /// which chat a note goes to (`artoo_agents::pick`).
+    /// which chat a note goes to (`Agents::pick_chat`).
     Overlay,
     /// What is beside a folder of Code's path (`beside.rs`).
     Beside,

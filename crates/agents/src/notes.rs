@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// The notes' model, the contract's.
-pub use artoo_agents_api::notes::{Note, Notes, On, Shown, take};
+pub use artoo_agents_api::notes::{Note, Notes, On, Shown};
 
 fn store(root: &Path) -> String {
     format!("notes/{}.json", crate::review::key(root))

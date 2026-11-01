@@ -4,26 +4,30 @@
 //! agent's form under its question (`form`),
 //! the notes' summary over the diff a piece of the item page (`summary`), the Agents window a tool window
 //! (`window`), the card asking which chat a card over the window (`pick`). It reads requests through the hosts' contract (`artoo_hosts_api`), the hosts it is handed.
+//! The app reaches it through its contract (`artoo_agents_api`) and the functions below: the wiring, the commands
+//! an agent runs, Set up's look at the agents.
 
-pub mod agents;
-pub mod chats;
-pub mod codex;
-pub mod comments;
-pub mod connect;
+mod agents;
+mod chats;
+mod codex;
+mod comments;
+mod connect;
 mod contract;
-pub mod form;
-pub mod inbox;
-pub mod mcp;
-pub mod notes;
-pub mod pick;
-pub mod review;
-pub mod summary;
+mod form;
+mod inbox;
+mod mcp;
+mod notes;
+mod pick;
+mod review;
+mod summary;
 mod tab;
-pub mod view;
-pub mod watch;
-pub mod window;
+mod view;
+mod watch;
+mod window;
 
 use artoo_core::{applog, generated, git, labels, platform, storage};
+use artoo_hosts_api::Hosts;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Wires the agents in: the contract other features read them through (`artoo_agents_api`) — the reports chats
@@ -35,6 +39,47 @@ pub fn install(cx: &mut gpui::App) {
     artoo_agents_api::tab::provide(cx, std::rc::Rc::new(tab::make));
     artoo_agents_api::view::provide(cx, std::rc::Rc::new(contract::RendererImpl));
     artoo_shell_api::add_parts(cx, parts);
+}
+
+/// What an agent runs in its chat (`claude mcp add artoo -- <this> mcp`): the MCP server, reading requests through
+/// `hosts`; no window.
+pub fn serve_mcp(hosts: Arc<dyn Hosts>) {
+    mcp::run(hosts)
+}
+
+/// A chat's watcher (`agent-watch`): its chat's comments handed over, then it exits so the agent wakes.
+pub fn watch() {
+    watch::run()
+}
+
+/// Claude Code's profiles on this Mac.
+pub fn claude_profiles() -> Vec<PathBuf> {
+    agents::claude_profiles()
+}
+
+/// Whether Claude Code profile `profile` has Artoo's MCP server.
+pub fn claude_connected(profile: &Path) -> bool {
+    agents::claude_connected(profile)
+}
+
+/// Whether Codex has Artoo's MCP server.
+pub fn codex_connected() -> bool {
+    codex::connected()
+}
+
+/// Agents connected under GitLance, the name Artoo had.
+pub fn connected_as_gitlance() -> bool {
+    agents::connected_as_gitlance()
+}
+
+/// The command that runs Artoo's MCP server.
+pub fn server_command() -> String {
+    agents::server_command()
+}
+
+/// The command that adds `server` to Codex by hand.
+pub fn codex_command(server: &str) -> String {
+    codex::add_command(server)
 }
 
 /// The parts of a tab that offers its agents' notes, its chats and its comments to them; none in one that does not.

@@ -280,7 +280,7 @@ impl Workspace {
                     .child("This repository has no GitLab or GitHub remote, so there are no merge requests to set up.")
                     .into_any_element()
             }),
-            // The agents' own rows (`artoo_agents::connect`).
+            // The agents' own rows (a part's, Settings → Agents).
             Section::Agents => div()
                 .flex()
                 .flex_col()

@@ -745,7 +745,7 @@ pub fn brief(root: &Path, comments: &[&Comment]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::review::send;
+    use artoo_agents_api::comment::send;
 
     fn chat(session: &str, repo: &str, branch: &str, listening: bool) -> Chat {
         Chat {
@@ -874,7 +874,7 @@ mod tests {
 
     #[test]
     fn a_question_asked_again_keeps_the_answer_it_had() {
-        use crate::review::{Answered, Form, FormKind, FormOption};
+        use artoo_agents_api::comment::{Answered, Form, FormKind, FormOption};
         let mut comments = vec![comment(1)];
         let form = Form {
             kind: FormKind::One,

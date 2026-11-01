@@ -38,8 +38,6 @@ const ALLOWED: &[(&str, &str)] = &[];
 
 /// Implementations whose `lib.rs` still shows more than functions, each until the stage that narrows it.
 const OPEN: &[&str] = &[
-    // The app's views reach their modules: stage 3 gave hosts its contract, stage 4 moves the views.
-    "artoo-agents",
     // The review (stage 4, R3): the app's views read its modules, its entity included, until the Changes list and
     // the head line follow and its contract (`artoo-review-api`) holds what pages speak.
     "artoo-review",

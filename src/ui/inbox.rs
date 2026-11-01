@@ -333,7 +333,7 @@ impl Workspace {
 }
 
 /// What the Inbox (`artoo_requests::inbox_page`) asks of the tab: your notes an agent answered, drawn by the agents
-/// (`artoo_agents::inbox`), the composer, the clicks.
+/// (`artoo_agents_api::view::answer_row`), the composer, the clicks.
 pub(super) struct InboxHost(pub WeakEntity<Workspace>);
 
 impl artoo_requests::inbox_page::InboxHost for InboxHost {

@@ -2,8 +2,7 @@
 //! contract's (`artoo_agents_api::comment`).
 
 pub use artoo_agents_api::comment::{
-    Answered, Comment, Form, FormKind, FormOption, Kind, Place, Reply, Sent, State, drafts, export,
-    find_line, key, kind_of, place, send,
+    Answered, Comment, Form, FormKind, Kind, Place, Reply, State, drafts, key, kind_of, place,
 };
 use std::path::Path;
 

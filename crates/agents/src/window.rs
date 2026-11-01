@@ -1040,7 +1040,7 @@ fn foot_button(id: &'static str, label: String) -> gpui::Stateful<gpui::Div> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::review::{Reply, Sent};
+    use artoo_agents_api::comment::{Reply, Sent};
 
     #[test]
     fn a_comment_is_of_the_kind_its_life_says() {

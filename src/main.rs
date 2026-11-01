@@ -5,7 +5,6 @@
 
 mod ui;
 
-use artoo_agents::{agents, codex, mcp, watch};
 /// The agents' models: the comments for an agent, their notes, what goes over their folder.
 use artoo_agents_api::{bus, comment, notes};
 use artoo_core::{
@@ -25,8 +24,8 @@ fn main() {
     artoo_core::set_commit(env!("ARTOO_COMMIT"));
     applog::catch_panics();
     match std::env::args().nth(1).as_deref() {
-        Some("mcp") => return mcp::run(artoo_hosts::hosts()),
-        Some("agent-watch") => return watch::run(),
+        Some("mcp") => return artoo_agents::serve_mcp(artoo_hosts::hosts()),
+        Some("agent-watch") => return artoo_agents::watch(),
         _ => {}
     }
     let path = std::env::args_os()

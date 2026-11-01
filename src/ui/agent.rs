@@ -1,5 +1,5 @@
 //! Sending the review to an agent's chat (`crate::agents`): the reviewer's comments stay drafts
-//! until *Send to agent* (⌥⌘A); a card (`artoo_agents::pick`) then lists this repository's chats — those listening first,
+//! until *Send to agent* (⌥⌘A); a card (`Agents::pick_chat`) then lists this repository's chats — those listening first,
 //! then Claude Code's recent ones, which get the comments when they listen — and a new chat. The
 //! agent's answers come back every couple of seconds, and the reviewer resolves or reopens each.
 
@@ -249,7 +249,7 @@ impl Workspace {
         }
     }
 
-    /// Under the agent's question on comment `c`: its form (`artoo_agents::form`), with the lines
+    /// Under the agent's question on comment `c`: its form (`artoo_agents_api::view::form`), with the lines
     /// of the file when it is the one open, for a Line's suggestions.
     pub(super) fn agent_form(
         &self,
@@ -421,7 +421,7 @@ impl Workspace {
         self.agents.refresh(root.as_deref(), cx)
     }
 
-    /// A click in the Agents window (`artoo_agents::window::Act`).
+    /// A click in the Agents window (`artoo_agents_api::view::Act`).
     fn agents_act(&mut self, act: Act, cx: &mut Context<Self>) {
         match act {
             Act::Show(id) => self.jump_to(id, cx),
@@ -507,7 +507,7 @@ impl Workspace {
     }
 }
 
-/// What the Agents window asks of the tab (`artoo_agents::window::AgentsHost`).
+/// What the Agents window asks of the tab (`artoo_agents_api::view::AgentsHost`).
 pub(super) struct AgentsHost(pub WeakEntity<Workspace>);
 
 impl view::AgentsHost for AgentsHost {

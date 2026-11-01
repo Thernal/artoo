@@ -73,17 +73,17 @@ pub struct Setup {
 
 impl Setup {
     fn look(&mut self) {
-        self.profiles = crate::agents::claude_profiles()
+        self.profiles = artoo_agents::claude_profiles()
             .iter()
             .map(|p| {
                 let name = p
                     .file_name()
                     .map(|n| format!("~/{}", n.to_string_lossy()))
                     .unwrap_or_default();
-                (name, crate::agents::claude_connected(p))
+                (name, artoo_agents::claude_connected(p))
             })
             .collect();
-        self.codex = crate::codex::connected();
+        self.codex = artoo_agents::codex_connected();
     }
 
     fn part(&self) -> Part {
@@ -132,7 +132,7 @@ pub(super) fn due() -> Vec<Part> {
         keep_seen(&Part::ALL);
     }
     // Agents connected under GitLance, the name Artoo had, are offered Agents once to connect again.
-    if storage::read("renamed.txt").is_empty() && crate::agents::connected_as_gitlance() {
+    if storage::read("renamed.txt").is_empty() && artoo_agents::connected_as_gitlance() {
         storage::save(
             "renamed.txt",
             "agents offered to connect again\n".to_owned(),
@@ -248,8 +248,8 @@ impl Workspace {
 
     /// Agents: Claude Code with its profiles, Codex — the connect panel's rows.
     fn render_setup_agents(&self, s: &Setup, cx: &mut Context<Self>) -> AnyElement {
-        let server = crate::agents::server_command();
-        let codex_cmd = crate::codex::add_command(&server);
+        let server = artoo_agents::server_command();
+        let codex_cmd = artoo_agents::codex_command(&server);
         let all_in = !s.profiles.is_empty() && s.profiles.iter().all(|(_, on)| *on);
         let what = if s.profiles.is_empty() {
             "No Claude Code profile found (~/.claude)".to_owned()
