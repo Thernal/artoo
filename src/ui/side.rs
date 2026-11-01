@@ -185,7 +185,6 @@ impl Workspace {
                 working: self.history.read(cx).wt.count,
                 field: (rows && self.history.read(cx).find.text.is_some())
                     .then(|| self.render_find(cx).into_any_element()),
-                widths: self.widths.clone(),
                 web: self.web.clone(),
             };
             if !sections.is_empty() {

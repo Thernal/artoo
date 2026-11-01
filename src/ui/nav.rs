@@ -259,10 +259,6 @@ pub struct Nav {
     pub folded: [bool; 4],
     /// A space and page to show once the request list is in (a project reopened on one).
     pending_show: Option<(Space, Option<Page>)>,
-    /// The commit a request's Commits section has selected (#73), and with shift the other end
-    /// of a run of them.
-    pub pick_commit: Option<Oid>,
-    pub pick_to: Option<Oid>,
     /// The menu's open items picked with shift, the first the one it began from: ⌘W closes them.
     pub picked: Vec<Item>,
     /// Loading what a page needs, or coming back to a moment: no new moment, no link.
@@ -280,9 +276,7 @@ impl Default for Nav {
             open: Vec::new(),
             folded: [false, false, true, false],
             pending_show: None,
-            pick_commit: None,
             picked: Vec::new(),
-            pick_to: None,
             restoring: false,
         }
     }
@@ -420,7 +414,7 @@ impl Workspace {
 
     /// Something was opened: its space and page come on screen, over the Inbox or Settings. From
     /// another space it was a link, and the page says where it came from.
-    pub(super) fn arrive(&mut self, page: Page, cx: &App) {
+    pub(super) fn arrive(&mut self, page: Page, cx: &mut App) {
         let space = page.space();
         if !self.nav.restoring && space != self.nav.space {
             self.nav.from = Some(self.nav.space);
@@ -516,7 +510,7 @@ impl Workspace {
 
     /// `page` becomes its space's and the space the one on screen; the request or branch it is of
     /// stays open in the menu; a moment of time.
-    fn set_page(&mut self, page: Page, cx: &App) {
+    fn set_page(&mut self, page: Page, cx: &mut App) {
         let space = page.space();
         self.keep_place(cx);
         self.nav.space = space;
@@ -539,15 +533,14 @@ impl Workspace {
             // it; two versions compared are Changes (#73).
             let section = match &page {
                 Page::RequestCommit(_, id) | Page::BranchCommit(_, id) => {
-                    self.nav.pick_commit = Some(*id);
-                    self.nav.pick_to = None;
+                    self.history.update(cx, |h, _| h.pick_commits(*id, None));
                     Some(Section::Commits)
                 }
                 // A run is picked there as it was, newest first.
                 Page::RequestCommits(_, newest, oldest)
                 | Page::BranchCommits(_, newest, oldest) => {
-                    self.nav.pick_commit = Some(*newest);
-                    self.nav.pick_to = Some(*oldest);
+                    self.history
+                        .update(cx, |h, _| h.pick_commits(*newest, Some(*oldest)));
                     Some(Section::Commits)
                 }
                 Page::RequestVersions(..) => Some(Section::Changes),
@@ -614,7 +607,7 @@ impl Workspace {
 
     /// What is loaded comes on screen as its page, from wherever the window was (a ⌘K result, a
     /// file of the diff).
-    pub(super) fn follow_loaded(&mut self, cx: &App) {
+    pub(super) fn follow_loaded(&mut self, cx: &mut App) {
         if let Some(page) = self.loaded_page(cx) {
             self.arrive(page, cx);
         }
@@ -622,7 +615,7 @@ impl Workspace {
 
     /// What is selected inside the open request or branch changed (a commit, versions): the page
     /// follows. Not while a request is still loading, nor while a page is being put back.
-    pub(super) fn record(&mut self, cx: &App) {
+    pub(super) fn record(&mut self, cx: &mut App) {
         if self.history.read(cx).pending_request.is_some() || self.nav.restoring {
             return;
         }

@@ -10,7 +10,7 @@ use artoo_core::storage;
 use artoo_ui_kit::motion::{self, Folds, Marks, folding};
 use artoo_ui_kit::panel::{self, Head, count, open_share};
 use artoo_ui_kit::px;
-use artoo_ui_kit::room::{Heights, Widths};
+use artoo_ui_kit::room::Heights;
 use gpui::{AnyElement, Context, Div, MouseButton, MouseDownEvent, Stateful, div, prelude::*};
 
 /// A section of the panel the history's.
@@ -92,8 +92,6 @@ pub struct CommitsLook {
     pub working: usize,
     /// The search's field, as the tab gives it the keyboard.
     pub field: Option<AnyElement>,
-    /// The lists' widths, its rows' room measured as `side-commits`.
-    pub widths: Widths,
     /// The repository's web address, for a card's link.
     pub web: Option<WebRemote>,
 }
@@ -207,7 +205,7 @@ impl History {
             .flex()
             .flex_col()
             .overflow_hidden()
-            .child(look.widths.measure("side-commits"))
+            .child(self.widths.measure("side-commits"))
             .on_mouse_down(MouseButton::Left, move |_: &MouseDownEvent, _, cx| {
                 press(Act::CommitsZone, cx)
             })
@@ -216,7 +214,7 @@ impl History {
                 s.children(look.field)
                     .children(self.pill(&acts))
                     .child(self.render_commits(
-                        look.widths.clone(),
+                        self.widths.clone(),
                         look.web.clone(),
                         acts.clone(),
                         cx,

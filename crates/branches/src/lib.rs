@@ -9,6 +9,7 @@
 //! history for now.
 
 pub mod card;
+pub mod commits_page;
 pub mod compare;
 pub mod done;
 pub mod facts;

@@ -2,12 +2,11 @@
 //! what the first two show; Changes is the diff, with one line of identity over it. Overview holds
 //! what the Details tool window held (#8), as a page (`artoo_requests::page` draws it and the
 //! line). A request you have never been inside opens on it, later ones on Changes
-//! (`nav::first_section`). Commits lists the request's commits with the version each came with;
-//! one opens as a level under it.
+//! (`nav::first_section`). Commits lists the request's commits with the version each came with
+//! (`artoo_branches::commits_page`); one opens as a level under it.
 
-use super::hover::CutInTip;
 use super::nav::{Item, Page, Section};
-use super::{Selection, Workspace, format, icons, island, plural, px, theme};
+use super::{Selection, Workspace, island, plural, px, theme};
 use crate::mr::Mr;
 use artoo_requests::page::{Facts, OverviewLook};
 use gpui::{AnyElement, App, ClickEvent, Context, Div, SharedString, div, prelude::*};
@@ -39,7 +38,7 @@ impl Workspace {
                     .flex_col()
                     .gap(px(super::gap()))
                     .child(line)
-                    .child(self.commits_list(None, cx))
+                    .child(self.commits_page(false, cx))
                     .into_any_element()
             }
             (None, _) => island()
@@ -101,15 +100,6 @@ impl Workspace {
     /// A request's Commits: one line of identity, then its commits, each with the version it came
     /// with.
     fn render_commits_tab(&self, m: &Mr, cx: &mut Context<Self>) -> AnyElement {
-        let tips: Vec<(usize, git2::Oid)> = self
-            .history
-            .read(cx)
-            .versions
-            .iter()
-            .map(|v| (v.number, v.tip))
-            .collect();
-        let ids: Vec<git2::Oid> = self.history.read(cx).commits.iter().map(|c| c.id).collect();
-        let versions = commit_versions(&ids, &tips);
         let line = self.request_line(m, cx);
         div()
             .flex_1()
@@ -118,174 +108,16 @@ impl Workspace {
             .flex_col()
             .gap(px(super::gap()))
             .child(line)
-            .child(self.commits_list(Some(versions), cx))
+            .child(self.commits_page(true, cx))
             .into_any_element()
     }
 
-    /// An item's commits, newest first, with the version each came with when it has versions;
-    /// ↑ ↓ pick one, ↵ or a second click opens it as a level.
-    fn commits_list(
-        &self,
-        versions: Option<Vec<Option<usize>>>,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        use super::hover::Hover;
-        let versions = versions.unwrap_or_else(|| vec![None; self.history.read(cx).commits.len()]);
-        let picked = self.picked_commit(cx);
-        // Shift picks a run of them, to review as one diff.
-        let run = self.picked_run(cx);
-        // A commit's anatomy (#79): its sha and title always; when, and who when there are
-        // several, while the list has 260 px; the icon and its version under 360 px leave first.
-        // The tooltip holds them all.
-        let room = self.widths.room("commits");
-        let several = self.history.read(cx).commits.first().is_some_and(|first| {
-            self.history
-                .read(cx)
-                .commits
-                .iter()
-                .any(|c| c.author != first.author)
-        });
-        let rows: Vec<_> = self
-            .history
-            .read(cx)
-            .commits
-            .iter()
-            .enumerate()
-            .map(|(ix, c)| {
-                let selected = match run {
-                    Some((newest, oldest)) => (newest..=oldest).contains(&ix),
-                    None => picked == Some(ix),
-                };
-                let mut tip = vec![
-                    c.summary.clone(),
-                    format!(
-                        "{} · {} · {}",
-                        format::short(c.id),
-                        c.author,
-                        super::hover::full_date(c.time)
-                    ),
-                ];
-                if let Some(v) = versions[ix] {
-                    tip.push(format!("came with v{v}"));
-                }
-                super::row(("request-commit", ix), selected)
-                    .h(px(36.))
-                    .gap(px(10.))
-                    .px(px(10.))
-                    .when(room.third(), |s| {
-                        s.child(
-                            icons::icon("commit")
-                                .size(px(14.))
-                                .text_color(theme::faint()),
-                        )
-                    })
-                    .child(
-                        div()
-                            .flex_none()
-                            .font_family(theme::code_font())
-                            .text_size(px(12.))
-                            .text_color(theme::faint())
-                            .child(format::short(c.id)),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .cut_in_tip()
-                            .child(c.summary.clone()),
-                    )
-                    .children((several && room.second()).then(|| {
-                        div()
-                            .flex_none()
-                            .max_w(px(140.))
-                            .cut_in_tip()
-                            .text_size(px(11.))
-                            .text_color(theme::muted())
-                            .child(c.author.clone())
-                    }))
-                    .children(versions[ix].filter(|_| room.third()).map(|v| {
-                        div()
-                            .flex_none()
-                            .px(px(6.))
-                            .rounded_full()
-                            .border_1()
-                            .border_color(theme::accent())
-                            .text_size(px(11.))
-                            .text_color(theme::accent())
-                            .child(format!("v{v}"))
-                    }))
-                    .when(room.second(), |s| {
-                        s.child(
-                            div()
-                                .flex_none()
-                                .text_size(px(11.))
-                                .text_color(theme::faint())
-                                .child(format::ago(c.time)),
-                        )
-                    })
-                    .tip(tip.join("\n"))
-                    // Its SHA, its message, its link (#162).
-                    .on_mouse_down(
-                        gpui::MouseButton::Right,
-                        cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
-                            this.commit_context(ix, e.position, cx)
-                        }),
-                    )
-                    .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
-                        let id = this.history.read(cx).commits.get(ix).map(|c| c.id);
-                        if event.modifiers().shift {
-                            // The run from the one picked to this one.
-                            if this.nav.pick_commit.is_none() {
-                                this.nav.pick_commit = this.picked_commit(cx).and_then(|at| {
-                                    this.history.read(cx).commits.get(at).map(|c| c.id)
-                                });
-                            }
-                            this.nav.pick_to = id;
-                            return cx.notify();
-                        }
-                        if this.picked_commit(cx) == Some(ix) && event.click_count() > 1 {
-                            return this.pick(Selection::Commit(ix), cx);
-                        }
-                        this.nav.pick_commit = id;
-                        this.nav.pick_to = None;
-                        cx.notify();
-                    }))
-            })
-            .collect();
-        island()
-            .flex_1()
-            .min_h_0()
-            .bg(theme::editor())
-            .child(
-                div()
-                    .id("request-commits")
-                    .relative()
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .px(px(8.))
-                    .py(px(8.))
-                    .child(self.widths.measure("commits"))
-                    .child(
-                        div()
-                            .id("commits-count")
-                            .px(px(10.))
-                            .pb(px(6.))
-                            .text_size(px(11.))
-                            .text_color(theme::faint())
-                            .child(match run {
-                                Some((newest, oldest)) => format!(
-                                    "{} of {} picked · ↵ reviews them as one",
-                                    oldest - newest + 1,
-                                    plural(self.history.read(cx).commits.len(), "commit")
-                                ),
-                                None => plural(self.history.read(cx).commits.len(), "commit"),
-                            })
-                            .tip("Newest first · ↵ opens one, esc comes back here · shift and a click picks a run of them to review as one"),
-                    )
-                    .children(rows),
-            )
-            .into_any_element()
+    /// An item's commits (`History::commits_page`), with the version each came with when
+    /// `versions`.
+    fn commits_page(&self, versions: bool, cx: &mut Context<Self>) -> AnyElement {
+        let acts = self.history_acts(cx);
+        self.history
+            .update(cx, |h, cx| h.commits_page(versions, &acts, cx))
     }
 
     /// The section tabs in an item's bar with their counts — a request's Overview, Commits and
@@ -334,52 +166,21 @@ impl Workspace {
         ))
     }
 
-    /// The commit Commits has picked: the one esc came back from, else the newest.
-    fn picked_commit(&self, cx: &App) -> Option<usize> {
-        let at = self.nav.pick_commit.and_then(|id| {
-            self.history
-                .read(cx)
-                .commits
-                .iter()
-                .position(|c| c.id == id)
-        });
-        at.or((!self.history.read(cx).commits.is_empty()).then_some(0))
-    }
-
-    /// The run of commits picked with shift: the newest's index and the oldest's.
-    fn picked_run(&self, cx: &App) -> Option<(usize, usize)> {
-        let at = |id: git2::Oid| {
-            self.history
-                .read(cx)
-                .commits
-                .iter()
-                .position(|c| c.id == id)
-        };
-        let a = at(self.nav.pick_commit?)?;
-        let b = at(self.nav.pick_to?)?;
-        (a != b).then_some((a.min(b), a.max(b)))
-    }
-
     /// ↑ ↓ in a request's Commits: another commit picked, nothing opened.
     pub(super) fn step_commit_pick(&mut self, down: bool, cx: &mut Context<Self>) {
-        let n = self.history.read(cx).commits.len();
-        let to = match (self.picked_commit(cx), down) {
-            (Some(at), true) => (at + 1).min(n.saturating_sub(1)),
-            (Some(at), false) => at.saturating_sub(1),
-            (None, _) => return,
-        };
-        self.nav.pick_commit = self.history.read(cx).commits.get(to).map(|c| c.id);
-        self.nav.pick_to = None;
-        cx.notify();
+        self.history.update(cx, |h, cx| {
+            h.step_pick(down);
+            cx.notify()
+        });
     }
 
     /// ↵ in a request's Commits: the commit picked opens as a level under it, or the run picked
     /// as one diff.
     pub(super) fn open_commit_pick(&mut self, cx: &mut Context<Self>) {
-        if let Some((newest, oldest)) = self.picked_run(cx) {
+        if let Some((newest, oldest)) = self.history.read(cx).picked_run() {
             return self.pick(Selection::Commits { newest, oldest }, cx);
         }
-        if let Some(ix) = self.picked_commit(cx) {
+        if let Some(ix) = self.history.read(cx).picked() {
             self.pick(Selection::Commit(ix), cx);
         }
     }
@@ -421,50 +222,5 @@ impl Workspace {
         );
         let acts = self.request_acts(cx);
         self.requests.read(cx).request_line(m, title, acts)
-    }
-}
-
-/// Each commit's version, the commits newest first: the version whose tip it is, else the one of
-/// the commit above it — it came with that push. None above the first tip found (a push rewrote
-/// what the versions knew).
-fn commit_versions(commits: &[git2::Oid], tips: &[(usize, git2::Oid)]) -> Vec<Option<usize>> {
-    let mut at = None;
-    commits
-        .iter()
-        .map(|id| {
-            // The first push it was the tip of: when it came.
-            if let Some(&(number, _)) = tips.iter().find(|(_, tip)| tip == id) {
-                at = Some(number);
-            }
-            at
-        })
-        .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::commit_versions;
-    use git2::Oid;
-
-    fn id(n: u8) -> Oid {
-        Oid::from_bytes(&[n; 20]).unwrap()
-    }
-
-    #[test]
-    fn a_commit_is_of_the_push_it_came_with() {
-        // Newest first: 3 is v3's tip, 2 v2's, 1 came with v2 too (v1's tip was 0).
-        let commits = [id(3), id(2), id(1), id(0)];
-        let tips = [(1, id(0)), (2, id(2)), (3, id(3))];
-        assert_eq!(
-            commit_versions(&commits, &tips),
-            [Some(3), Some(2), Some(2), Some(1)]
-        );
-        // A push rewrote them all: none of the tips is among them but the last.
-        let rewritten = [id(9), id(8), id(7)];
-        assert_eq!(
-            commit_versions(&rewritten, &[(1, id(0)), (2, id(9))]),
-            [Some(2), Some(2), Some(2)]
-        );
-        assert_eq!(commit_versions(&[id(1)], &[]), [None]);
     }
 }

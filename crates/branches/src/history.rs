@@ -95,6 +95,12 @@ pub struct History {
     pub pending: Option<crate::news::Pending>,
     /// Versions from this index on arrived since the user last looked.
     pub new_from: Option<usize>,
+    /// The commit the Commits page has picked (#73), and with shift the other end of a run of them
+    /// (`commits_page`).
+    pub pick: Option<git2::Oid>,
+    pub pick_to: Option<git2::Oid>,
+    /// Its lists' widths: the Commits section's (`side-commits`), the Commits page's (`commits`).
+    pub widths: artoo_ui_kit::room::Widths,
 }
 
 /// What the tab hears of the history's reads.
@@ -260,6 +266,9 @@ impl Default for History {
             sections: Default::default(),
             pending: None,
             new_from: None,
+            pick: None,
+            pick_to: None,
+            widths: Default::default(),
         }
     }
 }
