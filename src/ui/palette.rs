@@ -1,15 +1,17 @@
 //! Search everywhere (#52, Design `docs/specs/command-palette.md`): one window with a tab per
 //! scope — All ⌘K, Files ⌘P, Commits ⌘⇧C, Branches ⌘⇧B, Requests ⌘⇧R, Actions ⌘⇧P —, each
 //! named with what it found; ⇥ ⇧⇥ move between them keeping the text, `>` typed moves to Actions.
-//! The same overlay picks the refs of a comparison (⌥⌘C), a theme, a recent place, a bookmark.
+//! The same overlay picks the refs of a comparison (⌥⌘C), a theme, a recent place, a bookmark. What it lists and
+//! does is here; the window is drawn by the shell (`artoo_shell::palette`).
 
 use super::input::{self, Edit};
-use super::px;
 use super::spaces::Space;
-use super::{ISLAND_RADIUS, ROW_RADIUS, Workspace, format, island_label, theme};
+use super::{Workspace, format, theme};
 use crate::git::{NamedRef, Repo};
+use artoo_shell::palette;
 use git2::Oid;
-use gpui::{Action, App, Context, KeyDownEvent, MouseButton, Window, div, prelude::*};
+use gpui::{Action, App, Context, KeyDownEvent, WeakEntity, Window, prelude::*};
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// What the palette is for.
@@ -1377,271 +1379,122 @@ impl Workspace {
             Kind::Base => Some("Compare · step 1 of 2".to_owned()),
             Kind::Head((name, _)) => Some(format!("Compare · {name} … ?")),
         };
-        let mut last = "";
-        let mut rows = Vec::new();
-        for (ix, item) in p.items.iter().enumerate() {
-            if item.group != last {
-                last = item.group;
-                rows.push(
-                    div()
-                        .px(px(10.))
-                        .pt(px(8.))
-                        .pb(px(2.))
-                        .text_size(px(11.))
-                        .text_color(theme::faint())
-                        .child(super::words::say(item.group).to_uppercase())
-                        .into_any_element(),
-                );
+        let keymap = cx.global::<super::keymap::Keymap>();
+        let rows = p
+            .items
+            .iter()
+            .map(|item| {
+                // A command whose key was changed in Settings → Keyboard shows the new one.
+                let key = match item.pick {
+                    Pick::Command(cmd) => keymap
+                        .shown(command_action(cmd).as_ref())
+                        .unwrap_or_else(|| item.key.to_owned()),
+                    Pick::Offered(ix) => self
+                        .contributed
+                        .get(ix)
+                        .map(|(_, act)| keymap.key_now(act.as_ref()))
+                        .unwrap_or_default(),
+                    _ => item.key.to_owned(),
+                };
+                palette::Row {
+                    group: item.group,
+                    label: item.label.clone(),
+                    detail: item.detail.clone(),
+                    key,
+                    // A file's icon before it (#95).
+                    icon: match &item.pick {
+                        Pick::File(f) => self
+                            .review
+                            .read(cx)
+                            .diff
+                            .as_ref()
+                            .and_then(|d| d.files.get(*f))
+                            .map(|f| f.path().to_owned()),
+                        Pick::RepoFile(path) => Some(path.clone()),
+                        _ => None,
+                    },
+                    file: matches!(
+                        item.pick,
+                        Pick::File(_) | Pick::RepoFile(_) | Pick::Project(_)
+                    ),
+                    face: face_of(&p.kind, &item.pick),
+                }
+            })
+            .collect();
+        let empty = match &p.kind {
+            Kind::Recent => "Nothing opened yet.",
+            Kind::Projects => "None by that name. Browse… finds it on disk.",
+            Kind::Bookmarks => "No bookmarks yet: click a line and press F3.",
+            Kind::Structure => {
+                "No function or type of this file is changed (or the language is not known)."
             }
-            let selected = ix == p.at;
-            // A file or a repository: its name, then its folder right after it, cut first.
-            let file = matches!(
-                item.pick,
-                Pick::File(_) | Pick::RepoFile(_) | Pick::Project(_)
-            );
-            // A file's icon before it (#95).
-            let path = match &item.pick {
-                Pick::File(f) => self
-                    .review
-                    .read(cx)
-                    .diff
-                    .as_ref()
-                    .and_then(|d| d.files.get(*f))
-                    .map(|f| f.path().to_owned()),
-                Pick::RepoFile(path) => Some(path.clone()),
-                _ => None,
-            };
-            rows.push(
-                super::row(("palette-item", ix), selected)
-                    .h(px(28.))
-                    .gap_3()
-                    .children(path.map(|p| super::icons::file_icon(&p, 16.)))
-                    .child(
-                        super::hover::cut("label", super::keys::text(&item.label).into_owned())
-                            // A face is drawn in itself (#24).
-                            .when_some(face_of(&p.kind, &item.pick), |s, face| s.font_family(face))
-                            .when(!file, |s| s.flex_1())
-                            .when(file, |s| s.flex_none().max_w(px(320.))),
-                    )
-                    .child(
-                        // A file's folder gives way first; a command's key never does.
-                        if file {
-                            super::hover::cut("detail", item.detail.clone()).flex_1()
-                        } else {
-                            div().id("detail").flex_none().child(item.detail.clone())
-                        }
-                        .text_size(px(11.))
-                        .text_color(theme::muted()),
-                    )
-                    .children({
-                        // A command whose key was changed in Settings → Keyboard shows the new one.
-                        let key = match item.pick {
-                            Pick::Command(cmd) => cx
-                                .global::<super::keymap::Keymap>()
-                                .shown(command_action(cmd).as_ref())
-                                .unwrap_or_else(|| item.key.to_owned()),
-                            Pick::Offered(ix) => self
-                                .contributed
-                                .get(ix)
-                                .map(|(_, act)| {
-                                    cx.global::<super::keymap::Keymap>().key_now(act.as_ref())
-                                })
-                                .unwrap_or_default(),
-                            _ => item.key.to_owned(),
-                        };
-                        (!key.is_empty()).then(|| super::keys::caps(&key, super::keys::On::Plain))
+            Kind::Search(_) if p.query.is_empty() => "Type to search.",
+            Kind::Search(_) => "Nothing matches.",
+            Kind::Switch if p.open_only => "Nothing left to review here.",
+            Kind::Switch => "No branch or merge request by that name.",
+            Kind::Face { .. } => "No face installed by that name.",
+            _ => "No branch, tag or commit by that name.",
+        };
+        // Search everywhere: its tabs, what each found, and the one on with its key.
+        let (tabs, foot) = match p.kind {
+            Kind::Search(on) => {
+                let tabs = Scope::ALL
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, scope)| palette::Tab {
+                        label: scope.label(),
+                        count: p.counts.map(|c| c[i]),
+                        lit: scope == on,
                     })
-                    .on_click(
-                        cx.listener(move |this, _, window, cx| {
-                            this.run_palette_item(ix, window, cx)
-                        }),
-                    )
-                    .into_any_element(),
-            );
-        }
-        let empty = p.items.is_empty().then(|| {
-            div()
-                .px(px(14.))
-                .py(px(12.))
-                .text_color(theme::muted())
-                .child(match &p.kind {
-                    Kind::Recent => "Nothing opened yet.",
-                    Kind::Projects => "None by that name. Browse… finds it on disk.",
-                    Kind::Bookmarks => "No bookmarks yet: click a line and press F3.",
-                    Kind::Structure => "No function or type of this file is changed (or the language is not known).",
-                    Kind::Search(_) if p.query.is_empty() => "Type to search.",
-                    Kind::Search(_) => "Nothing matches.",
-                    Kind::Switch if p.open_only => "Nothing left to review here.",
-                    Kind::Switch => "No branch or merge request by that name.",
-                    Kind::Face { .. } => "No face installed by that name.",
-                    _ => "No branch, tag or commit by that name.",
-                })
-        });
-        Some(
-            div()
-                .id("palette-backdrop")
-                .absolute()
-                .size_full()
-                .flex()
-                .justify_center()
-                .items_start()
-                .pt(px(72.))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, cx| this.close_palette(cx)),
-                )
-                // It fades in as it grows from 98 % (#56, 6).
-                .child(super::motion::appear(
-                    div()
-                        .occlude()
-                        .flex()
-                        .flex_col()
-                        .rounded(px(ISLAND_RADIUS))
-                        .border_1()
-                        .border_color(theme::island_border())
-                        .bg(theme::panel())
-                        .shadow_lg()
-                        .overflow_hidden()
-                        .children(title.map(island_label))
-                        .children(self.render_scopes(p, cx))
-                        .child(
-                            div()
-                                .h(px(44.))
-                                .px(px(14.))
-                                .flex()
-                                .items_center()
-                                .gap_2()
-                                .children(p.from.is_some().then(|| {
-                                    div()
-                                        .flex_none()
-                                        .px(px(8.))
-                                        .h(px(22.))
-                                        .flex()
-                                        .items_center()
-                                        .rounded(px(ROW_RADIUS))
-                                        .bg(theme::info_bg())
-                                        .text_size(px(12.))
-                                        .text_color(theme::accent())
-                                        .child("> Actions")
-                                }))
-                                .child(self.field_text(&p.query, true, placeholder, cx)),
-                        )
-                        .child(div().h(px(1.)).bg(theme::island_border()))
-                        .child(
-                            div()
-                                .id("palette-list")
-                                .max_h(px(480.))
-                                .overflow_y_scroll()
-                                .pb(px(6.))
-                                .px(px(6.))
-                                .children(rows)
-                                .children(empty),
-                        )
-                        .children(self.render_search_foot(p, cx)),
-                    "palette-coming",
-                    super::motion::FAST,
-                    |panel, v| panel.w(px(super::motion::mix(627., 640., v))).opacity(v),
-                )),
-        )
-    }
-
-    /// The tabs of search everywhere: names, and what each found in a badge; one that found
-    /// nothing fades.
-    fn render_scopes(&self, p: &Palette, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        let Kind::Search(on) = p.kind else {
-            return None;
-        };
-        Some(
-            div()
-                .flex()
-                .gap(px(2.))
-                .px(px(10.))
-                .border_b_1()
-                .border_color(theme::island_border())
-                .children(Scope::ALL.into_iter().enumerate().map(|(i, scope)| {
-                    let count = p.counts.map(|c| c[i]);
-                    let none = count == Some(0);
-                    let lit = scope == on;
-                    let tab = div()
-                        .id(("search-scope", i))
-                        .flex()
-                        .items_center()
-                        .gap(px(6.))
-                        .px(px(10.))
-                        .pt(px(10.))
-                        .pb(px(8.))
-                        .border_b_2()
-                        .text_size(px(13.))
-                        .text_color(if lit { theme::text() } else { theme::muted() })
-                        .when(lit, |s| s.font_weight(gpui::FontWeight::SEMIBOLD))
-                        .when(none && !lit, |s| s.opacity(0.6))
-                        .cursor_pointer()
-                        .child(super::words::say(scope.label()).into_owned())
-                        .children(count.map(|n| {
-                            div()
-                                .min_w(px(18.))
-                                .px(px(5.))
-                                .rounded_full()
-                                .flex()
-                                .justify_center()
-                                .text_size(px(11.))
-                                .bg(if lit {
-                                    theme::info_bg()
-                                } else {
-                                    theme::hover()
-                                })
-                                .text_color(if lit { theme::accent() } else { theme::faint() })
-                                .child(n.to_string())
-                        }))
-                        .on_click(cx.listener(move |this, _, _, cx| this.search(scope, cx)));
-                    // The underline goes from the tab left to the tab come to (#56, 6).
-                    super::motion::toward(
-                        tab,
-                        ("search-scope-line", i),
-                        lit,
-                        false,
-                        super::motion::FAST,
-                        |tab, v| {
-                            tab.border_color(gpui::Rgba {
-                                a: v,
-                                ..theme::accent()
-                            })
-                        },
-                    )
-                })),
-        )
-        .map(|d| d.into_any_element())
-    }
-
-    /// The tab on with its key, and how to move.
-    fn render_search_foot(&self, p: &Palette, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        let Kind::Search(on) = p.kind else {
-            return None;
-        };
-        let key = cx
-            .global::<super::keymap::Keymap>()
-            .shown(on.action().as_ref())
-            .unwrap_or_else(|| on.key().to_owned());
-        Some(
-            div()
-                .flex()
-                .gap(px(14.))
-                .px(px(14.))
-                .py(px(8.))
-                .border_t_1()
-                .border_color(theme::island_border())
-                .text_size(px(11.))
-                .text_color(theme::muted())
-                .child(format!(
+                    .collect();
+                let key = keymap
+                    .shown(on.action().as_ref())
+                    .unwrap_or_else(|| on.key().to_owned());
+                let foot = format!(
                     "{} · {}",
                     super::words::say(on.label()),
                     super::keys::text(&key)
-                ))
-                .child("⇥ next tab · > actions")
-                .child(div().flex_1())
-                .child("↵ open · esc")
-                .into_any_element(),
-        )
+                );
+                (Some(tabs), Some(foot))
+            }
+            _ => (None, None),
+        };
+        Some(palette::palette(
+            palette::PaletteView {
+                title,
+                tabs,
+                actions: p.from.is_some(),
+                field: self
+                    .field_text(&p.query, true, placeholder, cx)
+                    .into_any_element(),
+                rows,
+                at: p.at,
+                empty,
+                foot,
+            },
+            Rc::new(Glue(cx.weak_entity())),
+        ))
+    }
+}
+
+/// What a click on the palette does, answered by the tab.
+struct Glue(WeakEntity<Workspace>);
+
+impl palette::PaletteHost for Glue {
+    fn run(&self, ix: usize, window: &mut Window, cx: &mut App) {
+        self.0
+            .update(cx, |this, cx| this.run_palette_item(ix, window, cx))
+            .ok();
+    }
+
+    fn close(&self, _: &mut Window, cx: &mut App) {
+        self.0.update(cx, |this, cx| this.close_palette(cx)).ok();
+    }
+
+    fn scope(&self, ix: usize, _: &mut Window, cx: &mut App) {
+        if let Some(scope) = Scope::ALL.get(ix).copied() {
+            self.0.update(cx, |this, cx| this.search(scope, cx)).ok();
+        }
     }
 }
 
