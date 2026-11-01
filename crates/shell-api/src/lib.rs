@@ -434,6 +434,8 @@ pub struct Drawing {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Section {
     General,
+    /// Connecting the agents.
+    Agents,
 }
 
 /// What runs an action in a tab.

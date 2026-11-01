@@ -396,7 +396,7 @@ impl Workspace {
             Some(
                 discussion::button(
                     "setup-connect-claude",
-                    match (self.agent_setup_busy, s.profiles.len()) {
+                    match (self.connect.read(cx).busy, s.profiles.len()) {
                         (true, _) => "Connecting…",
                         (false, 1) => "Connect",
                         (false, _) => "Connect all",
@@ -404,7 +404,9 @@ impl Workspace {
                     None,
                     Kind::Primary(theme::accent()),
                 )
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.connect_claude(cx)))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.connect.update(cx, |c, cx| c.connect(cx))
+                }))
                 .into_any_element(),
             )
         };
@@ -452,7 +454,7 @@ impl Workspace {
                         .child(codex_end),
                     ),
             )
-            .children(self.agent_setup.clone().map(|said| {
+            .children(self.connect.read(cx).said.clone().map(|said| {
                 div()
                     .text_size(px(12.))
                     .text_color(theme::muted())

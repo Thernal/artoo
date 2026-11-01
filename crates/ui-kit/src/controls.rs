@@ -74,6 +74,37 @@ pub fn bar_button(
         })
 }
 
+/// A labelled row of Settings: the name, and a line only where the name and the control do not say enough, on the
+/// left; the control on the right.
+pub fn setting(
+    title: &'static str,
+    detail: &'static str,
+    control: impl IntoElement,
+) -> impl IntoElement {
+    div()
+        .flex()
+        .items_center()
+        .gap_4()
+        .py(px(10.))
+        .border_b_1()
+        .border_color(theme::island_border())
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .child(keys::text(title).into_owned())
+                .children((!detail.is_empty()).then(|| {
+                    div()
+                        .text_size(px(12.))
+                        .text_color(theme::muted())
+                        .child(keys::text(detail).into_owned())
+                })),
+        )
+        .child(div().flex_none().child(control))
+}
+
 /// The foot of a tool window, under its body that scrolls: where its buttons are.
 pub fn tool_foot() -> Div {
     div()

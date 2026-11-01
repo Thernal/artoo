@@ -1583,8 +1583,7 @@ pub struct Workspace {
     /// The note under the pointer: its reaction bar shows (#9).
     hover_note: Option<u64>,
     /// Settings → Agents: what connecting said, and whether it runs.
-    agent_setup: Option<String>,
-    agent_setup_busy: bool,
+    connect: gpui::Entity<artoo_agents::connect::Connect>,
     requests: gpui::Entity<requests::Requests>,
     /// The menu's scroll (#146).
     places: spaces::Places,
@@ -1836,8 +1835,7 @@ impl Workspace {
             inbox: false,
             inbox_view: cx.new(|_| Default::default()),
             hover_note: None,
-            agent_setup: None,
-            agent_setup_busy: false,
+            connect: cx.new(|_| Default::default()),
             notices: cx.new(|_| Default::default()),
             title: String::new(),
             history: cx.new(|_| History::new()),
@@ -1935,6 +1933,7 @@ impl Workspace {
         services.set(this.chats.clone());
         services.set(this.agent_comments.clone());
         services.set(this.send_card.clone());
+        services.set(this.connect.clone());
         services.set::<Rc<dyn artoo_agents::window::AgentsHost>>(Rc::new(agent::AgentsHost(
             cx.weak_entity(),
         )));
@@ -1970,6 +1969,14 @@ impl Workspace {
         })
         .detach();
         cx.subscribe(&this.requests, Self::requests_event).detach();
+        // A connect ended: Set up looks whether the profiles have Artoo now.
+        cx.observe(&this.connect, |this, connect, cx| {
+            if !connect.read(cx).busy {
+                this.setup_look_again();
+            }
+            cx.notify();
+        })
+        .detach();
         cx.observe_window_activation(window, |this, window, cx| {
             if window.is_window_active() {
                 this.window_activated(cx);

@@ -9,6 +9,7 @@ pub mod agents;
 pub mod chats;
 pub mod codex;
 pub mod comments;
+pub mod connect;
 mod contract;
 pub mod form;
 pub mod inbox;
@@ -25,7 +26,7 @@ use artoo_core::{applog, generated, git, labels, platform, storage};
 use std::sync::Arc;
 
 /// Wires the agents in: the contract other features read them through (`artoo_agents_api`), and their parts in
-/// every tab — the notes' summary over the diff, the Agents window, the card asking which chat.
+/// every tab — the notes' summary over the diff, the Agents window, the card asking which chat, Settings → Agents.
 pub fn install(cx: &mut gpui::App) {
     artoo_agents_api::provide(cx, Arc::new(contract::ReportDraftsImpl));
     artoo_shell_api::add_parts(cx, parts);
@@ -38,15 +39,17 @@ fn parts(
     cx: &mut gpui::App,
 ) -> artoo_shell_api::Parts {
     let services = frame.services();
-    let (Some(notes), Some(chats), Some(comments), Some(card)) = (
+    let (Some(notes), Some(chats), Some(comments), Some(card), Some(connect)) = (
         services.get::<gpui::Entity<notes::AgentNotes>>(),
         services.get::<gpui::Entity<chats::Chats>>(),
         services.get::<gpui::Entity<comments::AgentComments>>(),
         services.get::<gpui::Entity<pick::SendCard>>(),
+        services.get::<gpui::Entity<connect::Connect>>(),
     ) else {
         return Default::default();
     };
     artoo_shell_api::Parts {
+        settings: vec![connect::settings(connect, cx)],
         overlay: Some(pick::overlay(card, frame.clone(), cx)),
         tool: Some(window::tool(chats, comments, frame.clone(), cx)),
         pieces: vec![summary::piece(notes, frame, cx)],

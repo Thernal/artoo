@@ -298,7 +298,12 @@ impl Workspace {
                     .child("This repository has no GitLab or GitHub remote, so there are no merge requests to set up.")
                     .into_any_element()
             }),
-            Section::Agents => self.render_agents_settings(cx).into_any_element(),
+            // The agents' own rows (`artoo_agents::connect`).
+            Section::Agents => div()
+                .flex()
+                .flex_col()
+                .children(self.settings_rows(artoo_shell_api::Section::Agents))
+                .into_any_element(),
             Section::Keyboard => self.render_keyboard_settings(cx).into_any_element(),
         };
         let nav = div()
@@ -464,36 +469,8 @@ fn heading(text: impl Into<SharedString>) -> impl IntoElement {
         .child(text.into())
 }
 
-/// A labelled row: the name, and a line only where the name and the control do not say enough,
-/// on the left; the control on the right.
-pub(super) fn item(
-    title: &'static str,
-    detail: &'static str,
-    control: impl IntoElement,
-) -> impl IntoElement {
-    div()
-        .flex()
-        .items_center()
-        .gap_4()
-        .py(px(10.))
-        .border_b_1()
-        .border_color(theme::island_border())
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .child(super::keys::text(title).into_owned())
-                .children((!detail.is_empty()).then(|| {
-                    div()
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child(super::keys::text(detail).into_owned())
-                })),
-        )
-        .child(div().flex_none().child(control))
-}
+/// A labelled row (the kit's).
+pub(super) use artoo_ui_kit::controls::setting as item;
 
 fn switch(id: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
     div()

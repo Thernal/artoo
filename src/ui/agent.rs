@@ -3,14 +3,13 @@
 //! then Claude Code's recent ones, which get the comments when they listen — and a new chat. The
 //! agent's answers come back every couple of seconds, and the reviewer resolves or reopens each.
 
-use super::px;
-use super::{ROW_RADIUS, Workspace, theme};
+use super::Workspace;
 use crate::agents::{self, Bus};
 use crate::review::State;
 use artoo_agents::form::{self, FormEvent, OnForm};
 pub(super) use artoo_agents::view::chat_badge;
 use artoo_agents::window::{Act, Kind, kind_of};
-use gpui::{App, ClickEvent, ClipboardItem, Context, FontWeight, WeakEntity, div, prelude::*};
+use gpui::{App, Context, WeakEntity};
 
 impl Workspace {
     fn bus() -> Option<Bus> {
@@ -518,149 +517,6 @@ impl Workspace {
             self.refresh_rows(cx);
             cx.notify();
         }
-    }
-
-    /// Settings → Agents: connect Claude Code (every profile), the commands for others.
-    pub(super) fn render_agents_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let server = agents::server_command();
-        let claude_cmd = format!("claude mcp add -s user artoo -- {server}");
-        let codex_cmd = crate::codex::add_command(&server);
-        let profiles = agents::claude_profiles()
-            .iter()
-            .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let connect = div()
-            .id("agents-connect-claude")
-            .px_3()
-            .h(px(28.))
-            .flex()
-            .items_center()
-            .rounded(px(ROW_RADIUS))
-            .bg(theme::agent())
-            .text_color(theme::base())
-            .font_weight(FontWeight::SEMIBOLD)
-            .cursor_pointer()
-            .child(if self.agent_setup_busy {
-                "Connecting…"
-            } else {
-                "Connect"
-            })
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.connect_claude(cx)));
-        // `tip`: what the label leaves out, on a hover.
-        let command =
-            |id: &'static str, label: &'static str, tip: Option<&'static str>, text: String| {
-                let copy = text.clone();
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .py(px(8.))
-                    .child(
-                        div()
-                            .id(gpui::SharedString::from(format!("{id}-label")))
-                            .text_size(px(12.))
-                            .text_color(theme::muted())
-                            .child(label)
-                            .when_some(tip, |d, tip| {
-                                d.tooltip(move |_, cx| cx.new(|_| super::Tip(tip)).into())
-                            }),
-                    )
-                    .child(
-                        div()
-                            .id(id)
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .px_2()
-                            .py_1()
-                            .rounded(px(ROW_RADIUS))
-                            .bg(theme::base())
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme::hover()))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .font_family(theme::code_font())
-                                    .text_size(px(12.))
-                                    .child(text),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(11.))
-                                    .text_color(theme::faint())
-                                    .child("Copy"),
-                            )
-                            .on_click(move |_, _, cx| {
-                                cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
-                            }),
-                    )
-            };
-        div()
-            .flex()
-            .flex_col()
-            .child(super::settings::item(
-                "Claude Code",
-                "Adds Artoo's MCP server to every Claude Code profile; a chat already open needs a restart.",
-                connect,
-            ))
-            .children(self.agent_setup.clone().map(|text| {
-                div()
-                    .py(px(6.))
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .child(text)
-            }))
-            .child(
-                div()
-                    .py(px(6.))
-                    .text_size(px(12.))
-                    .text_color(theme::faint())
-                    .child(if profiles.is_empty() {
-                        "No Claude Code profile found.".to_owned()
-                    } else {
-                        format!("Profiles: {profiles}")
-                    }),
-            )
-            .child(command(
-                "agents-cmd-claude",
-                "Or by hand, in a terminal:",
-                None,
-                claude_cmd,
-            ))
-            .child(command(
-                "agents-cmd-codex",
-                "Codex (limited):",
-                Some(crate::codex::LIMITS),
-                codex_cmd,
-            ))
-    }
-
-    pub(super) fn connect_claude(&mut self, cx: &mut Context<Self>) {
-        if self.agent_setup_busy {
-            return;
-        }
-        self.agent_setup_busy = true;
-        self.agent_setup = None;
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { agents::connect_claude() })
-                .await;
-            this.update(cx, |this, cx| {
-                this.agent_setup_busy = false;
-                this.setup_look_again();
-                this.agent_setup = Some(match result {
-                    Ok(text) => text,
-                    Err(text) => format!("Not connected — {text}"),
-                });
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
     }
 }
 
