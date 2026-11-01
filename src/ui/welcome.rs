@@ -1,14 +1,19 @@
 //! The window with no repository open (#54): open one (⌘O), connect GitLab or GitHub with a token,
 //! clone one from a URL; a folder dropped anywhere opens too. The repositories opened lately are
-//! listed under them.
+//! listed under them. The page is drawn by the shell (`artoo_shell::welcome`); its cards are here.
 
 use super::input::Look;
 use super::lists::Field;
-use super::{ISLAND_RADIUS, Workspace, icons, keys, px, theme};
+use super::{ISLAND_RADIUS, Workspace, px, theme};
 use crate::git::WebRemote;
-use gpui::{ClickEvent, Context, Div, FontWeight, PathPromptOptions, div, prelude::*};
+use artoo_shell::welcome;
+use gpui::{
+    App, ClickEvent, Context, Div, FontWeight, PathPromptOptions, WeakEntity, Window, div,
+    prelude::*,
+};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::rc::Rc;
 
 /// The card the welcome shows in place of its choices.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -210,119 +215,16 @@ impl Workspace {
     /// The welcome: Artoo, what it is, the three ways in and the drop target — or the card one
     /// of them opened —, and the repositories opened lately.
     pub(super) fn render_welcome(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let body = match self.welcome.card {
-            Some(card) => self.welcome_card(card, cx).into_any_element(),
-            None => div()
-                .flex()
-                .flex_col()
-                .gap(px(10.))
-                .child(
-                    choice(
-                        "welcome-open",
-                        "folder",
-                        "Open a repository",
-                        "a folder with a .git inside",
-                    )
-                    .child(keys::caps("⌘O", keys::On::Plain))
-                    .on_click(cx.listener(
-                        |this, _: &ClickEvent, window, cx| this.open(&super::Open, window, cx),
-                    )),
-                )
-                .child(
-                    choice(
-                        "welcome-connect",
-                        "pull-request",
-                        "Connect GitLab or GitHub",
-                        "your review requests and inbox, from a token",
-                    )
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.open_welcome_card(Card::Connect, cx)
-                    })),
-                )
-                .child(
-                    choice(
-                        "welcome-clone",
-                        "files",
-                        "Clone from a URL",
-                        "git clone, then open it",
-                    )
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.open_welcome_card(Card::Clone, cx)
-                    })),
-                )
-                .child(
-                    div()
-                        .h(px(44.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(10.))
-                        .border_1()
-                        .border_dashed()
-                        .border_color(theme::island_border())
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child("or drop a folder anywhere in the window"),
-                )
-                .into_any_element(),
-        };
-        div()
-            .flex_1()
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_center()
-            .m(px(super::GAP))
-            .mt_0()
-            .rounded(px(ISLAND_RADIUS))
-            .bg(theme::editor())
-            .child(
-                div()
-                    .w(px(560.))
-                    .flex()
-                    .flex_col()
-                    .gap(px(14.))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(4.))
-                            .child(
-                                div()
-                                    .text_size(px(22.))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child("Artoo"),
-                            )
-                            .child(div().text_color(theme::muted()).child(
-                                "See what changed between the versions of a branch — and review it — on your own machine.",
-                            )),
-                    )
-                    .child(body)
-                    .children((!self.recent.is_empty() && self.welcome.card.is_none()).then(|| {
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .mt_2()
-                            .child(super::section_label("Recent"))
-                            .children(self.recent.iter().enumerate().map(|(ix, path)| {
-                                let path = path.clone();
-                                div()
-                                    .id(("recent", ix))
-                                    .px_2()
-                                    .py_1()
-                                    .rounded_md()
-                                    .cursor_pointer()
-                                    .hover(|s| s.bg(theme::hover()))
-                                    .text_color(theme::muted())
-                                    .min_w_0()
-                                    .child(super::hover::cut("path", path.display().to_string()))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.request_open(path.clone(), None, cx)
-                                    }))
-                            }))
-                    })),
-            )
+        welcome::page(
+            welcome::Page {
+                card: self
+                    .welcome
+                    .card
+                    .map(|card| self.welcome_card(card, cx).into_any_element()),
+                recent: self.recent.clone(),
+            },
+            Rc::new(Glue(cx.weak_entity())),
+        )
     }
 
     /// The card a choice opened: connect (host, token, who it is) or clone (the URL).
@@ -493,41 +395,28 @@ impl Workspace {
     }
 }
 
-/// One of the welcome's ways in: its icon, what it does and a word on it.
-fn choice(
-    id: &'static str,
-    icon: &'static str,
-    title: &'static str,
-    text: &'static str,
-) -> gpui::Stateful<Div> {
-    div()
-        .id(id)
-        .h(px(56.))
-        .px(px(14.))
-        .flex()
-        .items_center()
-        .gap(px(12.))
-        .rounded(px(10.))
-        .border_1()
-        .border_color(theme::island_border())
-        .bg(theme::panel())
-        .cursor_pointer()
-        .hover(|s| s.bg(theme::hover()))
-        .child(icons::icon(icon).size(px(18.)).text_color(theme::accent()))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .child(title)
-                .child(
-                    div()
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child(text),
-                ),
-        )
+/// What a click on the welcome does, answered by the tab.
+struct Glue(WeakEntity<Workspace>);
+
+impl welcome::WelcomeHost for Glue {
+    fn open(&self, window: &mut Window, cx: &mut App) {
+        self.0
+            .update(cx, |this, cx| this.open(&super::Open, window, cx))
+            .ok();
+    }
+
+    fn card(&self, connect: bool, _: &mut Window, cx: &mut App) {
+        let card = if connect { Card::Connect } else { Card::Clone };
+        self.0
+            .update(cx, |this, cx| this.open_welcome_card(card, cx))
+            .ok();
+    }
+
+    fn recent(&self, path: PathBuf, _: &mut Window, cx: &mut App) {
+        self.0
+            .update(cx, |this, cx| this.request_open(path, None, cx))
+            .ok();
+    }
 }
 
 #[cfg(test)]
