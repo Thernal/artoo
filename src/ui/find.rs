@@ -97,7 +97,7 @@ impl Workspace {
             } else if self.shortcuts {
                 self.shortcuts = false;
                 cx.notify();
-            } else if self.ctx_menu.is_some() {
+            } else if self.ctx_menu.read(cx).is_open() {
                 self.close_menu(cx);
             } else if self.review.read(cx).goline.is_some() {
                 self.close_goline(cx);

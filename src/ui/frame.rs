@@ -771,7 +771,12 @@ impl Render for Workspace {
                 .into_any_element(),
         })
         // Last, so it paints over everything.
-        .children(self.render_ctx_menu(window.viewport_size(), cx))
+        .children(
+            self.ctx_menu
+                .read(cx)
+                .shows()
+                .then(|| self.ctx_menu.clone()),
+        )
         .children(self.render_mention_card(cx))
         .children(self.review.read(cx).render_blame_tip())
         .children(self.render_find_files(cx))

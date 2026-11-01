@@ -59,7 +59,7 @@ impl Workspace {
         self.field = None;
         self.history.update(cx, |h, _| h.find.text = None);
         self.palette = None;
-        self.ctx_menu = None;
+        self.ctx_menu.update(cx, |m, cx| m.shut(cx));
         self.bfilter.clear();
         let host = super::host_of(&web, cx);
         let branches = self.history.read(cx).branches.clone();

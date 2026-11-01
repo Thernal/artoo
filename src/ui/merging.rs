@@ -64,10 +64,9 @@ impl Workspace {
         } else {
             "In the way · GitLab asks again on every push"
         };
-        self.open_titled(at, vec![(Some(title), entries)], cx);
-        if let Some(menu) = self.ctx_menu.as_mut() {
-            menu.width = REASONS_WIDTH;
-        }
+        self.ctx_menu.update(cx, |m, cx| {
+            m.open(at, vec![(Some(title), entries)], REASONS_WIDTH, cx)
+        });
     }
 
     /// Goes where a reason in the way is fixed.

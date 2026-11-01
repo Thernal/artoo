@@ -97,7 +97,7 @@ use gpui::{
     WindowOptions, actions, div, font, prelude::*, size,
 };
 use lists::Field;
-use menu::{Act, CtxMenu, Entry};
+use menu::{Act, Entry};
 use review::ReviewEvent;
 use std::cell::Cell as Shared;
 use std::collections::HashSet;
@@ -1605,7 +1605,6 @@ pub struct Workspace {
     /// The tool window last open, drawn on its way out.
     last_tool: Option<tools::Tool>,
     /// The menu just closed, drawn fading out.
-    menu_leaving: Option<menu::CtxMenu>,
     /// Open in's choices kept per extension, and the app its button names (#78).
     open_with: std::collections::HashMap<String, open_in::App>,
     open_cache: open_in::Cache,
@@ -1675,7 +1674,7 @@ pub struct Workspace {
     bfilter: String,
     field: Option<Field>,
     /// A context menu open at the pointer, and the repository's address on the web.
-    ctx_menu: Option<CtxMenu>,
+    ctx_menu: gpui::Entity<artoo_shell::menu::Menu<Act>>,
     web: Option<crate::git::WebRemote>,
     /// The host `web` is on, set with it.
     host: Option<Arc<dyn Host>>,
@@ -1859,7 +1858,6 @@ impl Workspace {
             open_cache: Default::default(),
             motion: Default::default(),
             last_tool: None,
-            menu_leaving: None,
             win_width: 1480.,
             toggled_mr: HashSet::new(),
             toggled_agent: HashSet::new(),
@@ -1892,7 +1890,7 @@ impl Workspace {
             nav: nav::Nav::default(),
             bfilter: String::new(),
             field: None,
-            ctx_menu: None,
+            ctx_menu: menu::menu(cx),
             web: None,
             host: None,
             widths: Default::default(),
@@ -2584,7 +2582,7 @@ impl Workspace {
         ]];
         // Its page on the host; one only on this Mac says so instead (#162).
         let link = self.commit_link_entry(commit.id, cx);
-        let on_host = link.as_ref().is_some_and(|e| !e.off);
+        let on_host = link.as_ref().is_some_and(|e| e.act.is_some());
         groups[0].extend(link);
         if let Some(web) = self.web.as_ref().filter(|_| on_host) {
             groups.push(vec![Entry::new(
@@ -3092,7 +3090,7 @@ impl Workspace {
         .map(|ix| self.render_page_alone(ix, this, cx));
         artoo_shell_api::Chrome {
             border: self.zone_border(zones::Zone::Diff),
-            menu_open: self.ctx_menu.is_some(),
+            menu_open: self.ctx_menu.read(cx).is_open(),
             open_in: self.open_in_chips(cx),
             alone,
             zen_one: self.zen_one && self.zen.is_some(),

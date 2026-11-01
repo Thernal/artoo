@@ -17,7 +17,7 @@ impl Workspace {
         shift: bool,
         cx: &mut Context<Self>,
     ) {
-        self.ctx_menu = None;
+        self.ctx_menu.update(cx, |m, cx| m.shut(cx));
         self.note_sel = None;
         let at = Pos { line, byte };
         let text = self.review.read(cx).line_text(old, line);
@@ -178,7 +178,7 @@ impl Workspace {
                 texts,
             } => {
                 self.review.update(cx, |rv, _| rv.sel = None);
-                self.ctx_menu = None;
+                self.ctx_menu.update(cx, |m, cx| m.shut(cx));
                 let text = texts.borrow().get(block).cloned().unwrap_or_default();
                 let same = self.note_sel.as_ref().is_some_and(|s| s.note == note);
                 self.note_sel = Some(match (clicks, shift) {
