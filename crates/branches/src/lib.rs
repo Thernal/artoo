@@ -35,7 +35,8 @@ use gpui::{App, Entity, Window};
 use std::rc::Rc;
 
 /// Branches' parts in every tab: the commits' search as one of its inputs, a branch's line, the head over a diff,
-/// two versions' commits paired and the card of what next on the item page, the space's own page.
+/// two versions' commits paired and the card of what next on the item page, the space's own page; its side panel
+/// among the tab's services (`panel`).
 pub fn install(cx: &mut App) {
     artoo_shell_api::add_parts(cx, parts);
 }
@@ -46,6 +47,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     let Some(history) = services.get::<Entity<history::History>>() else {
         return Parts::default();
     };
+    services.set(panel::view(history.clone(), &frame, cx));
     Parts {
         inputs: vec![find::input(history.clone())],
         // A branch's line before the head, which any diff has.

@@ -79,6 +79,15 @@ pub trait Review {
 
     /// The diff's column with what `look` brings, its rows' pins and its clicks `host`'s.
     fn column(&self, look: ColumnLook, host: Rc<dyn Host>, cx: &mut App) -> AnyElement;
+
+    /// The side panel's Changes section while the diff has files, with whether it is open: `tag` the keyboard's mark
+    /// on its title, what else goes on it and its clicks `host`'s. Asked from a view's own drawing.
+    fn changes_section(
+        &self,
+        tag: String,
+        host: Rc<dyn Host>,
+        cx: &mut App,
+    ) -> Option<(AnyElement, bool)>;
 }
 
 /// An item page's middle as the review draws it (#165 I5d): what the route on screen is of, the parts' pieces over
@@ -228,6 +237,8 @@ pub trait Host {
     fn version_of(&self, tip: Oid, cx: &App) -> Option<usize>;
     /// Event `event` on the Changes list.
     fn changes(&self, event: ChangesEvent, cx: &mut App);
+    /// The file whose comment being written waits without the keyboard: a pencil on its row in Changes (#168).
+    fn draft(&self, cx: &App) -> Option<String>;
 }
 
 /// What a click on the file's pane asks (`Host::pane`).

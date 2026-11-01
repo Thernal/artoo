@@ -7,7 +7,6 @@ use super::input::{self, Edit};
 use super::px;
 use super::typing::{self, Input};
 use super::{Workspace, theme};
-use artoo_review::changes_view::ChangesLook;
 use gpui::{ClickEvent, Context, KeyDownEvent, div, prelude::*};
 
 impl Workspace {
@@ -226,14 +225,5 @@ impl Workspace {
                 .update(cx, |rv, _| rv.collapsed.insert(path.to_owned()));
         }
         cx.notify();
-    }
-
-    /// What the tab puts on the Changes list, the review's (`Review::changes_section`): the path filter and the
-    /// width it is drawn at.
-    pub(super) fn changes_look(&self, cx: &mut Context<Self>) -> ChangesLook {
-        ChangesLook {
-            filtering: self.has_keyboard(Input::Part(artoo_review::path_filter::INPUT), cx),
-            draft: self.draft_path(cx),
-        }
     }
 }

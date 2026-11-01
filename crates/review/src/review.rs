@@ -189,6 +189,24 @@ pub fn handle(review: &Entity<Review>) -> Rc<dyn artoo_review_api::Review> {
 struct Handle(WeakEntity<Review>);
 
 impl artoo_review_api::Review for Handle {
+    fn changes_section(
+        &self,
+        tag: String,
+        host: Rc<dyn Host>,
+        cx: &mut App,
+    ) -> Option<(gpui::AnyElement, bool)> {
+        let rv = self.0.upgrade()?;
+        // Asked before the review is updated: the tab's inputs read it.
+        let frame = rv.read(cx).frame.as_ref().and_then(std::rc::Weak::upgrade);
+        let filtering = frame.is_some_and(|f| f.typing(cx) == Some(crate::path_filter::INPUT));
+        let list = crate::changes_view::ChangesLook {
+            filtering,
+            draft: host.draft(cx),
+        };
+        let look = crate::changes_view::SectionLook { tag, list };
+        rv.update(cx, |rv, cx| rv.changes_section(look, host, cx))
+    }
+
     fn column(
         &self,
         look: artoo_review_api::ColumnLook,

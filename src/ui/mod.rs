@@ -3319,6 +3319,10 @@ impl artoo_review_api::Host for TabHost {
             })
             .ok();
     }
+
+    fn draft(&self, cx: &App) -> Option<String> {
+        self.0.upgrade()?.read(cx).draft_path(cx)
+    }
 }
 
 /// A square icon button for the title bar; the tooltip names it and its shortcut.

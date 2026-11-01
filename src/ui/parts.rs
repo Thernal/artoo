@@ -11,7 +11,8 @@ use super::zones::Zone;
 use super::{Workspace, motion, px};
 use artoo_core::route::Route;
 use artoo_shell_api::{
-    Chrome, Drawing, Frame, MenuItem, Overlay, Pages, Places, Run, Section, Services, Slot,
+    Chrome, Drawing, Frame, ListZone, MenuItem, Overlay, Pages, Places, Run, Section, Services,
+    Slot,
 };
 use artoo_ui_kit::markdown::Selecting;
 use gpui::{
@@ -193,6 +194,27 @@ impl Frame for TabFrame {
     fn piece(&self, slot: Slot, cx: &mut App) -> Option<AnyElement> {
         self.0
             .update(cx, |this, cx| this.piece(slot, cx))
+            .ok()
+            .flatten()
+    }
+
+    fn list_zone(&self, cx: &mut App) -> Option<(ListZone, SharedString)> {
+        self.0
+            .update(cx, |this, _| {
+                let zone = match this.zone {
+                    Zone::Commits => ListZone::Commits,
+                    Zone::Files => ListZone::Files,
+                    _ => return None,
+                };
+                Some((zone, this.zone_tag(this.zone).into_owned().into()))
+            })
+            .ok()
+            .flatten()
+    }
+
+    fn typing(&self, cx: &mut App) -> Option<&'static str> {
+        self.0
+            .update(cx, |this, cx| this.part_typing(cx))
             .ok()
             .flatten()
     }

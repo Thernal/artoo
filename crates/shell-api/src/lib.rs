@@ -135,6 +135,22 @@ pub trait Frame {
 
     /// What the shell puts on the diff's column. Asked from a page's own drawing.
     fn chrome(&self, cx: &mut App) -> Chrome;
+
+    /// The side panel's list with the keyboard, if one has it, and the mark its title wears then (` · ⌃2`). Asked
+    /// from a view's own drawing.
+    fn list_zone(&self, cx: &mut App) -> Option<(ListZone, SharedString)>;
+
+    /// The part's input with the keyboard, by its id (`Input::id`). Asked from a view's own drawing.
+    fn typing(&self, cx: &mut App) -> Option<&'static str>;
+}
+
+/// A list of the side panel the keyboard can be in, each with its keys (⌃2, ⌃3).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ListZone {
+    /// The commits: a branch's, or a comparison's own.
+    Commits,
+    /// The changed files.
+    Files,
 }
 
 /// What the shell puts on an item page's diff column (`Frame::chrome`).

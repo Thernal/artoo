@@ -2,9 +2,9 @@
 //! (`artoo_branches::find`).
 
 use super::Workspace;
-use super::typing::{self, Input};
+use super::typing::Input;
 use artoo_review::find::Found;
-use gpui::{App, Context, KeyDownEvent, prelude::*};
+use gpui::{App, Context, KeyDownEvent};
 
 impl Workspace {
     pub(super) fn refilter(&mut self, cx: &mut App) {
@@ -183,18 +183,5 @@ impl Workspace {
     /// Reads the paths of every loaded commit (`History::index_paths`).
     pub(super) fn index_paths(&mut self, cx: &mut Context<Self>) {
         self.history.update(cx, |h, cx| h.index_paths(cx));
-    }
-
-    /// The search field, its qualifier tags and the count line.
-    pub(super) fn render_find(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let active = self.has_keyboard(Input::Part(artoo_branches::find::INPUT), cx);
-        let acts = self.history_acts(cx);
-        let el = artoo_branches::find::field(
-            self.history.read(cx),
-            active,
-            self.history.downgrade(),
-            &acts,
-        );
-        typing::input_box(el, Input::Part(artoo_branches::find::INPUT), cx)
     }
 }
