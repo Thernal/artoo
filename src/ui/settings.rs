@@ -1,6 +1,6 @@
 //! The Settings page: how changed words are marked, which mode diffs open in, and whether the
 //! window refreshes itself. Designed in `../Design/mockups/settings/a-general.html`. Its frame — the sections, the
-//! heading, Done — is drawn by the shell (`artoo_shell::settings`).
+//! heading, Done — is drawn by the shell (`artoo_shell_api::settings`).
 
 use super::diff_view;
 use super::px;
@@ -315,6 +315,7 @@ impl Workspace {
                 editing,
             },
             Rc::new(Glue(cx.weak_entity())),
+            cx,
         )
     }
 }
@@ -345,8 +346,9 @@ impl settings::SettingsHost for Glue {
     }
 }
 
-pub use artoo_shell::settings::Section;
-use artoo_shell::settings::{self, switch};
+use artoo_shell::settings::switch;
+use artoo_shell_api::settings;
+pub use artoo_shell_api::settings::Section;
 
 fn style_id(style: MarkStyle) -> &'static str {
     match style {
