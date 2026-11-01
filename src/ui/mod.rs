@@ -1507,8 +1507,8 @@ pub struct Workspace {
     root: Option<PathBuf>,
     recent: Vec<PathBuf>,
     error: Option<SharedString>,
-    /// Errors shown as toasts (`toast.rs`).
-    toasts: toast::Toasts,
+    /// Errors and news shown as toasts (`toast.rs`).
+    toasts: gpui::Entity<artoo_shell::toast::Toasts<toast::Act>>,
     /// A link's target waiting for its repository to load (`goto.rs`).
     pending_link: Option<crate::links::Target>,
     /// The comment or line a link pointed at, waiting for the request's diff and discussions.
@@ -1806,7 +1806,7 @@ impl Workspace {
             root: None,
             recent,
             error: None,
-            toasts: Default::default(),
+            toasts: toast::toasts(cx),
             draft_at: None,
             zen: None,
             zen_one: false,
