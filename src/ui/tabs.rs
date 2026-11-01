@@ -1,6 +1,7 @@
 //! Repository tabs: several tabs in one window, each with its own repository, selection, filter and scroll
 //! position. `⌘T` opens one, `⌘W` closes, `⌘1…9` switch, `⌘⇧T` reopens the last closed. In Tabs mode they sit in
-//! the title bar (D12, D21). A tab is the app's (`Tab`); the window keeps them, which is on screen, the session.
+//! the title bar (D12, D21), drawn by the frame (`artoo_shell_api::tabs`). A tab is a workspace (`Tab`, `shell.rs`); the
+//! window, the root, keeps them, which is on screen, the session.
 
 use artoo_shell_api::tabs::{TabInfo, TabModel};
 use gpui::{

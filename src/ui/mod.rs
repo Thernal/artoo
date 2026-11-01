@@ -72,6 +72,7 @@ mod spaces;
 mod stack;
 mod submit;
 mod system_notes;
+mod tabs;
 mod theme_cards;
 mod toast;
 mod tools;

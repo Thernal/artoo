@@ -13,7 +13,6 @@ mod settings;
 mod setup;
 mod shortcuts;
 mod spaces;
-pub mod tabs;
 mod title;
 mod tools;
 mod welcome;

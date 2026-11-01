@@ -1,8 +1,8 @@
-//! A window's repository tabs, the tab's side: the tabs are the shell's (`artoo_shell::tabs`); a tab is a
+//! A window's repository tabs, the tab's side: the tabs are the window's (`tabs.rs`); a tab is a
 //! workspace, and the window says to agents that it is there and what it has open (#153).
 
 use super::Workspace;
-use artoo_shell::tabs::{Tab, Tabs};
+use super::tabs::{Tab, Tabs};
 pub(super) use artoo_shell_api::tabs::{TabInfo, TabModel};
 use gpui::{App, Context, FocusHandle, WeakEntity, Window};
 use std::cell::{Cell, RefCell};
