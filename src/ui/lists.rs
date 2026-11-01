@@ -1,6 +1,6 @@
 //! The lists of the window beyond the commit list: the filter fields, and the changed files — the review draws them
-//! as a folder tree or a flat list (`artoo_review::changes_view`), the tab gives it the path filter's field and the
-//! width it has. Designed in review round 1 (A9, A10, A11, A13); the branches' list is Branches' root page
+//! as a folder tree or a flat list (`artoo_review::changes_view`) with their path filter, the tab says whether the
+//! filter has the keyboard. Designed in review round 1 (A9, A10, A11, A13); the branches' list is Branches' root page
 //! (`roots.rs`, #72).
 
 use super::input::{self, Edit};
@@ -36,7 +36,6 @@ impl Workspace {
         let active = self.field == Some(field);
         let (text, look) = match field {
             Field::Branches => (&self.bfilter, input::Look::default()),
-            Field::Files => (&self.review.read(cx).pfilter, input::Look::default()),
             Field::Token => (
                 &self.token_input,
                 input::Look {
@@ -80,11 +79,6 @@ impl Workspace {
     pub(super) fn start_field(&mut self, field: Field, cx: &mut Context<Self>) {
         if self.field != Some(field) {
             self.reset_field_edit();
-        }
-        if field == Field::Files {
-            let keep = self.zen.is_none();
-            self.review
-                .update(cx, |rv, cx| rv.open_changes(true, keep, false, cx));
         }
         // A composer or a find open beside it keeps its text, not the keyboard (#168).
         self.take_keyboard(Input::Field, cx);
@@ -148,14 +142,8 @@ impl Workspace {
         if field == Field::Keys {
             self.keys_exact = false;
         }
-        // The Changes list's filter is the review's: typed into a copy, put back.
-        let mut files = String::new();
         let text = match field {
             Field::Branches => &mut self.bfilter,
-            Field::Files => {
-                files = self.review.read(cx).pfilter.clone();
-                &mut files
-            }
             Field::Token => &mut self.token_input,
             Field::Keys => &mut self.keys_filter,
             Field::ThemeValue => &mut self.theme_value,
@@ -165,9 +153,6 @@ impl Workspace {
         };
         let welcome = self.root.is_none() && self.welcome.card.is_some();
         let edit = input::edit(text, &mut self.field_edit, &event.keystroke, cx);
-        if field == Field::Files {
-            self.review.update(cx, |rv, _| rv.pfilter = files);
-        }
         match edit {
             // In the welcome's card, esc goes back to its choices, what was typed kept.
             Edit::Escape if welcome => {
@@ -208,7 +193,6 @@ impl Workspace {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Field {
     Branches,
-    Files,
     /// The GitLab token being typed or pasted in the connect panel.
     Token,
     /// The filter of Settings → Keyboard.
@@ -248,18 +232,8 @@ impl Workspace {
     /// width it is drawn at.
     pub(super) fn changes_look(&self, cx: &mut Context<Self>) -> ChangesLook {
         ChangesLook {
-            measure: self.widths.measure("changes").into_any_element(),
-            filter: self
-                .render_field("file-filter", Field::Files, "Filter by path  ⌥⌘P", cx)
-                .into_any_element(),
-            counts: self.counts_fit(),
+            filtering: self.has_keyboard(Input::Part(artoo_review::path_filter::INPUT), cx),
             draft: self.draft_path(cx),
         }
-    }
-
-    /// A file's +/− shows while the list has 240 px (#79).
-    fn counts_fit(&self) -> bool {
-        let width = self.widths.width("changes");
-        width <= 0. || width >= 240.
     }
 }

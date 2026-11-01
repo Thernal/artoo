@@ -1788,6 +1788,9 @@ impl Workspace {
             dfind_error: None,
             find_area: Default::default(),
             goline_area: Default::default(),
+            filter_area: Default::default(),
+            filter_open: false,
+            widths: Default::default(),
             ffind: None,
             changes: Vec::new(),
             change_at: None,
@@ -2814,7 +2817,10 @@ impl Workspace {
             return;
         }
         self.zone = zones::Zone::Files;
-        self.start_field(Field::Files, cx);
+        let keep = self.zen.is_none();
+        self.review.update(cx, |rv, cx| rv.open_filter(keep, cx));
+        self.take_keyboard(typing::Input::Part(artoo_review::path_filter::INPUT), cx);
+        cx.notify();
     }
 
     fn go_back_action(&mut self, _: &GoBack, _: &mut Window, cx: &mut Context<Self>) {

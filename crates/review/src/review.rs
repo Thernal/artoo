@@ -106,6 +106,11 @@ pub struct Review {
     pub dfind_error: Option<String>,
     /// The find bar's field: its caret, selection and undo.
     pub find_area: artoo_ui_kit::input::Area,
+    /// The path filter's field (`path_filter`), and whether it is open to take the keyboard: pressed, or ⌥⌘P.
+    pub filter_area: artoo_ui_kit::input::Area,
+    pub filter_open: bool,
+    /// Its lists' widths: the Changes list's (`changes`).
+    pub widths: artoo_ui_kit::room::Widths,
     /// The field of the line typed after `c`.
     pub goline_area: artoo_ui_kit::input::Area,
     /// Find in files (⌘⌥F), while it is open (`find_files`).

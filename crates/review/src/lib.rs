@@ -22,6 +22,7 @@ pub mod lines;
 pub mod lists;
 pub mod md_page;
 pub mod pane;
+pub mod path_filter;
 pub mod pins;
 pub mod review;
 pub mod reviewed;
@@ -47,7 +48,11 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     review.update(cx, |rv, _| rv.frame = Some(Rc::downgrade(&frame)));
     frame.services().set(item::view(review.clone(), &frame, cx));
     Parts {
-        inputs: vec![find::input(review.clone()), goline::input(review)],
+        inputs: vec![
+            find::input(review.clone()),
+            goline::input(review.clone()),
+            path_filter::input(review),
+        ],
         ..Default::default()
     }
 }

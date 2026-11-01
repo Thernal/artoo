@@ -23,12 +23,8 @@ use std::rc::Rc;
 
 /// What the tab puts on the Changes list.
 pub struct ChangesLook {
-    /// What measures the list's width for the tab.
-    pub measure: AnyElement,
-    /// The path filter's field.
-    pub filter: AnyElement,
-    /// A file's +/− shows: the list has 240 px (#79).
-    pub counts: bool,
+    /// The path filter has the keyboard (`path_filter`).
+    pub filtering: bool,
     /// The file whose comment being written waits without the keyboard: a pencil on its row (#168).
     pub draft: Option<String>,
 }
@@ -144,16 +140,19 @@ impl Review {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let count = self.items().len();
-        let (counts, draft) = (look.counts, look.draft);
+        // A file's +/− shows while the list has 240 px (#79).
+        let width = self.widths.width("changes");
+        let counts = width <= 0. || width >= 240.;
+        let draft = look.draft;
         div()
             .relative()
             .flex_1()
             .min_h_0()
             .flex()
             .flex_col()
-            .child(look.measure)
+            .child(self.widths.measure("changes"))
             .children(self.render_review_progress(&host))
-            .child(look.filter)
+            .child(self.filter_field(look.filtering, cx))
             .children(self.render_changes_total(counts))
             .child(if count == 0 {
                 div()
