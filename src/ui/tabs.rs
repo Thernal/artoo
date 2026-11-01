@@ -153,6 +153,7 @@ impl<T: Tab> Tabs<T> {
     }
 
     /// The first tab (the snapshot checks drive it).
+    #[cfg(feature = "snapshot")]
     pub fn first(&self) -> Entity<T> {
         self.tabs[0].clone()
     }
