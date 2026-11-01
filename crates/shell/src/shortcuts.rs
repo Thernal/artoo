@@ -2,24 +2,22 @@
 //! `?` opens it; esc or a click closes it. Designed in round 2 of the review (`../Design/review/round-2.html`, A29).
 
 use crate::keymap::{self, Keymap};
+use artoo_shell_api::Hook;
+use artoo_shell_api::shortcuts::{Group, ShortcutsRenderer};
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, keys, px, theme, words};
-use gpui::{App, ClickEvent, FontWeight, MouseButton, div, prelude::*};
-use std::rc::Rc;
-use std::sync::atomic::AtomicBool;
+use gpui::{AnyElement, App, ClickEvent, FontWeight, MouseButton, div, prelude::*};
 
-/// The card was shown at launch in this run already (a new tab does not show it again).
-pub static SHOWN: AtomicBool = AtomicBool::new(false);
+/// The renderer, installed by `install`.
+pub(crate) struct Renderer;
 
-/// A group of the card: its title, and (keys, what they do).
-pub type Group = (&'static str, &'static [(&'static str, &'static str)]);
+impl ShortcutsRenderer for Renderer {
+    fn card(&self, groups: &'static [Group], close: Hook, preset: Hook, cx: &App) -> AnyElement {
+        self::card(groups, close, preset, cx).into_any_element()
+    }
+}
 
 /// The card over the window: `close` closes it (a click beside it, Close), `preset` follows a preset picked.
-pub fn card(
-    groups: &'static [Group],
-    close: Rc<dyn Fn(&mut App)>,
-    preset: Rc<dyn Fn(&mut App)>,
-    cx: &App,
-) -> impl IntoElement + use<> {
+fn card(groups: &'static [Group], close: Hook, preset: Hook, cx: &App) -> impl IntoElement + use<> {
     let groups = groups.iter().map(|(title, rows)| {
         div()
             .w(px(344.))
@@ -125,7 +123,7 @@ pub fn card(
 
 /// Which keys yours start from — Artoo's, Android Studio's or VS Code's (#54): chosen here when the card greets the
 /// first launch, as Settings → Keyboard does later.
-fn presets(picked: Rc<dyn Fn(&mut App)>, cx: &App) -> impl IntoElement + use<> {
+fn presets(picked: Hook, cx: &App) -> impl IntoElement + use<> {
     let preset = cx.global::<Keymap>().preset();
     div()
         .flex()

@@ -1691,7 +1691,7 @@ impl Workspace {
         // The keyboard card greets the very first launch, once (never a check's snapshot).
         let greet = !settings.keys_seen
             && std::env::var_os("ARTOO_SNAPSHOT").is_none()
-            && !artoo_shell::shortcuts::SHOWN.swap(true, std::sync::atomic::Ordering::Relaxed);
+            && !shortcuts::SHOWN.swap(true, std::sync::atomic::Ordering::Relaxed);
         if greet {
             settings.keys_seen = true;
             settings.save();

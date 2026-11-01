@@ -1,10 +1,14 @@
-//! The keyboard card's keys, grouped by what one is doing; the card is the shell's
-//! (`artoo_shell::shortcuts`).
+//! The keyboard card's keys, grouped by what one is doing; the frame draws the card
+//! (`artoo_shell_api::shortcuts`).
 
 use super::Workspace;
-use artoo_shell::shortcuts::{self, Group};
+use artoo_shell_api::shortcuts::{self, Group};
 use gpui::{Context, prelude::*};
 use std::rc::Rc;
+use std::sync::atomic::AtomicBool;
+
+/// The card was shown at launch in this run already (a new tab does not show it again).
+pub(super) static SHOWN: AtomicBool = AtomicBool::new(false);
 
 /// (group, [(keys, what it does)]).
 const GROUPS: &[Group] = &[

@@ -18,7 +18,7 @@ mod palette;
 pub mod rail;
 pub mod settings;
 mod setup;
-pub mod shortcuts;
+mod shortcuts;
 mod spaces;
 pub mod tabs;
 mod title;
@@ -40,4 +40,5 @@ pub fn install(cx: &mut gpui::App) {
     provide::<dyn artoo_shell_api::setup::SetupRenderer>(Rc::new(setup::Renderer), cx);
     provide::<dyn artoo_shell_api::welcome::WelcomeRenderer>(Rc::new(welcome::Renderer), cx);
     provide::<dyn artoo_shell_api::frame::FrameRenderer>(Rc::new(frame::Renderer), cx);
+    provide::<dyn artoo_shell_api::shortcuts::ShortcutsRenderer>(Rc::new(shortcuts::Renderer), cx);
 }
