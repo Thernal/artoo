@@ -82,27 +82,22 @@ independent of each other); the Rust form below waits for the developer's review
 - **Review**: `install` reads nothing; a contract holds no logic; places, actions and toasts go through the
   shell.
 
-## Today (#165, migrating)
+## Today (#165, stage 4 closed)
 
-The target above is reached stage by stage; until then:
+The target above is reached for every feature but the three the tab is made of; until the tab is split:
 
-- `src/ui/` is still the app's: the shell and every feature's views, as `impl Workspace` blocks in 74 files.
-  Stage 4 moves them out, the shell first, then one feature at a time.
-- Stage 3 (under way): `artoo-hosts-api` holds the hosts' contract and agents reads requests through it
-  (`ALLOWED` is empty), and so do the app's views (`Workspace::host`, `ui::host_of`). GitLab answers from
-  `gitlab.rs`, GitHub from `github.rs`, neither asking which host it is; what both use has its own module
-  (`tokens`, `fixture`, `json`). The connect panel still calls `connect::` for the token's ways until it
-  moves with hosts' views. Markdown is the kit's, drawing web pictures through the kit's `Pictures` port
-  (hosts provides it); a view that draws it passes `cx`.
-- Stage 4 (under way): `artoo-shell-api` holds actions (the app menu, ⌘K and the keymap list them), parts (a
-  title-bar item, a card over the window, a tool window on the right, Settings rows, snapshot views, made for each
-  tab with its `Frame`) and `Frame` (a toast, the error line, a redraw, the text selection, the places the tab has
-  open, a tool window shown, a route opened); the tab draws them (`src/ui/parts.rs`). A space's pages are a part
-  (`Pages`): Code's the first, the shell keeping which is on screen and telling them. Code is `artoo-code`
-  (`install` alone): what the tab asks of it is `artoo-code-api` (its routes, `Code`), offered in the tab's
-  `Services`, where it finds the tab as its `Host` and the review's `FileView` (`artoo-review-api`). Updates' card, mark and Settings line are
-  `artoo-updates`' own (`card.rs`); Report a problem's window is `artoo-reports`' (`tool.rs`), the drafts agents
-  leave reaching it through `artoo-agents-api`. Each shows `install` alone.
+- `src/ui/` is the app's: the window's root (its tabs, the keymap, the keyboard's rule) and the tab (`Workspace`),
+  which is the review's, the requests' and the branches' shared screen — it keeps their entities and reads them
+  throughout, as `impl Workspace` blocks. Splitting it into their screens is an issue of its own (opened with the
+  Artoo repository); `artoo-review`, `artoo-requests` and `artoo-branches` stay in `OPEN` until then. New work on
+  them goes into their crates as far as it can, asked through their contracts.
+- Done: the shell (`artoo-shell`, every piece of the frame through `artoo-shell-api`'s render contracts), Code,
+  updates and reports, hosts (the hosts' contract, the connect panel a part of every tab behind
+  `artoo_hosts_api::connect::Connect`, markdown's pictures through the kit's `Pictures` port) and agents (their
+  models, a tab's agents `artoo_agents_api::tab::Agents`, the folder the windows read `bus::Folder`, what the tab
+  draws of them a render contract `view`) each show the app functions alone. `artoo-shell-api` holds actions,
+  parts (a title-bar item, a card over the window, a tool window, Settings rows, snapshot views, a space's pages,
+  inputs, pieces) and `Frame`; the tab draws them (`src/ui/parts.rs`).
 - `Page` (`src/ui/nav.rs`) is a closed enum the route registry replaces; it is kept as a route already (the
   core's `Route` and `Place`; the app's kinds in `src/ui/routes.rs`, each to move to its owner's `-api` with its
   pages; Code's, the branches' and a merge request's are there). `menu::Act` and `toast` still know the other features. Meanwhile a new page, action or toast is added there in the shape the registries will take: one
@@ -126,4 +121,4 @@ The target above is reached stage by stage; until then:
   working tree's state and the Branches list's facts. Its views draw the side panel's rows (versions, commits) and a
   commit's card, a click asking the tab an `Act`; the app's other views read the history and draw the side panel
   (Versions · Commits · Changes) a branch's and a request's pages share.
-- Every implementation's surface is wide (`OPEN`) until its views move with it.
+- The three in `OPEN` show their modules; everything else shows functions alone.

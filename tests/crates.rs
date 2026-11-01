@@ -37,13 +37,16 @@ fn may_depend(from: Role, to: Role) -> bool {
 const ALLOWED: &[(&str, &str)] = &[];
 
 /// Implementations whose `lib.rs` still shows more than functions, each until the stage that narrows it.
+///
+/// The three the tab is made of (stage 4 closed without them, the developer 2026-11-01): the tab (`Workspace`) is
+/// their shared screen, keeping their entities and reading them throughout, so they show their modules until it is
+/// split into their screens, an issue of its own.
 const OPEN: &[&str] = &[
-    // The review (stage 4, R3): the app's views read its modules, its entity included, until the Changes list and
-    // the head line follow and its contract (`artoo-review-api`) holds what pages speak.
+    // The review: its entity, the diff's rows, the composer, the find bar.
     "artoo-review",
-    // Merge requests (stage 4, R5): the app's views read the state it keeps until they move into it.
+    // Merge requests: the lists, the request open, the changes waiting.
     "artoo-requests",
-    // Branches (stage 4, B): the app's views read the history it keeps until they move into it.
+    // Branches: the history, its versions and commits, the working tree's state.
     "artoo-branches",
 ];
 
