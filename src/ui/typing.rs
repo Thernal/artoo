@@ -20,11 +20,10 @@ pub(super) enum Input {
     FindFiles,
     /// Which app opens a file, asked (`opening.rs`).
     OpenAsk,
-    /// Which chat a note goes to (`agent.rs`).
-    AgentPick,
     /// The reactions' grid and its search.
     Reactions,
-    /// A feature's card over the window (`artoo_shell_api::Overlay`): the new version's (#135).
+    /// A feature's card over the window (`artoo_shell_api::Overlay`): the new version's (#135),
+    /// which chat a note goes to (`artoo_agents::pick`).
     Overlay,
     /// What is beside a folder of Code's path (`beside.rs`).
     Beside,
@@ -46,11 +45,10 @@ pub(super) enum Input {
 }
 
 impl Input {
-    const ALL: [Input; 12] = [
+    const ALL: [Input; 11] = [
         Input::Palette,
         Input::FindFiles,
         Input::OpenAsk,
-        Input::AgentPick,
         Input::Reactions,
         Input::Overlay,
         Input::Beside,
@@ -69,7 +67,6 @@ impl Input {
             Input::Palette
                 | Input::FindFiles
                 | Input::OpenAsk
-                | Input::AgentPick
                 | Input::Reactions
                 | Input::Overlay
                 | Input::Beside
@@ -122,7 +119,6 @@ impl Workspace {
             Input::Palette => self.palette.is_some(),
             Input::FindFiles => self.review.read(cx).find_files_open(),
             Input::OpenAsk => self.open_ask.is_some(),
-            Input::AgentPick => self.agent_pick.is_some(),
             Input::Reactions => self.requests.read(cx).reaction_grid.is_some(),
             Input::Overlay => self.overlay_open(),
             Input::Beside => self.beside.is_some(),

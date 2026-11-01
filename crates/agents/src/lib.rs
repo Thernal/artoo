@@ -2,7 +2,7 @@
 //! `comments`), the MCP server an agent runs (`mcp`), `agent-watch`, the
 //! comments sent to a chat and their answers, notes, Codex; how a chat's badge and the notes are drawn (`view`),
 //! the notes' summary over the diff a piece of the item page (`summary`), the Agents window a tool window
-//! (`window`). It reads requests through the hosts' contract (`artoo_hosts_api`), the hosts it is handed.
+//! (`window`), the card asking which chat a card over the window (`pick`). It reads requests through the hosts' contract (`artoo_hosts_api`), the hosts it is handed.
 
 pub mod agents;
 pub mod chats;
@@ -12,6 +12,7 @@ mod contract;
 pub mod inbox;
 pub mod mcp;
 pub mod notes;
+pub mod pick;
 pub mod review;
 pub mod summary;
 pub mod view;
@@ -22,7 +23,7 @@ use artoo_core::{applog, generated, git, labels, platform, storage};
 use std::sync::Arc;
 
 /// Wires the agents in: the contract other features read them through (`artoo_agents_api`), and their parts in
-/// every tab — the notes' summary over the diff, the Agents window.
+/// every tab — the notes' summary over the diff, the Agents window, the card asking which chat.
 pub fn install(cx: &mut gpui::App) {
     artoo_agents_api::provide(cx, Arc::new(contract::ReportDraftsImpl));
     artoo_shell_api::add_parts(cx, parts);
@@ -35,14 +36,16 @@ fn parts(
     cx: &mut gpui::App,
 ) -> artoo_shell_api::Parts {
     let services = frame.services();
-    let (Some(notes), Some(chats), Some(comments)) = (
+    let (Some(notes), Some(chats), Some(comments), Some(card)) = (
         services.get::<gpui::Entity<notes::AgentNotes>>(),
         services.get::<gpui::Entity<chats::Chats>>(),
         services.get::<gpui::Entity<comments::AgentComments>>(),
+        services.get::<gpui::Entity<pick::SendCard>>(),
     ) else {
         return Default::default();
     };
     artoo_shell_api::Parts {
+        overlay: Some(pick::overlay(card, frame.clone(), cx)),
         tool: Some(window::tool(chats, comments, frame.clone(), cx)),
         pieces: vec![summary::piece(notes, frame, cx)],
         ..Default::default()

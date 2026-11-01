@@ -777,7 +777,6 @@ impl Render for Workspace {
         .children(self.render_find_files(cx))
         .children(self.render_open_ask(cx))
         .children(self.render_beside_backdrop(cx))
-        .children(self.render_agent_pick(cx))
         .children(self.render_label_card(cx))
         .children(self.overlay_view())
         .children(self.render_merge_card(cx))

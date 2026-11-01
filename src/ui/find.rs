@@ -61,7 +61,6 @@ impl Workspace {
             Some(Input::FindFiles) => return self.ffind_key(event, cx),
             Some(Input::Palette) => return self.palette_key(event, window, cx),
             Some(Input::OpenAsk) => return self.open_ask_key(event, cx),
-            Some(Input::AgentPick) => return self.agent_pick_key(event, cx),
             Some(Input::Overlay) => return self.overlay_key(event, window, cx),
             Some(Input::Beside) => return self.beside_key(event, cx),
             Some(Input::Merge) => return self.merge_key(event, cx),

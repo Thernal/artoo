@@ -83,7 +83,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   hosts, `hosts()` gives them to a mode without a window; a test's fixture (`fixture::TEST_FIXTURE`,
   `connect::TEST_FIXTURE`) reaches the app's tests through its `sandbox`. `crates/agents` (`artoo-agents`): the MCP
   server, `agent-watch`, comments sent to a chat and their answers, notes, Codex, the Agents window (`window.rs`, a
-  tool window part: the tab its `AgentsHost`) — requests through the hosts' contract (`mcp::run(hosts)`). `crates/reports` (`artoo-reports`): Report a problem,
+  tool window part: the tab its `AgentsHost`), the card asking which chat (`pick.rs`, a card over the window) — requests through the hosts' contract (`mcp::run(hosts)`). `crates/reports` (`artoo-reports`): Report a problem,
   its tool window included (`tool.rs`; its `install` alone is shown). `crates/agents-api` (`artoo-agents-api`): the
   agents' contract — for now the reports chats drafted, which Report a problem opens. `crates/ui-kit` (`artoo-ui-kit`): the design system —
   theme, the interface size (`px`, `ui_zoom`), panes and rows (`island`, `row`), icons, keycaps, motion, row room,

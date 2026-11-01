@@ -50,6 +50,12 @@ pub enum Act {
     Send(Vec<u64>),
     /// The card that sends every draft to the chat picked in it.
     PickChat,
+    /// These sent to chat `session` ("" a new chat, opened in a terminal), picked on the card.
+    SendTo {
+        ids: Vec<u64>,
+        session: String,
+        title: String,
+    },
     /// The card that picks the chat branch `.0`'s notes go to ("" for any).
     Route(String),
     /// A draft written again.

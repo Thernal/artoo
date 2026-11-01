@@ -1562,8 +1562,8 @@ pub struct Workspace {
     open_ask: Option<opening::OpenAsk>,
     /// What is beside a folder of Code's path, listed under it (`beside.rs`, #132).
     beside: Option<beside::Beside>,
-    /// The "send to which chat?" card (`agent.rs`).
-    agent_pick: Option<agent::AgentPick>,
+    /// The "send to which chat?" card (`artoo_agents::pick`), a part's card over the window.
+    send_card: gpui::Entity<artoo_agents::pick::SendCard>,
     /// What agents left in this project, to tell it apart (`agent_events.rs`, #150), and when it
     /// was last read.
     agent_marks: Vec<crate::agents::Mark>,
@@ -1799,6 +1799,7 @@ impl Workspace {
         let services = Rc::new(artoo_shell_api::Services::default());
         let frame: Rc<dyn artoo_shell_api::Frame> =
             Rc::new(parts::TabFrame(cx.weak_entity(), services.clone()));
+        let chats = cx.new(|_| artoo_agents::chats::Chats::default());
         let mut this = Self {
             focus,
             layout: Layout::load(),
@@ -1825,12 +1826,12 @@ impl Workspace {
             window: window.window_handle(),
             open_ask: None,
             beside: None,
-            agent_pick: None,
+            send_card: cx.new(|_| artoo_agents::pick::SendCard::new(chats.clone())),
             agent_marks: Vec::new(),
             marks_stamp: None,
             agent_fresh: HashSet::new(),
             codex_beat: None,
-            chats: cx.new(|_| Default::default()),
+            chats,
             confirm_note: None,
             inbox: false,
             inbox_view: cx.new(|_| Default::default()),
@@ -1933,6 +1934,7 @@ impl Workspace {
         // Its chats and its comments to agents, which the Agents window lists, the tab its host.
         services.set(this.chats.clone());
         services.set(this.agent_comments.clone());
+        services.set(this.send_card.clone());
         services.set::<Rc<dyn artoo_agents::window::AgentsHost>>(Rc::new(agent::AgentsHost(
             cx.weak_entity(),
         )));

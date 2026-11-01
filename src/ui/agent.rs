@@ -1,41 +1,15 @@
 //! Sending the review to an agent's chat (`crate::agents`): the reviewer's comments stay drafts
-//! until *Send to agent* (⌥⌘A); a card then lists this repository's chats — those listening first,
+//! until *Send to agent* (⌥⌘A); a card (`artoo_agents::pick`) then lists this repository's chats — those listening first,
 //! then Claude Code's recent ones, which get the comments when they listen — and a new chat. The
 //! agent's answers come back every couple of seconds, and the reviewer resolves or reopens each.
 
-use super::keys::{self, On};
 use super::px;
-use super::{ISLAND_RADIUS, ROW_RADIUS, Workspace, theme};
+use super::{ROW_RADIUS, Workspace, theme};
 use crate::agents::{self, Bus};
 use crate::review::State;
-pub(super) use artoo_agents::view::{chat_badge, limited};
+pub(super) use artoo_agents::view::chat_badge;
 use artoo_agents::window::{Act, Kind, kind_of};
-use gpui::{
-    App, ClickEvent, ClipboardItem, Context, FontWeight, KeyDownEvent, MouseButton, WeakEntity,
-    div, prelude::*,
-};
-
-/// A chat the card offers.
-#[derive(Clone)]
-pub struct PickChat {
-    /// Empty for a new chat.
-    session: String,
-    title: String,
-    agent: String,
-    listening: bool,
-    /// A Codex session the app watches for (#18): limited.
-    limited: bool,
-}
-
-/// The "send to which chat?" card; with `route`, which chat a branch's notes go to (#77).
-pub struct AgentPick {
-    chats: Vec<PickChat>,
-    selected: usize,
-    /// The comments it sends.
-    ids: Vec<u64>,
-    /// The branch whose route it picks ("" for any); nothing is sent then.
-    route: Option<String>,
-}
+use gpui::{App, ClickEvent, ClipboardItem, Context, FontWeight, WeakEntity, div, prelude::*};
 
 impl Workspace {
     fn bus() -> Option<Bus> {
@@ -64,73 +38,16 @@ impl Workspace {
             return;
         };
         let project = self.project.clone().unwrap_or_else(|| root.clone());
-        let mut chats: Vec<PickChat> = Self::bus()
-            .map(|bus| artoo_agents::chats::named(bus.chats(&project)))
-            .unwrap_or_default()
-            .into_iter()
-            .map(|c| PickChat {
-                listening: c.listening(),
-                limited: c.limited(),
-                session: c.session,
-                title: c.title,
-                agent: c.agent,
-            })
-            .collect();
-        chats.sort_by_key(|c| !c.listening);
-        for (session, title) in agents::claude_chats(&root) {
-            if !chats.iter().any(|c| c.session == session) {
-                chats.push(PickChat {
-                    title: crate::labels::chat(&session).unwrap_or(title),
-                    session,
-                    agent: "Claude Code".into(),
-                    listening: false,
-                    limited: false,
-                });
-            }
-        }
-        chats.push(PickChat {
-            session: String::new(),
-            title: "New chat".into(),
-            agent: "Claude Code".into(),
-            listening: true,
-            limited: false,
-        });
-        self.agent_pick = Some(AgentPick {
-            chats,
-            selected: 0,
-            ids,
-            route: None,
-        });
+        self.send_card
+            .update(cx, |card, cx| card.send(ids, &root, &project, cx));
         cx.notify();
     }
 
     /// Change…: the card offers the chats that listen; the one picked takes `branch`'s notes.
     fn open_route_pick(&mut self, branch: String, cx: &mut Context<Self>) {
         let now = self.route_of(Some(&branch), cx).map(|c| c.session);
-        let chats: Vec<PickChat> = self
-            .chats
-            .read(cx)
-            .list
-            .iter()
-            .filter(|c| c.listening())
-            .map(|c| PickChat {
-                session: c.session.clone(),
-                title: c.title.clone(),
-                agent: c.agent.clone(),
-                listening: true,
-                limited: c.limited(),
-            })
-            .collect();
-        let selected = chats
-            .iter()
-            .position(|c| Some(&c.session) == now.as_ref())
-            .unwrap_or(0);
-        self.agent_pick = Some(AgentPick {
-            chats,
-            selected,
-            ids: Vec::new(),
-            route: Some(branch),
-        });
+        self.send_card
+            .update(cx, |card, cx| card.route(branch, now, cx));
         cx.notify();
     }
 
@@ -943,32 +860,15 @@ impl Workspace {
             .collect()
     }
 
-    fn send_to_chat(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let Some(pick) = self.agent_pick.take() else {
-            return;
-        };
-        let Some(chat) = pick.chats.get(ix).cloned() else {
-            return;
-        };
-        if let Some(branch) = pick.route {
-            self.chats
-                .update(cx, |c, _| c.routes.insert(branch, chat.session));
-            return cx.notify();
-        }
+    /// `ids` sent to chat `session`, picked on the card: "" a new chat, opened in a terminal.
+    fn send_to(&mut self, ids: Vec<u64>, session: String, title: String, cx: &mut Context<Self>) {
         let Some(root) = self.root.clone() else {
             return;
         };
-        let title = if chat.session.is_empty() {
-            "a new chat".to_owned()
-        } else {
-            chat.title.clone()
-        };
-        self.change_comments(cx, |list| {
-            agents::send(list, &pick.ids, &chat.session, &title)
-        });
+        self.change_comments(cx, |list| agents::send(list, &ids, &session, &title));
         self.save_comments(cx);
         self.codex_beat(cx);
-        if chat.session.is_empty() {
+        if session.is_empty() {
             let prompt = "Artoo sent review comments to this chat. Call the artoo list_comments tool, change the code for each comment and answer each with address_comment.";
             if let Err(e) = crate::platform::open_terminal(&root, "claude", prompt) {
                 self.error =
@@ -976,24 +876,6 @@ impl Workspace {
             }
         }
         self.refresh_rows(cx);
-        cx.notify();
-    }
-
-    pub(super) fn agent_pick_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
-        let Some(pick) = self.agent_pick.as_mut() else {
-            return;
-        };
-        let last = pick.chats.len().saturating_sub(1);
-        match event.keystroke.key.as_str() {
-            "escape" => self.agent_pick = None,
-            "enter" => {
-                let ix = pick.selected;
-                return self.send_to_chat(ix, cx);
-            }
-            "down" | "j" | "tab" => pick.selected = (pick.selected + 1).min(last),
-            "up" | "k" => pick.selected = pick.selected.saturating_sub(1),
-            _ => return,
-        }
         cx.notify();
     }
 
@@ -1069,6 +951,11 @@ impl Workspace {
             Act::Show(id) => self.jump_to(id, cx),
             Act::Send(ids) => self.send_agent(ids, cx),
             Act::PickChat => self.open_agent_pick(cx),
+            Act::SendTo {
+                ids,
+                session,
+                title,
+            } => self.send_to(ids, session, title, cx),
             Act::Route(branch) => self.open_route_pick(branch, cx),
             Act::Edit(id) => self.start_edit(super::composer::Change::Agent(id), cx),
             Act::Delete(id) => self.delete_draft(id, cx),
@@ -1141,125 +1028,6 @@ impl Workspace {
             self.refresh_rows(cx);
             cx.notify();
         }
-    }
-
-    pub(super) fn render_agent_pick(
-        &self,
-        cx: &mut Context<Self>,
-    ) -> Option<impl IntoElement + use<>> {
-        let pick = self.agent_pick.as_ref()?;
-        let count = pick.ids.len();
-        let rows = pick.chats.iter().enumerate().map(|(ix, chat)| {
-            let on = ix == pick.selected;
-            let (dot, state) = if chat.session.is_empty() {
-                ("+", "opens a terminal".to_owned())
-            } else if chat.listening {
-                ("●", "listening".to_owned())
-            } else {
-                ("○", "gets them when it listens".to_owned())
-            };
-            div()
-                .id(("agent-chat", ix))
-                .flex()
-                .items_center()
-                .gap_3()
-                .px_3()
-                .py_2()
-                .rounded(px(ROW_RADIUS))
-                .when(on, |s| s.bg(theme::selected()))
-                .cursor_pointer()
-                .hover(|s| s.bg(theme::hover()))
-                .child(
-                    div()
-                        .w(px(14.))
-                        .text_color(if chat.listening {
-                            theme::accent()
-                        } else {
-                            theme::faint()
-                        })
-                        .child(dot),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .child(super::hover::cut(
-                            ("pick-chat-title", ix),
-                            chat.title.clone(),
-                        ))
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.))
-                                .text_size(px(12.))
-                                .text_color(theme::muted())
-                                .child(format!("{} · {state}", chat.agent))
-                                .when(chat.limited, |s| {
-                                    s.child(limited(("pick-chat-limited", ix)))
-                                }),
-                        ),
-                )
-                .children(on.then(|| keys::caps("↵", On::Plain)))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.send_to_chat(ix, cx)))
-        });
-        Some(
-            div()
-                .id("agent-pick-backdrop")
-                .absolute()
-                .size_full()
-                .flex()
-                .justify_center()
-                .items_start()
-                .pt(px(120.))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, cx| {
-                        this.agent_pick = None;
-                        cx.notify();
-                    }),
-                )
-                .child(
-                    div()
-                        .occlude()
-                        .w(px(520.))
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .p_4()
-                        .rounded(px(ISLAND_RADIUS))
-                        .border_1()
-                        .border_color(theme::island_border())
-                        .bg(theme::panel())
-                        .shadow_lg()
-                        .text_size(px(13.))
-                        .child(
-                            div()
-                                .text_size(px(15.))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(match &pick.route {
-                                    Some(b) if !b.is_empty() => format!("Notes on {b} go to"),
-                                    Some(_) => "Notes go to".to_owned(),
-                                    None => format!(
-                                        "Send {count} comment{} to",
-                                        if count == 1 { "" } else { "s" }
-                                    ),
-                                }),
-                        )
-                        .children(rows)
-                        .child(
-                            div()
-                                .pt_1()
-                                .text_size(px(12.))
-                                .text_color(theme::faint())
-                                .child(keys::text(
-                                    "A Claude Code chat listens once it runs Artoo's watcher (Settings → Agents); a Codex session open here listens by itself. ↑↓ choose, esc cancels.",
-                                ).into_owned()),
-                        ),
-                ),
-        )
     }
 
     /// Settings → Agents: connect Claude Code (every profile), the commands for others.
