@@ -145,3 +145,8 @@ tempfile.workspace = true
 artoo-core = { path = "crates/core", features = ["sandbox"] }
 artoo-hosts = { path = "crates/hosts", features = ["sandbox"] }
 artoo-agents = { path = "crates/agents", features = ["sandbox"] }
+
+# A dev build keeps line tables alone: a panic's backtrace still says where, and a build writes and links a fraction
+# of the debug info (#165).
+[profile.dev]
+debug = "line-tables-only"
