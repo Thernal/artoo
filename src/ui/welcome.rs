@@ -1,12 +1,12 @@
 //! The window with no repository open (#54): open one (⌘O), connect GitLab or GitHub with a token,
 //! clone one from a URL; a folder dropped anywhere opens too. The repositories opened lately are
-//! listed under them. The page is drawn by the shell (`artoo_shell::welcome`); its cards are here.
+//! listed under them. The page is drawn by the shell (`artoo_shell_api::welcome`); its cards are here.
 
 use super::input::Look;
 use super::lists::Field;
 use super::{ISLAND_RADIUS, Workspace, px, theme};
 use crate::git::WebRemote;
-use artoo_shell::welcome;
+use artoo_shell_api::welcome;
 use gpui::{
     App, ClickEvent, Context, Div, FontWeight, PathPromptOptions, WeakEntity, Window, div,
     prelude::*,
@@ -224,6 +224,7 @@ impl Workspace {
                 recent: self.recent.clone(),
             },
             Rc::new(Glue(cx.weak_entity())),
+            cx,
         )
     }
 

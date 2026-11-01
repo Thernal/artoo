@@ -17,14 +17,14 @@ pub mod narrow;
 mod palette;
 pub mod rail;
 pub mod settings;
-pub mod setup;
+mod setup;
 pub mod shortcuts;
 mod spaces;
 pub mod tabs;
 mod title;
 pub mod toast;
 mod tools;
-pub mod welcome;
+mod welcome;
 
 /// The frame's renderers, for every window (the kits' wiring: `LocalX provides XImpl`).
 pub fn install(cx: &mut gpui::App) {
@@ -37,4 +37,6 @@ pub fn install(cx: &mut gpui::App) {
     provide::<dyn artoo_shell_api::spaces::SpacesRenderer>(Rc::new(spaces::Renderer), cx);
     provide::<dyn artoo_shell_api::palette::PaletteRenderer>(Rc::new(palette::Renderer), cx);
     provide::<dyn artoo_shell_api::settings::SettingsRenderer>(Rc::new(settings::Renderer), cx);
+    provide::<dyn artoo_shell_api::setup::SetupRenderer>(Rc::new(setup::Renderer), cx);
+    provide::<dyn artoo_shell_api::welcome::WelcomeRenderer>(Rc::new(welcome::Renderer), cx);
 }

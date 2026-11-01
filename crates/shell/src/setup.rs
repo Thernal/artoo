@@ -2,27 +2,20 @@
 //! the column between, which alone scrolls, and the count and Back · Skip · Next at the foot. What each part holds and
 //! which parts are offered are the tab's.
 
+use artoo_shell_api::setup::{Page, SetupHost, SetupRenderer};
 use artoo_ui_kit::controls::{chip, group};
 use artoo_ui_kit::discussion::{Kind, button};
 use artoo_ui_kit::{GAP, ISLAND_RADIUS, icons, px, theme};
-use gpui::{AnyElement, App, ClickEvent, FontWeight, Window, div, prelude::*};
+use gpui::{AnyElement, ClickEvent, FontWeight, div, prelude::*};
 use std::rc::Rc;
 
-/// The page as the tab sees it.
-pub struct Page {
-    /// Each part's name, and whether it is done as its Settings section says.
-    pub tabs: Vec<(&'static str, bool)>,
-    /// The part on.
-    pub at: usize,
-    pub body: AnyElement,
-}
+/// The renderer, installed by `install`.
+pub(crate) struct Renderer;
 
-/// What a click on the frame does.
-pub trait SetupHost {
-    /// Part `at`: a tab, Back, Skip, Next.
-    fn go(&self, at: usize, window: &mut Window, cx: &mut App);
-    /// Later and Done: what was under it comes back.
-    fn close(&self, window: &mut Window, cx: &mut App);
+impl SetupRenderer for Renderer {
+    fn page(&self, page: Page, host: Rc<dyn SetupHost>) -> AnyElement {
+        self::page(page, host)
+    }
 }
 
 /// The page's column: the top, the part and the foot line up in it.
@@ -31,7 +24,7 @@ fn column() -> gpui::Div {
 }
 
 /// The page.
-pub fn page(page: Page, host: Rc<dyn SetupHost>) -> AnyElement {
+fn page(page: Page, host: Rc<dyn SetupHost>) -> AnyElement {
     let (at, n) = (page.at, page.tabs.len());
     let last = at + 1 == n;
     let tabs = page

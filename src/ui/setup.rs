@@ -4,7 +4,7 @@
 //! `font_rows`, the connect panel's `way_row`): what is set here is set there. Later and Done bring
 //! back what was under it — the welcome, with no repository open. A part is offered once
 //! (`setup.txt`); a release that adds one offers that part alone; Help → Set Up Artoo… opens
-//! every part again. The frame is drawn by the shell (`artoo_shell::setup`).
+//! every part again. The frame is drawn by the shell (`artoo_shell_api::setup`).
 
 use super::discussion::{self, Kind};
 use super::keymap::Keymap;
@@ -13,7 +13,7 @@ use super::menu::{Act, Entry};
 use super::settings::item;
 use super::{ROW_RADIUS, Workspace, icons, px, theme};
 use crate::storage;
-use artoo_shell::setup;
+use artoo_shell_api::setup;
 use gpui::{
     AnyElement, App, ClickEvent, Context, FontWeight, Pixels, Point, WeakEntity, Window, div,
     prelude::*,
@@ -220,7 +220,7 @@ impl Workspace {
         }
     }
 
-    /// The page (`artoo_shell::setup`): its tabs, each with whether its part is done, and the part on.
+    /// The page (`artoo_shell_api::setup`): its tabs, each with whether its part is done, and the part on.
     pub(super) fn render_setup(&self, cx: &mut Context<Self>) -> AnyElement {
         let Some(s) = &self.setup else {
             return div().into_any_element();
@@ -242,6 +242,7 @@ impl Workspace {
                 body,
             },
             Rc::new(Glue(cx.weak_entity())),
+            cx,
         )
     }
 

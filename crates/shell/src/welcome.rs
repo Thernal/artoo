@@ -2,31 +2,22 @@
 //! one, drop a folder —, a way's card in their place, and the repositories opened lately under them. What a way does
 //! and its card are the tab's.
 
+use artoo_shell_api::welcome::{Page, WelcomeHost, WelcomeRenderer};
 use artoo_ui_kit::{GAP, ISLAND_RADIUS, hover, icons, keys, px, section_label, theme};
-use gpui::{AnyElement, App, ClickEvent, Div, FontWeight, Window, div, prelude::*};
-use std::path::PathBuf;
+use gpui::{AnyElement, ClickEvent, Div, FontWeight, div, prelude::*};
 use std::rc::Rc;
 
-/// The page as the tab sees it.
-pub struct Page {
-    /// A way's card (connect, clone), in place of the ways.
-    pub card: Option<AnyElement>,
-    /// The repositories opened lately.
-    pub recent: Vec<PathBuf>,
-}
+/// The renderer, installed by `install`.
+pub(crate) struct Renderer;
 
-/// What a click on it does.
-pub trait WelcomeHost {
-    /// Open a repository: the folder picker.
-    fn open(&self, window: &mut Window, cx: &mut App);
-    /// Connect GitLab or GitHub (`connect`), or clone from a URL: its card.
-    fn card(&self, connect: bool, window: &mut Window, cx: &mut App);
-    /// A repository opened lately.
-    fn recent(&self, path: PathBuf, window: &mut Window, cx: &mut App);
+impl WelcomeRenderer for Renderer {
+    fn page(&self, page: Page, host: Rc<dyn WelcomeHost>) -> AnyElement {
+        self::page(page, host)
+    }
 }
 
 /// The page.
-pub fn page(page: Page, host: Rc<dyn WelcomeHost>) -> AnyElement {
+fn page(page: Page, host: Rc<dyn WelcomeHost>) -> AnyElement {
     let (open, connect, clone) = (host.clone(), host.clone(), host.clone());
     let shows = page.card.is_none();
     let body = match page.card {
