@@ -89,13 +89,12 @@ use artoo_branches::working::WorkingState;
 use artoo_review::diff::{Diff, Header, Notice};
 use artoo_review::diff_view::{self, CODE_SIZE};
 use artoo_review::review::{self, Opt};
-use artoo_shell_api::Slot;
 use artoo_ui_kit::controls::tag;
 use gpui::{
-    AnyElement, App, Context, CursorStyle, FocusHandle, FontWeight, KeyBinding, KeyDownEvent,
-    ListAlignment, ListState, Menu, MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent,
-    PathPromptOptions, Point, SharedString, Task, TitlebarOptions, UniformListScrollHandle, Window,
-    WindowBounds, WindowOptions, actions, div, font, prelude::*, size,
+    App, Context, CursorStyle, FocusHandle, FontWeight, KeyBinding, KeyDownEvent, ListAlignment,
+    ListState, Menu, MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent, PathPromptOptions,
+    Point, SharedString, Task, TitlebarOptions, UniformListScrollHandle, Window, WindowBounds,
+    WindowOptions, actions, div, font, prelude::*, size,
 };
 use lists::Field;
 use menu::{Act, CtxMenu, Entry};
@@ -1966,6 +1965,8 @@ impl Workspace {
             cx.weak_entity(),
         )));
         services.set::<Rc<dyn artoo_code_api::Host>>(Rc::new(code::CodeHost(cx.weak_entity())));
+        // The review's host, which its item page draws the column with.
+        services.set::<Rc<dyn artoo_review_api::Host>>(Rc::new(TabHost(cx.weak_entity())));
         this.parts = artoo_shell_api::make_parts(frame, window, cx);
         if let Some(path) = start {
             this.open_repo(path, None, cx);
@@ -3074,15 +3075,11 @@ impl Workspace {
 
     // ---- resizing ------------------------------------------------------------------------
 
-    /// The diff's column, the review's (`Review::render_column`), or a part's in its place (a new merge
-    /// request being written, two versions' commits paired). What the tab's features put on it comes in its
-    /// `ColumnLook`, its rows' pins and its clicks through the tab as its host.
-    fn render_diff(&self, cx: &mut Context<Self>) -> AnyElement {
-        if let Some(instead) = self.piece(Slot::Instead, cx) {
-            return instead;
-        }
+    /// What the tab puts on the diff's column of an item page (`Frame::chrome`): the zone's border, the
+    /// menu open, Open in, the file as a page with its pins where the review shows it so, zen's one
+    /// file, the part's input with the keyboard.
+    pub(super) fn chrome(&self, cx: &mut Context<Self>) -> artoo_shell_api::Chrome {
         let this = cx.entity().downgrade();
-        // The file as a page, where the review shows it so.
         let alone = {
             let rv = self.review.read(cx);
             let ix = rv.file;
@@ -3092,23 +3089,15 @@ impl Workspace {
                 .filter(|f| rv.stack.is_none() && !rv.generated_folded(f) && rv.shows_page(f))
                 .map(|_| ix)
         }
-        .map(|ix| self.render_page_alone(ix, this.clone(), cx));
-        let look = artoo_review::column::ColumnLook {
+        .map(|ix| self.render_page_alone(ix, this, cx));
+        artoo_shell_api::Chrome {
             border: self.zone_border(zones::Zone::Diff),
-            // The parts' (a new request's switch, an outdated discussion's stepper).
-            top: self.pieces(Slot::DiffTop, cx),
-            bar: self.piece(Slot::DiffBar, cx),
             menu_open: self.ctx_menu.is_some(),
             open_in: self.open_in_chips(cx),
-            // What comes next once the last file is marked.
-            cards: self.pieces(Slot::OverRows, cx),
             alone,
             zen_one: self.zen_one && self.zen.is_some(),
             typing: self.part_typing(cx),
-        };
-        let host = Rc::new(TabHost(this));
-        self.review
-            .update(cx, |rv, cx| rv.render_column(look, host, cx))
+        }
     }
 
     /// What the screen shows, in a few words: zen's one line on top, a request's or what the diff is of.

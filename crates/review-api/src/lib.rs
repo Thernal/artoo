@@ -81,6 +81,11 @@ pub trait Review {
     fn column(&self, look: ColumnLook, host: Rc<dyn Host>, cx: &mut App) -> AnyElement;
 }
 
+/// An item page's middle as the review draws it (#165 I5d): what the route on screen is of, the parts' pieces over
+/// the diff, and the diff's column or a part's piece in its place. A page puts it where it goes.
+#[derive(Clone)]
+pub struct ItemView(pub gpui::AnyView);
+
 /// What the shell and the other features put on the diff's column (`Review::column`), drawn by them.
 pub struct ColumnLook {
     /// The pane's border: whether the keyboard works in it.

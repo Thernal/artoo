@@ -74,11 +74,10 @@ impl Workspace {
             .into_any_element()
     }
 
-    /// A branch's or a request's page under its bar: the side panel; the item's identity over the
-    /// diff; the tool window.
-    fn render_item(&self, cx: &mut Context<Self>) -> gpui::Div {
-        // What the page is of: the parts' (a request being written, a request's line, a branch's, the head over
-        // a diff).
+    /// What the page is of, the parts' (a request being written, a request's line, a branch's, the
+    /// head over a diff), while a diff is shown: zen folds it up as it does the bar (the most a
+    /// commit's header is tall, its message open or not).
+    pub(super) fn render_identity(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let identity = self
             .review
             .read(cx)
@@ -86,7 +85,32 @@ impl Workspace {
             .is_some()
             .then_some(())
             .filter(|_| self.zen.is_none() || self.motion.recent("zen"))
-            .and_then(|_| self.piece(Slot::Identity, cx));
+            .and_then(|_| self.piece(Slot::Identity, cx))?;
+        Some(
+            self.zen_strip(
+                "identity-zen",
+                self.zen.is_none(),
+                if self.history.read(cx).message_open {
+                    320.
+                } else {
+                    110.
+                },
+                div()
+                    .flex()
+                    .flex_col()
+                    .child(identity)
+                    .child(div().h(px(gap()))),
+            ),
+        )
+    }
+
+    /// A branch's or a request's page under its bar: the side panel; the review's item page (what
+    /// it is of over the diff, `artoo_review::item`); the tool window.
+    fn render_item(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let middle = self
+            .services
+            .get::<artoo_review_api::ItemView>()
+            .map(|view| view.0);
         div()
             .relative()
             .flex_1()
@@ -121,26 +145,7 @@ impl Workspace {
                     .min_h_0()
                     .flex()
                     .flex_col()
-                    // Zen folds it up as it does the bar (the most a commit's header is tall,
-                    // its message open or not).
-                    .children(identity.map(|identity| {
-                        self.zen_strip(
-                            "identity-zen",
-                            self.zen.is_none(),
-                            if self.history.read(cx).message_open {
-                                320.
-                            } else {
-                                110.
-                            },
-                            div()
-                                .flex()
-                                .flex_col()
-                                .child(identity)
-                                .child(div().h(px(gap()))),
-                        )
-                    }))
-                    .children(self.pieces(Slot::OverDiff, cx))
-                    .child(self.render_diff(cx))
+                    .children(middle)
                     .children(self.render_zen_keys()),
             )
             .children(self.render_tool(cx))

@@ -26,7 +26,7 @@ use artoo_core::route::Route;
 use artoo_ui_kit::markdown::Selecting;
 use gpui::{
     AnyElement, AnyView, App, Global, InteractiveElement, KeyDownEvent, MouseButton, Pixels, Point,
-    SharedString, Window,
+    Rgba, SharedString, Window,
 };
 use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
@@ -122,6 +122,35 @@ pub trait Frame {
     /// The handle beside a space's list (`list_page`), for a page that draws its list itself: it widens or
     /// narrows the list, a double click setting it back. Asked from a page's own drawing.
     fn list_handle(&self, cx: &mut App) -> AnyElement;
+
+    /// What the route on screen is of, a part's piece (`Slot::Identity`), folding away in zen; none while no diff
+    /// is shown. Asked from a page's own drawing.
+    fn identity(&self, cx: &mut App) -> Option<AnyElement>;
+
+    /// The parts' pieces in `slot` for the route on screen, in their order. Asked from a page's own drawing.
+    fn pieces(&self, slot: Slot, cx: &mut App) -> Vec<AnyElement>;
+
+    /// The first part's piece in `slot` for the route on screen. Asked from a page's own drawing.
+    fn piece(&self, slot: Slot, cx: &mut App) -> Option<AnyElement>;
+
+    /// What the shell puts on the diff's column. Asked from a page's own drawing.
+    fn chrome(&self, cx: &mut App) -> Chrome;
+}
+
+/// What the shell puts on an item page's diff column (`Frame::chrome`).
+pub struct Chrome {
+    /// The column's border: whether the keyboard works in the diff.
+    pub border: Rgba,
+    /// A menu is open (View ▾'s among them).
+    pub menu_open: bool,
+    /// The app the diff's file opens in, ▾ the others.
+    pub open_in: Option<AnyElement>,
+    /// The file as a page, where the review shows it so, with the tab's pins on it.
+    pub alone: Option<AnyElement>,
+    /// Zen shows one file at a time.
+    pub zen_one: bool,
+    /// The part's input with the keyboard, by its id (`Input::id`).
+    pub typing: Option<&'static str>,
 }
 
 /// What the features of one tab offer one another, by type: a contract's handle, `Rc<dyn …>`.

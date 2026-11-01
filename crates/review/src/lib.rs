@@ -17,6 +17,7 @@ pub mod find;
 pub mod find_files;
 pub mod goline;
 pub mod image_view;
+pub mod item;
 pub mod lines;
 pub mod lists;
 pub mod md_page;
@@ -32,7 +33,8 @@ use artoo_shell_api::{Frame, Parts};
 use gpui::{App, Entity, Window};
 use std::rc::Rc;
 
-/// The review's parts in every tab: the find bar's field and the line typed after `c` as its inputs.
+/// The review's parts in every tab: the find bar's field and the line typed after `c` as its inputs; its item
+/// page's middle among the tab's services (`item`).
 pub fn install(cx: &mut App) {
     artoo_shell_api::add_parts(cx, parts);
 }
@@ -43,6 +45,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
         return Parts::default();
     };
     review.update(cx, |rv, _| rv.frame = Some(Rc::downgrade(&frame)));
+    frame.services().set(item::view(review.clone(), &frame, cx));
     Parts {
         inputs: vec![find::input(review.clone()), goline::input(review)],
         ..Default::default()

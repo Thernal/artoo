@@ -11,7 +11,7 @@ use super::zones::Zone;
 use super::{Workspace, motion, px};
 use artoo_core::route::Route;
 use artoo_shell_api::{
-    Drawing, Frame, MenuItem, Overlay, Pages, Places, Run, Section, Services, Slot,
+    Chrome, Drawing, Frame, MenuItem, Overlay, Pages, Places, Run, Section, Services, Slot,
 };
 use artoo_ui_kit::markdown::Selecting;
 use gpui::{
@@ -175,6 +175,39 @@ impl Frame for TabFrame {
                 this.handle(super::Split::List, cx).into_any_element()
             })
             .unwrap_or_else(|_| div().into_any_element())
+    }
+
+    fn identity(&self, cx: &mut App) -> Option<AnyElement> {
+        self.0
+            .update(cx, |this, cx| this.render_identity(cx))
+            .ok()
+            .flatten()
+    }
+
+    fn pieces(&self, slot: Slot, cx: &mut App) -> Vec<AnyElement> {
+        self.0
+            .update(cx, |this, cx| this.pieces(slot, cx))
+            .unwrap_or_default()
+    }
+
+    fn piece(&self, slot: Slot, cx: &mut App) -> Option<AnyElement> {
+        self.0
+            .update(cx, |this, cx| this.piece(slot, cx))
+            .ok()
+            .flatten()
+    }
+
+    fn chrome(&self, cx: &mut App) -> Chrome {
+        self.0
+            .update(cx, |this, cx| this.chrome(cx))
+            .unwrap_or_else(|_| Chrome {
+                border: artoo_ui_kit::theme::island_border(),
+                menu_open: false,
+                open_in: None,
+                alone: None,
+                zen_one: false,
+                typing: None,
+            })
     }
 
     fn remember(&self, route: Route, cx: &mut App) {
