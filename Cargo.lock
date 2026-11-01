@@ -304,6 +304,7 @@ name = "artoo-branches-api"
 version = "1.3.0"
 dependencies = [
  "artoo-core",
+ "git2",
  "gpui-pre",
  "serde",
 ]

@@ -14,7 +14,6 @@ use crate::git::BranchRef;
 use crate::mr::{Mr, MrState, Thread};
 pub(super) use artoo_requests::group::Group;
 use artoo_review_api::Seen;
-pub(super) use artoo_ui_kit::controls::skeleton;
 use gpui::{AnyElement, App, ClickEvent, Context, Div, WeakEntity, div, prelude::*};
 
 /// The width of a root's list.

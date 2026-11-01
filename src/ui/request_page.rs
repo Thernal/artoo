@@ -1,123 +1,47 @@
 //! A merge request's page (#73): the section tabs of its bar — Overview, Commits, Changes — and
-//! what the first two show; Changes is the diff, with one line of identity over it. Overview holds
-//! what the Details tool window held (#8), as a page (`artoo_requests::page` draws it and the
-//! line). A request you have never been inside opens on it, later ones on Changes
-//! (`nav::first_section`). Commits lists the request's commits with the version each came with
-//! (`artoo_branches::commits_page`); one opens as a level under it.
+//! where the first two go; Changes is the diff, with one line of identity over it. Overview holds
+//! what the Details tool window held (#8), as a page, and Commits the request's commits with the
+//! version each came with, the requests' view (`artoo_requests::tabs`). A request you have never
+//! been inside opens on Overview, later ones on Changes (`nav::first_section`). A commit opens as
+//! a level under Commits.
 
 use super::nav::{Item, Page, Section};
-use super::{Selection, Workspace, island, plural, px, theme};
-use crate::mr::Mr;
-use artoo_requests::page::{Facts, OverviewLook};
-use gpui::{AnyElement, App, ClickEvent, Context, Div, SharedString, div, prelude::*};
+use super::{Selection, Workspace};
+use artoo_branches::commits_page::BranchCommits;
+use artoo_requests::tabs::Tabs;
+use gpui::{ClickEvent, Context, Div, Entity, SharedString, div, prelude::*};
 
 impl Workspace {
-    /// The request of the page on screen, once it is the one loaded.
-    fn page_request<'a>(&self, cx: &'a App) -> Option<&'a Mr> {
-        let Some(Item::Request(iid)) = self.nav_page()?.item() else {
-            return None;
-        };
-        self.requests
-            .read(cx)
-            .find(iid)
-            .filter(|_| self.requests.read(cx).current == Some(iid))
-    }
-
-    /// An item's Overview or Commits under its bar, the tool window beside it: a request's, or a
-    /// branch's Commits (#74).
+    /// An item's Overview or Commits under its bar, the tool window beside it: a request's
+    /// (`artoo_requests::tabs`), or a branch's Commits (#74, `artoo_branches::commits_page`).
     pub(super) fn render_tab_page(&self, tab: Section, cx: &mut Context<Self>) -> Div {
-        let body = match (self.page_request(cx).cloned(), tab) {
-            _ if matches!(self.nav_page(), Some(Page::Branch(_))) => {
-                let line = self
-                    .piece_named("branches.line", cx)
-                    .unwrap_or_else(|| div().into_any_element());
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .gap(px(super::gap()))
-                    .child(line)
-                    .child(self.commits_page(false, cx))
-                    .into_any_element()
+        let body = match self.nav_page() {
+            Some(page @ Page::Branch(_)) => {
+                let route = page.route();
+                self.services.get::<Entity<BranchCommits>>().map(|view| {
+                    view.update(cx, |v, _| v.route = Some(route));
+                    view.into_any_element()
+                })
             }
-            (None, _) => island()
-                .flex_1()
-                .bg(theme::editor())
-                .px(px(28.))
-                .py(px(26.))
-                .child(super::roots::skeleton("request-loading", 4))
-                .into_any_element(),
-            (Some(m), Section::Overview) => self.render_overview(&m, cx),
-            (Some(m), _) => self.render_commits_tab(&m, cx),
+            Some(Page::Request(number)) => {
+                let number = *number;
+                self.services.get::<Entity<Tabs>>().map(|view| {
+                    view.update(cx, |v, _| {
+                        v.number = Some(number);
+                        v.overview = tab == Section::Overview;
+                    });
+                    view.into_any_element()
+                })
+            }
+            _ => None,
         };
         div()
             .relative()
             .flex_1()
             .min_h_0()
             .flex()
-            .child(body)
+            .child(body.unwrap_or_else(|| div().flex_1().into_any_element()))
             .children(self.render_tool(cx))
-    }
-
-    /// Overview (`Requests::render_overview`).
-    fn render_overview(&self, m: &Mr, cx: &mut Context<Self>) -> AnyElement {
-        let head = git2::Oid::from_str(&m.head).ok();
-        let reviewed = self
-            .review
-            .read(cx)
-            .review_progress()
-            .map(|(done, total)| (done as u32, total as u32))
-            .or_else(|| head.and_then(|h| self.review.read(cx).head_part(h)))
-            .map_or_else(
-                || "—".to_owned(),
-                |(done, total)| format!("{done} of {}", plural(total as usize, "file")),
-            );
-        let latest = self.history.read(cx).versions.last().map(|v| v.number);
-        let versions = match (self.marked_version(m.iid, cx), latest) {
-            (Some(at), Some(latest)) if at < latest => format!("v{at} → v{latest}"),
-            (_, Some(latest)) => format!("v{latest}"),
-            _ => "—".to_owned(),
-        };
-        let look = OverviewLook {
-            title: self.selectable(
-                format!("title-{}", m.iid),
-                &m.title,
-                cx.entity().downgrade(),
-                cx,
-            ),
-            base: self.web.as_ref().map(|w| w.base.clone()),
-            selecting: Some(self.selecting(cx.entity().downgrade())),
-            facts: Facts {
-                commits: self.history.read(cx).commits.len(),
-                reviewed,
-                versions,
-            },
-        };
-        self.requests.read(cx).render_overview(m, look, cx)
-    }
-
-    /// A request's Commits: one line of identity, then its commits, each with the version it came
-    /// with.
-    fn render_commits_tab(&self, m: &Mr, cx: &mut Context<Self>) -> AnyElement {
-        let line = self.request_line(m, cx);
-        div()
-            .flex_1()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .gap(px(super::gap()))
-            .child(line)
-            .child(self.commits_page(true, cx))
-            .into_any_element()
-    }
-
-    /// An item's commits (`History::commits_page`), with the version each came with when
-    /// `versions`.
-    fn commits_page(&self, versions: bool, cx: &mut Context<Self>) -> AnyElement {
-        let acts = self.history_acts(cx);
-        self.history
-            .update(cx, |h, cx| h.commits_page(versions, &acts, cx))
     }
 
     /// The section tabs in an item's bar with their counts — a request's Overview, Commits and
@@ -211,16 +135,5 @@ impl Workspace {
             self.pick(Selection::Commit(to), cx);
         }
         true
-    }
-
-    fn request_line(&self, m: &Mr, cx: &mut Context<Self>) -> Div {
-        let title = self.selectable(
-            format!("line-title-{}", m.iid),
-            &m.title,
-            cx.entity().downgrade(),
-            cx,
-        );
-        let acts = self.request_acts(cx);
-        self.requests.read(cx).request_line(m, title, acts)
     }
 }

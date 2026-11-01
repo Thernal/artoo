@@ -23,6 +23,7 @@ pub mod reading;
 pub mod requests;
 pub mod root;
 pub mod submit;
+pub mod tabs;
 pub mod thread;
 pub mod waiting;
 
@@ -31,7 +32,8 @@ use gpui::{App, Entity, Window};
 use std::rc::Rc;
 
 /// The requests' parts in every tab: a request being written's header and a request's line on the item page,
-/// the space's own page; and the Inbox's (`inbox_parts`).
+/// the space's own page, a request's Overview and Commits among the tab's services (`tabs`); and the Inbox's
+/// (`inbox_parts`).
 pub fn install(cx: &mut App) {
     artoo_shell_api::add_parts(cx, parts);
     artoo_shell_api::add_parts(cx, inbox_parts);
@@ -43,6 +45,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     let Some(requests) = services.get::<Entity<requests::Requests>>() else {
         return Parts::default();
     };
+    services.set(tabs::view(requests.clone(), &frame, cx));
     Parts {
         inputs: vec![create::input(requests.clone(), services.clone())],
         // The request being written first: it is over whatever page it was opened on.

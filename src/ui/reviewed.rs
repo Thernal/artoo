@@ -50,23 +50,6 @@ impl Workspace {
         }
     }
 
-    /// The version of request `iid` your marks were last made at, by the versions loaded (#73).
-    pub(super) fn marked_version(&self, iid: u64, cx: &App) -> Option<usize> {
-        let root = self.root.as_ref()?.display().to_string();
-        let heads = self
-            .review
-            .read(cx)
-            .reviewed
-            .marked_heads(&format!("{root}|mr:{iid}"));
-        self.history
-            .read(cx)
-            .versions
-            .iter()
-            .filter(|v| heads.contains(&Some(v.tip)))
-            .map(|v| v.number)
-            .max()
-    }
-
     /// ⌥⇧V and the buttons: every file the list shows marked, or (when all are) unmarked.
     pub(super) fn toggle_all_reviewed(&mut self, cx: &mut Context<Self>) {
         let shown = self.review.read(cx).file_order();

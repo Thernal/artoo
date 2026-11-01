@@ -251,6 +251,27 @@ impl artoo_review_api::Review for Handle {
             .is_some_and(|rv| rv.read(cx).head_reviewed(tip))
     }
 
+    fn progress(&self, cx: &App) -> Option<(u32, u32)> {
+        let (done, total) = self.0.upgrade()?.read(cx).review_progress()?;
+        Some((done as u32, total as u32))
+    }
+
+    fn request_heads(&self, iid: u64, cx: &App) -> Vec<git2::Oid> {
+        let Some(rv) = self.0.upgrade() else {
+            return Vec::new();
+        };
+        let rv = rv.read(cx);
+        let Some(root) = rv.root.as_ref() else {
+            return Vec::new();
+        };
+        let scope = format!("{}|mr:{iid}", root.display());
+        rv.reviewed
+            .marked_heads(&scope)
+            .into_iter()
+            .flatten()
+            .collect()
+    }
+
     fn request_seen(&self, iid: u64, head: Option<git2::Oid>, cx: &App) -> artoo_review_api::Seen {
         self.0
             .upgrade()

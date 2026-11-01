@@ -4,7 +4,7 @@
 
 use artoo_core::git::BranchRef;
 use artoo_core::route::Place;
-use gpui::App;
+use gpui::{AnyElement, App};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -12,6 +12,16 @@ use std::sync::Arc;
 pub trait Branches {
     /// The branches listed, local and remote.
     fn list(&self, cx: &App) -> Arc<Vec<BranchRef>>;
+
+    /// How many commits of the branch open are listed.
+    fn commit_count(&self, cx: &App) -> usize;
+
+    /// The versions of the branch open, oldest first: each one's number and tip.
+    fn versions(&self, cx: &App) -> Vec<(usize, git2::Oid)>;
+
+    /// Its commits as a page of their own, the version each came with on it when `versions`. Asked from a view's
+    /// own drawing.
+    fn commits_page(&self, versions: bool, cx: &mut App) -> AnyElement;
 }
 
 /// A branch, by its refname.

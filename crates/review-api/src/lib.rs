@@ -71,6 +71,12 @@ pub trait Review {
     /// How far your review of merge request `iid` got, against its head now (`head`).
     fn request_seen(&self, iid: u64, head: Option<Oid>, cx: &App) -> Seen;
 
+    /// How far your review of the diff shown got, files done of all, while it is one you review.
+    fn progress(&self, cx: &App) -> Option<(u32, u32)>;
+
+    /// The heads files of merge request `iid` were marked reviewed at.
+    fn request_heads(&self, iid: u64, cx: &App) -> Vec<Oid>;
+
     /// The files of the diff shown, while the card that comes up as its last one is marked is up.
     fn done(&self, cx: &App) -> Option<usize>;
 

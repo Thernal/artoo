@@ -4,13 +4,13 @@
 use crate::history::{Act, Acts, History, NamedTip};
 use artoo_branches_api::BranchRoute;
 use artoo_core::git::Repo;
-use artoo_core::route::Place;
+use artoo_core::route::{Place, Route};
 use artoo_requests_api::Requests;
 use artoo_shell_api::{Piece, Services, Slot};
 use artoo_ui_kit::format::plural;
 use artoo_ui_kit::{island, px, theme, words};
 use git2::Oid;
-use gpui::{Div, Entity, MouseButton, MouseDownEvent, div, prelude::*};
+use gpui::{AnyElement, App, Div, Entity, MouseButton, MouseDownEvent, div, prelude::*};
 use std::rc::Rc;
 
 /// What a branch's page says of it, read when the branch loads.
@@ -63,22 +63,30 @@ pub fn line(history: Entity<History>, services: Rc<Services>) -> Piece {
     Piece {
         id: "branches.line",
         slot: Slot::Identity,
-        draw: Rc::new(move |route, _, cx| {
-            let BranchRoute { refname } = BranchRoute::from_route(route)?;
-            let acts = services.get::<Acts>()?;
-            let h = history.read(cx);
-            if !h.tabbed(&refname) {
-                return None;
-            }
-            let request = h
-                .branch
-                .and_then(|ix| h.branches.get(ix))
-                .and_then(|b| services.get::<Rc<dyn Requests>>()?.of_branch(b, cx))
-                .map(|(iid, _)| iid);
-            let line = branch_line(h.page.as_ref()?, h.branch, request, &acts)?;
-            Some(line.into_any_element())
-        }),
+        draw: Rc::new(move |route, _, cx| line_of(&history, &services, route, cx)),
     }
+}
+
+/// The line of the branch `route` is, while it is the one with tabs loaded.
+pub fn line_of(
+    history: &Entity<History>,
+    services: &Services,
+    route: &Route,
+    cx: &App,
+) -> Option<AnyElement> {
+    let BranchRoute { refname } = BranchRoute::from_route(route)?;
+    let acts = services.get::<Acts>()?;
+    let h = history.read(cx);
+    if !h.tabbed(&refname) {
+        return None;
+    }
+    let request = h
+        .branch
+        .and_then(|ix| h.branches.get(ix))
+        .and_then(|b| services.get::<Rc<dyn Requests>>()?.of_branch(b, cx))
+        .map(|(iid, _)| iid);
+    let line = branch_line(h.page.as_ref()?, h.branch, request, &acts)?;
+    Some(line.into_any_element())
 }
 
 /// One line over a branch's Changes and Commits: ahead of the main line, behind it, where it is pushed, its

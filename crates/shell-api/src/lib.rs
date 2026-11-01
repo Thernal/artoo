@@ -362,7 +362,7 @@ pub enum Slot {
 /// A piece of the item page on screen a part draws in a slot (#165 I5c): for the route on screen, or nothing. The
 /// shell calls it from inside its own update, as it does a hook, so what it would ask the `Frame` it is handed.
 pub struct Piece {
-    /// A stable id (`branches.line`), by which a page of the tab's own draws it too.
+    /// A stable id (`branches.line`).
     pub id: &'static str,
     pub slot: Slot,
     pub draw: Draw,

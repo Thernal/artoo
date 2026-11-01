@@ -373,18 +373,6 @@ impl Workspace {
         }
     }
 
-    /// Piece `id` of a part's, for the route on screen.
-    pub(super) fn piece_named(&self, id: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let route = self.nav_page()?.route();
-        let drawing = self.drawing(cx);
-        let piece = self
-            .parts
-            .iter()
-            .flat_map(|p| &p.pieces)
-            .find(|p| p.id == id)?;
-        (piece.draw)(&route, &drawing, cx)
-    }
-
     /// Field `id` of a part's (`artoo_shell_api::Input`).
     pub(super) fn part_input(&self, id: &str) -> Option<&artoo_shell_api::Input> {
         self.parts

@@ -1,12 +1,64 @@
 //! A branch's or a request's Commits (#73, #74): its commits, newest first, with the version each came with when it
-//! has versions. One is picked — the one esc came back from, else the newest —, ↑ ↓ or a click pick another, shift
+//! has versions; a branch's as a view with its line over them (`BranchCommits`). One is picked — the one esc came back from, else the newest —, ↑ ↓ or a click pick another, shift
 //! and a click a run of them; ↵ or a second click opens one as a level (`Act::Commit`), the run as one diff.
 
 use crate::history::{Act, Acts, History};
+use artoo_core::route::Route;
+use artoo_shell_api::Frame;
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, CutInTip, Hover};
-use artoo_ui_kit::{icons, island, px, row, theme};
-use gpui::{AnyElement, ClickEvent, Context, MouseButton, MouseDownEvent, div, prelude::*};
+use artoo_ui_kit::{gap, icons, island, px, row, theme};
+use gpui::{
+    AnyElement, App, ClickEvent, Context, Entity, MouseButton, MouseDownEvent, Render, Window, div,
+    prelude::*,
+};
+use std::rc::{Rc, Weak};
+
+/// A branch's Commits off the main line (#74), a view the tab puts under the branch's bar: its line over its
+/// commits.
+pub struct BranchCommits {
+    history: Entity<History>,
+    frame: Weak<dyn Frame>,
+    /// The route on screen.
+    pub route: Option<Route>,
+}
+
+/// The tab's view of it, made with its parts, among its services.
+pub fn view(
+    history: Entity<History>,
+    frame: &Rc<dyn Frame>,
+    cx: &mut App,
+) -> Entity<BranchCommits> {
+    let frame = Rc::downgrade(frame);
+    cx.new(|_| BranchCommits {
+        history,
+        frame,
+        route: None,
+    })
+}
+
+impl Render for BranchCommits {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let (Some(frame), Some(route)) = (self.frame.upgrade(), self.route.as_ref()) else {
+            return div().flex_1();
+        };
+        let services = frame.services();
+        let line = crate::facts::line_of(&self.history, &services, route, cx)
+            .unwrap_or_else(|| div().into_any_element());
+        let acts = services.get::<Acts>().unwrap_or_else(|| Rc::new(|_, _| {}));
+        let commits = self
+            .history
+            .update(cx, |h, cx| h.commits_page(false, &acts, cx));
+        div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .gap(px(gap()))
+            .child(line)
+            .child(commits)
+    }
+}
 
 impl History {
     /// The commit picked: the one esc came back from, else the newest.

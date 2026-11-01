@@ -273,12 +273,23 @@ impl Default for History {
     }
 }
 
-/// The history's branches as a part reads them (`artoo_branches_api::Branches`).
-pub fn handle(history: &gpui::Entity<History>) -> std::rc::Rc<dyn artoo_branches_api::Branches> {
-    std::rc::Rc::new(Handle(history.downgrade()))
+/// The history's branches as a part reads them (`artoo_branches_api::Branches`); a click on its commits asks the
+/// tab's acts in `services`.
+pub fn handle(
+    history: &gpui::Entity<History>,
+    services: &std::rc::Rc<artoo_shell_api::Services>,
+) -> std::rc::Rc<dyn artoo_branches_api::Branches> {
+    std::rc::Rc::new(Handle(
+        history.downgrade(),
+        std::rc::Rc::downgrade(services),
+    ))
 }
 
-struct Handle(gpui::WeakEntity<History>);
+/// Weak: the services hold it.
+struct Handle(
+    gpui::WeakEntity<History>,
+    std::rc::Weak<artoo_shell_api::Services>,
+);
 
 impl artoo_branches_api::Branches for Handle {
     fn list(&self, cx: &gpui::App) -> Arc<Vec<BranchRef>> {
@@ -286,6 +297,33 @@ impl artoo_branches_api::Branches for Handle {
             .upgrade()
             .map(|h| h.read(cx).branches.clone())
             .unwrap_or_default()
+    }
+
+    fn commit_count(&self, cx: &gpui::App) -> usize {
+        self.0.upgrade().map_or(0, |h| h.read(cx).commits.len())
+    }
+
+    fn versions(&self, cx: &gpui::App) -> Vec<(usize, git2::Oid)> {
+        self.0.upgrade().map_or_else(Vec::new, |h| {
+            h.read(cx)
+                .versions
+                .iter()
+                .map(|v| (v.number, v.tip))
+                .collect()
+        })
+    }
+
+    fn commits_page(&self, versions: bool, cx: &mut gpui::App) -> gpui::AnyElement {
+        use gpui::IntoElement;
+        let Some(h) = self.0.upgrade() else {
+            return gpui::div().into_any_element();
+        };
+        let acts = self
+            .1
+            .upgrade()
+            .and_then(|s| s.get::<Acts>())
+            .unwrap_or_else(|| std::rc::Rc::new(|_, _| {}));
+        h.update(cx, |h, cx| h.commits_page(versions, &acts, cx))
     }
 }
 
