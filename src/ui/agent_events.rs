@@ -24,7 +24,7 @@ impl Workspace {
             self.agent_marks = bus.marks(project);
             cx.notify();
         }
-        // The window's own beat takes `Open` (`Shell::agents_beat`).
+        // The window's own beat takes `Open` (`shell::Beat`).
         for event in bus.events() {
             if event.project != project || event.what == What::Open || !bus.take_event(&event.uid) {
                 continue;

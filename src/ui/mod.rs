@@ -532,7 +532,7 @@ pub fn run(path: Option<PathBuf>, install: impl FnOnce(&mut App) + 'static) {
             let options = window_options(offscreen, cx);
             let window = cx
                 .open_window(options, |window, cx| {
-                    cx.new(|cx| shell::Shell::new(path, window, cx))
+                    cx.new(|cx| shell::new(path, true, window, cx))
                 })
                 .expect("open the window");
             if !offscreen {
@@ -568,7 +568,7 @@ fn window_options(offscreen: bool, cx: &mut App) -> WindowOptions {
 fn open_new_window(path: PathBuf, cx: &mut App) {
     let options = window_options(false, cx);
     let opened = cx.open_window(options, |window, cx| {
-        cx.new(|cx| shell::Shell::secondary(path, window, cx))
+        cx.new(|cx| shell::new(Some(path), false, window, cx))
     });
     if opened.is_ok() {
         cx.activate(true);

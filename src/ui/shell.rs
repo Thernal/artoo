@@ -1,41 +1,112 @@
-//! Repository tabs: several workspaces in one window, each with its own repository, selection,
-//! filter and scroll position. `⌘T` opens one, `⌘W` closes, `⌘1…9` switch, `⌘⇧T` reopens the last
-//! closed. In Tabs mode they sit in the title bar (D12, D21).
+//! A window's repository tabs, the tab's side: the tabs are the shell's (`artoo_shell::tabs`); a tab is a
+//! workspace, and the window says to agents that it is there and what it has open (#153).
 
 use super::px;
 use super::{ROW_RADIUS, Workspace, theme};
-use gpui::{ClickEvent, Context, Entity, MouseButton, WeakEntity, Window, div, prelude::*};
-use std::cell::RefCell;
+use artoo_shell::tabs::{Tab, Tabs};
+pub(super) use artoo_shell::tabs::{TabInfo, TabModel};
+use gpui::{
+    App, AppContext, ClickEvent, Context, FocusHandle, MouseButton, WeakEntity, Window, div,
+    prelude::*,
+};
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
 
-/// What a workspace's tabs need to know about each tab.
-#[derive(Clone)]
-pub struct TabInfo {
-    pub title: String,
-    pub news: bool,
-    pub active: bool,
-    /// The repository, for Reveal in Finder and a new window.
-    pub root: Option<PathBuf>,
-    /// Its unread notifications, counted on the rail.
-    pub unread: usize,
+/// A window: its tabs.
+pub type Shell = Tabs<Workspace>;
+
+impl Tab for Workspace {
+    fn make(
+        path: Option<PathBuf>,
+        first: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Workspace::new(path, first, window, cx)
+    }
+
+    fn join(&mut self, tabs: WeakEntity<Shell>, model: TabModel) -> Rc<Cell<bool>> {
+        self.shell = Some(tabs);
+        self.tabs = model;
+        self.on_screen.clone()
+    }
+
+    fn root(&self) -> Option<PathBuf> {
+        self.root.clone()
+    }
+
+    fn project(&self) -> Option<PathBuf> {
+        self.project.clone()
+    }
+
+    fn info(&self, cx: &App) -> (String, bool, usize) {
+        (self.tab_title(), self.has_news(cx), self.inbox_unread(cx))
+    }
+
+    fn focus(&self) -> FocusHandle {
+        self.focus.clone()
+    }
 }
 
-pub type TabModel = Rc<RefCell<Vec<TabInfo>>>;
-
-pub struct Shell {
-    tabs: Vec<Entity<Workspace>>,
-    active: usize,
-    /// Each tab's "on screen", shared with its workspace: one behind another tab polls its
-    /// repository seldom.
-    shown: std::collections::HashMap<gpui::EntityId, std::rc::Rc<std::cell::Cell<bool>>>,
-    closed: Vec<PathBuf>,
-    model: TabModel,
-    /// The session as last written, so it is written again only when it changes.
-    saved: String,
-    /// The first window keeps the session; one opened from the rail does not.
+/// A window's tabs (`primary`: the first window, which keeps the session and opens what agents ask for).
+pub(super) fn new(
+    path: Option<PathBuf>,
     primary: bool,
-    /// The projects this window last said it has open, and when (#153).
+    window: &mut Window,
+    cx: &mut Context<Shell>,
+) -> Shell {
+    let shell = Tabs::new(path, primary, window, cx);
+    // Agents read whether this window is there and what it has open; the first window opens
+    // what they ask for (#153).
+    let beat = Rc::new(RefCell::new(Beat::default()));
+    cx.spawn_in(window, async move |this, cx| {
+        loop {
+            cx.background_executor()
+                .timer(std::time::Duration::from_secs(2))
+                .await;
+            let beat = beat.clone();
+            if this
+                .update_in(cx, |this, window, cx| {
+                    beat.borrow_mut().beat(this, window, cx)
+                })
+                .is_err()
+            {
+                return;
+            }
+        }
+    })
+    .detach();
+    let key = cx.entity_id().as_u64();
+    cx.on_release(move |_, _| {
+        if let Some(bus) = crate::agents::Bus::new() {
+            bus.absent(std::process::id(), key);
+        }
+        super::system_notes::set_front(key, false);
+    })
+    .detach();
+    // While a window is in front, news is not sent to the system's notifications (#26).
+    super::system_notes::set_front(key, window.is_window_active());
+    cx.observe_window_activation(window, move |_, window, _| {
+        super::system_notes::set_front(key, window.is_window_active());
+    })
+    .detach();
+    // The first start: Set up over the welcome (#143); a release that adds a part, that part.
+    let parts = if primary {
+        super::setup::due()
+    } else {
+        Vec::new()
+    };
+    if !parts.is_empty() {
+        shell.active().update(cx, |w, cx| w.open_setup(parts, cx));
+    }
+    shell
+}
+
+/// What a window last said to agents.
+#[derive(Default)]
+struct Beat {
+    /// The projects it said it has open, and when.
     said: Vec<PathBuf>,
     said_at: i64,
     /// Projects opened for an agent whose tabs are still loading (a tab has its root once loaded),
@@ -43,137 +114,15 @@ pub struct Shell {
     opening: Vec<(PathBuf, i64)>,
 }
 
-impl Shell {
-    pub fn new(path: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self::with(path, true, window, cx)
-    }
-
-    /// A window of its own for `path`, opened from the rail: it does not write the session.
-    pub fn secondary(path: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self::with(Some(path), false, window, cx)
-    }
-
-    fn with(
-        path: Option<PathBuf>,
-        primary: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        let model: TabModel = Rc::default();
-        let mut shell = Self {
-            tabs: Vec::new(),
-            active: 0,
-            shown: Default::default(),
-            closed: Vec::new(),
-            model,
-            saved: String::new(),
-            primary,
-            said: Vec::new(),
-            said_at: 0,
-            opening: Vec::new(),
-        };
-        // Agents read whether this window is there and what it has open; the first window opens
-        // what they ask for (#153).
-        cx.spawn_in(window, async move |this, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(std::time::Duration::from_secs(2))
-                    .await;
-                if this
-                    .update_in(cx, |this, window, cx| this.agents_beat(window, cx))
-                    .is_err()
-                {
-                    return;
-                }
-            }
-        })
-        .detach();
-        let key = cx.entity_id().as_u64();
-        cx.on_release(move |_, _| {
-            if let Some(bus) = crate::agents::Bus::new() {
-                bus.absent(std::process::id(), key);
-            }
-            super::system_notes::set_front(key, false);
-        })
-        .detach();
-        // While a window is in front, news is not sent to the system's notifications (#26).
-        super::system_notes::set_front(key, window.is_window_active());
-        cx.observe_window_activation(window, move |_, window, _| {
-            super::system_notes::set_front(key, window.is_window_active());
-        })
-        .detach();
-        // An explicit path opens just that; otherwise the tabs of the last session come back.
-        let (tabs, active) = if path.is_some() {
-            (Vec::new(), 0)
-        } else {
-            crate::storage::session()
-        };
-        if tabs.is_empty() {
-            let ws = cx.new(|cx| Workspace::new(path, true, window, cx));
-            shell.attach(ws, window, cx);
-        } else {
-            for tab in tabs {
-                let ws = cx.new(|cx| Workspace::new(Some(tab), false, window, cx));
-                shell.attach(ws, window, cx);
-            }
-            shell.select(active.min(shell.tabs.len() - 1), window, cx);
-        }
-        // The first start: Set up over the welcome (#143); a release that adds a part, that part.
-        let parts = if primary {
-            super::setup::due()
-        } else {
-            Vec::new()
-        };
-        if !parts.is_empty() {
-            shell.tabs[shell.active].update(cx, |w, cx| w.open_setup(parts, cx));
-        }
-        shell
-    }
-
-    /// Wraps a new workspace into the shell and shows it.
-    fn attach(&mut self, ws: Entity<Workspace>, window: &mut Window, cx: &mut Context<Self>) {
-        self.wrap(ws, cx);
-        self.active = self.tabs.len() - 1;
-        self.focus_active(window, cx);
-        self.mark_shown();
-        cx.notify();
-    }
-
-    /// Wraps a new workspace into the shell as its last tab, the one on screen staying.
-    fn wrap(&mut self, ws: Entity<Workspace>, cx: &mut Context<Self>) {
-        let weak = cx.weak_entity();
-        let model = self.model.clone();
-        let shown = ws.update(cx, |w, _| {
-            w.shell = Some(weak);
-            w.tabs = model;
-            w.on_screen.clone()
-        });
-        self.shown.insert(ws.entity_id(), shown);
-        cx.observe(&ws, |_, _, cx| cx.notify()).detach();
-        self.tabs.push(ws);
-        self.mark_shown();
-        cx.notify();
-    }
-
-    /// Each tab's project: its main working tree, else its folder.
-    fn projects(&self, cx: &gpui::App) -> Vec<PathBuf> {
-        self.tabs
-            .iter()
-            .filter_map(|t| {
-                let w = t.read(cx);
-                w.project.clone().or_else(|| w.root.clone())
-            })
-            .collect()
-    }
-
-    /// Every 2 s: this window says it is there and what it has open (#153); the first window also
+impl Beat {
+    /// Every 2 s: the window says it is there and what it has open (#153); the first window also
     /// opens a project an agent asked for, or acted on, that no window has, as a tab behind the one
     /// on screen — its workspace then takes the agent's event.
-    fn agents_beat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn beat(&mut self, shell: &mut Shell, window: &mut Window, cx: &mut Context<Shell>) {
         let Some(bus) = crate::agents::Bus::new() else {
             return;
         };
-        let mut projects = self.projects(cx);
+        let mut projects = shell.projects(cx);
         let now = crate::agents::now();
         // Said again when it changes, and every 10 s so it stays fresh.
         if projects != self.said || now - self.said_at >= 10 {
@@ -187,7 +136,7 @@ impl Shell {
                 self.said_at = now;
             }
         }
-        if !self.primary {
+        if !shell.primary() {
             return;
         }
         let pid = std::process::id();
@@ -207,8 +156,7 @@ impl Shell {
                     bus.take_event(&event.uid);
                     continue;
                 }
-                let ws = cx.new(|cx| Workspace::new(Some(project.clone()), false, window, cx));
-                self.wrap(ws, cx);
+                shell.open_behind(project.clone(), window, cx);
                 projects.push(project.clone());
                 self.opening.push((project.clone(), now));
                 let said = format!(
@@ -216,182 +164,14 @@ impl Shell {
                     event.agent,
                     crate::labels::project_name(&project)
                 );
-                self.tabs[self.active].update(cx, |w, cx| w.toast_info(said.into(), cx));
+                shell
+                    .active()
+                    .update(cx, |w, cx| w.toast_info(said.into(), cx));
             }
             if event.what == crate::agents::What::Open {
                 bus.take_event(&event.uid);
             }
         }
-    }
-
-    /// Tells each tab whether it is the one on screen (no workspace is touched: one may be
-    /// mid-update).
-    fn mark_shown(&self) {
-        for (ix, tab) in self.tabs.iter().enumerate() {
-            if let Some(shown) = self.shown.get(&tab.entity_id()) {
-                shown.set(ix == self.active);
-            }
-        }
-    }
-
-    pub(super) fn active_ix(&self) -> usize {
-        self.active
-    }
-
-    /// The first tab (the snapshot checks drive it).
-    #[cfg(feature = "snapshot")]
-    pub(super) fn first(&self) -> Entity<Workspace> {
-        self.tabs[0].clone()
-    }
-
-    fn focus_active(&self, window: &mut Window, cx: &mut Context<Self>) {
-        let focus = self.tabs[self.active].read(cx).focus.clone();
-        window.focus(&focus, cx);
-    }
-
-    /// The tab that has `path` open, as the tabs last said (a workspace may be mid-update).
-    /// The tab of workspace `id`.
-    pub(super) fn tab_ix(&self, id: gpui::EntityId) -> Option<usize> {
-        self.tabs.iter().position(|t| t.entity_id() == id)
-    }
-
-    pub(super) fn tab_of(&self, path: &std::path::Path) -> Option<usize> {
-        let same = |root: &std::path::Path| {
-            root == path
-                || matches!((root.canonicalize(), path.canonicalize()), (Ok(a), Ok(b)) if a == b)
-        };
-        self.model
-            .borrow()
-            .iter()
-            .position(|t| t.root.as_deref().is_some_and(same))
-    }
-
-    /// Opens `path` in a tab of its own, and gives back its workspace; a project already open
-    /// is gone to, not opened twice.
-    pub(super) fn open_tab(
-        &mut self,
-        path: PathBuf,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Entity<Workspace> {
-        if let Some(ix) = self.tab_of(&path).filter(|&ix| ix < self.tabs.len()) {
-            self.select(ix, window, cx);
-            return self.tabs[ix].clone();
-        }
-        let ws = cx.new(|cx| Workspace::new(Some(path), false, window, cx));
-        self.attach(ws.clone(), window, cx);
-        ws
-    }
-
-    pub(super) fn select(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if ix < self.tabs.len() && ix != self.active {
-            self.active = ix;
-            self.focus_active(window, cx);
-            self.mark_shown();
-            cx.notify();
-        }
-    }
-
-    pub(super) fn step(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let n = self.tabs.len();
-        let ix = if forward {
-            (self.active + 1) % n
-        } else {
-            (self.active + n - 1) % n
-        };
-        self.select(ix, window, cx);
-    }
-
-    pub(super) fn close(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if ix >= self.tabs.len() {
-            return;
-        }
-        if self.tabs.len() == 1 {
-            cx.quit();
-            return;
-        }
-        // The tab being closed may be mid-update (a click inside it): only its path is read.
-        let root = self.tabs[ix].read(cx).root.clone();
-        self.closed.extend(root);
-        let gone = self.tabs.remove(ix);
-        self.shown.remove(&gone.entity_id());
-        if self.active > ix || self.active >= self.tabs.len() {
-            self.active = self.active.saturating_sub(1);
-        }
-        self.mark_shown();
-        self.focus_active(window, cx);
-        cx.notify();
-    }
-
-    /// Writes the open repositories and the active tab when they differ from what was written.
-    fn save_session(&mut self, cx: &mut Context<Self>) {
-        if !self.primary
-            || (cfg!(feature = "snapshot") && std::env::var_os("ARTOO_SNAPSHOT").is_some())
-        {
-            return;
-        }
-        let mut roots = Vec::new();
-        let mut active = 0;
-        for (ix, tab) in self.tabs.iter().enumerate() {
-            // A tab still loading has no root yet; it keeps the last session's place.
-            if let Some(root) = tab.read(cx).root.clone() {
-                if ix == self.active {
-                    active = roots.len();
-                }
-                roots.push(root);
-            }
-        }
-        if roots.is_empty() {
-            return;
-        }
-        let key = format!("{active} {roots:?}");
-        if key != self.saved {
-            crate::storage::save_session(&roots, active);
-            self.saved = key;
-        }
-    }
-
-    /// Moves tab `from` to `to` (the rail's Move up / down and its drag); ⌘1…9 follow.
-    pub(super) fn move_tab(&mut self, from: usize, to: usize, cx: &mut Context<Self>) {
-        let n = self.tabs.len();
-        if from >= n || to >= n || from == to {
-            return;
-        }
-        let active = self.tabs[self.active].clone();
-        let tab = self.tabs.remove(from);
-        self.tabs.insert(to, tab);
-        self.active = self.tabs.iter().position(|t| *t == active).unwrap_or(0);
-        cx.notify();
-    }
-
-    pub(super) fn reopen(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(path) = self.closed.pop() {
-            let ws = cx.new(|cx| Workspace::new(Some(path), false, window, cx));
-            self.attach(ws, window, cx);
-        }
-    }
-}
-
-impl Render for Shell {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let infos = self
-            .tabs
-            .iter()
-            .enumerate()
-            .map(|(i, t)| {
-                let w = t.read(cx);
-                TabInfo {
-                    title: w.tab_title(),
-                    news: i != self.active && w.has_news(cx),
-                    active: i == self.active,
-                    root: w.root.clone(),
-                    unread: w.inbox_unread(cx),
-                }
-            })
-            .collect();
-        *self.model.borrow_mut() = infos;
-        self.save_session(cx);
-        div().size_full().child(self.tabs[self.active].clone())
     }
 }
 
