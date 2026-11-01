@@ -13,30 +13,7 @@ use super::zones::Zone;
 use super::{Workspace, icons, keys, px, theme};
 use gpui::{AnyElement, ClickEvent, Context, SharedString, div, prelude::*};
 
-/// Under it the menu folds and the diff is unified.
-pub const MENU: f32 = 1280.;
-/// Under it the side panel folds into the menu's column, and the page is compact.
-pub const SIDE: f32 = 1100.;
-/// Under it a tool window floats over the diff.
-pub const FLOAT: f32 = 1000.;
-
-/// The menu folded in a window `width` px wide: as `set` from 1280 px, else folded unless
-/// `chosen` there.
-fn menu_fold(width: f32, set: bool, chosen: Option<bool>) -> bool {
-    if width < MENU {
-        chosen.unwrap_or(true)
-    } else {
-        set
-    }
-}
-
-/// What a narrow window keeps for the session: the menu's fold chosen while it is narrow, and
-/// whether the side panel is open as a drawer.
-#[derive(Default)]
-pub struct Narrowed {
-    menu: Option<bool>,
-    pub drawer: bool,
-}
+pub(super) use artoo_shell::narrow::{FLOAT, MENU, Narrowed, SIDE};
 
 impl Workspace {
     /// The window's width in the design's pixels: what the steps are measured against.
@@ -46,12 +23,7 @@ impl Workspace {
 
     /// The window has crossed a step: what it folded comes back as it was.
     pub(super) fn follow_width(&mut self) {
-        if self.design_width() >= MENU {
-            self.narrowed.menu = None;
-        }
-        if self.design_width() >= SIDE {
-            self.narrowed.drawer = false;
-        }
+        self.narrowed.follow(self.design_width());
     }
 
     /// Under 1280 px: the menu folds, unless opened here, and the diff is unified.
@@ -67,11 +39,8 @@ impl Workspace {
 
     /// The menu folded to icons: the setting, or under 1280 px folded unless opened here.
     pub(super) fn menu_folded(&self) -> bool {
-        menu_fold(
-            self.design_width(),
-            self.layout.fold_places,
-            self.narrowed.menu,
-        )
+        self.narrowed
+            .menu_folded(self.design_width(), self.layout.fold_places)
     }
 
     /// ◧ and ⌘B: the menu to icons and back — kept in `layout.txt`, or for while the window is
@@ -80,7 +49,8 @@ impl Workspace {
         // Its names fade while it folds or unfolds; its icons stay put (#56, 2).
         self.mark_motion("places-fold", cx);
         if self.menu_narrow() {
-            self.narrowed.menu = Some(!self.menu_folded());
+            let folded = self.menu_folded();
+            self.narrowed.fold_menu(!folded);
         } else {
             self.layout.fold_places = !self.layout.fold_places;
             self.save_layout();
@@ -248,21 +218,5 @@ impl Workspace {
             |drawer, v| drawer.opacity(v),
         )
         .into_any_element()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_menu_folds_under_1280_unless_opened_there() {
-        // Wide: the setting.
-        assert!(!menu_fold(1480., false, None));
-        assert!(menu_fold(1480., true, Some(false)));
-        // Narrow: folded, whatever the setting, until ◧ or ⌘B opens it there.
-        assert!(menu_fold(1200., false, None));
-        assert!(!menu_fold(1200., true, Some(false)));
-        assert!(!menu_fold(MENU, false, None));
     }
 }
