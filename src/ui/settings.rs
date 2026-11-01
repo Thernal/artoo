@@ -28,28 +28,6 @@ impl Workspace {
         self.look_for_token(cx);
     }
 
-    /// Asks GitLab who the token belongs to.
-    pub(super) fn test_gitlab(&mut self, cx: &mut Context<Self>) {
-        let Some(remote) = self.web.clone() else {
-            return;
-        };
-        let host = super::host_of(&remote, cx);
-        self.gitlab_check = None;
-        self.connecting.error = None;
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { host.me() })
-                .await;
-            this.update(cx, |this, cx| {
-                this.gitlab_check = Some(result.map_err(|e| format!("{e:#}")));
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
-
     /// Saves the settings; the review's copy follows them (#165).
     pub(super) fn save_settings(&mut self, cx: &mut App) {
         self.settings.save();
@@ -181,8 +159,10 @@ impl Workspace {
             },
         ));
 
-        // The host's ways in, as a list to pick from (#156, `connecting.rs`).
-        let gitlab = self.render_ways_settings(cx);
+        // The host's ways in, as a list to pick from (#156), hosts' connect panel.
+        let gitlab = self
+            .connecting()
+            .and_then(|connecting| connecting.settings(self.here(cx), cx));
         let section = self.settings_section;
         // The theme editor takes the page's height: its tokens scroll beside a preview that stays.
         let editing = section == Section::Appearance && self.theme_edit.is_some();

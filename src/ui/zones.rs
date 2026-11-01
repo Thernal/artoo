@@ -118,13 +118,6 @@ impl Workspace {
         if self.step_branch_list(down, cx) {
             return;
         }
-        // The connect panel with its field: ↑ ↓ move between the ways (#156).
-        if self.requests.read(cx).connectable
-            && self.field == Some(super::lists::Field::Token)
-            && !self.settings_open
-        {
-            return self.step_way(down, cx);
-        }
         // The Inbox has the window: j k walk its list.
         if self.inbox && self.zone != Zone::Tool {
             return self.inbox_step(down, cx);

@@ -9,6 +9,7 @@ use super::{Header, Selection, Workspace};
 use crate::git::Repo;
 use crate::mr::{self, Mr};
 use artoo_branches::opening::RequestOf;
+use artoo_hosts_api::connect::{self, Connect, Here};
 use artoo_requests::discussions::Listing;
 use artoo_requests::requests::{Act, Acts};
 pub(super) use artoo_requests::requests::{Past, Requests, Scope, Sides, sides};
@@ -75,7 +76,7 @@ impl Workspace {
         let available = host.available();
         self.requests.update(cx, |rq, _| rq.available = available);
         // The way picked borrows a token not read yet this run (the CLI's, git's): read first.
-        if !available && crate::connect::to_borrow(&remote) {
+        if !available && self.connecting().is_some_and(|c| c.to_borrow(&remote)) {
             self.requests.update(cx, |rq, _| rq.connectable = false);
             self.requests.update(cx, |rq, _| rq.loading = true);
             return self.borrow_token(cx);
@@ -1152,60 +1153,72 @@ impl Workspace {
         )
     }
 
-    /// Keeps the typed token, asks GitLab who it is, and starts listing on success.
-    pub(super) fn submit_token(&mut self, cx: &mut Context<Self>) {
-        let Some(remote) = self.web.clone() else {
-            return;
-        };
-        let host = super::host_of(&remote, cx);
-        let token = self.token_input.trim().to_owned();
-        if token.len() < 8 || token.contains(char::is_whitespace) {
-            self.gitlab_check = Some(Err("That does not look like a token.".to_owned()));
-            return cx.notify();
+    /// Merge requests' first run, a project without a token (#72): the ways in, centred in the
+    /// content (#156), hosts' connect panel.
+    pub(super) fn render_connect(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        match self.connecting() {
+            Some(connecting) => connecting.panel(self.here(cx), cx),
+            None => div().into_any_element(),
         }
-        if let Err(e) = host.save_token(&token) {
-            self.gitlab_check = Some(Err(format!("{e:#}")));
-            return cx.notify();
-        }
-        self.gitlab_check = None;
-        self.testing = true;
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let check = host.clone();
-            let result = cx
-                .background_executor()
-                .spawn(async move { check.me() })
-                .await;
-            this.update(cx, |this, cx| {
-                this.testing = false;
-                match result {
-                    Ok(who) => {
-                        let host = host.api_host();
-                        crate::connect::set_note(&host, |n| {
-                            n.way = Some("pasted".to_owned());
-                            n.ide = None;
-                        });
-                        this.gitlab_check = Some(Ok(who));
-                        this.token_input.clear();
-                        this.field = None;
-                        this.load_requests(cx);
-                    }
-                    Err(e) => {
-                        host.forget_token();
-                        this.gitlab_check = Some(Err(format!("{e:#}")));
-                    }
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
     }
 
-    /// Merge requests' first run, a project without a token (#72): the ways in, centred in the
-    /// content (#156, `connecting.rs`).
-    pub(super) fn render_connect(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        self.render_ways(cx)
+    /// The connect panel of the tab's host (`artoo_hosts_api::connect`), hosts'.
+    pub(super) fn connecting(&self) -> Option<Rc<dyn Connect>> {
+        self.services.get()
+    }
+
+    /// Where the tab is, as the connect panel is handed it.
+    pub(super) fn here(&self, cx: &App) -> Here {
+        Here {
+            root: self.root.clone(),
+            web: self.web.clone(),
+            typing: self.has_keyboard(super::typing::Input::Part(connect::INPUT), cx),
+        }
+    }
+
+    /// The connect panel asked once the update under way is over, with where the tab is then: a project
+    /// opening reads its requests before the tab holds its root.
+    fn ask_connecting(
+        &self,
+        ask: impl FnOnce(&dyn Connect, Here, &mut App) + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(connecting) = self.connecting() else {
+            return;
+        };
+        let tab = cx.weak_entity();
+        cx.defer(move |cx| {
+            if let Some(here) = tab.upgrade().map(|tab| tab.read(cx).here(cx)) {
+                ask(&*connecting, here, cx);
+            }
+        });
+    }
+
+    /// No token for the host, or Settings → Merge requests opened: the ways in are looked for.
+    pub(super) fn look_for_token(&mut self, cx: &mut Context<Self>) {
+        self.ask_connecting(|c, here, cx| c.look(here, cx), cx);
+    }
+
+    /// The way picked for the host borrows a token not read yet this run: it is read, then the
+    /// requests are (`connected`).
+    fn borrow_token(&mut self, cx: &mut Context<Self>) {
+        self.ask_connecting(|c, here, cx| c.borrow(here, cx), cx);
+    }
+
+    /// The token Artoo made renewed a few days before its end.
+    fn renew_ssh_token(&mut self, cx: &mut Context<Self>) {
+        if let Some(connecting) = self.connecting() {
+            connecting.renew(self.here(cx), cx);
+        }
+    }
+
+    /// A way in connected the host: the requests read again; a toast saying with what, its button
+    /// opening Settings → Merge requests.
+    pub(super) fn connected(&mut self, said: Option<String>, cx: &mut Context<Self>) {
+        self.load_requests(cx);
+        if let Some(text) = said {
+            self.toast_act(super::toast::Act::Connected, 1, move |_| text.clone(), cx);
+        }
     }
 
     /// Shows `line` of `path`: that file first when it is another one.

@@ -1,7 +1,7 @@
 //! Set up Artoo (#143 B): on the first start, a page of tabs — Agents, Keys, Look — whose title,
 //! tabs and foot stay put while only the column between them scrolls. Each part is its Settings
 //! section at its shortest, drawn by the same code (`key_presets`, `window_cards`, `panes_chips`,
-//! `font_rows`, the connect panel's `way_row`): what is set here is set there. Later and Done bring
+//! `font_rows`, the kit's `choice_row`): what is set here is set there. Later and Done bring
 //! back what was under it — the welcome, with no repository open. A part is offered once
 //! (`setup.txt`); a release that adds one offers that part alone; Help → Set Up Artoo… opens
 //! every part again. The frame is drawn by the shell (`artoo_shell_api::setup`).
@@ -293,7 +293,16 @@ impl Workspace {
                 .into_any_element()
         };
         let row = |id: &'static str, icon, name: &str, what: String| {
-            super::connecting::way_row(id, None, icon, name.to_owned(), None, what, false, false)
+            artoo_ui_kit::controls::choice_row(
+                id,
+                None,
+                icon,
+                name.to_owned(),
+                None,
+                what,
+                false,
+                false,
+            )
         };
         div()
             .flex()

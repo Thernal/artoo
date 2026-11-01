@@ -21,7 +21,6 @@ mod code;
 mod compare;
 mod complete;
 mod composer;
-mod connecting;
 mod create;
 mod faces;
 mod fetch;
@@ -1357,17 +1356,14 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             ws.update(cx, |this, cx| this.snapshot_changes(cx));
             wait(1500).await;
         }
-        // Make the token pressed on the connect panel's offer, with ARTOO_SSH_FIXTURE (#142).
+        // Make the token pressed on the connect panel's offer, with ARTOO_SSH_FIXTURE (#142): hosts' part makes it
+        // once the panel is drawn (`ssh-make`).
         if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("ssh-make")) {
-            ws.update(cx, |this, cx| this.make_ssh_token("api", cx));
             wait(1500).await;
         }
-        // Settings → Merge requests after the keys, the SSH key picked there (#156).
+        // Settings → Merge requests after the keys, the SSH key picked there by hosts' part (#156).
         if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("ways-settings")) {
-            ws.update(cx, |this, cx| {
-                this.open_requests_settings(cx);
-                this.connecting.pick = Some("ssh".to_owned());
-            });
+            ws.update(cx, |this, cx| this.open_requests_settings(cx));
             wait(1500).await;
         }
         // Answer on the first of an agent's notes on the file the keys reached (#151).
@@ -1558,10 +1554,6 @@ pub struct Workspace {
     requests: gpui::Entity<requests::Requests>,
     /// The menu's scroll (#146).
     places: spaces::Places,
-    /// What the last "Test" of the GitLab connection in Settings found.
-    gitlab_check: Option<Result<String, String>>,
-    /// A host without a token connected without a paste (#142).
-    connecting: connecting::Connecting,
     /// The card for a new merge request, while it is open.
     /// The keyboard card is open.
     shortcuts: bool,
@@ -1588,10 +1580,8 @@ pub struct Workspace {
     toggled_agent: HashSet<u64>,
     /// The discussion `r`, `x` and ⇧n / ⇧p act on (an index into the request's threads).
     thread_at: Option<usize>,
-    /// The token being entered in the connect panel; shown as dots.
+    /// The token being entered in the welcome's connect card; shown as dots.
     token_input: String,
-    /// A token is being checked against GitLab.
-    testing: bool,
     /// A notification opened on a comment: once its line's history is in, an outdated one opens
     /// on the diff since it (request, note).
     since_on_open: Option<(u64, u64)>,
@@ -1818,8 +1808,6 @@ impl Workspace {
             shell: None,
             requests: cx.new(|_| requests::Requests::default()),
             places: Default::default(),
-            gitlab_check: None,
-            connecting: Default::default(),
             shortcuts: greet,
             zoom_applied: false,
             bookmarks: bookmarks::Store::load(),
@@ -1834,7 +1822,6 @@ impl Workspace {
             toggled_agent: HashSet::new(),
             thread_at: None,
             token_input: String::new(),
-            testing: false,
             since_on_open: None,
             agent_lines: Default::default(),
             agent_task: None,
@@ -1922,6 +1909,19 @@ impl Workspace {
         // The review's host, which its item page draws the column with.
         services.set::<Rc<dyn artoo_review_api::Host>>(Rc::new(TabHost(cx.weak_entity())));
         this.parts = artoo_shell_api::make_parts(frame, window, cx);
+        // A way in connected the host (hosts' connect panel): the requests read again, a toast saying with what.
+        if let Some(connecting) = this.connecting() {
+            let tab = cx.weak_entity();
+            connecting.on_connected(
+                Rc::new(move |said, cx| {
+                    let tab = tab.clone();
+                    cx.defer(move |cx| {
+                        tab.update(cx, |this, cx| this.connected(said, cx)).ok();
+                    });
+                }),
+                cx,
+            );
+        }
         if let Some(path) = start {
             this.open_repo(path, None, cx);
         }

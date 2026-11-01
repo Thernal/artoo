@@ -588,6 +588,20 @@ impl Area {
             wrap,
             ..Default::default()
         };
+        self.field_look_of(text, active, placeholder, look, of, this)
+    }
+
+    /// `field_of` drawn with `look` (a token's dots).
+    pub fn field_look_of<T: 'static>(
+        &self,
+        text: &str,
+        active: bool,
+        placeholder: &'static str,
+        look: Look,
+        of: fn(&mut T) -> Option<&mut Area>,
+        this: gpui::WeakEntity<T>,
+    ) -> Div {
+        let wrap = look.wrap;
         field(text, active, placeholder, &look, || {
             let shown = text.to_owned();
             let place: Place = Rc::new(move |at, shift, clicks, drag, lower, cx| {

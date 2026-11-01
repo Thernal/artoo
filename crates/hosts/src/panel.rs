@@ -1,42 +1,78 @@
-//! A host without a token (#142, #156, `crate::connect`): the ways in this computer offers, easiest
+//! The connect panel, a host without a token (#142, #156, `crate::connect`): the ways in this computer offers, easiest
 //! first, each with the account it signs in as and a button named for what it does — Use (the
 //! CLI's token, git's), Make a token (the SSH key; read-only under ▾), Copy… (a JetBrains IDE's:
 //! macOS asks first), Open ↗ (made by hand, then pasted). ↑↓ move the focus between them, ↵
 //! presses the focused one's button, ⌘V pastes a token. The way picked is remembered per host and
 //! the next run goes straight to it; Settings → Merge requests lists the same ways to change it.
-//! A token Artoo made is renewed a few days before its end.
+//! A token Artoo made is renewed a few days before its end. A tab's panel, its service (`Connect`) and its
+//! field (`INPUT`) are made with the tab's parts; the tab hands where it is with each ask.
 
-use super::discussion::{self, Kind};
-use super::{Workspace, px, theme};
 use crate::connect::{self, Known, NotHere, Refused, Via, Way};
 use crate::git::WebRemote;
-use gpui::{AnyElement, ClickEvent, Context, FontWeight, SharedString, Stateful, div, prelude::*};
+use artoo_hosts_api::Host;
+use artoo_hosts_api::connect::{Connect, Here, INPUT, OnConnected};
+use artoo_shell_api::{Frame, Input, Typed};
+use artoo_ui_kit::controls::choice_row;
+use artoo_ui_kit::discussion::{self, Kind};
+use artoo_ui_kit::input::{self, Area, Edit, Look};
+use artoo_ui_kit::{hover, icons, keys, px, theme, words};
+use gpui::{
+    AnyElement, App, AppContext, ClickEvent, Context, Entity, FontWeight, SharedString, Stateful,
+    div, prelude::*,
+};
 use gpui::{Div, Rgba};
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::sync::{Arc, Mutex, OnceLock};
+
+/// A tab's connect panel: where the tab is, as it last said, how connecting its host stands, the token typed.
+pub(crate) struct Panel {
+    frame: Rc<dyn Frame>,
+    connecting: Connecting,
+    root: Option<PathBuf>,
+    web: Option<WebRemote>,
+    host: Option<Arc<dyn Host>>,
+    /// The token pasted, and its field: open since a way or the field was pressed, until it is left empty or a
+    /// way connected.
+    token: String,
+    area: Area,
+    typing: bool,
+    /// The field has the tab's keyboard, as the tab last said.
+    keyboard: bool,
+    /// Drawn last in Settings: ↵ there presses no way of the panel's.
+    in_settings: bool,
+    /// What asking the host who the token is said (Test, a token pasted).
+    check: Option<Result<String, String>>,
+    testing: bool,
+    /// What the tab is told when a way connected.
+    done: Option<OnConnected>,
+    /// A snapshot's token to make over SSH as soon as the tab says where it is (`ssh-make`).
+    make: Option<&'static str>,
+}
 
 /// Where connecting the tab's host stands.
 #[derive(Default)]
-pub struct Connecting {
+struct Connecting {
     /// Looking on this computer — the CLI, git, the IDEs — now.
-    pub looking: bool,
+    looking: bool,
     /// Asking the host who the SSH key is, now.
-    pub asking: bool,
+    asking: bool,
     /// Reading the token of the way picked before the requests (`borrow_token`), now.
-    pub borrowing: bool,
+    borrowing: bool,
     /// The scope a token is being made with over SSH, now.
-    pub making: Option<&'static str>,
+    making: Option<&'static str>,
     /// The IDE account whose token is being read — macOS asking — now.
-    pub copying: Option<String>,
+    copying: Option<String>,
     /// Why the last way did not connect.
-    pub error: Option<String>,
+    error: Option<String>,
     /// The connect panel's focused row (↑↓).
-    pub focus: usize,
+    focus: usize,
     /// The SSH key's ▾ is open: Read only under it.
-    pub read_menu: bool,
+    read_menu: bool,
     /// Settings → Merge requests: the row picked (`row_key`), and the SSH key's scope picked there.
-    pub pick: Option<String>,
-    pub pick_scope: Option<&'static str>,
+    pick: Option<String>,
+    pick_scope: Option<&'static str>,
     /// The SSH row was shown asking when the rest came in: a no keeps it in place, dimmed, so
     /// nothing moves under the pointer.
     ssh_in_place: bool,
@@ -82,7 +118,7 @@ fn token_name() -> String {
 
 /// One row of the ways: a way, or the SSH key while it asks the host, or its no kept in place.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Row {
+enum Row {
     Way(Way),
     Asking,
     Failed(String),
@@ -122,7 +158,7 @@ enum Uncopied {
     Refused(String),
 }
 
-impl Workspace {
+impl Panel {
     /// The remote's URL as git has it, and where ssh reaches its host.
     fn ssh_of(&self) -> Option<(String, connect::Ssh)> {
         let remote = self.web.as_ref()?;
@@ -134,18 +170,13 @@ impl Workspace {
 
     /// No token for the host (`load_requests`), or Settings → Merge requests opened: the ways in
     /// are looked for, once a run.
-    pub(super) fn look_for_token(&mut self, cx: &mut Context<Self>) {
-        // A project opening reads its requests before the tab holds its root: looked for after.
-        cx.spawn(async move |this, cx| this.update(cx, |this, cx| this.look_now(cx)).ok())
-            .detach();
-    }
-
+    ///
     /// The CLI, git and the IDEs in one look; the SSH key apart, as it takes longer.
-    fn look_now(&mut self, cx: &mut Context<Self>) {
+    fn look_for_token(&mut self, cx: &mut Context<Self>) {
         let (Some(remote), Some(root)) = (self.web.clone(), self.root.clone()) else {
             return;
         };
-        let web_host = super::host_of(&remote, cx);
+        let web_host = crate::hosts::of(&remote);
         let Some((url, _)) = self.ssh_of() else {
             return;
         };
@@ -190,40 +221,33 @@ impl Workspace {
 
     /// The way picked for the host borrows a token not read yet this run (`load_requests`): it is
     /// read, then the requests are.
-    pub(super) fn borrow_token(&mut self, cx: &mut Context<Self>) {
-        // As `look_for_token`: the tab holds its root after the first read.
+    fn borrow_token(&mut self, cx: &mut Context<Self>) {
+        let Some(remote) = self.web.clone() else {
+            return;
+        };
+        if self.connecting.borrowing {
+            return;
+        }
+        let root = self.root.clone().unwrap_or_else(|| ".".into());
+        let url = self.ssh_of().map(|(url, _)| url).unwrap_or_default();
+        self.connecting.borrowing = true;
         cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .spawn(async move { connect::borrow(&root, &url, &remote) })
+                .await;
             this.update(cx, |this, cx| {
-                let Some(remote) = this.web.clone() else {
-                    return;
-                };
-                if this.connecting.borrowing {
-                    return;
-                }
-                let root = this.root.clone().unwrap_or_else(|| ".".into());
-                let url = this.ssh_of().map(|(url, _)| url).unwrap_or_default();
-                this.connecting.borrowing = true;
-                cx.spawn(async move |this, cx| {
-                    cx.background_executor()
-                        .spawn(async move { connect::borrow(&root, &url, &remote) })
-                        .await;
-                    this.update(cx, |this, cx| {
-                        this.connecting.borrowing = false;
-                        this.load_requests(cx);
-                        cx.notify();
-                    })
-                    .ok();
-                })
-                .detach();
+                this.connecting.borrowing = false;
+                this.tell(None, cx);
+                cx.notify();
             })
-            .ok()
+            .ok();
         })
         .detach();
     }
 
     /// The ways in to the tab's host, easiest first and by hand last, and those found that cannot
     /// be used; while the CLI, git and the IDEs are being looked in, by hand alone.
-    pub(super) fn ways(&self) -> Option<(Vec<Row>, Vec<NotHere>)> {
+    fn ways(&self) -> Option<(Vec<Row>, Vec<NotHere>)> {
         let remote = self.web.as_ref()?;
         let web_host = self.host.clone()?;
         let host = web_host.host();
@@ -278,7 +302,7 @@ impl Workspace {
     }
 
     /// ↑ ↓ on the connect panel: the focus to the way before or after.
-    pub(super) fn step_way(&mut self, down: bool, cx: &mut Context<Self>) {
+    fn step_way(&mut self, down: bool, cx: &mut Context<Self>) {
         let Some((rows, _)) = self.ways() else {
             return;
         };
@@ -296,7 +320,7 @@ impl Workspace {
     }
 
     /// ↵ on the connect panel with nothing pasted: the focused way's button.
-    pub(super) fn press_way(&mut self, cx: &mut Context<Self>) {
+    fn press_way(&mut self, cx: &mut Context<Self>) {
         let Some((rows, _)) = self.ways() else {
             return;
         };
@@ -315,12 +339,12 @@ impl Workspace {
                 self.make_ssh_token(scope, cx)
             }
             Via::Ide(account) => self.copy_ide_token(account, cx),
-            Via::Hand if !self.token_input.trim().is_empty() => self.submit_token(cx),
+            Via::Hand if !self.token.trim().is_empty() => self.submit(cx),
             Via::Hand => {
                 if let Some(web_host) = &self.host {
                     cx.open_url(&web_host.token_page());
                 }
-                self.start_field(super::lists::Field::Token, cx);
+                self.take_field(cx);
             }
         }
     }
@@ -331,7 +355,7 @@ impl Workspace {
         let Some(remote) = self.web.clone() else {
             return;
         };
-        let web_host = super::host_of(&remote, cx);
+        let web_host = crate::hosts::of(&remote);
         let host = web_host.api_host();
         self.connecting.error = None;
         let made = self.made_in_use().is_some();
@@ -374,13 +398,13 @@ impl Workspace {
         self.connecting.focus = 0;
         self.connecting.pick = None;
         self.connecting.pick_scope = None;
-        self.gitlab_check = user.as_ref().map(|u| Ok(format!("@{u}")));
-        self.load_requests(cx);
+        self.check = user.as_ref().map(|u| Ok(format!("@{u}")));
+        self.typing = false;
         let text = match user {
             Some(user) => format!("Connected as @{user} · {said}"),
             None => format!("Connected · {said}"),
         };
-        self.toast_act(super::toast::Act::Connected, 1, move |_| text.clone(), cx);
+        self.tell(Some(text), cx);
         cx.notify();
     }
 
@@ -389,7 +413,7 @@ impl Workspace {
         let Some(remote) = self.web.clone() else {
             return;
         };
-        let web_host = super::host_of(&remote, cx);
+        let web_host = crate::hosts::of(&remote);
         if self.connecting.copying.is_some() {
             return;
         }
@@ -478,11 +502,11 @@ impl Workspace {
 
     /// Make a token (`api`) or Read only (`read_api`): made over SSH, kept as the host's token,
     /// and the requests read; refused, the panel says why and remembers what the host allows.
-    pub(super) fn make_ssh_token(&mut self, scope: &'static str, cx: &mut Context<Self>) {
+    fn make_ssh_token(&mut self, scope: &'static str, cx: &mut Context<Self>) {
         let Some(remote) = self.web.clone() else {
             return;
         };
-        let web_host = super::host_of(&remote, cx);
+        let web_host = crate::hosts::of(&remote);
         let Some((_, ssh)) = self.ssh_of() else {
             return;
         };
@@ -491,7 +515,7 @@ impl Workspace {
         }
         self.connecting.making = Some(scope);
         self.connecting.error = None;
-        self.gitlab_check = None;
+        self.check = None;
         cx.notify();
         let host = web_host.api_host();
         let user = match found_for(&host).ssh {
@@ -560,11 +584,11 @@ impl Workspace {
     /// The token Artoo made, read with the requests (`load_requests`): a few days before its end,
     /// a new one over SSH with the same scope, the old one revoked — once a run, quietly; refused
     /// or unreachable, the next run tries again while the old one still works.
-    pub(super) fn renew_ssh_token(&mut self, cx: &mut Context<Self>) {
+    fn renew_ssh_token(&mut self, cx: &mut Context<Self>) {
         let Some(remote) = self.web.clone() else {
             return;
         };
-        let web_host = super::host_of(&remote, cx);
+        let web_host = crate::hosts::of(&remote);
         let host = web_host.api_host();
         let Some(made) = self.made_in_use() else {
             return;
@@ -755,11 +779,11 @@ impl Workspace {
 
     /// The connect panel of Merge requests and the Inbox (`render_connect`): the ways in as rows,
     /// easiest first, each with its button; the keys; those found that cannot be used, with why.
-    pub(super) fn render_ways(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_ways(&self, cx: &mut Context<Self>) -> AnyElement {
         let Some(remote) = self.web.clone() else {
             return div().into_any_element();
         };
-        let web_host = super::host_of(&remote, cx);
+        let web_host = crate::hosts::of(&remote);
         let Some((rows, not)) = self.ways() else {
             return div().into_any_element();
         };
@@ -777,7 +801,7 @@ impl Workspace {
             let note = connect::note(&web_host.api_host());
             note.allowed.is_empty() || note.allowed.iter().any(|s| s == "read_api")
         };
-        let note = match (&self.gitlab_check, self.testing) {
+        let note = match (&self.check, self.testing) {
             (_, true) => Some(("Checking…".to_owned(), theme::muted())),
             (Some(Err(e)), _) => Some((e.clone(), theme::removed())),
             (Some(Ok(who)), _) => Some((format!("Connected as {who}"), theme::added())),
@@ -841,11 +865,11 @@ impl Workspace {
                 c.child(div().h(px(1.)).bg(theme::island_border()))
             });
             card = card.child(
-                way_row(("way-row", i), None, icon, name, who, what, on, dim)
+                choice_row(("way-row", i), None, icon, name, who, what, on, dim)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.connecting.focus = i;
                         // ↑ ↓ ↵ walk the ways from the token's field: it has the keyboard again.
-                        this.start_field(super::lists::Field::Token, cx);
+                        this.take_field(cx);
                     }))
                     .children(button),
             );
@@ -869,12 +893,7 @@ impl Workspace {
                     );
                 }
                 if way.via == Via::Hand {
-                    let field = self.field_box(
-                        "token-field",
-                        super::lists::Field::Token,
-                        "Paste the token here",
-                        cx,
-                    );
+                    let field = self.token_field(cx);
                     card = card.child(
                         div()
                             .flex()
@@ -897,10 +916,7 @@ impl Workspace {
                 .flex()
                 .items_center()
                 .gap(px(4.))
-                .children(
-                    keys.into_iter()
-                        .map(|k| super::keys::caps(k, super::keys::On::Plain)),
-                )
+                .children(keys.into_iter().map(|k| keys::caps(k, keys::On::Plain)))
                 .child(say)
         };
         div()
@@ -912,7 +928,7 @@ impl Workspace {
             .gap(px(10.))
             .px(px(24.))
             .child(
-                super::icons::icon("pull-request")
+                icons::icon("pull-request")
                     .size(px(24.))
                     .text_color(theme::muted()),
             )
@@ -920,7 +936,7 @@ impl Workspace {
                 div()
                     .text_size(px(15.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(super::words::say("Connect GitLab to see merge requests").into_owned()),
+                    .child(words::say("Connect GitLab to see merge requests").into_owned()),
             )
             .child(
                 div()
@@ -1010,9 +1026,9 @@ impl Workspace {
 
     /// Settings → Merge requests (#156): the host's ways as a list to pick from, the one in use
     /// tagged with Test; the picked one open with what it does, its button and Cancel.
-    pub(super) fn render_ways_settings(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn render_ways_settings(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let remote = self.web.clone()?;
-        let web_host = super::host_of(&remote, cx);
+        let web_host = crate::hosts::of(&remote);
         let (rows, not) = self.ways()?;
         let host = web_host.host();
         let env = web_host
@@ -1030,7 +1046,7 @@ impl Workspace {
                 .text_color(theme::accent())
                 .cursor_pointer()
                 .child("Test")
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.test_gitlab(cx)))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.test(cx)))
         };
         let used_tag = || {
             div()
@@ -1054,7 +1070,7 @@ impl Workspace {
         let has_own = own.is_some();
         if let Some((name, what)) = own {
             card = card.child(
-                way_row(
+                choice_row(
                     "ways-own",
                     Some(false),
                     "key",
@@ -1077,7 +1093,7 @@ impl Workspace {
                 card = card.child(div().h(px(1.)).bg(theme::island_border()));
             }
             let Row::Way(way) = row else {
-                let row = way_row(
+                let row = choice_row(
                     ("ways-row", i),
                     Some(false),
                     icon,
@@ -1098,7 +1114,7 @@ impl Workspace {
             }
             let pick = key.clone();
             card = card.child(
-                way_row(("ways-row", i), Some(on), icon, name, who, what, on, false)
+                choice_row(("ways-row", i), Some(on), icon, name, who, what, on, false)
                     .when(!env, |r| {
                         r.cursor_pointer().on_click(cx.listener(
                             move |this, _: &ClickEvent, _, cx| {
@@ -1159,14 +1175,7 @@ impl Workspace {
                                 .child(Self::more(way, &remote, &host)),
                         )
                         .children(scopes)
-                        .when(way.via == Via::Hand, |d| {
-                            d.child(self.field_box(
-                                "token-field",
-                                super::lists::Field::Token,
-                                "Paste the token here",
-                                cx,
-                            ))
-                        }),
+                        .when(way.via == Via::Hand, |d| d.child(self.token_field(cx))),
                 );
             }
         }
@@ -1254,95 +1263,16 @@ impl Workspace {
         if let Some(e) = &self.connecting.error {
             return Some((e.clone(), theme::removed()));
         }
-        match (&self.gitlab_check, web_host.token_source()) {
+        match (&self.check, web_host.token_source()) {
             (Some(Ok(who)), _) => Some((format!("Connected as {who}"), theme::added())),
             (Some(Err(e)), _) => Some((e.clone(), theme::removed())),
             (None, None) => Some((
-                super::words::say("No token for this host yet — merge requests stay hidden.")
-                    .into_owned(),
+                words::say("No token for this host yet — merge requests stay hidden.").into_owned(),
                 theme::warning(),
             )),
             (None, Some(_)) => None,
         }
     }
-}
-
-/// A row of the ways: Settings' pick mark (`picked`), its icon, the name with the account, what it
-/// does; the caller adds what goes on its right.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn way_row(
-    id: impl Into<gpui::ElementId>,
-    picked: Option<bool>,
-    icon: &'static str,
-    name: String,
-    who: Option<String>,
-    what: String,
-    on: bool,
-    dim: bool,
-) -> Stateful<Div> {
-    div()
-        .id(id)
-        .flex()
-        .items_center()
-        .gap(px(12.))
-        .px(px(14.))
-        .py(px(10.))
-        .when(on, |r| r.bg(theme::hover()))
-        .when(dim, |r| r.opacity(0.6))
-        .children(picked.map(radio))
-        .child(
-            super::icons::icon(icon)
-                .flex_none()
-                .size(px(18.))
-                .text_color(theme::muted()),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap(px(2.))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.))
-                        .min_w_0()
-                        .child(
-                            super::hover::cut("name", name)
-                                .text_size(px(13.))
-                                .font_weight(FontWeight::SEMIBOLD),
-                        )
-                        .children(who.map(|w| {
-                            div()
-                                .flex_none()
-                                .text_size(px(12.))
-                                .text_color(theme::muted())
-                                .child(w)
-                        })),
-                )
-                .child(
-                    super::hover::cut("what", what)
-                        .text_size(px(12.))
-                        .text_color(theme::muted()),
-                ),
-        )
-}
-
-/// Settings' pick mark.
-fn radio(on: bool) -> Div {
-    div()
-        .flex_none()
-        .size(px(14.))
-        .rounded_full()
-        .border_1()
-        .border_color(if on {
-            theme::accent()
-        } else {
-            theme::selected()
-        })
-        .when(on, |d| d.border_4())
 }
 
 /// The ways found that cannot be used, each with why.
@@ -1369,12 +1299,8 @@ fn not_here(not: &[NotHere], remote: &WebRemote) -> Option<AnyElement> {
                     .gap(px(8.))
                     .text_size(px(12.))
                     .text_color(theme::faint())
-                    .child(
-                        super::icons::icon(icon)
-                            .size(px(14.))
-                            .text_color(theme::faint()),
-                    )
-                    .child(super::hover::cut(
+                    .child(icons::icon(icon).size(px(14.)).text_color(theme::faint()))
+                    .child(hover::cut(
                         gpui::SharedString::from(format!("not-here-{name}")),
                         format!("{name} — {}", n.why),
                     ))
@@ -1396,5 +1322,306 @@ fn capital(text: &str) -> String {
 /// `button` with `tip` shown when hovered.
 fn tipped(button: Stateful<Div>, tip: String) -> Stateful<Div> {
     let tip = SharedString::from(tip);
-    button.tooltip(move |_, cx| cx.new(|_| super::TipOwned(tip.clone())).into())
+    button.tooltip(move |_, cx| cx.new(|_| hover::TipOwned(tip.clone())).into())
+}
+
+impl Panel {
+    fn new(frame: Rc<dyn Frame>) -> Self {
+        Self {
+            frame,
+            connecting: Connecting::default(),
+            root: None,
+            web: None,
+            host: None,
+            token: String::new(),
+            area: Area::default(),
+            typing: false,
+            keyboard: false,
+            in_settings: false,
+            check: None,
+            testing: false,
+            done: None,
+            make: None,
+        }
+    }
+
+    /// Where the tab is, as it says with each ask.
+    fn at(&mut self, here: Here, cx: &mut Context<Self>) {
+        if self.web != here.web {
+            self.host = here.web.as_ref().map(crate::hosts::of);
+        }
+        self.root = here.root;
+        self.web = here.web;
+        self.keyboard = here.typing;
+        if self.web.is_some()
+            && let Some(scope) = self.make.take()
+        {
+            self.make_ssh_token(scope, cx);
+        }
+    }
+
+    /// The tab told a way connected (`OnConnected`).
+    fn tell(&self, said: Option<String>, cx: &mut App) {
+        if let Some(done) = self.done.clone() {
+            done(said, cx);
+        }
+    }
+
+    /// The field given the keyboard: its ↑ ↓ ↵ walk the ways, ⌘V pastes a token.
+    fn take_field(&mut self, cx: &mut Context<Self>) {
+        self.typing = true;
+        self.frame.take_keyboard(INPUT, cx);
+        cx.notify();
+    }
+
+    /// The token's field: dots for what is pasted, a press in it gives it the keyboard.
+    fn token_field(&self, cx: &Context<Self>) -> Stateful<Div> {
+        let active = self.typing && self.keyboard;
+        let look = Look {
+            mask: true,
+            ..Default::default()
+        };
+        let el = div()
+            .id("token-field")
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap_2()
+            .px_2()
+            .h(px(26.))
+            .rounded(px(artoo_ui_kit::ROW_RADIUS))
+            .border_2()
+            .border_color(if active {
+                theme::focus()
+            } else {
+                theme::island_border()
+            })
+            .bg(theme::base())
+            .cursor_text()
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.take_field(cx)))
+            .child(
+                icons::icon("search")
+                    .size(px(14.))
+                    .text_color(theme::faint()),
+            )
+            .child(self.area.field_look_of(
+                &self.token,
+                active,
+                "Paste the token here",
+                look,
+                |p: &mut Panel| Some(&mut p.area),
+                cx.entity().downgrade(),
+            ));
+        artoo_shell_api::input_box(el, INPUT, &self.frame)
+    }
+
+    /// A key while the field has the keyboard: ↑ ↓ walk the ways, ↵ presses the one focused while nothing is
+    /// pasted, else keeps the token; esc lets the keyboard go.
+    fn key(&mut self, key: &gpui::Keystroke, cx: &mut Context<Self>) -> Typed {
+        let panel = !self.in_settings;
+        match key.key.as_str() {
+            "up" | "down" if panel => {
+                self.step_way(key.key == "down", cx);
+                return Typed::Kept;
+            }
+            "enter" if panel && self.token.trim().is_empty() => {
+                self.press_way(cx);
+                return Typed::Kept;
+            }
+            _ => {}
+        }
+        match input::edit(&mut self.token, &mut self.area.edit, key, cx) {
+            Edit::Escape => return Typed::Leave,
+            Edit::Enter { .. } => self.submit(cx),
+            Edit::Changed | Edit::Selected | Edit::Ignored => {}
+        }
+        cx.notify();
+        Typed::Kept
+    }
+
+    /// Keeps the token pasted, asks the host who it is, and tells the tab on success.
+    fn submit(&mut self, cx: &mut Context<Self>) {
+        let Some(host) = self.host.clone() else {
+            return;
+        };
+        let token = self.token.trim().to_owned();
+        if token.len() < 8 || token.contains(char::is_whitespace) {
+            self.check = Some(Err("That does not look like a token.".to_owned()));
+            return cx.notify();
+        }
+        if let Err(e) = host.save_token(&token) {
+            self.check = Some(Err(format!("{e:#}")));
+            return cx.notify();
+        }
+        self.check = None;
+        self.testing = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let check = host.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { check.me() })
+                .await;
+            this.update(cx, |this, cx| {
+                this.testing = false;
+                match result {
+                    Ok(who) => {
+                        let host = host.api_host();
+                        connect::set_note(&host, |n| {
+                            n.way = Some("pasted".to_owned());
+                            n.ide = None;
+                        });
+                        this.check = Some(Ok(who));
+                        this.token.clear();
+                        this.typing = false;
+                        this.tell(None, cx);
+                    }
+                    Err(e) => {
+                        host.forget_token();
+                        this.check = Some(Err(format!("{e:#}")));
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Test: asks the host who the token belongs to.
+    fn test(&mut self, cx: &mut Context<Self>) {
+        let Some(host) = self.host.clone() else {
+            return;
+        };
+        self.check = None;
+        self.connecting.error = None;
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { host.me() })
+                .await;
+            this.update(cx, |this, cx| {
+                this.check = Some(result.map_err(|e| format!("{e:#}")));
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+}
+
+/// A tab's panel as its service.
+struct Handle(Entity<Panel>);
+
+impl Connect for Handle {
+    fn on_connected(&self, done: OnConnected, cx: &mut App) {
+        self.0.update(cx, |p, _| p.done = Some(done));
+    }
+
+    fn look(&self, here: Here, cx: &mut App) {
+        self.0.update(cx, |p, cx| {
+            p.at(here, cx);
+            p.look_for_token(cx)
+        });
+    }
+
+    fn to_borrow(&self, web: &WebRemote) -> bool {
+        connect::to_borrow(web)
+    }
+
+    fn borrow(&self, here: Here, cx: &mut App) {
+        self.0.update(cx, |p, cx| {
+            p.at(here, cx);
+            p.borrow_token(cx)
+        });
+    }
+
+    fn renew(&self, here: Here, cx: &mut App) {
+        self.0.update(cx, |p, cx| {
+            p.at(here, cx);
+            p.renew_ssh_token(cx)
+        });
+    }
+
+    fn panel(&self, here: Here, cx: &mut App) -> AnyElement {
+        self.0.update(cx, |p, cx| {
+            p.at(here, cx);
+            p.in_settings = false;
+            p.render_ways(cx)
+        })
+    }
+
+    fn settings(&self, here: Here, cx: &mut App) -> Option<AnyElement> {
+        self.0.update(cx, |p, cx| {
+            p.at(here, cx);
+            p.in_settings = true;
+            p.render_ways_settings(cx)
+        })
+    }
+
+    fn take_keyboard(&self, cx: &mut App) {
+        self.0.update(cx, |p, cx| p.take_field(cx));
+    }
+}
+
+/// The panel's field as the tab's input.
+fn input(panel: &Entity<Panel>) -> Input {
+    let (open, key, left, selected) = (
+        panel.downgrade(),
+        panel.downgrade(),
+        panel.downgrade(),
+        panel.downgrade(),
+    );
+    Input {
+        id: INPUT,
+        open: Rc::new(move |cx| open.upgrade().is_some_and(|p| p.read(cx).typing)),
+        key: Rc::new(move |event, _, cx| {
+            key.update(cx, |p, cx| p.key(&event.keystroke, cx))
+                .unwrap_or(Typed::Kept)
+        }),
+        left: Rc::new(move |cx| {
+            left.update(cx, |p, cx| {
+                if p.token.trim().is_empty() {
+                    p.typing = false;
+                    cx.notify();
+                }
+            })
+            .ok();
+        }),
+        // A token is not copied out of its field.
+        selected: Rc::new(move |_| selected.upgrade().and(None)),
+        caret: Rc::new(|_| true),
+    }
+}
+
+/// A tab's panel: its service, its field, and what a snapshot opens of it — a token made over SSH
+/// (`ARTOO_SSH_FIXTURE`), the SSH key picked in Settings.
+pub(crate) fn parts(frame: Rc<dyn Frame>, cx: &mut App) -> artoo_shell_api::Parts {
+    let panel = cx.new(|_| Panel::new(frame.clone()));
+    // Drawn inside the tab: a change draws the tab again.
+    let redraw = frame.clone();
+    cx.observe(&panel, move |_, cx| redraw.redraw(cx)).detach();
+    frame
+        .services()
+        .set::<Rc<dyn Connect>>(Rc::new(Handle(panel.clone())));
+    let (make, pick) = (panel.downgrade(), panel.downgrade());
+    artoo_shell_api::Parts {
+        inputs: vec![input(&panel)],
+        snapshots: vec![
+            (
+                "ssh-make",
+                Rc::new(move |cx| {
+                    make.update(cx, |p, _| p.make = Some("api")).ok();
+                }),
+            ),
+            (
+                "ways-settings",
+                Rc::new(move |cx| {
+                    pick.update(cx, |p, _| p.connecting.pick = Some("ssh".to_owned()))
+                        .ok();
+                }),
+            ),
+        ],
+        ..Default::default()
+    }
 }

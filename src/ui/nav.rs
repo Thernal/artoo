@@ -716,8 +716,10 @@ impl Workspace {
                 self.read_preview(cx);
                 self.zone = zones::Zone::Branches;
                 // A project without a token: the connect panel takes the keyboard.
-                if self.requests.read(cx).connectable {
-                    self.start_field(super::lists::Field::Token, cx);
+                if self.requests.read(cx).connectable
+                    && let Some(connecting) = self.connecting()
+                {
+                    connecting.take_keyboard(cx);
                 }
             }
         }

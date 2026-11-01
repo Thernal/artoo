@@ -10,7 +10,6 @@ use artoo_core::{
     applog, editor, files, fswatch, git, labels, links, markdown, mddiff, platform, rank, rows,
     storage, symbols, textedit, themes,
 };
-use artoo_hosts::{connect, ide, tokens};
 /// The hosts' models (a request, a thread, a draft…), by the name the views knew them by before #165.
 use artoo_hosts_api as mr;
 use artoo_requests::merge;

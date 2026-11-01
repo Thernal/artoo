@@ -380,6 +380,7 @@ dependencies = [
  "anyhow",
  "artoo-core",
  "artoo-hosts-api",
+ "artoo-shell-api",
  "artoo-ui-kit",
  "gpui-pre",
  "imagesize",

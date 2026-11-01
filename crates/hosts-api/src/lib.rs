@@ -8,6 +8,8 @@
 //!   `&dyn Host` gives each.
 //! - Every call blocks (curl): off the window's thread.
 
+pub mod connect;
+
 use anyhow::Result;
 use artoo_core::git::{DiffLine, WebRemote};
 use gpui::{App, Global};

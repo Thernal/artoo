@@ -2,7 +2,7 @@
 //! group's heading, a comment as an entry), rows breathing while a list loads, what follows the pointer while
 //! something is dragged, the words for showing a file where it lies; a root list's row pieces (its unread dot, how
 //! far its review is), its preview's pills and buttons, a page's message when it has nothing to show, an on/off
-//! switch.
+//! switch, a row of a list to choose from.
 
 use super::{ROW_RADIUS, hover, icons, keys, motion, px, theme, words};
 use artoo_core::platform;
@@ -399,4 +399,82 @@ pub fn switch(id: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
         } else {
             theme::muted()
         }))
+}
+
+/// A row of a list to choose from (the ways to connect a host, Set up's): a pick mark (`picked`), its icon, the name
+/// with whose it is, what it does; the caller adds what goes on its right.
+#[allow(clippy::too_many_arguments)]
+pub fn choice_row(
+    id: impl Into<gpui::ElementId>,
+    picked: Option<bool>,
+    icon: &'static str,
+    name: String,
+    who: Option<String>,
+    what: String,
+    on: bool,
+    dim: bool,
+) -> gpui::Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap(px(12.))
+        .px(px(14.))
+        .py(px(10.))
+        .when(on, |r| r.bg(theme::hover()))
+        .when(dim, |r| r.opacity(0.6))
+        .children(picked.map(radio))
+        .child(
+            icons::icon(icon)
+                .flex_none()
+                .size(px(18.))
+                .text_color(theme::muted()),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .min_w_0()
+                        .child(
+                            hover::cut("name", name)
+                                .text_size(px(13.))
+                                .font_weight(FontWeight::SEMIBOLD),
+                        )
+                        .children(who.map(|w| {
+                            div()
+                                .flex_none()
+                                .text_size(px(12.))
+                                .text_color(theme::muted())
+                                .child(w)
+                        })),
+                )
+                .child(
+                    hover::cut("what", what)
+                        .text_size(px(12.))
+                        .text_color(theme::muted()),
+                ),
+        )
+}
+
+/// A choice row's pick mark.
+fn radio(on: bool) -> Div {
+    div()
+        .flex_none()
+        .size(px(14.))
+        .rounded_full()
+        .border_1()
+        .border_color(if on {
+            theme::accent()
+        } else {
+            theme::selected()
+        })
+        .when(on, |d| d.border_4())
 }
