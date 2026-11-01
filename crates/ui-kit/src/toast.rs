@@ -2,8 +2,8 @@
 //! and news with a button. What a button does is the tab's: an act of its own kind `A` (what an agent left offers
 //! to go and see it, #150), handed back to the runner the tab gave, or a closure (Undo of a deleted draft, #76).
 
-use artoo_ui_kit::hover::{LONG, Tip};
-use artoo_ui_kit::{icons, keys, motion, px, theme};
+use crate::hover::{LONG, Tip};
+use crate::{icons, keys, motion, px, theme};
 use gpui::{App, ClickEvent, Context, Render, SharedString, Task, Window, div, prelude::*};
 use std::rc::Rc;
 use std::time::Duration;

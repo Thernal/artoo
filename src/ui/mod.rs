@@ -1477,7 +1477,7 @@ pub struct Workspace {
     recent: Vec<PathBuf>,
     error: Option<SharedString>,
     /// Errors and news shown as toasts (`toast.rs`).
-    toasts: gpui::Entity<artoo_shell::toast::Toasts<toast::Act>>,
+    toasts: gpui::Entity<artoo_ui_kit::toast::Toasts<toast::Act>>,
     /// A link's target waiting for its repository to load (`goto.rs`).
     pending_link: Option<crate::links::Target>,
     /// The comment or line a link pointed at, waiting for the request's diff and discussions.
@@ -1643,7 +1643,7 @@ pub struct Workspace {
     bfilter: String,
     field: Option<Field>,
     /// A context menu open at the pointer, and the repository's address on the web.
-    ctx_menu: gpui::Entity<artoo_shell::menu::Menu<Act>>,
+    ctx_menu: gpui::Entity<artoo_ui_kit::menu::Menu<Act>>,
     web: Option<crate::git::WebRemote>,
     /// The host `web` is on, set with it.
     host: Option<Arc<dyn Host>>,

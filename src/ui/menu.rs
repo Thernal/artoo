@@ -1,11 +1,11 @@
 //! A context menu at the pointer (right click on a commit, a file or a line; the diff's View
-//! menu), the tab's side: the menu is the shell's (`artoo_shell::menu`), the actions its entries run
+//! menu), the tab's side: the menu is the kit's (`artoo_ui_kit::menu`), the actions its entries run
 //! the tab's: copy, open in the web or the editor, toggle a view option.
 
 use super::{Opt, Workspace};
 use crate::editor;
 use crate::storage::DiffMode;
-use artoo_shell::menu::Menu;
+use artoo_ui_kit::menu::Menu;
 use gpui::{AppContext, ClipboardItem, Context, Pixels, Point};
 use std::rc::Rc;
 
@@ -83,10 +83,10 @@ pub enum Act {
 }
 
 /// A menu's entry doing one of the tab's acts.
-pub type Entry = artoo_shell::menu::Entry<Act>;
+pub type Entry = artoo_ui_kit::menu::Entry<Act>;
 
 /// The menu's width, unless its entries need more room (#164).
-pub(super) use artoo_shell::menu::WIDTH;
+pub(super) use artoo_ui_kit::menu::WIDTH;
 
 /// A tab's context menu, its entries run by the tab.
 pub(super) fn menu(cx: &mut Context<Workspace>) -> gpui::Entity<Menu<Act>> {

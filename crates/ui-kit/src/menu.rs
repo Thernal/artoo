@@ -1,7 +1,7 @@
 //! A context menu at the pointer (right click on a commit, a file or a line; the diff's View menu): entries in
 //! groups, each doing an act of the tab's kind `A`, handed to the runner the tab gave once the menu has let go.
 
-use artoo_ui_kit::{ISLAND_RADIUS, hover, keys, motion, px, row, theme, ui_zoom};
+use crate::{ISLAND_RADIUS, hover, keys, motion, px, row, theme, ui_zoom};
 use gpui::{
     App, Context, MouseButton, Pixels, Point, Render, SharedString, Window, div, prelude::*,
 };

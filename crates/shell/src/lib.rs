@@ -1,5 +1,5 @@
-//! The window's frame (#165 stage 4): what surrounds the pages features draw — the keys and their card, toasts, the
-//! context menu, the repository tabs and the rail, the title bar, the stripe and its tool windows, the page bar and
+//! The window's frame (#165 stage 4): what surrounds the pages features draw — the keys and their card, the
+//! repository tabs and the rail, the title bar, the stripe and its tool windows, the page bar and
 //! the spaces' menu, the body's row and its splitters, which input has the keyboard, search everywhere's window,
 //! Settings' frame, Set up's, the welcome, so far.
 //! The tab (the app's) composes: it makes the features' entities and their hosts, and hands the frame what it draws
@@ -9,7 +9,6 @@ mod bar;
 mod frame;
 pub mod keyboard;
 pub mod keymap;
-pub mod menu;
 mod palette;
 mod rail;
 mod settings;
@@ -18,7 +17,6 @@ mod shortcuts;
 mod spaces;
 pub mod tabs;
 mod title;
-pub mod toast;
 mod tools;
 mod welcome;
 

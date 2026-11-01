@@ -1,6 +1,6 @@
 //! Artoo's design system (#165): the theme and its tokens, the interface size, icons, keys drawn as
-//! keycaps, motion, how a row gives way as its list narrows, a monogram, and the words and formats the window
-//! uses.
+//! keycaps, motion, how a row gives way as its list narrows, a monogram, a context menu and toasts, and the words
+//! and formats the window uses.
 //! A module draws with this and GPUI alone.
 
 pub mod complete;
@@ -15,6 +15,7 @@ pub mod icons;
 pub mod input;
 pub mod keys;
 pub mod markdown;
+pub mod menu;
 pub mod monogram;
 pub mod motion;
 pub mod panel;
@@ -22,6 +23,7 @@ pub mod people;
 pub mod pictures;
 pub mod room;
 pub mod theme;
+pub mod toast;
 pub mod words;
 
 use artoo_core::{highlight, platform, storage, textedit, themes};

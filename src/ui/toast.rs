@@ -1,9 +1,9 @@
-//! Errors as desktop notifications, the tab's side: the toasts are the shell's (`artoo_shell::toast`). Code still
+//! Errors as desktop notifications, the tab's side: the toasts are the kit's (`artoo_ui_kit::toast`). Code still
 //! reports an error by setting `Workspace::error`; each frame moves it there. A deleted draft's toast says so and
 //! offers Undo instead (#76); what an agent left offers to go and see it (`Act`, #150).
 
 use super::Workspace;
-use artoo_shell::toast::Toasts;
+use artoo_ui_kit::toast::Toasts;
 use gpui::{App, Context, Entity, SharedString, prelude::*};
 use std::cell::Cell;
 use std::rc::Rc;
