@@ -1,6 +1,6 @@
 [package]
 name = "artoo-shell"
-description = "The window's frame (#165): the keys, toasts, menus and the chrome around what features draw."
+description = "The window's frame (#165): the chrome around what features draw, behind its render contracts."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,6 +12,3 @@ artoo-ui-kit = { path = "../ui-kit" }
 # The frame's render contracts: what it draws for the tab, and how the tab asks.
 artoo-shell-api = { path = "../shell-api" }
 gpui.workspace = true
-
-[dev-dependencies]
-artoo-core = { path = "../core", features = ["sandbox"] }
