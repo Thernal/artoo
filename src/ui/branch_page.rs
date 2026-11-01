@@ -9,22 +9,15 @@ use super::Workspace;
 use gpui::Context;
 
 impl Workspace {
-    /// Shows the branch loaded against the main line since they parted: its Changes.
+    /// Shows the branch loaded against the main line since they parted: its Changes
+    /// (`History::show_branch_compare`).
     pub(super) fn run_branch_compare(&mut self, cx: &mut Context<Self>) {
-        let (Some(ix), Some(base)) = (
-            self.history.read(cx).branch,
-            self.history
-                .read(cx)
-                .page
-                .as_ref()
-                .and_then(|f| f.base.clone()),
-        ) else {
-            return;
-        };
-        let Some(b) = self.history.read(cx).branches.get(ix) else {
-            return;
-        };
-        let head = (b.name.clone(), b.tip);
-        self.run_compare(base, head, true, None, cx);
+        let review = self.review_handle();
+        if self
+            .history
+            .update(cx, |h, cx| h.show_branch_compare(&*review, cx))
+        {
+            cx.notify();
+        }
     }
 }

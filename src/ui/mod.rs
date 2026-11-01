@@ -2204,48 +2204,30 @@ impl Workspace {
     }
 
     /// The branch open was read: its page — the branch against the main line, or the commit asked for —, or a
-    /// request on it waiting for its commits.
+    /// request on it waiting for its commits (`History::show_read`). The page follows what it shows, its commits
+    /// are kept among the places opened lately, and a link or a draft waiting for it goes on.
     fn branch_read(&mut self, cx: &mut Context<Self>) {
-        let Some(shown) = self.history.update(cx, |h, _| h.settle()) else {
+        let versions = self.requests.read(cx).versions.clone();
+        let review = self.review_handle();
+        let Some(settled) = self
+            .history
+            .update(cx, |h, cx| h.show_read(versions.as_ref(), &*review, cx))
+        else {
             return;
         };
-        self.refilter(cx);
-        self.index_paths(cx);
-        let ix = shown
-            .keep
-            .and_then(|id| {
-                self.history
-                    .read(cx)
-                    .commits
-                    .iter()
-                    .position(|c| c.id == id)
-            })
-            .unwrap_or(0);
-        if shown.tabbed && shown.keep.is_none() {
-            if !self.finish_pending(cx) {
-                self.run_branch_compare(cx);
-            }
-            self.follow_pending_link(cx);
-            self.open_waiting_draft(cx);
-            return;
+        if settled.follow {
+            self.record(cx);
         }
-        if !self.history.read(cx).commits.is_empty() {
-            self.select_commit(ix, cx);
-        }
-        let requests = &self.requests;
-        let pending = self.history.update(cx, |h, cx| {
-            h.open_pending_request(requests.read(cx).versions.as_ref())
-        });
-        if let Some((base, head, iid)) = pending {
-            // A commit or versions of it waited for its commits (#71); else the whole request.
-            if !self.finish_pending(cx) {
-                self.run_compare(base, head, true, Some(iid), cx);
-            }
-        } else {
-            self.finish_pending(cx);
+        for commit in settled.commits {
+            self.remember_place(
+                recents::Key::Commit(commit.id),
+                commit.summary.clone(),
+                format!("commit {}", format::short(commit.id)),
+            );
         }
         self.follow_pending_link(cx);
         self.open_waiting_draft(cx);
+        cx.notify();
     }
 
     fn select_commit(&mut self, ix: usize, cx: &mut Context<Self>) {

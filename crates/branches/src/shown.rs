@@ -5,11 +5,87 @@
 //! stay the tab's.
 
 use crate::history::{History, Selection, VersionTab};
-use artoo_core::git::CommitInfo;
+use artoo_core::git::{CommitInfo, Version};
 use artoo_review_api::{Review, Source};
 use gpui::{App, Context, ScrollStrategy};
 
+/// What showing a branch read came to (`History::show_read`).
+pub struct Settled {
+    /// The commits shown, in order: the tab keeps them among the places opened lately.
+    pub commits: Vec<CommitInfo>,
+    /// A page of the branch or of the request on it is shown, which the page on screen follows; not the branch's
+    /// own Changes.
+    pub follow: bool,
+}
+
 impl History {
+    /// The branch read shown (`settle`), its commits filtered and their paths indexed: a branch with its own commits
+    /// shows the page waiting or its Changes; another the commit asked for or its newest, then the request that
+    /// waited for its commits (`versions` the host's of it) — the page of it waiting, or its whole diff —, else the
+    /// page waiting. None when nothing was read.
+    pub fn show_read(
+        &mut self,
+        versions: Option<&(u64, Vec<Version>)>,
+        review: &dyn Review,
+        cx: &mut Context<Self>,
+    ) -> Option<Settled> {
+        let shown = self.settle()?;
+        self.refilter();
+        self.index_paths(cx);
+        let mut commits = Vec::new();
+        if shown.tabbed && shown.keep.is_none() {
+            let finished = self.finish_waiting(review, cx);
+            let follow = finished.is_some();
+            match finished {
+                Some(finished) => commits.extend(finished.commit),
+                None => {
+                    self.show_branch_compare(review, cx);
+                }
+            }
+            return Some(Settled { commits, follow });
+        }
+        let ix = shown
+            .keep
+            .and_then(|id| self.commits.iter().position(|c| c.id == id))
+            .unwrap_or(0);
+        if !self.commits.is_empty() {
+            commits.extend(self.show_commit(ix, None, review, cx));
+        }
+        let mut follow = !commits.is_empty();
+        let pending = self.open_pending_request(versions);
+        match self.finish_waiting(review, cx) {
+            Some(finished) => {
+                follow = true;
+                commits.extend(finished.commit);
+            }
+            // A commit or versions of it waited for its commits (#71); else the whole request.
+            None => {
+                if let Some((base, head, iid)) = pending {
+                    self.show_compare(base, head, true, Some(iid), review, cx);
+                    self.compare = None;
+                    follow = true;
+                }
+            }
+        }
+        Some(Settled { commits, follow })
+    }
+
+    /// The branch open against the main line since they parted: its Changes. Whether it has a base.
+    pub fn show_branch_compare(&mut self, review: &dyn Review, cx: &mut App) -> bool {
+        let (Some(ix), Some(base)) = (self.branch, self.page.as_ref().and_then(|f| f.base.clone()))
+        else {
+            return false;
+        };
+        let Some(b) = self.branches.get(ix) else {
+            return false;
+        };
+        let head = (b.name.clone(), b.tip);
+        self.show_compare(base, head, true, None, review, cx);
+        // The comparison's own commits are its own page's; the branch's are its Commits.
+        self.compare = None;
+        true
+    }
+
     /// Branch `ix` opened at commit `keep`, however old: no request on it until one opens it, what the branch
     /// before showed forgotten (`forget`), and it is read (`read_branch`). Whether there is such a branch.
     pub fn open_branch(
