@@ -38,10 +38,11 @@ pub fn install(cx: &mut App) {
 }
 
 /// The parts of a tab that offers its review; none in one that does not.
-fn parts(frame: Rc<dyn Frame>, _: &mut Window, _: &mut App) -> Parts {
+fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     let Some(review) = frame.services().get::<Entity<review::Review>>() else {
         return Parts::default();
     };
+    review.update(cx, |rv, _| rv.frame = Some(Rc::downgrade(&frame)));
     Parts {
         inputs: vec![find::input(review.clone()), goline::input(review)],
         ..Default::default()

@@ -1544,8 +1544,6 @@ pub struct Workspace {
     history: gpui::Entity<History>,
     /// What the tab's features offer one another (`Frame::services`): Code among them (#165).
     services: Rc<artoo_shell_api::Services>,
-    /// The tab as its parts reach it.
-    frame: Rc<dyn artoo_shell_api::Frame>,
     /// The project is a plain folder, not a git repository: Code is all it has (#75).
     plain: bool,
     /// The project's main working tree: where its notes for the agents are kept, whatever
@@ -1808,6 +1806,7 @@ impl Workspace {
             file_scroll: UniformListScrollHandle::new(),
             diff_task: None,
             view_task: None,
+            frame: None,
         });
         let services = Rc::new(artoo_shell_api::Services::default());
         let frame: Rc<dyn artoo_shell_api::Frame> =
@@ -1865,7 +1864,6 @@ impl Workspace {
             title: String::new(),
             history: cx.new(|_| History::default()),
             services: services.clone(),
-            frame: frame.clone(),
             plain: false,
             project: None,
             palette: None,
@@ -3110,7 +3108,7 @@ impl Workspace {
         };
         let host = Rc::new(TabHost(this));
         self.review
-            .update(cx, |rv, cx| rv.render_column(look, &self.frame, host, cx))
+            .update(cx, |rv, cx| rv.render_column(look, host, cx))
     }
 
     /// What the screen shows, in a few words: zen's one line on top, a request's or what the diff is of.

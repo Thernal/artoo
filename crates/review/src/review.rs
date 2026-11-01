@@ -137,6 +137,9 @@ pub struct Review {
     pub file_scroll: UniformListScrollHandle,
     pub diff_task: Option<Task<()>>,
     pub view_task: Option<Task<()>>,
+    /// The tab as its parts reach it, once the review's are made (`install`): a press in a field of the column
+    /// asks it for the keyboard. Weak: the tab's services hold the review.
+    pub frame: Option<std::rc::Weak<dyn artoo_shell_api::Frame>>,
 }
 
 /// What the review says to the tab that holds it, which follows (`Workspace::review_event`).
@@ -176,6 +179,17 @@ pub fn handle(review: &Entity<Review>) -> Rc<dyn artoo_review_api::Review> {
 struct Handle(WeakEntity<Review>);
 
 impl artoo_review_api::Review for Handle {
+    fn column(
+        &self,
+        look: artoo_review_api::ColumnLook,
+        host: Rc<dyn Host>,
+        cx: &mut App,
+    ) -> gpui::AnyElement {
+        self.0
+            .update(cx, |rv, cx| rv.render_column(look, host, cx))
+            .unwrap_or_else(|_| gpui::div().into_any_element())
+    }
+
     fn open(&self, source: Source, keep: Option<String>, cx: &mut App) {
         self.0.update(cx, |rv, cx| rv.open(source, keep, cx)).ok();
     }

@@ -1,7 +1,7 @@
 //! The review's contract (#165 stage 4): what a page asks of the tab's review. What a diff is of (`Source`): a
 //! commit, a run of commits, two versions, an interdiff, the working tree, a comparison — the review reads it, a page
-//! opening one through the review's handle (`Review`). The
-//! file Code reads (#71, #75): read at a revision, which one is read, closed. The review draws it; the page puts it
+//! opening one through the review's handle (`Review`), which draws the diff's column with what the shell and the
+//! other features put on it (`ColumnLook`). The file Code reads (#71, #75): read at a revision, which one is read, closed. The review draws it; the page puts it
 //! where it goes. What the review's host draws on its rows and does with their events (`Host`, `LineEvent`,
 //! `FileEvent`, `PaneEvent`, `ChangesEvent`). And how far your review of a merge request got (`Seen`), which the requests list groups by.
 //!
@@ -13,8 +13,9 @@ pub mod diff;
 use artoo_core::git::{CommitInfo, PairCommit, Version};
 use artoo_core::rows::Row;
 use git2::Oid;
-use gpui::App;
+use gpui::{AnyElement, App, Rgba};
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// What a diff the review shows is of; it reads it from the repository with its own root and settings.
@@ -75,6 +76,31 @@ pub trait Review {
 
     /// That card goes.
     fn close_done(&self, cx: &mut App);
+
+    /// The diff's column with what `look` brings, its rows' pins and its clicks `host`'s.
+    fn column(&self, look: ColumnLook, host: Rc<dyn Host>, cx: &mut App) -> AnyElement;
+}
+
+/// What the shell and the other features put on the diff's column (`Review::column`), drawn by them.
+pub struct ColumnLook {
+    /// The pane's border: whether the keyboard works in it.
+    pub border: Rgba,
+    /// Over the toolbar, in order: the parts' (a new request's switch, an outdated discussion's stepper).
+    pub top: Vec<AnyElement>,
+    /// The toolbar's left, saying which range is shown: a part's.
+    pub bar: Option<AnyElement>,
+    /// View ▾'s menu is open.
+    pub menu_open: bool,
+    /// On the file's line after its changes: the app it opens in.
+    pub open_in: Option<AnyElement>,
+    /// Over the rows once the last file is marked: the parts' cards.
+    pub cards: Vec<AnyElement>,
+    /// The file as a page, when it is shown so.
+    pub alone: Option<AnyElement>,
+    /// Zen shows one file at a time.
+    pub zen_one: bool,
+    /// The part's input with the keyboard (the find bar's field, the line typed after `c`).
+    pub typing: Option<&'static str>,
 }
 
 /// The file a page reads through the tab's review.
