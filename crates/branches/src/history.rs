@@ -91,6 +91,10 @@ pub struct History {
     pub(crate) read: Option<Read>,
     /// How its sections of the side panel are folded.
     pub sections: crate::panel::Sections,
+    /// Newer commits the watch found on the branch, until the user asks for them (`news`).
+    pub pending: Option<crate::news::Pending>,
+    /// Versions from this index on arrived since the user last looked.
+    pub new_from: Option<usize>,
 }
 
 /// What the tab hears of the history's reads.
@@ -164,6 +168,8 @@ pub enum Act {
     VersionTab(VersionTab),
     /// A commit's message open under its title, or folded.
     Message,
+    /// The pill's newer commits listed.
+    ShowNew,
     /// Text to the clipboard: a commit's id.
     Copy(String),
     /// A page on the host: a commit's.
@@ -252,6 +258,8 @@ impl Default for History {
             task: None,
             read: None,
             sections: Default::default(),
+            pending: None,
+            new_from: None,
         }
     }
 }

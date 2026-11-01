@@ -16,6 +16,7 @@ pub mod find;
 pub mod head;
 pub mod history;
 pub mod list;
+pub mod news;
 pub mod opening;
 pub mod page;
 pub mod pairs;

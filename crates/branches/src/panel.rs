@@ -92,8 +92,6 @@ pub struct CommitsLook {
     pub working: usize,
     /// The search's field, as the tab gives it the keyboard.
     pub field: Option<AnyElement>,
-    /// The new commits' pill.
-    pub pill: Option<AnyElement>,
     /// The lists' widths, its rows' room measured as `side-commits`.
     pub widths: Widths,
     /// The repository's web address, for a card's link.
@@ -121,7 +119,7 @@ impl History {
 
     /// The Versions section: its rows under its header, folded or open; those from `new_from` on arrived since the
     /// user last looked.
-    pub fn versions_section(&self, new_from: Option<usize>, acts: &Acts) -> AnyElement {
+    pub fn versions_section(&self, acts: &Acts) -> AnyElement {
         let folded = self.sections.versions;
         let summary = match self.selection {
             Selection::Versions { from, to } => format!(
@@ -154,7 +152,11 @@ impl History {
                     .id("versions-list")
                     .max_h(px(240.))
                     .overflow_y_scroll()
-                    .child(div().pb(px(6.)).child(version_rows(self, new_from, acts))),
+                    .child(
+                        div()
+                            .pb(px(6.))
+                            .child(version_rows(self, self.new_from, acts)),
+                    ),
             ))
             .into_any_element()
     }
@@ -212,7 +214,7 @@ impl History {
             .child(head(Fold::Commits, header, &acts))
             .when(self.commits_drawn(), |s| {
                 s.children(look.field)
-                    .children(look.pill)
+                    .children(self.pill(&acts))
                     .child(self.render_commits(
                         look.widths.clone(),
                         look.web.clone(),

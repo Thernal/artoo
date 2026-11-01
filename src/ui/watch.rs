@@ -6,6 +6,7 @@ use super::px;
 use super::{COMMIT_PAGE, Selection, Workspace, theme};
 use crate::git::{self, BranchRef, CommitInfo, Repo, Version};
 use artoo_branches::history::Older;
+use artoo_branches::news::Pending;
 use gpui::{App, ClickEvent, Context, Rgba, Task, div, prelude::*};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -43,21 +44,10 @@ impl Status {
     }
 }
 
-/// What a refresh found on the open branch, held back until the user asks for it.
-pub struct Pending {
-    commits: Vec<CommitInfo>,
-    versions: Vec<Version>,
-    /// New commits on top of the ones shown; `None` when the branch was rewritten.
-    new: Option<usize>,
-}
-
 pub struct Watch {
     git_dir: Option<PathBuf>,
     fingerprint: u64,
     pub status: Status,
-    pub pending: Option<Pending>,
-    /// Versions from this index on arrived since the user last looked.
-    pub new_from: Option<usize>,
     task: Option<Task<()>>,
     flash: Option<Task<()>>,
 }
@@ -68,8 +58,6 @@ impl Default for Watch {
             git_dir: None,
             fingerprint: 0,
             status: Status::UpToDate,
-            pending: None,
-            new_from: None,
             task: None,
             flash: None,
         }
@@ -82,18 +70,18 @@ impl Watch {
         self.git_dir = Some(git_dir);
         self.fingerprint = fingerprint;
         self.status = Status::UpToDate;
-        self.forget();
-    }
-
-    /// The user moved to another branch: what was found on the old one no longer applies.
-    pub fn forget(&mut self) {
-        self.pending = None;
-        self.new_from = None;
         self.task = None;
     }
 }
 
 impl Workspace {
+    /// The user moved to another branch, or reads it anew: what was found on the old one no
+    /// longer applies (the history's news), nor does a read under way.
+    pub(super) fn forget_news(&mut self, cx: &mut App) {
+        self.watch.task = None;
+        self.history.update(cx, |h, _| h.forget_news());
+    }
+
     /// Starts the polling loop for the life of the window.
     pub(super) fn start_watching(
         shown: std::rc::Rc<std::cell::Cell<bool>>,
@@ -251,35 +239,33 @@ impl Workspace {
         let old_first = self.history.read(cx).commits.first().map(|c| c.id);
         let first_same = old_first == commits.first().map(|c| c.id);
         if first_same && versions.len() == self.history.read(cx).versions.len() {
-            self.watch.pending = None;
+            self.history.update(cx, |h, _| h.pending = None);
             return self.set_status(Status::UpToDate, cx);
         }
         let new = old_first.and_then(|id| commits.iter().position(|c| c.id == id));
         if first_same {
             // Only the reflog moved: a new version of the same history.
             let seen = self.history.read(cx).versions.len();
-            self.mark_new_versions(versions.len(), cx);
-            self.history.update(cx, |h, _| h.versions = versions);
+            self.history.update(cx, |h, _| {
+                h.mark_new_versions(versions.len());
+                h.versions = versions
+            });
             self.follow_latest_version(seen, cx);
             return self.set_status(Status::Reloaded, cx);
         }
-        self.watch.pending = Some(Pending {
-            commits,
-            versions,
-            new,
+        self.history.update(cx, |h, _| {
+            h.pending = Some(Pending {
+                commits,
+                versions,
+                new,
+            })
         });
         self.set_status(Status::UpToDate, cx);
     }
 
-    fn mark_new_versions(&mut self, len: usize, cx: &App) {
-        if len > self.history.read(cx).versions.len() {
-            self.watch.new_from = Some(self.history.read(cx).versions.len());
-        }
-    }
-
     /// Shows what a refresh found: the new commits at the top, the selection and scroll kept.
     pub(super) fn apply_pending(&mut self, cx: &mut Context<Self>) {
-        let Some(pending) = self.watch.pending.take() else {
+        let Some(pending) = self.history.update(cx, |h, _| h.pending.take()) else {
             return;
         };
         let selected = match self.history.read(cx).selection {
@@ -287,8 +273,8 @@ impl Workspace {
             _ => None,
         };
         let seen = self.history.read(cx).versions.len();
-        self.mark_new_versions(pending.versions.len(), cx);
         self.history.update(cx, |h, _| {
+            h.mark_new_versions(pending.versions.len());
             h.versions = pending.versions;
             h.commits = pending.commits;
             // Older history goes on from the new tip.
@@ -410,38 +396,6 @@ impl Workspace {
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                     this.refresh(&super::Refresh, window, cx)
                 })),
-        )
-    }
-
-    /// "↑ 2 new commits · Show", above the commit list.
-    pub(super) fn render_pill(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
-        let pending = self.watch.pending.as_ref()?;
-        let text = match pending.new {
-            Some(1) => "1 new commit".to_owned(),
-            Some(n) => format!("{n} new commits"),
-            None => "The branch was rewritten".to_owned(),
-        };
-        Some(
-            div()
-                .id("pill")
-                .flex_none()
-                .flex()
-                .items_center()
-                .gap_2()
-                .mx(px(6.))
-                .mb(px(6.))
-                .px(px(10.))
-                .py(px(6.))
-                .rounded(px(super::ROW_RADIUS))
-                .bg(theme::info_bg())
-                .text_size(px(11.))
-                .text_color(theme::accent())
-                .cursor_pointer()
-                .hover(|s| s.bg(theme::selected()))
-                .child("↑")
-                .child(div().flex_1().child(text))
-                .child(div().text_color(theme::muted()).child("Show"))
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.apply_pending(cx))),
         )
     }
 }

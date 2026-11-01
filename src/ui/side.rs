@@ -63,6 +63,7 @@ impl Workspace {
                     this.history.update(cx, |h, _| h.version_tab = tab);
                     cx.notify();
                 }
+                Act::ShowNew => this.apply_pending(cx),
                 Act::Message => {
                     this.history
                         .update(cx, |h, _| h.message_open = !h.message_open);
@@ -172,7 +173,7 @@ impl Workspace {
             sections.push(
                 self.history
                     .read(cx)
-                    .versions_section(self.watch.new_from, &self.history_acts(cx)),
+                    .versions_section(&self.history_acts(cx)),
             );
         }
 
@@ -184,9 +185,6 @@ impl Workspace {
                 working: self.history.read(cx).wt.count,
                 field: (rows && self.history.read(cx).find.text.is_some())
                     .then(|| self.render_find(cx).into_any_element()),
-                pill: rows
-                    .then(|| self.render_pill(cx).map(IntoElement::into_any_element))
-                    .flatten(),
                 widths: self.widths.clone(),
                 web: self.web.clone(),
             };

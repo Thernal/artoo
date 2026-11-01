@@ -2056,6 +2056,7 @@ impl Workspace {
                             this.compose = None;
                         }
                         this.watch.watch(git_dir, fingerprint);
+                        this.history.update(cx, |h, _| h.forget_news());
                         this.start_working_poll(cx);
                         this.load_requests(cx);
                         // The documents this repository reads as Source (#11).
@@ -2160,7 +2161,7 @@ impl Workspace {
     }
 
     fn clear_branch(&mut self, cx: &mut App) {
-        self.watch.forget();
+        self.forget_news(cx);
         let review = self.review_handle();
         self.history.update(cx, |h, cx| h.forget(&*review, cx));
     }
@@ -2183,7 +2184,7 @@ impl Workspace {
     /// is the one open.
     pub(super) fn branch_opened(&mut self, ix: usize, read: bool, cx: &mut Context<Self>) {
         if read {
-            self.watch.forget();
+            self.forget_news(cx);
         }
         self.sync_request(ix, cx);
         cx.notify();
@@ -2775,7 +2776,7 @@ impl Workspace {
             _ => None,
         };
         let keep = branch.map(|b| (b.refname.clone(), commit));
-        self.watch.forget();
+        self.forget_news(cx);
         self.open_repo(root, keep, cx);
     }
 

@@ -382,7 +382,7 @@ impl Render for Shell {
                 let w = t.read(cx);
                 TabInfo {
                     title: w.tab_title(),
-                    news: i != self.active && w.has_news(),
+                    news: i != self.active && w.has_news(cx),
                     active: i == self.active,
                     root: w.root.clone(),
                     unread: w.inbox_unread(cx),
@@ -403,8 +403,8 @@ impl Workspace {
             .map_or_else(|| "New tab".to_owned(), crate::labels::project_name)
     }
 
-    pub(super) fn has_news(&self) -> bool {
-        self.watch.pending.is_some() || self.watch.new_from.is_some()
+    pub(super) fn has_news(&self, cx: &gpui::App) -> bool {
+        self.history.read(cx).has_news()
     }
 
     /// Runs `f` on the shell this workspace is a tab of.
