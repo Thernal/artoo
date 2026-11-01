@@ -6,7 +6,7 @@ use super::menu::{Act, Entry};
 use super::shell::TabInfo;
 use crate::storage::Projects;
 use artoo_shell_api::tabs::{self as rail, TabsHost};
-pub(super) use artoo_ui_kit::project::{hue, hue_at, initials, project_mark};
+pub(super) use artoo_ui_kit::monogram::{hue, hue_at, initials, monogram};
 use gpui::{App, Context, IntoElement, Pixels, Point, WeakEntity, Window};
 use std::rc::Rc;
 

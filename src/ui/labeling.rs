@@ -143,7 +143,7 @@ impl Workspace {
                 Some(h) => super::rail::hue_at(h),
                 None => super::rail::hue(&edit.fallback),
             };
-            super::rail::project_mark(&super::rail::initials(&shown), tint, 34.)
+            super::rail::monogram(&super::rail::initials(&shown), tint, 34.)
         });
         let field = div()
             .id("label-name")

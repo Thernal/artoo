@@ -1,12 +1,12 @@
 //! A theme drawn small, as Settings → Appearance and Set up pick one (Design #12 A + C, `docs/specs/themes.md`,
-//! flow 09): a Window theme's card — tabs down the left, the code as bars in the theme's syntax colours and diff
+//! flow 09); Appearance's own, so it goes where its page goes: a Window theme's card — tabs down the left, the code as bars in the theme's syntax colours and diff
 //! tints —, a Code theme's syntax sample, the cards' frame and rows, the editor's preview of a request's header, a
 //! piece of diff and a discussion, and the editor's rows of tokens. The screen keeps the theme being edited and
 //! what a click does.
 
-use crate::format::plural;
-use crate::{ROW_RADIUS, hover, icons, px, theme};
 use artoo_core::themes::{self, T, TOKENS, Theme};
+use artoo_ui_kit::format::plural;
+use artoo_ui_kit::{ROW_RADIUS, hover, icons, px, theme};
 use gpui::{
     AnyElement, Div, FontWeight, HighlightStyle, Rgba, StyledText, div, prelude::*, relative, rgba,
 };
@@ -540,7 +540,7 @@ pub fn card(
     on: bool,
     extra: Option<AnyElement>,
 ) -> gpui::Stateful<Div> {
-    use crate::hover::Hover;
+    use artoo_ui_kit::hover::Hover;
     div()
         .id(id)
         .flex_1()

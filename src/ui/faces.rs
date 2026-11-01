@@ -1,8 +1,8 @@
-//! Settings → Appearance → Fonts and size's helpers (#24 A): the faces a face's menu offers, a face's name and
+//! Settings → Appearance → Fonts and size's helpers (#24 A, `fonts.rs`): the faces a face's menu offers, a face's name and
 //! family, and the line saying where the narrow layout folds at an interface size (`narrow`: the steps grow with it).
 
-use crate::narrow::{FLOAT, MENU, SIDE};
-use crate::theme;
+use super::narrow::{FLOAT, MENU, SIDE};
+use artoo_ui_kit::theme;
 
 /// Faces a face's menu offers when they are installed; Other… lists every one.
 pub const UI_FACES: [&str; 5] = [

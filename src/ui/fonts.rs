@@ -3,13 +3,13 @@
 //! of them in ⌘K's window —, the code's size in points, the interface size, and a line saying
 //! where the narrow layout folds at that size (`narrow.rs`: the steps grow with it).
 
+use super::faces::{CODE_FACES, UI_FACES, fold_line, short_list};
+pub(super) use super::faces::{face_family, face_label, installed};
 use super::menu::{Act, Entry};
 use super::palette::Kind;
 use super::settings::item;
 use super::{ROW_RADIUS, Workspace, icons, px, theme};
 use artoo_ui_kit::controls::{chip, group};
-use artoo_ui_kit::fonts::{CODE_FACES, UI_FACES, fold_line, short_list};
-pub(super) use artoo_ui_kit::fonts::{face_family, face_label, installed};
 use gpui::{AnyElement, ClickEvent, Context, Pixels, Point, div, prelude::*};
 
 /// The code's size in points at code size `zoom` (%), as the diff draws it.

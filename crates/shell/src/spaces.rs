@@ -3,11 +3,12 @@
 //! what it needs. In Menu mode the spaces nest under the active project's row (X13); folded, the menu is icons (D2).
 //! What is open, what waits and what a click does are the tab's (the contract `artoo_shell_api::spaces`).
 
+use crate::rail::project_hue;
 use artoo_shell_api::spaces::{Places, Space, SpaceRow, SpacesHost, SpacesMenu, SpacesRenderer};
 use artoo_ui_kit::controls::DragLabel;
 use artoo_ui_kit::hover::{self, CutInTip, Hover, Tip, TipOwned};
+use artoo_ui_kit::monogram::{initials, monogram};
 use artoo_ui_kit::motion::{self};
-use artoo_ui_kit::project::{initials, project_hue, project_mark};
 use artoo_ui_kit::{ROW_RADIUS, icons, px, theme, words};
 use gpui::{
     AnyElement, ClickEvent, FontWeight, MouseButton, MouseDownEvent, SharedString, canvas, div,
@@ -483,7 +484,7 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                 .cursor_pointer()
                 .when(tab.active, |s| s.bg(theme::hover()))
                 .hover(|s| s.bg(theme::hover()))
-                .child(project_mark(&mark, tint, 22.))
+                .child(monogram(&mark, tint, 22.))
                 .when(named, |s| {
                     s.child(motion::toward(
                         hover::cut(("menu-project-title", ix), tab.title.clone())
