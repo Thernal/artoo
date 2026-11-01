@@ -1,14 +1,50 @@
 //! What the diff shows of the history (#165 I1, I2): a commit, a run of them, two versions compared or an interdiff
 //! of theirs, the working tree, a comparison or a run of its commits — the selection on it, its diff opened through
-//! the review's contract, the message folded. Where the page goes and what it keeps of it (the history of pages, the places opened
-//! lately, a comparison's own commits) stay the tab's.
+//! the review's contract, the message folded —; a branch opened, what the one before showed forgotten. Where the
+//! page goes and what it keeps of it (the history of pages, the places opened lately, a comparison's own commits)
+//! stay the tab's.
 
 use crate::history::{History, Selection, VersionTab};
 use artoo_core::git::CommitInfo;
 use artoo_review_api::{Review, Source};
-use gpui::{App, ScrollStrategy};
+use gpui::{App, Context, ScrollStrategy};
 
 impl History {
+    /// Branch `ix` opened at commit `keep`, however old: no request on it until one opens it, what the branch
+    /// before showed forgotten (`forget`), and it is read (`read_branch`). Whether there is such a branch.
+    pub fn open_branch(
+        &mut self,
+        ix: usize,
+        keep: Option<git2::Oid>,
+        review: &dyn Review,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.open_request = None;
+        if self.root.is_none() || self.branches.get(ix).is_none() {
+            return false;
+        }
+        self.forget(review, cx);
+        self.read_branch(ix, keep, cx);
+        true
+    }
+
+    /// What the branch open showed is gone — its commits, versions and page —, the diff with it.
+    pub fn forget(&mut self, review: &dyn Review, cx: &mut App) {
+        self.branch = None;
+        self.page = None;
+        self.versions.clear();
+        self.commits.clear();
+        self.older = None;
+        self.clear_diff(review, cx);
+    }
+
+    /// Nothing picked, the message folded, the diff gone.
+    pub fn clear_diff(&mut self, review: &dyn Review, cx: &mut App) {
+        self.message_open = false;
+        self.selection = Selection::None;
+        review.clear(cx);
+    }
+
     /// Commit `ix` shown, its row in view, `keep` the file to open in it: the commit, when there is one.
     pub fn show_commit(
         &mut self,

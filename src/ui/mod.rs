@@ -2161,32 +2161,26 @@ impl Workspace {
 
     fn clear_branch(&mut self, cx: &mut App) {
         self.watch.forget();
-        self.history.update(cx, |h, _| {
-            h.branch = None;
-            h.page = None;
-            h.versions.clear();
-            h.commits.clear();
-            h.older = None;
-        });
-        self.clear_diff(cx);
+        let review = self.review_handle();
+        self.history.update(cx, |h, cx| h.forget(&*review, cx));
     }
 
     fn clear_diff(&mut self, cx: &mut App) {
-        self.history.update(cx, |h, _| {
-            h.message_open = false;
-            h.selection = Selection::None
-        });
-        self.review.update(cx, |rv, _| rv.clear());
+        let review = self.review_handle();
+        self.history.update(cx, |h, cx| h.clear_diff(&*review, cx));
     }
 
+    /// Branch `ix` opened at commit `keep` (`History::open_branch`): the watch starts over on it, and
+    /// the request on it, if any, is the one open.
     fn select_branch(&mut self, ix: usize, keep: Option<git2::Oid>, cx: &mut Context<Self>) {
-        self.history.update(cx, |h, _| h.open_request = None);
-        self.sync_request(ix, cx);
-        if self.root.is_none() || self.history.read(cx).branches.get(ix).is_none() {
-            return;
+        let review = self.review_handle();
+        if self
+            .history
+            .update(cx, |h, cx| h.open_branch(ix, keep, &*review, cx))
+        {
+            self.watch.forget();
         }
-        self.clear_branch(cx);
-        self.history.update(cx, |h, cx| h.read_branch(ix, keep, cx));
+        self.sync_request(ix, cx);
         cx.notify();
     }
 
