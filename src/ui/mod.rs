@@ -1,6 +1,6 @@
 //! The Artoo window: branches, versions and commits on the left, the diff on the right.
 
-use artoo_ui_kit::hover::{Tip, TipOwned};
+use artoo_ui_kit::hover::TipOwned;
 pub(crate) use artoo_ui_kit::{apply_ui_zoom, flat, px, ui_zoom};
 mod hover;
 use artoo_ui_kit::format::plural;

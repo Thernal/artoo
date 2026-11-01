@@ -6,7 +6,7 @@ use super::menu::{Act, Entry};
 use super::shell::TabInfo;
 use crate::storage::Projects;
 use artoo_shell::rail::{self, TabsHost};
-pub(super) use artoo_shell::rail::{hue, hue_at, initials, project_hue, project_mark};
+pub(super) use artoo_shell::rail::{hue, hue_at, initials, project_mark};
 use gpui::{App, Context, IntoElement, Pixels, Point, WeakEntity, Window};
 use std::rc::Rc;
 
@@ -83,7 +83,7 @@ impl Workspace {
         ))
     }
 
-    fn tabs_host(&self, cx: &mut Context<Self>) -> Rc<dyn TabsHost> {
+    pub(super) fn tabs_host(&self, cx: &mut Context<Self>) -> Rc<dyn TabsHost> {
         Rc::new(Host(cx.weak_entity()))
     }
 
