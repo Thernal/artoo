@@ -102,6 +102,7 @@ impl Preset {
     }
 
     /// The actions it gives other keys, on any OS.
+    #[cfg(test)]
     pub fn actions(self) -> impl Iterator<Item = &'static str> {
         self.changes()
             .iter()
@@ -231,6 +232,7 @@ impl Keymap {
     }
 
     /// `defaults` with `preset`'s keys and no change of the user's.
+    #[cfg(test)]
     pub fn with_preset(defaults: Vec<KeyBinding>, mac: bool, preset: Preset) -> Self {
         Self {
             defaults,

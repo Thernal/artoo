@@ -1,23 +1,33 @@
 //! The keyboard card: every key of the app in one place, grouped by what one is doing (the app gives the groups).
 //! `?` opens it; esc or a click closes it. Designed in round 2 of the review (`../Design/review/round-2.html`, A29).
 
-use crate::keymap::{self, Keymap};
 use artoo_shell_api::Hook;
-use artoo_shell_api::shortcuts::{Group, ShortcutsRenderer};
+use artoo_shell_api::shortcuts::{Group, Keys, OnPreset, ShortcutsRenderer};
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, keys, px, theme, words};
-use gpui::{AnyElement, App, ClickEvent, FontWeight, MouseButton, div, prelude::*};
+use gpui::{AnyElement, ClickEvent, FontWeight, MouseButton, div, prelude::*};
 
 /// The renderer, installed by `install`.
 pub(crate) struct Renderer;
 
 impl ShortcutsRenderer for Renderer {
-    fn card(&self, groups: &'static [Group], close: Hook, preset: Hook, cx: &App) -> AnyElement {
-        self::card(groups, close, preset, cx).into_any_element()
+    fn card(
+        &self,
+        groups: &'static [Group],
+        keys: Keys,
+        close: Hook,
+        pick: OnPreset,
+    ) -> AnyElement {
+        self::card(groups, keys, close, pick).into_any_element()
     }
 }
 
-/// The card over the window: `close` closes it (a click beside it, Close), `preset` follows a preset picked.
-fn card(groups: &'static [Group], close: Hook, preset: Hook, cx: &App) -> impl IntoElement + use<> {
+/// The card over the window: `close` closes it (a click beside it, Close), `pick` picks a preset.
+fn card(
+    groups: &'static [Group],
+    keys: Keys,
+    close: Hook,
+    pick: OnPreset,
+) -> impl IntoElement + use<> {
     let groups = groups.iter().map(|(title, rows)| {
         div()
             .w(px(344.))
@@ -103,8 +113,8 @@ fn card(groups: &'static [Group], close: Hook, preset: Hook, cx: &App) -> impl I
                                 .on_click(move |_: &ClickEvent, _, cx| close(cx)),
                         ),
                 )
-                .child(presets(preset, cx))
-                .children(changed_keys(cx))
+                .child(presets(keys.presets, pick))
+                .children(changed_keys(keys.changes))
                 .child(
                     div()
                         .id("shortcut-groups")
@@ -123,8 +133,7 @@ fn card(groups: &'static [Group], close: Hook, preset: Hook, cx: &App) -> impl I
 
 /// Which keys yours start from — Artoo's, Android Studio's or VS Code's (#54): chosen here when the card greets the
 /// first launch, as Settings → Keyboard does later.
-fn presets(picked: Hook, cx: &App) -> impl IntoElement + use<> {
-    let preset = cx.global::<Keymap>().preset();
+fn presets(presets: Vec<(&'static str, bool)>, pick: OnPreset) -> impl IntoElement + use<> {
     div()
         .flex()
         .flex_wrap()
@@ -133,17 +142,15 @@ fn presets(picked: Hook, cx: &App) -> impl IntoElement + use<> {
         .text_size(px(12.))
         .text_color(theme::muted())
         .child("Your keys start from")
-        .child(artoo_ui_kit::controls::group().children(
-            keymap::Preset::ALL.into_iter().enumerate().map(|(i, p)| {
-                let picked = picked.clone();
-                artoo_ui_kit::controls::chip(("card-preset", i), p.label(), p == preset).on_click(
-                    move |_: &ClickEvent, _, cx| {
-                        keymap::set_preset(p, cx);
-                        picked(cx);
-                    },
-                )
-            }),
-        ))
+        .child(
+            artoo_ui_kit::controls::group().children(presets.into_iter().enumerate().map(
+                |(i, (label, on))| {
+                    let pick = pick.clone();
+                    artoo_ui_kit::controls::chip(("card-preset", i), label, on)
+                        .on_click(move |_: &ClickEvent, _, cx| pick(i, cx))
+                },
+            )),
+        )
         .child(
             div()
                 .text_color(theme::faint())
@@ -152,8 +159,7 @@ fn presets(picked: Hook, cx: &App) -> impl IntoElement + use<> {
 }
 
 /// The keys changed in Settings → Keyboard, above the shipped ones the card lists.
-fn changed_keys(cx: &App) -> Option<impl IntoElement + use<>> {
-    let changes = cx.global::<Keymap>().changes();
+fn changed_keys(changes: Vec<(String, Vec<String>)>) -> Option<impl IntoElement + use<>> {
     (!changes.is_empty()).then(|| {
         div()
             .px_3()
@@ -167,7 +173,6 @@ fn changed_keys(cx: &App) -> Option<impl IntoElement + use<>> {
                 changes
                     .iter()
                     .map(|(label, keys)| {
-                        let keys: Vec<String> = keys.iter().map(|k| keymap::symbols(k)).collect();
                         if keys.is_empty() {
                             format!("{label} (no key)")
                         } else {

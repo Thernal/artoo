@@ -2,7 +2,8 @@
 //! (`artoo_shell_api::shortcuts`).
 
 use super::Workspace;
-use artoo_shell_api::shortcuts::{self, Group};
+use super::keymap::{self, Keymap, Preset};
+use artoo_shell_api::shortcuts::{self, Group, Keys};
 use gpui::{Context, prelude::*};
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
@@ -119,8 +120,21 @@ impl Workspace {
             return None;
         }
         let (tab, menus) = (cx.entity().downgrade(), cx.entity().downgrade());
+        let keymap = cx.global::<Keymap>();
+        let keys = Keys {
+            presets: Preset::ALL
+                .into_iter()
+                .map(|p| (p.label(), p == keymap.preset()))
+                .collect(),
+            changes: keymap
+                .changes()
+                .into_iter()
+                .map(|(label, keys)| (label, keys.iter().map(|k| keymap::symbols(k)).collect()))
+                .collect(),
+        };
         Some(shortcuts::card(
             GROUPS,
+            keys,
             Rc::new(move |cx| {
                 tab.update(cx, |this, cx| {
                     this.shortcuts = false;
@@ -129,7 +143,8 @@ impl Workspace {
                 .ok();
             }),
             // A preset picked: the menus show its keys.
-            Rc::new(move |cx| {
+            Rc::new(move |ix, cx| {
+                keymap::set_preset(Preset::ALL[ix], cx);
                 menus
                     .update(cx, |this, cx| {
                         this.refresh_menus(cx);

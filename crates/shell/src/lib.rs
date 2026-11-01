@@ -1,4 +1,4 @@
-//! The window's frame (#165 stage 4): what surrounds the pages features draw — the keys and their card, the
+//! The window's frame (#165 stage 4): what surrounds the pages features draw — the keyboard card, the
 //! repository tabs and the rail, the title bar, the stripe and its tool windows, the page bar and
 //! the spaces' menu, the body's row and its splitters, search everywhere's window,
 //! Settings' frame, Set up's, the welcome, so far.
@@ -7,7 +7,6 @@
 
 mod bar;
 mod frame;
-pub mod keymap;
 mod palette;
 mod rail;
 mod settings;
