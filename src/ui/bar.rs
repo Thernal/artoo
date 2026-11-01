@@ -5,8 +5,13 @@
 
 use super::nav::Page;
 use super::spaces::Space;
-use super::{Workspace, format, island, px, theme, words};
-use gpui::{AnyElement, App, ClickEvent, Context, FontWeight, SharedString, div, prelude::*};
+use super::{Workspace, format, px, theme, words};
+use artoo_shell::bar;
+use gpui::{
+    AnyElement, App, ClickEvent, Context, FontWeight, Pixels, Point, WeakEntity, Window, div,
+    prelude::*,
+};
+use std::rc::Rc;
 
 /// A part of the path: its words, and the page it goes up to.
 struct Crumb {
@@ -63,157 +68,52 @@ impl Workspace {
         let public = space == Space::Requests && page.is_some();
         // Narrow, ‹ is one level up; ⌘[ and the title bar still go back (#80).
         let from = self.nav.from.filter(|_| page.is_some() && !self.compact());
-        let crumbs = path.into_iter().enumerate().map(|(n, crumb)| {
-            let link = crumb.to.clone();
-            // A folder of Code: its right click writes a note for your agent on it, and a note
-            // waiting there is its dot, as in the tree (A, 2026-10-23).
-            let folder = crumb.code_folder().map(str::to_owned);
-            let noted = folder
-                .as_deref()
-                .is_some_and(|f| self.folder_note_waits(f, cx));
-            let open = folder
-                .as_deref()
-                .is_some_and(|f| self.beside.as_ref().is_some_and(|b| b.folder == f));
-            let list = folder.as_deref().and_then(|f| self.render_beside(f, cx));
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .child(
-                    div()
-                        .id(SharedString::from(format!("crumb-{n}")))
-                        .relative()
-                        .flex()
-                        .items_center()
-                        .gap(px(4.))
-                        .when(crumb.mono, |s| s.font_family(theme::code_font()))
-                        .when(open, |s| s.text_color(theme::accent()))
-                        .child(words::say(&crumb.label).into_owned())
-                        .when(noted, |s| {
-                            s.child(div().size(px(6.)).rounded_full().bg(theme::agent()))
-                        })
-                        .when_some(link.filter(|_| folder.is_none()), |s, to| {
-                            s.cursor_pointer()
-                                .hover(|s| s.text_color(theme::accent()))
-                                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                    this.nav.from = None;
-                                    this.show(space, to.clone(), cx)
-                                }))
-                        })
-                        .when_some(folder, |s, folder| {
-                            let menu = folder.clone();
-                            s.cursor_pointer()
-                                .hover(|s| s.text_color(theme::accent()))
-                                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                    this.open_beside(folder.clone(), cx)
-                                }))
-                                .on_mouse_down(
-                                    gpui::MouseButton::Right,
-                                    cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
-                                        this.crumb_menu(menu.clone(), e.position, cx)
-                                    }),
-                                )
-                        })
-                        .children(list),
-                )
-                .child(div().text_color(theme::faint()).child("›"))
+        let links: Vec<Option<Option<Page>>> = path.iter().map(|c| c.to.clone()).collect();
+        let folders: Vec<Option<String>> = path
+            .iter()
+            .map(|c| c.code_folder().map(str::to_owned))
+            .collect();
+        let crumbs = path
+            .into_iter()
+            .map(|crumb| {
+                // A folder of Code: its right click writes a note for your agent on it, and a note
+                // waiting there is its dot, as in the tree (A, 2026-10-23).
+                let folder = crumb.code_folder().map(str::to_owned);
+                bar::Crumb {
+                    noted: folder
+                        .as_deref()
+                        .is_some_and(|f| self.folder_note_waits(f, cx)),
+                    open: folder
+                        .as_deref()
+                        .is_some_and(|f| self.beside.as_ref().is_some_and(|b| b.folder == f)),
+                    list: folder.as_deref().and_then(|f| self.render_beside(f, cx)),
+                    link: crumb.to.is_some(),
+                    folder: folder.is_some(),
+                    label: crumb.label,
+                    mono: crumb.mono,
+                }
+            })
+            .collect();
+        let host = Rc::new(BarGlue {
+            tab: cx.weak_entity(),
+            space,
+            up: up.clone(),
+            links,
+            folders,
         });
-        let bar = island()
-            .relative()
-            .overflow_hidden()
-            .flex_none()
-            .flex_row()
-            .h(px(44.))
-            .items_center()
-            .gap(px(12.))
-            .pl(px(14.))
-            .pr(px(8.))
-            .whitespace_nowrap()
-            .children(from.map(|from| {
-                div()
-                    .id("bar-from")
-                    .flex_none()
-                    .px(px(8.))
-                    .rounded_full()
-                    .bg(theme::hover())
-                    .text_size(px(11.))
-                    .text_color(theme::muted())
-                    .cursor_pointer()
-                    .hover(|s| s.text_color(theme::text()))
-                    .child(format!("‹ {}", words::say(space_name(from))))
-                    .tooltip_show_delay(super::hover::LONG)
-                    .tooltip(|_, cx| {
-                        cx.new(|_| super::Tip("Back where you came from  ⌘["))
-                            .into()
-                    })
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.go_back(cx)))
-            }))
-            .child(
-                div()
-                    .min_w_0()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .overflow_hidden()
-                    .text_color(theme::muted())
-                    .children(up.map(|to| {
-                        div()
-                            .id("crumb-up")
-                            .flex_none()
-                            .px(px(4.))
-                            .rounded(px(super::ROW_RADIUS))
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
-                            .child("‹")
-                            .tooltip_show_delay(super::hover::LONG)
-                            .tooltip(|_, cx| cx.new(|_| super::Tip("Up a level  esc")).into())
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.nav.from = None;
-                                this.show(space, to.clone(), cx)
-                            }))
-                    }))
-                    .children(crumbs)
-                    .child(self.title_hover(page.as_ref(), words::say(&id).into_owned(), mono, cx))
-                    .children(count.map(|n| {
-                        div()
-                            .flex_none()
-                            .ml(px(4.))
-                            .text_size(px(12.))
-                            .text_color(theme::faint())
-                            .child(n)
-                    })),
-            )
-            .children(self.view_of(space, page.as_ref(), cx))
-            .child(div().flex_1().min_w_0())
-            .child(
-                div()
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .children(self.actions_of(space, page.as_ref(), cx)),
-            )
-            // Public: what is done here is seen on GitLab (#71).
-            // Over the island's own border, its top edge turning down with its round corners (a
-            // strip would cross them square).
-            .when(public, |s| {
-                s.child(
-                    div()
-                        .absolute()
-                        .top(px(-1.))
-                        .left(px(-1.))
-                        .right(px(-1.))
-                        .bottom(px(-1.))
-                        .rounded(px(if super::flat() {
-                            0.
-                        } else {
-                            super::ISLAND_RADIUS
-                        }))
-                        .border_t_2()
-                        .border_color(theme::warning()),
-                )
-            });
-        Some(bar.into_any_element())
+        Some(bar::page_bar(
+            bar::PageBar {
+                from: from.map(space_name),
+                up: up.is_some(),
+                crumbs,
+                title: self.title_hover(page.as_ref(), words::say(&id).into_owned(), mono, cx),
+                count,
+                view: self.view_of(space, page.as_ref(), cx),
+                actions: self.actions_of(space, page.as_ref(), cx),
+                public,
+            },
+            host,
+        ))
     }
 
     /// A folder of the path's right click: a note for your agent on it, its path, Finder.
@@ -637,6 +537,63 @@ impl Workspace {
             _ => {}
         }
         out
+    }
+}
+
+/// What a click on the page bar does, answered by the tab.
+struct BarGlue {
+    tab: WeakEntity<Workspace>,
+    space: Space,
+    /// Where ‹ goes, narrow.
+    up: Option<Option<Page>>,
+    /// Where each crumb goes, and the folder of Code it is.
+    links: Vec<Option<Option<Page>>>,
+    folders: Vec<Option<String>>,
+}
+
+impl BarGlue {
+    fn show(&self, to: Option<Page>, cx: &mut App) {
+        let space = self.space;
+        self.tab
+            .update(cx, |this, cx| {
+                this.nav.from = None;
+                this.show(space, to, cx)
+            })
+            .ok();
+    }
+}
+
+impl bar::BarHost for BarGlue {
+    fn back(&self, _: &mut Window, cx: &mut App) {
+        self.tab.update(cx, |this, cx| this.go_back(cx)).ok();
+    }
+
+    fn up(&self, _: &mut Window, cx: &mut App) {
+        if let Some(to) = self.up.clone() {
+            self.show(to, cx);
+        }
+    }
+
+    fn up_to(&self, n: usize, _: &mut Window, cx: &mut App) {
+        if let Some(Some(to)) = self.links.get(n).cloned() {
+            self.show(to, cx);
+        }
+    }
+
+    fn folder(&self, n: usize, _: &mut Window, cx: &mut App) {
+        if let Some(Some(folder)) = self.folders.get(n).cloned() {
+            self.tab
+                .update(cx, |this, cx| this.open_beside(folder, cx))
+                .ok();
+        }
+    }
+
+    fn folder_menu(&self, n: usize, at: Point<Pixels>, _: &mut Window, cx: &mut App) {
+        if let Some(Some(folder)) = self.folders.get(n).cloned() {
+            self.tab
+                .update(cx, |this, cx| this.crumb_menu(folder, at, cx))
+                .ok();
+        }
     }
 }
 
