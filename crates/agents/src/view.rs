@@ -28,6 +28,23 @@ pub fn chat_badge(letter: char, hue: Rgba, gone: bool) -> gpui::Div {
         .child(letter.to_string())
 }
 
+/// "limited" beside a Codex chat (#18; the developer, 2026-10-23: not "beta"), what it cannot do yet in its tooltip.
+pub fn limited(id: impl Into<gpui::ElementId>) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .flex_none()
+        .px(px(5.))
+        .rounded(px(4.))
+        .border_1()
+        .border_color(theme::island_border())
+        .font_family(theme::ui_font())
+        .text_size(px(10.))
+        .text_color(theme::faint())
+        .child("limited")
+        .tooltip_show_delay(hover::LONG)
+        .tooltip(|_, cx| cx.new(|_| hover::Tip(crate::codex::LIMITS)).into())
+}
+
 /// A click on a note or a summary.
 #[derive(Clone)]
 pub enum NoteEvent {

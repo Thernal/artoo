@@ -303,6 +303,10 @@ pub struct Tool {
     pub tip: &'static str,
     /// The window's title; the shell draws it with the close button.
     pub title: &'static str,
+    /// The spaces it is in, by their names (`code`, `branches`, `requests`, `inbox`); none, every one.
+    pub spaces: &'static [&'static str],
+    /// What its icon in the stripe says, asked as the stripe is drawn; its count is said after the title too.
+    pub badge: Option<Rc<dyn Fn(&App) -> Badge>>,
     /// What is under the title: a body that scrolls itself and its foot, if it has one (the kit's
     /// `controls::tool_foot`).
     pub view: AnyView,
@@ -312,7 +316,34 @@ pub struct Tool {
     pub typing: Rc<Cell<bool>>,
     /// A typed key while it has the keyboard.
     pub key: OnKey,
+    /// A window that lists: ↑ ↓ ↵ while it has the keyboard, ⌫ while it is open, as the shell's lists take them.
+    pub list_key: Option<OnListKey>,
 }
+
+/// What a tool window's icon in the stripe says (`Tool::badge`).
+pub struct Badge {
+    /// A count on the icon, in `color`; none at 0.
+    pub count: usize,
+    pub color: Rgba,
+    /// What it counts, in the icon's long hover ("3 drafts").
+    pub what: String,
+    /// Drawn under the icon (the agents': a dot for each chat listening).
+    pub under: Option<AnyElement>,
+}
+
+/// A key the shell's lists answer, given to a tool window that lists (`Tool::list_key`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ListKey {
+    Up,
+    Down,
+    /// ↵: the row picked acted on.
+    Enter,
+    /// ⌫: the row picked deleted.
+    Delete,
+}
+
+/// A key a tool window that lists takes; whether it took it.
+pub type OnListKey = Rc<dyn Fn(ListKey, &mut App) -> bool>;
 
 /// A field a part draws that takes typed keys (#168). One input at a time has the keyboard, a part's as the tab's
 /// own: one opened since the last look takes it, and so does a press in its box; a press outside it, another page

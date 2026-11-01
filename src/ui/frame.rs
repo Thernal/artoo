@@ -574,9 +574,9 @@ impl Render for Workspace {
         .on_action(cx.listener(|this, _: &ToggleComments, _, cx| {
             this.toggle_tool(tools::Tool::Discussions, cx)
         }))
-        .on_action(
-            cx.listener(|this, _: &ToggleAgents, _, cx| this.toggle_tool(tools::Tool::Agents, cx)),
-        )
+        .on_action(cx.listener(|this, _: &ToggleAgents, _, cx| {
+            this.toggle_tool(tools::Tool::Part(artoo_agents::window::ID), cx)
+        }))
         .on_action(cx.listener(|this, _: &FoldMenu, _, cx| this.toggle_menu(cx)))
         .on_action(
             cx.listener(|this, _: &GoToInbox, _, cx| this.go_space(spaces::Space::Inbox, cx)),

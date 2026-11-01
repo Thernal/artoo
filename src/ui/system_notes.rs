@@ -203,8 +203,9 @@ impl Workspace {
             Open::Inbox => self.go_space(super::spaces::Space::Inbox, cx),
             Open::Act(act) => self.do_toast_act(act, cx),
             Open::Agents => {
-                if self.tool() != Some(super::tools::Tool::Agents) {
-                    self.toggle_tool(super::tools::Tool::Agents, cx);
+                let agents = super::tools::Tool::Part(artoo_agents::window::ID);
+                if self.tool() != Some(agents) {
+                    self.toggle_tool(agents, cx);
                 }
             }
         }

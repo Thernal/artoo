@@ -37,6 +37,8 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
             icon: "flag",
             tip: "Report a problem  ⌥⌘/",
             title: "Report a problem",
+            spaces: &[],
+            badge: None,
             view: report.into(),
             // The window's picture is taken before the report's window is drawn over it.
             opened: Rc::new(move |cx| {
@@ -47,6 +49,7 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
             }),
             typing,
             key: Rc::new(move |event, _, cx| key.update(cx, |r, cx| r.key(event, cx))),
+            list_key: None,
         }),
         actions: vec![(
             Box::new(ReportProblem),

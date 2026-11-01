@@ -452,6 +452,23 @@ impl Workspace {
         }
     }
 
+    /// A key of the lists given to part `id`'s tool window (`Tool::list_key`); whether it took it.
+    pub(super) fn part_list_key(
+        &mut self,
+        id: &str,
+        key: artoo_shell_api::ListKey,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(on) = self.part_tool(id).and_then(|t| t.list_key.clone()) else {
+            return false;
+        };
+        let took = on(key, cx);
+        if took {
+            cx.notify();
+        }
+        took
+    }
+
     /// A part's tool window opened: it gets ready before it is drawn.
     pub(super) fn tool_opened(&mut self, id: &str, cx: &mut Context<Self>) {
         if let Some(opened) = self.part_tool(id).map(|t| t.opened.clone()) {

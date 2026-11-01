@@ -77,16 +77,13 @@ impl Workspace {
             None => {}
         }
         let key = &event.keystroke;
-        // ⌫ on the draft picked in the Agents window deletes it; Undo is in its toast (#76).
+        // ⌫ in a tool window that lists: the Agents window deletes the draft picked, Undo in its
+        // toast (#76).
         if key.key == "backspace"
-            && self.tool() == Some(super::tools::Tool::Agents)
-            && let Some(id) = self.agent_row.filter(|id| {
-                self.comments(cx)
-                    .iter()
-                    .any(|c| c.id == *id && c.state == crate::review::State::Draft)
-            })
+            && let Some(super::tools::Tool::Part(id)) = self.tool()
+            && self.part_list_key(id, artoo_shell_api::ListKey::Delete, cx)
         {
-            return self.delete_draft(id, cx);
+            return;
         }
         // Esc closes the innermost thing — a card, menu or popover, the find bar, a filter, the
         // tool window with the keyboard — then goes one page up (#71).

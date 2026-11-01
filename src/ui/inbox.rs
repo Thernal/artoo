@@ -32,12 +32,12 @@ impl Workspace {
     /// given, waits to be sent from here), or it says it is done. With when it last wrote, and
     /// the key that is read once looked at (a new answer is new again).
     pub(super) fn agent_notices(&self, cx: &App) -> Vec<(u64, i64, String)> {
-        use super::agent::Kind as AgentKind;
+        use artoo_agents::window::Kind as AgentKind;
         let alive = self.listening(cx);
         self.comments(cx)
             .iter()
             .filter(|c| !c.archived)
-            .filter(|c| match super::agent::kind_of(c, &alive) {
+            .filter(|c| match artoo_agents::window::kind_of(c, &alive) {
                 AgentKind::Asks | AgentKind::Addressed => true,
                 AgentKind::Draft => c.answer.is_some() && !c.replies.is_empty(),
                 _ => false,

@@ -12,7 +12,6 @@ use artoo_branches::opening::RequestOf;
 use artoo_requests::discussions::Listing;
 use artoo_requests::requests::{Act, Acts};
 pub(super) use artoo_requests::requests::{Past, Requests, Scope, Sides, sides};
-pub(super) use artoo_ui_kit::controls::group_heading;
 use gpui::{App, ClickEvent, Context, WeakEntity, div, prelude::*};
 use std::rc::Rc;
 use std::sync::Arc;

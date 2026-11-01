@@ -1575,14 +1575,6 @@ pub struct Workspace {
     codex_beat: Option<Task<()>>,
     /// The chats of this repository (`artoo_agents::chats`), read on every beat.
     chats: gpui::Entity<artoo_agents::chats::Chats>,
-    /// The Agents window (#76): its filter, the row picked, whether the archived ones show.
-    agents_filter: agent::Filter,
-    agent_row: Option<u64>,
-    agents_archived: bool,
-    /// The chat whose notes alone are listed (a click on it), and whether every chat shows rather
-    /// than the first few (#94).
-    agents_chat: Option<String>,
-    agents_all_chats: bool,
     /// One's own public note asked about before it is deleted (#76).
     confirm_note: Option<u64>,
     /// The Inbox place is shown, and which of its notifications it lists.
@@ -1839,11 +1831,6 @@ impl Workspace {
             agent_fresh: HashSet::new(),
             codex_beat: None,
             chats: cx.new(|_| Default::default()),
-            agents_filter: Default::default(),
-            agent_row: None,
-            agents_archived: false,
-            agents_chat: None,
-            agents_all_chats: false,
             confirm_note: None,
             inbox: false,
             inbox_view: cx.new(|_| Default::default()),
@@ -1943,6 +1930,12 @@ impl Workspace {
         services.set(artoo_requests::requests::handle(&this.requests));
         services.set(requests::acts_of(cx.weak_entity()));
         services.set(this.agent_notes.clone());
+        // Its chats and its comments to agents, which the Agents window lists, the tab its host.
+        services.set(this.chats.clone());
+        services.set(this.agent_comments.clone());
+        services.set::<Rc<dyn artoo_agents::window::AgentsHost>>(Rc::new(agent::AgentsHost(
+            cx.weak_entity(),
+        )));
         services.set::<Rc<dyn artoo_agents::summary::NotesHost>>(Rc::new(agent_notes::NotesHost(
             cx.weak_entity(),
         )));
@@ -2494,9 +2487,12 @@ impl Workspace {
                     Entry::new("Discussions", Act::Tool(tools::Tool::Discussions))
                         .key("⌘⇧D")
                         .checked(tool == Some(tools::Tool::Discussions)),
-                    Entry::new("Agents", Act::Tool(tools::Tool::Agents))
-                        .key("⇧⌘A")
-                        .checked(tool == Some(tools::Tool::Agents)),
+                    Entry::new(
+                        "Agents",
+                        Act::Tool(tools::Tool::Part(artoo_agents::window::ID)),
+                    )
+                    .key("⇧⌘A")
+                    .checked(tool == Some(tools::Tool::Part(artoo_agents::window::ID))),
                 ],
             ),
         ]

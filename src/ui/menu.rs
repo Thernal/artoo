@@ -59,12 +59,8 @@ pub enum Act {
     OpenWith(super::open_in::App),
     /// A note for the agent on a folder of Code's tree (its right click, #97).
     FolderNote(String),
-    /// The card naming a project and giving it a hue, or naming a chat (`labeling.rs`).
+    /// The card naming a project and giving it a hue (`labeling.rs`).
     NameProject(std::path::PathBuf),
-    NameChat {
-        session: String,
-        agent: String,
-    },
     /// The requests list shows the open, the merged or the closed (#114).
     RequestView(crate::mr::MrState),
     AlwaysOpen(String),
@@ -243,9 +239,6 @@ impl Workspace {
                 self.start_folder_comment(&path, cx);
             }
             Act::NameProject(path) => self.open_label(super::labeling::Target::Project(path), cx),
-            Act::NameChat { session, agent } => {
-                self.open_label(super::labeling::Target::Chat { session, agent }, cx)
-            }
             Act::AlwaysOpen(ext) => self.always_open(ext, cx),
             Act::EditorSettings => self.open_settings(cx),
             Act::Face { code, face } => self.choose_face(code, face, cx),

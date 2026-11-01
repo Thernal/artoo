@@ -8,6 +8,7 @@ use super::review::Review;
 use super::{Workspace, theme};
 use artoo_branches::history::Row;
 use artoo_review::changes::FileItem;
+use artoo_shell_api::ListKey;
 use gpui::{App, Context, Rgba};
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -146,7 +147,10 @@ impl Workspace {
             }
             Zone::Tool => match self.tool() {
                 Some(super::tools::Tool::Discussions) => return self.step_thread(down, cx),
-                Some(super::tools::Tool::Agents) => return self.step_agent_row(down, cx),
+                Some(super::tools::Tool::Part(id)) => {
+                    let key = if down { ListKey::Down } else { ListKey::Up };
+                    self.part_list_key(id, key, cx);
+                }
                 _ => {}
             },
         }
@@ -209,10 +213,12 @@ impl Workspace {
             return self.open_commit_pick(cx);
         }
         match self.zone {
-            Zone::Tool if self.tool() == Some(super::tools::Tool::Agents) => {
-                self.agent_row_action(cx)
+            Zone::Tool => {
+                if let Some(super::tools::Tool::Part(id)) = self.tool() {
+                    self.part_list_key(id, ListKey::Enter, cx);
+                }
             }
-            Zone::Tool | Zone::Branches => {}
+            Zone::Branches => {}
             Zone::Commits => {
                 if self.review.read(cx).diff.is_some() {
                     self.set_zone(

@@ -1,9 +1,10 @@
 //! The right edge of the redesign (Design `design/shell/`, #49): an icon stripe that opens one tool
-//! window at a time beside the page — only what is about it (#76): Code Outline · Agents, Branches
-//! Agents, Merge requests Discussions · Agents, the Inbox nothing — and Submit review in the same
-//! place (the bell's Notifications window retired into the Inbox, #72). The same icon or esc closes it; which one is open and its width are kept in
+//! window at a time beside the page — only what is about it (#76): Code Outline, Merge requests
+//! Discussions — and Submit review in the same place (the bell's Notifications window retired into
+//! the Inbox, #72). The same icon or esc closes it; which one is open and its width are kept in
 //! `layout.txt`. No stripe until a repository is open, none in zen. A feature's tool window
-//! (`artoo_shell_api::Tool`: Report a problem) is in every space, after these.
+//! (`artoo_shell_api::Tool`: the Agents window, Report a problem) is in the spaces it names, after
+//! these.
 
 use super::zones::Zone;
 use super::{ROW_RADIUS, Split, Tip, TipOwned, Workspace, icons, island, keys, px, theme};
@@ -14,8 +15,7 @@ pub enum Tool {
     /// The declarations of the file read in Code (#76).
     Outline,
     Discussions,
-    Agents,
-    /// A feature's, by its id (`report`: Report a problem, #118).
+    /// A feature's, by its id (`agents`: the Agents window; `report`: Report a problem, #118).
     Part(&'static str),
 }
 
@@ -24,7 +24,6 @@ impl Tool {
         match self {
             Tool::Outline => "outline",
             Tool::Discussions => "discussions",
-            Tool::Agents => "agents",
             Tool::Part(id) => id,
         }
     }
@@ -41,26 +40,29 @@ pub struct ToolView {
 }
 
 impl Workspace {
-    /// The tool windows of the space on screen (#76): Code Outline · Agents, Branches Agents,
-    /// a request's page Discussions · Agents, the Inbox none; the features' in every one, last.
+    /// The tool windows of the space on screen (#76): Code Outline, a request's page Discussions;
+    /// then the features' in the spaces they name (the Agents window in all but the Inbox).
     fn space_tools(&self) -> Vec<Tool> {
         use super::spaces::Space;
         let own: &[Tool] = match self.nav.space {
-            Space::Inbox => &[],
-            Space::Code => &[Tool::Outline, Tool::Agents],
-            Space::Branches => &[Tool::Agents],
-            Space::Requests if self.nav_page().is_some() => &[Tool::Discussions, Tool::Agents],
-            Space::Requests => &[Tool::Agents],
+            Space::Code => &[Tool::Outline],
+            Space::Requests if self.nav_page().is_some() => &[Tool::Discussions],
+            _ => &[],
         };
+        let space = self.nav.space.name();
         own.iter()
             .copied()
-            .chain(self.part_tools().map(|t| Tool::Part(t.id)))
+            .chain(
+                self.part_tools()
+                    .filter(|t| t.spaces.is_empty() || t.spaces.contains(&space))
+                    .map(|t| Tool::Part(t.id)),
+            )
             .collect()
     }
 
     /// The tool window named `name` (`layout.txt`'s word for it), whichever spaces have it.
     pub(super) fn tool_named(&self, name: &str) -> Option<Tool> {
-        [Tool::Outline, Tool::Discussions, Tool::Agents]
+        [Tool::Outline, Tool::Discussions]
             .into_iter()
             .chain(self.part_tools().map(|t| Tool::Part(t.id)))
             .find(|t| t.name() == name)
@@ -78,7 +80,6 @@ impl Workspace {
         match tool {
             Tool::Outline => "list",
             Tool::Discussions => "message",
-            Tool::Agents => "bot",
             Tool::Part(id) => self.part_tool(id).map_or("", |t| t.icon),
         }
     }
@@ -87,7 +88,6 @@ impl Workspace {
         match tool {
             Tool::Outline => "Outline",
             Tool::Discussions => "Discussions  ⌘⇧D",
-            Tool::Agents => "Agents  ⇧⌘A",
             Tool::Part(id) => self.part_tool(id).map_or("", |t| t.tip),
         }
     }
@@ -114,9 +114,6 @@ impl Workspace {
             self.layout.tool = name.to_owned();
             self.save_layout();
         }
-        if tool == Some(Tool::Agents) {
-            self.refresh_chats(cx);
-        }
         // A feature's window gets ready before it is drawn (the report takes the window's picture).
         if let Some(Tool::Part(id)) = tool
             && was != tool
@@ -138,12 +135,18 @@ impl Workspace {
         cx.notify();
     }
 
-    /// A feature's tool window: its title, and its view under it (the body and its foot).
-    fn part_tool_view(&self, id: &str) -> Option<ToolView> {
+    /// A feature's tool window: its title and its badge's count, and its view under it (the body
+    /// and its foot).
+    fn part_tool_view(&self, id: &str, cx: &gpui::App) -> Option<ToolView> {
         let tool = self.part_tool(id)?;
         Some(ToolView {
             title: tool.title.into(),
-            count: None,
+            count: tool
+                .badge
+                .as_ref()
+                .map(|badge| badge(cx))
+                .filter(|b| b.count > 0)
+                .map(|b| b.what),
             actions: Vec::new(),
             body: tool.view.clone().into_any_element(),
             foot: None,
@@ -222,7 +225,6 @@ impl Workspace {
                 )
         };
         let count = |n: usize, color: Rgba| (n > 0).then(|| (n.min(99).to_string(), color));
-        let drafts = self.agent_drafts(cx).len();
         Some(
             div()
                 .flex_none()
@@ -234,41 +236,34 @@ impl Workspace {
                 .pt(px(2.))
                 .children(self.space_tools().into_iter().map(|tool| {
                     match tool {
-                        Tool::Outline | Tool::Part(_) => {
-                            button(tool, None, String::new()).into_any_element()
-                        }
+                        Tool::Outline => button(tool, None, String::new()).into_any_element(),
+                        // What its badge says, and what is under it: the Agents window's dot
+                        // per chat that listens, on its own hue (#77).
+                        Tool::Part(id) => match self.part_tool(id).and_then(|t| t.badge.clone()) {
+                            None => button(tool, None, String::new()).into_any_element(),
+                            Some(badge) => {
+                                let badge = badge(cx);
+                                let button =
+                                    button(tool, count(badge.count, badge.color), badge.what);
+                                match badge.under {
+                                    None => button.into_any_element(),
+                                    Some(under) => div()
+                                        .flex()
+                                        .flex_col()
+                                        .items_center()
+                                        .gap(px(3.))
+                                        .child(button)
+                                        .child(under)
+                                        .into_any_element(),
+                                }
+                            }
+                        },
                         Tool::Discussions => button(
                             tool,
                             count(self.comments_total(cx), theme::accent()),
                             super::plural(self.comments_total(cx), "comment"),
                         )
                         .into_any_element(),
-                        // A dot per chat that listens, on its own hue (#77).
-                        Tool::Agents => div()
-                            .flex()
-                            .flex_col()
-                            .items_center()
-                            .gap(px(3.))
-                            .child(button(
-                                tool,
-                                count(drafts, theme::agent()),
-                                super::plural(drafts, "draft"),
-                            ))
-                            .child(div().flex().gap(px(3.)).children({
-                                let chats = self.chats.read(cx);
-                                chats
-                                    .list
-                                    .iter()
-                                    .filter(|c| c.listening())
-                                    .map(|c| {
-                                        div()
-                                            .size(px(5.))
-                                            .rounded_full()
-                                            .bg(chats.mark(&c.session).1)
-                                    })
-                                    .collect::<Vec<_>>()
-                            }))
-                            .into_any_element(),
                     }
                 })),
         )
@@ -287,8 +282,7 @@ impl Workspace {
             None => match self.tool().or(self.last_tool.filter(|_| leaving))? {
                 Tool::Outline => self.outline_tool(cx),
                 Tool::Discussions => self.discussions_tool(cx),
-                Tool::Agents => self.agents_tool(cx),
-                Tool::Part(id) => self.part_tool_view(id)?,
+                Tool::Part(id) => self.part_tool_view(id, cx)?,
             },
         };
         let submitting = self.submitting(cx);
