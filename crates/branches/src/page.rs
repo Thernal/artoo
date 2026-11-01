@@ -1,17 +1,25 @@
-//! Branches' own page (#72): the list (`list`) in the tab's frame of a list beside its preview (`Frame::list_page`),
-//! the row picked previewed. What other features know of a branch comes from the tab's services — your review of
-//! its tip (`Review`), its request (`Requests`) —; a click asks the tab an `Act`. A branch's pages are the tab's
-//! for now.
+//! Branches' pages (#72): their own, the list (`list`) in the tab's frame of a list beside its preview
+//! (`Frame::list_page`), the row picked previewed; and a branch's, a comparison's and the working tree's — a branch's
+//! Commits (`commits_page`), else the review's item page (`artoo_review_api::ItemView`), the side panel beside
+//! (`panel`). What other features know of a branch comes from the tab's services — your review of its tip (`Review`),
+//! its request (`Requests`) —; a click asks the tab an `Act`. The tab still loads what a branch's route shows.
 
 use crate::card::branch_card;
+use crate::commits_page::BranchCommits;
 use crate::history::{Acts, History};
 use crate::list::{self, Beside, Card, ListLook};
+use crate::panel::Panel;
+use artoo_branches_api::{
+    BranchCommitRoute, BranchCommitsRoute, BranchRoute, CompareRoute, VersionsRoute,
+    WorkingTreeRoute,
+};
+use artoo_core::route::{Place, Route};
 use artoo_requests_api::Requests;
-use artoo_review_api::Review;
+use artoo_review_api::{ItemView, Review};
 use artoo_shell_api::{Frame, Pages, Services};
 use artoo_ui_kit::px;
 use artoo_ui_kit::room::Widths;
-use gpui::{App, Context, Entity, Render, Window, div, prelude::*};
+use gpui::{AnyElement, App, Context, Entity, Render, Window, div, prelude::*};
 use std::rc::Rc;
 
 /// Branches' own page in one tab.
@@ -22,8 +30,14 @@ pub struct RootPage {
     widths: Widths,
 }
 
-/// Branches' pages in a tab: their own page, the list.
-pub fn pages(history: Entity<History>, frame: Rc<dyn Frame>, cx: &mut App) -> Pages {
+/// Branches' pages in a tab: their own page, the list; a branch's, a comparison's, the working tree's, `panel`
+/// beside them.
+pub fn pages(
+    history: Entity<History>,
+    panel: Entity<Panel>,
+    frame: Rc<dyn Frame>,
+    cx: &mut App,
+) -> Pages {
     let view = cx.new(|cx| {
         cx.observe(&history, |_, _, cx| cx.notify()).detach();
         RootPage {
@@ -34,15 +48,48 @@ pub fn pages(history: Entity<History>, frame: Rc<dyn Frame>, cx: &mut App) -> Pa
     });
     Pages {
         space: "branches",
-        kinds: &[],
+        kinds: &[
+            BranchRoute::KIND,
+            BranchCommitRoute::KIND,
+            BranchCommitsRoute::KIND,
+            VersionsRoute::KIND,
+            WorkingTreeRoute::KIND,
+            CompareRoute::KIND,
+        ],
         view: view.into(),
-        side: None,
+        side: Some(Rc::new(move |route, width, cx| {
+            route?;
+            panel.update(cx, |p, _| p.width = width);
+            Some(panel.clone().into_any_element())
+        })),
         show: Rc::new(|_, _, _| {}),
     }
 }
 
 impl Render for RootPage {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        match self.frame.route(cx) {
+            Some(route) => self.item(route, cx),
+            None => self.list(cx),
+        }
+    }
+}
+
+impl RootPage {
+    /// A branch's Commits, else the review's item page.
+    fn item(&self, route: Route, cx: &mut Context<Self>) -> AnyElement {
+        let services = self.frame.services();
+        if self.frame.item_tab(cx).is_some()
+            && let Some(commits) = services.get::<Entity<BranchCommits>>()
+        {
+            commits.update(cx, |c, _| c.route = Some(route));
+            return commits.into_any_element();
+        }
+        item_page(&services)
+    }
+
+    /// The list beside its preview.
+    fn list(&self, cx: &mut Context<Self>) -> AnyElement {
         let services = self.frame.services();
         let filter = self.frame.filter(cx);
         let acts = services.get::<Acts>().unwrap_or_else(|| Rc::new(|_, _| {}));
@@ -102,7 +149,20 @@ impl Render for RootPage {
             .flex()
             .flex_col()
             .child(self.frame.list_page(list, preview, cx))
+            .into_any_element()
     }
+}
+
+/// The review's item page (`ItemView`) in a column the page's width.
+fn item_page(services: &Services) -> AnyElement {
+    div()
+        .flex_1()
+        .min_w_0()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .children(services.get::<ItemView>().map(|v| v.0))
+        .into_any_element()
 }
 
 /// What the list shows of branch `ix` that other features know: your review of its tip, its request, its card.

@@ -725,9 +725,13 @@ impl Workspace {
 
     /// Loads what `page` shows, unless it is what is loaded.
     fn load_page(&mut self, page: Page, cx: &mut Context<Self>) {
-        // A feature's pages load what they show themselves.
+        // A feature's pages load what they show themselves; a branch's and a request's are still
+        // loaded here.
         if self.pages_drawing(page.space(), Some(&page)).is_some() {
-            return self.show_pages(page.space(), Some(&page), false, cx);
+            self.show_pages(page.space(), Some(&page), false, cx);
+            if page.space() == Space::Code {
+                return;
+            }
         }
         let loaded = self.loaded_page(cx);
         if loaded.as_ref() == Some(&page) {

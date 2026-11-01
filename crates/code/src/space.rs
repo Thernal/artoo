@@ -236,8 +236,8 @@ impl CodeSpace {
             space: "code",
             kinds: &[FileRoute::KIND, FolderRoute::KIND],
             view: this.clone().into(),
-            side: Some(Rc::new(move |width, cx| {
-                side.update(cx, |c, cx| c.render_tree(width, cx).into_any_element())
+            side: Some(Rc::new(move |_, width, cx| {
+                Some(side.update(cx, |c, cx| c.render_tree(width, cx).into_any_element()))
             })),
             show: Rc::new(move |route, opened, cx| {
                 show.update(cx, |c, cx| c.show(route, opened, cx));

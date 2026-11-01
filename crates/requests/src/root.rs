@@ -1,15 +1,24 @@
-//! Merge requests' own page (#72): the list grouped by what each needs from you (`list`), the picked one previewed
-//! beside it, in the tab's frame of a list page (`Frame::list_page`); or the list's states — loading, empty, an
-//! error over it, a host to connect. What the tab keeps that the list draws comes through its `RootHost`; your
+//! Merge requests' pages (#72): their own, the list grouped by what each needs from you (`list`), the picked one
+//! previewed beside it, in the tab's frame of a list page (`Frame::list_page`), or the list's states — loading,
+//! empty, an error over it, a host to connect; and a request's — its Overview or Commits (`tabs`), else the review's
+//! item page (`artoo_review_api::ItemView`), the branches' side panel beside (`Branches::panel`). The tab still
+//! loads what a request's route shows. What the tab keeps that the list draws comes through its `RootHost`; your
 //! review of each request through the review's handle, the discussions through the notifications; a click asks the
 //! tab an `Act`.
 
 use crate::list::{self, ListLook};
 use crate::notices::Notices;
 use crate::requests::{Acts, Requests};
+use crate::tabs::Tabs;
+use artoo_branches_api::Branches;
+use artoo_core::route::{Place, Route};
 use artoo_hosts_api::Mr;
+use artoo_requests_api::{
+    RequestCommitRoute, RequestCommitsRoute, RequestRoute, RequestVersionsRoute,
+};
+use artoo_review_api::ItemView;
 use artoo_review_api::{Review, Seen};
-use artoo_shell_api::{Frame, Pages};
+use artoo_shell_api::{Frame, ItemTab, Pages};
 use artoo_ui_kit::controls::skeleton;
 use artoo_ui_kit::room::Widths;
 use artoo_ui_kit::{gap, island, px, theme};
@@ -52,6 +61,7 @@ pub struct RootPage {
 
 /// Merge requests' pages in a tab: their own page, the list.
 pub fn pages(requests: Entity<Requests>, frame: Rc<dyn Frame>, cx: &mut App) -> Pages {
+    let services = Rc::downgrade(&frame.services());
     let view = cx.new(|cx| {
         cx.observe(&requests, |_, _, cx| cx.notify()).detach();
         RootPage {
@@ -62,15 +72,29 @@ pub fn pages(requests: Entity<Requests>, frame: Rc<dyn Frame>, cx: &mut App) -> 
     });
     Pages {
         space: "requests",
-        kinds: &[],
+        kinds: &[
+            RequestRoute::KIND,
+            RequestCommitRoute::KIND,
+            RequestCommitsRoute::KIND,
+            RequestVersionsRoute::KIND,
+        ],
         view: view.into(),
-        side: None,
+        side: Some(Rc::new(move |route, width, cx| {
+            route?;
+            services
+                .upgrade()?
+                .get::<Rc<dyn Branches>>()?
+                .panel(width, cx)
+        })),
         show: Rc::new(|_, _, _| {}),
     }
 }
 
 impl Render for RootPage {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(route) = self.frame.route(cx) {
+            return self.item(route, cx);
+        }
         // A column: the page is stretched across to its width, whatever its content's least width.
         div()
             .flex_1()
@@ -79,10 +103,34 @@ impl Render for RootPage {
             .flex()
             .flex_col()
             .child(self.page(cx))
+            .into_any_element()
     }
 }
 
 impl RootPage {
+    /// A request's Overview or Commits, else the review's item page in a column the page's width.
+    fn item(&self, route: Route, cx: &mut Context<Self>) -> AnyElement {
+        let services = self.frame.services();
+        if let Some(tab) = self.frame.item_tab(cx)
+            && let Some(tabs) = services.get::<Entity<Tabs>>()
+        {
+            let number = RequestRoute::from_route(&route).map(|r| r.number);
+            tabs.update(cx, |t, _| {
+                t.number = number;
+                t.overview = tab == ItemTab::Overview;
+            });
+            return tabs.into_any_element();
+        }
+        div()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .children(services.get::<ItemView>().map(|v| v.0))
+            .into_any_element()
+    }
+
     fn page(&self, cx: &mut Context<Self>) -> AnyElement {
         let services = self.frame.services();
         let (Some(host), Some(acts)) = (services.get::<Rc<dyn RootHost>>(), services.get::<Acts>())

@@ -22,6 +22,9 @@ pub trait Branches {
     /// Its commits as a page of their own, the version each came with on it when `versions`. Asked from a view's
     /// own drawing.
     fn commits_page(&self, versions: bool, cx: &mut App) -> AnyElement;
+
+    /// The side panel of a branch's or a request's page, at `width` (`Pages::side`).
+    fn panel(&self, width: f32, cx: &mut App) -> Option<AnyElement>;
 }
 
 /// A branch, by its refname.

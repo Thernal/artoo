@@ -1,11 +1,10 @@
 //! The page of the space on screen (#71), under its bar (`bar.rs`): the Inbox, Code's project or
-//! a file, the list of branches or requests at their space's root (#72, their features'), else a
-//! branch's or request's panes with its identity over the diff.
+//! a file, the list of branches or requests at their space's root (#72), a branch's or a
+//! request's page — each its feature's pages (`render_pages`).
 //! Code is the project's tree beside its folder page or a file's tabs (`code.rs`, #75).
 
-use super::nav::Section;
 use super::spaces::Space;
-use super::{Split, Workspace, gap, motion, px};
+use super::{Workspace, gap, px};
 use artoo_shell_api::Slot;
 use gpui::{AnyElement, Context, div, prelude::*};
 
@@ -19,16 +18,8 @@ impl Workspace {
             }
             // The Inbox is the requests'.
             (Space::Inbox, _) => div().flex_1(),
-            // Their own pages are the features'.
-            (Space::Branches | Space::Requests, None) => div().flex_1(),
-            // A request's Overview and Commits, a branch's Commits, are pages of their own
-            // (#73, #74).
-            (Space::Requests | Space::Branches, Some(_))
-                if let Some(tab @ (Section::Overview | Section::Commits)) = self.page_tab(cx) =>
-            {
-                self.render_tab_page(tab, cx)
-            }
-            (Space::Branches | Space::Requests, Some(_)) => self.render_item(cx),
+            // Their pages are the features'.
+            (Space::Branches | Space::Requests, _) => div().flex_1(),
             // Code without the pages the tab gives it: nothing to draw.
             (Space::Code, _) => div().flex_1(),
         };
@@ -102,59 +93,5 @@ impl Workspace {
                     .child(div().h(px(gap()))),
             ),
         )
-    }
-
-    /// A branch's or a request's page under its bar: the side panel; the review's item page (what
-    /// it is of over the diff, `artoo_review::item`); the tool window.
-    fn render_item(&self, cx: &mut Context<Self>) -> gpui::Div {
-        let middle = self
-            .services
-            .get::<artoo_review_api::ItemView>()
-            .map(|view| view.0);
-        div()
-            .relative()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .children(
-                self.render_side(cx)
-                    .filter(|_| !self.compact())
-                    .map(|side| {
-                        // It slides in and out at its width (#56, 4, 16).
-                        let room = self.layout.sidebar + super::frame::handle_width();
-                        motion::toward(
-                            div()
-                                .flex()
-                                .flex_none()
-                                .overflow_hidden()
-                                .child(side)
-                                .child(self.handle(Split::Sidebar, cx)),
-                            "side-pane",
-                            self.layout.show_sidebar,
-                            self.motion.recent("side"),
-                            motion::BASE,
-                            // It fades as it narrows (the developer, 2026-10-23).
-                            move |pane, v| pane.max_w(px(room * v)).opacity(v),
-                        )
-                    }),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .min_h_0()
-                    .flex()
-                    .flex_col()
-                    .children(middle)
-                    .children(self.render_zen_keys()),
-            )
-            .children(self.render_tool(cx))
-            // Narrow, the side panel opens over the content (#80).
-            .children(
-                self.side_drawer()
-                    .then(|| self.render_side(cx))
-                    .flatten()
-                    .map(|side| self.drawer(side)),
-            )
     }
 }

@@ -47,7 +47,8 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     let Some(history) = services.get::<Entity<history::History>>() else {
         return Parts::default();
     };
-    services.set(panel::view(history.clone(), &frame, cx));
+    let panel = panel::view(history.clone(), &frame, cx);
+    services.set(panel.clone());
     services.set(commits_page::view(history.clone(), &frame, cx));
     Parts {
         inputs: vec![find::input(history.clone())],
@@ -59,7 +60,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
             done::piece(history.clone(), services.clone()),
             pairs::piece(history.clone(), services),
         ],
-        pages: Some(page::pages(history, frame, cx)),
+        pages: Some(page::pages(history, panel, frame, cx)),
         ..Default::default()
     }
 }

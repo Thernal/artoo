@@ -313,6 +313,16 @@ impl artoo_branches_api::Branches for Handle {
         })
     }
 
+    fn panel(&self, width: f32, cx: &mut gpui::App) -> Option<gpui::AnyElement> {
+        use gpui::IntoElement;
+        let panel = self
+            .1
+            .upgrade()?
+            .get::<gpui::Entity<crate::panel::Panel>>()?;
+        panel.update(cx, |p, _| p.width = width);
+        Some(panel.into_any_element())
+    }
+
     fn commits_page(&self, versions: bool, cx: &mut gpui::App) -> gpui::AnyElement {
         use gpui::IntoElement;
         let Some(h) = self.0.upgrade() else {

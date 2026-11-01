@@ -7,43 +7,9 @@
 
 use super::nav::{Item, Page, Section};
 use super::{Selection, Workspace};
-use artoo_branches::commits_page::BranchCommits;
-use artoo_requests::tabs::Tabs;
-use gpui::{ClickEvent, Context, Div, Entity, SharedString, div, prelude::*};
+use gpui::{ClickEvent, Context, SharedString, prelude::*};
 
 impl Workspace {
-    /// An item's Overview or Commits under its bar, the tool window beside it: a request's
-    /// (`artoo_requests::tabs`), or a branch's Commits (#74, `artoo_branches::commits_page`).
-    pub(super) fn render_tab_page(&self, tab: Section, cx: &mut Context<Self>) -> Div {
-        let body = match self.nav_page() {
-            Some(page @ Page::Branch(_)) => {
-                let route = page.route();
-                self.services.get::<Entity<BranchCommits>>().map(|view| {
-                    view.update(cx, |v, _| v.route = Some(route));
-                    view.into_any_element()
-                })
-            }
-            Some(Page::Request(number)) => {
-                let number = *number;
-                self.services.get::<Entity<Tabs>>().map(|view| {
-                    view.update(cx, |v, _| {
-                        v.number = Some(number);
-                        v.overview = tab == Section::Overview;
-                    });
-                    view.into_any_element()
-                })
-            }
-            _ => None,
-        };
-        div()
-            .relative()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .child(body.unwrap_or_else(|| div().flex_1().into_any_element()))
-            .children(self.render_tool(cx))
-    }
-
     /// The section tabs in an item's bar with their counts — a request's Overview, Commits and
     /// Changes, a branch's Commits and Changes (#74); ⌃⇥ walks them.
     pub(super) fn section_tabs(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {

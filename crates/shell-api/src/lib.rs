@@ -142,6 +142,22 @@ pub trait Frame {
 
     /// The part's input with the keyboard, by its id (`Input::id`). Asked from a view's own drawing.
     fn typing(&self, cx: &mut App) -> Option<&'static str>;
+
+    /// The route on screen; `None` on a space's own page. Asked from a view's own drawing.
+    fn route(&self, cx: &App) -> Option<Route>;
+
+    /// The item page's section on screen when it is a page of its own; `None` on its changes. Asked from a view's
+    /// own drawing.
+    fn item_tab(&self, cx: &App) -> Option<ItemTab>;
+}
+
+/// An item page's section that is a page of its own (#73, #74); its changes are the review's item page.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ItemTab {
+    /// A request's Overview.
+    Overview,
+    /// A request's or a branch's Commits.
+    Commits,
 }
 
 /// A list of the side panel the keyboard can be in, each with its keys (⌃2, ⌃3).
@@ -401,8 +417,9 @@ pub struct Pages {
     pub kinds: &'static [&'static str],
     /// The page on screen.
     pub view: AnyView,
-    /// The panel beside it (Code's tree), at the width given; the shell puts it where the side panel goes, over
-    /// the page in a drawer when the tab is narrow.
+    /// The panel beside it (Code's tree, an item's side panel) for the route on screen, at the width given; the
+    /// shell puts it where the side panel goes, over the page in a drawer when the tab is narrow. None beside an
+    /// item's section that is a page of its own (`ItemTab`).
     pub side: Option<Side>,
     /// What is on screen now: a route of theirs, or the space's own page (`None`); `true` when it was just opened
     /// (a click, a link), so what it shows is read anew, `false` when it was gone back to or kept from before.
@@ -410,8 +427,9 @@ pub struct Pages {
     pub show: Show,
 }
 
-/// A panel beside a space's pages, drawn at a width.
-pub type Side = Rc<dyn Fn(f32, &mut App) -> AnyElement>;
+/// A panel beside a space's pages for the route on screen (`None`: the space's own page), drawn at a width; none
+/// where the space has none there.
+pub type Side = Rc<dyn Fn(Option<&Route>, f32, &mut App) -> Option<AnyElement>>;
 
 /// What a space's pages are told is on screen (`Pages::show`).
 pub type Show = Rc<dyn Fn(Option<&Route>, bool, &mut App)>;

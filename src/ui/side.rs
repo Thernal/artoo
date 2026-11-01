@@ -7,8 +7,8 @@ use super::nav::Page;
 use super::zones::Zone;
 use super::{Selection, Workspace};
 use artoo_branches::history::{Act, Acts};
-use artoo_branches::panel::{Fold, Panel, Shows};
-use gpui::{AnyElement, App, Context, Entity, prelude::*};
+use artoo_branches::panel::{Fold, Shows};
+use gpui::{App, Context};
 use std::rc::Rc;
 
 impl Workspace {
@@ -126,20 +126,5 @@ impl Workspace {
             }
             _ => Vec::new(),
         }
-    }
-
-    /// The side panel (`artoo_branches::panel`) at its width; None when it is hidden (⌘J, zen).
-    pub(super) fn render_side(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        // Hidden a moment ago (⌘J, zen), it is drawn on its way out (#56, 4).
-        if !self.layout.show_sidebar && !self.motion.recent("side") && !self.side_drawer() {
-            return None;
-        }
-        let panel = self.services.get::<Entity<Panel>>()?;
-        let (route, width) = (self.nav_page().map(Page::route), self.layout.sidebar);
-        panel.update(cx, |p, _| {
-            p.route = route;
-            p.width = width;
-        });
-        Some(panel.into_any_element())
     }
 }

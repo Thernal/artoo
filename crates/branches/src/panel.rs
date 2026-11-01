@@ -118,12 +118,10 @@ pub struct Shows {
     pub compare: bool,
 }
 
-/// The side panel of the tab's branch's and request's pages, drawn where the tab says, at the width it says.
+/// The side panel of the tab's branch's and request's pages, at the width the shell gives it (`Pages::side`).
 pub struct Panel {
     history: Entity<History>,
     frame: Weak<dyn Frame>,
-    /// The route on screen.
-    pub route: Option<Route>,
     pub width: f32,
 }
 
@@ -133,7 +131,6 @@ pub fn view(history: Entity<History>, frame: &Rc<dyn Frame>, cx: &mut App) -> En
     cx.new(|_| Panel {
         history,
         frame,
-        route: None,
         width: 0.,
     })
 }
@@ -152,7 +149,8 @@ impl Render for Panel {
                 .map_or_else(String::new, |(_, tag)| tag.to_string())
         };
         let web = frame.places(cx).web;
-        let shows = self.history.read(cx).panel_shows(self.route.as_ref());
+        let route = frame.route(cx);
+        let shows = self.history.read(cx).panel_shows(route.as_ref());
         let mut open_lists = 0;
         let mut sections: Vec<AnyElement> = Vec::new();
 

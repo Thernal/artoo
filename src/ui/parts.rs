@@ -11,8 +11,8 @@ use super::zones::Zone;
 use super::{Workspace, motion, px};
 use artoo_core::route::Route;
 use artoo_shell_api::{
-    Chrome, Drawing, Frame, ListZone, MenuItem, Overlay, Pages, Places, Run, Section, Services,
-    Slot,
+    Chrome, Drawing, Frame, ItemTab, ListZone, MenuItem, Overlay, Pages, Places, Run, Section,
+    Services, Slot,
 };
 use artoo_ui_kit::markdown::Selecting;
 use gpui::{
@@ -219,6 +219,18 @@ impl Frame for TabFrame {
             .flatten()
     }
 
+    fn route(&self, cx: &App) -> Option<Route> {
+        self.0.upgrade()?.read(cx).nav_page().map(Page::route)
+    }
+
+    fn item_tab(&self, cx: &App) -> Option<ItemTab> {
+        match self.0.upgrade()?.read(cx).page_tab(cx)? {
+            super::nav::Section::Overview => Some(ItemTab::Overview),
+            super::nav::Section::Commits => Some(ItemTab::Commits),
+            super::nav::Section::Changes => None,
+        }
+    }
+
     fn chrome(&self, cx: &mut App) -> Chrome {
         self.0
             .update(cx, |this, cx| this.chrome(cx))
@@ -281,42 +293,62 @@ impl Workspace {
         cx.notify();
     }
 
-    /// A space's pages a feature draws: its panel beside them — sliding and fading in and out with
-    /// ⌘J as the side panel does, with its handle, so no gap is left to vanish at the end (the
-    /// developer, 2026-10-23), the handle resizing it as it does the side panel —, the tool window
-    /// after them. Narrow, the panel opens over the page (#80).
+    /// A space's pages a feature draws, zen's keys under an item's changes: its panel beside them —
+    /// sliding and fading in and out with ⌘J as the side panel does, with its handle, so no gap is
+    /// left to vanish at the end (the developer, 2026-10-23), the handle resizing it as it does the
+    /// side panel —, the tool window after them. Narrow, the panel opens over the page (#80).
     pub(super) fn render_pages(&self, pages: &Pages, cx: &mut Context<Self>) -> Div {
         let width = self.layout.sidebar;
         let beside = !self.compact() && (self.layout.show_sidebar || self.motion.recent("side"));
+        let route = self.nav_page().map(Page::route);
+        // An item's Overview or Commits is a page of its own, nothing beside it (#73, #74).
+        let tab_page = self.page_tab(cx).is_some();
+        let side = pages.side.as_ref().filter(|_| !tab_page);
+        // Zen's keys go under an item's changes.
+        let item = matches!(self.nav.space, Space::Branches | Space::Requests) && route.is_some();
+        let view = match self.render_zen_keys().filter(|_| item && !tab_page) {
+            Some(keys) => div()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .child(pages.view.clone())
+                .child(keys)
+                .into_any_element(),
+            None => pages.view.clone().into_any_element(),
+        };
         div()
             .relative()
             .flex_1()
             .min_h_0()
             .flex()
-            .children(pages.side.as_ref().filter(|_| beside).map(|side| {
-                let room = width + super::frame::handle_width();
-                motion::toward(
-                    div()
-                        .flex()
-                        .flex_none()
-                        .overflow_hidden()
-                        .child(side(width, cx))
-                        .child(self.handle(super::Split::Sidebar, cx)),
-                    SharedString::from(format!("{}-side-pane", pages.space)),
-                    self.layout.show_sidebar,
-                    self.motion.recent("side"),
-                    motion::BASE,
-                    move |pane, v| pane.max_w(px(room * v)).opacity(v),
-                )
-            }))
-            .child(pages.view.clone())
+            .children(
+                side.filter(|_| beside)
+                    .and_then(|side| side(route.as_ref(), width, cx))
+                    .map(|side| {
+                        let room = width + super::frame::handle_width();
+                        motion::toward(
+                            div()
+                                .flex()
+                                .flex_none()
+                                .overflow_hidden()
+                                .child(side)
+                                .child(self.handle(super::Split::Sidebar, cx)),
+                            SharedString::from(format!("{}-side-pane", pages.space)),
+                            self.layout.show_sidebar,
+                            self.motion.recent("side"),
+                            motion::BASE,
+                            move |pane, v| pane.max_w(px(room * v)).opacity(v),
+                        )
+                    }),
+            )
+            .child(view)
             .children(self.render_tool(cx))
             .children(
-                pages
-                    .side
-                    .as_ref()
-                    .filter(|_| self.side_drawer())
-                    .map(|side| self.drawer(side(width, cx))),
+                side.filter(|_| self.side_drawer())
+                    .and_then(|side| side(route.as_ref(), width, cx))
+                    .map(|side| self.drawer(side)),
             )
     }
 
