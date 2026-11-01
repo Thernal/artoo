@@ -89,11 +89,12 @@ use artoo_review::diff::{Diff, Header, Notice};
 use artoo_review::diff_view::{self, CODE_SIZE};
 use artoo_review::review::{self, Opt};
 use artoo_shell::keymap;
+use artoo_shell::title;
 use artoo_ui_kit::controls::tag;
 use gpui::{
-    App, Context, CursorStyle, FocusHandle, FontWeight, KeyBinding, KeyDownEvent, ListAlignment,
-    ListState, Menu, MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent, PathPromptOptions,
-    Point, SharedString, Task, TitlebarOptions, UniformListScrollHandle, Window, WindowBounds,
+    App, Context, CursorStyle, FocusHandle, KeyBinding, KeyDownEvent, ListAlignment, ListState,
+    Menu, MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent, PathPromptOptions, Point,
+    SharedString, Task, TitlebarOptions, UniformListScrollHandle, Window, WindowBounds,
     WindowOptions, actions, div, font, prelude::*, size,
 };
 use lists::Field;
@@ -244,8 +245,6 @@ actions!(
         Quit
     ]
 );
-
-const TITLE_BAR: f32 = 38.;
 
 /// How several projects show: `storage::Projects::ALL[n]`. With flat panes (`artoo_ui_kit::flat`), the
 /// window-wide part of the settings: every tab and window reads it, set when settings load or change.
@@ -3310,69 +3309,6 @@ impl artoo_review_api::Host for TabHost {
 
     fn draft(&self, cx: &App) -> Option<String> {
         self.0.upgrade()?.read(cx).draft_path(cx)
-    }
-}
-
-/// A square icon button for the title bar; the tooltip names it and its shortcut.
-fn icon_button(
-    id: &'static str,
-    icon: &'static str,
-    tip: &'static str,
-) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .size(px(30.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(ROW_RADIUS))
-        .group(id)
-        .cursor_pointer()
-        .hover(|s| s.bg(theme::hover()))
-        // An svg takes its colour from itself, not from its parent.
-        .child(
-            icons::icon(icon)
-                .text_color(theme::muted())
-                .group_hover(id, |s| s.text_color(theme::text())),
-        )
-        .tooltip_show_delay(crate::ui::hover::LONG)
-        .tooltip(move |_, cx| cx.new(|_| Tip(tip)).into())
-}
-
-/// Back / forward: dim when there is nowhere to go (the handlers check again).
-fn nav_button(
-    id: &'static str,
-    icon: &'static str,
-    tip: &'static str,
-    enabled: bool,
-) -> gpui::Stateful<gpui::Div> {
-    let button = div()
-        .id(id)
-        .size(px(30.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(ROW_RADIUS))
-        .group(id)
-        .child(
-            icons::icon(icon)
-                .text_color(if enabled {
-                    theme::muted()
-                } else {
-                    theme::faint()
-                })
-                .when(enabled, |s| {
-                    s.group_hover(id, |s| s.text_color(theme::text()))
-                }),
-        );
-    if enabled {
-        button
-            .cursor_pointer()
-            .hover(|s| s.bg(theme::hover()))
-            .tooltip_show_delay(crate::ui::hover::LONG)
-            .tooltip(move |_, cx| cx.new(|_| Tip(tip)).into())
-    } else {
-        button.opacity(0.45)
     }
 }
 

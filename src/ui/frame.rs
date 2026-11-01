@@ -174,173 +174,82 @@ impl Workspace {
 
     // ---- rendering -----------------------------------------------------------------------
 
-    /// The title bar is the window's, never the page's (#70): the menu's fold, back and
-    /// forward, the project, search and Settings — and the project's own quiet words, the fetch
-    /// and the refresh status, before the gear.
+    /// The title bar is the window's, never the page's (#70); drawn by the shell
+    /// (`artoo_shell::title`).
     pub(super) fn render_title_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let repo = self
-            .root
-            .as_deref()
-            .map_or_else(|| "Artoo".to_owned(), crate::labels::project_name);
         // In Tabs mode the tabs take the project's place (D21).
         let tabs = self.render_title_tabs(cx);
-        let tabbed = tabs.is_some();
-        let repo = tabs.is_none().then_some(repo);
-        div()
-            .h(px(TITLE_BAR))
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap_3()
-            .pl(px(crate::platform::TITLEBAR_INSET))
-            .pr(px(GAP))
-            .child(
-                div()
-                    .flex()
-                    .gap(px(2.))
-                    .children(self.root.is_some().then(|| {
-                        nav_button(
-                            "fold-places",
-                            "sidebar",
-                            if self.menu_folded() {
-                                "Expand the menu  ⌘B"
-                            } else {
-                                "Collapse the menu  ⌘B"
-                            },
-                            true,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.toggle_menu(cx)))
-                    }))
-                    .child(
-                        nav_button("go-back", "back", "Back  ⌘[", self.nav.can_back())
-                            .on_click(cx.listener(|this, _, _, cx| this.go_back(cx))),
-                    )
-                    .child(
-                        nav_button(
-                            "go-forward",
-                            "forward",
-                            "Forward  ⌘]",
-                            self.nav.can_forward(),
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.go_forward(cx))),
-                    ),
-            )
-            .children(tabs)
-            .children(repo.map(|repo| {
-                // The repository is a menu: open, refresh and the recent repositories.
-                div()
-                    .id("repo-menu")
-                    // Its right click, the rail's: name and colour, show, a window, close.
-                    .on_mouse_down(
-                        MouseButton::Right,
-                        cx.listener(|this, e: &MouseDownEvent, _, cx| {
-                            let tabs = this.tabs.borrow().clone();
-                            if let Some((ix, tab)) = tabs.iter().enumerate().find(|(_, t)| t.active)
-                            {
-                                this.project_menu(ix, tabs.len(), tab, e.position, cx)
-                            }
-                        }),
-                    )
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .h(px(28.))
-                    .px_2()
-                    .rounded(px(ROW_RADIUS))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme::hover()))
-                    .child(repo)
-                    .child(icons::icon("chevron").text_color(theme::muted()))
-                    // Open a repository (⌘T): the projects filtered as you type, a path, Browse
-                    // (the developer, 2026-10-23: its old menu took no typing).
-                    .on_click(
-                        cx.listener(|this, _, _, cx| {
-                            this.open_palette(palette::Kind::Projects, cx)
-                        }),
-                    )
-            }))
-            .child(
-                // The empty part of the bar: a double click zooms the window, as in other apps.
-                // Search sits in its middle (at its end beside the tabs) and gives way first when
-                // the window is narrow; the buttons on the right stay.
-                div()
-                    .id("title-bar")
-                    .flex_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .h_full()
-                    .flex()
-                    .items_center()
-                    .when(tabbed, |s| s.justify_end())
-                    .when(!tabbed, |s| s.justify_center())
-                    .on_click(|event, window, _| {
-                        if event.click_count() == 2 {
-                            window.titlebar_double_click();
-                        }
-                    })
-                    // Narrow, search is its icon (#80).
-                    .children((self.root.is_some() && self.compact()).then(|| {
-                        icon_button("title-search-icon", "search", "Search or run a command  ⌘K")
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .on_click(
-                                cx.listener(|this, _, _, cx| this.search(palette::Scope::All, cx)),
-                            )
-                    }))
-                    .children((self.root.is_some() && !self.compact()).then(|| {
-                        div()
-                            .id("title-search")
-                            .flex_shrink(1.)
-                            .min_w(px(40.))
-                            .w(px(if tabbed { 220. } else { 360. }))
-                            .h(px(26.))
-                            .flex()
-                            .items_center()
-                            .gap(px(8.))
-                            .px(px(10.))
-                            .overflow_hidden()
-                            .rounded(px(ROW_RADIUS))
-                            .border_1()
-                            .border_color(theme::island_border())
-                            .bg(theme::panel())
-                            .text_size(px(12.))
-                            .text_color(theme::faint())
-                            .cursor_pointer()
-                            .hover(|s| s.border_color(theme::border()))
-                            .child(
-                                icons::icon("search")
-                                    .size(px(14.))
-                                    .text_color(theme::faint()),
-                            )
-                            .child(
-                                super::hover::cut("search-hint", "Search or run a command")
-                                    .flex_1(),
-                            )
-                            .child(keys::caps("⌘K", keys::On::Plain))
-                            // A double click here is not the bar's: the window keeps its size.
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .on_click(
-                                cx.listener(|this, _, _, cx| this.search(palette::Scope::All, cx)),
-                            )
-                    })),
-            )
-            // The right end never gives way.
-            .child(
-                div()
-                    .flex_none()
-                    .min_w(px(if tabbed { 0. } else { 180. }))
-                    .flex()
-                    .items_center()
-                    .justify_end()
-                    .gap_3()
-                    .children(self.title_items(cx))
-                    .children(self.render_fetch(cx))
-                    .children(self.render_status(cx))
-                    .child(
-                        icon_button("settings-open", "settings", "Settings  ⌘,")
-                            .on_click(cx.listener(|this, _, _, cx| this.open_settings(cx))),
-                    ),
-            )
+        let project = tabs.is_none().then(|| {
+            self.root
+                .as_deref()
+                .map_or_else(|| "Artoo".to_owned(), crate::labels::project_name)
+        });
+        let mut items: Vec<gpui::AnyElement> = self
+            .title_items(cx)
+            .into_iter()
+            .map(IntoElement::into_any_element)
+            .collect();
+        items.extend(self.render_fetch(cx).map(IntoElement::into_any_element));
+        items.extend(self.render_status(cx).map(IntoElement::into_any_element));
+        title::title_bar(
+            title::TitleBar {
+                open: self.root.is_some(),
+                project,
+                tabs,
+                folded: self.menu_folded(),
+                back: self.nav.can_back(),
+                forward: self.nav.can_forward(),
+                compact: self.compact(),
+                items,
+            },
+            Rc::new(TitleGlue(cx.weak_entity())),
+        )
+    }
+}
+
+/// What a click on the title bar does, answered by the tab.
+struct TitleGlue(gpui::WeakEntity<Workspace>);
+
+impl TitleGlue {
+    fn tab(&self, cx: &mut App, f: impl FnOnce(&mut Workspace, &mut Context<Workspace>)) {
+        self.0.update(cx, f).ok();
+    }
+}
+
+impl title::TitleHost for TitleGlue {
+    fn fold(&self, _: &mut Window, cx: &mut App) {
+        self.tab(cx, |this, cx| this.toggle_menu(cx));
+    }
+
+    fn back(&self, _: &mut Window, cx: &mut App) {
+        self.tab(cx, |this, cx| this.go_back(cx));
+    }
+
+    fn forward(&self, _: &mut Window, cx: &mut App) {
+        self.tab(cx, |this, cx| this.go_forward(cx));
+    }
+
+    fn project_menu(&self, at: Point<gpui::Pixels>, _: &mut Window, cx: &mut App) {
+        self.tab(cx, |this, cx| {
+            let tabs = this.tabs.borrow().clone();
+            if let Some((ix, tab)) = tabs.iter().enumerate().find(|(_, t)| t.active) {
+                this.project_menu(ix, tabs.len(), tab, at, cx)
+            }
+        });
+    }
+
+    fn projects(&self, _: &mut Window, cx: &mut App) {
+        self.tab(cx, |this, cx| {
+            this.open_palette(palette::Kind::Projects, cx)
+        });
+    }
+
+    fn search(&self, _: &mut Window, cx: &mut App) {
+        self.tab(cx, |this, cx| this.search(palette::Scope::All, cx));
+    }
+
+    fn settings(&self, _: &mut Window, cx: &mut App) {
+        self.tab(cx, |this, cx| this.open_settings(cx));
     }
 }
 
