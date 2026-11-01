@@ -12,7 +12,7 @@
 
 use super::spaces::Space;
 use super::{Selection, Workspace, recents, zones};
-use artoo_branches::opening::Opening;
+use artoo_branches::opening::Shows;
 use artoo_core::route::Route;
 use artoo_ui_kit::format;
 use git2::Oid;
@@ -748,29 +748,24 @@ impl Workspace {
                 rv.restore_scroll = opened.as_ref().and_then(|o| o.place.clone())
             });
         }
-        // A branch's or a request's kinds: what showing it takes is the history's (`History::opening`).
-        if let Some(opening) = self
-            .history
-            .update(cx, |h, _| h.opening(&page.route(), same_item))
-        {
-            match opening {
-                Opening::Branch { ix, keep } => self.select_branch(ix, keep, cx),
-                Opening::Changes => self.run_branch_compare(cx),
-                Opening::Commit(ix) => self.select_commit(ix, cx),
-                Opening::Versions(from, to) => self.select_versions(from, to, cx),
-                Opening::Finish => {
-                    self.finish_pending(cx);
+        // A branch's or a request's kinds: showing it is the history's (`History::show_route`).
+        let review = self.review_handle();
+        let shows = self.history.update(cx, |h, cx| {
+            h.show_route(&page.route(), same_item, &*review, cx)
+        });
+        match shows {
+            Some(Shows::Branch { ix, read }) => self.branch_opened(ix, read, cx),
+            Some(Shows::Request(iid)) => self.select_request(iid, cx),
+            Some(Shows::Shown { commit, follow }) => {
+                if follow {
+                    self.record(cx);
                 }
-                Opening::WorkingTree => self.load_working_tree(None, cx),
-                Opening::Compare(base, head, since) => {
-                    self.run_compare(base, head, since, None, cx)
+                if let Some(commit) = commit {
+                    self.remember_commit(&commit);
                 }
-                Opening::Request(iid) => self.select_request(iid, cx),
-                Opening::RequestChanges((base, head, iid)) => {
-                    self.run_compare(base, head, true, Some(iid), cx)
-                }
-                Opening::Stay => {}
+                cx.notify();
             }
+            Some(Shows::Stay) | None => {}
         }
     }
 
@@ -794,14 +789,19 @@ impl Workspace {
         };
         self.record(cx);
         if let Some(commit) = finished.commit {
-            self.remember_place(
-                recents::Key::Commit(commit.id),
-                commit.summary.clone(),
-                format!("commit {}", format::short(commit.id)),
-            );
+            self.remember_commit(&commit);
         }
         cx.notify();
         true
+    }
+
+    /// Commit `commit` kept among the places opened lately.
+    pub(super) fn remember_commit(&mut self, commit: &artoo_core::git::CommitInfo) {
+        self.remember_place(
+            recents::Key::Commit(commit.id),
+            commit.summary.clone(),
+            format!("commit {}", format::short(commit.id)),
+        );
     }
 
     /// Esc, once nothing smaller is open: one page up; nothing at a space's root.

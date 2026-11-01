@@ -2,8 +2,8 @@
 //! the branch read anew, or only a commit, a run, versions, its own Changes picked on the branch open; the working
 //! tree; a comparison; a request opened (its branch read with it), or its whole diff, a commit, a run or versions of
 //! it. A page that waits for its branch or its request to be read is kept as `waiting`. Which branch a request is
-//! read from is the history's too (`request_branch`). What the tab does with each, and what it keeps of it, stays
-//! the tab's for now.
+//! read from is the history's too (`request_branch`), and showing it (`show_route`); what the tab keeps of it and
+//! a request's reading stay the tab's for now (`Shows`).
 
 use crate::history::{History, NamedTip, RequestSides};
 use crate::waiting::{Pick, Waiting};
@@ -11,12 +11,14 @@ use artoo_branches_api::{
     BranchCommitRoute, BranchCommitsRoute, BranchRoute, CompareRoute, VersionsRoute,
     WorkingTreeRoute,
 };
-use artoo_core::git::{RefKind, Repo};
+use artoo_core::git::{CommitInfo, RefKind, Repo};
 use artoo_core::route::{Place, Route};
 use artoo_requests_api::{
     RequestCommitRoute, RequestCommitsRoute, RequestRoute, RequestVersionsRoute,
 };
+use artoo_review_api::Review;
 use git2::Oid;
+use gpui::Context;
 
 /// What the tab does to show a route of a branch's kind (`History::opening`).
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -45,6 +47,22 @@ pub enum Opening {
     Stay,
 }
 
+/// What showing a route came to (`History::show_route`), for what the tab does after.
+pub enum Shows {
+    /// Branch `ix` opened, `read` anew when there is one to read; what follows its read is `show_read`'s.
+    Branch { ix: usize, read: bool },
+    /// Request `number` to open: what it is read from waits for the requests (the tab's for now).
+    Request(u64),
+    /// Shown: the commit it is, kept among the places opened lately; `follow` when the page on screen follows
+    /// what is shown.
+    Shown {
+        commit: Option<CommitInfo>,
+        follow: bool,
+    },
+    /// Nothing changed.
+    Stay,
+}
+
 /// What a merge request is read from (`History::request_branch`): its own fields, as its host says them.
 pub struct RequestOf<'a> {
     pub number: u64,
@@ -62,6 +80,65 @@ pub struct RequestOf<'a> {
 }
 
 impl History {
+    /// Route `route` shown (`opening`); `same` when its branch is the one open. `None` for a route of another
+    /// kind.
+    pub fn show_route(
+        &mut self,
+        route: &Route,
+        same: bool,
+        review: &dyn Review,
+        cx: &mut Context<Self>,
+    ) -> Option<Shows> {
+        let shown = |follow| Shows::Shown {
+            commit: None,
+            follow,
+        };
+        Some(match self.opening(route, same)? {
+            Opening::Branch { ix, keep } => Shows::Branch {
+                ix,
+                read: self.open_branch(ix, keep, review, cx),
+            },
+            Opening::Changes => {
+                self.show_branch_compare(review, cx);
+                shown(false)
+            }
+            Opening::Commit(ix) => match self.show_commit(ix, None, review, cx) {
+                Some(commit) => Shows::Shown {
+                    commit: Some(commit),
+                    follow: true,
+                },
+                None => Shows::Stay,
+            },
+            Opening::Versions(from, to) => shown(self.show_versions(from, to, None, review, cx)),
+            Opening::Finish => match self.finish_waiting(review, cx) {
+                Some(finished) => Shows::Shown {
+                    commit: finished.commit,
+                    follow: true,
+                },
+                None => Shows::Stay,
+            },
+            Opening::WorkingTree => {
+                let only_unstaged = self.wt.only_unstaged;
+                self.show_working_tree(only_unstaged, None, review, cx);
+                shown(false)
+            }
+            Opening::Compare(base, head, since) => {
+                self.show_compare(base.clone(), head.clone(), since, None, review, cx);
+                // A comparison's own page lists its commits (#21).
+                self.read_compare((base, head, since), cx);
+                shown(false)
+            }
+            Opening::Request(number) => Shows::Request(number),
+            Opening::RequestChanges((base, head, number)) => {
+                self.show_compare(base, head, true, Some(number), review, cx);
+                // A request's commits are its own Commits.
+                self.compare = None;
+                shown(true)
+            }
+            Opening::Stay => Shows::Stay,
+        })
+    }
+
     /// What showing `route` takes; `same` when its branch is the one open (the item loaded). A branch's own page
     /// is its Changes when it has its own commits, else its newest commit: another commit is a page of its own (the
     /// developer, 2026-11-01). A run's or versions' page asked of a branch not open waits for it (`waiting`). `None`

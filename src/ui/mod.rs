@@ -17,7 +17,6 @@ mod appearance;
 mod bar;
 mod beside;
 mod bookmarks;
-mod branch_page;
 mod code;
 mod compare;
 mod complete;
@@ -2170,14 +2169,19 @@ impl Workspace {
         self.history.update(cx, |h, cx| h.clear_diff(&*review, cx));
     }
 
-    /// Branch `ix` opened at commit `keep` (`History::open_branch`): the watch starts over on it, and
-    /// the request on it, if any, is the one open.
+    /// Branch `ix` opened at commit `keep` (`History::open_branch`).
     fn select_branch(&mut self, ix: usize, keep: Option<git2::Oid>, cx: &mut Context<Self>) {
         let review = self.review_handle();
-        if self
+        let read = self
             .history
-            .update(cx, |h, cx| h.open_branch(ix, keep, &*review, cx))
-        {
+            .update(cx, |h, cx| h.open_branch(ix, keep, &*review, cx));
+        self.branch_opened(ix, read, cx);
+    }
+
+    /// Branch `ix` opened, `read` anew: the watch starts over on it, and the request on it, if any,
+    /// is the one open.
+    pub(super) fn branch_opened(&mut self, ix: usize, read: bool, cx: &mut Context<Self>) {
+        if read {
             self.watch.forget();
         }
         self.sync_request(ix, cx);
@@ -2218,12 +2222,8 @@ impl Workspace {
         if settled.follow {
             self.record(cx);
         }
-        for commit in settled.commits {
-            self.remember_place(
-                recents::Key::Commit(commit.id),
-                commit.summary.clone(),
-                format!("commit {}", format::short(commit.id)),
-            );
+        for commit in &settled.commits {
+            self.remember_commit(commit);
         }
         self.follow_pending_link(cx);
         self.open_waiting_draft(cx);
@@ -2247,11 +2247,7 @@ impl Workspace {
             return;
         };
         self.record(cx);
-        self.remember_place(
-            recents::Key::Commit(commit.id),
-            commit.summary.clone(),
-            format!("commit {}", format::short(commit.id)),
-        );
+        self.remember_commit(&commit);
         cx.notify();
     }
 
