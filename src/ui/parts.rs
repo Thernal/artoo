@@ -333,7 +333,7 @@ impl Workspace {
                 side.filter(|_| beside)
                     .and_then(|side| side(route.as_ref(), width, cx))
                     .map(|side| {
-                        let room = width + super::frame::handle_width();
+                        let room = width + artoo_shell::frame::handle_width();
                         motion::toward(
                             div()
                                 .flex()

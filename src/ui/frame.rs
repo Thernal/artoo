@@ -1,55 +1,24 @@
-//! The window's frame: the root view and what surrounds the diff — the title bar, the rail, the
-//! welcome, the sidebar's pairs of commits (its versions and commit rows are the branches',
-//! `artoo_branches::side`), zen's line and the splitters.
+//! The window's frame, the tab's side: the root view — its actions and keys, what it draws between the title bar and
+//! the overlays —, zen's line and the splitters' widths. The body's row, zen's strips and the handles are drawn by the
+//! shell (`artoo_shell::frame`).
 
 use super::*;
+use artoo_shell::frame;
 use typing::Input;
 
 impl Workspace {
-    /// Zen's line at the foot of the diff: the keys of a review, from the keyboard alone.
+    /// Zen's line at the foot of the diff (`artoo_shell::frame::zen_keys`).
     pub(super) fn render_zen_keys(&self) -> Option<impl IntoElement + use<>> {
         (self.zen.is_some() || self.motion.recent("zen")).then_some(())?;
-        // Keys are split by spaces: "[ ]" is two caps.
-        let pair = |spec: &'static str, what: &'static str| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .children(spec.split(' ').map(|key| keys::caps(key, keys::On::Plain)))
-                .child(what)
-        };
-        Some(
-            div()
-                .flex_none()
-                .flex()
-                .flex_wrap()
-                .items_center()
-                .justify_center()
-                .gap(px(16.))
-                .px(px(12.))
-                .py(px(6.))
-                .text_size(px(12.))
-                .text_color(theme::muted())
-                .child(pair("[ ]", "files"))
-                .child(pair("v", "reviewed, next"))
-                .child(pair("⌥↓", "next request"))
-                .child(pair("c", "comment"))
-                .child(pair(
-                    "⌥⌘.",
-                    if self.zen_one {
-                        "every file"
-                    } else {
-                        "one file at a time"
-                    },
-                ))
-                .child(pair("⌘.", "leave zen")),
-        )
-        .map(|keys| self.zen_strip("zen-keys", self.zen.is_some(), 40., keys))
+        Some(self.zen_strip(
+            "zen-keys",
+            self.zen.is_some(),
+            40.,
+            frame::zen_keys(self.zen_one),
+        ))
     }
 
-    /// A strip over or under the page that zen takes away or brings — the page's bar, the item's
-    /// line, zen's own: it folds to nothing and fades as the sides slide (#56, 16; the developer,
-    /// 2026-10-23: the top went at once). `room` is the most it is tall.
+    /// A strip zen takes away or brings (`artoo_shell::frame::zen_strip`).
     pub(super) fn zen_strip(
         &self,
         id: &'static str,
@@ -57,20 +26,7 @@ impl Workspace {
         room: f32,
         strip: impl IntoElement + 'static,
     ) -> gpui::AnyElement {
-        motion::toward(
-            div()
-                .flex_none()
-                .flex()
-                .flex_col()
-                .overflow_hidden()
-                .child(strip),
-            id,
-            shown,
-            self.motion.recent("zen"),
-            motion::BASE,
-            move |s, v| s.max_h(px(room * v)).opacity(v),
-        )
-        .into_any_element()
+        frame::zen_strip(id, shown, self.motion.recent("zen"), room, strip)
     }
 
     pub(super) fn size(&mut self, split: Split) -> &mut f32 {
@@ -98,7 +54,7 @@ impl Workspace {
             cx.notify();
             return;
         }
-        let origin = axis(split, event.position);
+        let origin = split.axis(event.position);
         let size = *self.size(split);
         self.drag = Some(Drag {
             split,
@@ -116,17 +72,7 @@ impl Workspace {
             self.end_drag(cx);
             return;
         }
-        let (min, max) = drag.split.bounds();
-        // In the interface's units, as the widths are: the edge stays under the pointer at any
-        // interface size.
-        let moved = (axis(drag.split, event.position) - drag.origin) / super::ui_zoom();
-        let moved = if drag.split == Split::Tool {
-            -moved
-        } else {
-            moved
-        };
-        let size = (drag.size + moved).clamp(min, max);
-        *self.size(drag.split) = size;
+        *self.size(drag.split) = drag.size_at(event.position, super::ui_zoom());
         cx.notify();
     }
 
@@ -137,39 +83,14 @@ impl Workspace {
         }
     }
 
-    /// The gap after a pane (right of it, or below when vertical), which resizes the pane.
+    /// The gap after a pane, which resizes it (`artoo_shell::frame::handle`).
     pub(super) fn handle(&self, split: Split, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let active = self.drag.is_some_and(|d| d.split == split);
-        let group = match split {
-            Split::Sidebar => "split-sidebar",
-            Split::Tool => "split-tool",
-            Split::List => "split-list",
-        };
-        let line = div()
-            .rounded_full()
-            .when(active, |s| s.bg(theme::splitter()))
-            .group_hover(group, |s| s.bg(theme::splitter()));
-        let gap = div()
-            .group(group)
-            .flex_none()
-            .flex()
-            .items_center()
-            .justify_center();
-        let gap = if split.vertical() {
-            gap.h(px(handle_width()))
-                .w_full()
-                .cursor(CursorStyle::ResizeUpDown)
-                .child(line.h(px(2.)).w(px(48.)))
-        } else {
-            gap.w(px(handle_width()))
-                .h_full()
-                .cursor(CursorStyle::ResizeLeftRight)
-                .child(line.w(px(2.)).h(px(48.)))
-        };
-        gap.on_mouse_down(
-            MouseButton::Left,
-            cx.listener(move |this, event, _, cx| this.start_drag(split, event, cx)),
-        )
+        let tab = cx.weak_entity();
+        frame::handle(split, active, move |event, _, cx| {
+            tab.update(cx, |this, cx| this.start_drag(split, event, cx))
+                .ok();
+        })
     }
 
     // ---- rendering -----------------------------------------------------------------------
@@ -623,13 +544,7 @@ impl Render for Workspace {
                 this.end_drag(cx)
             }),
         )
-        .when_some(self.drag, |s, drag| {
-            s.cursor(if drag.split.vertical() {
-                CursorStyle::ResizeUpDown
-            } else {
-                CursorStyle::ResizeLeftRight
-            })
-        })
+        .when_some(self.drag, |s, drag| s.cursor(drag.cursor()))
         .size_full()
         .relative()
         .flex()
@@ -644,40 +559,17 @@ impl Render for Workspace {
             _ if self.setup.is_some() => self.render_setup(cx),
             _ if self.settings_open => self.render_settings(cx).into_any_element(),
             None => self.render_welcome(cx).into_any_element(),
-            Some(_) => div()
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .pl(px(gap()))
-                // The stripe sits on the window's right edge; zen has none.
-                .pr(px(if self.zen.is_some() { gap() } else { 0. }))
-                .pb(px(gap()))
-                // Zen slides the rail away and back (#56, 16).
-                .children(self.render_project_rail(cx).map(|rail| {
-                    motion::toward(
-                        div().flex_none().flex().overflow_hidden().child(rail),
-                        "rail-zen",
-                        self.zen.is_none(),
-                        self.motion.recent("zen"),
-                        motion::BASE,
-                        |rail, v| rail.max_w(px(48. * v)).opacity(v),
-                    )
-                }))
-                .children(self.render_spaces(cx))
-                // The page of the space on screen (#71).
-                .child(self.render_space(cx))
-                .children(self.stripe_gap())
-                .children(self.render_stripe(cx).map(|stripe| {
-                    motion::toward(
-                        div().flex_none().flex().overflow_hidden().child(stripe),
-                        "stripe-zen",
-                        self.zen.is_none(),
-                        self.motion.recent("zen"),
-                        motion::BASE,
-                        |stripe, v| stripe.max_w(px(44. * v)).opacity(v),
-                    )
-                }))
-                .into_any_element(),
+            Some(_) => frame::body(frame::Body {
+                rail: self
+                    .render_project_rail(cx)
+                    .map(IntoElement::into_any_element),
+                spaces: self.render_spaces(cx).map(IntoElement::into_any_element),
+                page: self.render_space(cx).into_any_element(),
+                stripe_gap: self.stripe_gap().map(IntoElement::into_any_element),
+                stripe: self.render_stripe(cx).map(IntoElement::into_any_element),
+                zen: self.zen.is_some(),
+                zen_moving: self.motion.recent("zen"),
+            }),
         })
         // Last, so it paints over everything.
         .children(
@@ -698,19 +590,4 @@ impl Render for Workspace {
         .children(self.render_shortcuts(cx))
         .children(self.render_palette(cx))
     }
-}
-
-/// How wide a pane's handle is: the gap between islands, a thin line between flat panes. A pane
-/// that slides in and out is its width and its handle, so nothing of it stays at the end.
-pub(super) fn handle_width() -> f32 {
-    if flat() { 3. } else { GAP }
-}
-
-/// The pointer coordinate along the axis `split` resizes.
-pub(super) fn axis(split: Split, position: Point<gpui::Pixels>) -> f32 {
-    f32::from(if split.vertical() {
-        position.y
-    } else {
-        position.x
-    })
 }

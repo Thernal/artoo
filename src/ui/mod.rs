@@ -88,14 +88,15 @@ use artoo_branches::working::WorkingState;
 use artoo_review::diff::{Diff, Header, Notice};
 use artoo_review::diff_view::{self, CODE_SIZE};
 use artoo_review::review::{self, Opt};
+use artoo_shell::frame::{Drag, Split};
 use artoo_shell::keymap;
 use artoo_shell::title;
 use artoo_ui_kit::controls::tag;
 use gpui::{
-    App, Context, CursorStyle, FocusHandle, KeyBinding, KeyDownEvent, ListAlignment, ListState,
-    Menu, MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent, PathPromptOptions, Point,
-    SharedString, Task, TitlebarOptions, UniformListScrollHandle, Window, WindowBounds,
-    WindowOptions, actions, div, font, prelude::*, size,
+    App, Context, FocusHandle, KeyBinding, KeyDownEvent, ListAlignment, ListState, Menu, MenuItem,
+    MouseButton, MouseDownEvent, MouseMoveEvent, PathPromptOptions, Point, SharedString, Task,
+    TitlebarOptions, UniformListScrollHandle, Window, WindowBounds, WindowOptions, actions, div,
+    font, prelude::*, size,
 };
 use lists::Field;
 use menu::{Act, Entry};
@@ -1464,39 +1465,6 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         cx.update(|cx| cx.quit());
     })
     .detach();
-}
-
-/// A pane boundary that can be dragged.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Split {
-    Sidebar,
-    /// The tool window's left edge: dragging left widens it.
-    Tool,
-    /// The list of the Inbox, Branches and Merge requests beside its preview.
-    List,
-}
-
-impl Split {
-    fn vertical(self) -> bool {
-        false
-    }
-
-    fn bounds(self) -> (f32, f32) {
-        match self {
-            Split::Sidebar => (220., 720.),
-            Split::Tool => (260., 640.),
-            Split::List => (300., 900.),
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct Drag {
-    split: Split,
-    /// Pointer coordinate along the split's axis when the drag began.
-    origin: f32,
-    /// Pane size when the drag began.
-    size: f32,
 }
 
 pub struct Workspace {
