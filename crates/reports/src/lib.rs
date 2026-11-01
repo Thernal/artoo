@@ -382,7 +382,7 @@ pub(crate) fn send(
     let payload = json!({
         "install": install_id(),
         "version": env!("CARGO_PKG_VERSION"),
-        "commit": artoo_core::COMMIT,
+        "commit": artoo_core::commit(),
         "title": title,
         "body": body,
         "fingerprint": fingerprint(title),

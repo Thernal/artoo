@@ -26,10 +26,20 @@ pub mod textedit;
 pub mod themes;
 pub mod worddiff;
 
-/// The commit this build is made from (`build.rs`).
-pub const COMMIT: &str = env!("ARTOO_COMMIT");
+/// The commit this build is made from, as the app said it when it started.
+static COMMIT: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+/// The app says which commit it is built from (its `build.rs`), before anything asks.
+pub fn set_commit(commit: &'static str) {
+    COMMIT.set(commit).ok();
+}
+
+/// The commit this build is made from; "unknown" where no app said it (a crate's own tests).
+pub fn commit() -> &'static str {
+    COMMIT.get().copied().unwrap_or("unknown")
+}
 
 /// "Artoo 0.2.0 (7c5758f)": which build it is.
 pub fn version() -> String {
-    format!("Artoo {} ({COMMIT})", env!("CARGO_PKG_VERSION"))
+    format!("Artoo {} ({})", env!("CARGO_PKG_VERSION"), commit())
 }

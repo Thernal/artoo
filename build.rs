@@ -1,5 +1,6 @@
 //! The commit a build is made from, for the version the app says (a report, Settings): `ARTOO_COMMIT`,
-//! else `git rev-parse --short HEAD`, else "unknown" (#118).
+//! else `git rev-parse --short HEAD`, else "unknown" (#118). The app's, which hands it to the core as it
+//! starts (`artoo_core::set_commit`): a commit rebuilds the app alone, not every crate under it.
 
 fn main() {
     let commit = std::env::var("ARTOO_COMMIT").ok().or_else(|| {
@@ -15,6 +16,6 @@ fn main() {
         commit.unwrap_or_else(|| "unknown".to_owned())
     );
     println!("cargo:rerun-if-env-changed=ARTOO_COMMIT");
-    println!("cargo:rerun-if-changed=../../.git/HEAD");
-    println!("cargo:rerun-if-changed=../../.git/refs/heads");
+    println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed=.git/refs/heads");
 }
