@@ -83,6 +83,9 @@ const HEAD: f32 = 26.;
 const EDGE: f32 = 8.;
 pub const WIDTH: f32 = 260.;
 
+/// What the tab does when an entry with act `A` is clicked.
+pub type OnEntry<A> = Rc<dyn Fn(A, &mut Window, &mut App)>;
+
 /// One tab's context menu.
 pub struct Menu<A> {
     open: Option<Panel<A>>,
@@ -90,11 +93,11 @@ pub struct Menu<A> {
     leaving: Option<Panel<A>>,
     marks: motion::Marks,
     /// An entry clicked.
-    run: Rc<dyn Fn(A, &mut Window, &mut App)>,
+    run: OnEntry<A>,
 }
 
 impl<A: Clone + 'static> Menu<A> {
-    pub fn new(run: Rc<dyn Fn(A, &mut Window, &mut App)>) -> Self {
+    pub fn new(run: OnEntry<A>) -> Self {
         Self {
             open: None,
             leaving: None,

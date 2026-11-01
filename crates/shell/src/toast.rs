@@ -33,6 +33,9 @@ struct Toast<A> {
     _timer: Task<()>,
 }
 
+/// What the tab does when a button with act `A` is pressed.
+pub type OnAct<A> = Rc<dyn Fn(A, &mut App)>;
+
 /// One tab's toasts; `A` is what their buttons do, run by the tab.
 pub struct Toasts<A> {
     list: Vec<Toast<A>>,
@@ -40,11 +43,11 @@ pub struct Toasts<A> {
     /// An act's button's label.
     label: fn(&A) -> &'static str,
     /// An act's button pressed.
-    run: Rc<dyn Fn(A, &mut App)>,
+    run: OnAct<A>,
 }
 
 impl<A: Clone + PartialEq + 'static> Toasts<A> {
-    pub fn new(label: fn(&A) -> &'static str, run: Rc<dyn Fn(A, &mut App)>) -> Self {
+    pub fn new(label: fn(&A) -> &'static str, run: OnAct<A>) -> Self {
         Self {
             list: Vec::new(),
             next: 0,
