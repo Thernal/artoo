@@ -1,7 +1,7 @@
 //! The agents' contract (#165 stage 4): what another feature asks of the agents' chats — for now the reports a
 //! chat drafted of a problem it hit (`report_problem`, #118), which Report a problem opens to be checked — and the
 //! models the tab speaks with them: the comments for an agent (`comment`), an agent's notes on its changes
-//! (`notes`), what goes over the agents' folder (`bus`).
+//! (`notes`), what goes over the agents' folder (`bus`); and a tab's agents (`tab`).
 //!
 //! - `agents::get(cx).take()` is the drafts not opened yet; a worker takes a clone of the `Arc` first.
 //! - Each call reads the agents' folder: off the window's thread when it is called often.
@@ -9,6 +9,7 @@
 pub mod bus;
 pub mod comment;
 pub mod notes;
+pub mod tab;
 
 use gpui::{App, Global};
 use std::sync::Arc;

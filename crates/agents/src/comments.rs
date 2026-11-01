@@ -33,20 +33,6 @@ impl AgentComments {
         }
     }
 
-    /// The drafts the next sending takes.
-    pub fn drafts(&self) -> Vec<u64> {
-        self.list
-            .iter()
-            .filter(|c| c.state == State::Draft)
-            .map(|c| c.id)
-            .collect()
-    }
-
-    /// The id a new one takes.
-    pub fn next_id(&self) -> u64 {
-        self.list.iter().map(|c| c.id).max().unwrap_or(0) + 1
-    }
-
     /// What the agents answered since the last look, taken in and kept: each one's state and replies as they were,
     /// when anything changed.
     pub fn take_answers(&mut self, bus: &Bus) -> Option<Vec<(u64, State, usize)>> {

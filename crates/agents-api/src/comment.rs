@@ -237,6 +237,35 @@ impl Comment {
     }
 }
 
+/// The drafts the next sending takes, of `comments`.
+pub fn drafts(comments: &[Comment]) -> Vec<u64> {
+    comments
+        .iter()
+        .filter(|c| c.state == State::Draft)
+        .map(|c| c.id)
+        .collect()
+}
+
+/// The id a new one of `comments` takes.
+pub fn next_id(comments: &[Comment]) -> u64 {
+    comments.iter().map(|c| c.id).max().unwrap_or(0) + 1
+}
+
+/// Marks `ids` as sent to `session` in one new batch; returns the batch.
+pub fn send(comments: &mut [Comment], ids: &[u64], session: &str, title: &str) -> String {
+    let batch = artoo_core::platform::uid();
+    for c in comments.iter_mut().filter(|c| ids.contains(&c.id)) {
+        c.state = State::Sent;
+        c.sent = Some(Sent {
+            session: session.to_owned(),
+            title: title.to_owned(),
+            batch: batch.clone(),
+            delivered: false,
+        });
+    }
+    batch
+}
+
 /// Finds `comment`'s line in a side of a file: where it was if it still reads the same, else the one
 /// line that does; ambiguous or missing means outdated.
 pub fn place<'a>(comment: &Comment, count: u32, line: impl Fn(u32) -> &'a str) -> Place {

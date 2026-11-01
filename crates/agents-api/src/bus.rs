@@ -1,11 +1,15 @@
 //! What goes over the agents' folder (#165: the agents' model, which the tab reads on its beat): the chats that
-//! listen, the windows of Artoo there, what an agent asks the app to show. The agents write and read the folder.
+//! listen, the windows of Artoo there, what an agent asks the app to show. The agents write and read the folder;
+//! a window and its tabs ask it through `Folder`.
 
+use gpui::{App, Global};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::SystemTime;
 
 /// How long a watcher may go quiet and still count as listening.
-pub const FRESH: i64 = 12;
+const FRESH: i64 = 12;
 
 /// The same for a Codex session the app watches for (the agents' `codex`): the app writes it on its
 /// own beat, which slows to 8 s when nothing changes and more in the background, and takes it off
@@ -190,4 +194,47 @@ impl Chat {
     pub fn limited(&self) -> bool {
         self.watcher == 0 && self.agent == "Codex"
     }
+}
+
+/// The agents' folder as Artoo's windows and tabs read it on their beat (`folder`): an empty answer when there is
+/// none.
+pub trait Folder: Send + Sync {
+    /// Window `window` of this process is there, with the projects in its tabs; whether it was said.
+    fn present(&self, window: u64, presence: &Presence) -> bool;
+
+    /// Window `window` of process `pid` went.
+    fn absent(&self, pid: u32, window: u64);
+
+    /// The windows of Artoo there now.
+    fn running(&self) -> Vec<Presence>;
+
+    /// What agents asked the app to show, not taken yet.
+    fn events(&self) -> Vec<Event>;
+
+    /// Event `uid` taken; whether this was the one that took it.
+    fn take_event(&self, uid: &str) -> bool;
+
+    /// What agents left on `project`'s requests.
+    fn marks(&self, project: &Path) -> Vec<Mark>;
+
+    /// When `project`'s marks last changed.
+    fn marks_stamp(&self, project: &Path) -> Option<SystemTime>;
+
+    /// Codex's open sessions in `project` listen through the app, and what was sent to one is handed over (#18):
+    /// one beat of it, off the window's thread.
+    fn codex_beat(&self, project: &Path);
+}
+
+struct Installed(Arc<dyn Folder>);
+
+impl Global for Installed {}
+
+/// Sets the folder every window reads (the agents' `install`).
+pub fn provide(cx: &mut App, folder: Arc<dyn Folder>) {
+    cx.set_global(Installed(folder));
+}
+
+/// The folder, as provided.
+pub fn folder(cx: &App) -> Arc<dyn Folder> {
+    cx.global::<Installed>().0.clone()
 }

@@ -7,7 +7,7 @@
 use crate::agents::Chat;
 use crate::chats::Chats;
 use crate::comments::AgentComments;
-use crate::review::{Comment, State};
+use crate::review::{self, Comment, State};
 use crate::view::{chat_badge, limited};
 use artoo_shell_api::{Badge, Frame, ListKey, MenuItem, Tool};
 use artoo_ui_kit::controls::{self, group_heading, tool_foot};
@@ -149,7 +149,7 @@ pub fn tool(
 
 /// The stripe's icon: the drafts waiting, a dot for each chat listening on its own hue (#77).
 fn badge(chats: &Entity<Chats>, comments: &Entity<AgentComments>, cx: &App) -> Badge {
-    let drafts = comments.read(cx).drafts().len();
+    let drafts = review::drafts(&comments.read(cx).list).len();
     let chats = chats.read(cx);
     let dots: Vec<_> = chats
         .list
@@ -547,7 +547,7 @@ impl Render for AgentsWindow {
         let host = self.host();
         let rich = host.as_ref().is_some_and(|h| h.rich(cx));
         let comments = self.comments.read(cx).list.clone();
-        let drafts = self.comments.read(cx).drafts().len();
+        let drafts = review::drafts(&self.comments.read(cx).list).len();
         // A chat works while it has comments it took and has not answered, and is not listening:
         // the watcher wakes it with them and runs again when it is done.
         let working = |session: &str| {
@@ -875,7 +875,7 @@ impl Render for AgentsWindow {
                     "Send".to_owned()
                 })
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    let ids = this.comments.read(cx).drafts();
+                    let ids = review::drafts(&this.comments.read(cx).list);
                     this.act(Act::Send(ids), cx)
                 }));
             // The chat it goes to changes rarely: here, beside it.

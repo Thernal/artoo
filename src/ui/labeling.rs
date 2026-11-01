@@ -44,9 +44,8 @@ impl Workspace {
             }
             Target::Chat { session, agent } => {
                 let first = self
-                    .chats
-                    .read(cx)
-                    .list
+                    .agents
+                    .chats(cx)
                     .iter()
                     .find(|c| &c.session == session)
                     .map(|c| c.title.clone())

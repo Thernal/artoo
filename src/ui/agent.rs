@@ -4,7 +4,6 @@
 //! agent's answers come back every couple of seconds, and the reviewer resolves or reopens each.
 
 use super::Workspace;
-use crate::agents::{self, Bus};
 use crate::bus::Chat;
 use crate::comment::State;
 use artoo_agents::form::{self, FormEvent, OnForm};
@@ -13,13 +12,9 @@ use artoo_agents::window::{Act, Kind, kind_of};
 use gpui::{App, Context, WeakEntity};
 
 impl Workspace {
-    fn bus() -> Option<Bus> {
-        Bus::new()
-    }
-
     /// The drafts the next sending takes.
     pub(super) fn agent_drafts(&self, cx: &App) -> Vec<u64> {
-        self.agent_comments.read(cx).drafts()
+        crate::comment::drafts(self.comments(cx))
     }
 
     /// Opens the card; without drafts, says so.
@@ -39,16 +34,14 @@ impl Workspace {
             return;
         };
         let project = self.project.clone().unwrap_or_else(|| root.clone());
-        self.send_card
-            .update(cx, |card, cx| card.send(ids, &root, &project, cx));
+        self.agents.pick_chat(ids, &root, &project, cx);
         cx.notify();
     }
 
     /// Change…: the card offers the chats that listen; the one picked takes `branch`'s notes.
     fn open_route_pick(&mut self, branch: String, cx: &mut Context<Self>) {
         let now = self.route_of(Some(&branch), cx).map(|c| c.session);
-        self.send_card
-            .update(cx, |card, cx| card.route(branch, now, cx));
+        self.agents.pick_route(branch, now, cx);
         cx.notify();
     }
 
@@ -63,7 +56,7 @@ impl Workspace {
 
     /// Whether a chat is here and listening, as the chats are now: to ask while the tab changes.
     pub(super) fn listening(&self, cx: &App) -> impl Fn(&str) -> bool + use<> {
-        let on = self.chats.read(cx).listening();
+        let on = self.agents.listening(cx);
         move |session| on.contains(session)
     }
 
@@ -76,14 +69,12 @@ impl Workspace {
         let page = self
             .route_of(self.page_branch(cx).as_deref(), cx)
             .map(|c| c.session);
-        let chats = self.chats.read(cx);
+        let (chats, edits) = (self.agents.chats(cx), self.agents.edits(cx));
         let edited = chats
-            .list
             .iter()
             .filter(|c| Some(&c.session) != page.as_ref())
             .find(|c| {
-                chats
-                    .edits
+                edits
                     .get(&c.session)
                     .is_some_and(|paths| paths.contains(path))
             })
@@ -94,11 +85,11 @@ impl Workspace {
                 .filter(|c| c.path == path && !c.archived && kind_of(c, &alive) == Kind::Working)
                 .filter_map(|c| c.sent.as_ref())
                 .map(|s| s.session.clone())
-                .filter(|s| !chats.edits.contains_key(s))
+                .filter(|s| !edits.contains_key(s))
                 .find(|s| Some(s) != page.as_ref())
         })?;
-        let chat = chats.list.iter().find(|c| c.session == session)?;
-        let (letter, hue) = chats.mark(&session);
+        let chat = chats.iter().find(|c| c.session == session)?;
+        let (letter, hue) = self.agents.mark(&session, cx);
         let name = if chat.title.is_empty() {
             chat.agent.clone()
         } else {
@@ -132,7 +123,7 @@ impl Workspace {
         }
         for (chat, ids) in &by_chat {
             self.change_comments(cx, |list| {
-                agents::send(list, ids, &chat.session, &chat.title)
+                crate::comment::send(list, ids, &chat.session, &chat.title)
             });
         }
         if !by_chat.is_empty() {
@@ -147,10 +138,10 @@ impl Workspace {
         }
     }
 
-    /// The chat a note on `branch` goes to (`Chats::route_of`), with the one picked for it.
+    /// The chat a note on `branch` goes to (`Agents::route_of`), with the one picked for it.
     pub(super) fn route_of(&self, branch: Option<&str>, cx: &App) -> Option<Chat> {
         let main = self.project.as_ref().or(self.root.as_ref())?;
-        self.chats.read(cx).route_of(branch, main).cloned()
+        self.agents.route_of(branch, main, cx)
     }
 
     /// The branch of the page on screen, as a note written there keeps it: a request's source
@@ -355,7 +346,9 @@ impl Workspace {
         let Some(root) = self.root.clone() else {
             return;
         };
-        self.change_comments(cx, |list| agents::send(list, &ids, &session, &title));
+        self.change_comments(cx, |list| {
+            crate::comment::send(list, &ids, &session, &title)
+        });
         self.save_comments(cx);
         self.codex_beat(cx);
         if session.is_empty() {
@@ -377,13 +370,13 @@ impl Workspace {
         if snapshot || self.codex_beat.is_some() {
             return;
         }
-        let (Some(project), Some(bus)) = (self.project.clone().or(self.root.clone()), Self::bus())
-        else {
+        let Some(project) = self.project.clone().or(self.root.clone()) else {
             return;
         };
+        let folder = crate::bus::folder(cx);
         self.codex_beat = Some(cx.spawn(async move |this, cx| {
             cx.background_executor()
-                .spawn(async move { crate::codex::beat(&bus, &project) })
+                .spawn(async move { folder.codex_beat(&project) })
                 .await;
             this.update(cx, |this, _| this.codex_beat = None).ok();
         }));
@@ -402,10 +395,7 @@ impl Workspace {
             self.project.clone().or(self.root.clone()),
             self.root.clone(),
         );
-        let comments = self.comments(cx).to_vec();
-        let (changed, said) = self
-            .chats
-            .update(cx, |c, cx| c.beat(root.as_deref(), here, &comments, cx));
+        let (changed, said) = self.agents.beat(root.as_deref(), here, cx);
         for text in said {
             self.toast_info(text.into(), cx);
         }
@@ -413,26 +403,22 @@ impl Workspace {
             cx.notify();
         }
         self.codex_beat(cx);
-        let (Some(root), Some(bus)) = (self.project.clone().or(self.root.clone()), Self::bus())
-        else {
+        let Some(root) = self.project.clone().or(self.root.clone()) else {
             return;
         };
         // What agents left on requests, and what they ask to show (#150).
-        self.agent_events(&root, &bus, cx);
-        if let Some(before) = self.agent_comments.update(cx, |c, _| c.take_answers(&bus)) {
+        self.agent_events(&root, cx);
+        if let Some(before) = self.agents.take_answers(cx) {
             self.refresh_rows(cx);
             self.notify_answers(&before, cx);
             cx.notify();
         }
     }
 
-    /// Reads this repository's chats again (`Chats::refresh`); whether they changed.
+    /// Reads this repository's chats again (`Agents::refresh`); whether they changed.
     pub(super) fn refresh_chats(&mut self, cx: &mut Context<Self>) -> bool {
         let root = self.project.clone().or(self.root.clone());
-        let comments = self.agent_comments.clone();
-        self.chats.update(cx, |c, cx| {
-            c.refresh(root.as_deref(), &comments.read(cx).list)
-        })
+        self.agents.refresh(root.as_deref(), cx)
     }
 
     /// A click in the Agents window (`artoo_agents::window::Act`).

@@ -303,9 +303,8 @@ impl Workspace {
             .sent
             .as_ref()
             .and_then(|s| {
-                self.chats
-                    .read(cx)
-                    .list
+                self.agents
+                    .chats(cx)
                     .iter()
                     .find(|ch| ch.session == s.session)
                     .map(|ch| ch.agent.clone())

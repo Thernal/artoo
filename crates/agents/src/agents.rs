@@ -10,7 +10,7 @@
 //! A comment sent to a chat says so itself (`review::Sent`); the watcher hands over the comments
 //! of its chat that are not delivered yet, then exits so the agent wakes.
 
-use crate::review::{self, Comment, Reply, Sent, State};
+use crate::review::{self, Comment, Reply, State};
 /// What goes over the folder, the contract's model.
 pub use artoo_agents_api::bus::{Chat, Event, Mark, Place, Presence, RequestDraft, What, now};
 use serde::{Deserialize, Serialize};
@@ -404,21 +404,6 @@ pub fn apply(comments: &mut [Comment], answers: &[Answer]) -> bool {
     changed
 }
 
-/// Marks `ids` as sent to `session` in one new batch; returns the batch.
-pub fn send(comments: &mut [Comment], ids: &[u64], session: &str, title: &str) -> String {
-    let batch = uid();
-    for c in comments.iter_mut().filter(|c| ids.contains(&c.id)) {
-        c.state = State::Sent;
-        c.sent = Some(Sent {
-            session: session.to_owned(),
-            title: title.to_owned(),
-            batch: batch.clone(),
-            delivered: false,
-        });
-    }
-    batch
-}
-
 /// Where a note on `branch` goes (#77): the chat picked for that branch (`chosen`) while it
 /// listens, else the chat whose folder is on that branch, else the project's default — the newest
 /// listening chat in the main working tree `main`, else the newest listening one. `chats` newest
@@ -760,6 +745,7 @@ pub fn brief(root: &Path, comments: &[&Comment]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::review::send;
 
     fn chat(session: &str, repo: &str, branch: &str, listening: bool) -> Chat {
         Chat {

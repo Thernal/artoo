@@ -8,7 +8,6 @@ use super::Workspace;
 use super::goto::Spot;
 use super::nav::{Item, Page};
 use super::toast::Act;
-use crate::agents::Bus;
 use crate::bus::{Mark, Place, RequestDraft, What};
 use crate::git::RefKind;
 use gpui::{App, Context};
@@ -18,16 +17,20 @@ impl Workspace {
     /// On the agents' beat (`poll_agents`): the marks read again when they changed, and this
     /// project's events taken. Only a tab on screen polls, so a tab behind hears its news when it
     /// comes on screen.
-    pub(super) fn agent_events(&mut self, project: &Path, bus: &Bus, cx: &mut Context<Self>) {
-        let stamp = bus.marks_stamp(project);
+    pub(super) fn agent_events(&mut self, project: &Path, cx: &mut Context<Self>) {
+        let folder = crate::bus::folder(cx);
+        let stamp = folder.marks_stamp(project);
         if stamp != self.marks_stamp {
             self.marks_stamp = stamp;
-            self.agent_marks = bus.marks(project);
+            self.agent_marks = folder.marks(project);
             cx.notify();
         }
         // The window's own beat takes `Open` (`shell::Beat`).
-        for event in bus.events() {
-            if event.project != project || event.what == What::Open || !bus.take_event(&event.uid) {
+        for event in folder.events() {
+            if event.project != project
+                || event.what == What::Open
+                || !folder.take_event(&event.uid)
+            {
                 continue;
             }
             match event.what {
@@ -396,14 +399,14 @@ impl Workspace {
 
     /// An agent's mark: its letter on the hue of its newest chat here, else the accent.
     pub(super) fn agent_mark(&self, agent: &str, cx: &App) -> (char, gpui::Rgba) {
-        let chats = self.chats.read(cx);
-        match chats
-            .list
+        match self
+            .agents
+            .chats(cx)
             .iter()
             .filter(|c| c.agent == agent)
             .max_by_key(|c| c.beat)
         {
-            Some(chat) => chats.mark(&chat.session),
+            Some(chat) => self.agents.mark(&chat.session, cx),
             None => (agent.chars().next().unwrap_or('?'), super::theme::accent()),
         }
     }

@@ -856,7 +856,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                                     at: "a10f3cf".into(),
                                     ..Default::default()
                                 };
-                                this.agent_comments.update(cx, |c, _| c.list.push(comment));
+                                this.change_comments(cx, |list| list.push(comment));
                                 this.start_comment(false, line + 1, cx);
                                 if let Some(c) = this.compose.as_mut() {
                                     c.edit = crate::textedit::TextEdit::new(
@@ -948,7 +948,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                                     ],
                                     ..Default::default()
                                 };
-                                this.agent_comments.update(cx, |c, _| c.list.push(comment));
+                                this.change_comments(cx, |list| list.push(comment));
                                 this.refresh_rows(cx);
                             }
                             continue;
@@ -1529,8 +1529,10 @@ pub struct Workspace {
     open_ask: Option<opening::OpenAsk>,
     /// What is beside a folder of Code's path, listed under it (`beside.rs`, #132).
     beside: Option<beside::Beside>,
-    /// The "send to which chat?" card (`artoo_agents::pick`), a part's card over the window.
-    send_card: gpui::Entity<artoo_agents::pick::SendCard>,
+    /// Its agents (`artoo_agents_api::tab`): the chats of this repository, read on every beat, the
+    /// review comments to them, their notes on the lines of their changes (#151), the "send to which
+    /// chat?" card, Settings → Agents' connecting.
+    agents: Rc<dyn artoo_agents_api::tab::Agents>,
     /// What agents left in this project, to tell it apart (`agent_events.rs`, #150), and when it
     /// was last read.
     agent_marks: Vec<crate::bus::Mark>,
@@ -1540,8 +1542,6 @@ pub struct Workspace {
     agent_fresh: HashSet<u64>,
     /// Codex's sessions looked at and handed their comments, in the background (#18).
     codex_beat: Option<Task<()>>,
-    /// The chats of this repository (`artoo_agents::chats`), read on every beat.
-    chats: gpui::Entity<artoo_agents::chats::Chats>,
     /// One's own public note asked about before it is deleted (#76).
     confirm_note: Option<u64>,
     /// The Inbox place is shown, and which of its notifications it lists.
@@ -1549,8 +1549,6 @@ pub struct Workspace {
     inbox_view: gpui::Entity<inbox::InboxView>,
     /// The note under the pointer: its reaction bar shows (#9).
     hover_note: Option<u64>,
-    /// Settings → Agents: what connecting said, and whether it runs.
-    connect: gpui::Entity<artoo_agents::connect::Connect>,
     requests: gpui::Entity<requests::Requests>,
     /// The menu's scroll (#146).
     places: spaces::Places,
@@ -1589,9 +1587,6 @@ pub struct Workspace {
     /// shown (#46).
     agent_lines: std::collections::HashMap<u64, u32>,
     agent_task: Option<Task<()>>,
-    /// Agents' notes on the lines of their changes (#151), and where those whose line changed
-    /// since went (`artoo_agents::notes::AgentNotes`).
-    agent_notes: gpui::Entity<artoo_agents::notes::AgentNotes>,
     /// Merge requests agents drafted (#152), with who did: the last one for each branch, until
     /// the reviewer creates it.
     agent_requests: Vec<(String, crate::bus::RequestDraft)>,
@@ -1609,9 +1604,7 @@ pub struct Workspace {
     /// Set up Artoo, while it is open (#143).
     setup: Option<setup::Setup>,
     watch: watch::Watch,
-    /// Review comments of this repository to agents (`artoo_agents::comments`), the one being
-    /// written, and the Review island.
-    agent_comments: gpui::Entity<artoo_agents::comments::AgentComments>,
+    /// The review comment being written, and the Review island.
     compose: Option<composer::Compose>,
     /// The merge request the last comment went to: the next composer on its diff starts there.
     last_request_target: Option<u64>,
@@ -1758,7 +1751,6 @@ impl Workspace {
         let services = Rc::new(artoo_shell_api::Services::default());
         let frame: Rc<dyn artoo_shell_api::Frame> =
             Rc::new(parts::TabFrame(cx.weak_entity(), services.clone()));
-        let chats = cx.new(|_| artoo_agents::chats::Chats::default());
         let mut this = Self {
             focus,
             layout: Layout::load(),
@@ -1785,17 +1777,15 @@ impl Workspace {
             window: window.window_handle(),
             open_ask: None,
             beside: None,
-            send_card: cx.new(|_| artoo_agents::pick::SendCard::new(chats.clone())),
+            agents: artoo_agents_api::tab::tab(cx),
             agent_marks: Vec::new(),
             marks_stamp: None,
             agent_fresh: HashSet::new(),
             codex_beat: None,
-            chats,
             confirm_note: None,
             inbox: false,
             inbox_view: cx.new(|_| Default::default()),
             hover_note: None,
-            connect: cx.new(|_| Default::default()),
             notices: cx.new(|_| Default::default()),
             title: String::new(),
             history: cx.new(|_| History::new()),
@@ -1825,7 +1815,6 @@ impl Workspace {
             since_on_open: None,
             agent_lines: Default::default(),
             agent_task: None,
-            agent_notes: cx.new(|_| Default::default()),
             agent_requests: Vec::new(),
             create_waiting: None,
             drafts_unseen: HashSet::new(),
@@ -1835,7 +1824,6 @@ impl Workspace {
             settings_open: false,
             setup: None,
             watch: watch::Watch::default(),
-            agent_comments: cx.new(|_| Default::default()),
             compose: None,
             last_request_target: None,
             me: "You".to_owned(),
@@ -1884,12 +1872,9 @@ impl Workspace {
         services.set(this.requests.clone());
         services.set(artoo_requests::requests::handle(&this.requests));
         services.set(requests::acts_of(cx.weak_entity()));
-        services.set(this.agent_notes.clone());
-        // Its chats and its comments to agents, which the Agents window lists, the tab its host.
-        services.set(this.chats.clone());
-        services.set(this.agent_comments.clone());
-        services.set(this.send_card.clone());
-        services.set(this.connect.clone());
+        // Its agents, which their parts draw — the Agents window, the card, the notes' summary,
+        // Settings → Agents — the tab their host.
+        services.set(this.agents.clone());
         services.set::<Rc<dyn artoo_agents::window::AgentsHost>>(Rc::new(agent::AgentsHost(
             cx.weak_entity(),
         )));
@@ -1932,20 +1917,32 @@ impl Workspace {
         cx.subscribe(&this.history, Self::history_event).detach();
         cx.observe(&this.requests, |_, _, cx| cx.notify()).detach();
         // The notes' lines followed to the head shown: they are pinned again.
-        cx.observe(&this.agent_notes, |this, _, cx| {
-            this.refresh_rows(cx);
-            cx.notify();
-        })
-        .detach();
+        let tab = cx.weak_entity();
+        this.agents.on_followed(
+            Rc::new(move |cx| {
+                tab.update(cx, |this, cx| {
+                    this.refresh_rows(cx);
+                    cx.notify();
+                })
+                .ok();
+            }),
+            cx,
+        );
         cx.subscribe(&this.requests, Self::requests_event).detach();
         // A connect ended: Set up looks whether the profiles have Artoo now.
-        cx.observe(&this.connect, |this, connect, cx| {
-            if !connect.read(cx).busy {
-                this.setup_look_again();
-            }
-            cx.notify();
-        })
-        .detach();
+        let tab = cx.weak_entity();
+        this.agents.on_connecting(
+            Rc::new(move |cx| {
+                tab.update(cx, |this, cx| {
+                    if !this.agents.connecting(cx).0 {
+                        this.setup_look_again();
+                    }
+                    cx.notify();
+                })
+                .ok();
+            }),
+            cx,
+        );
         cx.observe_window_activation(window, |this, window, cx| {
             if window.is_window_active() {
                 this.window_activated(cx);
@@ -2008,10 +2005,8 @@ impl Workspace {
                             this.history.update(cx, |h, _| h.find.reset());
                         }
                         if this.root.as_ref() != Some(&root) {
-                            this.agent_comments
-                                .update(cx, |c, _| c.load(project.clone()));
-                            let notes = artoo_agents::notes::load(&project);
-                            this.agent_notes.update(cx, |n, _| n.all = notes);
+                            this.agents.load_comments(project.clone(), cx);
+                            this.agents.load_notes(project.clone(), cx);
                             this.marks_stamp = None;
                             this.compose = None;
                         }
@@ -2093,7 +2088,7 @@ impl Workspace {
         self.project = Some(root.clone());
         if self.root.as_ref() != Some(&root) {
             self.history.update(cx, |h, _| h.find.reset());
-            self.agent_comments.update(cx, |c, _| c.load(root.clone()));
+            self.agents.load_comments(root.clone(), cx);
             self.marks_stamp = None;
             self.compose = None;
         }

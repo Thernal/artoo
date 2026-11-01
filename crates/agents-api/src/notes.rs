@@ -70,6 +70,54 @@ pub fn take(kept: &mut Vec<Notes>, mut taken: Notes) {
     kept.push(taken);
 }
 
+/// What the diff shown is of, as the notes ask it: the working tree, or a head by its commit and the name it was
+/// compared by.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Shown {
+    WorkingTree,
+    Head {
+        commit: String,
+        name: Option<String>,
+    },
+}
+
+/// The notes of `all` on the changes `shown`, `branch` the page's: the working tree's on the working tree; a head's
+/// where the diff's head is its commit or bears its name.
+pub fn shown<'a>(all: &'a [Notes], shown: &Shown, branch: Option<String>) -> Vec<&'a Notes> {
+    all.iter()
+        .filter(|n| match (&n.on, shown) {
+            (On::WorkingTree, Shown::WorkingTree) => true,
+            (_, Shown::WorkingTree) | (On::WorkingTree, _) => false,
+            (
+                On::Head { name, commit },
+                Shown::Head {
+                    commit: head,
+                    name: named,
+                },
+            ) => head == commit || named.as_ref().or(branch.as_ref()) == Some(name),
+        })
+        .collect()
+}
+
+/// Note `id` of `all`, and the notes it is one of.
+pub fn note(all: &[Notes], id: u64) -> Option<(&Notes, &Note)> {
+    all.iter()
+        .find_map(|n| Some((n, n.notes.iter().find(|x| x.id == id)?)))
+}
+
+/// Note `id` dismissed; its notes go with their last.
+pub fn dismiss(all: &mut Vec<Notes>, id: u64) {
+    for n in all.iter_mut() {
+        n.notes.retain(|x| x.id != id);
+    }
+    all.retain(|n| !n.notes.is_empty() || !n.summary.is_empty());
+}
+
+/// Dismiss all on a summary: notes `uid` and their summary go.
+pub fn dismiss_all(all: &mut Vec<Notes>, uid: &str) {
+    all.retain(|n| n.uid != uid);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

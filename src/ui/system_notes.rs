@@ -173,9 +173,8 @@ impl Workspace {
             }
             let session = c.sent.as_ref().map_or("", |s| s.session.as_str());
             let agent = self
-                .chats
-                .read(cx)
-                .list
+                .agents
+                .chats(cx)
                 .iter()
                 .find(|chat| chat.session == session)
                 .map_or_else(|| "An agent".to_owned(), |chat| chat.agent.clone());

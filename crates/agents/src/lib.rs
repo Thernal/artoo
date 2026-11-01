@@ -18,6 +18,7 @@ pub mod notes;
 pub mod pick;
 pub mod review;
 pub mod summary;
+mod tab;
 pub mod view;
 pub mod watch;
 pub mod window;
@@ -25,10 +26,13 @@ pub mod window;
 use artoo_core::{applog, generated, git, labels, platform, storage};
 use std::sync::Arc;
 
-/// Wires the agents in: the contract other features read them through (`artoo_agents_api`), and their parts in
-/// every tab — the notes' summary over the diff, the Agents window, the card asking which chat, Settings → Agents.
+/// Wires the agents in: the contract other features read them through (`artoo_agents_api`) — the reports chats
+/// drafted, the folder the windows read, how a tab's agents are made — and their parts in every tab: the notes'
+/// summary over the diff, the Agents window, the card asking which chat, Settings → Agents.
 pub fn install(cx: &mut gpui::App) {
     artoo_agents_api::provide(cx, Arc::new(contract::ReportDraftsImpl));
+    artoo_agents_api::bus::provide(cx, Arc::new(contract::FolderImpl));
+    artoo_agents_api::tab::provide(cx, std::rc::Rc::new(tab::make));
     artoo_shell_api::add_parts(cx, parts);
 }
 
@@ -38,21 +42,25 @@ fn parts(
     _: &mut gpui::Window,
     cx: &mut gpui::App,
 ) -> artoo_shell_api::Parts {
-    let services = frame.services();
-    let (Some(notes), Some(chats), Some(comments), Some(card), Some(connect)) = (
-        services.get::<gpui::Entity<notes::AgentNotes>>(),
-        services.get::<gpui::Entity<chats::Chats>>(),
-        services.get::<gpui::Entity<comments::AgentComments>>(),
-        services.get::<gpui::Entity<pick::SendCard>>(),
-        services.get::<gpui::Entity<connect::Connect>>(),
-    ) else {
+    let Some(agents) = frame
+        .services()
+        .get::<std::rc::Rc<dyn artoo_agents_api::tab::Agents>>()
+    else {
+        return Default::default();
+    };
+    let Some(tab) = tab::of(&agents) else {
         return Default::default();
     };
     artoo_shell_api::Parts {
-        settings: vec![connect::settings(connect, cx)],
-        overlay: Some(pick::overlay(card, frame.clone(), cx)),
-        tool: Some(window::tool(chats, comments, frame.clone(), cx)),
-        pieces: vec![summary::piece(notes, frame, cx)],
+        settings: vec![connect::settings(tab.connect.clone(), cx)],
+        overlay: Some(pick::overlay(tab.card.clone(), frame.clone(), cx)),
+        tool: Some(window::tool(
+            tab.chats.clone(),
+            tab.comments.clone(),
+            frame.clone(),
+            cx,
+        )),
+        pieces: vec![summary::piece(tab.notes.clone(), frame, cx)],
         ..Default::default()
     }
 }

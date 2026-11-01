@@ -3,7 +3,7 @@
 //! the diff shows the changes they are on — the working tree, or a head the agent named (its
 //! branch's pages, a comparison or a request with that head). Answer opens a comment for the agent
 //! on the note's line; the reviewer dismisses one, or all of them at once. The notes kept, which are
-//! on the diff and where they followed their lines are the agents' (`AgentNotes`).
+//! on the diff and where they followed their lines are the agents' (`Agents`).
 
 use super::Workspace;
 use super::nav::Page;
@@ -11,8 +11,9 @@ use super::rows::FileData;
 use super::toast::Act;
 use crate::bus::{Event, What};
 use crate::comment::Place;
-use crate::notes::{Notes, On};
+use crate::notes::{Notes, On, Shown};
 use artoo_agents::view::{self, NoteEvent, NoteLook, OnNote};
+use artoo_review_api::diff::{Diff, Header};
 use gpui::{App, Context, WeakEntity, div, prelude::*};
 use std::rc::Rc;
 
@@ -50,8 +51,15 @@ impl Workspace {
             summary,
             notes,
         };
-        self.agent_notes
-            .update(cx, |n, _| crate::notes::take(&mut n.all, notes));
+        let mut notes = Some(notes);
+        self.agents.change_notes(
+            &mut |all| {
+                if let Some(notes) = notes.take() {
+                    crate::notes::take(all, notes);
+                }
+            },
+            cx,
+        );
         self.save_agent_notes(cx);
         self.map_agent_notes(cx);
         self.refresh_rows(cx);
@@ -91,17 +99,15 @@ impl Workspace {
     }
 
     pub(super) fn save_agent_notes(&self, cx: &App) {
-        if let Some(project) = &self.project {
-            artoo_agents::notes::save(project, &self.agent_notes.read(cx).all);
-        }
+        self.agents.save_notes(cx);
     }
 
-    /// The notes on the changes the diff shows (`AgentNotes::shown`), by the page's branch.
+    /// The notes on the changes the diff shows (`notes::shown`), by the page's branch.
     pub(super) fn notes_shown<'a>(&self, cx: &'a App) -> Vec<&'a Notes> {
         let Some(diff) = self.review.read(cx).diff.as_deref() else {
             return Vec::new();
         };
-        self.agent_notes.read(cx).shown(diff, self.page_branch(cx))
+        crate::notes::shown(self.agents.notes(cx), &shown(diff), self.page_branch(cx))
     }
 
     /// The notes shown on lines of file `path`, built as `data`: (id, line on the new side).
@@ -114,36 +120,27 @@ impl Workspace {
             .filter_map(|n| {
                 match crate::comment::find_line(n.line, &n.code, side.count(), |l| side.line(l).0) {
                     Place::Line(line) => Some((n.id, line)),
-                    Place::Outdated => self
-                        .agent_notes
-                        .read(cx)
-                        .lines
-                        .get(&n.id)
-                        .map(|&line| (n.id, line)),
+                    Place::Outdated => self.agents.followed(n.id, cx).map(|line| (n.id, line)),
                 }
             })
             .collect()
     }
 
     /// Follows the line of every note on a head the diff has moved on from, from the commit it was
-    /// written on to the one shown, in the background (#46, `AgentNotes::follow`).
+    /// written on to the one shown, in the background (#46, `Agents::follow`).
     pub(super) fn map_agent_notes(&mut self, cx: &mut Context<Self>) {
-        let (root, diff, branch) = (
+        let (root, shown, branch) = (
             self.root.clone(),
-            self.review.read(cx).diff.clone(),
+            self.review.read(cx).diff.as_deref().map(shown),
             self.page_branch(cx),
         );
-        self.agent_notes
-            .update(cx, |n, cx| n.follow(root, diff.as_deref(), branch, cx));
+        self.agents.follow(root, shown, branch, cx);
     }
 
     /// Answer on a note: a comment for the agent on its line, as comments for it are written; it
     /// carries the note, so the agent reads what it answers.
     pub(super) fn answer_note(&mut self, id: u64, cx: &mut Context<Self>) {
-        let Some((path, body)) = self
-            .agent_notes
-            .read(cx)
-            .note(id)
+        let Some((path, body)) = crate::notes::note(self.agents.notes(cx), id)
             .map(|(_, n)| (n.path.clone(), n.body.clone()))
         else {
             return;
@@ -202,7 +199,8 @@ impl Workspace {
 
     /// Dismisses note `id`; its notes go with their last.
     pub(super) fn dismiss_note(&mut self, id: u64, cx: &mut Context<Self>) {
-        self.agent_notes.update(cx, |n, _| n.dismiss(id));
+        self.agents
+            .change_notes(&mut |all| crate::notes::dismiss(all, id), cx);
         self.save_agent_notes(cx);
         self.refresh_rows(cx);
         cx.notify();
@@ -210,7 +208,8 @@ impl Workspace {
 
     /// Dismiss all on a summary: those notes and their summary go.
     pub(super) fn dismiss_agent_notes(&mut self, uid: &str, cx: &mut Context<Self>) {
-        self.agent_notes.update(cx, |n, _| n.dismiss_all(uid));
+        self.agents
+            .change_notes(&mut |all| crate::notes::dismiss_all(all, uid), cx);
         self.save_agent_notes(cx);
         self.refresh_rows(cx);
         cx.notify();
@@ -238,7 +237,7 @@ impl Workspace {
         this: WeakEntity<Self>,
         cx: &App,
     ) -> gpui::AnyElement {
-        let Some((notes, note)) = self.agent_notes.read(cx).note(id) else {
+        let Some((notes, note)) = crate::notes::note(self.agents.notes(cx), id) else {
             return div().into_any_element();
         };
         let look = NoteLook {
@@ -248,6 +247,20 @@ impl Workspace {
             selecting: self.selecting(this.clone()),
         };
         view::note_card(notes, note, indent, look, Self::note_on(this), cx)
+    }
+}
+
+/// What `diff` is of, as the agents' notes ask it.
+fn shown(diff: &Diff) -> Shown {
+    match (&diff.header, diff.header.head()) {
+        (Header::WorkingTree { .. }, _) | (_, None) => Shown::WorkingTree,
+        (header, Some(head)) => Shown::Head {
+            commit: head.to_string(),
+            name: match header {
+                Header::Compare { head, .. } => Some(head.0.clone()),
+                _ => None,
+            },
+        },
     }
 }
 

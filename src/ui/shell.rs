@@ -74,10 +74,9 @@ pub(super) fn new(
     })
     .detach();
     let key = cx.entity_id().as_u64();
+    let folder = crate::bus::folder(cx);
     cx.on_release(move |_, _| {
-        if let Some(bus) = crate::agents::Bus::new() {
-            bus.absent(std::process::id(), key);
-        }
+        folder.absent(std::process::id(), key);
         super::system_notes::set_front(key, false);
     })
     .detach();
@@ -115,9 +114,7 @@ impl Beat {
     /// opens a project an agent asked for, or acted on, that no window has, as a tab behind the one
     /// on screen — its workspace then takes the agent's event.
     fn beat(&mut self, shell: &mut Shell, window: &mut Window, cx: &mut Context<Shell>) {
-        let Some(bus) = crate::agents::Bus::new() else {
-            return;
-        };
+        let folder = crate::bus::folder(cx);
         let mut projects = shell.projects(cx);
         let now = crate::bus::now();
         // Said again when it changes, and every 10 s so it stays fresh.
@@ -127,7 +124,7 @@ impl Beat {
                 projects: projects.clone(),
                 beat: now,
             };
-            if bus.present(cx.entity_id().as_u64(), &presence).is_ok() {
+            if folder.present(cx.entity_id().as_u64(), &presence) {
                 self.said = projects.clone();
                 self.said_at = now;
             }
@@ -138,18 +135,18 @@ impl Beat {
         let pid = std::process::id();
         self.opening
             .retain(|(path, at)| !projects.contains(path) && now - at < 30);
-        let elsewhere: Vec<PathBuf> = bus
+        let elsewhere: Vec<PathBuf> = folder
             .running()
             .into_iter()
             .filter(|p| p.pid == pid)
             .flat_map(|p| p.projects)
             .chain(self.opening.iter().map(|(path, _)| path.clone()))
             .collect();
-        for event in bus.events() {
+        for event in folder.events() {
             let project = event.project.clone();
             if !projects.contains(&project) && !elsewhere.contains(&project) {
                 if !project.is_dir() {
-                    bus.take_event(&event.uid);
+                    folder.take_event(&event.uid);
                     continue;
                 }
                 shell.open_behind(project.clone(), window, cx);
@@ -165,7 +162,7 @@ impl Beat {
                     .update(cx, |w, cx| w.toast_info(said.into(), cx));
             }
             if event.what == crate::bus::What::Open {
-                bus.take_event(&event.uid);
+                folder.take_event(&event.uid);
             }
         }
     }

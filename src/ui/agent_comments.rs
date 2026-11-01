@@ -264,7 +264,7 @@ impl Workspace {
             .as_ref()
             .map(|d| d.side(compose.old).line(compose.line).0.to_owned())
             .unwrap_or_default();
-        let id = self.agent_comments.read(cx).next_id();
+        let id = crate::comment::next_id(self.comments(cx));
         let comment = Comment {
             id,
             path: compose.path,
@@ -291,12 +291,12 @@ impl Workspace {
     }
 
     pub(super) fn save_comments(&self, cx: &App) {
-        self.agent_comments.read(cx).save();
+        self.agents.save_comments(cx);
     }
 
-    /// The reviewer's comments to agents, as they are now (`AgentComments`).
+    /// The reviewer's comments to agents, as they are now (`Agents::comments`).
     pub(super) fn comments<'a>(&self, cx: &'a App) -> &'a [Comment] {
-        &self.agent_comments.read(cx).list
+        self.agents.comments(cx)
     }
 
     /// Comment `id` changed by `f`, when it is one; not saved.
@@ -306,8 +306,7 @@ impl Workspace {
         cx: &mut App,
         f: impl FnOnce(&mut Comment) -> R,
     ) -> Option<R> {
-        self.agent_comments
-            .update(cx, |c, _| c.list.iter_mut().find(|c| c.id == id).map(f))
+        self.change_comments(cx, |list| list.iter_mut().find(|c| c.id == id).map(f))
     }
 
     /// The comments changed by `f`; not saved.
@@ -316,7 +315,16 @@ impl Workspace {
         cx: &mut App,
         f: impl FnOnce(&mut Vec<Comment>) -> R,
     ) -> R {
-        self.agent_comments.update(cx, |c, _| f(&mut c.list))
+        let (mut f, mut out) = (Some(f), None);
+        self.agents.change_comments(
+            &mut |list| {
+                if let Some(f) = f.take() {
+                    out = Some(f(list));
+                }
+            },
+            cx,
+        );
+        out.expect("the comments are changed once")
     }
 
     /// The comments as markdown, copied for pasting into an agent.
@@ -367,9 +375,8 @@ impl Workspace {
         let chat = |s: &crate::comment::Sent| {
             let title = crate::labels::chat(&s.session).unwrap_or_else(|| s.title.clone());
             if title.is_empty() {
-                self.chats
-                    .read(cx)
-                    .list
+                self.agents
+                    .chats(cx)
                     .iter()
                     .find(|c| c.session == s.session)
                     .map_or_else(|| "its chat".to_owned(), |c| c.agent.clone())

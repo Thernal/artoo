@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// The notes' model, the contract's.
-pub use artoo_agents_api::notes::{Note, Notes, On, take};
+pub use artoo_agents_api::notes::{Note, Notes, On, Shown, take};
 
 fn store(root: &Path) -> String {
     format!("notes/{}.json", crate::review::key(root))
@@ -34,81 +34,74 @@ pub struct AgentNotes {
     pub all: Vec<Notes>,
     /// Where a note on an earlier head is on the head shown, by its id.
     pub lines: HashMap<u64, u32>,
+    /// The project they are kept for.
+    root: Option<PathBuf>,
     task: Option<Task<()>>,
 }
 
+/// What `diff` is of, as the notes ask it.
+pub fn shown_of(diff: &Diff) -> Shown {
+    match (&diff.header, diff.header.head()) {
+        (Header::WorkingTree { .. }, _) | (_, None) => Shown::WorkingTree,
+        (header, Some(head)) => Shown::Head {
+            commit: head.to_string(),
+            name: match header {
+                Header::Compare { head, .. } => Some(head.0.clone()),
+                _ => None,
+            },
+        },
+    }
+}
+
 impl AgentNotes {
-    /// Note `id`, and the notes it is one of.
-    pub fn note(&self, id: u64) -> Option<(&Notes, &Note)> {
-        self.all
-            .iter()
-            .find_map(|n| Some((n, n.notes.iter().find(|x| x.id == id)?)))
+    /// Project `root`'s, read anew.
+    pub fn load(&mut self, root: PathBuf) {
+        self.all = load(&root);
+        self.root = Some(root);
     }
 
-    /// The notes on the changes `diff` shows, `branch` the page's: the working tree's on the working tree; a
-    /// head's where the diff's head is its commit or bears its name.
-    pub fn shown(&self, diff: &Diff, branch: Option<String>) -> Vec<&Notes> {
-        let head = diff.header.head().map(|h| h.to_string());
-        let named = match &diff.header {
-            Header::Compare { head, .. } => Some(head.0.clone()),
-            _ => None,
+    /// Kept for the project, as they are now.
+    pub fn save(&self) {
+        if let Some(root) = &self.root {
+            save(root, &self.all);
         }
-        .or(branch);
-        self.all
-            .iter()
-            .filter(|n| match (&n.on, &diff.header) {
-                (On::WorkingTree, Header::WorkingTree { .. }) => true,
-                (_, Header::WorkingTree { .. }) | (On::WorkingTree, _) => false,
-                (On::Head { name, commit }, _) => {
-                    head.as_ref() == Some(commit) || named.as_ref() == Some(name)
-                }
-            })
-            .collect()
     }
 
-    /// Note `id` dismissed; its notes go with their last.
-    pub fn dismiss(&mut self, id: u64) {
-        for n in &mut self.all {
-            n.notes.retain(|x| x.id != id);
-        }
-        self.all
-            .retain(|n| !n.notes.is_empty() || !n.summary.is_empty());
-    }
-
-    /// Dismiss all on a summary: notes `uid` and their summary go.
-    pub fn dismiss_all(&mut self, uid: &str) {
-        self.all.retain(|n| n.uid != uid);
-    }
-
-    /// Follows the line of every note on the diff (`diff`, with the page's `branch`) whose head it has moved on
+    /// Follows the line of every note on the changes `shown` (with the page's `branch`) whose head it has moved on
     /// from, from the commit it was written on to the one shown, in repository `root`.
     pub fn follow(
         &mut self,
         root: Option<PathBuf>,
-        diff: Option<&Diff>,
+        shown: Option<Shown>,
         branch: Option<String>,
         cx: &mut Context<Self>,
     ) {
         self.lines.clear();
-        let (Some(root), Some(diff)) = (root, diff) else {
+        let (Some(root), Some(shown)) = (root, shown) else {
             return;
         };
-        let Some(head) = diff.header.head() else {
+        let Shown::Head {
+            commit: shown_head, ..
+        } = &shown
+        else {
             return;
         };
-        let asks: Vec<(u64, String, String, u32)> = self
-            .shown(diff, branch)
-            .into_iter()
-            .filter_map(|n| match &n.on {
-                On::Head { commit, .. } if !head.to_string().starts_with(commit.as_str()) => Some(
-                    n.notes
-                        .iter()
-                        .map(move |x| (x.id, commit.clone(), x.path.clone(), x.line)),
-                ),
-                _ => None,
-            })
-            .flatten()
-            .collect();
+        let Ok(head) = git2::Oid::from_str(shown_head) else {
+            return;
+        };
+        let asks: Vec<(u64, String, String, u32)> =
+            artoo_agents_api::notes::shown(&self.all, &shown, branch)
+                .into_iter()
+                .filter_map(|n| match &n.on {
+                    On::Head { commit, .. } if !shown_head.starts_with(commit.as_str()) => Some(
+                        n.notes
+                            .iter()
+                            .map(move |x| (x.id, commit.clone(), x.path.clone(), x.line)),
+                    ),
+                    _ => None,
+                })
+                .flatten()
+                .collect();
         if asks.is_empty() {
             return;
         }
