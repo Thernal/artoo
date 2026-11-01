@@ -4,8 +4,8 @@
 //! composer also to another file), to another input, to esc while it holds text; it gets it back
 //! from a press in its box, from its page coming back, from the action that opened it. A card over
 //! everything (⌘K, Go to file, the list beside a folder …) holds the keyboard while it is open and gives it back on closing.
-//! The rule is the frame's (`Keys`' own methods); which inputs there are, which are open and where the window is are
-//! the tab's.
+//! The rule is `Keys`' own methods, the window's root's like the tabs; which inputs there are, which are open and
+//! where the window is are the tab's (`typing.rs`).
 
 use gpui::App;
 

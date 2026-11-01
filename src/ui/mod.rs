@@ -34,6 +34,7 @@ mod goline;
 mod goto;
 mod inbox;
 mod input;
+mod keyboard;
 mod labeling;
 mod lists;
 mod md_page;

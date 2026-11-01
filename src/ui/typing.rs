@@ -4,13 +4,13 @@
 //! composer also to another file), to another input, to esc while it holds text; it gets it back
 //! from a press in its box, from its page coming back, from the action that opened it. A card over
 //! everything (⌘K, Go to file, the list beside a folder …) holds the keyboard while it is open and gives it back on closing.
-//! The rule is the shell's (`artoo_shell::keyboard`); the inputs, which are open and where the tab is are here.
+//! The rule is `keyboard.rs`'; the inputs, which are open and where the tab is are here.
 
 use super::Workspace;
+use super::keyboard::{self, Keys};
 use super::lists::Field;
 use super::nav::Page;
 use super::spaces::Space;
-use artoo_shell::keyboard::{self, Keys};
 use gpui::{App, Context, MouseButton, MouseDownEvent, WeakEntity, prelude::*};
 
 /// Every input that takes typed keys.
@@ -96,7 +96,7 @@ pub struct Spot {
     file: Option<String>,
 }
 
-/// The input with the keyboard, the tab's (`artoo_shell::keyboard`).
+/// The input with the keyboard, the tab's (`keyboard.rs`).
 pub(super) type Keyboard = keyboard::Keyboard<Input, Spot>;
 
 impl Keys for Workspace {
@@ -224,7 +224,7 @@ impl Workspace {
         self.keyboard_give_back(input, cx)
     }
 
-    /// Each frame and each key (`artoo_shell::keyboard`).
+    /// Each frame and each key (`keyboard.rs`).
     pub(super) fn sync_keyboard(&mut self, cx: &App) {
         self.keyboard_sync(cx)
     }
