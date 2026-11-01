@@ -2,7 +2,7 @@
 //! context menu, Settings → Appearance's drawing, the repository tabs and the rail, the title bar, the stripe and its
 //! tool windows, narrow windows' rules, the page bar and the spaces' menu, the body's row and its splitters,
 //! which input has the keyboard, search everywhere's window,
-//! Settings' frame, so far.
+//! Settings' frame, Set up's, so far.
 //! The tab (the app's) composes: it makes the features' entities and their hosts, and hands the frame what it draws
 //! and what a click on it does.
 
@@ -17,6 +17,7 @@ pub mod narrow;
 pub mod palette;
 pub mod rail;
 pub mod settings;
+pub mod setup;
 pub mod shortcuts;
 pub mod spaces;
 pub mod tabs;

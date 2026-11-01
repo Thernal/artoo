@@ -4,7 +4,7 @@
 //! `font_rows`, the connect panel's `way_row`): what is set here is set there. Later and Done bring
 //! back what was under it — the welcome, with no repository open. A part is offered once
 //! (`setup.txt`); a release that adds one offers that part alone; Help → Set Up Artoo… opens
-//! every part again.
+//! every part again. The frame is drawn by the shell (`artoo_shell::setup`).
 
 use super::discussion::{self, Kind};
 use super::keymap::Keymap;
@@ -13,7 +13,12 @@ use super::menu::{Act, Entry};
 use super::settings::item;
 use super::{ROW_RADIUS, Workspace, icons, px, theme};
 use crate::storage;
-use gpui::{AnyElement, ClickEvent, Context, FontWeight, Pixels, Point, div, prelude::*};
+use artoo_shell::setup;
+use gpui::{
+    AnyElement, App, ClickEvent, Context, FontWeight, Pixels, Point, WeakEntity, Window, div,
+    prelude::*,
+};
+use std::rc::Rc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Part {
@@ -139,11 +144,6 @@ pub(super) fn due() -> Vec<Part> {
     parts
 }
 
-/// The page's column: the top, the part and the foot line up in it.
-fn column() -> gpui::Div {
-    div().w_full().max_w(px(760.)).mx_auto().px(px(24.))
-}
-
 impl Workspace {
     /// Opens the page on `parts` (Help → Set Up Artoo…: all of them); they are offered now.
     pub(super) fn open_setup(&mut self, parts: Vec<Part>, cx: &mut Context<Self>) {
@@ -220,158 +220,29 @@ impl Workspace {
         }
     }
 
-    /// The page: its title and tabs at the top, the part in the column between, the count and
-    /// Back · Skip · Next at the foot.
+    /// The page (`artoo_shell::setup`): its tabs, each with whether its part is done, and the part on.
     pub(super) fn render_setup(&self, cx: &mut Context<Self>) -> AnyElement {
         let Some(s) = &self.setup else {
             return div().into_any_element();
         };
-        let part = s.part();
-        let last = s.at + 1 == s.parts.len();
-        let tabs =
-            s.parts
-                .iter()
-                .enumerate()
-                .fold(artoo_ui_kit::controls::group(), |group, (i, &p)| {
-                    let done = self.part_done(p, s, cx);
-                    group.child(
-                        artoo_ui_kit::controls::chip(("setup-tab", i), p.name(), i == s.at)
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .children(done.then(|| {
-                                icons::icon("check")
-                                    .size(px(12.))
-                                    .text_color(theme::added())
-                            }))
-                            .on_click(
-                                cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                    this.setup_go(i, cx)
-                                }),
-                            ),
-                    )
-                });
-        let body = match part {
+        let tabs = s
+            .parts
+            .iter()
+            .map(|&p| (p.name(), self.part_done(p, s, cx)))
+            .collect();
+        let body = match s.part() {
             Part::Agents => self.render_setup_agents(s, cx),
             Part::Keys => self.render_setup_keys(cx),
             Part::Look => self.render_setup_look(cx),
         };
-        let back = (s.at > 0).then(|| {
-            let to = s.at - 1;
-            discussion::button("setup-back", "Back", None, Kind::Plain)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.setup_go(to, cx)))
-        });
-        let next = s.at + 1;
-        let forward: Vec<AnyElement> = if last {
-            vec![
-                discussion::button(
-                    "setup-done",
-                    "Done",
-                    Some("↵"),
-                    Kind::Primary(theme::accent()),
-                )
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.close_setup(cx);
-                }))
-                .into_any_element(),
-            ]
-        } else {
-            vec![
-                discussion::button("setup-skip", "Skip", None, Kind::Plain)
-                    .on_click(
-                        cx.listener(move |this, _: &ClickEvent, _, cx| this.setup_go(next, cx)),
-                    )
-                    .into_any_element(),
-                discussion::button(
-                    "setup-next",
-                    "Next",
-                    Some("↵"),
-                    Kind::Primary(theme::accent()),
-                )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.setup_go(next, cx)))
-                .into_any_element(),
-            ]
-        };
-        div()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .m(px(super::GAP))
-            .mt_0()
-            .rounded(px(super::ISLAND_RADIUS))
-            .bg(theme::editor())
-            .child(
-                div().flex_none().pt(px(24.)).child(
-                    column()
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(8.))
-                                .mb(px(12.))
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .text_size(px(18.))
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .child("Set up Artoo"),
-                                )
-                                .child(
-                                    discussion::button(
-                                        "setup-later",
-                                        "Later",
-                                        Some("esc"),
-                                        Kind::Plain,
-                                    )
-                                    .on_click(cx.listener(
-                                        |this, _: &ClickEvent, _, cx| {
-                                            this.close_setup(cx);
-                                        },
-                                    )),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .pb(px(10.))
-                                .border_b_1()
-                                .border_color(theme::island_border())
-                                .child(tabs),
-                        ),
-                ),
-            )
-            .child(
-                div()
-                    .id("setup-body")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .child(column().pt(px(16.)).pb(px(24.)).child(body)),
-            )
-            .child(
-                div()
-                    .flex_none()
-                    .py(px(12.))
-                    .border_t_1()
-                    .border_color(theme::island_border())
-                    .child(
-                        column()
-                            .flex()
-                            .items_center()
-                            .gap(px(8.))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .text_size(px(12.))
-                                    .text_color(theme::faint())
-                                    .child(format!("{} of {}", s.at + 1, s.parts.len())),
-                            )
-                            .children(back)
-                            .children(forward),
-                    ),
-            )
-            .into_any_element()
+        setup::page(
+            setup::Page {
+                tabs,
+                at: s.at,
+                body,
+            },
+            Rc::new(Glue(cx.weak_entity())),
+        )
     }
 
     /// Agents: Claude Code with its profiles, Codex — the connect panel's rows.
@@ -645,6 +516,23 @@ impl Workspace {
         let mut choice = theme::choice();
         choice.code = id;
         self.choose_theme(choice, cx);
+    }
+}
+
+/// What a click on Set up's frame does, answered by the tab.
+struct Glue(WeakEntity<Workspace>);
+
+impl setup::SetupHost for Glue {
+    fn go(&self, at: usize, _: &mut Window, cx: &mut App) {
+        self.0.update(cx, |this, cx| this.setup_go(at, cx)).ok();
+    }
+
+    fn close(&self, _: &mut Window, cx: &mut App) {
+        self.0
+            .update(cx, |this, cx| {
+                this.close_setup(cx);
+            })
+            .ok();
     }
 }
 
