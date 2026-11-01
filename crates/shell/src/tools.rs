@@ -1,0 +1,234 @@
+//! The right edge (Design `design/shell/`, #49) drawn: an icon stripe that opens one tool window at a time beside the
+//! page, and the window's frame — a title with a faint count, buttons in its header, the body, a foot. Which tools a
+//! space has, what each shows and what opening one does are the tab's.
+
+use artoo_ui_kit::hover::{self, Tip, TipOwned};
+use artoo_ui_kit::{ROW_RADIUS, icons, island, keys, motion, px, theme};
+use gpui::{AnyElement, App, ClickEvent, FontWeight, Rgba, SharedString, Window, div, prelude::*};
+use std::rc::Rc;
+
+/// What a tool window shows: a title with a faint count, buttons in its header, the body (which
+/// scrolls itself) and an optional foot.
+pub struct ToolView {
+    pub title: SharedString,
+    pub count: Option<String>,
+    pub actions: Vec<AnyElement>,
+    pub body: AnyElement,
+    pub foot: Option<AnyElement>,
+}
+
+/// A tool's button on the stripe.
+pub struct Button {
+    /// Its tool's name, handed back when it is clicked.
+    pub id: &'static str,
+    pub icon: &'static str,
+    pub tip: &'static str,
+    /// Its window is open.
+    pub on: bool,
+    /// A count on it, in its colour.
+    pub badge: Option<(String, Rgba)>,
+    /// What the count is, said in its long hover (#53): "3 comments".
+    pub what: String,
+    /// Drawn under it: the Agents window's dot per chat that listens (#77).
+    pub under: Option<AnyElement>,
+}
+
+/// What the tab does when a tool's button is clicked: its name.
+pub type OnTool = Rc<dyn Fn(&'static str, &mut Window, &mut App)>;
+
+/// The stripe of `buttons`.
+pub fn stripe(buttons: Vec<Button>, toggle: OnTool) -> impl IntoElement {
+    div()
+        .flex_none()
+        .w(px(44.))
+        .flex()
+        .flex_col()
+        .items_center()
+        .gap(px(4.))
+        .pt(px(2.))
+        .children(buttons.into_iter().map(|mut b| {
+            let under = b.under.take();
+            let button = button(b, toggle.clone());
+            match under {
+                None => button.into_any_element(),
+                Some(under) => div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(3.))
+                    .child(button)
+                    .child(under)
+                    .into_any_element(),
+            }
+        }))
+}
+
+fn button(b: Button, toggle: OnTool) -> impl IntoElement {
+    let Button {
+        id,
+        icon,
+        tip,
+        on,
+        badge,
+        what,
+        ..
+    } = b;
+    div()
+        .id(id)
+        .relative()
+        .size(px(32.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(ROW_RADIUS))
+        .group(id)
+        .cursor_pointer()
+        .when(on, |s| s.bg(theme::selected()))
+        .hover(|s| s.bg(theme::hover()))
+        .child(
+            icons::icon(icon)
+                .text_color(if on { theme::text() } else { theme::muted() })
+                .group_hover(id, |s| s.text_color(theme::text())),
+        )
+        .children(badge.map(|(text, color)| {
+            div()
+                .absolute()
+                .right(px(1.))
+                .bottom(px(1.))
+                .min_w(px(14.))
+                .h(px(14.))
+                .px(px(3.))
+                .rounded_full()
+                .bg(color)
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(9.))
+                .font_weight(FontWeight::BOLD)
+                .text_color(theme::base())
+                .child(text)
+        }))
+        .tooltip_show_delay(hover::LONG)
+        .tooltip(move |_, cx| {
+            let tip = keys::text(tip).into_owned();
+            let tip = if what.is_empty() {
+                tip
+            } else {
+                format!("{tip}  ·  {what}")
+            };
+            cx.new(|_| TipOwned(tip.into())).into()
+        })
+        .on_click(move |_: &ClickEvent, window, cx| toggle(id, window, cx))
+}
+
+/// Where a tool window sits.
+pub struct Place {
+    pub width: f32,
+    /// A narrow window has no room beside the page: the tool window floats over its right edge.
+    pub over: bool,
+    /// The splitter before it, beside the page (none when it floats), and its width.
+    pub handle: Option<AnyElement>,
+    pub handle_width: f32,
+    /// Its island's border: the keyboard's zone shows on it.
+    pub border: Rgba,
+    /// Open; closed, it is drawn on its way out (#56, 3).
+    pub shown: bool,
+    /// It opened or closed a moment ago.
+    pub recent: bool,
+}
+
+/// What the tab does when a tool window's ✕ is clicked.
+pub type OnClose = Rc<dyn Fn(&mut Window, &mut App)>;
+
+/// Tool window `view` at its place; `close` hides it (its ✕).
+pub fn window(view: ToolView, place: Place, close: OnClose) -> impl IntoElement {
+    let close = div()
+        .id("tool-close")
+        .size(px(26.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded(px(ROW_RADIUS))
+        .group("tool-close")
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::hover()))
+        .child(
+            icons::icon("x")
+                .size(px(15.))
+                .text_color(theme::muted())
+                .group_hover("tool-close", |s| s.text_color(theme::text())),
+        )
+        .tooltip_show_delay(hover::LONG)
+        .tooltip(|_, cx| cx.new(|_| Tip("Hide  esc")).into())
+        .on_click(move |_: &ClickEvent, window, cx| close(window, cx));
+    let over = place.over;
+    let room = place.width + place.handle_width;
+    let pane = div()
+        .flex_none()
+        .flex()
+        .overflow_hidden()
+        .when(over, |s| {
+            s.absolute()
+                .top(px(0.))
+                .bottom(px(0.))
+                .right(px(0.))
+                .shadow_lg()
+        })
+        .children(place.handle)
+        .child(
+            island()
+                .w(px(place.width))
+                .h_full()
+                .border_color(place.border)
+                .child(
+                    div()
+                        .flex_none()
+                        .h(px(38.))
+                        .pl(px(14.))
+                        .pr(px(8.))
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .border_b_1()
+                        .border_color(theme::island_border())
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .items_baseline()
+                                .gap(px(6.))
+                                .child(
+                                    div()
+                                        .flex_none()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child(view.title),
+                                )
+                                .children(
+                                    view.count
+                                        .map(|c| hover::cut("count", c).text_color(theme::faint())),
+                                ),
+                        )
+                        .children(view.actions)
+                        .child(close),
+                )
+                .child(div().flex_1().min_h_0().flex().flex_col().child(view.body))
+                .children(
+                    view.foot
+                        .map(|foot| artoo_ui_kit::controls::tool_foot().child(foot)),
+                ),
+        );
+    // It comes out of the stripe and goes back into it; its content shows once it is half out.
+    motion::toward(
+        pane,
+        "tool-pane",
+        place.shown,
+        place.recent,
+        motion::BASE,
+        move |pane, v| {
+            pane.max_w(px(room * v))
+                .opacity(((v - 0.4) / 0.6).clamp(0., 1.))
+        },
+    )
+}

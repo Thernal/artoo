@@ -7,8 +7,10 @@
 //! these.
 
 use super::zones::Zone;
-use super::{ROW_RADIUS, Split, Tip, TipOwned, Workspace, icons, island, keys, px, theme};
-use gpui::{AnyElement, ClickEvent, Context, FontWeight, Rgba, SharedString, div, prelude::*};
+use super::{Split, Workspace, px, theme};
+use artoo_shell::tools;
+use gpui::{Context, Rgba, div, prelude::*};
+use std::rc::Rc;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tool {
@@ -20,7 +22,7 @@ pub enum Tool {
 }
 
 impl Tool {
-    fn name(self) -> &'static str {
+    pub(super) fn name(self) -> &'static str {
         match self {
             Tool::Outline => "outline",
             Tool::Discussions => "discussions",
@@ -29,15 +31,7 @@ impl Tool {
     }
 }
 
-/// What a tool window shows: a title with a faint count, buttons in its header, the body (which
-/// scrolls itself) and an optional foot.
-pub struct ToolView {
-    pub title: SharedString,
-    pub count: Option<String>,
-    pub actions: Vec<AnyElement>,
-    pub body: AnyElement,
-    pub foot: Option<AnyElement>,
-}
+pub use artoo_shell::tools::ToolView;
 
 impl Workspace {
     /// The tool windows of the space on screen (#76): Code Outline, a request's page Discussions;
@@ -170,106 +164,53 @@ impl Workspace {
             return None;
         }
         let open = self.tool();
-        // The long hover says what the count is (#53): "Discussions · 3 comments".
-        let button = |tool: Tool, badge: Option<(String, Rgba)>, what: String| {
-            let id = tool.name();
-            let (icon, tip) = (self.tool_icon(tool), self.tool_tip(tool));
-            let on = open == Some(tool);
-            div()
-                .id(id)
-                .relative()
-                .size(px(32.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(ROW_RADIUS))
-                .group(id)
-                .cursor_pointer()
-                .when(on, |s| s.bg(theme::selected()))
-                .hover(|s| s.bg(theme::hover()))
-                .child(
-                    icons::icon(icon)
-                        .text_color(if on { theme::text() } else { theme::muted() })
-                        .group_hover(id, |s| s.text_color(theme::text())),
-                )
-                .children(badge.map(|(text, color)| {
-                    div()
-                        .absolute()
-                        .right(px(1.))
-                        .bottom(px(1.))
-                        .min_w(px(14.))
-                        .h(px(14.))
-                        .px(px(3.))
-                        .rounded_full()
-                        .bg(color)
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_size(px(9.))
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(theme::base())
-                        .child(text)
-                }))
-                .tooltip_show_delay(crate::ui::hover::LONG)
-                .tooltip(move |_, cx| {
-                    let tip = keys::text(tip).into_owned();
-                    let tip = if what.is_empty() {
-                        tip
-                    } else {
-                        format!("{tip}  ·  {what}")
-                    };
-                    cx.new(|_| TipOwned(tip.into())).into()
-                })
-                .on_click(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_tool(tool, cx)),
-                )
-        };
         let count = |n: usize, color: Rgba| (n > 0).then(|| (n.min(99).to_string(), color));
-        Some(
-            div()
-                .flex_none()
-                .w(px(44.))
-                .flex()
-                .flex_col()
-                .items_center()
-                .gap(px(4.))
-                .pt(px(2.))
-                .children(self.space_tools().into_iter().map(|tool| {
-                    match tool {
-                        Tool::Outline => button(tool, None, String::new()).into_any_element(),
-                        // What its badge says, and what is under it: the Agents window's dot
-                        // per chat that listens, on its own hue (#77).
-                        Tool::Part(id) => match self.part_tool(id).and_then(|t| t.badge.clone()) {
-                            None => button(tool, None, String::new()).into_any_element(),
-                            Some(badge) => {
-                                let badge = badge(cx);
-                                let button =
-                                    button(tool, count(badge.count, badge.color), badge.what);
-                                match badge.under {
-                                    None => button.into_any_element(),
-                                    Some(under) => div()
-                                        .flex()
-                                        .flex_col()
-                                        .items_center()
-                                        .gap(px(3.))
-                                        .child(button)
-                                        .child(under)
-                                        .into_any_element(),
-                                }
-                            }
-                        },
-                        Tool::Discussions => button(
-                            tool,
-                            count(self.comments_total(cx), theme::accent()),
-                            super::plural(self.comments_total(cx), "comment"),
-                        )
-                        .into_any_element(),
+        let buttons = self
+            .space_tools()
+            .into_iter()
+            .map(|tool| {
+                let button = |badge, what, under| tools::Button {
+                    id: tool.name(),
+                    icon: self.tool_icon(tool),
+                    tip: self.tool_tip(tool),
+                    on: open == Some(tool),
+                    badge,
+                    what,
+                    under,
+                };
+                match tool {
+                    Tool::Outline => button(None, String::new(), None),
+                    // What its badge says, and what is under it: the Agents window's dot
+                    // per chat that listens, on its own hue (#77).
+                    Tool::Part(id) => match self.part_tool(id).and_then(|t| t.badge.clone()) {
+                        None => button(None, String::new(), None),
+                        Some(badge) => {
+                            let badge = badge(cx);
+                            button(count(badge.count, badge.color), badge.what, badge.under)
+                        }
+                    },
+                    Tool::Discussions => button(
+                        count(self.comments_total(cx), theme::accent()),
+                        super::plural(self.comments_total(cx), "comment"),
+                        None,
+                    ),
+                }
+            })
+            .collect();
+        let tab = cx.weak_entity();
+        Some(tools::stripe(
+            buttons,
+            Rc::new(move |name, _, cx| {
+                tab.update(cx, |this, cx| {
+                    if let Some(tool) = this.tool_named(name) {
+                        this.toggle_tool(tool, cx)
                     }
-                })),
-        )
+                })
+                .ok();
+            }),
+        ))
     }
 
-    /// The tool window, after the splitter that resizes it.
     pub(super) fn render_tool(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         // Closed a moment ago, it is drawn on its way out (#56, 3).
         let shown = self.tool_shown(cx);
@@ -286,105 +227,35 @@ impl Workspace {
             },
         };
         let submitting = self.submitting(cx);
-        let close = div()
-            .id("tool-close")
-            .size(px(26.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .rounded(px(ROW_RADIUS))
-            .group("tool-close")
-            .cursor_pointer()
-            .hover(|s| s.bg(theme::hover()))
-            .child(
-                icons::icon("x")
-                    .size(px(15.))
-                    .text_color(theme::muted())
-                    .group_hover("tool-close", |s| s.text_color(theme::text())),
-            )
-            .tooltip_show_delay(crate::ui::hover::LONG)
-            .tooltip(|_, cx| cx.new(|_| Tip("Hide  esc")).into())
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+        let tab = cx.weak_entity();
+        let close = Rc::new(move |_: &mut gpui::Window, cx: &mut gpui::App| {
+            tab.update(cx, |this, cx| {
                 if submitting {
                     this.close_submit(cx)
                 } else {
                     this.set_tool(None, cx)
                 }
-            }));
+            })
+            .ok();
+        });
         // A narrow window has no room beside the diff: the window floats over its right edge.
         let over = self.tool_floats();
-        let room = self.layout.tool_width
-            + if over {
-                0.
-            } else {
-                super::frame::handle_width()
-            };
-        let pane = div()
-            .flex_none()
-            .flex()
-            .overflow_hidden()
-            .when(over, |s| {
-                s.absolute()
-                    .top(px(0.))
-                    .bottom(px(0.))
-                    .right(px(0.))
-                    .shadow_lg()
-            })
-            .when(!over, |s| s.child(self.handle(Split::Tool, cx)))
-            .child(
-                island()
-                    .w(px(self.layout.tool_width))
-                    .h_full()
-                    .border_color(self.zone_border(Zone::Tool))
-                    .child(
-                        div()
-                            .flex_none()
-                            .h(px(38.))
-                            .pl(px(14.))
-                            .pr(px(8.))
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .border_b_1()
-                            .border_color(theme::island_border())
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .flex()
-                                    .items_baseline()
-                                    .gap(px(6.))
-                                    .child(
-                                        div()
-                                            .flex_none()
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .child(view.title),
-                                    )
-                                    .children(view.count.map(|c| {
-                                        super::hover::cut("count", c).text_color(theme::faint())
-                                    })),
-                            )
-                            .children(view.actions)
-                            .child(close),
-                    )
-                    .child(div().flex_1().min_h_0().flex().flex_col().child(view.body))
-                    .children(
-                        view.foot
-                            .map(|foot| artoo_ui_kit::controls::tool_foot().child(foot)),
-                    ),
-            );
-        // It comes out of the stripe and goes back into it; its content shows once it is half out.
-        Some(super::motion::toward(
-            pane,
-            "tool-pane",
-            shown,
-            self.motion.recent("tool"),
-            super::motion::BASE,
-            move |pane, v| {
-                pane.max_w(px(room * v))
-                    .opacity(((v - 0.4) / 0.6).clamp(0., 1.))
+        Some(tools::window(
+            view,
+            tools::Place {
+                width: self.layout.tool_width,
+                over,
+                handle: (!over).then(|| self.handle(Split::Tool, cx).into_any_element()),
+                handle_width: if over {
+                    0.
+                } else {
+                    super::frame::handle_width()
+                },
+                border: self.zone_border(Zone::Tool),
+                shown,
+                recent: self.motion.recent("tool"),
             },
+            close,
         ))
     }
 
