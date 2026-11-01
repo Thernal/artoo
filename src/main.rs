@@ -7,8 +7,8 @@ mod ui;
 
 use artoo_agents::{agents, codex, mcp, notes, review, watch};
 use artoo_core::{
-    applog, editor, files, fswatch, git, highlight, labels, links, markdown, mddiff, platform,
-    rank, rows, storage, symbols, textedit, themes,
+    applog, editor, files, fswatch, git, labels, links, markdown, mddiff, platform, rank, rows,
+    storage, symbols, textedit, themes,
 };
 use artoo_hosts::{connect, ide, pictures, tokens};
 /// The hosts' models (a request, a thread, a draft…), by the name the views knew them by before #165.
