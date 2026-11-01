@@ -560,7 +560,7 @@ impl Workspace {
     /// on screen, kept in the history, and what it shows is loaded (`load_page`).
     pub(super) fn go_page(&mut self, page: Page, cx: &mut Context<Self>) {
         self.arrive(page.clone(), cx);
-        self.load_page(page, cx);
+        self.load_page(page, true, cx);
         cx.notify();
     }
 
@@ -677,7 +677,7 @@ impl Workspace {
         self.nav.restoring = true;
         match page {
             None => self.enter_root(space, cx),
-            Some(page) => self.load_page(page, cx),
+            Some(page) => self.load_page(page, false, cx),
         }
         self.nav.restoring = false;
         self.remember_moment();
@@ -723,47 +723,38 @@ impl Workspace {
         }
     }
 
-    /// Loads what `page` shows, unless it is what is loaded.
-    fn load_page(&mut self, page: Page, cx: &mut Context<Self>) {
-        // A feature's pages load what they show themselves; a branch's and a request's are still
-        // loaded here.
-        if self.pages_drawing(page.space(), Some(&page)).is_some() {
-            self.show_pages(page.space(), Some(&page), false, cx);
-            if page.space() == Space::Code {
-                return;
+    /// Loads what `page` shows: its feature's pages read it (`Pages::show`), `opened` anew or gone
+    /// back to. An item shown in place of another comes back where it was left.
+    fn load_page(&mut self, page: Page, opened: bool, cx: &mut Context<Self>) {
+        if let Some(item) = page.item() {
+            let loaded = self.loaded_page(cx).and_then(|p| p.item());
+            if loaded.as_ref() != Some(&item) {
+                let place = self.nav.opened(&item).and_then(|o| o.place.clone());
+                self.review.update(cx, |rv, _| rv.restore_scroll = place);
             }
         }
-        let loaded = self.loaded_page(cx);
-        if loaded.as_ref() == Some(&page) {
-            return;
-        }
-        let opened = page.item().and_then(|item| self.nav.opened(&item).cloned());
-        let same_item =
-            loaded.as_ref().and_then(Page::item) == page.item() && page.item().is_some();
-        if !same_item {
-            self.review.update(cx, |rv, _| {
-                rv.restore_scroll = opened.as_ref().and_then(|o| o.place.clone())
-            });
-        }
-        // A branch's or a request's kinds: showing it is the history's (`History::show_route`).
-        let review = self.review_handle();
-        let shows = self.history.update(cx, |h, cx| {
-            h.show_route(&page.route(), same_item, &*review, cx)
-        });
+        self.show_pages(page.space(), Some(&page), opened, cx);
+    }
+
+    /// A branch's or a request's route shown (`History::show_opened`): the request on the branch,
+    /// the watch, the page following what is shown and the places opened lately. Quiet in the
+    /// history (`restoring`) when it was gone back to.
+    pub(super) fn route_shown(&mut self, shows: &Shows, opened: bool, cx: &mut Context<Self>) {
+        let restoring = std::mem::replace(&mut self.nav.restoring, !opened);
         match shows {
-            Some(Shows::Branch { ix, read }) => self.branch_opened(ix, read, cx),
-            Some(Shows::Request(iid)) => self.select_request(iid, cx),
-            Some(Shows::Shown { commit, follow }) => {
-                if follow {
+            Shows::Branch { ix, read } => self.branch_opened(*ix, *read, cx),
+            Shows::Request(iid) => self.select_request(*iid, cx),
+            Shows::Shown { commit, follow } => {
+                if *follow {
                     self.record(cx);
                 }
                 if let Some(commit) = commit {
-                    self.remember_commit(&commit);
+                    self.remember_commit(commit);
                 }
-                cx.notify();
             }
-            Some(Shows::Stay) | None => {}
+            Shows::Stay => {}
         }
+        self.nav.restoring = restoring;
     }
 
     fn branch_ix(&self, refname: &str, cx: &App) -> Option<usize> {

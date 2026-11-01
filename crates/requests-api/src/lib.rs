@@ -12,6 +12,9 @@ pub trait Requests {
     /// The request on branch `branch` (a local or remote one by its name, a request's own ref by its number): its
     /// number and title.
     fn of_branch(&self, branch: &BranchRef, cx: &App) -> Option<(u64, String)>;
+
+    /// The request open, by its number: the one whose branch is read.
+    fn current(&self, cx: &App) -> Option<u64>;
 }
 
 /// A merge request, by its number.

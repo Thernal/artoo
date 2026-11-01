@@ -3,7 +3,7 @@
 //! the `Frame`; and the branches listed, as a part reads them (`Branches`).
 
 use artoo_core::git::BranchRef;
-use artoo_core::route::Place;
+use artoo_core::route::{Place, Route};
 use gpui::{AnyElement, App};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -25,6 +25,10 @@ pub trait Branches {
 
     /// The side panel of a branch's or a request's page, at `width` (`Pages::side`).
     fn panel(&self, width: f32, cx: &mut App) -> Option<AnyElement>;
+
+    /// A branch's, a comparison's, the working tree's or a request's route on screen (`Pages::show`), `opened` anew
+    /// or gone back to: what it shows read, unless it is what is loaded.
+    fn show(&self, route: &Route, opened: bool, cx: &mut App);
 }
 
 /// A branch, by its refname.

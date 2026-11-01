@@ -424,4 +424,8 @@ impl artoo_requests_api::Requests for Handle {
         let m = requests.read(cx).of_branch(branch)?;
         Some((m.iid, m.title.clone()))
     }
+
+    fn current(&self, cx: &App) -> Option<u64> {
+        self.0.upgrade()?.read(cx).current
+    }
 }

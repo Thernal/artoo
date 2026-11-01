@@ -4,6 +4,7 @@
 use crate::compare::CompareCommits;
 use crate::facts::Facts;
 use crate::find::Find;
+use crate::opening::Shows;
 use crate::reading::Read;
 use crate::roots::Roots;
 use crate::waiting::Waiting;
@@ -113,6 +114,8 @@ pub enum Event {
     Picked(usize),
     /// A read failed: what to say.
     Failed(String),
+    /// A route shown (`History::show_opened`): what the tab does after, `opened` anew or gone back to.
+    Shown { shows: Shows, opened: bool },
 }
 
 impl EventEmitter<Event> for History {}
@@ -334,6 +337,21 @@ impl artoo_branches_api::Branches for Handle {
             .and_then(|s| s.get::<Acts>())
             .unwrap_or_else(|| std::rc::Rc::new(|_, _| {}));
         h.update(cx, |h, cx| h.commits_page(versions, &acts, cx))
+    }
+
+    fn show(&self, route: &artoo_core::route::Route, opened: bool, cx: &mut gpui::App) {
+        let (Some(h), Some(services)) = (self.0.upgrade(), self.1.upgrade()) else {
+            return;
+        };
+        let Some(review) = services.get::<std::rc::Rc<dyn artoo_review_api::Review>>() else {
+            return;
+        };
+        let current = services
+            .get::<std::rc::Rc<dyn artoo_requests_api::Requests>>()
+            .and_then(|r| r.current(cx));
+        h.update(cx, |h, cx| {
+            h.show_opened(route, opened, current, &*review, cx)
+        });
     }
 }
 

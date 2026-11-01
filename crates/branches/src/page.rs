@@ -2,7 +2,8 @@
 //! (`Frame::list_page`), the row picked previewed; and a branch's, a comparison's and the working tree's — a branch's
 //! Commits (`commits_page`), else the review's item page (`artoo_review_api::ItemView`), the side panel beside
 //! (`panel`). What other features know of a branch comes from the tab's services — your review of its tip (`Review`),
-//! its request (`Requests`) —; a click asks the tab an `Act`. The tab still loads what a branch's route shows.
+//! its request (`Requests`) —; a click asks the tab an `Act`. What a route shows is read as it comes on screen
+//! (`Branches::show`).
 
 use crate::card::branch_card;
 use crate::commits_page::BranchCommits;
@@ -10,7 +11,7 @@ use crate::history::{Acts, History};
 use crate::list::{self, Beside, Card, ListLook};
 use crate::panel::Panel;
 use artoo_branches_api::{
-    BranchCommitRoute, BranchCommitsRoute, BranchRoute, CompareRoute, VersionsRoute,
+    BranchCommitRoute, BranchCommitsRoute, BranchRoute, Branches, CompareRoute, VersionsRoute,
     WorkingTreeRoute,
 };
 use artoo_core::route::{Place, Route};
@@ -38,6 +39,7 @@ pub fn pages(
     frame: Rc<dyn Frame>,
     cx: &mut App,
 ) -> Pages {
+    let services = Rc::downgrade(&frame.services());
     let view = cx.new(|cx| {
         cx.observe(&history, |_, _, cx| cx.notify()).detach();
         RootPage {
@@ -62,7 +64,12 @@ pub fn pages(
             panel.update(cx, |p, _| p.width = width);
             Some(panel.clone().into_any_element())
         })),
-        show: Rc::new(|_, _, _| {}),
+        show: Rc::new(move |route, opened, cx| {
+            let branches = services.upgrade().and_then(|s| s.get::<Rc<dyn Branches>>());
+            if let (Some(route), Some(branches)) = (route, branches) {
+                branches.show(route, opened, cx)
+            }
+        }),
     }
 }
 

@@ -1,10 +1,10 @@
 //! Merge requests' pages (#72): their own, the list grouped by what each needs from you (`list`), the picked one
 //! previewed beside it, in the tab's frame of a list page (`Frame::list_page`), or the list's states — loading,
 //! empty, an error over it, a host to connect; and a request's — its Overview or Commits (`tabs`), else the review's
-//! item page (`artoo_review_api::ItemView`), the branches' side panel beside (`Branches::panel`). The tab still
-//! loads what a request's route shows. What the tab keeps that the list draws comes through its `RootHost`; your
-//! review of each request through the review's handle, the discussions through the notifications; a click asks the
-//! tab an `Act`.
+//! item page (`artoo_review_api::ItemView`), the branches' side panel beside (`Branches::panel`), what its route
+//! shows read on its branch (`Branches::show`). What the tab keeps that the list draws comes through its `RootHost`;
+//! your review of each request through the review's handle, the discussions through the notifications; a click asks
+//! the tab an `Act`.
 
 use crate::list::{self, ListLook};
 use crate::notices::Notices;
@@ -79,14 +79,23 @@ pub fn pages(requests: Entity<Requests>, frame: Rc<dyn Frame>, cx: &mut App) -> 
             RequestVersionsRoute::KIND,
         ],
         view: view.into(),
-        side: Some(Rc::new(move |route, width, cx| {
-            route?;
-            services
-                .upgrade()?
-                .get::<Rc<dyn Branches>>()?
-                .panel(width, cx)
+        side: Some(Rc::new({
+            let services = services.clone();
+            move |route, width, cx| {
+                route?;
+                services
+                    .upgrade()?
+                    .get::<Rc<dyn Branches>>()?
+                    .panel(width, cx)
+            }
         })),
-        show: Rc::new(|_, _, _| {}),
+        // What a request's route shows is read on its branch.
+        show: Rc::new(move |route, opened, cx| {
+            let branches = services.upgrade().and_then(|s| s.get::<Rc<dyn Branches>>());
+            if let (Some(route), Some(branches)) = (route, branches) {
+                branches.show(route, opened, cx)
+            }
+        }),
     }
 }
 
