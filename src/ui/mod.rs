@@ -33,7 +33,6 @@ mod goline;
 mod goto;
 mod inbox;
 mod input;
-mod keymap;
 mod labeling;
 mod lists;
 mod md_page;
@@ -89,6 +88,7 @@ use artoo_branches::working::WorkingState;
 use artoo_review::diff::{Diff, Header, Notice};
 use artoo_review::diff_view::{self, CODE_SIZE};
 use artoo_review::review::{self, Opt};
+use artoo_shell::keymap;
 use artoo_ui_kit::controls::tag;
 use gpui::{
     App, Context, CursorStyle, FocusHandle, FontWeight, KeyBinding, KeyDownEvent, ListAlignment,
@@ -267,7 +267,7 @@ fn share_settings(settings: &Settings) {
     PROJECTS.store(n as u8, Relaxed);
 }
 
-/// The keys of the app as shipped; `keymap.txt` changes them (`keymap.rs`).
+/// The keys of the app as shipped; `keymap.txt` changes them (`artoo_shell::keymap`).
 fn default_bindings() -> Vec<KeyBinding> {
     bindings(crate::platform::keys)
 }
@@ -1725,7 +1725,7 @@ impl Workspace {
         // The keyboard card greets the very first launch, once (never a check's snapshot).
         let greet = !settings.keys_seen
             && std::env::var_os("ARTOO_SNAPSHOT").is_none()
-            && !shortcuts::SHOWN.swap(true, std::sync::atomic::Ordering::Relaxed);
+            && !artoo_shell::shortcuts::SHOWN.swap(true, std::sync::atomic::Ordering::Relaxed);
         if greet {
             settings.keys_seen = true;
             settings.save();
@@ -3412,5 +3412,76 @@ mod tests {
     #[test]
     fn the_window_has_a_default_size() {
         assert_eq!(window_size(), (1480., 920.));
+    }
+    /// The keys of `map` taken twice, as Settings → Keyboard shows them: (label, (key, the other action)).
+    fn clashes(map: keymap::Keymap) -> Vec<(String, (String, String))> {
+        map.entries()
+            .into_iter()
+            .filter_map(|e| e.clash.map(|c| (e.label, c)))
+            .collect()
+    }
+
+    #[test]
+    fn the_shipped_keys_do_not_clash() {
+        let shipped = keymap::Keymap::with_preset(
+            default_bindings(),
+            crate::platform::MAC,
+            keymap::Preset::Artoo,
+        );
+        let clashes = clashes(shipped);
+        assert!(clashes.is_empty(), "{clashes:?}");
+    }
+
+    #[test]
+    fn the_shipped_keys_do_not_clash_on_windows_and_linux() {
+        let shipped = keymap::Keymap::with_preset(
+            bindings(crate::platform::pc_keys),
+            false,
+            keymap::Preset::Artoo,
+        );
+        let clashes = clashes(shipped);
+        assert!(clashes.is_empty(), "{clashes:?}");
+    }
+
+    #[test]
+    fn no_preset_clashes_and_each_names_real_actions() {
+        // macOS's keys and Windows and Linux's, whichever OS runs the test.
+        for mac in [true, false] {
+            let keys: fn(&str) -> String = if mac {
+                str::to_owned
+            } else {
+                crate::platform::pc_keys
+            };
+            for preset in keymap::Preset::ALL {
+                let map = keymap::Keymap::with_preset(bindings(keys), mac, preset);
+                let entries = map.entries();
+                for name in preset.actions() {
+                    assert!(
+                        entries.iter().any(|e| e.name == name),
+                        "{preset:?}: no {name}"
+                    );
+                }
+                let clashes = clashes(map);
+                assert!(clashes.is_empty(), "{preset:?}, mac {mac}: {clashes:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_change_says_what_the_preset_had() {
+        // alt, not cmd: cmd is written super- on Linux and win- on Windows.
+        let map = keymap::Keymap::from_text(
+            default_bindings(),
+            crate::platform::MAC,
+            "Preset = android-studio\nSearchFiles = alt-p\n",
+        );
+        assert_eq!(map.preset(), keymap::Preset::AndroidStudio);
+        let files = map
+            .entries()
+            .into_iter()
+            .find(|e| e.name == "SearchFiles")
+            .unwrap();
+        assert_eq!(files.keys, ["alt-p"]);
+        assert_eq!(files.was, [crate::platform::keys("cmd-shift-o")]);
     }
 }

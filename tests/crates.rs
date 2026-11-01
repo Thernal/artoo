@@ -48,6 +48,8 @@ const OPEN: &[&str] = &[
     "artoo-requests",
     // Branches (stage 4, B): the app's views read the history it keeps until they move into it.
     "artoo-branches",
+    // The frame (stage 4, K): the tab draws its pieces and reads their state until the chrome is the shell's.
+    "artoo-shell",
 ];
 
 /// The `artoo-*` crates `manifest` depends on, its dev-dependencies left out.

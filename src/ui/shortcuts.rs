@@ -1,16 +1,13 @@
-//! The keyboard card: every key of the app in one place, grouped by what one is doing. `?` opens
-//! it; esc or a click closes it. Designed in round 2 of the review (`../Design/review/round-2.html`, A29).
+//! The keyboard card's keys, grouped by what one is doing; the card is the shell's
+//! (`artoo_shell::shortcuts`).
 
-use super::px;
-use super::{ISLAND_RADIUS, Workspace, theme};
-use gpui::{ClickEvent, Context, FontWeight, MouseButton, div, prelude::*};
-use std::sync::atomic::AtomicBool;
-
-/// The card was shown at launch in this run already (a new tab does not show it again).
-pub static SHOWN: AtomicBool = AtomicBool::new(false);
+use super::Workspace;
+use artoo_shell::shortcuts::{self, Group};
+use gpui::{Context, prelude::*};
+use std::rc::Rc;
 
 /// (group, [(keys, what it does)]).
-const GROUPS: &[(&str, &[(&str, &str)])] = &[
+const GROUPS: &[Group] = &[
     (
         "Move",
         &[
@@ -117,190 +114,26 @@ impl Workspace {
         if !self.shortcuts {
             return None;
         }
-        let groups = GROUPS.iter().map(|(title, rows)| {
-            div()
-                .w(px(344.))
-                .flex_none()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .child(
-                    div()
-                        .text_size(px(11.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::faint())
-                        .child(title.to_uppercase()),
-                )
-                .children(rows.iter().map(|(keys, what)| {
-                    div()
-                        .flex()
-                        .gap_3()
-                        .child(
-                            div()
-                                .w(px(124.))
-                                .flex_none()
-                                .font_family(theme::code_font())
-                                .text_size(px(12.))
-                                .text_color(theme::accent())
-                                .child(super::keys::text(keys).into_owned()),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .text_color(theme::muted())
-                                .child(super::words::say(what).into_owned()),
-                        )
-                }))
-        });
-        Some(
-            div()
-                .id("shortcuts-backdrop")
-                .absolute()
-                .size_full()
-                .flex()
-                .justify_center()
-                .items_start()
-                .pt(px(72.))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, cx| {
-                        this.shortcuts = false;
+        let (tab, menus) = (cx.entity().downgrade(), cx.entity().downgrade());
+        Some(shortcuts::card(
+            GROUPS,
+            Rc::new(move |cx| {
+                tab.update(cx, |this, cx| {
+                    this.shortcuts = false;
+                    cx.notify()
+                })
+                .ok();
+            }),
+            // A preset picked: the menus show its keys.
+            Rc::new(move |cx| {
+                menus
+                    .update(cx, |this, cx| {
+                        this.refresh_menus(cx);
                         cx.notify()
-                    }),
-                )
-                .child(
-                    div()
-                        .occlude()
-                        .w(px(760.))
-                        // Taller than the window, the groups scroll; the switch stays in view.
-                        .max_h(gpui::relative(0.86))
-                        .flex()
-                        .flex_col()
-                        .gap_3()
-                        .p_4()
-                        .rounded(px(ISLAND_RADIUS))
-                        .border_1()
-                        .border_color(theme::island_border())
-                        .bg(theme::panel())
-                        .shadow_lg()
-                        .text_size(px(13.))
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .text_size(px(15.))
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .child("Keyboard"),
-                                )
-                                .child(
-                                    div()
-                                        .id("shortcuts-close")
-                                        .px_2()
-                                        .rounded(px(super::ROW_RADIUS))
-                                        .cursor_pointer()
-                                        .hover(|s| s.bg(theme::hover()))
-                                        .text_color(theme::muted())
-                                        .child("Close  esc")
-                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                            this.shortcuts = false;
-                                            cx.notify()
-                                        })),
-                                ),
-                        )
-                        .child(self.render_card_presets(cx))
-                        .children(self.render_changed_keys(cx))
-                        .child(
-                            div()
-                                .id("shortcut-groups")
-                                .flex_1()
-                                .min_h_0()
-                                .overflow_y_scroll()
-                                .flex()
-                                .flex_wrap()
-                                .gap_x(px(24.))
-                                .gap_y(px(16.))
-                                .children(groups),
-                        )
-                        .child(self.render_launch_switch()),
-                ),
-        )
-    }
-
-    /// Which keys yours start from — Artoo's, Android Studio's or VS Code's (#54): chosen here
-    /// when the card greets the first launch, as Settings → Keyboard does later.
-    fn render_card_presets(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        use super::keymap::{self, Keymap};
-        let preset = cx.global::<Keymap>().preset();
-        div()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap(px(8.))
-            .text_size(px(12.))
-            .text_color(theme::muted())
-            .child("Your keys start from")
-            .child(artoo_ui_kit::controls::group().children(
-                keymap::Preset::ALL.into_iter().enumerate().map(|(i, p)| {
-                    artoo_ui_kit::controls::chip(("card-preset", i), p.label(), p == preset)
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            keymap::set_preset(p, cx);
-                            this.refresh_menus(cx);
-                            cx.notify();
-                        }))
-                }),
-            ))
-            .child(
-                div()
-                    .text_color(theme::faint())
-                    .child("· Settings → Keyboard changes any of them"),
-            )
-    }
-
-    /// The keys changed in Settings → Keyboard, above the shipped ones the card lists.
-    fn render_changed_keys(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
-        let changes = cx.global::<super::keymap::Keymap>().changes();
-        (!changes.is_empty()).then(|| {
-            div()
-                .px_3()
-                .py_2()
-                .rounded(px(super::ROW_RADIUS))
-                .bg(theme::hover())
-                .text_size(px(12.))
-                .text_color(theme::muted())
-                .child(format!(
-                    "Changed by you: {} — the list below shows the shipped keys.",
-                    changes
-                        .iter()
-                        .map(|(label, keys)| {
-                            let keys: Vec<String> =
-                                keys.iter().map(|k| super::keymap::symbols(k)).collect();
-                            if keys.is_empty() {
-                                format!("{label} (no key)")
-                            } else {
-                                format!("{label} {}", super::keys::text(&keys.join(" ")))
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" · ")
-                ))
-        })
-    }
-
-    /// How to bring the card back.
-    fn render_launch_switch(&self) -> impl IntoElement + use<> {
-        div()
-            .pt(px(8.))
-            .border_t_1()
-            .border_color(theme::island_border())
-            .text_size(px(12.))
-            .text_color(theme::faint())
-            .child(
-                super::keys::text("? or ⌘/ shows this again, and Help → Keyboard Shortcuts")
-                    .into_owned(),
-            )
+                    })
+                    .ok();
+            }),
+            cx,
+        ))
     }
 }

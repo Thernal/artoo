@@ -1,10 +1,10 @@
-//! Rebindable keys. The defaults are the bindings written in `ui::run`; a preset (#52: Artoo,
+//! Rebindable keys. The defaults are the bindings the app ships (`install`); a preset (#52: Artoo,
 //! Android Studio, VS Code) changes some of them, and `keymap.txt` in the app support folder
 //! replaces the keys of an action on top, one line each: `NextFile = ] | l` (keys split by ` | `,
 //! nothing after `=` leaves the action without a key; `Preset = vscode` names the preset).
 //! Settings → Keyboard writes it.
 
-use crate::storage;
+use artoo_core::{platform, storage};
 use gpui::{App, DummyKeyboardMapper, Global, KeyBinding};
 use std::collections::{BTreeMap, HashSet};
 
@@ -101,6 +101,14 @@ impl Preset {
         }
     }
 
+    /// The actions it gives other keys, on any OS.
+    pub fn actions(self) -> impl Iterator<Item = &'static str> {
+        self.changes()
+            .iter()
+            .chain(self.pc_changes())
+            .map(|(name, _)| *name)
+    }
+
     /// Its changes in macOS's keys (`mac`) or in Windows and Linux's: action → keys.
     fn map(self, mac: bool) -> BTreeMap<String, Vec<String>> {
         let pc = if mac { &[][..] } else { self.pc_changes() };
@@ -114,7 +122,7 @@ impl Preset {
                         if mac {
                             k.to_owned()
                         } else {
-                            crate::platform::pc_keys(k)
+                            platform::pc_keys(k)
                         }
                     })
                     .collect();
@@ -142,13 +150,11 @@ pub struct Entry {
 
 /// Binds the defaults with the user's changes on top.
 pub fn install(defaults: Vec<KeyBinding>, cx: &mut App) {
-    let (preset, overrides) = read(&storage::read("keymap.txt"));
-    cx.set_global(Keymap {
+    cx.set_global(Keymap::from_text(
         defaults,
-        mac: crate::platform::MAC,
-        preset,
-        overrides,
-    });
+        platform::MAC,
+        &storage::read("keymap.txt"),
+    ));
     apply(cx);
 }
 
@@ -212,6 +218,28 @@ fn short(name: &'static str) -> &'static str {
 }
 
 impl Keymap {
+    /// `defaults` with the preset and the changes `text` (`keymap.txt`'s form) names, in macOS's keys or (`mac` false)
+    /// Windows and Linux's.
+    pub fn from_text(defaults: Vec<KeyBinding>, mac: bool, text: &str) -> Self {
+        let (preset, overrides) = read(text);
+        Self {
+            defaults,
+            mac,
+            preset,
+            overrides,
+        }
+    }
+
+    /// `defaults` with `preset`'s keys and no change of the user's.
+    pub fn with_preset(defaults: Vec<KeyBinding>, mac: bool, preset: Preset) -> Self {
+        Self {
+            defaults,
+            mac,
+            preset,
+            overrides: BTreeMap::new(),
+        }
+    }
+
     pub fn preset(&self) -> Preset {
         self.preset
     }
@@ -472,7 +500,7 @@ mod tests {
 
     fn map(overrides: &str) -> Keymap {
         Keymap {
-            mac: crate::platform::MAC,
+            mac: platform::MAC,
             preset: Preset::Artoo,
             defaults: vec![
                 KeyBinding::new("l", NextFile, Some("Workspace && !Typing")),
@@ -532,90 +560,6 @@ mod tests {
     fn the_file_reads_back_what_it_wrote() {
         let overrides = parse("NextFile = cmd-] | l\nComment =\n");
         assert_eq!(parse(&render(&overrides)), overrides);
-    }
-
-    #[test]
-    fn the_shipped_keys_do_not_clash() {
-        let shipped = Keymap {
-            defaults: super::super::default_bindings(),
-            mac: crate::platform::MAC,
-            preset: Preset::Artoo,
-            overrides: BTreeMap::new(),
-        };
-        let clashes: Vec<_> = shipped
-            .entries()
-            .into_iter()
-            .filter_map(|e| e.clash.map(|c| (e.label, c)))
-            .collect();
-        assert!(clashes.is_empty(), "{clashes:?}");
-    }
-
-    #[test]
-    fn the_shipped_keys_do_not_clash_on_windows_and_linux() {
-        let shipped = Keymap {
-            defaults: super::super::bindings(crate::platform::pc_keys),
-            mac: false,
-            preset: Preset::Artoo,
-            overrides: BTreeMap::new(),
-        };
-        let clashes: Vec<_> = shipped
-            .entries()
-            .into_iter()
-            .filter_map(|e| e.clash.map(|c| (e.label, c)))
-            .collect();
-        assert!(clashes.is_empty(), "{clashes:?}");
-    }
-
-    #[test]
-    fn no_preset_clashes_and_each_names_real_actions() {
-        // macOS's keys and Windows and Linux's, whichever OS runs the test.
-        for mac in [true, false] {
-            let keys: fn(&str) -> String = if mac {
-                str::to_owned
-            } else {
-                crate::platform::pc_keys
-            };
-            for preset in Preset::ALL {
-                let map = Keymap {
-                    defaults: super::super::bindings(keys),
-                    mac,
-                    preset,
-                    overrides: BTreeMap::new(),
-                };
-                let entries = map.entries();
-                for (name, _) in preset.changes().iter().chain(preset.pc_changes()) {
-                    assert!(
-                        entries.iter().any(|e| e.name == *name),
-                        "{preset:?}: no {name}"
-                    );
-                }
-                let clashes: Vec<_> = entries
-                    .into_iter()
-                    .filter_map(|e| e.clash.map(|c| (e.label, c)))
-                    .collect();
-                assert!(clashes.is_empty(), "{preset:?}, mac {mac}: {clashes:?}");
-            }
-        }
-    }
-
-    #[test]
-    fn a_change_says_what_the_preset_had() {
-        // alt, not cmd: cmd is written super- on Linux and win- on Windows.
-        let (preset, overrides) = read("Preset = android-studio\nSearchFiles = alt-p\n");
-        assert_eq!(preset, Preset::AndroidStudio);
-        let map = Keymap {
-            defaults: super::super::default_bindings(),
-            mac: crate::platform::MAC,
-            preset,
-            overrides,
-        };
-        let files = map
-            .entries()
-            .into_iter()
-            .find(|e| e.name == "SearchFiles")
-            .unwrap();
-        assert_eq!(files.keys, ["alt-p"]);
-        assert_eq!(files.was, [crate::platform::keys("cmd-shift-o")]);
     }
 
     #[test]
