@@ -9,11 +9,11 @@
 use super::lists::Field;
 use super::{ROW_RADIUS, Workspace, icons, px, theme};
 use crate::themes::{self, TOKENS, Theme};
-use artoo_shell::appearance::{
+use artoo_ui_kit::theme_cards::{
     ROWS, card, code_face, is_text, own, row_name, rows_of_three, sample_diff, small_button,
     tag_of, theme_preview, value, window_face,
 };
-pub(super) use artoo_shell::appearance::{rows_of, section};
+pub(super) use artoo_ui_kit::theme_cards::{rows_of, section};
 use gpui::{AnyElement, ClickEvent, Context, Div, FontWeight, div, prelude::*, rgba};
 
 /// A theme being edited.
