@@ -88,8 +88,8 @@ use artoo_branches::working::WorkingState;
 use artoo_review::diff::{Diff, Header, Notice};
 use artoo_review::diff_view::{self, CODE_SIZE};
 use artoo_review::review::{self, Opt};
-use artoo_shell::frame::{Drag, Split};
 use artoo_shell::keymap;
+use artoo_shell_api::frame::{Drag, Split};
 use artoo_shell_api::title;
 use artoo_ui_kit::controls::tag;
 use gpui::{

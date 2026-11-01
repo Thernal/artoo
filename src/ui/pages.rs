@@ -36,6 +36,7 @@ impl Workspace {
                     self.zen.is_none(),
                     44. + gap(),
                     div().flex().flex_col().child(bar).child(div().h(px(gap()))),
+                    cx,
                 )
             }))
             .children(
@@ -58,6 +59,7 @@ impl Workspace {
                                         .render_zen_head(self.header_title(diff, cx), self.zen_one),
                                 )
                                 .child(div().h(px(gap()))),
+                            cx,
                         )
                     }),
             )
@@ -91,6 +93,7 @@ impl Workspace {
                     .flex_col()
                     .child(identity)
                     .child(div().h(px(gap()))),
+                cx,
             ),
         )
     }

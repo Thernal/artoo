@@ -2,100 +2,40 @@
 //! slides away and back (#56, 16) —, zen's strips and its line of keys, and the splitters between panes. What fills
 //! them, and where a pane's width is kept, are the tab's.
 
-use artoo_ui_kit::{GAP, flat, gap, keys, motion, px, theme};
-use gpui::{
-    AnyElement, App, CursorStyle, IntoElement, MouseButton, MouseDownEvent, Pixels, Point, Window,
-    div, prelude::*,
-};
+use artoo_shell_api::frame::{Body, FrameRenderer, OnDown, Split, handle_width};
+use artoo_ui_kit::{gap, keys, motion, px, theme};
+use gpui::{AnyElement, CursorStyle, IntoElement, MouseButton, div, prelude::*};
 
-/// A pane boundary that can be dragged.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Split {
-    Sidebar,
-    /// The tool window's left edge: dragging left widens it.
-    Tool,
-    /// The list of the Inbox, Branches and Merge requests beside its preview.
-    List,
-}
+/// The renderer, installed by `install`.
+pub(crate) struct Renderer;
 
-impl Split {
-    pub fn vertical(self) -> bool {
-        false
+impl FrameRenderer for Renderer {
+    fn body(&self, body: Body) -> AnyElement {
+        self::body(body)
     }
 
-    /// The least and the most it is wide.
-    pub fn bounds(self) -> (f32, f32) {
-        match self {
-            Split::Sidebar => (220., 720.),
-            Split::Tool => (260., 640.),
-            Split::List => (300., 900.),
-        }
+    fn handle(&self, split: Split, active: bool, down: OnDown) -> AnyElement {
+        self::handle(split, active, down).into_any_element()
     }
 
-    /// The pointer coordinate along the axis it resizes.
-    pub fn axis(self, position: Point<Pixels>) -> f32 {
-        f32::from(if self.vertical() {
-            position.y
-        } else {
-            position.x
-        })
+    fn zen_strip(
+        &self,
+        id: &'static str,
+        shown: bool,
+        moving: bool,
+        room: f32,
+        strip: AnyElement,
+    ) -> AnyElement {
+        self::zen_strip(id, shown, moving, room, strip)
     }
 
-    fn group(self) -> &'static str {
-        match self {
-            Split::Sidebar => "split-sidebar",
-            Split::Tool => "split-tool",
-            Split::List => "split-list",
-        }
+    fn zen_keys(&self, one: bool) -> AnyElement {
+        self::zen_keys(one).into_any_element()
     }
-}
-
-/// A boundary being dragged.
-#[derive(Clone, Copy)]
-pub struct Drag {
-    pub split: Split,
-    /// Pointer coordinate along the split's axis when the drag began.
-    pub origin: f32,
-    /// Pane size when the drag began.
-    pub size: f32,
-}
-
-impl Drag {
-    /// The pane's size with the pointer at `position`, in the interface's units as the widths are (`zoom`): the edge
-    /// stays under the pointer at any interface size.
-    pub fn size_at(&self, position: Point<Pixels>, zoom: f32) -> f32 {
-        let (min, max) = self.split.bounds();
-        let moved = (self.split.axis(position) - self.origin) / zoom;
-        let moved = if self.split == Split::Tool {
-            -moved
-        } else {
-            moved
-        };
-        (self.size + moved).clamp(min, max)
-    }
-
-    /// The pointer while it is dragged.
-    pub fn cursor(&self) -> CursorStyle {
-        if self.split.vertical() {
-            CursorStyle::ResizeUpDown
-        } else {
-            CursorStyle::ResizeLeftRight
-        }
-    }
-}
-
-/// How wide a pane's handle is: the gap between islands, a thin line between flat panes. A pane
-/// that slides in and out is its width and its handle, so nothing of it stays at the end.
-pub fn handle_width() -> f32 {
-    if flat() { 3. } else { GAP }
 }
 
 /// The gap after a pane (right of it, or below when vertical), which resizes the pane; `active` while it is dragged.
-pub fn handle(
-    split: Split,
-    active: bool,
-    down: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
-) -> impl IntoElement {
+fn handle(split: Split, active: bool, down: OnDown) -> impl IntoElement {
     let group = split.group();
     let line = div()
         .rounded_full()
@@ -118,18 +58,18 @@ pub fn handle(
             .cursor(CursorStyle::ResizeLeftRight)
             .child(line.w(px(2.)).h(px(48.)))
     };
-    gap.on_mouse_down(MouseButton::Left, down)
+    gap.on_mouse_down(MouseButton::Left, move |e, window, cx| down(e, window, cx))
 }
 
 /// A strip over or under the page that zen takes away or brings — the page's bar, the item's
 /// line, zen's own: it folds to nothing and fades as the sides slide (#56, 16; the developer,
 /// 2026-10-23: the top went at once). `room` is the most it is tall; `moving` while zen begins or ends.
-pub fn zen_strip(
+fn zen_strip(
     id: &'static str,
     shown: bool,
     moving: bool,
     room: f32,
-    strip: impl IntoElement + 'static,
+    strip: AnyElement,
 ) -> AnyElement {
     motion::toward(
         div()
@@ -149,7 +89,7 @@ pub fn zen_strip(
 
 /// Zen's line at the foot of the diff: the keys of a review, from the keyboard alone; `one` while it shows one file
 /// at a time.
-pub fn zen_keys(one: bool) -> impl IntoElement {
+fn zen_keys(one: bool) -> impl IntoElement {
     // Keys are split by spaces: "[ ]" is two caps.
     let pair = |spec: &'static str, what: &'static str| {
         div()
@@ -185,22 +125,8 @@ pub fn zen_keys(one: bool) -> impl IntoElement {
         .child(pair("⌘.", "leave zen"))
 }
 
-/// The row under the title bar, a repository open.
-pub struct Body {
-    pub rail: Option<AnyElement>,
-    pub spaces: Option<AnyElement>,
-    /// The page of the space on screen (#71).
-    pub page: AnyElement,
-    /// The gap before the stripe, a tool window open or not (#68).
-    pub stripe_gap: Option<AnyElement>,
-    pub stripe: Option<AnyElement>,
-    /// Zen, and whether it is beginning or ending.
-    pub zen: bool,
-    pub zen_moving: bool,
-}
-
 /// The row.
-pub fn body(body: Body) -> AnyElement {
+fn body(body: Body) -> AnyElement {
     let (zen, moving) = (body.zen, body.zen_moving);
     div()
         .flex_1()

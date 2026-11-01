@@ -250,7 +250,7 @@ impl Workspace {
                 handle_width: if over {
                     0.
                 } else {
-                    artoo_shell::frame::handle_width()
+                    artoo_shell_api::frame::handle_width()
                 },
                 border: self.zone_border(Zone::Tool),
                 shown,

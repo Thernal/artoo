@@ -9,7 +9,7 @@
 pub mod appearance;
 mod bar;
 pub mod fonts;
-pub mod frame;
+mod frame;
 pub mod keyboard;
 pub mod keymap;
 pub mod menu;
@@ -39,4 +39,5 @@ pub fn install(cx: &mut gpui::App) {
     provide::<dyn artoo_shell_api::settings::SettingsRenderer>(Rc::new(settings::Renderer), cx);
     provide::<dyn artoo_shell_api::setup::SetupRenderer>(Rc::new(setup::Renderer), cx);
     provide::<dyn artoo_shell_api::welcome::WelcomeRenderer>(Rc::new(welcome::Renderer), cx);
+    provide::<dyn artoo_shell_api::frame::FrameRenderer>(Rc::new(frame::Renderer), cx);
 }

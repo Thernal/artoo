@@ -1,32 +1,41 @@
 //! The window's frame, the tab's side: the root view — its actions and keys, what it draws between the title bar and
 //! the overlays —, zen's line and the splitters' widths. The body's row, zen's strips and the handles are drawn by the
-//! shell (`artoo_shell::frame`).
+//! shell (`artoo_shell_api::frame`).
 
 use super::*;
-use artoo_shell::frame;
+use artoo_shell_api::frame;
 use typing::Input;
 
 impl Workspace {
-    /// Zen's line at the foot of the diff (`artoo_shell::frame::zen_keys`).
-    pub(super) fn render_zen_keys(&self) -> Option<impl IntoElement + use<>> {
+    /// Zen's line at the foot of the diff (`artoo_shell_api::frame::zen_keys`).
+    pub(super) fn render_zen_keys(&self, cx: &App) -> Option<impl IntoElement + use<>> {
         (self.zen.is_some() || self.motion.recent("zen")).then_some(())?;
         Some(self.zen_strip(
             "zen-keys",
             self.zen.is_some(),
             40.,
-            frame::zen_keys(self.zen_one),
+            frame::zen_keys(self.zen_one, cx),
+            cx,
         ))
     }
 
-    /// A strip zen takes away or brings (`artoo_shell::frame::zen_strip`).
+    /// A strip zen takes away or brings (`artoo_shell_api::frame::zen_strip`).
     pub(super) fn zen_strip(
         &self,
         id: &'static str,
         shown: bool,
         room: f32,
-        strip: impl IntoElement + 'static,
+        strip: impl IntoElement,
+        cx: &App,
     ) -> gpui::AnyElement {
-        frame::zen_strip(id, shown, self.motion.recent("zen"), room, strip)
+        frame::zen_strip(
+            id,
+            shown,
+            self.motion.recent("zen"),
+            room,
+            strip.into_any_element(),
+            cx,
+        )
     }
 
     pub(super) fn size(&mut self, split: Split) -> &mut f32 {
@@ -83,14 +92,19 @@ impl Workspace {
         }
     }
 
-    /// The gap after a pane, which resizes it (`artoo_shell::frame::handle`).
+    /// The gap after a pane, which resizes it (`artoo_shell_api::frame::handle`).
     pub(super) fn handle(&self, split: Split, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let active = self.drag.is_some_and(|d| d.split == split);
         let tab = cx.weak_entity();
-        frame::handle(split, active, move |event, _, cx| {
-            tab.update(cx, |this, cx| this.start_drag(split, event, cx))
-                .ok();
-        })
+        frame::handle(
+            split,
+            active,
+            Rc::new(move |event, _, cx| {
+                tab.update(cx, |this, cx| this.start_drag(split, event, cx))
+                    .ok();
+            }),
+            cx,
+        )
     }
 
     // ---- rendering -----------------------------------------------------------------------
@@ -560,17 +574,20 @@ impl Render for Workspace {
             _ if self.setup.is_some() => self.render_setup(cx),
             _ if self.settings_open => self.render_settings(cx).into_any_element(),
             None => self.render_welcome(cx).into_any_element(),
-            Some(_) => frame::body(frame::Body {
-                rail: self
-                    .render_project_rail(cx)
-                    .map(IntoElement::into_any_element),
-                spaces: self.render_spaces(cx).map(IntoElement::into_any_element),
-                page: self.render_space(cx).into_any_element(),
-                stripe_gap: self.stripe_gap().map(IntoElement::into_any_element),
-                stripe: self.render_stripe(cx).map(IntoElement::into_any_element),
-                zen: self.zen.is_some(),
-                zen_moving: self.motion.recent("zen"),
-            }),
+            Some(_) => frame::body(
+                frame::Body {
+                    rail: self
+                        .render_project_rail(cx)
+                        .map(IntoElement::into_any_element),
+                    spaces: self.render_spaces(cx).map(IntoElement::into_any_element),
+                    page: self.render_space(cx).into_any_element(),
+                    stripe_gap: self.stripe_gap().map(IntoElement::into_any_element),
+                    stripe: self.render_stripe(cx).map(IntoElement::into_any_element),
+                    zen: self.zen.is_some(),
+                    zen_moving: self.motion.recent("zen"),
+                },
+                cx,
+            ),
         })
         // Last, so it paints over everything.
         .children(

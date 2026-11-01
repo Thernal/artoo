@@ -312,7 +312,7 @@ impl Workspace {
         let side = pages.side.as_ref().filter(|_| !tab_page);
         // Zen's keys go under an item's changes.
         let item = matches!(self.nav.space, Space::Branches | Space::Requests) && route.is_some();
-        let view = match self.render_zen_keys().filter(|_| item && !tab_page) {
+        let view = match self.render_zen_keys(cx).filter(|_| item && !tab_page) {
             Some(keys) => div()
                 .flex_1()
                 .min_w_0()
@@ -333,7 +333,7 @@ impl Workspace {
                 side.filter(|_| beside)
                     .and_then(|side| side(route.as_ref(), width, cx))
                     .map(|side| {
-                        let room = width + artoo_shell::frame::handle_width();
+                        let room = width + artoo_shell_api::frame::handle_width();
                         motion::toward(
                             div()
                                 .flex()
