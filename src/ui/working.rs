@@ -84,7 +84,7 @@ impl Workspace {
                     if this
                         .update(cx, |this, cx| {
                             this.poll_agents(cx);
-                            if crate::pictures::take_fresh() {
+                            if artoo_ui_kit::pictures::get(cx).is_some_and(|p| p.take_fresh()) {
                                 cx.notify();
                             }
                         })

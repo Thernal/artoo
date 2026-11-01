@@ -16,6 +16,9 @@ pub trait Pictures: Send + Sync {
     /// An upload a comment of `project` writes as `/uploads/…` (GitLab's), asked with the host's token where
     /// it can be, as `image` otherwise.
     fn upload(&self, project: &str, src: &str) -> Option<Picture>;
+
+    /// Whether a picture came in since the last ask: the window is drawn again.
+    fn take_fresh(&self) -> bool;
 }
 
 struct Installed(Arc<dyn Pictures>);

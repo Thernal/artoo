@@ -10,7 +10,7 @@ mod gitlab;
 mod hosts;
 pub mod ide;
 mod json;
-pub mod pictures;
+mod pictures;
 pub mod tokens;
 
 use artoo_core::{emoji, git, links, platform, search, storage};

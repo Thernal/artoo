@@ -46,6 +46,10 @@ impl artoo_ui_kit::pictures::Pictures for WebPictures {
     fn upload(&self, project: &str, src: &str) -> Option<Picture> {
         upload(project, src)
     }
+
+    fn take_fresh(&self) -> bool {
+        FRESH.swap(false, Ordering::Relaxed)
+    }
 }
 
 /// Each address's file once it is in; None while it is being fetched or could not be.
@@ -171,11 +175,6 @@ pub fn get(url: &str) -> Option<Picture> {
         .entry(file.clone())
         .or_insert_with(|| read(&file))
         .clone()
-}
-
-/// Whether a picture came in since the last ask: the window is drawn again.
-pub fn take_fresh() -> bool {
-    FRESH.swap(false, Ordering::Relaxed)
 }
 
 fn is_web(url: &str) -> bool {
