@@ -2,65 +2,24 @@
 //! the foot with the tab's key. The same window picks the refs of a comparison, a theme, a recent place, a bookmark, a
 //! face. What it lists, what the field holds and what a row does are the tab's.
 
+use artoo_shell_api::palette::{PaletteHost, PaletteRenderer, PaletteView, Tab};
 use artoo_ui_kit::{
     ISLAND_RADIUS, ROW_RADIUS, hover, icons, island_label, keys, motion, px, row, theme, words,
 };
-use gpui::{AnyElement, App, MouseButton, SharedString, Window, div, prelude::*};
+use gpui::{AnyElement, MouseButton, div, prelude::*};
 use std::rc::Rc;
 
-/// A row of the list.
-pub struct Row {
-    /// The group it is listed under: a heading where it changes.
-    pub group: &'static str,
-    pub label: String,
-    pub detail: String,
-    /// Its key as it is now, none empty.
-    pub key: String,
-    /// A file's path: its icon before it (#95).
-    pub icon: Option<String>,
-    /// A file or a repository: its name, then its folder right after it, cut first.
-    pub file: bool,
-    /// A face, drawn in itself (#24).
-    pub face: Option<SharedString>,
-}
+/// The renderer, installed by `install`.
+pub(crate) struct Renderer;
 
-/// A tab of search everywhere.
-pub struct Tab {
-    pub label: &'static str,
-    /// What it found for the text.
-    pub count: Option<usize>,
-    pub lit: bool,
-}
-
-/// The window as the tab sees it.
-pub struct PaletteView {
-    pub title: Option<String>,
-    /// Search everywhere's tabs.
-    pub tabs: Option<Vec<Tab>>,
-    /// `>` moved it to Actions: its mark before the field.
-    pub actions: bool,
-    pub field: AnyElement,
-    pub rows: Vec<Row>,
-    /// The row picked.
-    pub at: usize,
-    /// What it says when nothing is listed.
-    pub empty: &'static str,
-    /// The tab on with its key: "Files · ⌘P".
-    pub foot: Option<String>,
-}
-
-/// What a click on the window does.
-pub trait PaletteHost {
-    /// Row `ix`: what it does.
-    fn run(&self, ix: usize, window: &mut Window, cx: &mut App);
-    /// Outside it: it closes.
-    fn close(&self, window: &mut Window, cx: &mut App);
-    /// Tab `ix` of search everywhere.
-    fn scope(&self, ix: usize, window: &mut Window, cx: &mut App);
+impl PaletteRenderer for Renderer {
+    fn palette(&self, view: PaletteView, host: Rc<dyn PaletteHost>) -> AnyElement {
+        self::palette(view, host)
+    }
 }
 
 /// The window, over everything.
-pub fn palette(view: PaletteView, host: Rc<dyn PaletteHost>) -> AnyElement {
+fn palette(view: PaletteView, host: Rc<dyn PaletteHost>) -> AnyElement {
     let mut last = "";
     let mut rows = Vec::new();
     for (ix, item) in view.rows.into_iter().enumerate() {

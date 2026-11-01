@@ -2,13 +2,13 @@
 //! scope — All ⌘K, Files ⌘P, Commits ⌘⇧C, Branches ⌘⇧B, Requests ⌘⇧R, Actions ⌘⇧P —, each
 //! named with what it found; ⇥ ⇧⇥ move between them keeping the text, `>` typed moves to Actions.
 //! The same overlay picks the refs of a comparison (⌥⌘C), a theme, a recent place, a bookmark. What it lists and
-//! does is here; the window is drawn by the shell (`artoo_shell::palette`).
+//! does is here; the window is drawn by the shell (`artoo_shell_api::palette`).
 
 use super::input::{self, Edit};
 use super::spaces::Space;
 use super::{Workspace, format, theme};
 use crate::git::{NamedRef, Repo};
-use artoo_shell::palette;
+use artoo_shell_api::palette;
 use git2::Oid;
 use gpui::{Action, App, Context, KeyDownEvent, WeakEntity, Window, prelude::*};
 use std::rc::Rc;
@@ -1473,6 +1473,7 @@ impl Workspace {
                 foot,
             },
             Rc::new(Glue(cx.weak_entity())),
+            cx,
         ))
     }
 }
