@@ -23,7 +23,7 @@ pub mod spaces;
 pub mod tabs;
 mod title;
 pub mod toast;
-pub mod tools;
+mod tools;
 pub mod welcome;
 
 /// The frame's renderers, for every window (the kits' wiring: `LocalX provides XImpl`).
@@ -33,4 +33,5 @@ pub fn install(cx: &mut gpui::App) {
     provide::<dyn artoo_shell_api::bar::BarRenderer>(Rc::new(bar::Renderer), cx);
     provide::<dyn artoo_shell_api::title::TitleRenderer>(Rc::new(title::Renderer), cx);
     provide::<dyn artoo_shell_api::tabs::TabsRenderer>(Rc::new(rail::Renderer), cx);
+    provide::<dyn artoo_shell_api::tools::ToolsRenderer>(Rc::new(tools::Renderer), cx);
 }

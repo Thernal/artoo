@@ -8,7 +8,7 @@
 
 use super::zones::Zone;
 use super::{Split, Workspace, px, theme};
-use artoo_shell::tools;
+use artoo_shell_api::tools;
 use gpui::{Context, Rgba, div, prelude::*};
 use std::rc::Rc;
 
@@ -31,7 +31,7 @@ impl Tool {
     }
 }
 
-pub use artoo_shell::tools::ToolView;
+pub use artoo_shell_api::tools::ToolView;
 
 impl Workspace {
     /// The tool windows of the space on screen (#76): Code Outline, a request's page Discussions;
@@ -208,6 +208,7 @@ impl Workspace {
                 })
                 .ok();
             }),
+            cx,
         ))
     }
 
@@ -256,6 +257,7 @@ impl Workspace {
                 recent: self.motion.recent("tool"),
             },
             close,
+            cx,
         ))
     }
 

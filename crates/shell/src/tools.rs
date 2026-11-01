@@ -1,43 +1,27 @@
 //! The right edge (Design `design/shell/`, #49) drawn: an icon stripe that opens one tool window at a time beside the
 //! page, and the window's frame — a title with a faint count, buttons in its header, the body, a foot. Which tools a
-//! space has, what each shows and what opening one does are the tab's.
+//! space has, what each shows and what opening one does are the tab's (the contract `artoo_shell_api::tools`).
 
+use artoo_shell_api::tools::{Button, OnClose, OnTool, Place, ToolView, ToolsRenderer};
 use artoo_ui_kit::hover::{self, Tip, TipOwned};
 use artoo_ui_kit::{ROW_RADIUS, icons, island, keys, motion, px, theme};
-use gpui::{AnyElement, App, ClickEvent, FontWeight, Rgba, SharedString, Window, div, prelude::*};
-use std::rc::Rc;
+use gpui::{AnyElement, ClickEvent, FontWeight, div, prelude::*};
 
-/// What a tool window shows: a title with a faint count, buttons in its header, the body (which
-/// scrolls itself) and an optional foot.
-pub struct ToolView {
-    pub title: SharedString,
-    pub count: Option<String>,
-    pub actions: Vec<AnyElement>,
-    pub body: AnyElement,
-    pub foot: Option<AnyElement>,
+/// The right edge's renderer, installed by `install`.
+pub(crate) struct Renderer;
+
+impl ToolsRenderer for Renderer {
+    fn stripe(&self, buttons: Vec<Button>, toggle: OnTool) -> AnyElement {
+        stripe(buttons, toggle).into_any_element()
+    }
+
+    fn window(&self, view: ToolView, place: Place, close: OnClose) -> AnyElement {
+        window(view, place, close).into_any_element()
+    }
 }
-
-/// A tool's button on the stripe.
-pub struct Button {
-    /// Its tool's name, handed back when it is clicked.
-    pub id: &'static str,
-    pub icon: &'static str,
-    pub tip: &'static str,
-    /// Its window is open.
-    pub on: bool,
-    /// A count on it, in its colour.
-    pub badge: Option<(String, Rgba)>,
-    /// What the count is, said in its long hover (#53): "3 comments".
-    pub what: String,
-    /// Drawn under it: the Agents window's dot per chat that listens (#77).
-    pub under: Option<AnyElement>,
-}
-
-/// What the tab does when a tool's button is clicked: its name.
-pub type OnTool = Rc<dyn Fn(&'static str, &mut Window, &mut App)>;
 
 /// The stripe of `buttons`.
-pub fn stripe(buttons: Vec<Button>, toggle: OnTool) -> impl IntoElement {
+fn stripe(buttons: Vec<Button>, toggle: OnTool) -> impl IntoElement {
     div()
         .flex_none()
         .w(px(44.))
@@ -121,27 +105,8 @@ fn button(b: Button, toggle: OnTool) -> impl IntoElement {
         .on_click(move |_: &ClickEvent, window, cx| toggle(id, window, cx))
 }
 
-/// Where a tool window sits.
-pub struct Place {
-    pub width: f32,
-    /// A narrow window has no room beside the page: the tool window floats over its right edge.
-    pub over: bool,
-    /// The splitter before it, beside the page (none when it floats), and its width.
-    pub handle: Option<AnyElement>,
-    pub handle_width: f32,
-    /// Its island's border: the keyboard's zone shows on it.
-    pub border: Rgba,
-    /// Open; closed, it is drawn on its way out (#56, 3).
-    pub shown: bool,
-    /// It opened or closed a moment ago.
-    pub recent: bool,
-}
-
-/// What the tab does when a tool window's ✕ is clicked.
-pub type OnClose = Rc<dyn Fn(&mut Window, &mut App)>;
-
 /// Tool window `view` at its place; `close` hides it (its ✕).
-pub fn window(view: ToolView, place: Place, close: OnClose) -> impl IntoElement {
+fn window(view: ToolView, place: Place, close: OnClose) -> impl IntoElement {
     let close = div()
         .id("tool-close")
         .size(px(26.))
