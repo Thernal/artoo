@@ -1,13 +1,13 @@
 //! The side panel of the redesign (Design `design/shell/`, #49): one island of sections one under
 //! the other — Versions, Commits, Changes — each folding to a header that still says what is in it
 //! (a count, the first item, how far the review is). An open Commits or Changes takes the room left;
-//! Versions takes what its rows need. Folds are kept in `layout.txt`; ⌥⌘2 folds Changes.
+//! Versions takes what its rows need. Each section's feature keeps its fold; ⌥⌘2 folds Changes.
 
 use super::nav::Page;
 use super::zones::Zone;
 use super::{Selection, Workspace};
 use artoo_branches::history::{Act, Acts};
-use artoo_branches::panel::{CommitsLook, Fold, Folding};
+use artoo_branches::panel::{CommitsLook, Fold};
 use artoo_review::changes_view::SectionLook;
 use artoo_ui_kit::panel::{panel, rule};
 use gpui::{AnyElement, App, Context, prelude::*};
@@ -38,13 +38,13 @@ impl Workspace {
                 }
                 Act::WorkingTree => this.open_working_tree(cx),
                 Act::FindCommits => {
-                    if this.layout.fold_commits {
-                        this.fold_section(1, cx);
+                    if this.history.read(cx).sections.commits {
+                        this.history.update(cx, |h, cx| h.fold(Fold::Commits, cx));
                     }
                     this.start_find(cx)
                 }
                 Act::FindField => this.start_find(cx),
-                Act::Fold(fold) => this.fold_section(fold as u8, cx),
+                Act::Fold(fold) => this.history.update(cx, |h, cx| h.fold(fold, cx)),
                 Act::CommitsZone => this.set_zone(Zone::Commits, cx),
                 Act::BranchMenu { ix, at } => this.branch_context(ix, at, cx),
                 Act::PickRow { row, clicks } => this.pick_branch_row(row, clicks, cx),
@@ -75,41 +75,12 @@ impl Workspace {
         })
     }
 
-    fn section_folded(&self, section: Fold) -> bool {
-        match section {
-            Fold::Versions => self.layout.fold_versions,
-            Fold::Commits => self.layout.fold_commits,
-            Fold::Changes => !self.layout.show_files,
-        }
-    }
-
-    pub(super) fn fold_section(&mut self, section: u8, cx: &mut Context<Self>) {
-        // Its rows stay drawn while it folds (#56, 1).
-        self.mark_motion(&format!("fold-{section}"), cx);
-        let fold = match section {
-            0 => &mut self.layout.fold_versions,
-            1 => &mut self.layout.fold_commits,
-            _ => {
-                self.layout.show_files = !self.layout.show_files;
-                return self.after_fold(cx);
-            }
-        };
-        *fold = !*fold;
-        self.after_fold(cx);
-    }
-
-    fn after_fold(&mut self, cx: &mut Context<Self>) {
-        self.save_layout();
-        // A folded section gives the keyboard back to the diff.
-        let gone = match self.zone {
-            Zone::Commits => self.layout.fold_commits,
-            Zone::Files => !self.files_zone(cx),
-            _ => false,
-        };
-        if gone && self.review.read(cx).diff.is_some() {
-            self.set_zone(Zone::Diff, cx);
-        }
-        cx.notify();
+    /// ⌥⌘2, Changes' header: the review folds or opens it, kept as the user leaves it outside zen.
+    /// A folded section gives the keyboard back to the diff as the tab is drawn.
+    pub(super) fn fold_changes(&mut self, cx: &mut Context<Self>) {
+        let (open, keep) = (!self.review.read(cx).changes_open, self.zen.is_none());
+        self.review
+            .update(cx, |rv, cx| rv.open_changes(open, keep, true, cx));
     }
 
     /// The panel shows the versions: a request's page with more than one, not on its commits nor
@@ -198,25 +169,17 @@ impl Workspace {
         // its pages the panel holds the changes — a request's with its versions — and on a commit
         // only the commit's (#73, #74).
         if self.side_versions(cx) {
-            let fold = Folding {
-                folds: &self.folds,
-                heights: &self.heights,
-                moving: self.motion.recent("fold-0"),
-            };
-            sections.push(self.history.read(cx).versions_section(
-                self.section_folded(Fold::Versions),
-                fold,
-                self.watch.new_from,
-                &self.history_acts(cx),
-            ));
+            sections.push(
+                self.history
+                    .read(cx)
+                    .versions_section(self.watch.new_from, &self.history_acts(cx)),
+            );
         }
 
         if self.side_commits(cx) {
-            let folded = self.section_folded(Fold::Commits);
-            let rows = !folded || self.motion.recent("fold-1");
+            let folded = self.history.read(cx).sections.commits;
+            let rows = self.history.read(cx).commits_drawn();
             let look = CommitsLook {
-                folded,
-                rows,
                 tag: self.zone_tag(Zone::Commits).into_owned(),
                 working: self.history.read(cx).wt.count,
                 field: (rows && self.history.read(cx).find.text.is_some())
@@ -246,23 +209,14 @@ impl Workspace {
                 sections.push(rule().into_any_element());
             }
             let (web, acts) = (self.web.clone(), self.history_acts(cx));
-            let (folded, tag) = (
-                self.section_folded(Fold::Commits),
-                self.zone_tag(Zone::Commits),
+            let tag = self.zone_tag(Zone::Commits);
+            sections.extend(
+                self.history
+                    .update(cx, |h, cx| h.compare_section(&tag, web, acts, cx)),
             );
-            let fold = Folding {
-                folds: &self.folds,
-                heights: &self.heights,
-                moving: self.motion.recent("fold-1"),
-            };
-            sections.extend(self.history.update(cx, |h, cx| {
-                h.compare_section(folded, fold, &tag, web, acts, cx)
-            }));
         }
 
         let look = SectionLook {
-            folded: self.section_folded(Fold::Changes),
-            moving: self.motion.recent("fold-2"),
             tag: self.zone_tag(Zone::Files).into_owned(),
             list: self.changes_look(cx),
         };

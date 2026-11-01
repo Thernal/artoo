@@ -140,6 +140,11 @@ pub struct Review {
     /// The tab as its parts reach it, once the review's are made (`install`): a press in a field of the column
     /// asks it for the keyboard. Weak: the tab's services hold the review.
     pub frame: Option<std::rc::Weak<dyn artoo_shell_api::Frame>>,
+    /// The side panel's Changes section is open (⌥⌘2), as the user left it (`changes_view::changes_left_open`) or
+    /// folded for zen a while.
+    pub changes_open: bool,
+    /// Its toggle's mark: its rows stay drawn while it folds.
+    pub changes_motion: motion::Marks,
 }
 
 /// What the review says to the tab that holds it, which follows (`Workspace::review_event`).

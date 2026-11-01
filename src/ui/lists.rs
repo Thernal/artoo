@@ -82,7 +82,9 @@ impl Workspace {
             self.reset_field_edit();
         }
         if field == Field::Files {
-            self.layout.show_files = true;
+            let keep = self.zen.is_none();
+            self.review
+                .update(cx, |rv, cx| rv.open_changes(true, keep, false, cx));
         }
         // A composer or a find open beside it keeps its text, not the keyboard (#168).
         self.take_keyboard(Input::Field, cx);

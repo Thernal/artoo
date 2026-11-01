@@ -80,7 +80,7 @@ impl Workspace {
         }
         // A tabbed item's commits are its Commits tab, not a section of the panel (#73, #74).
         if self.side_open()
-            && !self.layout.fold_commits
+            && !self.history.read(cx).sections.commits
             && (self.side_commits(cx) || self.shown_compare(cx).is_some())
         {
             out.push(Zone::Commits);

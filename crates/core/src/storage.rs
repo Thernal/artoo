@@ -33,6 +33,43 @@ pub fn read(name: &str) -> String {
         .unwrap_or_default()
 }
 
+/// How the side panel's sections were left folded, each kept by the feature whose section it is.
+pub const PANEL: &str = "panel.txt";
+
+/// The tab's panes (`Layout`); it kept the side panel's folds before `PANEL` did.
+pub const LAYOUT: &str = "layout.txt";
+
+/// Value `key` of `name`'s `key=value` lines. One `name` does not have yet is taken from `was`, the file that
+/// kept it before, and kept in `name` from now on.
+pub fn value(name: &str, key: &str, was: &str) -> Option<String> {
+    let found = |text: &str| {
+        pairs(text)
+            .find(|(k, _)| *k == key)
+            .map(|(_, v)| v.to_owned())
+    };
+    if let Some(value) = found(&read(name)) {
+        return Some(value);
+    }
+    let value = found(&read(was))?;
+    set_value(name, key, &value);
+    Some(value)
+}
+
+/// `key` set to `value` among `name`'s `key=value` lines, the others kept.
+pub fn set_value(name: &str, key: &str, value: &str) {
+    save(name, with_value(&read(name), key, value));
+}
+
+fn with_value(text: &str, key: &str, value: &str) -> String {
+    let mut lines: Vec<String> = text
+        .lines()
+        .filter(|l| l.split_once('=').is_none_or(|(k, _)| k.trim() != key))
+        .map(str::to_owned)
+        .collect();
+    lines.push(format!("{key}={value}"));
+    lines.join("\n") + "\n"
+}
+
 /// Recently opened repositories that still exist, newest first.
 pub fn recent() -> Vec<PathBuf> {
     read("recent.txt")
@@ -102,12 +139,8 @@ pub struct Layout {
     pub sidebar: f32,
     /// Height of the branch list.
     pub branches: f32,
-    /// The side panel is shown (⌥⌘1); its Changes section is open (⌥⌘2).
+    /// The side panel is shown (⌥⌘1). Its sections' folds are their features' (`panel.txt`).
     pub show_sidebar: bool,
-    pub show_files: bool,
-    /// The side panel's Versions and Commits sections are folded to their headers.
-    pub fold_versions: bool,
-    pub fold_commits: bool,
     /// The menu of spaces is folded to icons.
     pub fold_places: bool,
     /// The tool window open on the right (`discussions`, `agents`, `notifications`), empty for none.
@@ -127,9 +160,6 @@ impl Default for Layout {
             sidebar: 300.,
             branches: 180.,
             show_sidebar: true,
-            show_files: true,
-            fold_versions: false,
-            fold_commits: false,
             fold_places: false,
             tool: String::new(),
             tool_width: 320.,
@@ -141,11 +171,11 @@ impl Default for Layout {
 
 impl Layout {
     pub fn load() -> Self {
-        Self::parse(&read("layout.txt"))
+        Self::parse(&read(LAYOUT))
     }
 
     pub fn save(&self) {
-        save("layout.txt", self.to_string());
+        save(LAYOUT, self.to_string());
     }
 
     fn parse(text: &str) -> Self {
@@ -153,9 +183,6 @@ impl Layout {
         for (key, value) in pairs(text) {
             match key {
                 "show_sidebar" => layout.show_sidebar = value != "false",
-                "show_files" => layout.show_files = value != "false",
-                "fold_versions" => layout.fold_versions = value == "true",
-                "fold_commits" => layout.fold_commits = value == "true",
                 "fold_places" => layout.fold_places = value == "true",
                 "tool" => layout.tool = value.to_owned(),
                 "spaces" => layout.spaces = value.to_owned(),
@@ -183,9 +210,6 @@ impl std::fmt::Display for Layout {
         writeln!(f, "sidebar={}", self.sidebar)?;
         writeln!(f, "branches={}", self.branches)?;
         writeln!(f, "show_sidebar={}", self.show_sidebar)?;
-        writeln!(f, "show_files={}", self.show_files)?;
-        writeln!(f, "fold_versions={}", self.fold_versions)?;
-        writeln!(f, "fold_commits={}", self.fold_commits)?;
         writeln!(f, "fold_places={}", self.fold_places)?;
         writeln!(f, "tool={}", self.tool)?;
         writeln!(f, "tool_width={}", self.tool_width)?;
@@ -590,14 +614,17 @@ mod tests {
     }
 
     #[test]
+    fn a_value_is_set_among_the_others() {
+        assert_eq!(with_value("", "a", "1"), "a=1\n");
+        assert_eq!(with_value("a=1\nb=2\n", "a", "3"), "b=2\na=3\n");
+    }
+
+    #[test]
     fn layout_round_trips_and_ignores_junk() {
         let layout = Layout {
             sidebar: 400.,
             branches: 120.,
             show_sidebar: false,
-            show_files: true,
-            fold_versions: true,
-            fold_commits: true,
             fold_places: true,
             tool: "agents".into(),
             tool_width: 300.,

@@ -1057,11 +1057,11 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         }
                         // A side panel section folded (a snapshot run never saves it).
                         "fold-versions" => {
-                            this.layout.fold_versions = true;
+                            this.history.update(cx, |h, _| h.sections.versions = true);
                             continue;
                         }
                         "fold-commits" => {
-                            this.layout.fold_commits = true;
+                            this.history.update(cx, |h, _| h.sections.commits = true);
                             continue;
                         }
                         "fold-places" => {
@@ -1170,7 +1170,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             continue;
                         }
                         "fold-changes" => {
-                            this.layout.show_files = false;
+                            this.review.update(cx, |rv, _| rv.changes_open = false);
                             continue;
                         }
                         // A tool window on the right, without saving it as the open one.
@@ -1806,6 +1806,8 @@ impl Workspace {
             diff_task: None,
             view_task: None,
             frame: None,
+            changes_open: artoo_review::changes_view::changes_left_open(),
+            changes_motion: Default::default(),
         });
         let services = Rc::new(artoo_shell_api::Services::default());
         let frame: Rc<dyn artoo_shell_api::Frame> =
@@ -1861,7 +1863,7 @@ impl Workspace {
             agent_setup_busy: false,
             notices: cx.new(|_| Default::default()),
             title: String::new(),
-            history: cx.new(|_| History::default()),
+            history: cx.new(|_| History::new()),
             services: services.clone(),
             plain: false,
             project: None,
@@ -2724,7 +2726,7 @@ impl Workspace {
     /// The side panel's Changes is open and has the files as a zone.
     pub(super) fn files_zone(&self, cx: &App) -> bool {
         self.side_open()
-            && self.layout.show_files
+            && self.review.read(cx).changes_open
             && self
                 .review
                 .read(cx)
@@ -2857,7 +2859,7 @@ impl Workspace {
 
     /// ⌥⌘2: folds or opens the side panel's Changes.
     fn toggle_files(&mut self, _: &ToggleFiles, _: &mut Window, cx: &mut Context<Self>) {
-        self.fold_section(2, cx);
+        self.fold_changes(cx);
     }
 
     /// ⌥⌘3: the Merge requests space, as ⌃⌘4 (#71).
@@ -2865,14 +2867,13 @@ impl Workspace {
         self.go_space(spaces::Space::Requests, cx);
     }
 
-    /// Keeps the panels in `layout.txt` as they are outside zen: zen hides the side panel and folds
-    /// Changes only for a while, and saving that started the next launch with them hidden when the
-    /// app was quit in zen (the developer, 2026-10-23).
+    /// Keeps the panels in `layout.txt` as they are outside zen: zen hides the side panel (and
+    /// folds Changes, which the review keeps) only for a while, and saving that started the next
+    /// launch with them hidden when the app was quit in zen (the developer, 2026-10-23).
     pub(super) fn save_layout(&self) {
         let mut layout = self.layout.clone();
-        if let Some((sidebar, files)) = self.zen {
+        if let Some((sidebar, _)) = self.zen {
             layout.show_sidebar = sidebar;
-            layout.show_files = files;
         }
         layout.save();
     }
@@ -2883,16 +2884,18 @@ impl Workspace {
         match self.zen.take() {
             Some((sidebar, files)) => {
                 self.layout.show_sidebar = sidebar;
-                self.layout.show_files = files;
+                self.review
+                    .update(cx, |rv, cx| rv.open_changes(files, true, false, cx));
                 // One file at a time goes with it: every file in one scroll again.
                 if std::mem::take(&mut self.zen_one) {
                     self.show_files_anew(cx);
                 }
             }
             None => {
-                self.zen = Some((self.layout.show_sidebar, self.layout.show_files));
+                self.zen = Some((self.layout.show_sidebar, self.review.read(cx).changes_open));
                 self.layout.show_sidebar = false;
-                self.layout.show_files = false;
+                self.review
+                    .update(cx, |rv, cx| rv.open_changes(false, false, false, cx));
             }
         }
         self.save_layout();
@@ -3278,7 +3281,6 @@ impl artoo_review_api::Host for TabHost {
     }
 
     fn changes(&self, event: artoo_review_api::ChangesEvent, cx: &mut App) {
-        use artoo_branches::panel::Fold;
         use artoo_review_api::ChangesEvent;
         use zones::Zone;
         self.0
@@ -3300,7 +3302,7 @@ impl artoo_review_api::Host for TabHost {
                 }
                 ChangesEvent::Menu { ix, at } => this.file_context(ix, at, cx),
                 ChangesEvent::Fold(path) => this.toggle_dir(&path, cx),
-                ChangesEvent::Section => this.fold_section(Fold::Changes as u8, cx),
+                ChangesEvent::Section => this.fold_changes(cx),
                 ChangesEvent::ListFiles(list) => this.set_file_view(list, cx),
                 ChangesEvent::Pressed => {
                     if this.files_zone(cx) {

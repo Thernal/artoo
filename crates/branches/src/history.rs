@@ -89,6 +89,8 @@ pub struct History {
     pub task: Option<Task<()>>,
     /// The branch read, until the tab shows it (`History::settle`).
     pub(crate) read: Option<Read>,
+    /// How its sections of the side panel are folded.
+    pub sections: crate::panel::Sections,
 }
 
 /// What the tab hears of the history's reads.
@@ -172,6 +174,14 @@ pub enum Act {
 pub type Acts = std::rc::Rc<dyn Fn(Act, &mut gpui::App)>;
 
 impl History {
+    /// A tab's history: its sections of the panel folded as the user left them.
+    pub fn new() -> Self {
+        Self {
+            sections: crate::panel::Sections::load(),
+            ..Default::default()
+        }
+    }
+
     /// The versions a click on version `ix` compares: with ⌘ (`more`) from the one picked to it, on the latest
     /// the one before it to it, else it to the latest.
     pub fn versions_clicked(&self, ix: usize, more: bool) -> (usize, usize) {
@@ -241,6 +251,7 @@ impl Default for History {
             wt: WorkingState::default(),
             task: None,
             read: None,
+            sections: Default::default(),
         }
     }
 }

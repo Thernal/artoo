@@ -9,6 +9,7 @@ use crate::diff_view::{change_color, file_tag};
 use crate::review::{ChangesEvent, Host, Review};
 use crate::reviewed::State;
 use artoo_core::git::{ChangeKind, FileDiff};
+use artoo_core::storage;
 use artoo_ui_kit::controls::{self, chip};
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, CutInTip, Hover, LONG, Tip, TipOwned};
@@ -34,17 +35,35 @@ pub struct ChangesLook {
 
 /// What the Changes section needs of the tab besides the review.
 pub struct SectionLook {
-    /// Folded in the tab's layout.
-    pub folded: bool,
-    /// Its fold moves now: its rows stay drawn while it folds (#56, 1).
-    pub moving: bool,
     /// The keyboard's mark on its title (" · ⌃3").
     pub tag: String,
     /// What goes on its list.
     pub list: ChangesLook,
 }
 
+/// The Changes section's key in `storage::PANEL`: open or folded.
+const OPEN_KEY: &str = "show_files";
+
+/// Whether the Changes section was left open.
+pub fn changes_left_open() -> bool {
+    storage::value(storage::PANEL, OPEN_KEY, storage::LAYOUT).is_none_or(|v| v != "false")
+}
+
 impl Review {
+    /// The Changes section `open` or folded; `keep`: as the user leaves it, not zen's for a while; `moves`: its rows
+    /// fold with it (#56, 1).
+    pub fn open_changes(&mut self, open: bool, keep: bool, moves: bool, cx: &mut Context<Self>) {
+        self.changes_open = open;
+        if keep {
+            storage::set_value(storage::PANEL, OPEN_KEY, &open.to_string());
+        }
+        if moves {
+            self.changes_motion.mark(OPEN_KEY);
+            motion::redraw_after(cx);
+        }
+        cx.notify();
+    }
+
     /// The side panel's Changes section while the diff has files: its header (how far the review is or the one
     /// file, Tree · List, the count) over the list; one file's does not open. With it whether it is open.
     pub fn changes_section(
@@ -55,7 +74,7 @@ impl Review {
     ) -> Option<(AnyElement, bool)> {
         let diff = self.diff.as_ref().filter(|d| !d.files.is_empty())?;
         let one = diff.files.len() == 1;
-        let folded = one || look.folded;
+        let folded = one || !self.changes_open;
         let summary = if one {
             diff.files[0].path().to_owned()
         } else {
@@ -98,7 +117,7 @@ impl Review {
             folded,
             opens: !one,
         };
-        let rows = !folded || (!one && look.moving);
+        let rows = !folded || (!one && self.changes_motion.recent(OPEN_KEY));
         let (press, fold) = (host.clone(), host.clone());
         let section = div()
             .flex()

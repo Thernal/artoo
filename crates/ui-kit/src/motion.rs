@@ -124,6 +124,17 @@ impl Marks {
     }
 }
 
+/// `cx`'s entity drawn again once a motion marked now is over, so it is drawn still.
+pub fn redraw_after<T: 'static>(cx: &mut gpui::Context<T>) {
+    cx.spawn(async move |this, cx| {
+        cx.background_executor()
+            .timer(BASE + Duration::from_millis(120))
+            .await;
+        this.update(cx, |_, cx| cx.notify()).ok();
+    })
+    .detach();
+}
+
 /// What each fold was last drawn as, and when one last shut: a fold already shut is not drawn
 /// shutting again when a mark it shares with others is set (the developer, 2026-10-23: a click on
 /// one agent comment folded the others again, shut as they were).
