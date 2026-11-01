@@ -63,7 +63,7 @@ impl Workspace {
             Vec::new()
         };
         let agent: Vec<u64> = self
-            .comments
+            .comments(cx)
             .iter()
             .filter(|c| {
                 c.old == old
@@ -107,7 +107,7 @@ impl Workspace {
             })
             .collect();
         let comments = self
-            .comments
+            .comments(cx)
             .iter()
             .filter(|c| !c.archived && c.path == path)
             .map(|c| Anchored {

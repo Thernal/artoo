@@ -153,7 +153,7 @@ impl Host for CodeHost {
         let tab = tab.read(cx);
         let prefix = format!("{folder}/");
         let notes: Vec<u64> = tab
-            .comments
+            .comments(cx)
             .iter()
             .filter(|c| c.path == prefix && !c.archived)
             .map(|c| c.id)
@@ -171,7 +171,7 @@ impl Host for CodeHost {
     fn note_waits(&self, folder: &str, cx: &App) -> bool {
         self.0
             .upgrade()
-            .is_some_and(|tab| tab.read(cx).folder_note_waits(folder))
+            .is_some_and(|tab| tab.read(cx).folder_note_waits(folder, cx))
     }
 
     fn recent_files(&self, cx: &App) -> Vec<String> {

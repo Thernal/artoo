@@ -243,7 +243,7 @@ impl Workspace {
                     _ => &open.paths,
                 };
                 let drafts = self
-                    .comments
+                    .comments(cx)
                     .iter()
                     .any(|c| c.state == crate::review::State::Draft && paths.contains(&c.path));
                 match &open.item {

@@ -501,7 +501,7 @@ impl Render for Workspace {
         .on_action(cx.listener(|this, _: &QuickCreateRequest, _, cx| this.open_create_quick(cx)))
         // Every draft to its route; with no chat listening, the card asks (#77).
         .on_action(cx.listener(|this, _: &SendToAgent, _, cx| {
-            let ids = this.agent_drafts();
+            let ids = this.agent_drafts(cx);
             if ids.is_empty() {
                 return this.open_agent_pick(cx);
             }

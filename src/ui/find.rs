@@ -81,7 +81,7 @@ impl Workspace {
         if key.key == "backspace"
             && self.tool() == Some(super::tools::Tool::Agents)
             && let Some(id) = self.agent_row.filter(|id| {
-                self.comments
+                self.comments(cx)
                     .iter()
                     .any(|c| c.id == *id && c.state == crate::review::State::Draft)
             })

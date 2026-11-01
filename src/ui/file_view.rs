@@ -77,7 +77,7 @@ impl Workspace {
         };
         FileNotes {
             notes: self
-                .comments
+                .comments(cx)
                 .iter()
                 .filter(|c| c.path == view.path && !c.old && !c.archived)
                 .map(|c| (c.id, c.line, c.code.clone()))

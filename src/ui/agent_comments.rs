@@ -52,7 +52,7 @@ impl Workspace {
         };
         let paths: Vec<String> = diff.files.iter().map(|f| f.path().to_owned()).collect();
         let asks: Vec<(u64, String, String, u32)> = self
-            .comments
+            .comments(cx)
             .iter()
             .filter(|c| !c.old && paths.contains(&c.path))
             .filter_map(|c| {
@@ -94,8 +94,8 @@ impl Workspace {
     }
 
     /// Whether folder `path` has a note for the agent not yet resolved or put away (#97).
-    pub(super) fn folder_note_waits(&self, path: &str) -> bool {
-        self.comments.iter().any(|c| {
+    pub(super) fn folder_note_waits(&self, path: &str, cx: &App) -> bool {
+        self.comments(cx).iter().any(|c| {
             c.path.strip_suffix('/') == Some(path) && !c.archived && c.state != State::Resolved
         })
     }
@@ -105,15 +105,19 @@ impl Workspace {
         let Some(new) = self.add_agent_comment(cx) else {
             return;
         };
-        let ids = if only { vec![new] } else { self.agent_drafts() };
+        let ids = if only {
+            vec![new]
+        } else {
+            self.agent_drafts(cx)
+        };
         self.send_agent(ids, cx);
     }
 
     /// Adds the agent comment being written; its id, when it was added.
     fn add_agent_comment(&mut self, cx: &mut Context<Self>) -> Option<u64> {
-        let before = self.comments.iter().map(|c| c.id).max().unwrap_or(0);
+        let before = self.comments(cx).iter().map(|c| c.id).max().unwrap_or(0);
         self.add_comment(cx);
-        self.comments
+        self.comments(cx)
             .iter()
             .map(|c| c.id)
             .max()
@@ -148,7 +152,7 @@ impl Workspace {
 
     /// The note answering the agent on comment `id` (⇥ Add a note under its form).
     pub(super) fn start_answer(&mut self, id: u64, cx: &mut Context<Self>) {
-        let Some(c) = self.comments.iter().find(|c| c.id == id) else {
+        let Some(c) = self.comments(cx).iter().find(|c| c.id == id) else {
             return;
         };
         let note = c
@@ -182,7 +186,7 @@ impl Workspace {
     /// Text's own value on the agent's form of comment `id`, in a field of its own.
     pub(super) fn start_answer_value(&mut self, id: u64, cx: &mut Context<Self>) {
         let value = self
-            .comments
+            .comments(cx)
             .iter()
             .find(|c| c.id == id)
             .and_then(|c| c.answer.as_ref())
@@ -200,7 +204,7 @@ impl Workspace {
         let Some(compose) = self.compose.take() else {
             return;
         };
-        if let Some(c) = self.comments.iter_mut().find(|c| c.id == id) {
+        self.change_comment(id, cx, |c| {
             let a = c.answer.get_or_insert_with(Default::default);
             a.value = compose.edit.text().trim().to_owned();
             if !a.value.is_empty() {
@@ -208,8 +212,8 @@ impl Workspace {
                 a.your_call = false;
             }
             c.state = State::Draft;
-        }
-        self.save_comments();
+        });
+        self.save_comments(cx);
         self.refresh_rows(cx);
         cx.notify();
     }
@@ -219,12 +223,12 @@ impl Workspace {
         let Some(compose) = self.compose.take() else {
             return;
         };
-        if let Some(c) = self.comments.iter_mut().find(|c| c.id == id) {
+        self.change_comment(id, cx, |c| {
             let a = c.answer.get_or_insert_with(Default::default);
             a.note = compose.edit.text().trim().to_owned();
             c.state = State::Draft;
-        }
-        self.save_comments();
+        });
+        self.save_comments(cx);
         self.refresh_rows(cx);
         cx.notify();
         // Written in the Inbox: it goes to the chat now (#116).
@@ -260,8 +264,8 @@ impl Workspace {
             .as_ref()
             .map(|d| d.side(compose.old).line(compose.line).0.to_owned())
             .unwrap_or_default();
-        let id = self.comments.iter().map(|c| c.id).max().unwrap_or(0) + 1;
-        self.comments.push(Comment {
+        let id = self.agent_comments.read(cx).next_id();
+        let comment = Comment {
             id,
             path: compose.path,
             old: compose.old,
@@ -271,24 +275,48 @@ impl Workspace {
             at: compose.at,
             thread: Some(thread),
             ..Default::default()
-        });
-        self.save_comments();
+        };
+        self.change_comments(cx, |list| list.push(comment));
+        self.save_comments(cx);
         self.refresh_rows(cx);
         cx.notify();
     }
 
     pub(super) fn delete_comment(&mut self, id: u64, cx: &mut Context<Self>) {
-        self.comments.retain(|c| c.id != id);
-        self.save_comments();
+        self.change_comments(cx, |list| list.retain(|c| c.id != id));
+        self.save_comments(cx);
         self.copied = false;
         self.refresh_rows(cx);
         cx.notify();
     }
 
-    pub(super) fn save_comments(&self) {
-        if let Some(root) = self.project.as_ref().or(self.root.as_ref()) {
-            review::save(root, &self.comments);
-        }
+    pub(super) fn save_comments(&self, cx: &App) {
+        self.agent_comments.read(cx).save();
+    }
+
+    /// The reviewer's comments to agents, as they are now (`AgentComments`).
+    pub(super) fn comments<'a>(&self, cx: &'a App) -> &'a [Comment] {
+        &self.agent_comments.read(cx).list
+    }
+
+    /// Comment `id` changed by `f`, when it is one; not saved.
+    pub(super) fn change_comment<R>(
+        &mut self,
+        id: u64,
+        cx: &mut App,
+        f: impl FnOnce(&mut Comment) -> R,
+    ) -> Option<R> {
+        self.agent_comments
+            .update(cx, |c, _| c.list.iter_mut().find(|c| c.id == id).map(f))
+    }
+
+    /// The comments changed by `f`; not saved.
+    pub(super) fn change_comments<R>(
+        &mut self,
+        cx: &mut App,
+        f: impl FnOnce(&mut Vec<Comment>) -> R,
+    ) -> R {
+        self.agent_comments.update(cx, |c, _| f(&mut c.list))
     }
 
     /// The comments as markdown, copied for pasting into an agent.
@@ -301,7 +329,7 @@ impl Workspace {
             .unwrap_or_default();
         // What the agent still has to do: not the comments it did or the reviewer resolved.
         let comments: Vec<(Comment, Place)> = self
-            .comments
+            .comments(cx)
             .iter()
             .filter(|c| c.open())
             .map(|c| (c.clone(), self.place_of(c, cx)))
@@ -326,7 +354,7 @@ impl Workspace {
         this: WeakEntity<Self>,
         cx: &gpui::App,
     ) -> gpui::AnyElement {
-        let Some(comment) = self.comments.iter().find(|c| c.id == id) else {
+        let Some(comment) = self.comments(cx).iter().find(|c| c.id == id) else {
             return div().into_any_element();
         };
         // A resolved comment starts folded; a click flips either.

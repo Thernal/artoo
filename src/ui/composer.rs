@@ -300,7 +300,7 @@ impl Workspace {
     pub(super) fn start_edit(&mut self, change: Change, cx: &mut Context<Self>) {
         let (path, old, line, text) = match change {
             Change::Agent(id) => {
-                let Some(c) = self.comments.iter().find(|c| c.id == id) else {
+                let Some(c) = self.comments(cx).iter().find(|c| c.id == id) else {
                     return;
                 };
                 if !self.toggled_agent.contains(&id) && c.state == State::Resolved {
@@ -386,11 +386,9 @@ impl Workspace {
         }
         match change {
             Change::Agent(id) => {
-                if let Some(c) = self.comments.iter_mut().find(|c| c.id == id) {
-                    c.body = body;
-                }
+                self.change_comment(id, cx, |c| c.body = body);
                 self.compose = None;
-                self.save_comments();
+                self.save_comments(cx);
                 self.copied = false;
                 self.refresh_rows(cx);
                 cx.notify();
@@ -517,7 +515,7 @@ impl Workspace {
             return;
         }
         self.last_request_target = None;
-        let id = self.comments.iter().map(|c| c.id).max().unwrap_or(0) + 1;
+        let id = self.comments(cx).iter().map(|c| c.id).max().unwrap_or(0) + 1;
         let above = match (
             compose.first,
             &self.review.read(cx).data,
@@ -532,7 +530,7 @@ impl Workspace {
                 .collect(),
             _ => Vec::new(),
         };
-        self.comments.push(Comment {
+        let comment = Comment {
             id,
             path: compose.path,
             old: compose.old,
@@ -548,8 +546,9 @@ impl Workspace {
             branch: self.page_branch(cx),
             answers: compose.answers,
             ..Default::default()
-        });
-        self.save_comments();
+        };
+        self.change_comments(cx, |list| list.push(comment));
+        self.save_comments(cx);
         self.copied = false;
         self.refresh_rows(cx);
         self.review.update(cx, |rv, _| rv.remeasure_pages());
@@ -794,7 +793,7 @@ impl Workspace {
             switchable: self.compose_request(cx).is_some(),
             narrow: self.compose_narrow(cx),
             room: self.compose_room(cx),
-            drafts: self.agent_drafts().len(),
+            drafts: self.agent_drafts(cx).len(),
         };
         let on = this.clone();
         let (chip, tail) = compose.foot(
@@ -823,7 +822,7 @@ impl Workspace {
     /// A click on a new comment's foot (`Compose::foot`).
     fn foot_event(&mut self, event: FootEvent, cx: &mut Context<Self>) {
         use super::menu::{Act, Entry};
-        let drafts = self.agent_drafts().len();
+        let drafts = self.agent_drafts(cx).len();
         let send_label = if drafts > 0 {
             format!("Send all {}", drafts + 1)
         } else {

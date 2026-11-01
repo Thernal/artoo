@@ -68,7 +68,9 @@ impl Workspace {
             // A folder of Code: its right click writes a note for your agent on it, and a note
             // waiting there is its dot, as in the tree (A, 2026-10-23).
             let folder = crumb.code_folder().map(str::to_owned);
-            let noted = folder.as_deref().is_some_and(|f| self.folder_note_waits(f));
+            let noted = folder
+                .as_deref()
+                .is_some_and(|f| self.folder_note_waits(f, cx));
             let open = folder
                 .as_deref()
                 .is_some_and(|f| self.beside.as_ref().is_some_and(|b| b.folder == f));

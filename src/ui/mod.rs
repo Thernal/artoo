@@ -842,7 +842,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                                 });
                             if let Some(line) = target {
                                 let code = data.side(false).line(line).0.to_owned();
-                                this.comments.push(crate::review::Comment {
+                                let comment = crate::review::Comment {
                                     id: 1,
                                     path: path.clone(),
                                     old: false,
@@ -852,7 +852,8 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                                         .into(),
                                     at: "a10f3cf".into(),
                                     ..Default::default()
-                                });
+                                };
+                                this.agent_comments.update(cx, |c, _| c.list.push(comment));
                                 this.start_comment(false, line + 1, cx);
                                 if let Some(c) = this.compose.as_mut() {
                                     c.edit = crate::textedit::TextEdit::new(
@@ -889,7 +890,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                                     on,
                                     ..Default::default()
                                 };
-                                this.comments.push(crate::review::Comment {
+                                let comment = crate::review::Comment {
                                     id: 7,
                                     path: path.clone(),
                                     line,
@@ -943,7 +944,8 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                                     },
                                     ],
                                     ..Default::default()
-                                });
+                                };
+                                this.agent_comments.update(cx, |c, _| c.list.push(comment));
                                 this.refresh_rows(cx);
                             }
                             continue;
@@ -1562,8 +1564,6 @@ pub struct Workspace {
     beside: Option<beside::Beside>,
     /// The "send to which chat?" card (`agent.rs`).
     agent_pick: Option<agent::AgentPick>,
-    /// When the agents' answers were last read (`agent.rs`).
-    answers_stamp: Option<std::time::SystemTime>,
     /// What agents left in this project, to tell it apart (`agent_events.rs`, #150), and when it
     /// was last read.
     agent_marks: Vec<crate::agents::Mark>,
@@ -1658,8 +1658,9 @@ pub struct Workspace {
     /// Set up Artoo, while it is open (#143).
     setup: Option<setup::Setup>,
     watch: watch::Watch,
-    /// Review comments of this repository, the one being written, and the Review island.
-    comments: Vec<crate::review::Comment>,
+    /// Review comments of this repository to agents (`artoo_agents::comments`), the one being
+    /// written, and the Review island.
+    agent_comments: gpui::Entity<artoo_agents::comments::AgentComments>,
     compose: Option<composer::Compose>,
     /// The merge request the last comment went to: the next composer on its diff starts there.
     last_request_target: Option<u64>,
@@ -1833,7 +1834,6 @@ impl Workspace {
             open_ask: None,
             beside: None,
             agent_pick: None,
-            answers_stamp: None,
             agent_marks: Vec::new(),
             marks_stamp: None,
             agent_fresh: HashSet::new(),
@@ -1893,7 +1893,7 @@ impl Workspace {
             settings_open: false,
             setup: None,
             watch: watch::Watch::default(),
-            comments: Vec::new(),
+            agent_comments: cx.new(|_| Default::default()),
             compose: None,
             last_request_target: None,
             me: "You".to_owned(),
@@ -2037,10 +2037,10 @@ impl Workspace {
                             this.history.update(cx, |h, _| h.find.reset());
                         }
                         if this.root.as_ref() != Some(&root) {
-                            this.comments = crate::review::load(&project);
+                            this.agent_comments
+                                .update(cx, |c, _| c.load(project.clone()));
                             let notes = crate::notes::load(&project);
                             this.agent_notes.update(cx, |n, _| n.all = notes);
-                            this.answers_stamp = None;
                             this.marks_stamp = None;
                             this.compose = None;
                         }
@@ -2122,8 +2122,7 @@ impl Workspace {
         self.project = Some(root.clone());
         if self.root.as_ref() != Some(&root) {
             self.history.update(cx, |h, _| h.find.reset());
-            self.comments = crate::review::load(&root);
-            self.answers_stamp = None;
+            self.agent_comments.update(cx, |c, _| c.load(root.clone()));
             self.marks_stamp = None;
             self.compose = None;
         }

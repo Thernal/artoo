@@ -253,7 +253,7 @@ impl Workspace {
                 );
             }
             notes.extend(
-                self.comments
+                self.comments(cx)
                     .iter()
                     .filter(|c| c.path == path && here(c.old, c.line))
                     .map(|c| self.render_thread(c.id, 0., this.clone(), cx)),

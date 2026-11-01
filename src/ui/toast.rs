@@ -209,9 +209,11 @@ impl Workspace {
         else {
             return;
         };
-        self.comments.push(comment);
-        self.comments.sort_by_key(|c| c.id);
-        self.save_comments();
+        self.change_comments(cx, |list| {
+            list.push(comment);
+            list.sort_by_key(|c| c.id);
+        });
+        self.save_comments(cx);
         self.refresh_rows(cx);
         self.dismiss(id, cx);
     }

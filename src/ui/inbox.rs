@@ -34,7 +34,7 @@ impl Workspace {
     pub(super) fn agent_notices(&self, cx: &App) -> Vec<(u64, i64, String)> {
         use super::agent::Kind as AgentKind;
         let alive = self.listening(cx);
-        self.comments
+        self.comments(cx)
             .iter()
             .filter(|c| !c.archived)
             .filter(|c| match super::agent::kind_of(c, &alive) {
@@ -134,7 +134,7 @@ impl Workspace {
         match self.inbox_current(cx) {
             Some(InboxRow::Agent(id)) => {
                 let addressed = self
-                    .comments
+                    .comments(cx)
                     .iter()
                     .any(|c| c.id == id && c.state == crate::review::State::Addressed);
                 if addressed {
@@ -151,7 +151,7 @@ impl Workspace {
     /// a line of the old side where a diff shows it.
     fn open_agent_note(&mut self, id: u64, cx: &mut Context<Self>) {
         let Some((path, line, old)) = self
-            .comments
+            .comments(cx)
             .iter()
             .find(|c| c.id == id)
             .map(|c| (c.path.clone(), c.line, c.old))
@@ -350,7 +350,7 @@ impl artoo_requests::inbox_page::InboxHost for InboxHost {
             return div().into_any_element();
         };
         let this = tab.read(cx);
-        let Some(c) = this.comments.iter().find(|c| c.id == id) else {
+        let Some(c) = this.comments(cx).iter().find(|c| c.id == id) else {
             return div().id(("inbox-agent", id as usize)).into_any_element();
         };
         let look = AnswerLook {
@@ -364,7 +364,7 @@ impl artoo_requests::inbox_page::InboxHost for InboxHost {
 
     fn answer_preview(&self, id: u64, cx: &App) -> Option<AnyElement> {
         let this = self.0.upgrade()?.read(cx);
-        let c = this.comments.iter().find(|c| c.id == id)?;
+        let c = this.comments(cx).iter().find(|c| c.id == id)?;
         let thread = this.render_thread(id, 0., self.0.clone(), cx);
         let on = Workspace::answer_on(self.0.clone());
         Some(answer_preview(c, this.agent_of(c, cx), thread, &on))
@@ -373,7 +373,7 @@ impl artoo_requests::inbox_page::InboxHost for InboxHost {
     fn answer_done(&self, id: u64, cx: &App) -> bool {
         self.0.upgrade().is_some_and(|tab| {
             tab.read(cx)
-                .comments
+                .comments(cx)
                 .iter()
                 .any(|c| c.id == id && c.state == crate::review::State::Addressed)
         })

@@ -222,7 +222,7 @@ impl Workspace {
                 )
         };
         let count = |n: usize, color: Rgba| (n > 0).then(|| (n.min(99).to_string(), color));
-        let drafts = self.agent_drafts().len();
+        let drafts = self.agent_drafts(cx).len();
         Some(
             div()
                 .flex_none()

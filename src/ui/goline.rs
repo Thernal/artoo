@@ -128,7 +128,7 @@ impl Workspace {
     /// Shows a comment: in the open file, scrolled to; in another file of the diff, that file first.
     pub(super) fn jump_to(&mut self, id: u64, cx: &mut Context<Self>) {
         let Some((path, line, old)) = self
-            .comments
+            .comments(cx)
             .iter()
             .find(|c| c.id == id)
             .map(|c| (c.path.clone(), c.line, c.old))

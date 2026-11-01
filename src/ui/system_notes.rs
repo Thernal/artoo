@@ -163,7 +163,7 @@ impl Workspace {
     ) {
         use crate::review::State;
         let mut by: HashMap<String, usize> = HashMap::new();
-        for c in &self.comments {
+        for c in self.comments(cx) {
             let Some(&(_, state, replies)) = before.iter().find(|(id, ..)| *id == c.id) else {
                 continue;
             };
