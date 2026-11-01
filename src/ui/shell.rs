@@ -1,14 +1,10 @@
 //! A window's repository tabs, the tab's side: the tabs are the shell's (`artoo_shell::tabs`); a tab is a
 //! workspace, and the window says to agents that it is there and what it has open (#153).
 
-use super::px;
-use super::{ROW_RADIUS, Workspace, theme};
+use super::Workspace;
 use artoo_shell::tabs::{Tab, Tabs};
 pub(super) use artoo_shell::tabs::{TabInfo, TabModel};
-use gpui::{
-    App, AppContext, ClickEvent, Context, FocusHandle, MouseButton, WeakEntity, Window, div,
-    prelude::*,
-};
+use gpui::{App, Context, FocusHandle, WeakEntity, Window};
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -201,152 +197,5 @@ impl Workspace {
                 shell.update(cx, |s, cx| f(s, window, cx));
             });
         }
-    }
-
-    /// The tabs in the title bar (Design `shell.js`, D12, X10): each project's mark, name and unread
-    /// count, a dot when it has news, ✕ on the active one (on the others under the pointer), + to
-    /// open another. None unless Settings → Appearance chose Tabs.
-    pub(super) fn render_title_tabs(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        if super::projects() != crate::storage::Projects::Tabs {
-            return None;
-        }
-        let tabs = self.tabs.borrow().clone();
-        Some(
-            div()
-                .flex_none()
-                .min_w_0()
-                .max_w(px(760.))
-                .overflow_hidden()
-                .flex()
-                .items_center()
-                .gap(px(4.))
-                .children(tabs.into_iter().enumerate().map(|(ix, tab)| {
-                    let mark = super::rail::initials(&tab.title);
-                    let hue = super::rail::project_hue(tab.root.as_deref(), &tab.title);
-                    let group: gpui::SharedString = format!("tab-{ix}").into();
-                    let (menu_tab, n) = (tab.clone(), self.tabs.borrow().len());
-                    div()
-                        .id(("tab", ix))
-                        .group(group.clone())
-                        // The rail's right click: name and colour, move, show, a window, close.
-                        .on_mouse_down(
-                            gpui::MouseButton::Right,
-                            cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
-                                this.project_menu(ix, n, &menu_tab, e.position, cx)
-                            }),
-                        )
-                        .flex_shrink(1.)
-                        .min_w(px(60.))
-                        .max_w(px(220.))
-                        .h(px(28.))
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .pl(px(6.))
-                        .pr(px(4.))
-                        .rounded(px(ROW_RADIUS))
-                        .cursor_pointer()
-                        .when(tab.active, |s| {
-                            s.bg(theme::panel())
-                                .border_1()
-                                .border_color(theme::island_border())
-                        })
-                        .when(!tab.active, |s| {
-                            s.text_color(theme::muted())
-                                .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
-                        })
-                        .child(super::rail::project_mark(&mark, hue, 18.))
-                        .child(super::hover::cut(("tab-title", ix), tab.title.clone()).flex_1())
-                        .children((!tab.active && tab.unread > 0).then(|| {
-                            div()
-                                .flex_none()
-                                .min_w(px(16.))
-                                .h(px(16.))
-                                .px(px(4.))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded_full()
-                                .bg(theme::accent())
-                                .text_size(px(10.))
-                                .font_weight(gpui::FontWeight::BOLD)
-                                .text_color(theme::on_accent())
-                                .child(tab.unread.to_string())
-                        }))
-                        .children(tab.news.then(|| {
-                            div()
-                                .flex_none()
-                                .size(px(6.))
-                                .rounded_full()
-                                .bg(theme::accent())
-                        }))
-                        .child(
-                            div()
-                                .id(("tab-close", ix))
-                                .flex_none()
-                                .w(px(18.))
-                                .h(px(18.))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded(px(4.))
-                                .text_size(px(12.))
-                                .text_color(theme::faint())
-                                .when(!tab.active, |s| {
-                                    s.invisible().group_hover(group, |s| s.visible())
-                                })
-                                .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
-                                .child("×")
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                    this.with_shell(window, cx, move |s, window, cx| {
-                                        s.close(ix, window, cx)
-                                    })
-                                })),
-                        )
-                        // Dragged onto another tab, it takes that place, as on the rail.
-                        .drag_over::<super::rail::DragProject>(|s, _, _, _| s.bg(theme::selected()))
-                        .on_drag(super::rail::DragProject(ix), {
-                            let title = tab.title.clone();
-                            move |_, _, _, cx| {
-                                cx.new(|_| artoo_ui_kit::controls::DragLabel(title.clone()))
-                            }
-                        })
-                        .on_drop(cx.listener(
-                            move |this, dragged: &super::rail::DragProject, window, cx| {
-                                let from = dragged.0;
-                                this.with_shell(window, cx, move |s, _, cx| {
-                                    s.move_tab(from, ix, cx)
-                                });
-                            },
-                        ))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            this.with_shell(window, cx, move |s, window, cx| {
-                                s.select(ix, window, cx)
-                            })
-                        }))
-                }))
-                .child(
-                    div()
-                        .id("tab-new")
-                        .flex_none()
-                        .w(px(26.))
-                        .h(px(26.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(ROW_RADIUS))
-                        .text_color(theme::muted())
-                        .cursor_pointer()
-                        .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
-                        .tooltip_show_delay(super::hover::LONG)
-                        .tooltip(|_, cx| cx.new(|_| super::Tip("Open a repository  ⌘T")).into())
-                        .child("+")
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.open_palette(super::palette::Kind::Projects, cx)
-                        })),
-                )
-                .into_any_element(),
-        )
     }
 }

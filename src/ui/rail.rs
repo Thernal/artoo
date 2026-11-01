@@ -1,95 +1,61 @@
-//! The project rail on the window's left edge (Design flow 02, #49): a mark per open repository,
-//! ⌘1…9 in its order, the unread count on the ones you are not in, + to open another. A
-//! right-click moves a project up or down, shows its folder, opens it in a window of its own or
-//! closes it; a drag reorders. Settings → Appearance picks the rail (default), tabs or the menu.
+//! The project rail on the window's left edge and the title bar's tabs, the tab's side: drawn by the shell
+//! (`artoo_shell::rail`); a click goes to the window's tabs, a right click opens the project's menu here.
 
+use super::Workspace;
 use super::menu::{Act, Entry};
 use super::shell::TabInfo;
-use super::{TipOwned, Workspace, icons, px, theme};
 use crate::storage::Projects;
-use gpui::AnimationExt as _;
-use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+use artoo_shell::rail::{self, TabsHost};
+pub(super) use artoo_shell::rail::{hue, hue_at, initials, project_hue, project_mark};
+use gpui::{App, Context, IntoElement, Pixels, Point, WeakEntity, Window};
+use std::rc::Rc;
 
-/// The project the rail last marked: a rail drawn after a switch slides its marker from there.
-static MARKED: AtomicUsize = AtomicUsize::new(usize::MAX);
+/// What a click on the window's tabs does, answered by the tab.
+struct Host(WeakEntity<Workspace>);
 
-/// Where a project's marker sits in the rail: its top, from the rail's.
-fn marker_top(ix: usize) -> f32 {
-    4. + 48. * ix as f32 + 9.
-}
-use gpui::{
-    ClickEvent, Context, FontWeight, MouseButton, MouseDownEvent, Rgba, Window, div, prelude::*,
-};
-
-/// A project being dragged along the rail: its index.
-#[derive(Clone, Copy)]
-pub struct DragProject(pub usize);
-
-/// What follows the pointer while a project is dragged: its mark.
-pub struct DragMark {
-    mark: String,
-    hue: Rgba,
-}
-
-impl Render for DragMark {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        project_mark(&self.mark, self.hue, 34.)
+impl TabsHost for Host {
+    fn select(&self, ix: usize, window: &mut Window, cx: &mut App) {
+        self.0
+            .update(cx, |this, cx| {
+                this.with_shell(window, cx, move |s, window, cx| s.select(ix, window, cx))
+            })
+            .ok();
     }
-}
 
-/// Up to two letters for a repository: the first of its first two words.
-pub fn initials(name: &str) -> String {
-    let words: Vec<&str> = name
-        .split(['-', '_', '.', ' '])
-        .filter(|w| !w.is_empty())
-        .collect();
-    let letters: String = match words.as_slice() {
-        [] => "?".to_owned(),
-        [one] => one.chars().take(2).collect(),
-        [a, b, ..] => a.chars().take(1).chain(b.chars().take(1)).collect(),
-    };
-    letters.to_uppercase()
-}
-
-/// A colour of its own per repository name, from the theme's code colours.
-pub fn hue(name: &str) -> Rgba {
-    let sum = name
-        .bytes()
-        .fold(0usize, |a, b| a.wrapping_mul(31).wrapping_add(b as usize));
-    theme::code([3, 2, 1, 5, 8, 4, 7][sum % 7]).into()
-}
-
-/// Project `root`'s colour: the hue it was given (the developer, 2026-10-23), else one of its own
-/// by its folder's name, so naming it does not change it.
-pub fn project_hue(root: Option<&std::path::Path>, name: &str) -> Rgba {
-    let folder = root
-        .and_then(|r| r.file_name())
-        .map(|n| n.to_string_lossy().into_owned());
-    match root.and_then(|r| crate::labels::project(r).hue) {
-        Some(degrees) => hue_at(degrees),
-        None => hue(folder.as_deref().unwrap_or(name)),
+    fn close(&self, ix: usize, window: &mut Window, cx: &mut App) {
+        self.0
+            .update(cx, |this, cx| {
+                this.with_shell(window, cx, move |s, window, cx| s.close(ix, window, cx))
+            })
+            .ok();
     }
-}
 
-/// A colour at `degrees` on the wheel, as bright as the code colours a project is given.
-pub fn hue_at(degrees: f32) -> Rgba {
-    gpui::hsla(degrees.rem_euclid(360.) / 360., 0.62, 0.62, 1.).into()
-}
+    fn moved(&self, from: usize, to: usize, window: &mut Window, cx: &mut App) {
+        self.0
+            .update(cx, |this, cx| {
+                this.with_shell(window, cx, move |s, _, cx| s.move_tab(from, to, cx))
+            })
+            .ok();
+    }
 
-/// The rounded square with a project's initials on a tint of its colour.
-pub fn project_mark(mark: &str, hue: Rgba, size: f32) -> gpui::Div {
-    div()
-        .size(px(size))
-        .flex_none()
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(size * 0.29))
-        .bg(Rgba { a: 0.35, ..hue })
-        .text_color(theme::text())
-        .text_size(px(size * 0.35))
-        .font_weight(FontWeight::BOLD)
-        .child(mark.to_owned())
+    fn menu(&self, ix: usize, at: Point<Pixels>, _: &mut Window, cx: &mut App) {
+        self.0
+            .update(cx, |this, cx| {
+                let tabs = this.tabs.borrow().clone();
+                if let Some(tab) = tabs.get(ix) {
+                    this.project_menu(ix, tabs.len(), tab, at, cx)
+                }
+            })
+            .ok();
+    }
+
+    fn add(&self, _: &mut Window, cx: &mut App) {
+        self.0
+            .update(cx, |this, cx| {
+                this.open_palette(super::palette::Kind::Projects, cx)
+            })
+            .ok();
+    }
 }
 
 impl Workspace {
@@ -103,160 +69,22 @@ impl Workspace {
         {
             return None;
         }
-        let tabs = self.tabs.borrow().clone();
-        let n = tabs.len();
-        let active = tabs.iter().position(|t| t.active);
-        let items = tabs.into_iter().enumerate().map(|(ix, tab)| {
-            let mark = initials(&tab.title);
-            let tint = project_hue(tab.root.as_deref(), &tab.title);
-            let (drag_mark, drag_hue) = (mark.clone(), tint);
-            // A long hover: the project's name, where it is, its unread count and key (#53).
-            let place = tab
-                .root
-                .as_ref()
-                .map(|r| format!(" · {}", super::format::home_relative(r)))
-                .unwrap_or_default();
-            let unread = match tab.unread {
-                0 => String::new(),
-                n => format!(" · {n} new"),
-            };
-            let tip = if ix < 9 {
-                format!("{}{place}{unread}  ⌘{}", tab.title, ix + 1)
-            } else {
-                format!("{}{place}{unread}", tab.title)
-            };
-            let info = tab.clone();
-            div()
-                .id(("project", ix))
-                .relative()
-                .size(px(38.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(12.))
-                .cursor_pointer()
-                .when(tab.active, |s| s.border_2().border_color(theme::accent()))
-                .when(!tab.active, |s| s.hover(|s| s.bg(theme::hover())))
-                .drag_over::<DragProject>(|s, _, _, _| s.bg(theme::selected()))
-                .child(project_mark(&mark, tint, 30.))
-                // A new count pops in (#56, 13).
-                .children((!tab.active && tab.unread > 0).then(|| {
-                    let badge = div()
-                        .absolute()
-                        .top(px(-4.))
-                        .right(px(-4.))
-                        .min_w(px(16.))
-                        .h(px(16.))
-                        .px(px(4.))
-                        .rounded_full()
-                        .bg(theme::removed())
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_size(px(10.))
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(theme::base())
-                        .child(tab.unread.min(99).to_string());
-                    super::motion::appear(
-                        badge,
-                        ("rail-badge", tab.unread.min(99)),
-                        super::motion::FAST,
-                        |badge, v| badge.opacity(v),
-                    )
-                }))
-                .children((!tab.active && tab.unread == 0 && tab.news).then(|| {
-                    div()
-                        .absolute()
-                        .top(px(-1.))
-                        .right(px(-1.))
-                        .size(px(8.))
-                        .rounded_full()
-                        .bg(theme::accent())
-                }))
-                .tooltip_show_delay(crate::ui::hover::LONG)
-                .tooltip(move |_, cx| cx.new(|_| TipOwned(tip.clone().into())).into())
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    this.with_shell(window, cx, move |s, window, cx| s.select(ix, window, cx))
-                }))
-                .on_mouse_down(
-                    MouseButton::Right,
-                    cx.listener(move |this, event: &MouseDownEvent, _, cx| {
-                        this.project_menu(ix, n, &info, event.position, cx)
-                    }),
-                )
-                .on_drag(DragProject(ix), move |_, _, _, cx| {
-                    cx.new(|_| DragMark {
-                        mark: drag_mark.clone(),
-                        hue: drag_hue,
-                    })
-                })
-                .on_drop(cx.listener(move |this, dragged: &DragProject, window, cx| {
-                    let from = dragged.0;
-                    this.with_shell(window, cx, move |s, _, cx| s.move_tab(from, ix, cx));
-                }))
-        });
-        // The project you are in has a bar at the rail's edge; it slides to the one switched to
-        // (#56, 13).
-        let marker = active.map(|ix| {
-            let from = MARKED.swap(ix, Relaxed);
-            let from = if from < n { from } else { ix };
-            div()
-                .absolute()
-                .left(px(-2.))
-                .w(px(3.))
-                .h(px(18.))
-                .rounded_full()
-                .bg(theme::text())
-                .with_spring(
-                    "rail-marker",
-                    gpui::SpringAnimation::new(super::motion::spring(super::motion::BASE))
-                        .to(marker_top(ix))
-                        .from(marker_top(from)),
-                    |marker, top| marker.top(px(top)),
-                )
-        });
-        Some(
-            div()
-                .relative()
-                .w(px(48.))
-                .flex_none()
-                .flex()
-                .flex_col()
-                .items_center()
-                .gap(px(10.))
-                .pt(px(4.))
-                .children(marker)
-                .children(items)
-                .child(
-                    div()
-                        .id("project-add")
-                        .size(px(34.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(10.))
-                        .border_1()
-                        .border_dashed()
-                        .border_color(theme::selected())
-                        .cursor_pointer()
-                        .hover(|s| s.bg(theme::hover()))
-                        .child(icons::icon("open").size(px(16.)).text_color(theme::muted()))
-                        .tooltip_show_delay(crate::ui::hover::LONG)
-                        .tooltip(|_, cx| {
-                            cx.new(|_| {
-                                TipOwned(
-                                    super::keys::text("Open a repository  ⌘T")
-                                        .into_owned()
-                                        .into(),
-                                )
-                            })
-                            .into()
-                        })
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.open_palette(super::palette::Kind::Projects, cx)
-                        })),
-                ),
-        )
+        Some(rail::rail(self.tabs.borrow().clone(), self.tabs_host(cx)))
+    }
+
+    /// The tabs in the title bar; None unless Settings → Appearance chose Tabs.
+    pub(super) fn render_title_tabs(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        if super::projects() != Projects::Tabs {
+            return None;
+        }
+        Some(rail::title_tabs(
+            self.tabs.borrow().clone(),
+            self.tabs_host(cx),
+        ))
+    }
+
+    fn tabs_host(&self, cx: &mut Context<Self>) -> Rc<dyn TabsHost> {
+        Rc::new(Host(cx.weak_entity()))
     }
 
     /// The right-click menu of project `ix` of `n`.
@@ -313,19 +141,5 @@ impl Workspace {
             return Vec::new();
         }
         self.tabs.borrow().iter().cloned().enumerate().collect()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_mark_takes_the_first_letters_of_the_first_two_words() {
-        assert_eq!(initials("payments-service"), "PS");
-        assert_eq!(initials("Desktop"), "DE");
-        assert_eq!(initials("artoo_desktop.app"), "AD");
-        assert_eq!(initials(""), "?");
-        assert_eq!(hue("payments-service"), hue("payments-service"));
     }
 }
