@@ -4,16 +4,18 @@
 //! composer also to another file), to another input, to esc while it holds text; it gets it back
 //! from a press in its box, from its page coming back, from the action that opened it. A card over
 //! everything (⌘K, Go to file, the list beside a folder …) holds the keyboard while it is open and gives it back on closing.
+//! The rule is the shell's (`artoo_shell::keyboard`); the inputs, which are open and where the tab is are here.
 
 use super::Workspace;
 use super::lists::Field;
 use super::nav::Page;
 use super::spaces::Space;
+use artoo_shell::keyboard::{self, Keys};
 use gpui::{App, Context, MouseButton, MouseDownEvent, WeakEntity, prelude::*};
 
 /// Every input that takes typed keys.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) enum Input {
+pub enum Input {
     /// ⌘K and the palettes sharing its box.
     Palette,
     /// Go to file, and find in files (`findfiles.rs`).
@@ -58,9 +60,9 @@ impl Input {
         Input::Submit,
         Input::Tool,
     ];
+}
 
-    /// Over everything until it closes: it is never open without the keyboard, and closing it
-    /// gives the keyboard back to the input that had it before.
+impl keyboard::Input for Input {
     fn modal(self) -> bool {
         matches!(
             self,
@@ -74,46 +76,54 @@ impl Input {
         )
     }
 
-    /// Of the page it was opened on: elsewhere it keeps its text, not the keyboard. Submit and a
-    /// feature's tool window are in the tool window, which stays from page to page.
+    /// Submit and a feature's tool window are in the tool window, which stays from page to page.
     fn local(self) -> bool {
         !self.modal() && !matches!(self, Input::Submit | Input::Tool)
+    }
+
+    /// A one-line field is set only while it has the keyboard.
+    fn waits(self) -> bool {
+        self != Input::Field
     }
 }
 
 /// Where the keyboard was taken: Settings or a space's page, and the diff's file.
 #[derive(Clone, PartialEq, Debug)]
-struct Spot {
+pub struct Spot {
     settings: bool,
     space: Option<Space>,
     page: Option<Page>,
     file: Option<String>,
 }
 
-#[derive(Clone, Debug)]
-struct Holder {
-    input: Input,
-    /// None until the next look: the action that opened it may still go to its page.
-    at: Option<Spot>,
-}
+/// The input with the keyboard, the tab's (`artoo_shell::keyboard`).
+pub(super) type Keyboard = keyboard::Keyboard<Input, Spot>;
 
-/// The input with the keyboard, the one a card over everything took it from, and the last one to
-/// let it go.
-#[derive(Default)]
-pub(super) struct Keyboard {
-    holder: Option<Holder>,
-    before: Option<Holder>,
-    left: Option<Holder>,
-    /// `left` lost it to another page or file: it is given back there.
-    left_away: bool,
-    /// The inputs open at the last look, a bit each: one opened since takes the keyboard.
-    open: u16,
-    /// The parts' inputs open at the last look.
-    parts: Vec<&'static str>,
-}
+impl Keys for Workspace {
+    type Input = Input;
+    type Spot = Spot;
 
-impl Workspace {
-    /// Whether `input` is open, with the keyboard or not.
+    fn keyboard(&self) -> &Keyboard {
+        &self.keyboard
+    }
+
+    fn keyboard_mut(&mut self) -> &mut Keyboard {
+        &mut self.keyboard
+    }
+
+    /// The tab's own, then the parts' fields.
+    fn inputs(&self, _: &App) -> Vec<Input> {
+        Input::ALL
+            .into_iter()
+            .chain(
+                self.parts
+                    .iter()
+                    .flat_map(|p| &p.inputs)
+                    .map(|i| Input::Part(i.id)),
+            )
+            .collect()
+    }
+
     fn input_open(&self, input: Input, cx: &App) -> bool {
         match input {
             Input::Palette => self.palette.is_some(),
@@ -131,23 +141,47 @@ impl Workspace {
         }
     }
 
+    fn spot(&self, cx: &App) -> Spot {
+        Spot {
+            settings: self.settings_open,
+            space: self.space(),
+            page: self.nav_page().cloned(),
+            file: self.review.read(cx).current_path(),
+        }
+    }
+
+    /// A composer on its page and file.
+    fn still_at(&self, input: Input, at: &Spot, cx: &App) -> bool {
+        let file = self
+            .review
+            .read(cx)
+            .diff
+            .as_ref()
+            .and_then(|d| d.files.get(self.review.read(cx).file))
+            .map(|f| f.path());
+        at.settings == self.settings_open
+            && at.space == self.space()
+            && at.page.as_ref() == self.nav_page()
+            && (input != Input::Compose || at.file.as_deref() == file)
+    }
+
+    fn took(&mut self, input: Input) {
+        if input != Input::Field {
+            self.field = None;
+        }
+    }
+
+    fn dropped(&mut self, input: Input) {
+        if input == Input::Field {
+            self.field = None;
+        }
+    }
+}
+
+impl Workspace {
     /// The input with the keyboard: keys go to it, and single-key actions wait.
     pub(super) fn typing(&self, cx: &App) -> Option<Input> {
-        // A card over everything, also one opened since the last look.
-        if let Some(h) = &self.keyboard.holder
-            && h.input.modal()
-            && self.input_open(h.input, cx)
-        {
-            return Some(h.input);
-        }
-        if let Some(card) = Input::ALL
-            .into_iter()
-            .find(|i| i.modal() && self.input_open(*i, cx))
-        {
-            return Some(card);
-        }
-        let h = self.keyboard.holder.as_ref()?;
-        (self.input_open(h.input, cx) && self.here(h, cx)).then_some(h.input)
+        self.keyboard_holder(cx)
     }
 
     pub(super) fn has_keyboard(&self, input: Input, cx: &App) -> bool {
@@ -162,72 +196,18 @@ impl Workspace {
         }
     }
 
-    fn spot(&self, cx: &App) -> Spot {
-        Spot {
-            settings: self.settings_open,
-            space: self.space(),
-            page: self.nav_page().cloned(),
-            file: self.review.read(cx).current_path(),
-        }
-    }
-
-    /// Whether `h` is on screen where it took the keyboard: a composer on its page and file.
-    fn here(&self, h: &Holder, cx: &App) -> bool {
-        let Some(at) = &h.at else {
-            return true;
-        };
-        if !h.input.local() {
-            return true;
-        }
-        let file = self
-            .review
-            .read(cx)
-            .diff
-            .as_ref()
-            .and_then(|d| d.files.get(self.review.read(cx).file))
-            .map(|f| f.path());
-        at.settings == self.settings_open
-            && at.space == self.space()
-            && at.page.as_ref() == self.nav_page()
-            && (h.input != Input::Compose || at.file.as_deref() == file)
-    }
-
     /// `input` takes the keyboard: from a press in its box, or the action that opens it.
     pub(super) fn take_keyboard(&mut self, input: Input, cx: &App) {
-        if self
-            .keyboard
-            .holder
-            .as_ref()
-            .is_some_and(|h| h.input == input)
-            && self.typing(cx) == Some(input)
-        {
-            return;
-        }
-        let had = self.keyboard.holder.replace(Holder { input, at: None });
-        if input.modal() {
-            // A card over a card keeps the first one's: it is what comes back.
-            if !had.as_ref().is_some_and(|h| h.input.modal()) {
-                self.keyboard.before = had;
-            }
-        } else {
-            if input != Input::Field {
-                self.field = None;
-            }
-            self.keyboard.before = None;
-            self.keyboard.left = None;
-        }
+        self.keyboard_take(input, cx)
     }
 
     /// The input with the keyboard lets it go, its text kept: nothing has it. One left empty
     /// closes — a find, a filter, the line number.
     pub(super) fn leave_input(&mut self, cx: &mut Context<Self>) {
-        if self.typing(cx).is_none_or(Input::modal) {
-            return;
-        }
-        let Some(h) = self.keyboard.holder.take() else {
+        let Some(input) = self.keyboard_let_go(cx) else {
             return;
         };
-        match h.input {
+        match input {
             Input::Field => self.field = None,
             Input::Part(id) => {
                 if let Some(left) = self.part_input(id).map(|i| i.left.clone()) {
@@ -236,89 +216,17 @@ impl Workspace {
             }
             _ => {}
         }
-        self.keyboard.left = Some(h);
-        self.keyboard.left_away = false;
         cx.notify();
     }
 
     /// `input`, the last to let the keyboard go and on screen where it had it, takes it back.
     pub(super) fn give_back(&mut self, input: Input, cx: &App) -> bool {
-        match self.keyboard.left.take() {
-            Some(h) if h.input == input && self.input_open(input, cx) && self.here(&h, cx) => {
-                self.keyboard.holder = Some(h);
-                true
-            }
-            left => {
-                self.keyboard.left = left;
-                false
-            }
-        }
+        self.keyboard_give_back(input, cx)
     }
 
-    /// Each frame and each key: an input opened since the last look takes the keyboard; a card
-    /// closed gives it back; a page left takes it from its inputs, a page come back to returns it.
+    /// Each frame and each key (`artoo_shell::keyboard`).
     pub(super) fn sync_keyboard(&mut self, cx: &App) {
-        let mut open = 0u16;
-        for (i, input) in Input::ALL.into_iter().enumerate() {
-            if self.input_open(input, cx) {
-                open |= 1 << i;
-            }
-        }
-        let opened = open & !self.keyboard.open;
-        self.keyboard.open = open;
-        // The parts' fields after the tab's own.
-        let parts: Vec<&'static str> = self
-            .parts
-            .iter()
-            .flat_map(|p| &p.inputs)
-            .filter(|i| (i.open)(cx))
-            .map(|i| i.id)
-            .collect();
-        let part_opened = parts
-            .iter()
-            .find(|id| !self.keyboard.parts.contains(id))
-            .copied();
-        self.keyboard.parts = parts;
-        // A card opened with a field is over it.
-        if let Some(input) = Input::ALL
-            .into_iter()
-            .enumerate()
-            .filter(|(i, _)| opened & (1 << i) != 0)
-            .map(|(_, input)| input)
-            .min_by_key(|input| !input.modal())
-            .or(part_opened.map(Input::Part))
-        {
-            self.take_keyboard(input, cx);
-        }
-        let spot = self.spot(cx);
-        if let Some(h) = self.keyboard.holder.as_mut()
-            && h.at.is_none()
-        {
-            h.at = Some(spot);
-        }
-        if let Some(h) = self.keyboard.holder.clone() {
-            if !self.input_open(h.input, cx) {
-                self.keyboard.holder = if h.input.modal() {
-                    self.keyboard.before.take()
-                } else {
-                    None
-                };
-            } else if !self.here(&h, cx) {
-                self.keyboard.holder = None;
-                if h.input == Input::Field {
-                    self.field = None;
-                } else {
-                    self.keyboard.left = Some(h);
-                    self.keyboard.left_away = true;
-                }
-            }
-        }
-        if self.keyboard.holder.is_none()
-            && self.keyboard.left_away
-            && let Some(input) = self.keyboard.left.as_ref().map(|h| h.input)
-        {
-            self.give_back(input, cx);
-        }
+        self.keyboard_sync(cx)
     }
 }
 
