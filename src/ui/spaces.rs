@@ -1,6 +1,6 @@
 //! The menu on the left, the tab's side: the four spaces of the shell (#70) — Inbox, Code, Branches and
 //! Merge requests — with what waits in each and what the project lacks for one. What is on screen sits under its
-//! space: the request, else the branch, and the file read in Code. Drawn by the shell (`artoo_shell::spaces`); a
+//! space: the request, else the branch, and the file read in Code. Drawn by the shell (`artoo_shell_api::spaces`); a
 //! click comes back here. The menu folds to icons only when the user folds it — the title bar's first button or ⌘B
 //! (D2); Settings is the title bar's gear. Until the spaces get pages of their own (#72, #75), Code opens search
 //! everywhere on Files, Branches and Merge requests the picker beside the menu.
@@ -8,8 +8,8 @@
 use super::nav::{Item, Page};
 use super::requests::Scope;
 use super::{Workspace, icons, px, theme};
-use artoo_shell::spaces::{self, Open, SpaceRow, SpacesHost, SpacesMenu, ordered};
-pub use artoo_shell::spaces::{Places, Space};
+use artoo_shell_api::spaces::{self, Open, SpaceRow, SpacesHost, SpacesMenu, ordered};
+pub use artoo_shell_api::spaces::{Places, Space};
 use gpui::{App, Context, Pixels, Point, WeakEntity, Window, prelude::*};
 use std::rc::Rc;
 
@@ -323,6 +323,7 @@ impl Workspace {
                 heights: &self.heights,
             },
             host,
+            cx,
         ))
     }
 }

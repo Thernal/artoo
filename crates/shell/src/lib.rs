@@ -19,7 +19,7 @@ pub mod rail;
 pub mod settings;
 pub mod setup;
 pub mod shortcuts;
-pub mod spaces;
+mod spaces;
 pub mod tabs;
 mod title;
 pub mod toast;
@@ -34,4 +34,5 @@ pub fn install(cx: &mut gpui::App) {
     provide::<dyn artoo_shell_api::title::TitleRenderer>(Rc::new(title::Renderer), cx);
     provide::<dyn artoo_shell_api::tabs::TabsRenderer>(Rc::new(rail::Renderer), cx);
     provide::<dyn artoo_shell_api::tools::ToolsRenderer>(Rc::new(tools::Renderer), cx);
+    provide::<dyn artoo_shell_api::spaces::SpacesRenderer>(Rc::new(spaces::Renderer), cx);
 }
