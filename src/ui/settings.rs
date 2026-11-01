@@ -1,13 +1,15 @@
 //! The Settings page: how changed words are marked, which mode diffs open in, and whether the
-//! window refreshes itself. Designed in `../Design/mockups/settings/a-general.html`.
+//! window refreshes itself. Designed in `../Design/mockups/settings/a-general.html`. Its frame — the sections, the
+//! heading, Done — is drawn by the shell (`artoo_shell::settings`).
 
 use super::diff_view;
 use super::px;
-use super::{GAP, ISLAND_RADIUS, Workspace, button, island, theme};
+use super::{ISLAND_RADIUS, Workspace, theme};
 use crate::editor::{self, Editor};
 use crate::storage::{DiffMode, MarkStyle};
 use artoo_ui_kit::controls::{chip, group};
-use gpui::{App, ClickEvent, Context, FontWeight, SharedString, div, prelude::*};
+use gpui::{App, ClickEvent, Context, WeakEntity, Window, div, prelude::*};
+use std::rc::Rc;
 
 impl Workspace {
     pub(super) fn open_settings(&mut self, cx: &mut Context<Self>) {
@@ -306,146 +308,45 @@ impl Workspace {
                 .into_any_element(),
             Section::Keyboard => self.render_keyboard_settings(cx).into_any_element(),
         };
-        let nav = div()
-            .w(px(200.))
-            .flex_none()
-            .flex()
-            .flex_col()
-            .gap(px(2.))
-            .p(px(12.))
-            .border_r_1()
-            .border_color(theme::island_border())
-            .child(
-                div()
-                    .px(px(10.))
-                    .pt(px(8.))
-                    .pb(px(12.))
-                    .text_size(px(17.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("Settings"),
-            )
-            .children(Section::ALL.map(|sec| {
-                div()
-                    .id(sec.label())
-                    .h(px(30.))
-                    .px(px(10.))
-                    .flex()
-                    .items_center()
-                    .rounded(px(super::ROW_RADIUS))
-                    .cursor_pointer()
-                    .when(sec == section, |s| {
-                        s.bg(theme::selected()).text_color(theme::text())
-                    })
-                    .when(sec != section, |s| s.text_color(theme::muted()))
-                    .hover(|s| s.bg(theme::hover()))
-                    .child(super::words::say(sec.label()).into_owned())
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.settings_section = sec;
-                        if sec == Section::Requests {
-                            this.look_for_token(cx);
-                        }
-                        cx.notify();
-                    }))
-            }));
-        div()
-            .flex_1()
-            .min_w_0()
-            .min_h_0()
-            .flex()
-            .px(px(GAP))
-            .pb(px(GAP))
-            .child(
-                island()
-                    .flex_1()
-                    .flex_row()
-                    .bg(theme::editor())
-                    .child(nav)
-                    .child(
-                        div()
-                            .id("settings")
-                            .flex_1()
-                            .min_w_0()
-                            .when(!editing, |s| s.overflow_y_scroll())
-                            .when(editing, |s| s.flex().flex_col())
-                            .child(
-                                div()
-                                    .w_full()
-                                    .max_w(px(if editing { 1180. } else { 760. }))
-                                    .when(editing, |s| s.flex_1().min_h_0())
-                                    .mx_auto()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_5()
-                                    .p(px(24.))
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .items_center()
-                                            .child(div().flex_1().child(heading(
-                                                super::words::say(section.label()).into_owned(),
-                                            )))
-                                            .child(
-                                                button("settings-done", "Done", "esc").on_click(
-                                                    cx.listener(|this, _: &ClickEvent, _, cx| {
-                                                        this.settings_open = false;
-                                                        cx.notify();
-                                                    }),
-                                                ),
-                                            ),
-                                    )
-                                    // Another section fades in (#56, 14).
-                                    .child(super::motion::appear(
-                                        div()
-                                            .flex()
-                                            .flex_col()
-                                            .when(editing, |s| s.flex_1().min_h_0())
-                                            .child(content),
-                                        ("settings-section", section as usize),
-                                        super::motion::FAST,
-                                        |content, v| content.opacity(v),
-                                    )),
-                            ),
-                    ),
-            )
+        settings::page(
+            settings::Page {
+                on: section,
+                content,
+                editing,
+            },
+            Rc::new(Glue(cx.weak_entity())),
+        )
     }
 }
 
-/// The parts of Settings, in its left column.
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
-pub enum Section {
-    #[default]
-    Diff,
-    Appearance,
-    General,
-    Repository,
-    Requests,
-    Agents,
-    Keyboard,
-}
+/// What a click on Settings' frame does, answered by the tab.
+struct Glue(WeakEntity<Workspace>);
 
-impl Section {
-    const ALL: [Section; 7] = [
-        Section::Diff,
-        Section::Appearance,
-        Section::General,
-        Section::Repository,
-        Section::Requests,
-        Section::Agents,
-        Section::Keyboard,
-    ];
+impl settings::SettingsHost for Glue {
+    fn section(&self, section: Section, _: &mut Window, cx: &mut App) {
+        self.0
+            .update(cx, |this, cx| {
+                this.settings_section = section;
+                if section == Section::Requests {
+                    this.look_for_token(cx);
+                }
+                cx.notify();
+            })
+            .ok();
+    }
 
-    fn label(self) -> &'static str {
-        match self {
-            Section::Diff => "Diff",
-            Section::Appearance => "Appearance",
-            Section::General => "General",
-            Section::Repository => "Repository",
-            Section::Requests => "Merge requests",
-            Section::Agents => "Agents",
-            Section::Keyboard => "Keyboard",
-        }
+    fn done(&self, _: &mut Window, cx: &mut App) {
+        self.0
+            .update(cx, |this, cx| {
+                this.settings_open = false;
+                cx.notify();
+            })
+            .ok();
     }
 }
+
+pub use artoo_shell::settings::Section;
+use artoo_shell::settings::{self, switch};
 
 fn style_id(style: MarkStyle) -> &'static str {
     match style {
@@ -462,34 +363,8 @@ fn mode_id(mode: DiffMode) -> &'static str {
     }
 }
 
-fn heading(text: impl Into<SharedString>) -> impl IntoElement {
-    div()
-        .text_size(px(15.))
-        .font_weight(FontWeight::SEMIBOLD)
-        .child(text.into())
-}
-
 /// A labelled row (the kit's).
 pub(super) use artoo_ui_kit::controls::setting as item;
-
-fn switch(id: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .w(px(34.))
-        .h(px(20.))
-        .rounded_full()
-        .flex()
-        .items_center()
-        .px(px(2.))
-        .cursor_pointer()
-        .bg(if on { theme::accent() } else { theme::hover() })
-        .when(on, |s| s.justify_end())
-        .child(div().size(px(16.)).rounded_full().bg(if on {
-            theme::base()
-        } else {
-            theme::muted()
-        }))
-}
 
 impl Workspace {
     /// Settings → Keyboard: every action with its keys, filtered by name or key. Change waits for

@@ -3280,33 +3280,6 @@ impl artoo_review_api::Host for TabHost {
     }
 }
 
-fn button(
-    id: &'static str,
-    label: &'static str,
-    shortcut: &'static str,
-) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .flex()
-        .items_center()
-        .gap_2()
-        .px_3()
-        .py_1()
-        .rounded(px(8.))
-        .border_1()
-        .border_color(theme::island_border())
-        .bg(theme::panel())
-        .cursor_pointer()
-        .hover(|s| s.bg(theme::hover()))
-        .child(label)
-        .child(
-            div()
-                .text_size(px(11.))
-                .text_color(theme::faint())
-                .child(keys::text(shortcut).into_owned()),
-        )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
