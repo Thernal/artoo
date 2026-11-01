@@ -21,7 +21,7 @@ pub mod setup;
 pub mod shortcuts;
 pub mod spaces;
 pub mod tabs;
-pub mod title;
+mod title;
 pub mod toast;
 pub mod tools;
 pub mod welcome;
@@ -31,4 +31,5 @@ pub fn install(cx: &mut gpui::App) {
     use artoo_shell_api::render::provide;
     use std::rc::Rc;
     provide::<dyn artoo_shell_api::bar::BarRenderer>(Rc::new(bar::Renderer), cx);
+    provide::<dyn artoo_shell_api::title::TitleRenderer>(Rc::new(title::Renderer), cx);
 }

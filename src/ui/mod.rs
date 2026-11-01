@@ -90,7 +90,7 @@ use artoo_review::diff_view::{self, CODE_SIZE};
 use artoo_review::review::{self, Opt};
 use artoo_shell::frame::{Drag, Split};
 use artoo_shell::keymap;
-use artoo_shell::title;
+use artoo_shell_api::title;
 use artoo_ui_kit::controls::tag;
 use gpui::{
     App, Context, FocusHandle, KeyBinding, KeyDownEvent, ListAlignment, ListState, Menu, MenuItem,

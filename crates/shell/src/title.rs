@@ -1,51 +1,27 @@
 //! The title bar, the window's and never the page's (#70): the menu's fold, back and forward, the project (or the
 //! tabs, in Tabs mode), search, and on its right the items features put there, then Settings. What a click does is
-//! the tab's (`TitleHost`).
+//! the tab's (`TitleHost`; the contract `artoo_shell_api::title`).
 
+use artoo_shell_api::title::{TitleBar, TitleHost, TitleRenderer};
 use artoo_ui_kit::hover::{self, Tip};
 use artoo_ui_kit::{GAP, ROW_RADIUS, icons, keys, px, theme};
-use gpui::{
-    AnyElement, App, FontWeight, MouseButton, MouseDownEvent, Pixels, Point, Window, div,
-    prelude::*,
-};
+use gpui::{AnyElement, FontWeight, MouseButton, MouseDownEvent, div, prelude::*};
 use std::rc::Rc;
 
 /// The title bar's height.
-pub const TITLE_BAR: f32 = 38.;
+const TITLE_BAR: f32 = 38.;
 
-/// What the title bar shows.
-pub struct TitleBar {
-    /// A repository is open: the menu's fold and search are drawn.
-    pub open: bool,
-    /// The project's name; None in Tabs mode, where the tabs take its place (D21).
-    pub project: Option<String>,
-    pub tabs: Option<AnyElement>,
-    /// The menu of spaces is folded to icons.
-    pub folded: bool,
-    /// Whether there is somewhere to go back and forward to.
-    pub back: bool,
-    pub forward: bool,
-    /// Narrow: search is its icon (#80).
-    pub compact: bool,
-    /// What features and the tab put before Settings: their items, the fetch, the refresh status.
-    pub items: Vec<AnyElement>,
-}
+/// The title bar's renderer, installed by `install`.
+pub(crate) struct Renderer;
 
-/// What a click on the title bar does.
-pub trait TitleHost {
-    fn fold(&self, window: &mut Window, cx: &mut App);
-    fn back(&self, window: &mut Window, cx: &mut App);
-    fn forward(&self, window: &mut Window, cx: &mut App);
-    /// The project's right click, the rail's menu, at `at`.
-    fn project_menu(&self, at: Point<Pixels>, window: &mut Window, cx: &mut App);
-    /// The project clicked: a repository to open.
-    fn projects(&self, window: &mut Window, cx: &mut App);
-    fn search(&self, window: &mut Window, cx: &mut App);
-    fn settings(&self, window: &mut Window, cx: &mut App);
+impl TitleRenderer for Renderer {
+    fn render(&self, bar: TitleBar, host: Rc<dyn TitleHost>) -> AnyElement {
+        title_bar(bar, host).into_any_element()
+    }
 }
 
 /// The title bar: the project's own quiet words, the fetch and the refresh status before the gear.
-pub fn title_bar(bar: TitleBar, host: Rc<dyn TitleHost>) -> impl IntoElement {
+fn title_bar(bar: TitleBar, host: Rc<dyn TitleHost>) -> impl IntoElement {
     let tabbed = bar.tabs.is_some();
     let (fold, back, forward, menu, projects, search, settings) = (
         host.clone(),
@@ -189,7 +165,7 @@ pub fn title_bar(bar: TitleBar, host: Rc<dyn TitleHost>) -> impl IntoElement {
 }
 
 /// A square icon button for the title bar; the tooltip names it and its shortcut.
-pub fn icon_button(
+fn icon_button(
     id: &'static str,
     icon: &'static str,
     tip: &'static str,
@@ -215,7 +191,7 @@ pub fn icon_button(
 }
 
 /// Back / forward: dim when there is nowhere to go (the handlers check again).
-pub fn nav_button(
+fn nav_button(
     id: &'static str,
     icon: &'static str,
     tip: &'static str,

@@ -124,6 +124,7 @@ impl Workspace {
                 items,
             },
             Rc::new(TitleGlue(cx.weak_entity())),
+            cx,
         )
     }
 }
