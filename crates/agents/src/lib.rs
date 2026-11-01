@@ -27,12 +27,13 @@ use artoo_core::{applog, generated, git, labels, platform, storage};
 use std::sync::Arc;
 
 /// Wires the agents in: the contract other features read them through (`artoo_agents_api`) — the reports chats
-/// drafted, the folder the windows read, how a tab's agents are made — and their parts in every tab: the notes'
+/// drafted, the folder the windows read, how a tab's agents are made and drawn — and their parts in every tab: the notes'
 /// summary over the diff, the Agents window, the card asking which chat, Settings → Agents.
 pub fn install(cx: &mut gpui::App) {
     artoo_agents_api::provide(cx, Arc::new(contract::ReportDraftsImpl));
     artoo_agents_api::bus::provide(cx, Arc::new(contract::FolderImpl));
     artoo_agents_api::tab::provide(cx, std::rc::Rc::new(tab::make));
+    artoo_agents_api::view::provide(cx, std::rc::Rc::new(contract::RendererImpl));
     artoo_shell_api::add_parts(cx, parts);
 }
 

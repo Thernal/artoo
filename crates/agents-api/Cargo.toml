@@ -9,6 +9,8 @@ publish = false
 [dependencies]
 # Where a comment is now (`comment::Place`), as the core finds a line again.
 artoo-core = { path = "../core" }
+# A note's look takes the kit's selection (`view::NoteLook`).
+artoo-ui-kit = { path = "../ui-kit" }
 # The handle every window reads (`provide` / `get`).
 gpui.workspace = true
 # The models as the agents' folder keeps them.

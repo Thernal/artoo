@@ -1,9 +1,13 @@
 //! The agents' contract implemented (#165 stage 4): the reports chats drafted, and the folder the windows read, as
-//! this Mac keeps them.
+//! this Mac keeps them; the pieces the tab draws, as the agents draw them.
 
 use crate::agents::Bus;
 use artoo_agents_api::bus::{Event, Folder, Mark, Presence};
+use artoo_agents_api::comment::{Answered, Comment, Form};
+use artoo_agents_api::notes::{Note, Notes};
+use artoo_agents_api::view::{AnswerLook, From, NoteLook, OnAnswer, OnForm, OnNote, Renderer};
 use artoo_agents_api::{ReportDraft, ReportDrafts};
+use gpui::{AnyElement, App, Div, Rgba, Stateful};
 use std::path::Path;
 use std::time::SystemTime;
 
@@ -63,5 +67,60 @@ impl Folder for FolderImpl {
         if let Some(bus) = Bus::new() {
             crate::codex::beat(&bus, project);
         }
+    }
+}
+
+/// The agents' pieces as the agents draw them.
+pub(crate) struct RendererImpl;
+
+impl Renderer for RendererImpl {
+    fn chat_badge(&self, letter: char, hue: Rgba, gone: bool) -> Div {
+        crate::view::chat_badge(letter, hue, gone)
+    }
+
+    fn note_card(
+        &self,
+        notes: &Notes,
+        note: &Note,
+        indent: f32,
+        look: NoteLook,
+        on: OnNote,
+        cx: &App,
+    ) -> AnyElement {
+        crate::view::note_card(notes, note, indent, look, on, cx)
+    }
+
+    fn form(
+        &self,
+        c: &Comment,
+        drafts: &[u64],
+        lines: Option<&dyn Fn(u32) -> Option<String>>,
+        on: OnForm,
+    ) -> Option<AnyElement> {
+        crate::form::form(c, drafts, lines, on)
+    }
+
+    fn record(&self, form: &Form, answered: Option<&Answered>) -> AnyElement {
+        crate::form::record(form, answered)
+    }
+
+    fn answer_row(
+        &self,
+        c: &Comment,
+        from: From,
+        look: AnswerLook,
+        on: &OnAnswer,
+    ) -> Stateful<Div> {
+        crate::inbox::answer_row(c, from, look, on)
+    }
+
+    fn answer_preview(
+        &self,
+        c: &Comment,
+        from: From,
+        thread: AnyElement,
+        on: &OnAnswer,
+    ) -> AnyElement {
+        crate::inbox::answer_preview(c, from, thread, on)
     }
 }

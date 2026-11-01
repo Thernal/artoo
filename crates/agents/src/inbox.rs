@@ -9,27 +9,10 @@ use artoo_ui_kit::controls::bar_button;
 use artoo_ui_kit::excerpt::{Excerpt, ExcerptLine, excerpt_view};
 use artoo_ui_kit::hover::{self, CutInTip, Hover};
 use artoo_ui_kit::{ROW_RADIUS, format, icons, px, theme};
-use gpui::{AnyElement, App, ClickEvent, Div, FontWeight, Stateful, div, prelude::*};
-use std::rc::Rc;
+use gpui::{AnyElement, ClickEvent, Div, FontWeight, Stateful, div, prelude::*};
 
-/// What a click on an agent's answer asks the tab.
-pub enum AnswerEvent {
-    /// Note `0`'s row clicked: selected, or opened where the tab is narrow (#80).
-    Pick(u64),
-    /// Note `0` opened at its line.
-    Open(u64),
-    /// For later; its "done" resolved.
-    Done,
-}
-
-/// How the tab answers clicks on the agents' answers.
-pub type OnAnswer = Rc<dyn Fn(AnswerEvent, &mut App)>;
-
-/// Who an answer is from: the chat's agent ("Claude") and the chat's title.
-pub struct From {
-    pub agent: String,
-    pub chat: String,
-}
+/// What an answer is drawn with and a click on it asks, the contract's.
+pub use artoo_agents_api::view::{AnswerEvent, AnswerLook, From, OnAnswer};
 
 /// What the agent did, as the row says it: asked, your answer waiting to be sent, done.
 pub fn verb(c: &Comment) -> &'static str {
@@ -47,16 +30,6 @@ pub fn note_place(c: &Comment) -> String {
     }
     let name = c.path.rsplit('/').next().unwrap_or(&c.path);
     format!("{name}:{}", c.line)
-}
-
-/// How an answer's row looks.
-pub struct AnswerLook {
-    /// Not looked at since the agent last wrote: bold, its dot purple.
-    pub fresh: bool,
-    /// Selected.
-    pub on: bool,
-    /// The list has 260 px (#79): when, and the start of what it wrote.
-    pub wide: bool,
 }
 
 /// The answer to note `c` (#116): who and what, the note's place, the start of what the agent wrote.

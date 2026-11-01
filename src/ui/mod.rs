@@ -1875,10 +1875,10 @@ impl Workspace {
         // Its agents, which their parts draw — the Agents window, the card, the notes' summary,
         // Settings → Agents — the tab their host.
         services.set(this.agents.clone());
-        services.set::<Rc<dyn artoo_agents::window::AgentsHost>>(Rc::new(agent::AgentsHost(
+        services.set::<Rc<dyn artoo_agents_api::view::AgentsHost>>(Rc::new(agent::AgentsHost(
             cx.weak_entity(),
         )));
-        services.set::<Rc<dyn artoo_agents::summary::NotesHost>>(Rc::new(agent_notes::NotesHost(
+        services.set::<Rc<dyn artoo_agents_api::view::NotesHost>>(Rc::new(agent_notes::NotesHost(
             cx.weak_entity(),
         )));
         // Its notifications and what the Inbox selected, which the requests' Inbox draws, the tab its host.
@@ -2462,10 +2462,10 @@ impl Workspace {
                         .checked(tool == Some(tools::Tool::Discussions)),
                     Entry::new(
                         "Agents",
-                        Act::Tool(tools::Tool::Part(artoo_agents::window::ID)),
+                        Act::Tool(tools::Tool::Part(artoo_agents_api::view::WINDOW)),
                     )
                     .key("⇧⌘A")
-                    .checked(tool == Some(tools::Tool::Part(artoo_agents::window::ID))),
+                    .checked(tool == Some(tools::Tool::Part(artoo_agents_api::view::WINDOW))),
                 ],
             ),
         ]
@@ -3116,7 +3116,7 @@ impl artoo_review_api::Host for TabHost {
                 .gap(px(6.))
                 .text_size(px(12.))
                 .text_color(theme::muted())
-                .child(agent::chat_badge(letter, hue, false))
+                .child(artoo_agents_api::view::chat_badge(letter, hue, false, cx))
                 .child(format!("{name} is changing it"))
                 .into_any_element(),
         )

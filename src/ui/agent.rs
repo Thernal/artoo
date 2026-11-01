@@ -6,9 +6,8 @@
 use super::Workspace;
 use crate::bus::Chat;
 use crate::comment::State;
-use artoo_agents::form::{self, FormEvent, OnForm};
-pub(super) use artoo_agents::view::chat_badge;
-use artoo_agents::window::{Act, Kind, kind_of};
+use crate::comment::{Kind, kind_of};
+use artoo_agents_api::view::{self, Act, FormEvent, OnForm};
 use gpui::{App, Context, WeakEntity};
 
 impl Workspace {
@@ -270,11 +269,12 @@ impl Workspace {
         let on: OnForm = std::rc::Rc::new(move |event, cx| {
             this.update(cx, |this, cx| this.form_event(event, cx)).ok();
         });
-        form::form(
+        view::form(
             c,
             &self.agent_drafts(cx),
             open.map(|_| &line as &dyn Fn(u32) -> Option<String>),
             on,
+            cx,
         )
     }
 
@@ -510,7 +510,7 @@ impl Workspace {
 /// What the Agents window asks of the tab (`artoo_agents::window::AgentsHost`).
 pub(super) struct AgentsHost(pub WeakEntity<Workspace>);
 
-impl artoo_agents::window::AgentsHost for AgentsHost {
+impl view::AgentsHost for AgentsHost {
     fn branch(&self, cx: &App) -> Option<String> {
         self.0.upgrade()?.read(cx).page_branch(cx)
     }

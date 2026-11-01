@@ -530,7 +530,7 @@ impl Workspace {
                     } else {
                         reply.answered.as_ref()
                     };
-                    artoo_agents::form::record(form, answered)
+                    artoo_agents_api::view::record(form, answered, cx)
                 });
             div()
                 .flex()

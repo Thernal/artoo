@@ -4,28 +4,10 @@
 
 use crate::review::{Answered, Comment, Form, State};
 use artoo_ui_kit::{ROW_RADIUS, hover, keys, motion, px, theme};
-use gpui::{AnyElement, App, FontWeight, div, prelude::*};
-use std::rc::Rc;
+use gpui::{AnyElement, FontWeight, div, prelude::*};
 
-/// A click on an agent's form.
-#[derive(Clone, Debug)]
-pub enum FormEvent {
-    /// Choice `.1` of comment `.0`'s form picked, or unpicked where many are; `None`, your call.
-    Pick(u64, Option<usize>),
-    /// An order's choice at place `.1` moved up (`.2`) or down.
-    Move(u64, usize, bool),
-    /// One's own value written.
-    Own(u64),
-    /// A note added to the answer.
-    Note(u64),
-    /// Comment `.0` sent alone.
-    SendOnly(u64),
-    /// Every draft sent.
-    SendAll,
-}
-
-/// What answers a form's clicks.
-pub type OnForm = Rc<dyn Fn(FormEvent, &mut App)>;
+/// What a click on a form asks, the contract's.
+pub use artoo_agents_api::view::{FormEvent, OnForm};
 
 /// Under an earlier question of the agent's: its form as it was, what was picked marked, and
 /// the answer in words — or that none was given before it asked again. Only the last question

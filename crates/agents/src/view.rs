@@ -8,7 +8,9 @@ use artoo_ui_kit::format::plural;
 use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::{hover, px, theme};
 use gpui::{AnyElement, App, FontWeight, Rgba, div, prelude::*};
-use std::rc::Rc;
+
+/// What a note is drawn with and a click on it asks, the contract's.
+pub use artoo_agents_api::view::{NoteEvent, NoteLook, OnNote};
 
 /// A chat's mark: its letter on its hue, hollow when it is gone.
 pub fn chat_badge(letter: char, hue: Rgba, gone: bool) -> gpui::Div {
@@ -43,31 +45,6 @@ pub fn limited(id: impl Into<gpui::ElementId>) -> gpui::Stateful<gpui::Div> {
         .child("limited")
         .tooltip_show_delay(hover::LONG)
         .tooltip(|_, cx| cx.new(|_| hover::Tip(crate::codex::LIMITS)).into())
-}
-
-/// A click on a note or a summary.
-#[derive(Clone)]
-pub enum NoteEvent {
-    /// Answer: a comment for the agent on note `id`'s line.
-    Answer(u64),
-    /// Note `id` dismissed.
-    Dismiss(u64),
-    /// Every note of the agent's notes `uid` dismissed.
-    DismissAll(String),
-}
-
-/// What answers a note's clicks.
-pub type OnNote = Rc<dyn Fn(NoteEvent, &mut App)>;
-
-/// What a note is drawn with that the tab knows.
-pub struct NoteLook {
-    /// The agent's mark: its chat's letter and colour.
-    pub mark: (char, Rgba),
-    /// Its markdown drawn rich.
-    pub rich: bool,
-    /// A narrow diff: Answer is an icon alone.
-    pub tight: bool,
-    pub selecting: Selecting,
 }
 
 /// Note `note` of `notes` under its line, `indent` from the left.

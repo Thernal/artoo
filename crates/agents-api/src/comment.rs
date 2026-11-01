@@ -266,6 +266,38 @@ pub fn send(comments: &mut [Comment], ids: &[u64], session: &str, title: &str) -
     batch
 }
 
+/// Where a comment is in its life with the agent, as the Agents window says it (#76).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    /// The agent asked something and waits for the answer.
+    Asks,
+    /// Not sent yet, or sent back.
+    Draft,
+    /// Sent, not taken by its chat yet.
+    Sent,
+    /// Sent to a chat that is gone, never taken.
+    Waiting,
+    /// Taken by its chat.
+    Working,
+    Addressed,
+    Resolved,
+}
+
+/// `c`'s kind; `alive` says whether a chat (by session) still listens.
+pub fn kind_of(c: &Comment, alive: &dyn Fn(&str) -> bool) -> Kind {
+    match c.state {
+        State::Draft => Kind::Draft,
+        State::Sent if !c.replies.is_empty() && c.answer.is_none() => Kind::Asks,
+        State::Sent => match &c.sent {
+            Some(s) if s.delivered => Kind::Working,
+            Some(s) if !s.session.is_empty() && !alive(&s.session) => Kind::Waiting,
+            _ => Kind::Sent,
+        },
+        State::Addressed => Kind::Addressed,
+        State::Resolved => Kind::Resolved,
+    }
+}
+
 /// Finds `comment`'s line in a side of a file: where it was if it still reads the same, else the one
 /// line that does; ambiguous or missing means outdated.
 pub fn place<'a>(comment: &Comment, count: u32, line: impl Fn(u32) -> &'a str) -> Place {

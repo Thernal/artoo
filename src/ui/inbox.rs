@@ -11,7 +11,7 @@ use super::composer::Target;
 use super::notifications::{Kind, Notice};
 use super::{Workspace, px};
 use crate::mr::Thread;
-use artoo_agents::inbox::{AnswerEvent, AnswerLook, From, OnAnswer, answer_preview, answer_row};
+use artoo_agents_api::view::{AnswerEvent, AnswerLook, From, OnAnswer, answer_preview, answer_row};
 use artoo_requests::inbox::excerpt;
 pub(super) use artoo_requests::inbox::{InboxRow, InboxView};
 use artoo_requests::inbox_view::{self, InboxEvent, OnInbox, RowLook};
@@ -32,12 +32,12 @@ impl Workspace {
     /// given, waits to be sent from here), or it says it is done. With when it last wrote, and
     /// the key that is read once looked at (a new answer is new again).
     pub(super) fn agent_notices(&self, cx: &App) -> Vec<(u64, i64, String)> {
-        use artoo_agents::window::Kind as AgentKind;
+        use crate::comment::{Kind as AgentKind, kind_of};
         let alive = self.listening(cx);
         self.comments(cx)
             .iter()
             .filter(|c| !c.archived)
-            .filter(|c| match artoo_agents::window::kind_of(c, &alive) {
+            .filter(|c| match kind_of(c, &alive) {
                 AgentKind::Asks | AgentKind::Addressed => true,
                 AgentKind::Draft => c.answer.is_some() && !c.replies.is_empty(),
                 _ => false,
@@ -358,7 +358,7 @@ impl artoo_requests::inbox_page::InboxHost for InboxHost {
             wide: look.wide,
         };
         let on = Workspace::answer_on(self.0.clone());
-        answer_row(c, this.agent_of(c, cx), look, &on).into_any_element()
+        answer_row(c, this.agent_of(c, cx), look, &on, cx).into_any_element()
     }
 
     fn answer_preview(&self, id: u64, cx: &App) -> Option<AnyElement> {
@@ -366,7 +366,7 @@ impl artoo_requests::inbox_page::InboxHost for InboxHost {
         let c = this.comments(cx).iter().find(|c| c.id == id)?;
         let thread = this.render_thread(id, 0., self.0.clone(), cx);
         let on = Workspace::answer_on(self.0.clone());
-        Some(answer_preview(c, this.agent_of(c, cx), thread, &on))
+        Some(answer_preview(c, this.agent_of(c, cx), thread, &on, cx))
     }
 
     fn answer_done(&self, id: u64, cx: &App) -> bool {

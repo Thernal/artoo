@@ -420,7 +420,7 @@ impl Render for Workspace {
             this.toggle_tool(tools::Tool::Discussions, cx)
         }))
         .on_action(cx.listener(|this, _: &ToggleAgents, _, cx| {
-            this.toggle_tool(tools::Tool::Part(artoo_agents::window::ID), cx)
+            this.toggle_tool(tools::Tool::Part(artoo_agents_api::view::WINDOW), cx)
         }))
         .on_action(cx.listener(|this, _: &FoldMenu, _, cx| this.toggle_menu(cx)))
         .on_action(

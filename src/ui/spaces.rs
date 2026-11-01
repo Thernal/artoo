@@ -279,7 +279,7 @@ impl Workspace {
                         .as_ref()
                         .is_some_and(|i| self.nav.picked.contains(i)),
                     agent: open.agent.map(|(letter, hue, waiting)| {
-                        let badge = super::agent::chat_badge(letter, hue, false)
+                        let badge = artoo_agents_api::view::chat_badge(letter, hue, false, cx)
                             .size(px(14.))
                             .text_size(px(8.));
                         (badge.into_any_element(), waiting)

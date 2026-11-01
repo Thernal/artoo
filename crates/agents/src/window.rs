@@ -7,8 +7,11 @@
 use crate::agents::Chat;
 use crate::chats::Chats;
 use crate::comments::AgentComments;
-use crate::review::{self, Comment, State};
+use crate::review::{self, Comment, Kind, State, kind_of};
 use crate::view::{chat_badge, limited};
+use artoo_agents_api::view::WINDOW;
+/// What the window asks of the tab, the contract's.
+pub use artoo_agents_api::view::{Act, AgentsHost};
 use artoo_shell_api::{Badge, Frame, ListKey, MenuItem, Tool};
 use artoo_ui_kit::controls::{self, group_heading, tool_foot};
 use artoo_ui_kit::format::{self, plural};
@@ -23,60 +26,8 @@ use gpui::{
 use std::cell::Cell;
 use std::rc::Rc;
 
-/// Its id: the layout keeps it open by it.
-pub const ID: &str = "agents";
-
 /// The chats the Agents window shows before "N more" (#94).
 const CHATS_SHOWN: usize = 3;
-
-/// What the Agents window asks of the tab (`Rc<dyn AgentsHost>` in its services).
-pub trait AgentsHost {
-    /// The branch the page is of, where a note written now goes (#77).
-    fn branch(&self, cx: &App) -> Option<String>;
-
-    /// Comments drawn as markdown: a row's text on one line without it.
-    fn rich(&self, cx: &App) -> bool;
-
-    /// A click in the window that changes a comment or opens what is the tab's.
-    fn act(&self, act: Act, cx: &mut App);
-}
-
-/// What a click in the Agents window asks of the tab.
-#[derive(Clone, Debug)]
-pub enum Act {
-    /// Comment `id` shown on its line.
-    Show(u64),
-    /// These sent, to the chat their route takes.
-    Send(Vec<u64>),
-    /// The card that sends every draft to the chat picked in it.
-    PickChat,
-    /// These sent to chat `session` ("" a new chat, opened in a terminal), picked on the card.
-    SendTo {
-        ids: Vec<u64>,
-        session: String,
-        title: String,
-    },
-    /// The card that picks the chat branch `.0`'s notes go to ("" for any).
-    Route(String),
-    /// A draft written again.
-    Edit(u64),
-    /// A draft gone, no question asked; the toast's Undo brings it back.
-    Delete(u64),
-    /// A note its gone chat never took, to the chat its route takes now (#77).
-    Resend(u64),
-    /// Sent and not taken yet: back to the drafts.
-    Withdraw(u64),
-    /// Archived, or back from the archive.
-    Archive(u64, bool),
-    /// Every resolved one archived.
-    ArchiveResolved,
-    Resolve(u64),
-    /// A chat named (the developer, 2026-10-23: chats mixed up).
-    NameChat {
-        session: String,
-        agent: String,
-    },
-}
 
 /// The Agents window in one tab.
 pub struct AgentsWindow {
@@ -127,7 +78,7 @@ pub fn tool(
     });
     let (opened, keys) = (window.clone(), window.clone());
     Tool {
-        id: ID,
+        id: WINDOW,
         icon: "bot",
         tip: "Agents  ⇧⌘A",
         title: "Agents",
@@ -976,38 +927,6 @@ impl Render for AgentsWindow {
             .flex_col()
             .child(body)
             .child(tool_foot().child(foot))
-    }
-}
-
-/// Where a comment is in its life with the agent, as the Agents window says it (#76).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Kind {
-    /// The agent asked something and waits for the answer.
-    Asks,
-    /// Not sent yet, or sent back.
-    Draft,
-    /// Sent, not taken by its chat yet.
-    Sent,
-    /// Sent to a chat that is gone, never taken.
-    Waiting,
-    /// Taken by its chat.
-    Working,
-    Addressed,
-    Resolved,
-}
-
-/// `c`'s kind; `alive` says whether a chat (by session) still listens.
-pub fn kind_of(c: &Comment, alive: &dyn Fn(&str) -> bool) -> Kind {
-    match c.state {
-        State::Draft => Kind::Draft,
-        State::Sent if !c.replies.is_empty() && c.answer.is_none() => Kind::Asks,
-        State::Sent => match &c.sent {
-            Some(s) if s.delivered => Kind::Working,
-            Some(s) if !s.session.is_empty() && !alive(&s.session) => Kind::Waiting,
-            _ => Kind::Sent,
-        },
-        State::Addressed => Kind::Addressed,
-        State::Resolved => Kind::Resolved,
     }
 }
 

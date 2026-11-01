@@ -3,27 +3,15 @@
 //! branch, an agent's mark, how comments are drawn — and the diff shown through the review's handle.
 
 use crate::notes::{AgentNotes, shown_of};
-use crate::view::{self, NoteEvent, OnNote};
+use crate::view::{self, OnNote};
 use artoo_review_api::Review;
 use artoo_shell_api::{Frame, Piece, Slot};
 use artoo_ui_kit::gap;
-use gpui::{AnyView, App, Context, Entity, Render, Rgba, Window, div, prelude::*};
+use gpui::{AnyView, App, Context, Entity, Render, Window, div, prelude::*};
 use std::rc::Rc;
 
-/// What the notes' summary asks of the tab (`Rc<dyn NotesHost>` in its services).
-pub trait NotesHost {
-    /// The branch the page is of: a request's source, the branch open in Branches, else the one checked out.
-    fn branch(&self, cx: &App) -> Option<String>;
-
-    /// Agent `agent`'s mark: its latest chat's letter and colour.
-    fn mark(&self, agent: &str, cx: &App) -> (char, Rgba);
-
-    /// Comments drawn as markdown.
-    fn rich(&self, cx: &App) -> bool;
-
-    /// A click on a note or a summary: answered, dismissed.
-    fn note(&self, event: NoteEvent, cx: &mut App);
-}
+/// What the summary asks of the tab, the contract's.
+pub use artoo_agents_api::view::NotesHost;
 
 /// The summary in one tab.
 struct Summary {

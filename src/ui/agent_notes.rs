@@ -12,7 +12,7 @@ use super::toast::Act;
 use crate::bus::{Event, What};
 use crate::comment::Place;
 use crate::notes::{Notes, On, Shown};
-use artoo_agents::view::{self, NoteEvent, NoteLook, OnNote};
+use artoo_agents_api::view::{self, NoteEvent, NoteLook, OnNote};
 use artoo_review_api::diff::{Diff, Header};
 use gpui::{App, Context, WeakEntity, div, prelude::*};
 use std::rc::Rc;
@@ -229,7 +229,7 @@ impl Workspace {
         })
     }
 
-    /// Note `id` under its line (`artoo_agents::view::note_card`).
+    /// Note `id` under its line (`artoo_agents_api::view::note_card`).
     pub(super) fn render_agent_note(
         &self,
         id: u64,
@@ -264,10 +264,10 @@ fn shown(diff: &Diff) -> Shown {
     }
 }
 
-/// What the agents' notes' summary asks of the tab (`artoo_agents::summary::NotesHost`).
+/// What the agents' notes' summary asks of the tab (`artoo_agents_api::view::NotesHost`).
 pub(super) struct NotesHost(pub WeakEntity<Workspace>);
 
-impl artoo_agents::summary::NotesHost for NotesHost {
+impl view::NotesHost for NotesHost {
     fn branch(&self, cx: &App) -> Option<String> {
         self.0.upgrade()?.read(cx).page_branch(cx)
     }
