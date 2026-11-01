@@ -1,6 +1,6 @@
 //! Artoo's design system (#165): the theme and its tokens, the interface size, icons, keys drawn as
-//! keycaps, motion, how a row gives way as its list narrows, a theme drawn small, and the words and formats the
-//! window uses.
+//! keycaps, motion, how a row gives way as its list narrows and where a narrow window folds, a theme drawn small,
+//! a project's mark, the faces offered, and the words and formats the window uses.
 //! A module draws with this and GPUI alone.
 
 pub mod complete;
@@ -9,6 +9,7 @@ pub mod discussion;
 pub mod done;
 pub mod excerpt;
 pub mod file_icons;
+pub mod fonts;
 pub mod format;
 pub mod hover;
 pub mod icons;
@@ -16,9 +17,11 @@ pub mod input;
 pub mod keys;
 pub mod markdown;
 pub mod motion;
+pub mod narrow;
 pub mod panel;
 pub mod people;
 pub mod pictures;
+pub mod project;
 pub mod room;
 pub mod theme;
 pub mod theme_cards;

@@ -1,21 +1,18 @@
 //! The window's frame (#165 stage 4): what surrounds the pages features draw — the keys and their card, toasts, the
-//! context menu, the repository tabs and the rail, the title bar, the stripe and its
-//! tool windows, narrow windows' rules, the page bar and the spaces' menu, the body's row and its splitters,
-//! which input has the keyboard, search everywhere's window,
+//! context menu, the repository tabs and the rail, the title bar, the stripe and its tool windows, the page bar and
+//! the spaces' menu, the body's row and its splitters, which input has the keyboard, search everywhere's window,
 //! Settings' frame, Set up's, the welcome, so far.
 //! The tab (the app's) composes: it makes the features' entities and their hosts, and hands the frame what it draws
 //! and what a click on it does.
 
 mod bar;
-pub mod fonts;
 mod frame;
 pub mod keyboard;
 pub mod keymap;
 pub mod menu;
-pub mod narrow;
 mod palette;
-pub mod rail;
-pub mod settings;
+mod rail;
+mod settings;
 mod setup;
 mod shortcuts;
 mod spaces;

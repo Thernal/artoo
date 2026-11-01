@@ -346,9 +346,9 @@ impl settings::SettingsHost for Glue {
     }
 }
 
-use artoo_shell::settings::switch;
 use artoo_shell_api::settings;
 pub use artoo_shell_api::settings::Section;
+use artoo_ui_kit::controls::switch;
 
 fn style_id(style: MarkStyle) -> &'static str {
     match style {

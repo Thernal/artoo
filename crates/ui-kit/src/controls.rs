@@ -1,7 +1,8 @@
 //! Controls a feature's view shares with the frame: a bar's button, a tool window's foot and its list's pieces (a
 //! group's heading, a comment as an entry), rows breathing while a list loads, what follows the pointer while
 //! something is dragged, the words for showing a file where it lies; a root list's row pieces (its unread dot, how
-//! far its review is), its preview's pills and buttons, a page's message when it has nothing to show.
+//! far its review is), its preview's pills and buttons, a page's message when it has nothing to show, an on/off
+//! switch.
 
 use super::{ROW_RADIUS, hover, icons, keys, motion, px, theme, words};
 use artoo_core::platform;
@@ -378,4 +379,24 @@ pub fn section_chip(id: &'static str, on: bool) -> gpui::Stateful<Div> {
         .cursor_pointer()
         .when(on, |s| s.bg(theme::selected()))
         .hover(|s| s.bg(theme::hover()))
+}
+
+/// An on/off switch.
+pub fn switch(id: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .w(px(34.))
+        .h(px(20.))
+        .rounded_full()
+        .flex()
+        .items_center()
+        .px(px(2.))
+        .cursor_pointer()
+        .bg(if on { theme::accent() } else { theme::hover() })
+        .when(on, |s| s.justify_end())
+        .child(div().size(px(16.)).rounded_full().bg(if on {
+            theme::base()
+        } else {
+            theme::muted()
+        }))
 }

@@ -123,28 +123,8 @@ fn heading(text: impl Into<SharedString>) -> impl IntoElement {
         .child(text.into())
 }
 
-/// An on/off switch.
-pub fn switch(id: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .w(px(34.))
-        .h(px(20.))
-        .rounded_full()
-        .flex()
-        .items_center()
-        .px(px(2.))
-        .cursor_pointer()
-        .bg(if on { theme::accent() } else { theme::hover() })
-        .when(on, |s| s.justify_end())
-        .child(div().size(px(16.)).rounded_full().bg(if on {
-            theme::base()
-        } else {
-            theme::muted()
-        }))
-}
-
 /// A plain button with its key after it: Done, ….
-pub fn button(
+fn button(
     id: &'static str,
     label: &'static str,
     shortcut: &'static str,

@@ -13,7 +13,7 @@ use super::zones::Zone;
 use super::{Workspace, icons, keys, px, theme};
 use gpui::{AnyElement, ClickEvent, Context, SharedString, div, prelude::*};
 
-pub(super) use artoo_shell::narrow::{FLOAT, MENU, Narrowed, SIDE};
+pub(super) use artoo_ui_kit::narrow::{FLOAT, MENU, Narrowed, SIDE};
 
 impl Workspace {
     /// The window's width in the design's pixels: what the steps are measured against.

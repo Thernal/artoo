@@ -7,9 +7,9 @@ use super::menu::{Act, Entry};
 use super::palette::Kind;
 use super::settings::item;
 use super::{ROW_RADIUS, Workspace, icons, px, theme};
-use artoo_shell::fonts::{CODE_FACES, UI_FACES, fold_line, short_list};
-pub(super) use artoo_shell::fonts::{face_family, face_label, installed};
 use artoo_ui_kit::controls::{chip, group};
+use artoo_ui_kit::fonts::{CODE_FACES, UI_FACES, fold_line, short_list};
+pub(super) use artoo_ui_kit::fonts::{face_family, face_label, installed};
 use gpui::{AnyElement, ClickEvent, Context, Pixels, Point, div, prelude::*};
 
 /// The code's size in points at code size `zoom` (%), as the diff draws it.

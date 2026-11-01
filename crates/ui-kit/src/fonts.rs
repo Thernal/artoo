@@ -2,7 +2,7 @@
 //! family, and the line saying where the narrow layout folds at an interface size (`narrow`: the steps grow with it).
 
 use crate::narrow::{FLOAT, MENU, SIDE};
-use artoo_ui_kit::theme;
+use crate::theme;
 
 /// Faces a face's menu offers when they are installed; Other… lists every one.
 pub const UI_FACES: [&str; 5] = [
