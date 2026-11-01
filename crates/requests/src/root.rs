@@ -90,10 +90,10 @@ pub fn pages(requests: Entity<Requests>, frame: Rc<dyn Frame>, cx: &mut App) -> 
             }
         })),
         // What a request's route shows is read on its branch.
-        show: Rc::new(move |route, opened, cx| {
+        show: Rc::new(move |route, _, cx| {
             let branches = services.upgrade().and_then(|s| s.get::<Rc<dyn Branches>>());
             if let (Some(route), Some(branches)) = (route, branches) {
-                branches.show(route, opened, cx)
+                branches.show(route, cx)
             }
         }),
     }

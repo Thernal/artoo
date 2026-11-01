@@ -64,10 +64,10 @@ pub fn pages(
             panel.update(cx, |p, _| p.width = width);
             Some(panel.clone().into_any_element())
         })),
-        show: Rc::new(move |route, opened, cx| {
+        show: Rc::new(move |route, _, cx| {
             let branches = services.upgrade().and_then(|s| s.get::<Rc<dyn Branches>>());
             if let (Some(route), Some(branches)) = (route, branches) {
-                branches.show(route, opened, cx)
+                branches.show(route, cx)
             }
         }),
     }

@@ -224,11 +224,7 @@ impl Frame for TabFrame {
     }
 
     fn item_tab(&self, cx: &App) -> Option<ItemTab> {
-        match self.0.upgrade()?.read(cx).page_tab(cx)? {
-            super::nav::Section::Overview => Some(ItemTab::Overview),
-            super::nav::Section::Commits => Some(ItemTab::Commits),
-            super::nav::Section::Changes => None,
-        }
+        self.0.upgrade()?.read(cx).item_tab(cx)
     }
 
     fn chrome(&self, cx: &mut App) -> Chrome {
@@ -254,6 +250,16 @@ impl Frame for TabFrame {
 }
 
 impl Workspace {
+    /// The item's section on screen when it is a page of its own: its Overview or Commits (#73,
+    /// #74); none on its Changes.
+    fn item_tab(&self, cx: &App) -> Option<ItemTab> {
+        match self.page_tab(cx)? {
+            super::nav::Section::Overview => Some(ItemTab::Overview),
+            super::nav::Section::Commits => Some(ItemTab::Commits),
+            super::nav::Section::Changes => None,
+        }
+    }
+
     /// The pages a feature draws in `space`, when one does.
     pub(super) fn space_pages(&self, space: Space) -> Option<&Pages> {
         self.parts
@@ -302,7 +308,7 @@ impl Workspace {
         let beside = !self.compact() && (self.layout.show_sidebar || self.motion.recent("side"));
         let route = self.nav_page().map(Page::route);
         // An item's Overview or Commits is a page of its own, nothing beside it (#73, #74).
-        let tab_page = self.page_tab(cx).is_some();
+        let tab_page = self.item_tab(cx).is_some();
         let side = pages.side.as_ref().filter(|_| !tab_page);
         // Zen's keys go under an item's changes.
         let item = matches!(self.nav.space, Space::Branches | Space::Requests) && route.is_some();

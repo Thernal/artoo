@@ -734,27 +734,21 @@ impl Workspace {
             }
         }
         self.show_pages(page.space(), Some(&page), opened, cx);
-    }
-
-    /// A branch's or a request's route shown (`History::show_opened`): the request on the branch,
-    /// the watch, the page following what is shown and the places opened lately. Quiet in the
-    /// history (`restoring`) when it was gone back to.
-    pub(super) fn route_shown(&mut self, shows: &Shows, opened: bool, cx: &mut Context<Self>) {
-        let restoring = std::mem::replace(&mut self.nav.restoring, !opened);
-        match shows {
-            Shows::Branch { ix, read } => self.branch_opened(*ix, *read, cx),
-            Shows::Request(iid) => self.select_request(*iid, cx),
-            Shows::Shown { commit, follow } => {
-                if *follow {
+        // A branch's or a request's: what the tab does after (`History::show_opened`) — the request
+        // on the branch, the watch, the page following what is shown, the places opened lately.
+        match self.history.update(cx, |h, _| h.shown.take()) {
+            Some(Shows::Branch { ix, read }) => self.branch_opened(ix, read, cx),
+            Some(Shows::Request(iid)) => self.select_request(iid, cx),
+            Some(Shows::Shown { commit, follow }) => {
+                if follow {
                     self.record(cx);
                 }
                 if let Some(commit) = commit {
-                    self.remember_commit(commit);
+                    self.remember_commit(&commit);
                 }
             }
-            Shows::Stay => {}
+            Some(Shows::Stay) | None => {}
         }
-        self.nav.restoring = restoring;
     }
 
     fn branch_ix(&self, refname: &str, cx: &App) -> Option<usize> {

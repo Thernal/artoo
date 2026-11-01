@@ -2208,7 +2208,6 @@ impl Workspace {
             }
             history::Event::Failed(err) => self.error = Some(err.clone().into()),
             history::Event::Picked(ix) => self.pick(Selection::Commit(*ix), cx),
-            history::Event::Shown { shows, opened } => self.route_shown(shows, *opened, cx),
         }
         cx.notify();
     }

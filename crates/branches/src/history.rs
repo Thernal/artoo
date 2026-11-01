@@ -72,6 +72,8 @@ pub struct History {
     pub open_request: Option<RequestSides>,
     /// A page waiting for what it needs: the branch's commits or versions, a request's (`waiting`).
     pub waiting: Option<Waiting>,
+    /// What the route last shown came to (`show_opened`), for the tab to take as soon as it is shown.
+    pub shown: Option<Shows>,
     /// The commit's message open under its title, over its diff (`head`).
     pub message_open: bool,
     /// Where the Commits section's list is scrolled.
@@ -114,8 +116,6 @@ pub enum Event {
     Picked(usize),
     /// A read failed: what to say.
     Failed(String),
-    /// A route shown (`History::show_opened`): what the tab does after, `opened` anew or gone back to.
-    Shown { shows: Shows, opened: bool },
 }
 
 impl EventEmitter<Event> for History {}
@@ -257,6 +257,7 @@ impl Default for History {
             pending_request: None,
             open_request: None,
             waiting: None,
+            shown: None,
             message_open: false,
             commit_scroll: UniformListScrollHandle::new(),
             compare_scroll: UniformListScrollHandle::new(),
@@ -339,7 +340,7 @@ impl artoo_branches_api::Branches for Handle {
         h.update(cx, |h, cx| h.commits_page(versions, &acts, cx))
     }
 
-    fn show(&self, route: &artoo_core::route::Route, opened: bool, cx: &mut gpui::App) {
+    fn show(&self, route: &artoo_core::route::Route, cx: &mut gpui::App) {
         let (Some(h), Some(services)) = (self.0.upgrade(), self.1.upgrade()) else {
             return;
         };
@@ -349,9 +350,7 @@ impl artoo_branches_api::Branches for Handle {
         let current = services
             .get::<std::rc::Rc<dyn artoo_requests_api::Requests>>()
             .and_then(|r| r.current(cx));
-        h.update(cx, |h, cx| {
-            h.show_opened(route, opened, current, &*review, cx)
-        });
+        h.update(cx, |h, cx| h.show_opened(route, current, &*review, cx));
     }
 }
 

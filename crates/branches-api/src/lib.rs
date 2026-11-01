@@ -26,9 +26,9 @@ pub trait Branches {
     /// The side panel of a branch's or a request's page, at `width` (`Pages::side`).
     fn panel(&self, width: f32, cx: &mut App) -> Option<AnyElement>;
 
-    /// A branch's, a comparison's, the working tree's or a request's route on screen (`Pages::show`), `opened` anew
-    /// or gone back to: what it shows read, unless it is what is loaded.
-    fn show(&self, route: &Route, opened: bool, cx: &mut App);
+    /// A branch's, a comparison's, the working tree's or a request's route on screen (`Pages::show`): what it shows
+    /// read, unless it is what is loaded.
+    fn show(&self, route: &Route, cx: &mut App);
 }
 
 /// A branch, by its refname.

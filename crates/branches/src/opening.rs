@@ -3,9 +3,9 @@
 //! tree; a comparison; a request opened (its branch read with it), or its whole diff, a commit, a run or versions of
 //! it. A page that waits for its branch or its request to be read is kept as `waiting`. Which branch a request is
 //! read from is the history's too (`request_branch`), and showing it as it comes on screen (`show_opened`); what the
-//! tab keeps of it and a request's reading stay the tab's for now (`Shows`, told by `Event::Shown`).
+//! tab keeps of it and a request's reading stay the tab's for now (`Shows`, taken as the route is shown).
 
-use crate::history::{Event, History, NamedTip, RequestSides};
+use crate::history::{History, NamedTip, RequestSides};
 use crate::waiting::{Pick, Waiting};
 use artoo_branches_api::{
     BranchCommitRoute, BranchCommitsRoute, BranchRoute, CompareRoute, VersionsRoute,
@@ -115,26 +115,23 @@ pub struct RequestOf<'a> {
 }
 
 impl History {
-    /// Route `route` on screen (`Pages.show`), `opened` anew or gone back to: shown unless it is what is loaded
-    /// (`loaded_route`, with the review's diff and request `current`), what the tab does after said
-    /// (`Event::Shown`).
+    /// Route `route` on screen (`Pages.show`): shown unless it is what is loaded (`loaded_route`, with the
+    /// review's diff and request `current`), what the tab does after kept for it (`shown`).
     pub fn show_opened(
         &mut self,
         route: &Route,
-        opened: bool,
         current: Option<u64>,
         review: &dyn Review,
         cx: &mut Context<Self>,
     ) {
+        self.shown = None;
         let shown = review.shown(cx);
         let loaded = self.loaded_route(shown.as_ref().map(|d| &d.header), current, Some(route));
         if loaded.as_ref() == Some(route) {
             return;
         }
         let same = item_of(route).is_some() && loaded.as_ref().and_then(item_of) == item_of(route);
-        if let Some(shows) = self.show_route(route, same, review, cx) {
-            cx.emit(Event::Shown { shows, opened });
-        }
+        self.shown = self.show_route(route, same, review, cx);
     }
 
     /// Route `route` shown (`opening`); `same` when its branch is the one open. `None` for a route of another
