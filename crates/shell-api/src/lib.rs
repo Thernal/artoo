@@ -21,11 +21,12 @@
 //! from inside its own update, where reading the tab would panic, so a hook defers what reads it (`cx.defer`).
 //! The part's views, listeners and tasks read it as they like.
 //!
-//! - **Render contracts** (`render`): the pieces of the frame the tab draws — the page bar (`bar`), the title bar (`title`) — through a
+//! - **Render contracts** (`render`): the pieces of the frame the tab draws — the page bar (`bar`), the title bar (`title`), the window's tabs (`tabs`) — through a
 //!   renderer the frame installs, so the tab knows this contract and never the frame's drawing.
 
 pub mod bar;
 pub mod render;
+pub mod tabs;
 pub mod title;
 
 use artoo_core::git::WebRemote;

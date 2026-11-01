@@ -32,4 +32,5 @@ pub fn install(cx: &mut gpui::App) {
     use std::rc::Rc;
     provide::<dyn artoo_shell_api::bar::BarRenderer>(Rc::new(bar::Renderer), cx);
     provide::<dyn artoo_shell_api::title::TitleRenderer>(Rc::new(title::Renderer), cx);
+    provide::<dyn artoo_shell_api::tabs::TabsRenderer>(Rc::new(rail::Renderer), cx);
 }

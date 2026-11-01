@@ -1,29 +1,30 @@
 //! The window's tabs drawn (Design flow 02, #49): the project rail on its left edge — a mark per open repository,
 //! ⌘1…9 in its order, the unread count on the ones you are not in, + to open another, a drag reorders —, or the
 //! tabs in the title bar (Design `shell.js`, D12, X10). Settings → Appearance picks the rail (default), tabs or the
-//! menu. What a click does is the tab's (`TabsHost`): a right click opens its menu (move, show, a window, close).
+//! menu. What a click does is the tab's (`TabsHost`, the contract `artoo_shell_api::tabs`): a right click opens its menu (move, show, a window, close).
 
-use crate::tabs::TabInfo;
+use artoo_shell_api::tabs::{TabInfo, TabsHost, TabsRenderer};
 use artoo_ui_kit::controls::DragLabel;
 use artoo_ui_kit::hover::{self, Tip, TipOwned};
 use artoo_ui_kit::{ROW_RADIUS, format, icons, keys, motion, px, theme};
 use gpui::{
-    AnimationExt as _, App, ClickEvent, Context, FontWeight, MouseButton, MouseDownEvent, Pixels,
-    Point, Rgba, Window, div, prelude::*,
+    AnimationExt as _, ClickEvent, Context, FontWeight, MouseButton, MouseDownEvent, Rgba, Window,
+    div, prelude::*,
 };
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
-/// What a click on the window's tabs does.
-pub trait TabsHost {
-    fn select(&self, ix: usize, window: &mut Window, cx: &mut App);
-    fn close(&self, ix: usize, window: &mut Window, cx: &mut App);
-    /// Tab `from` dragged onto tab `to`.
-    fn moved(&self, from: usize, to: usize, window: &mut Window, cx: &mut App);
-    /// Tab `ix`'s right click, at `at`.
-    fn menu(&self, ix: usize, at: Point<Pixels>, window: &mut Window, cx: &mut App);
-    /// +: a repository to open.
-    fn add(&self, window: &mut Window, cx: &mut App);
+/// The window's tabs' renderer, installed by `install`.
+pub(crate) struct Renderer;
+
+impl TabsRenderer for Renderer {
+    fn rail(&self, tabs: Vec<TabInfo>, host: Rc<dyn TabsHost>) -> gpui::AnyElement {
+        rail(tabs, host).into_any_element()
+    }
+
+    fn title_tabs(&self, tabs: Vec<TabInfo>, host: Rc<dyn TabsHost>) -> gpui::AnyElement {
+        title_tabs(tabs, host)
+    }
 }
 
 /// The project the rail last marked: a rail drawn after a switch slides its marker from there.
@@ -36,10 +37,10 @@ fn marker_top(ix: usize) -> f32 {
 
 /// A project being dragged along the rail: its index.
 #[derive(Clone, Copy)]
-pub struct DragProject(pub usize);
+struct DragProject(usize);
 
 /// What follows the pointer while a project is dragged: its mark.
-pub struct DragMark {
+struct DragMark {
     mark: String,
     hue: Rgba,
 }
@@ -106,7 +107,7 @@ pub fn project_mark(mark: &str, hue: Rgba, size: f32) -> gpui::Div {
 }
 
 /// The rail of `tabs`.
-pub fn rail(tabs: Vec<TabInfo>, host: Rc<dyn TabsHost>) -> impl IntoElement {
+fn rail(tabs: Vec<TabInfo>, host: Rc<dyn TabsHost>) -> impl IntoElement {
     let n = tabs.len();
     let active = tabs.iter().position(|t| t.active);
     let items = tabs.into_iter().enumerate().map(|(ix, tab)| {
@@ -249,7 +250,7 @@ pub fn rail(tabs: Vec<TabInfo>, host: Rc<dyn TabsHost>) -> impl IntoElement {
 
 /// The tabs in the title bar: each project's mark, name and unread count, a dot when it has news, ✕ on the active
 /// one (on the others under the pointer), + to open another.
-pub fn title_tabs(tabs: Vec<TabInfo>, host: Rc<dyn TabsHost>) -> gpui::AnyElement {
+fn title_tabs(tabs: Vec<TabInfo>, host: Rc<dyn TabsHost>) -> gpui::AnyElement {
     div()
         .flex_none()
         .min_w_0()

@@ -3,8 +3,8 @@
 //! what it needs. In Menu mode the spaces nest under the active project's row (X13); folded, the menu is icons (D2).
 //! What is open, what waits and what a click does are the tab's.
 
-use crate::rail::{self, TabsHost};
-use crate::tabs::TabInfo;
+use crate::rail;
+use artoo_shell_api::tabs::{TabInfo, TabsHost};
 use artoo_ui_kit::controls::DragLabel;
 use artoo_ui_kit::hover::{self, CutInTip, Hover, Tip, TipOwned};
 use artoo_ui_kit::motion::{self, Folds};

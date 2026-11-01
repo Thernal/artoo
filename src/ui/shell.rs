@@ -3,7 +3,7 @@
 
 use super::Workspace;
 use artoo_shell::tabs::{Tab, Tabs};
-pub(super) use artoo_shell::tabs::{TabInfo, TabModel};
+pub(super) use artoo_shell_api::tabs::{TabInfo, TabModel};
 use gpui::{App, Context, FocusHandle, WeakEntity, Window};
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;

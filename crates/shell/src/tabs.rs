@@ -2,28 +2,15 @@
 //! position. `⌘T` opens one, `⌘W` closes, `⌘1…9` switch, `⌘⇧T` reopens the last closed. In Tabs mode they sit in
 //! the title bar (D12, D21). A tab is the app's (`Tab`); the window keeps them, which is on screen, the session.
 
+use artoo_shell_api::tabs::{TabInfo, TabModel};
 use gpui::{
     App, AppContext, Context, Entity, EntityId, FocusHandle, Render, WeakEntity, Window, div,
     prelude::*,
 };
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-
-/// What a window's tabs need to know about each tab.
-#[derive(Clone)]
-pub struct TabInfo {
-    pub title: String,
-    pub news: bool,
-    pub active: bool,
-    /// The repository, for Reveal in Finder and a new window.
-    pub root: Option<PathBuf>,
-    /// Its unread notifications, counted on the rail.
-    pub unread: usize,
-}
-
-pub type TabModel = Rc<RefCell<Vec<TabInfo>>>;
 
 /// What a window asks of its tabs.
 pub trait Tab: Render + Sized {

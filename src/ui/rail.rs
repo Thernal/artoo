@@ -1,12 +1,12 @@
 //! The project rail on the window's left edge and the title bar's tabs, the tab's side: drawn by the shell
-//! (`artoo_shell::rail`); a click goes to the window's tabs, a right click opens the project's menu here.
+//! (`artoo_shell_api::tabs`); a click goes to the window's tabs, a right click opens the project's menu here.
 
 use super::Workspace;
 use super::menu::{Act, Entry};
 use super::shell::TabInfo;
 use crate::storage::Projects;
-use artoo_shell::rail::{self, TabsHost};
 pub(super) use artoo_shell::rail::{hue, hue_at, initials, project_mark};
+use artoo_shell_api::tabs::{self as rail, TabsHost};
 use gpui::{App, Context, IntoElement, Pixels, Point, WeakEntity, Window};
 use std::rc::Rc;
 
@@ -69,7 +69,8 @@ impl Workspace {
         {
             return None;
         }
-        Some(rail::rail(self.tabs.borrow().clone(), self.tabs_host(cx)))
+        let host = self.tabs_host(cx);
+        Some(rail::rail(self.tabs.borrow().clone(), host, cx))
     }
 
     /// The tabs in the title bar; None unless Settings → Appearance chose Tabs.
@@ -77,10 +78,8 @@ impl Workspace {
         if super::projects() != Projects::Tabs {
             return None;
         }
-        Some(rail::title_tabs(
-            self.tabs.borrow().clone(),
-            self.tabs_host(cx),
-        ))
+        let host = self.tabs_host(cx);
+        Some(rail::title_tabs(self.tabs.borrow().clone(), host, cx))
     }
 
     pub(super) fn tabs_host(&self, cx: &mut Context<Self>) -> Rc<dyn TabsHost> {
