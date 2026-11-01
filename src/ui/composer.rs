@@ -13,8 +13,8 @@ use super::px;
 use super::typing::{self, Input};
 use super::waiting::Op;
 use super::{Selection, Workspace, format};
+use crate::comment::{Comment, State};
 use crate::markdown::Helper;
-use crate::review::{Comment, State};
 use crate::textedit::TextEdit;
 pub(super) use artoo_review::composer::{
     Change, Compose, ComposeAct, ComposeActs, FootEvent, FootLook, Look, Room, Short, Target,

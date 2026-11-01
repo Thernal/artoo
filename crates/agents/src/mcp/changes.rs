@@ -3,7 +3,7 @@
 //! is told their commits, so it compares what the agent meant. `annotate_changes` (#151): the
 //! agent's notes on lines of those changes, with a summary, which `open_changes` can carry too.
 
-use crate::agents::{Bus, Event, What};
+use crate::agents::{Bus, What, event};
 use crate::git::{DiffSettings, Repo};
 use crate::notes::Note;
 use serde_json::Value;
@@ -189,7 +189,7 @@ pub fn open_changes(
             open: true,
         }
     };
-    bus.event(&Event::new(project.to_path_buf(), what))
+    bus.event(&event(project.to_path_buf(), what))
         .map_err(|e| e.to_string())?;
     Ok(format!(
         "Under Branches in Artoo: {}{with}.{}",
@@ -227,7 +227,7 @@ pub fn annotate_changes(
         notes,
         open: false,
     };
-    bus.event(&Event::new(project.to_path_buf(), what))
+    bus.event(&event(project.to_path_buf(), what))
         .map_err(|e| e.to_string())?;
     Ok(format!(
         "Kept in Artoo beside the diff: {said}. The reviewer sees them there and can answer one as a comment; nothing was sent to GitLab or GitHub.{}",

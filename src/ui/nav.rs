@@ -1020,7 +1020,7 @@ impl Workspace {
     }
 
     fn nav_repo(&self) -> Option<String> {
-        self.root.as_ref().map(|r| crate::review::key(r))
+        self.root.as_ref().map(|r| crate::comment::key(r))
     }
 
     pub(super) fn save_nav(&self) {

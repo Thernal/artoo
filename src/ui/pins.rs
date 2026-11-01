@@ -7,7 +7,7 @@ use super::Workspace;
 use super::composer::Target;
 use super::diff_view::NoteTone;
 use super::rows::{Pin, Row};
-use crate::review::Place;
+use crate::comment::Place;
 use artoo_review::pins::{Anchored, FilePins, Pins};
 use gpui::{App, Context};
 

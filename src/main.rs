@@ -5,7 +5,9 @@
 
 mod ui;
 
-use artoo_agents::{agents, codex, mcp, notes, review, watch};
+use artoo_agents::{agents, codex, mcp, watch};
+/// The agents' models: the comments for an agent, their notes, what goes over their folder.
+use artoo_agents_api::{bus, comment, notes};
 use artoo_core::{
     applog, editor, files, fswatch, git, labels, links, markdown, mddiff, platform, rank, rows,
     storage, symbols, textedit, themes,

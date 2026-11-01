@@ -9,9 +9,9 @@ use super::Workspace;
 use super::nav::Page;
 use super::rows::FileData;
 use super::toast::Act;
-use crate::agents::{Event, What};
+use crate::bus::{Event, What};
+use crate::comment::Place;
 use crate::notes::{Notes, On};
-use crate::review::Place;
 use artoo_agents::view::{self, NoteEvent, NoteLook, OnNote};
 use gpui::{App, Context, WeakEntity, div, prelude::*};
 use std::rc::Rc;
@@ -92,7 +92,7 @@ impl Workspace {
 
     pub(super) fn save_agent_notes(&self, cx: &App) {
         if let Some(project) = &self.project {
-            crate::notes::save(project, &self.agent_notes.read(cx).all);
+            artoo_agents::notes::save(project, &self.agent_notes.read(cx).all);
         }
     }
 
@@ -112,7 +112,7 @@ impl Workspace {
             .flat_map(|n| n.notes.iter())
             .filter(|n| n.path == path)
             .filter_map(|n| {
-                match crate::review::find_line(n.line, &n.code, side.count(), |l| side.line(l).0) {
+                match crate::comment::find_line(n.line, &n.code, side.count(), |l| side.line(l).0) {
                     Place::Line(line) => Some((n.id, line)),
                     Place::Outdated => self
                         .agent_notes

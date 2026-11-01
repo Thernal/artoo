@@ -105,7 +105,7 @@ impl Workspace {
     pub(super) fn set_page_source(&mut self, path: &str, source: bool, cx: &mut Context<Self>) {
         if let Some(root) = &self.root {
             self.review
-                .update(cx, |rv, _| rv.page.load(&crate::review::key(root)));
+                .update(cx, |rv, _| rv.page.load(&crate::comment::key(root)));
         }
         if !self
             .review

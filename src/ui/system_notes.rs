@@ -158,10 +158,10 @@ impl Workspace {
     /// id, state and replies then), said by the agent that took them.
     pub(super) fn notify_answers(
         &mut self,
-        before: &[(u64, crate::review::State, usize)],
+        before: &[(u64, crate::comment::State, usize)],
         cx: &mut Context<Self>,
     ) {
-        use crate::review::State;
+        use crate::comment::State;
         let mut by: HashMap<String, usize> = HashMap::new();
         for c in self.comments(cx) {
             let Some(&(_, state, replies)) = before.iter().find(|(id, ..)| *id == c.id) else {

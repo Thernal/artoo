@@ -5,7 +5,7 @@
 //! request the agent drafts (#152) opens in the app's New merge request card; the reviewer creates
 //! it.
 
-use crate::agents::{self, Bus, Event, Mark, RequestDraft, What};
+use crate::agents::{self, Bus, Mark, RequestDraft, What};
 use crate::git::{DiffSettings, FileDiff, LineKind, Repo};
 use artoo_hosts_api::{Host, Hosts, Mr, Place};
 use git2::Oid;
@@ -439,7 +439,7 @@ pub fn add_pending_comment(
         bus.mark(project, &mark).map_err(|e| e.to_string())?;
     }
     let ids = id.into_iter().collect();
-    bus.event(&Event::new(
+    bus.event(&agents::event(
         project.to_path_buf(),
         What::Pending { iid, ids },
     ))
@@ -525,8 +525,11 @@ pub fn gather_requests(
         bus.mark(project, &mark).map_err(|e| e.to_string())?;
     }
     let iids = found.iter().map(|(m, _)| m.iid).collect();
-    bus.event(&Event::new(project.to_path_buf(), What::Gathered { iids }))
-        .map_err(|e| e.to_string())?;
+    bus.event(&agents::event(
+        project.to_path_buf(),
+        What::Gathered { iids },
+    ))
+    .map_err(|e| e.to_string())?;
     let mut out = String::from("Under Merge requests in Artoo, in this order:\n");
     for (m, note) in &found {
         let _ = write!(out, "- !{} {}", m.iid, m.title);
@@ -697,8 +700,11 @@ pub fn draft_request(
         reviewers: list("reviewers"),
         labels: list("labels"),
     };
-    bus.event(&Event::new(project.to_path_buf(), What::NewRequest(draft)))
-        .map_err(|e| e.to_string())?;
+    bus.event(&agents::event(
+        project.to_path_buf(),
+        What::NewRequest(draft),
+    ))
+    .map_err(|e| e.to_string())?;
     let mut out = format!(
         "Your draft is in Artoo: {source} → {target}, \"{title}\", {commits} commit(s). It is not on the reviewer's screen yet: the branch is under Branches with a dot, and the New merge request card opens, filled in, when the reviewer opens that branch or the toast's Open. Nothing was created or sent: the reviewer checks it, edits it and creates it."
     );

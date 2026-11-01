@@ -2,7 +2,7 @@
 //! request at one of its comments. The place is checked here, in the agent's folder; the app only
 //! says it in a toast whose Show goes there.
 
-use crate::agents::{Bus, Event, Place, What};
+use crate::agents::{Bus, Place, What, event};
 use crate::git::Repo;
 use artoo_hosts_api::Hosts;
 use serde_json::Value;
@@ -44,7 +44,7 @@ pub fn show(
         let comment = args["comment"].as_u64();
         super::requests::request_place(hosts, here, request.unwrap_or_default(), comment)?
     };
-    bus.event(&Event::new(project.to_path_buf(), What::Point { place }))
+    bus.event(&event(project.to_path_buf(), What::Point { place }))
         .map_err(|e| e.to_string())?;
     Ok(format!(
         "Pointed the reviewer at {said}: a note in Artoo offers to show it.{}",

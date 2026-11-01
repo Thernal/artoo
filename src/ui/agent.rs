@@ -5,7 +5,8 @@
 
 use super::Workspace;
 use crate::agents::{self, Bus};
-use crate::review::State;
+use crate::bus::Chat;
+use crate::comment::State;
 use artoo_agents::form::{self, FormEvent, OnForm};
 pub(super) use artoo_agents::view::chat_badge;
 use artoo_agents::window::{Act, Kind, kind_of};
@@ -113,7 +114,7 @@ impl Workspace {
             return;
         }
         self.refresh_chats(cx);
-        let mut by_chat: Vec<(agents::Chat, Vec<u64>)> = Vec::new();
+        let mut by_chat: Vec<(Chat, Vec<u64>)> = Vec::new();
         let mut nowhere = Vec::new();
         for id in ids {
             let branch = self
@@ -147,7 +148,7 @@ impl Workspace {
     }
 
     /// The chat a note on `branch` goes to (`Chats::route_of`), with the one picked for it.
-    pub(super) fn route_of(&self, branch: Option<&str>, cx: &App) -> Option<agents::Chat> {
+    pub(super) fn route_of(&self, branch: Option<&str>, cx: &App) -> Option<Chat> {
         let main = self.project.as_ref().or(self.root.as_ref())?;
         self.chats.read(cx).route_of(branch, main).cloned()
     }
@@ -186,9 +187,9 @@ impl Workspace {
     pub(super) fn pick_answer(&mut self, id: u64, pick: Option<usize>, cx: &mut Context<Self>) {
         let picked = self.change_comment(id, cx, |c| {
             let form = c.replies.last().and_then(|r| r.form.clone());
-            let a = c.answer.get_or_insert_with(|| crate::review::Answered {
+            let a = c.answer.get_or_insert_with(|| crate::comment::Answered {
                 picks: match &form {
-                    Some(f) if f.kind == crate::review::FormKind::Order => {
+                    Some(f) if f.kind == crate::comment::FormKind::Order => {
                         (0..f.choices().len()).collect()
                     }
                     Some(f) if f.kind.many() => f
@@ -239,7 +240,7 @@ impl Workspace {
                 .last()
                 .and_then(|r| r.form.as_ref())
                 .map_or(0, |f| f.choices().len());
-            let a = c.answer.get_or_insert_with(|| crate::review::Answered {
+            let a = c.answer.get_or_insert_with(|| crate::comment::Answered {
                 picks: (0..n).collect(),
                 ..Default::default()
             });
@@ -262,7 +263,7 @@ impl Workspace {
     /// of the file when it is the one open, for a Line's suggestions.
     pub(super) fn agent_form(
         &self,
-        c: &crate::review::Comment,
+        c: &crate::comment::Comment,
         this: WeakEntity<Self>,
         cx: &App,
     ) -> Option<gpui::AnyElement> {
@@ -325,7 +326,7 @@ impl Workspace {
     /// A digit on the acting form: 0 is your call, 1…9 the option drawn with that number (Line:
     /// the suggestion in order). Whether it took the key.
     pub(super) fn answer_by_key(&mut self, digit: usize, cx: &mut Context<Self>) -> bool {
-        use crate::review::FormKind;
+        use crate::comment::FormKind;
         let Some(id) = self.acting_agent_form(cx) else {
             return false;
         };

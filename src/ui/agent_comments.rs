@@ -9,7 +9,7 @@ use super::px;
 use super::rows::FileData;
 use super::typing::Input;
 use super::{Workspace, theme};
-use crate::review::{self, Comment, Place, State};
+use crate::comment::{self, Comment, Place, State};
 use crate::textedit::TextEdit;
 use gpui::{App, ClipboardItem, Context, WeakEntity, div, prelude::*};
 
@@ -334,7 +334,7 @@ impl Workspace {
             .filter(|c| c.open())
             .map(|c| (c.clone(), self.place_of(c, cx)))
             .collect();
-        cx.write_to_clipboard(ClipboardItem::new_string(review::export(&repo, &comments)));
+        cx.write_to_clipboard(ClipboardItem::new_string(comment::export(&repo, &comments)));
         self.copied = true;
         cx.notify();
     }
@@ -364,7 +364,7 @@ impl Workspace {
         let (fold, delete, raw) = (this.clone(), this.clone(), this.clone());
         let (resolve, reopen, editing, asking) = (this.clone(), this.clone(), this.clone(), this);
         // A chat by the name it was given, else its title; without one, by its agent.
-        let chat = |s: &crate::review::Sent| {
+        let chat = |s: &crate::comment::Sent| {
             let title = crate::labels::chat(&s.session).unwrap_or_else(|| s.title.clone());
             if title.is_empty() {
                 self.chats
@@ -598,5 +598,5 @@ fn place_in(comment: &Comment, path: &str, data: &FileData) -> Option<Place> {
         return None;
     }
     let side = data.side(comment.old);
-    Some(review::place(comment, side.count(), |n| side.line(n).0))
+    Some(comment::place(comment, side.count(), |n| side.line(n).0))
 }

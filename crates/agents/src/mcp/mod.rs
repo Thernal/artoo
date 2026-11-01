@@ -382,7 +382,7 @@ fn open_app(bus: &Bus, exe: &str, wait: Duration) -> Result<String, String> {
         crate::platform::launch(Path::new(exe), &project)
             .map_err(|e| format!("Artoo could not be started: {e}"))?;
     } else {
-        bus.event(&agents::Event::new(project.clone(), agents::What::Open))
+        bus.event(&agents::event(project.clone(), agents::What::Open))
             .map_err(|e| e.to_string())?;
     }
     let until = Instant::now() + wait;

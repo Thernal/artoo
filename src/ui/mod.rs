@@ -845,7 +845,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                                 });
                             if let Some(line) = target {
                                 let code = data.side(false).line(line).0.to_owned();
-                                let comment = crate::review::Comment {
+                                let comment = crate::comment::Comment {
                                     id: 1,
                                     path: path.clone(),
                                     old: false,
@@ -885,7 +885,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                                 _ => None,
                             });
                             if let Some(line) = line {
-                                use crate::review::{
+                                use crate::comment::{
                                     Answered, Form, FormKind, FormOption, Reply, Sent, State,
                                 };
                                 let step = |l: &str, on: bool| FormOption {
@@ -893,7 +893,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                                     on,
                                     ..Default::default()
                                 };
-                                let comment = crate::review::Comment {
+                                let comment = crate::comment::Comment {
                                     id: 7,
                                     path: path.clone(),
                                     line,
@@ -1533,7 +1533,7 @@ pub struct Workspace {
     send_card: gpui::Entity<artoo_agents::pick::SendCard>,
     /// What agents left in this project, to tell it apart (`agent_events.rs`, #150), and when it
     /// was last read.
-    agent_marks: Vec<crate::agents::Mark>,
+    agent_marks: Vec<crate::bus::Mark>,
     marks_stamp: Option<std::time::SystemTime>,
     /// Requests an agent gathered under Merge requests not opened since: the first open goes to
     /// its comments (#148).
@@ -1594,7 +1594,7 @@ pub struct Workspace {
     agent_notes: gpui::Entity<artoo_agents::notes::AgentNotes>,
     /// Merge requests agents drafted (#152), with who did: the last one for each branch, until
     /// the reviewer creates it.
-    agent_requests: Vec<(String, crate::agents::RequestDraft)>,
+    agent_requests: Vec<(String, crate::bus::RequestDraft)>,
     /// The branch whose drafted request opens once its page is in (Open on its toast).
     create_waiting: Option<String>,
     /// Branches with an agent's drafted request whose card has not opened yet: it opens when the
@@ -2010,7 +2010,7 @@ impl Workspace {
                         if this.root.as_ref() != Some(&root) {
                             this.agent_comments
                                 .update(cx, |c, _| c.load(project.clone()));
-                            let notes = crate::notes::load(&project);
+                            let notes = artoo_agents::notes::load(&project);
                             this.agent_notes.update(cx, |n, _| n.all = notes);
                             this.marks_stamp = None;
                             this.compose = None;
@@ -2021,14 +2021,14 @@ impl Workspace {
                         this.load_requests(cx);
                         // The documents this repository reads as Source (#11).
                         this.review
-                            .update(cx, |rv, _| rv.page.load(&crate::review::key(&root)));
+                            .update(cx, |rv, _| rv.page.load(&crate::comment::key(&root)));
                         // Its requests list's folds and the requests opened (#81).
-                        let key = crate::review::key(&root);
+                        let key = crate::comment::key(&root);
                         this.requests.update(cx, |rq, _| rq.rows.load(&key));
                         // Code's project, its pinned tabs (#20).
                         if let Some(code) = this.code() {
                             let fresh = this.root.as_ref() != Some(&root);
-                            let key = crate::review::key(&root);
+                            let key = crate::comment::key(&root);
                             code.set_project(root.clone(), false, fresh, &key, cx);
                         }
                         this.review.update(cx, |rv, _| rv.root = Some(root.clone()));
@@ -2102,12 +2102,12 @@ impl Workspace {
         self.start_working_poll(cx);
         self.load_requests(cx);
         self.review
-            .update(cx, |rv, _| rv.page.load(&crate::review::key(&root)));
-        let key = crate::review::key(&root);
+            .update(cx, |rv, _| rv.page.load(&crate::comment::key(&root)));
+        let key = crate::comment::key(&root);
         self.requests.update(cx, |rq, _| rq.rows.load(&key));
         if let Some(code) = self.code() {
             let fresh = self.root.as_ref() != Some(&root);
-            code.set_project(root.clone(), true, fresh, &crate::review::key(&root), cx);
+            code.set_project(root.clone(), true, fresh, &crate::comment::key(&root), cx);
         }
         self.review.update(cx, |rv, _| rv.root = Some(root.clone()));
         self.history.update(cx, |h, _| h.root = Some(root.clone()));

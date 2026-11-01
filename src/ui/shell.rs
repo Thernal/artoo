@@ -119,10 +119,10 @@ impl Beat {
             return;
         };
         let mut projects = shell.projects(cx);
-        let now = crate::agents::now();
+        let now = crate::bus::now();
         // Said again when it changes, and every 10 s so it stays fresh.
         if projects != self.said || now - self.said_at >= 10 {
-            let presence = crate::agents::Presence {
+            let presence = crate::bus::Presence {
                 pid: std::process::id(),
                 projects: projects.clone(),
                 beat: now,
@@ -164,7 +164,7 @@ impl Beat {
                     .active()
                     .update(cx, |w, cx| w.toast_info(said.into(), cx));
             }
-            if event.what == crate::agents::What::Open {
+            if event.what == crate::bus::What::Open {
                 bus.take_event(&event.uid);
             }
         }

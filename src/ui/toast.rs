@@ -34,7 +34,7 @@ pub(super) enum Act {
     Connected,
     /// Goes to the place `agent` pointed at (#154).
     Point {
-        place: crate::agents::Place,
+        place: crate::bus::Place,
         agent: String,
     },
 }
@@ -113,7 +113,7 @@ impl Workspace {
     /// "Draft deleted · Money.kt:23" with Undo, which puts `comment` back.
     pub(super) fn toast_deleted(
         &mut self,
-        comment: crate::review::Comment,
+        comment: crate::comment::Comment,
         cx: &mut Context<Self>,
     ) {
         let name = comment.path.rsplit('/').next().unwrap_or(&comment.path);
@@ -130,7 +130,7 @@ impl Workspace {
     }
 
     /// Undo: the deleted draft is back where it was.
-    fn undo(&mut self, comment: crate::review::Comment, cx: &mut Context<Self>) {
+    fn undo(&mut self, comment: crate::comment::Comment, cx: &mut Context<Self>) {
         self.change_comments(cx, |list| {
             list.push(comment);
             list.sort_by_key(|c| c.id);

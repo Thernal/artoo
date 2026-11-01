@@ -7,5 +7,12 @@ license.workspace = true
 publish = false
 
 [dependencies]
+# Where a comment is now (`comment::Place`), as the core finds a line again.
+artoo-core = { path = "../core" }
 # The handle every window reads (`provide` / `get`).
 gpui.workspace = true
+# The models as the agents' folder keeps them.
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

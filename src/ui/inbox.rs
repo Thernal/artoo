@@ -136,7 +136,7 @@ impl Workspace {
                 let addressed = self
                     .comments(cx)
                     .iter()
-                    .any(|c| c.id == id && c.state == crate::review::State::Addressed);
+                    .any(|c| c.id == id && c.state == crate::comment::State::Addressed);
                 if addressed {
                     self.resolve_agent_comment(id, cx);
                 }
@@ -293,7 +293,7 @@ impl Workspace {
     }
 
     /// Who an agent's answer is from: the chat's agent ("Claude"), and the chat's title.
-    fn agent_of(&self, c: &crate::review::Comment, cx: &App) -> From {
+    fn agent_of(&self, c: &crate::comment::Comment, cx: &App) -> From {
         let title = c
             .sent
             .as_ref()
@@ -375,7 +375,7 @@ impl artoo_requests::inbox_page::InboxHost for InboxHost {
             tab.read(cx)
                 .comments(cx)
                 .iter()
-                .any(|c| c.id == id && c.state == crate::review::State::Addressed)
+                .any(|c| c.id == id && c.state == crate::comment::State::Addressed)
         })
     }
 

@@ -128,7 +128,7 @@ impl Workspace {
                 let drafts = self
                     .comments(cx)
                     .iter()
-                    .any(|c| c.state == crate::review::State::Draft && paths.contains(&c.path));
+                    .any(|c| c.state == crate::comment::State::Draft && paths.contains(&c.path));
                 match &open.item {
                     Item::Request(iid) => {
                         let m = self.requests.read(cx).find(*iid);
