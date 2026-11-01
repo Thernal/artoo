@@ -33,6 +33,8 @@ fn main() {
         .map(PathBuf::from)
         .filter(|p| p.is_dir() || git::Repo::open(p).is_ok());
     ui::run(path, |cx| {
+        // The frame's renderers first: what the tabs draw around the features' pieces.
+        artoo_shell::install(cx);
         artoo_hosts::install(cx);
         artoo_agents::install(cx);
         artoo_updates::install(cx);

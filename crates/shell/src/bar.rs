@@ -1,63 +1,25 @@
 //! The page bar (#71) drawn: one 44 px line over every page — the path ending in the item's id, each part above it a
 //! way up; "‹ Inbox" while a page reached from another space is on screen; the page's view switch; its actions. A
-//! request's bar carries the public orange along its top. What the path is and what a click does are the tab's.
+//! request's bar carries the public orange along its top. What the path is and what a click does are the tab's
+//! (`artoo_shell_api::bar`, its contract).
 
+use artoo_shell_api::bar::{BarHost, BarRenderer, PageBar};
 use artoo_ui_kit::hover::{self, Tip};
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, flat, island, px, theme, words};
-use gpui::{
-    AnyElement, App, ClickEvent, MouseButton, MouseDownEvent, Pixels, Point, SharedString, Window,
-    div, prelude::*,
-};
+use gpui::{AnyElement, ClickEvent, MouseButton, MouseDownEvent, SharedString, div, prelude::*};
 use std::rc::Rc;
 
-/// A part of the path above the page.
-pub struct Crumb {
-    pub label: String,
-    pub mono: bool,
-    /// It goes up to its page.
-    pub link: bool,
-    /// A folder of Code: a click lists what is beside it, a right click its menu (#132, B).
-    pub folder: bool,
-    /// Its list is open.
-    pub open: bool,
-    /// A note for the agent waits on it: its dot.
-    pub noted: bool,
-    /// What is beside it, listed under it.
-    pub list: Option<AnyElement>,
-}
+/// The bar's renderer, installed by `install`.
+pub(crate) struct Renderer;
 
-/// The bar of the page on screen.
-pub struct PageBar {
-    /// The space a page was reached from: "‹ Inbox".
-    pub from: Option<&'static str>,
-    /// Narrow: the path is ‹, one level up (#80).
-    pub up: bool,
-    pub crumbs: Vec<Crumb>,
-    /// The page's title, with what its long hover says.
-    pub title: AnyElement,
-    pub count: Option<String>,
-    pub view: Option<AnyElement>,
-    pub actions: Vec<AnyElement>,
-    /// Public: what is done here is seen on GitLab (#71).
-    pub public: bool,
-}
-
-/// What a click on the bar does.
-pub trait BarHost {
-    /// ‹ Inbox: back where the page was reached from.
-    fn back(&self, window: &mut Window, cx: &mut App);
-    /// ‹: one level up.
-    fn up(&self, window: &mut Window, cx: &mut App);
-    /// Crumb `n` clicked: up to its page.
-    fn up_to(&self, n: usize, window: &mut Window, cx: &mut App);
-    /// Folder crumb `n` clicked: what is beside it.
-    fn folder(&self, n: usize, window: &mut Window, cx: &mut App);
-    /// Folder crumb `n`'s right click, at `at`.
-    fn folder_menu(&self, n: usize, at: Point<Pixels>, window: &mut Window, cx: &mut App);
+impl BarRenderer for Renderer {
+    fn render(&self, bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
+        page_bar(bar, host)
+    }
 }
 
 /// The bar.
-pub fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
+fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
     let crumbs = bar.crumbs.into_iter().enumerate().map(|(n, crumb)| {
         let (link, folder, menu) = (host.clone(), host.clone(), host.clone());
         div()

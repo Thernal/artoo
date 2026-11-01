@@ -7,7 +7,7 @@
 //! and what a click on it does.
 
 pub mod appearance;
-pub mod bar;
+mod bar;
 pub mod fonts;
 pub mod frame;
 pub mod keyboard;
@@ -25,3 +25,10 @@ pub mod title;
 pub mod toast;
 pub mod tools;
 pub mod welcome;
+
+/// The frame's renderers, for every window (the kits' wiring: `LocalX provides XImpl`).
+pub fn install(cx: &mut gpui::App) {
+    use artoo_shell_api::render::provide;
+    use std::rc::Rc;
+    provide::<dyn artoo_shell_api::bar::BarRenderer>(Rc::new(bar::Renderer), cx);
+}

@@ -6,7 +6,7 @@
 use super::nav::Page;
 use super::spaces::Space;
 use super::{Workspace, format, px, theme, words};
-use artoo_shell::bar;
+use artoo_shell_api::bar;
 use gpui::{
     AnyElement, App, ClickEvent, Context, FontWeight, Pixels, Point, WeakEntity, Window, div,
     prelude::*,
@@ -113,6 +113,7 @@ impl Workspace {
                 public,
             },
             host,
+            cx,
         ))
     }
 
