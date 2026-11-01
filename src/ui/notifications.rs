@@ -123,7 +123,7 @@ impl Workspace {
 
     /// Everything listed counts as read.
     pub(super) fn read_all_notices(&mut self, cx: &mut Context<Self>) {
-        let agents = self.agent_notices().into_iter().map(|(_, _, key)| key);
+        let agents = self.agent_notices(cx).into_iter().map(|(_, _, key)| key);
         self.notices.update(cx, |n, _| n.read_all(agents));
         cx.notify();
     }

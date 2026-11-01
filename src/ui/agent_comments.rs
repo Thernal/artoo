@@ -339,7 +339,9 @@ impl Workspace {
         let chat = |s: &crate::review::Sent| {
             let title = crate::labels::chat(&s.session).unwrap_or_else(|| s.title.clone());
             if title.is_empty() {
-                self.agent_chats
+                self.chats
+                    .read(cx)
+                    .list
                     .iter()
                     .find(|c| c.session == s.session)
                     .map_or_else(|| "its chat".to_owned(), |c| c.agent.clone())

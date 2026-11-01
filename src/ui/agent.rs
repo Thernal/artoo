@@ -74,7 +74,7 @@ impl Workspace {
         };
         let project = self.project.clone().unwrap_or_else(|| root.clone());
         let mut chats: Vec<PickChat> = Self::bus()
-            .map(|bus| named(bus.chats(&project)))
+            .map(|bus| artoo_agents::chats::named(bus.chats(&project)))
             .unwrap_or_default()
             .into_iter()
             .map(|c| PickChat {
@@ -115,9 +115,11 @@ impl Workspace {
 
     /// Change…: the card offers the chats that listen; the one picked takes `branch`'s notes.
     fn open_route_pick(&mut self, branch: String, cx: &mut Context<Self>) {
-        let now = self.route_of(Some(&branch)).map(|c| c.session.clone());
+        let now = self.route_of(Some(&branch), cx).map(|c| c.session);
         let chats: Vec<PickChat> = self
-            .agent_chats
+            .chats
+            .read(cx)
+            .list
             .iter()
             .filter(|c| c.listening())
             .map(|c| PickChat {
@@ -151,10 +153,14 @@ impl Workspace {
     }
 
     /// Chat `session` is here and listening: a note sent to it and not taken is not waiting.
-    pub(super) fn chat_listens(&self, session: &str) -> bool {
-        self.agent_chats
-            .iter()
-            .any(|c| c.session == session && c.listening())
+    pub(super) fn chat_listens(&self, session: &str, cx: &App) -> bool {
+        self.chats.read(cx).listens(session)
+    }
+
+    /// Whether a chat is here and listening, as the chats are now: to ask while the tab changes.
+    pub(super) fn listening(&self, cx: &App) -> impl Fn(&str) -> bool + use<> {
+        let on = self.chats.read(cx).listening();
+        move |session| on.contains(session)
     }
 
     /// Another chat than the page's is changing file `path` (#77). One in a worktree of its own:
@@ -162,16 +168,18 @@ impl Workspace {
     /// whose edit is whose cannot be told: a note of its on the file was taken and not answered
     /// yet. Its name, letter and hue.
     pub(super) fn changing(&self, path: &str, cx: &App) -> Option<(String, char, gpui::Rgba)> {
-        let alive = |session: &str| self.chat_listens(session);
+        let alive = self.listening(cx);
         let page = self
-            .route_of(self.page_branch(cx).as_deref())
-            .map(|c| c.session.clone());
-        let edited = self
-            .agent_chats
+            .route_of(self.page_branch(cx).as_deref(), cx)
+            .map(|c| c.session);
+        let chats = self.chats.read(cx);
+        let edited = chats
+            .list
             .iter()
             .filter(|c| Some(&c.session) != page.as_ref())
             .find(|c| {
-                self.chat_edits
+                chats
+                    .edits
                     .get(&c.session)
                     .is_some_and(|paths| paths.contains(path))
             })
@@ -182,11 +190,11 @@ impl Workspace {
                 .filter(|c| c.path == path && !c.archived && kind_of(c, &alive) == Kind::Working)
                 .filter_map(|c| c.sent.as_ref())
                 .map(|s| s.session.clone())
-                .filter(|s| !self.chat_edits.contains_key(s))
+                .filter(|s| !chats.edits.contains_key(s))
                 .find(|s| Some(s) != page.as_ref())
         })?;
-        let chat = self.agent_chats.iter().find(|c| c.session == session)?;
-        let (letter, hue) = self.chat_mark(&session);
+        let chat = chats.list.iter().find(|c| c.session == session)?;
+        let (letter, hue) = chats.mark(&session);
         let name = if chat.title.is_empty() {
             chat.agent.clone()
         } else {
@@ -195,29 +203,9 @@ impl Workspace {
         Some((name, letter, hue))
     }
 
-    /// A chat's mark (#77): its agent's first letter on a hue of its own — the code palette's,
-    /// never the agent's purple or the public orange — by its place among the chats here.
-    pub(super) fn chat_mark(&self, session: &str) -> (char, gpui::Rgba) {
-        let hues = [
-            theme::accent(),
-            theme::added(),
-            theme::renamed(),
-            theme::removed(),
-        ];
-        let mut sessions: Vec<&str> = self
-            .agent_chats
-            .iter()
-            .map(|c| c.session.as_str())
-            .collect();
-        sessions.sort_unstable();
-        let at = sessions.iter().position(|s| *s == session).unwrap_or(0);
-        let letter = self
-            .agent_chats
-            .iter()
-            .find(|c| c.session == session)
-            .and_then(|c| c.agent.chars().next())
-            .unwrap_or('?');
-        (letter, hues[at % hues.len()])
+    /// A chat's mark (`Chats::mark`, #77).
+    pub(super) fn chat_mark(&self, session: &str, cx: &App) -> (char, gpui::Rgba) {
+        self.chats.read(cx).mark(session)
     }
 
     /// Sends each of `ids` to its route (#77): the chat working on the branch it was written on,
@@ -226,7 +214,7 @@ impl Workspace {
         if ids.is_empty() {
             return;
         }
-        self.refresh_chats();
+        self.refresh_chats(cx);
         let mut by_chat: Vec<(agents::Chat, Vec<u64>)> = Vec::new();
         let mut nowhere = Vec::new();
         for id in ids {
@@ -235,7 +223,7 @@ impl Workspace {
                 .iter()
                 .find(|c| c.id == id)
                 .and_then(|c| c.branch.clone());
-            match self.route_of(branch.as_deref()).cloned() {
+            match self.route_of(branch.as_deref(), cx) {
                 Some(chat) => match by_chat.iter_mut().find(|(c, _)| c.session == chat.session) {
                     Some((_, ids)) => ids.push(id),
                     None => by_chat.push((chat, vec![id])),
@@ -258,14 +246,10 @@ impl Workspace {
         }
     }
 
-    /// The chat a note on `branch` goes to (`agents::route`), with the one picked for it.
-    pub(super) fn route_of(&self, branch: Option<&str>) -> Option<&agents::Chat> {
+    /// The chat a note on `branch` goes to (`Chats::route_of`), with the one picked for it.
+    pub(super) fn route_of(&self, branch: Option<&str>, cx: &App) -> Option<agents::Chat> {
         let main = self.project.as_ref().or(self.root.as_ref())?;
-        let chosen = branch
-            .and_then(|b| self.chat_routes.get(b))
-            .or(self.chat_routes.get(""))
-            .map(String::as_str);
-        agents::route(branch, chosen, &self.agent_chats, main)
+        self.chats.read(cx).route_of(branch, main).cloned()
     }
 
     /// The branch of the page on screen, as a note written there keeps it: a request's source
@@ -975,7 +959,8 @@ impl Workspace {
             return;
         };
         if let Some(branch) = pick.route {
-            self.chat_routes.insert(branch, chat.session);
+            self.chats
+                .update(cx, |c, _| c.routes.insert(branch, chat.session));
             return cx.notify();
         }
         let Some(root) = self.root.clone() else {
@@ -1018,58 +1003,6 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Every fifth poll (10 s): what each chat in a worktree of its own has changed there, read in
-    /// the background (#117). A chat in this working tree is left out: its edits are not its own
-    /// to tell.
-    fn read_chat_edits(&mut self, cx: &mut Context<Self>) {
-        if self.chat_edits_in > 0 {
-            self.chat_edits_in -= 1;
-            return;
-        }
-        self.chat_edits_in = 4;
-        let Some(here) = self.root.clone() else {
-            return;
-        };
-        let same =
-            |a: &std::path::Path, b: &std::path::Path| match (a.canonicalize(), b.canonicalize()) {
-                (Ok(a), Ok(b)) => a == b,
-                _ => a.components().eq(b.components()),
-            };
-        let away: Vec<(String, std::path::PathBuf)> = self
-            .agent_chats
-            .iter()
-            .filter(|c| !c.repo.as_os_str().is_empty() && !same(&c.repo, &here))
-            .map(|c| (c.session.clone(), c.repo.clone()))
-            .collect();
-        if away.is_empty() {
-            if !self.chat_edits.is_empty() {
-                self.chat_edits.clear();
-                cx.notify();
-            }
-            return;
-        }
-        self.chat_edits_task = Some(cx.spawn(async move |this, cx| {
-            let read = cx
-                .background_executor()
-                .spawn(async move {
-                    away.into_iter()
-                        .filter_map(|(session, repo)| {
-                            let paths = crate::git::Repo::open(&repo).ok()?.dirty_paths().ok()?;
-                            Some((session, paths.into_iter().collect()))
-                        })
-                        .collect::<std::collections::HashMap<_, _>>()
-                })
-                .await;
-            this.update(cx, |this, cx| {
-                if this.chat_edits != read {
-                    this.chat_edits = read;
-                    cx.notify();
-                }
-            })
-            .ok();
-        }));
-    }
-
     /// Codex has no watcher of its own: its open sessions here listen through the app, and what
     /// was sent to one is handed over (`crate::codex`, #18) — off the window's thread, one beat
     /// at a time; a snapshot leaves Codex alone.
@@ -1099,17 +1032,21 @@ impl Workspace {
         }
         // The chats are read on every beat: the stripe shows who listens, a toast who comes and
         // goes (#77).
-        let before = self.agent_chats.clone();
-        let known = self.chats_known;
-        if self.refresh_chats() {
-            if known {
-                self.say_chats_changed(&before, cx);
-            }
+        let (root, here) = (
+            self.project.clone().or(self.root.clone()),
+            self.root.clone(),
+        );
+        let comments = &self.comments;
+        let (changed, said) = self
+            .chats
+            .update(cx, |c, cx| c.beat(root.as_deref(), here, comments, cx));
+        for text in said {
+            self.toast_info(text.into(), cx);
+        }
+        if changed {
             cx.notify();
         }
-        self.chats_known = true;
         self.codex_beat(cx);
-        self.read_chat_edits(cx);
         let (Some(root), Some(bus)) = (self.project.clone().or(self.root.clone()), Self::bus())
         else {
             return;
@@ -1134,63 +1071,12 @@ impl Workspace {
         }
     }
 
-    /// Reads this repository's chats again for the Agents window; whether they changed.
-    pub(super) fn refresh_chats(&mut self) -> bool {
-        let mut chats = match (self.project.as_ref().or(self.root.as_ref()), Self::bus()) {
-            (Some(root), Some(bus)) => named(bus.chats(root)),
-            _ => Vec::new(),
-        };
-        // A chat long gone with nothing of the review on it is not shown (#77).
-        chats.retain(|c| {
-            c.listening()
-                || agents::now() - c.beat < 24 * 3600
-                || self
-                    .comments
-                    .iter()
-                    .any(|n| n.sent.as_ref().is_some_and(|s| s.session == c.session))
-        });
-        let changed = chats != self.agent_chats;
-        self.agent_chats = chats;
-        changed
-    }
-
-    /// A toast for each chat that began listening or went since `before`; one taking notes to work
-    /// on says nothing (#77).
-    fn say_chats_changed(&mut self, before: &[agents::Chat], cx: &mut Context<Self>) {
-        let name = |c: &agents::Chat| {
-            if c.title.is_empty() {
-                c.agent.clone()
-            } else {
-                format!("{} · {}", c.agent, c.title)
-            }
-        };
-        let working = |session: &str| {
-            self.comments.iter().any(|c| {
-                c.state == State::Sent
-                    && c.sent
-                        .as_ref()
-                        .is_some_and(|s| s.session == session && s.delivered)
-            })
-        };
-        let mut said: Vec<String> = Vec::new();
-        for c in &self.agent_chats {
-            let was = before.iter().find(|b| b.session == c.session);
-            match (was.map(agents::Chat::listening), c.listening()) {
-                (None, true) => said.push(format!("{} is listening", name(c))),
-                (Some(true), false) if !working(&c.session) => {
-                    said.push(format!("{} stopped listening", name(c)))
-                }
-                _ => {}
-            }
-        }
-        for b in before {
-            if b.listening() && !self.agent_chats.iter().any(|c| c.session == b.session) {
-                said.push(format!("{} stopped listening", name(b)));
-            }
-        }
-        for text in said {
-            self.toast_info(text.into(), cx);
-        }
+    /// Reads this repository's chats again (`Chats::refresh`); whether they changed.
+    pub(super) fn refresh_chats(&mut self, cx: &mut Context<Self>) -> bool {
+        let root = self.project.clone().or(self.root.clone());
+        let comments = &self.comments;
+        self.chats
+            .update(cx, |c, _| c.refresh(root.as_deref(), comments))
     }
 
     /// The Agents tool window: the chats that listen here, then the purple comments by state.
@@ -1220,7 +1106,8 @@ impl Workspace {
                 working(&c.session)
             }
         };
-        let mut ordered: Vec<&crate::agents::Chat> = self.agent_chats.iter().collect();
+        let chats_here = self.chats.read(cx).list.clone();
+        let mut ordered: Vec<&crate::agents::Chat> = chats_here.iter().collect();
         ordered.sort_by_key(|c| {
             let rank = if c.listening() {
                 0
@@ -1231,7 +1118,7 @@ impl Workspace {
             };
             (rank, std::cmp::Reverse(c.beat))
         });
-        let picked_chat = self.chat_filter();
+        let picked_chat = self.chat_filter(cx);
         let hidden = if self.agents_all_chats {
             0
         } else {
@@ -1282,7 +1169,7 @@ impl Workspace {
                 let busy = busy_of(c);
                 let on = picked_chat == Some(c.session.as_str());
                 let session = c.session.clone();
-                let (letter, hue) = self.chat_mark(&c.session);
+                let (letter, hue) = self.chat_mark(&c.session, cx);
                 let state = if c.listening() {
                     "listening".to_owned()
                 } else if busy > 0 {
@@ -1332,8 +1219,8 @@ impl Workspace {
                     .when(!on, |s| s.hover(|s| s.bg(theme::hover())))
                     // A click lists that chat's notes alone; again, every chat's.
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.agents_chat =
-                            (this.chat_filter() != Some(session.as_str())).then(|| session.clone());
+                        this.agents_chat = (this.chat_filter(cx) != Some(session.as_str()))
+                            .then(|| session.clone());
                         this.agent_row = None;
                         cx.notify();
                     }))
@@ -1404,19 +1291,19 @@ impl Workspace {
         // Where a note written here goes, and the way to change it (#77).
         let branch = self.page_branch(cx);
         // "Goes to" the chat; why, in its tooltip (#79).
-        let route = self.route_of(branch.as_deref()).cloned().map(|chat| {
+        let route = self.route_of(branch.as_deref(), cx).map(|chat| {
             use super::hover::Hover;
-            let (letter, hue) = self.chat_mark(&chat.session);
+            let (letter, hue) = self.chat_mark(&chat.session, cx);
             let on = branch.clone().unwrap_or_default();
             let name = if chat.title.is_empty() {
                 chat.agent.clone()
             } else {
                 chat.title.clone()
             };
-            let picked = self
-                .chat_routes
+            let routes = &self.chats.read(cx).routes;
+            let picked = routes
                 .get(on.as_str())
-                .or(self.chat_routes.get(""))
+                .or(routes.get(""))
                 .is_some_and(|s| *s == chat.session);
             let notes = match &branch {
                 Some(b) => format!("Notes on {b} go to {name}"),
@@ -1455,17 +1342,19 @@ impl Workspace {
                 .tip(why)
         });
         // One list, newest first, each row its kind as a chip (#76, B1); the filter narrows it.
-        let alive = |session: &str| self.chat_listens(session);
+        let alive = self.listening(cx);
         let archived = self.comments.iter().filter(|c| c.archived).count();
         let listed: Vec<&crate::review::Comment> = self
-            .listed_agent_ids()
+            .listed_agent_ids(cx)
             .into_iter()
             .filter_map(|id| self.comments.iter().find(|c| c.id == id))
             .collect();
         let counts = |f: Filter| {
             self.comments
                 .iter()
-                .filter(|c| !c.archived && f.takes(kind_of(c, &alive)) && self.of_chat_picked(c))
+                .filter(|c| {
+                    !c.archived && f.takes(kind_of(c, &alive)) && self.of_chat_picked(c, cx)
+                })
                 .count()
         };
         // A narrow window's chips go to a second line rather than past its edge (#80).
@@ -1551,7 +1440,7 @@ impl Workspace {
                 .py(px(6.))
                 .child(self.widths.measure("agents"))
                 .child(group_heading(
-                    match self.agent_chats.len() {
+                    match chats_here.len() {
                         0 | 1 => "Chats here".to_owned(),
                         n => format!("Chats here · {n}"),
                     },
@@ -1560,7 +1449,7 @@ impl Workspace {
                 .children(chats)
                 .children(more)
                 .children(route)
-                .children(self.agent_chats.is_empty().then(|| {
+                .children(chats_here.is_empty().then(|| {
                     div()
                         .px(px(14.))
                         .py(px(4.))
@@ -1655,7 +1544,9 @@ impl Workspace {
         let mut tip = vec![whole, c.body.trim().to_owned()];
         if let Some(s) = chat {
             let to = self
-                .agent_chats
+                .chats
+                .read(cx)
+                .list
                 .iter()
                 .find(|ch| ch.session == s.session)
                 .map(|ch| {
@@ -1675,7 +1566,7 @@ impl Workspace {
         }
         let mut actions: Vec<gpui::AnyElement> = Vec::new();
         // Where a note its gone chat never took would go now (#77).
-        let instead = self.route_of(c.branch.as_deref()).map(|chat| {
+        let instead = self.route_of(c.branch.as_deref(), cx).map(|chat| {
             if chat.title.is_empty() {
                 chat.agent.clone()
             } else {
@@ -1776,8 +1667,8 @@ impl Workspace {
                     .child(kind_chip(kind))
                     // The chat it went to (#77).
                     .children(chat.filter(|_| room.third()).map(|s| {
-                        let (letter, hue) = self.chat_mark(&s.session);
-                        chat_badge(letter, hue, !self.chat_listens(&s.session))
+                        let (letter, hue) = self.chat_mark(&s.session, cx);
+                        chat_badge(letter, hue, !self.chat_listens(&s.session, cx))
                     }))
                     .child(
                         div()
@@ -1847,26 +1738,27 @@ impl Workspace {
 
     /// The comments the Agents window lists, newest first: the filter's, or the archived ones.
     /// The chat picked in the Agents window, while it is still one of this repository's.
-    fn chat_filter(&self) -> Option<&str> {
+    fn chat_filter(&self, cx: &App) -> Option<&str> {
+        let chats = &self.chats.read(cx).list;
         self.agents_chat
             .as_deref()
-            .filter(|s| self.agent_chats.iter().any(|c| c.session == *s))
+            .filter(|s| chats.iter().any(|c| c.session == *s))
     }
 
     /// Whether comment `c` was sent to the chat picked; any is, with none picked.
-    fn of_chat_picked(&self, c: &crate::review::Comment) -> bool {
-        self.chat_filter()
+    fn of_chat_picked(&self, c: &crate::review::Comment, cx: &App) -> bool {
+        self.chat_filter(cx)
             .is_none_or(|s| c.sent.as_ref().is_some_and(|sent| sent.session == s))
     }
 
-    fn listed_agent_ids(&self) -> Vec<u64> {
-        let alive = |session: &str| self.chat_listens(session);
+    fn listed_agent_ids(&self, cx: &App) -> Vec<u64> {
+        let alive = self.listening(cx);
         let mut ids: Vec<u64> = self
             .comments
             .iter()
             .filter(|c| c.archived == self.agents_archived)
             .filter(|c| self.agents_archived || self.agents_filter.takes(kind_of(c, &alive)))
-            .filter(|c| self.of_chat_picked(c))
+            .filter(|c| self.of_chat_picked(c, cx))
             .map(|c| c.id)
             .collect();
         ids.sort_by_key(|&id| std::cmp::Reverse(id));
@@ -1875,7 +1767,7 @@ impl Workspace {
 
     /// ↑ ↓ in the Agents window: another row picked, shown on its line.
     pub(super) fn step_agent_row(&mut self, down: bool, cx: &mut Context<Self>) {
-        let ids = self.listed_agent_ids();
+        let ids = self.listed_agent_ids(cx);
         let at = self
             .agent_row
             .and_then(|id| ids.iter().position(|&i| i == id));
@@ -1895,7 +1787,7 @@ impl Workspace {
     /// ↵ in the Agents window: the picked row's first action — Send, Answer, Withdraw, Resolve,
     /// Archive.
     pub(super) fn agent_row_action(&mut self, cx: &mut Context<Self>) {
-        let alive = |session: &str| self.chat_listens(session);
+        let alive = self.listening(cx);
         let Some((id, kind, archived)) = self
             .agent_row
             .and_then(|id| self.comments.iter().find(|c| c.id == id))
@@ -2396,16 +2288,6 @@ fn limited(id: impl Into<gpui::ElementId>) -> gpui::Stateful<gpui::Div> {
         .child("limited")
         .tooltip_show_delay(super::hover::LONG)
         .tooltip(|_, cx| cx.new(|_| super::Tip(crate::codex::LIMITS)).into())
-}
-
-/// Chats by the names they were given (`crate::labels`), the rest by their first message.
-fn named(mut chats: Vec<agents::Chat>) -> Vec<agents::Chat> {
-    for c in &mut chats {
-        if let Some(name) = crate::labels::chat(&c.session) {
-            c.title = name;
-        }
-    }
-    chats
 }
 
 #[cfg(test)]

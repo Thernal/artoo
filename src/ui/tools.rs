@@ -115,7 +115,7 @@ impl Workspace {
             self.save_layout();
         }
         if tool == Some(Tool::Agents) {
-            self.refresh_chats();
+            self.refresh_chats(cx);
         }
         // A feature's window gets ready before it is drawn (the report takes the window's picture).
         if let Some(Tool::Part(id)) = tool
@@ -254,14 +254,20 @@ impl Workspace {
                                 count(drafts, theme::agent()),
                                 super::plural(drafts, "draft"),
                             ))
-                            .child(div().flex().gap(px(3.)).children(
-                                self.agent_chats.iter().filter(|c| c.listening()).map(|c| {
-                                    div()
-                                        .size(px(5.))
-                                        .rounded_full()
-                                        .bg(self.chat_mark(&c.session).1)
-                                }),
-                            ))
+                            .child(div().flex().gap(px(3.)).children({
+                                let chats = self.chats.read(cx);
+                                chats
+                                    .list
+                                    .iter()
+                                    .filter(|c| c.listening())
+                                    .map(|c| {
+                                        div()
+                                            .size(px(5.))
+                                            .rounded_full()
+                                            .bg(chats.mark(&c.session).1)
+                                    })
+                                    .collect::<Vec<_>>()
+                            }))
                             .into_any_element(),
                     }
                 })),

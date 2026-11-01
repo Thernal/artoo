@@ -782,7 +782,7 @@ impl Workspace {
         let audience = match compose.target {
             Target::Request(iid) => format!("Everyone on !{iid}"),
             // The chat it will go to, by its page's branch (#77).
-            Target::Agent => match self.route_of(self.page_branch(cx).as_deref()) {
+            Target::Agent => match self.route_of(self.page_branch(cx).as_deref(), cx) {
                 Some(chat) if !chat.title.is_empty() => format!("To: {}", chat.title),
                 Some(chat) => format!("To: {}", chat.agent),
                 None => "Your agent".to_owned(),

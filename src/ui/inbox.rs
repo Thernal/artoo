@@ -25,15 +25,15 @@ impl Workspace {
     pub(super) fn inbox_rows(&self, cx: &App) -> Vec<InboxRow> {
         self.inbox_view
             .read(cx)
-            .rows(self.notices.read(cx), &self.agent_notices())
+            .rows(self.notices.read(cx), &self.agent_notices(cx))
     }
 
     /// Your notes an agent answered that wait for you: it asked something (your answer, once
     /// given, waits to be sent from here), or it says it is done. With when it last wrote, and
     /// the key that is read once looked at (a new answer is new again).
-    pub(super) fn agent_notices(&self) -> Vec<(u64, i64, String)> {
+    pub(super) fn agent_notices(&self, cx: &App) -> Vec<(u64, i64, String)> {
         use super::agent::Kind as AgentKind;
-        let alive = |session: &str| self.chat_listens(session);
+        let alive = self.listening(cx);
         self.comments
             .iter()
             .filter(|c| !c.archived)
@@ -51,14 +51,14 @@ impl Workspace {
 
     /// The Inbox's count: notices not read, and agents' answers not looked at.
     pub(super) fn inbox_unread(&self, cx: &App) -> usize {
-        self.notices.read(cx).unread_with(&self.agent_notices())
+        self.notices.read(cx).unread_with(&self.agent_notices(cx))
     }
 
     /// The Inbox's selected row (`InboxView::current`).
     pub(super) fn inbox_current(&self, cx: &App) -> Option<InboxRow> {
         self.inbox_view
             .read(cx)
-            .current(self.notices.read(cx), &self.agent_notices())
+            .current(self.notices.read(cx), &self.agent_notices(cx))
     }
 
     /// Your answer to agent's question `id` was written in the Inbox: it goes to its chat now,
@@ -75,7 +75,7 @@ impl Workspace {
 
     /// j k in the Inbox: the next or previous listed notice.
     pub(super) fn inbox_step(&mut self, down: bool, cx: &mut Context<Self>) {
-        let answers = self.agent_notices();
+        let answers = self.agent_notices(cx);
         let next = self
             .inbox_view
             .read(cx)
@@ -98,7 +98,8 @@ impl Workspace {
             InboxRow::Agent(id) => {
                 self.inbox_view.update(cx, |v, _| v.agent = Some(id));
                 // Looked at: read, until the agent writes again.
-                if let Some((_, _, key)) = self.agent_notices().into_iter().find(|(i, ..)| *i == id)
+                if let Some((_, _, key)) =
+                    self.agent_notices(cx).into_iter().find(|(i, ..)| *i == id)
                 {
                     self.notices.update(cx, |n, _| n.mark_read(key));
                 }
@@ -292,7 +293,7 @@ impl Workspace {
     }
 
     /// Who an agent's answer is from: the chat's agent ("Claude"), and the chat's title.
-    fn agent_of(&self, c: &crate::review::Comment) -> From {
+    fn agent_of(&self, c: &crate::review::Comment, cx: &App) -> From {
         let title = c
             .sent
             .as_ref()
@@ -301,8 +302,14 @@ impl Workspace {
         let agent = c
             .sent
             .as_ref()
-            .and_then(|s| self.agent_chats.iter().find(|ch| ch.session == s.session))
-            .map(|ch| ch.agent.clone())
+            .and_then(|s| {
+                self.chats
+                    .read(cx)
+                    .list
+                    .iter()
+                    .find(|ch| ch.session == s.session)
+                    .map(|ch| ch.agent.clone())
+            })
             .filter(|a| !a.is_empty())
             .unwrap_or_else(|| "Agent".to_owned());
         From { agent, chat: title }
@@ -334,7 +341,7 @@ impl artoo_requests::inbox_page::InboxHost for InboxHost {
     fn answers(&self, cx: &App) -> Vec<(u64, i64, String)> {
         self.0
             .upgrade()
-            .map(|tab| tab.read(cx).agent_notices())
+            .map(|tab| tab.read(cx).agent_notices(cx))
             .unwrap_or_default()
     }
 
@@ -352,7 +359,7 @@ impl artoo_requests::inbox_page::InboxHost for InboxHost {
             wide: look.wide,
         };
         let on = Workspace::answer_on(self.0.clone());
-        answer_row(c, this.agent_of(c), look, &on).into_any_element()
+        answer_row(c, this.agent_of(c, cx), look, &on).into_any_element()
     }
 
     fn answer_preview(&self, id: u64, cx: &App) -> Option<AnyElement> {
@@ -360,7 +367,7 @@ impl artoo_requests::inbox_page::InboxHost for InboxHost {
         let c = this.comments.iter().find(|c| c.id == id)?;
         let thread = this.render_thread(id, 0., self.0.clone(), cx);
         let on = Workspace::answer_on(self.0.clone());
-        Some(answer_preview(c, this.agent_of(c), thread, &on))
+        Some(answer_preview(c, this.agent_of(c, cx), thread, &on))
     }
 
     fn answer_done(&self, id: u64, cx: &App) -> bool {

@@ -394,14 +394,15 @@ impl Workspace {
     }
 
     /// An agent's mark: its letter on the hue of its newest chat here, else the accent.
-    pub(super) fn agent_mark(&self, agent: &str) -> (char, gpui::Rgba) {
-        match self
-            .agent_chats
+    pub(super) fn agent_mark(&self, agent: &str, cx: &App) -> (char, gpui::Rgba) {
+        let chats = self.chats.read(cx);
+        match chats
+            .list
             .iter()
             .filter(|c| c.agent == agent)
             .max_by_key(|c| c.beat)
         {
-            Some(chat) => self.chat_mark(&chat.session),
+            Some(chat) => chats.mark(&chat.session),
             None => (agent.chars().next().unwrap_or('?'), super::theme::accent()),
         }
     }

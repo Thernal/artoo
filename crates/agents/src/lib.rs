@@ -1,9 +1,10 @@
-//! Coding agents and Artoo (#165): the chats it knows, the MCP server an agent runs (`mcp`), `agent-watch`, the
+//! Coding agents and Artoo (#165): the chats it knows (a tab's: `chats`), the MCP server an agent runs (`mcp`), `agent-watch`, the
 //! comments sent to a chat and their answers, notes, Codex; how a chat's badge and the notes are drawn (`view`),
 //! the notes' summary over the diff a piece of the item page (`summary`). It reads requests through the hosts'
 //! contract (`artoo_hosts_api`), the hosts it is handed.
 
 pub mod agents;
+pub mod chats;
 pub mod codex;
 mod contract;
 pub mod inbox;

@@ -242,7 +242,7 @@ impl Workspace {
             return div().into_any_element();
         };
         let look = NoteLook {
-            mark: self.agent_mark(&notes.agent),
+            mark: self.agent_mark(&notes.agent, cx),
             rich: self.settings.rich_comments,
             tight: self.review.read(cx).tight,
             selecting: self.selecting(this.clone()),
@@ -261,7 +261,7 @@ impl artoo_agents::summary::NotesHost for NotesHost {
 
     fn mark(&self, agent: &str, cx: &App) -> (char, gpui::Rgba) {
         match self.0.upgrade() {
-            Some(tab) => tab.read(cx).agent_mark(agent),
+            Some(tab) => tab.read(cx).agent_mark(agent, cx),
             None => (agent.chars().next().unwrap_or('?'), super::theme::accent()),
         }
     }

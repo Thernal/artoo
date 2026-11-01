@@ -173,10 +173,12 @@ impl Workspace {
             }
             let session = c.sent.as_ref().map_or("", |s| s.session.as_str());
             let agent = self
-                .agent_chats
+                .chats
+                .read(cx)
+                .list
                 .iter()
                 .find(|chat| chat.session == session)
-                .map_or("An agent", |chat| chat.agent.as_str());
+                .map_or_else(|| "An agent".to_owned(), |chat| chat.agent.clone());
             *by.entry(agent.to_owned()).or_default() += 1;
         }
         let project = self.tab_title();

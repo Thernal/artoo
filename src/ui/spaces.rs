@@ -267,7 +267,7 @@ impl Workspace {
                             None => label.clone(),
                         };
                         let agent = gathered.map(|g| {
-                            let (letter, hue) = self.agent_mark(&g.agent);
+                            let (letter, hue) = self.agent_mark(&g.agent, cx);
                             (letter, hue, self.agent_waiting(*iid, &g.agent, cx))
                         });
                         OpenRow {

@@ -1573,8 +1573,8 @@ pub struct Workspace {
     agent_fresh: HashSet<u64>,
     /// Codex's sessions looked at and handed their comments, in the background (#18).
     codex_beat: Option<Task<()>>,
-    /// The chats of this repository, for the Agents window (read while it is open).
-    agent_chats: Vec<crate::agents::Chat>,
+    /// The chats of this repository (`artoo_agents::chats`), read on every beat.
+    chats: gpui::Entity<artoo_agents::chats::Chats>,
     /// The Agents window (#76): its filter, the row picked, whether the archived ones show.
     agents_filter: agent::Filter,
     agent_row: Option<u64>,
@@ -1585,15 +1585,6 @@ pub struct Workspace {
     agents_all_chats: bool,
     /// One's own public note asked about before it is deleted (#76).
     confirm_note: Option<u64>,
-    /// The chat picked with Change… for a branch's notes ("" for any branch), by session (#77).
-    chat_routes: std::collections::HashMap<String, String>,
-    /// The chats were read once: from then on their coming and going is said in a toast.
-    chats_known: bool,
-    /// What each chat working in a worktree of its own has changed there, by session (#117), and
-    /// the polls until it is read again.
-    chat_edits: std::collections::HashMap<String, std::collections::HashSet<String>>,
-    chat_edits_in: u32,
-    chat_edits_task: Option<Task<()>>,
     /// The Inbox place is shown, and which of its notifications it lists.
     inbox: bool,
     inbox_view: gpui::Entity<inbox::InboxView>,
@@ -1847,18 +1838,13 @@ impl Workspace {
             marks_stamp: None,
             agent_fresh: HashSet::new(),
             codex_beat: None,
-            agent_chats: Vec::new(),
+            chats: cx.new(|_| Default::default()),
             agents_filter: Default::default(),
             agent_row: None,
             agents_archived: false,
             agents_chat: None,
             agents_all_chats: false,
             confirm_note: None,
-            chat_routes: Default::default(),
-            chats_known: false,
-            chat_edits: Default::default(),
-            chat_edits_in: 0,
-            chat_edits_task: None,
             inbox: false,
             inbox_view: cx.new(|_| Default::default()),
             hover_note: None,

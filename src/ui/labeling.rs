@@ -44,7 +44,9 @@ impl Workspace {
             }
             Target::Chat { session, agent } => {
                 let first = self
-                    .agent_chats
+                    .chats
+                    .read(cx)
+                    .list
                     .iter()
                     .find(|c| &c.session == session)
                     .map(|c| c.title.clone())
@@ -91,7 +93,7 @@ impl Workspace {
             }
             Target::Chat { session, .. } => {
                 crate::labels::set_chat(&session, &name);
-                self.refresh_chats();
+                self.refresh_chats(cx);
             }
         }
         self.close_label(cx);
