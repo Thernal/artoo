@@ -12,7 +12,7 @@
 
 use super::spaces::Space;
 use super::{Selection, Workspace, recents, zones};
-use artoo_branches::opening::Shows;
+use artoo_branches_api::Shows;
 use artoo_core::route::Route;
 use artoo_ui_kit::format;
 use git2::Oid;
@@ -571,12 +571,10 @@ impl Workspace {
     /// `selection` of the branch open picked — a commit, a run, two versions —: opened as the page
     /// it is (`History::route_of`); loaded as it is where it is no page of the item on screen.
     pub(super) fn pick(&mut self, selection: Selection, cx: &mut Context<Self>) {
-        let current = self.requests.read(cx).current;
         let item = self.nav_page().and_then(Page::item);
         let page = self
-            .history
-            .read(cx)
-            .route_of(selection, current)
+            .branches()
+            .and_then(|b| b.route_of(selection, cx))
             .and_then(|route| Page::from_route(&route))
             .filter(|page| page.space() == self.nav.space && page.item() == item);
         match (page, selection) {
@@ -594,11 +592,9 @@ impl Workspace {
     /// opened lately): its page, kept in the history and loaded; where it is none, loaded and
     /// followed.
     pub(super) fn open_commit(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let current = self.requests.read(cx).current;
         match self
-            .history
-            .read(cx)
-            .route_of(Selection::Commit(ix), current)
+            .branches()
+            .and_then(|b| b.route_of(Selection::Commit(ix), cx))
             .and_then(|route| Page::from_route(&route))
         {
             Some(page) => self.go_page(page, cx),
@@ -740,7 +736,7 @@ impl Workspace {
         self.show_pages(page.space(), Some(&page), opened, cx);
         // A branch's or a request's: what the tab does after (`History::show_opened`) — the request
         // on the branch, the watch, the page following what is shown, the places opened lately.
-        match self.history.update(cx, |h, _| h.shown.take()) {
+        match self.branches().and_then(|b| b.take_shown(cx)) {
             Some(Shows::Branch { ix, read }) => self.branch_opened(ix, read, cx),
             Some(Shows::Request(iid)) => self.select_request(iid, cx),
             Some(Shows::Shown { commit, follow }) => {
@@ -758,11 +754,7 @@ impl Workspace {
     /// What a page waited for is in (a request's commits, a branch's versions): the page is shown
     /// (`History::finish_waiting`). Whether it was.
     pub(super) fn finish_pending(&mut self, cx: &mut Context<Self>) -> bool {
-        let review = self.review_handle();
-        let Some(finished) = self
-            .history
-            .update(cx, |h, cx| h.finish_waiting(&*review, cx))
-        else {
+        let Some(finished) = self.branches().and_then(|b| b.finish_waiting(cx)) else {
             return false;
         };
         self.record(cx);

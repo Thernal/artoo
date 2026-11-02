@@ -2,11 +2,51 @@
 //! commits, two of its versions compared —, of two refs compared and of the working tree, which anyone opens through
 //! the `Frame`; and the branches listed, as a part reads them (`Branches`).
 
-use artoo_core::git::BranchRef;
+use artoo_core::git::{BranchRef, CommitInfo};
 use artoo_core::route::{Place, Route};
 use gpui::{AnyElement, App};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+/// What of the branch open the diff shows: a commit, a run of commits (indexes, newest first), two versions, the
+/// working tree, or nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Selection {
+    None,
+    Commit(usize),
+    /// A run of the list's commits as one diff: the newest's index and the oldest's.
+    Commits {
+        newest: usize,
+        oldest: usize,
+    },
+    Versions {
+        from: usize,
+        to: usize,
+    },
+    WorkingTree,
+}
+
+/// What showing a route came to (`Branches::take_shown`), for what the tab does after.
+pub enum Shows {
+    /// Branch `ix` (of `Branches::list`) opened, `read` anew when there is one to read; what follows its read is the
+    /// branches' own.
+    Branch { ix: usize, read: bool },
+    /// Request `number` to open: what it is read from waits for the requests (the tab's for now).
+    Request(u64),
+    /// Shown: the commit it is, kept among the places opened lately; `follow` when the page on screen follows
+    /// what is shown.
+    Shown {
+        commit: Option<CommitInfo>,
+        follow: bool,
+    },
+    /// Nothing changed.
+    Stay,
+}
+
+/// A page waiting, shown (`Branches::finish_waiting`): the commit it shows, when it shows one.
+pub struct Finished {
+    pub commit: Option<CommitInfo>,
+}
 
 /// What a part reads of the tab's branches (`Rc<dyn Branches>` in its services).
 pub trait Branches {
@@ -48,6 +88,17 @@ pub trait Branches {
 
     /// Esc from `route`'s page back to the list: its row is picked (the working tree's, a branch's).
     fn back_to_list(&self, route: &Route, cx: &mut App);
+
+    /// The page `selection` of the branch open is once shown: a commit, a run or two versions, of the request open
+    /// while it is on the branch. None for a selection that is not one of those.
+    fn route_of(&self, selection: Selection, cx: &App) -> Option<Route>;
+
+    /// What showing the last route came to, taken once (`Pages::show` said it).
+    fn take_shown(&self, cx: &mut App) -> Option<Shows>;
+
+    /// The page waiting shown, once what it asks for is in (a request's commits, a branch's versions); `None`
+    /// while it waits, or when none does.
+    fn finish_waiting(&self, cx: &mut App) -> Option<Finished>;
 }
 
 /// A branch, by its refname.

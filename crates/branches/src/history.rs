@@ -21,21 +21,7 @@ pub type NamedTip = (String, git2::Oid);
 /// A merge request on the branch open: its base and head, and its number.
 pub type RequestSides = (NamedTip, NamedTip, u64);
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Selection {
-    None,
-    Commit(usize),
-    /// A run of the list's commits as one diff: the newest's index and the oldest's.
-    Commits {
-        newest: usize,
-        oldest: usize,
-    },
-    Versions {
-        from: usize,
-        to: usize,
-    },
-    WorkingTree,
-}
+pub use artoo_branches_api::Selection;
 
 /// What the version comparison shows: the files that changed, or the commits paired up.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -336,6 +322,29 @@ impl artoo_branches_api::Branches for Handle {
             return;
         };
         h.update(cx, |h, _| h.roots.picked = row);
+    }
+
+    fn route_of(&self, selection: Selection, cx: &gpui::App) -> Option<artoo_core::route::Route> {
+        let current = self
+            .1
+            .upgrade()?
+            .get::<std::rc::Rc<dyn artoo_requests_api::Requests>>()
+            .and_then(|r| r.current(cx));
+        self.0.upgrade()?.read(cx).route_of(selection, current)
+    }
+
+    fn take_shown(&self, cx: &mut gpui::App) -> Option<artoo_branches_api::Shows> {
+        self.0.upgrade()?.update(cx, |h, _| h.shown.take())
+    }
+
+    fn finish_waiting(&self, cx: &mut gpui::App) -> Option<artoo_branches_api::Finished> {
+        let review = self
+            .1
+            .upgrade()?
+            .get::<std::rc::Rc<dyn artoo_review_api::Review>>()?;
+        self.0
+            .upgrade()?
+            .update(cx, |h, cx| h.finish_waiting(&*review, cx))
     }
 
     fn stop_waiting(&self, cx: &mut gpui::App) {

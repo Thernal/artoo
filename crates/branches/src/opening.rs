@@ -11,7 +11,7 @@ use artoo_branches_api::{
     BranchCommitRoute, BranchCommitsRoute, BranchRoute, CompareRoute, VersionsRoute,
     WorkingTreeRoute,
 };
-use artoo_core::git::{CommitInfo, RefKind, Repo};
+use artoo_core::git::{RefKind, Repo};
 use artoo_core::route::{Place, Route};
 use artoo_requests_api::{
     RequestCommitRoute, RequestCommitsRoute, RequestRoute, RequestVersionsRoute,
@@ -47,21 +47,7 @@ pub enum Opening {
     Stay,
 }
 
-/// What showing a route came to (`History::show_route`), for what the tab does after.
-pub enum Shows {
-    /// Branch `ix` opened, `read` anew when there is one to read; what follows its read is `show_read`'s.
-    Branch { ix: usize, read: bool },
-    /// Request `number` to open: what it is read from waits for the requests (the tab's for now).
-    Request(u64),
-    /// Shown: the commit it is, kept among the places opened lately; `follow` when the page on screen follows
-    /// what is shown.
-    Shown {
-        commit: Option<CommitInfo>,
-        follow: bool,
-    },
-    /// Nothing changed.
-    Stay,
-}
+pub use artoo_branches_api::Shows;
 
 /// What a route is of, the same for all of its pages: a branch, a request, the working tree, two refs compared
 /// whichever is the base.

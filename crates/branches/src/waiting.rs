@@ -3,7 +3,6 @@
 //! for is in. Where the page goes and what it keeps of it stay the tab's.
 
 use crate::history::History;
-use artoo_core::git::CommitInfo;
 use artoo_review_api::Review;
 use git2::Oid;
 use gpui::App;
@@ -25,10 +24,7 @@ pub struct Waiting {
     pub pick: Pick,
 }
 
-/// A page waiting, shown: the commit it shows, when it shows one.
-pub struct Finished {
-    pub commit: Option<CommitInfo>,
-}
+pub use artoo_branches_api::Finished;
 
 impl History {
     /// Shows the page waiting once what it asks for is in: its request open, its commits listed, its versions
