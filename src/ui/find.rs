@@ -8,18 +8,24 @@ use gpui::{App, Context, KeyDownEvent};
 
 impl Workspace {
     pub(super) fn refilter(&mut self, cx: &mut App) {
-        self.history.update(cx, |h, _| h.refilter());
+        if let Some(branches) = self.branches() {
+            branches.refilter(cx);
+        }
     }
 
     pub(super) fn start_find(&mut self, cx: &mut Context<Self>) {
         self.settings_open = false;
-        self.history.update(cx, |h, _| h.open_find());
+        if let Some(branches) = self.branches() {
+            branches.open_find(cx);
+        }
         self.take_keyboard(Input::Part(artoo_branches::find::INPUT), cx);
         cx.notify();
     }
 
     pub(super) fn close_find(&mut self, cx: &mut Context<Self>) {
-        self.history.update(cx, |h, _| h.close_find());
+        if let Some(branches) = self.branches() {
+            branches.close_find(cx);
+        }
         cx.notify();
     }
 
@@ -104,7 +110,7 @@ impl Workspace {
                 cx.notify();
             } else if self.review.read(cx).dfind.is_some() {
                 self.close_dfind(cx);
-            } else if self.history.read(cx).find.text.is_some() {
+            } else if self.branches().is_some_and(|b| b.searching(cx)) {
                 self.close_find(cx);
             } else if self.side_drawer() {
                 self.close_drawer(cx);
@@ -178,6 +184,8 @@ impl Workspace {
 
     /// Reads the paths of every loaded commit (`History::index_paths`).
     pub(super) fn index_paths(&mut self, cx: &mut Context<Self>) {
-        self.history.update(cx, |h, cx| h.index_paths(cx));
+        if let Some(branches) = self.branches() {
+            branches.index_paths(cx);
+        }
     }
 }

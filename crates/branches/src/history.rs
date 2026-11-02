@@ -508,6 +508,117 @@ impl artoo_branches_api::Branches for Handle {
         self.0.upgrade()?.update(cx, |h, cx| h.apply_pending(cx))
     }
 
+    fn listed(&self, cx: &gpui::App) -> Vec<(usize, BranchRef)> {
+        self.0.upgrade().map_or_else(Vec::new, |h| {
+            h.read(cx).listed().map(|(ix, b)| (ix, b.clone())).collect()
+        })
+    }
+
+    fn rows(&self, filter: &str, cx: &gpui::App) -> Vec<crate::roots::BranchRow> {
+        self.0
+            .upgrade()
+            .map_or_else(Vec::new, |h| h.read(cx).rows(filter))
+    }
+
+    fn picked_row(&self, cx: &gpui::App) -> Option<crate::roots::BranchRow> {
+        let h = self.0.upgrade()?;
+        let h = h.read(cx);
+        h.roots.picked.or_else(|| h.first_row())
+    }
+
+    fn pick_row(&self, row: Option<crate::roots::BranchRow>, cx: &mut gpui::App) {
+        let Some(h) = self.0.upgrade() else {
+            return;
+        };
+        h.update(cx, |h, _| h.roots.picked = row);
+        if row == Some(crate::roots::BranchRow::WorkingTree) {
+            self.read_tree(cx);
+        }
+    }
+
+    fn count_line(&self, cx: &gpui::App) -> String {
+        self.0
+            .upgrade()
+            .map(|h| h.read(cx).count_line())
+            .unwrap_or_default()
+    }
+
+    fn toggle_remote(&self, remote: String, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, _| h.toggle_remote(remote));
+        }
+    }
+
+    fn read_facts(&self, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, cx| h.read_facts(cx));
+        }
+    }
+
+    fn read_tree(&self, cx: &mut gpui::App) {
+        let settings = self.review().map(|r| r.settings(cx)).unwrap_or_default();
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, cx| h.read_tree(settings, cx));
+        }
+    }
+
+    fn open_find(&self, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, _| h.open_find());
+        }
+    }
+
+    fn close_find(&self, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, _| h.close_find());
+        }
+    }
+
+    fn searching(&self, cx: &gpui::App) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|h| h.read(cx).find.text.is_some())
+    }
+
+    fn refilter(&self, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, _| h.refilter());
+        }
+    }
+
+    fn index_paths(&self, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, cx| h.index_paths(cx));
+        }
+    }
+
+    fn start_working_poll(
+        &self,
+        plain: bool,
+        shown: std::rc::Rc<std::cell::Cell<bool>>,
+        cx: &mut gpui::App,
+    ) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, cx| h.start_working_poll(plain, shown, cx));
+        }
+    }
+
+    fn show_working_tree(&self, keep: Option<String>, cx: &mut gpui::App) {
+        let (Some(h), Some(review)) = (self.0.upgrade(), self.review()) else {
+            return;
+        };
+        h.update(cx, |h, cx| {
+            let only_unstaged = h.wt.only_unstaged;
+            h.show_working_tree(only_unstaged, keep, &*review, cx)
+        });
+    }
+
+    fn set_only_unstaged(&self, on: bool, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, _| h.wt.only_unstaged = on);
+        }
+    }
+
     fn stop_waiting(&self, cx: &mut gpui::App) {
         if let Some(h) = self.0.upgrade() {
             h.update(cx, |h, _| h.waiting = None);

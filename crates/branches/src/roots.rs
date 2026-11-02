@@ -7,12 +7,7 @@ use artoo_core::rank;
 use gpui::{Context, Task};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-/// A row of Branches' list: the working tree, or a branch (#72).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum BranchRow {
-    WorkingTree,
-    Branch(usize),
-}
+pub use artoo_branches_api::BranchRow;
 
 /// A branch, as its row and preview say it.
 #[derive(Clone)]

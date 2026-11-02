@@ -8,9 +8,9 @@ use gpui::Context;
 impl Workspace {
     /// Starts looking at the working tree of the open repository.
     pub(super) fn start_working_poll(&mut self, cx: &mut Context<Self>) {
-        let (plain, shown) = (self.plain, self.on_screen.clone());
-        self.history
-            .update(cx, |h, cx| h.start_working_poll(plain, shown, cx));
+        if let Some(branches) = self.branches() {
+            branches.start_working_poll(self.plain, self.on_screen.clone(), cx);
+        }
     }
 
     /// The working tree changed (`history::Event::Working`): what shows it reads it again.
@@ -24,7 +24,7 @@ impl Workspace {
         if self.nav.space == super::spaces::Space::Code && working {
             self.read_code_files(true, cx);
         }
-        if self.history.read(cx).selection == Selection::WorkingTree {
+        if self.branches().map(|b| b.selection(cx)) == Some(Selection::WorkingTree) {
             // Reload in place: the selected file stays.
             let keep = self.review.read(cx).current_path();
             self.load_working_tree(keep, cx);
@@ -50,17 +50,17 @@ impl Workspace {
         if self.root.is_none() {
             return;
         }
-        let only_unstaged = self.history.read(cx).wt.only_unstaged;
         // A reload finds a file partly staged at its place, in the group it was in (#22).
-        let review = self.review_handle();
-        self.history.update(cx, |h, cx| {
-            h.show_working_tree(only_unstaged, keep, &*review, cx)
-        });
+        if let Some(branches) = self.branches() {
+            branches.show_working_tree(keep, cx);
+        }
         cx.notify();
     }
 
     pub(super) fn set_only_unstaged(&mut self, on: bool, cx: &mut Context<Self>) {
-        self.history.update(cx, |h, _| h.wt.only_unstaged = on);
+        if let Some(branches) = self.branches() {
+            branches.set_only_unstaged(on, cx);
+        }
         let keep = self.review.read(cx).current_path();
         self.load_working_tree(keep, cx);
     }

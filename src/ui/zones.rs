@@ -309,16 +309,11 @@ impl Workspace {
         } else {
             let rows = self.branch_rows(cx);
             let at = self
-                .history
-                .read(cx)
-                .roots
-                .picked
-                .or_else(|| self.first_branch_row(cx))
+                .picked_branch_row(cx)
                 .and_then(|r| rows.iter().position(|x| *x == r));
             let picked = step(at, rows.len()).map(|i| rows[i]);
-            self.history.update(cx, |h, _| h.roots.picked = picked);
-            if picked == Some(super::nav::BranchRow::WorkingTree) {
-                self.read_tree_files(cx);
+            if let Some(branches) = self.branches() {
+                branches.pick_row(picked, cx);
             }
         }
         cx.notify();
@@ -339,13 +334,7 @@ impl Workspace {
             }
         } else {
             let rows = self.branch_rows(cx);
-            let pick = self
-                .history
-                .read(cx)
-                .roots
-                .picked
-                .or_else(|| self.first_branch_row(cx))
-                .filter(|r| rows.contains(r));
+            let pick = self.picked_branch_row(cx).filter(|r| rows.contains(r));
             if let Some(row) = pick.or(rows.first().copied()) {
                 self.open_branch_row(row, cx);
             }

@@ -109,6 +109,13 @@ pub enum Applied {
     Cleared,
 }
 
+/// A row of Branches' list: the working tree, or a branch (#72), by its place in `Branches::list`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BranchRow {
+    WorkingTree,
+    Branch(usize),
+}
+
 /// What a part reads of the tab's branches (`Rc<dyn Branches>` in its services).
 pub trait Branches {
     /// The branches listed, local and remote.
@@ -235,6 +242,61 @@ pub trait Branches {
     /// The commits held back shown, the selection kept where it still holds; with how many versions were listed
     /// before. `None` when nothing was held back.
     fn apply_pending(&self, cx: &mut App) -> Option<(Applied, usize)>;
+
+    /// The branches a search lists, with their place in `list` (a request's fetched head is none of them).
+    fn listed(&self, cx: &App) -> Vec<(usize, BranchRef)>;
+
+    /// Branches' rows in the order the list shows them, `filter` typed.
+    fn rows(&self, filter: &str, cx: &App) -> Vec<BranchRow>;
+
+    /// The row picked in the list, else the one it picks when nothing is.
+    fn picked_row(&self, cx: &App) -> Option<BranchRow>;
+
+    /// `row` picked in the list (none: nothing); the working tree's files read when it is its row.
+    fn pick_row(&self, row: Option<BranchRow>, cx: &mut App);
+
+    /// "4 local · 6 on origin": the count after Branches' name in the bar.
+    fn count_line(&self, cx: &App) -> String;
+
+    /// A remote's branches folded or open in the list.
+    fn toggle_remote(&self, remote: String, cx: &mut App);
+
+    /// When each branch's tip was made and how far it is from the main line, read for the list's rows.
+    fn read_facts(&self, cx: &mut App);
+
+    /// The working tree's files read again when they changed since the last read.
+    fn read_tree(&self, cx: &mut App);
+
+    /// The commits' search opened (it is typed in the branches' own input).
+    fn open_find(&self, cx: &mut App);
+
+    /// The commits' search closed.
+    fn close_find(&self, cx: &mut App);
+
+    /// Something is typed in the commits' search.
+    fn searching(&self, cx: &App) -> bool;
+
+    /// The commits filtered again by what the search says.
+    fn refilter(&self, cx: &mut App);
+
+    /// The paths of every commit listed read, for the search's `path:`.
+    fn index_paths(&self, cx: &mut App);
+
+    /// The working tree looked at while the project is open (`plain` a folder without git, where only the beat
+    /// runs; `shown` whether the tab is on screen).
+    fn start_working_poll(
+        &self,
+        plain: bool,
+        shown: std::rc::Rc<std::cell::Cell<bool>>,
+        cx: &mut App,
+    );
+
+    /// The working tree shown against `HEAD`, `keep` the file to stay on (a reload finds a file partly staged at
+    /// its place, #22).
+    fn show_working_tree(&self, keep: Option<String>, cx: &mut App);
+
+    /// The working tree's halves: what is not staged only, or all of it.
+    fn set_only_unstaged(&self, on: bool, cx: &mut App);
 }
 
 /// A branch, by its refname.

@@ -75,13 +75,16 @@ impl Workspace {
 
     /// Reads when each branch's tip was made and how far it is from the main line (`History::read_facts`).
     pub(super) fn read_branch_facts(&mut self, cx: &mut Context<Self>) {
-        self.history.update(cx, |h, cx| h.read_facts(cx));
+        if let Some(branches) = self.branches() {
+            branches.read_facts(cx);
+        }
     }
 
     /// Reads the working tree's files again when they changed since the last read (`History::read_tree`).
     pub(super) fn read_tree_files(&mut self, cx: &mut Context<Self>) {
-        let settings = self.settings(cx);
-        self.history.update(cx, |h, cx| h.read_tree(settings, cx));
+        if let Some(branches) = self.branches() {
+            branches.read_tree(cx);
+        }
     }
 
     /// The request picked in the list: its pipeline and approvals, once per update of it.
@@ -130,26 +133,26 @@ impl Workspace {
     }
 
     /// The branches a search lists, by index (`History::listed`).
-    pub(super) fn listed_branches<'a>(
-        &self,
-        cx: &'a App,
-    ) -> impl Iterator<Item = (usize, &'a BranchRef)> {
-        self.history.read(cx).listed()
+    pub(super) fn listed_branches(&self, cx: &App) -> Vec<(usize, BranchRef)> {
+        self.branches().map_or_else(Vec::new, |b| b.listed(cx))
     }
 
     /// Branches' rows in the order the list shows them, its filter typed (`History::rows`).
     pub(super) fn branch_rows(&self, cx: &App) -> Vec<BranchRow> {
-        self.history.read(cx).rows(&self.bfilter)
+        self.branches()
+            .map_or_else(Vec::new, |b| b.rows(&self.bfilter, cx))
     }
 
     /// "4 local · 6 on origin": the count after Branches' name in the bar.
     pub(super) fn branches_count(&self, cx: &App) -> String {
-        self.history.read(cx).count_line()
+        self.branches()
+            .map(|b| b.count_line(cx))
+            .unwrap_or_default()
     }
 
-    /// The row Branches selects when nothing is (`History::first_row`).
-    pub(super) fn first_branch_row(&self, cx: &App) -> Option<BranchRow> {
-        self.history.read(cx).first_row()
+    /// The row Branches has picked, else the one it picks when nothing is.
+    pub(super) fn picked_branch_row(&self, cx: &App) -> Option<BranchRow> {
+        self.branches().and_then(|b| b.picked_row(cx))
     }
 
     /// Merge requests' list with nothing picked: the first request listed is.
@@ -169,7 +172,9 @@ impl Workspace {
     }
 
     pub(super) fn toggle_remote(&mut self, remote: String, cx: &mut Context<Self>) {
-        self.history.update(cx, |h, _| h.toggle_remote(remote));
+        if let Some(branches) = self.branches() {
+            branches.toggle_remote(remote, cx);
+        }
         cx.notify();
     }
 
@@ -250,15 +255,15 @@ impl Workspace {
         clicks: usize,
         cx: &mut Context<Self>,
     ) {
-        let open = self.history.read(cx).roots.picked == Some(row) && clicks > 1;
+        let Some(branches) = self.branches() else {
+            return;
+        };
+        let open = branches.picked_row(cx) == Some(row) && clicks > 1;
         if open || self.compact() {
             return self.open_branch_row(row, cx);
         }
         self.zone = super::zones::Zone::Branches;
-        self.history.update(cx, |h, _| h.roots.picked = Some(row));
-        if row == BranchRow::WorkingTree {
-            self.read_tree_files(cx);
-        }
+        branches.pick_row(Some(row), cx);
         cx.notify();
     }
 
