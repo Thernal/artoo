@@ -40,6 +40,7 @@ pub fn pages(
     cx: &mut App,
 ) -> Pages {
     let services = Rc::downgrade(&frame.services());
+    let listed = history.downgrade();
     let view = cx.new(|cx| {
         cx.observe(&history, |_, _, cx| cx.notify()).detach();
         RootPage {
@@ -65,9 +66,27 @@ pub fn pages(
             Some(panel.clone().into_any_element())
         })),
         show: Rc::new(move |route, _, cx| {
-            let branches = services.upgrade().and_then(|s| s.get::<Rc<dyn Branches>>());
-            if let (Some(route), Some(branches)) = (route, branches) {
-                branches.show(route, cx)
+            let Some(services) = services.upgrade() else {
+                return;
+            };
+            match (route, services.get::<Rc<dyn Branches>>()) {
+                (Some(route), Some(branches)) => branches.show(route, cx),
+                (Some(_), None) => {}
+                // The list: what nothing picked picks, what its rows say read.
+                (None, _) => {
+                    let settings = services
+                        .get::<Rc<dyn artoo_review_api::Review>>()
+                        .map(|r| r.settings(cx))
+                        .unwrap_or_default();
+                    let Some(history) = listed.upgrade() else {
+                        return;
+                    };
+                    history.update(cx, |h, cx| {
+                        h.roots.picked = h.roots.picked.or(h.first_row());
+                        h.read_facts(cx);
+                        h.read_tree(settings, cx);
+                    });
+                }
             }
         }),
     }

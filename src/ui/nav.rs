@@ -402,14 +402,13 @@ impl Workspace {
 
     /// What is loaded, as a page of Branches or Merge requests (`History::loaded_route`).
     pub(super) fn loaded_page(&self, cx: &App) -> Option<Page> {
-        let shown = self.review.read(cx).diff.as_ref().map(|d| &d.header);
         let on_screen = self.nav_page().map(Page::route);
-        let route = self.history.read(cx).loaded_route(
-            shown,
-            self.requests.read(cx).current,
-            on_screen.as_ref(),
-        )?;
-        Page::from_route(&route)
+        Page::from_route(&self.branches()?.loaded(on_screen.as_ref(), cx)?)
+    }
+
+    /// The branches as a page asks them.
+    pub(super) fn branches(&self) -> Option<std::rc::Rc<dyn artoo_branches_api::Branches>> {
+        self.services.get()
     }
 
     /// Something was opened: its space and page come on screen, over the Inbox or Settings. From
@@ -447,7 +446,9 @@ impl Workspace {
                 Page::Branch(refname)
                 | Page::BranchCommit(refname, _)
                 | Page::BranchCommits(refname, ..),
-            ) if self.history.read(cx).tabbed(refname) => &[Section::Commits, Section::Changes],
+            ) if self.branches().is_some_and(|b| b.tabbed(refname, cx)) => {
+                &[Section::Commits, Section::Changes]
+            }
             _ => &[],
         }
     }
@@ -533,14 +534,17 @@ impl Workspace {
             // it; two versions compared are Changes (#73).
             let section = match &page {
                 Page::RequestCommit(_, id) | Page::BranchCommit(_, id) => {
-                    self.history.update(cx, |h, _| h.pick_commits(*id, None));
+                    if let Some(branches) = self.branches() {
+                        branches.pick_commits(*id, None, cx);
+                    }
                     Some(Section::Commits)
                 }
                 // A run is picked there as it was, newest first.
                 Page::RequestCommits(_, newest, oldest)
                 | Page::BranchCommits(_, newest, oldest) => {
-                    self.history
-                        .update(cx, |h, _| h.pick_commits(*newest, Some(*oldest)));
+                    if let Some(branches) = self.branches() {
+                        branches.pick_commits(*newest, Some(*oldest), cx);
+                    }
                     Some(Section::Commits)
                 }
                 Page::RequestVersions(..) => Some(Section::Changes),
@@ -616,7 +620,7 @@ impl Workspace {
     /// What is selected inside the open request or branch changed (a commit, versions): the page
     /// follows. Not while a request is still loading, nor while a page is being put back.
     pub(super) fn record(&mut self, cx: &mut App) {
-        if self.history.read(cx).pending_request.is_some() || self.nav.restoring {
+        if self.branches().is_some_and(|b| b.settling(cx)) || self.nav.restoring {
             return;
         }
         let Some(page) = self.loaded_page(cx) else {
@@ -671,7 +675,9 @@ impl Workspace {
         self.keep_place(cx);
         self.nav.space = space;
         self.nav.pages[space.ix()] = page.clone();
-        self.history.update(cx, |h, _| h.waiting = None);
+        if let Some(branches) = self.branches() {
+            branches.stop_waiting(cx);
+        }
         self.inbox = space == Space::Inbox;
         self.settings_open = false;
         self.nav.restoring = true;
@@ -704,12 +710,8 @@ impl Workspace {
             }
             Space::Code => self.show_pages(space, None, false, cx),
             Space::Branches => {
-                let first = self.first_branch_row(cx);
-                self.history
-                    .update(cx, |h, _| h.roots.picked = h.roots.picked.or(first));
                 self.zone = zones::Zone::Branches;
-                self.read_branch_facts(cx);
-                self.read_tree_files(cx);
+                self.show_pages(space, None, false, cx);
             }
             Space::Requests => {
                 self.pick_first_request(cx);
@@ -753,14 +755,6 @@ impl Workspace {
         }
     }
 
-    fn branch_ix(&self, refname: &str, cx: &App) -> Option<usize> {
-        self.history
-            .read(cx)
-            .branches
-            .iter()
-            .position(|b| b.refname == refname)
-    }
-
     /// What a page waited for is in (a request's commits, a branch's versions): the page is shown
     /// (`History::finish_waiting`). Whether it was.
     pub(super) fn finish_pending(&mut self, cx: &mut Context<Self>) -> bool {
@@ -796,19 +790,17 @@ impl Workspace {
         let up = page.parent();
         if up.is_none() {
             // Back at the root: the list selects what was open.
-            match (&page, page.item()) {
-                (Page::WorkingTree, _) => self
-                    .history
-                    .update(cx, |h, _| h.roots.picked = Some(BranchRow::WorkingTree)),
-                (_, Some(Item::Request(iid))) => {
+            match page.item() {
+                Some(Item::Request(iid)) => {
                     self.requests.update(cx, |rq, _| rq.rows.picked = Some(iid));
                     self.requests.read(cx).rows.reveal.set(true);
                 }
-                (_, Some(Item::Branch(refname))) => {
-                    let row = self.branch_ix(&refname, cx).map(BranchRow::Branch);
-                    self.history.update(cx, |h, _| h.roots.picked = row);
+                Some(Item::Branch(_) | Item::WorkingTree) => {
+                    if let Some(branches) = self.branches() {
+                        branches.back_to_list(&page.route(), cx);
+                    }
                 }
-                (_, Some(Item::Compare(..) | Item::WorkingTree) | None) => {}
+                Some(Item::Compare(..)) | None => {}
             }
             self.nav.from = None;
         }
@@ -965,7 +957,9 @@ impl Workspace {
             .filter_map(Nav::read)
             .find(|saved| Some(&saved.repo) == repo.as_ref());
         self.nav = Nav::default();
-        self.history.update(cx, |h, _| h.waiting = None);
+        if let Some(branches) = self.branches() {
+            branches.stop_waiting(cx);
+        }
         let Some(Saved {
             space, pages, open, ..
         }) = saved
@@ -1122,11 +1116,8 @@ impl Workspace {
     /// Opens branch `ix` as a page of Branches (a list's row, ⌘K, a link).
     pub(super) fn open_branch(&mut self, ix: usize, keep: Option<Oid>, cx: &mut Context<Self>) {
         let Some(refname) = self
-            .history
-            .read(cx)
-            .branches
-            .get(ix)
-            .map(|b| b.refname.clone())
+            .branches()
+            .and_then(|b| b.list(cx).get(ix).map(|b| b.refname.clone()))
         else {
             return;
         };

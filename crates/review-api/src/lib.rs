@@ -62,6 +62,9 @@ pub trait Review {
     /// The diff shown, once it is read.
     fn shown(&self, cx: &App) -> Option<Arc<diff::Diff>>;
 
+    /// How a diff is read now (the view's options: whitespace ignored or not).
+    fn settings(&self, cx: &App) -> artoo_core::git::DiffSettings;
+
     /// How far your review of commit `tip` got, files done of all: once begun, until it is whole.
     fn head_part(&self, tip: Oid, cx: &App) -> Option<(u32, u32)>;
 

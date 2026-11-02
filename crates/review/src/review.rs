@@ -241,6 +241,15 @@ impl artoo_review_api::Review for Handle {
         self.0.upgrade()?.read(cx).diff.clone()
     }
 
+    fn settings(&self, cx: &App) -> artoo_core::git::DiffSettings {
+        artoo_core::git::DiffSettings {
+            ignore_whitespace: self
+                .0
+                .upgrade()
+                .is_some_and(|rv| rv.read(cx).options.ignore_whitespace),
+        }
+    }
+
     fn head_part(&self, tip: git2::Oid, cx: &App) -> Option<(u32, u32)> {
         self.0.upgrade()?.read(cx).head_part(tip)
     }

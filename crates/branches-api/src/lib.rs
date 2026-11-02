@@ -29,6 +29,25 @@ pub trait Branches {
     /// A branch's, a comparison's, the working tree's or a request's route on screen (`Pages::show`): what it shows
     /// read, unless it is what is loaded.
     fn show(&self, route: &Route, cx: &mut App);
+
+    /// The route of what the branch open shows now: a request's page while the request open is on it, a
+    /// comparison `on_screen` kept while a run of its commits narrows it; `None` while no branch is open.
+    fn loaded(&self, on_screen: Option<&Route>, cx: &App) -> Option<Route>;
+
+    /// Whether branch `refname`'s page has Commits and Changes as tabs: it is the one open, off the main line.
+    fn tabbed(&self, refname: &str, cx: &App) -> bool;
+
+    /// A commit, or a run of them (newest, oldest), came on screen as a page: its Commits page has it picked.
+    fn pick_commits(&self, newest: git2::Oid, oldest: Option<git2::Oid>, cx: &mut App);
+
+    /// A request's diff waits for its branch to be read: what is shown does not move the page yet.
+    fn settling(&self, cx: &App) -> bool;
+
+    /// Another page came on screen: nothing waits to be shown.
+    fn stop_waiting(&self, cx: &mut App);
+
+    /// Esc from `route`'s page back to the list: its row is picked (the working tree's, a branch's).
+    fn back_to_list(&self, route: &Route, cx: &mut App);
 }
 
 /// A branch, by its refname.

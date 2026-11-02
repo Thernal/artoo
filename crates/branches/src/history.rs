@@ -301,6 +301,68 @@ struct Handle(
 );
 
 impl artoo_branches_api::Branches for Handle {
+    fn tabbed(&self, refname: &str, cx: &gpui::App) -> bool {
+        self.0.upgrade().is_some_and(|h| h.read(cx).tabbed(refname))
+    }
+
+    fn pick_commits(&self, newest: git2::Oid, oldest: Option<git2::Oid>, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, _| h.pick_commits(newest, oldest));
+        }
+    }
+
+    fn settling(&self, cx: &gpui::App) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|h| h.read(cx).pending_request.is_some())
+    }
+
+    fn back_to_list(&self, route: &artoo_core::route::Route, cx: &mut gpui::App) {
+        use artoo_branches_api::{BranchRoute, WorkingTreeRoute};
+        use artoo_core::route::Place;
+        let Some(h) = self.0.upgrade() else {
+            return;
+        };
+        let row = if WorkingTreeRoute::from_route(route).is_some() {
+            Some(crate::roots::BranchRow::WorkingTree)
+        } else if let Some(branch) = BranchRoute::from_route(route) {
+            let ix = h
+                .read(cx)
+                .branches
+                .iter()
+                .position(|b| b.refname == branch.refname);
+            ix.map(crate::roots::BranchRow::Branch)
+        } else {
+            return;
+        };
+        h.update(cx, |h, _| h.roots.picked = row);
+    }
+
+    fn stop_waiting(&self, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, _| h.waiting = None);
+        }
+    }
+
+    fn loaded(
+        &self,
+        on_screen: Option<&artoo_core::route::Route>,
+        cx: &gpui::App,
+    ) -> Option<artoo_core::route::Route> {
+        let services = self.1.upgrade()?;
+        let shown = services
+            .get::<std::rc::Rc<dyn artoo_review_api::Review>>()
+            .and_then(|r| r.shown(cx));
+        let current = services
+            .get::<std::rc::Rc<dyn artoo_requests_api::Requests>>()
+            .and_then(|r| r.current(cx));
+        self.0.upgrade()?.read(cx).loaded_route(
+            shown.as_ref().map(|d| &d.header),
+            current,
+            on_screen,
+        )
+    }
+
     fn list(&self, cx: &gpui::App) -> Arc<Vec<BranchRef>> {
         self.0
             .upgrade()
