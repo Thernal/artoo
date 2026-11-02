@@ -241,6 +241,16 @@ impl artoo_review_api::Review for Handle {
         self.0.upgrade()?.read(cx).diff.clone()
     }
 
+    fn place(&self, cx: &App) -> Option<(String, gpui::ListOffset)> {
+        self.0.upgrade()?.read(cx).scroll_place()
+    }
+
+    fn restore_at(&self, place: Option<(String, gpui::ListOffset)>, cx: &mut App) {
+        if let Some(rv) = self.0.upgrade() {
+            rv.update(cx, |rv, _| rv.restore_scroll = place);
+        }
+    }
+
     fn settings(&self, cx: &App) -> artoo_core::git::DiffSettings {
         artoo_core::git::DiffSettings {
             ignore_whitespace: self

@@ -406,6 +406,11 @@ impl Workspace {
         Page::from_route(&self.branches()?.loaded(on_screen.as_ref(), cx)?)
     }
 
+    /// The requests as a page asks them.
+    pub(super) fn requests_api(&self) -> Option<std::rc::Rc<dyn artoo_requests_api::Requests>> {
+        self.services.get()
+    }
+
     /// The branches as a page asks them.
     pub(super) fn branches(&self) -> Option<std::rc::Rc<dyn artoo_branches_api::Branches>> {
         self.services.get()
@@ -646,12 +651,10 @@ impl Workspace {
         let Some(item) = page.item() else {
             return;
         };
-        let place = self.review.read(cx).scroll_place();
-        let paths: Vec<String> = self
-            .review
-            .read(cx)
-            .diff
-            .as_ref()
+        let review = self.review_handle();
+        let place = review.place(cx);
+        let paths: Vec<String> = review
+            .shown(cx)
             .map(|d| d.files.iter().map(|f| f.path().to_owned()).collect())
             .unwrap_or_default();
         if let Some(open) = self.nav.opened_mut(&item) {
@@ -714,7 +717,7 @@ impl Workspace {
                 self.read_preview(cx);
                 self.zone = zones::Zone::Branches;
                 // A project without a token: the connect panel takes the keyboard.
-                if self.requests.read(cx).connectable
+                if self.requests_api().is_some_and(|r| r.connectable(cx))
                     && let Some(connecting) = self.connecting()
                 {
                     connecting.take_keyboard(cx);
@@ -730,7 +733,7 @@ impl Workspace {
             let loaded = self.loaded_page(cx).and_then(|p| p.item());
             if loaded.as_ref() != Some(&item) {
                 let place = self.nav.opened(&item).and_then(|o| o.place.clone());
-                self.review.update(cx, |rv, _| rv.restore_scroll = place);
+                self.review_handle().restore_at(place, cx);
             }
         }
         self.show_pages(page.space(), Some(&page), opened, cx);
@@ -784,8 +787,9 @@ impl Workspace {
             // Back at the root: the list selects what was open.
             match page.item() {
                 Some(Item::Request(iid)) => {
-                    self.requests.update(cx, |rq, _| rq.rows.picked = Some(iid));
-                    self.requests.read(cx).rows.reveal.set(true);
+                    if let Some(requests) = self.requests_api() {
+                        requests.back_to_list(iid, cx);
+                    }
                 }
                 Some(Item::Branch(_) | Item::WorkingTree) => {
                     if let Some(branches) = self.branches() {
@@ -885,7 +889,7 @@ impl Workspace {
         if shown {
             self.nav.pages[space.ix()] = None;
             if let Item::Request(iid) = item
-                && self.requests.read(cx).current == Some(*iid)
+                && self.requests_api().and_then(|r| r.current(cx)) == Some(*iid)
             {
                 self.drop_request(cx);
             }
@@ -918,17 +922,17 @@ impl Workspace {
     /// closed) stay there, what became of them read once (#114: no pin needed); a page waiting
     /// for the list is shown.
     pub(super) fn requests_listed(&mut self, cx: &mut Context<Self>) {
-        if self.requests.read(cx).error.is_none() {
-            let gone: Vec<u64> = self
-                .nav
-                .open
-                .iter()
-                .filter_map(|o| match o.item {
-                    Item::Request(iid) => Some(iid),
-                    _ => None,
-                })
-                .filter(|iid| self.requests.read(cx).find(*iid).is_none())
-                .collect();
+        let open: Vec<u64> = self
+            .nav
+            .open
+            .iter()
+            .filter_map(|o| match o.item {
+                Item::Request(iid) => Some(iid),
+                _ => None,
+            })
+            .collect();
+        if let Some(requests) = self.requests_api() {
+            let gone = requests.unlisted(&open, cx);
             self.read_left(gone, cx);
         }
         if let Some((space, page)) = self.nav.pending_show.take() {
@@ -996,7 +1000,7 @@ impl Workspace {
             self.nav.restoring = false;
         }
         let needs_list = matches!(page.as_ref().map(Page::space), Some(Space::Requests));
-        if needs_list && self.requests.read(cx).loading {
+        if needs_list && self.requests_api().is_some_and(|r| r.listing(cx)) {
             self.nav.space = space;
             self.nav.pages[space.ix()] = None;
             self.nav.pending_show = Some((space, page));
@@ -1118,7 +1122,7 @@ impl Workspace {
             .then(|| self.nav.opened(&item).and_then(|o| o.place.clone()))
             .flatten();
         self.arrive(Page::Branch(refname), cx);
-        self.review.update(cx, |rv, _| rv.restore_scroll = place);
+        self.review_handle().restore_at(place, cx);
         self.select_branch(ix, keep, cx);
     }
 }

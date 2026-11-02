@@ -65,6 +65,12 @@ pub trait Review {
     /// How a diff is read now (the view's options: whitespace ignored or not).
     fn settings(&self, cx: &App) -> artoo_core::git::DiffSettings;
 
+    /// Where the diff shown is scrolled to: the file at the top and its offset, for coming back to it.
+    fn place(&self, cx: &App) -> Option<(String, gpui::ListOffset)>;
+
+    /// The next diff shown opens at `place` (a page come back to), or at its top.
+    fn restore_at(&self, place: Option<(String, gpui::ListOffset)>, cx: &mut App);
+
     /// How far your review of commit `tip` got, files done of all: once begun, until it is whole.
     fn head_part(&self, tip: Oid, cx: &App) -> Option<(u32, u32)>;
 

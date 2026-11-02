@@ -2282,7 +2282,7 @@ impl Workspace {
     }
 
     /// The tab's review as a page asks it (`artoo_review_api::Review`).
-    fn review_handle(&self) -> Rc<dyn artoo_review_api::Review> {
+    pub(super) fn review_handle(&self) -> Rc<dyn artoo_review_api::Review> {
         artoo_review::review::handle(&self.review)
     }
 

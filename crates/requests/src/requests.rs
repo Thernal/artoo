@@ -428,4 +428,34 @@ impl artoo_requests_api::Requests for Handle {
     fn current(&self, cx: &App) -> Option<u64> {
         self.0.upgrade()?.read(cx).current
     }
+
+    fn listing(&self, cx: &App) -> bool {
+        self.0.upgrade().is_some_and(|r| r.read(cx).loading)
+    }
+
+    fn connectable(&self, cx: &App) -> bool {
+        self.0.upgrade().is_some_and(|r| r.read(cx).connectable)
+    }
+
+    fn unlisted(&self, numbers: &[u64], cx: &App) -> Vec<u64> {
+        let Some(requests) = self.0.upgrade() else {
+            return Vec::new();
+        };
+        let rq = requests.read(cx);
+        if rq.error.is_some() {
+            return Vec::new();
+        }
+        numbers
+            .iter()
+            .copied()
+            .filter(|n| rq.find(*n).is_none())
+            .collect()
+    }
+
+    fn back_to_list(&self, number: u64, cx: &mut App) {
+        if let Some(requests) = self.0.upgrade() {
+            requests.update(cx, |rq, _| rq.rows.picked = Some(number));
+            requests.read(cx).rows.reveal.set(true);
+        }
+    }
 }

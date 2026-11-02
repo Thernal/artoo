@@ -15,6 +15,18 @@ pub trait Requests {
 
     /// The request open, by its number: the one whose branch is read.
     fn current(&self, cx: &App) -> Option<u64>;
+
+    /// The list is being read.
+    fn listing(&self, cx: &App) -> bool;
+
+    /// A project without a token: connecting is offered instead of the list.
+    fn connectable(&self, cx: &App) -> bool;
+
+    /// Of `numbers`, those the list read lacks (merged, closed, gone); none while the list failed.
+    fn unlisted(&self, numbers: &[u64], cx: &App) -> Vec<u64>;
+
+    /// Esc from request `number`'s page back to the list: its row is picked and brought into view.
+    fn back_to_list(&self, number: u64, cx: &mut App);
 }
 
 /// A merge request, by its number.
