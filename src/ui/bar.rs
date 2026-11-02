@@ -149,7 +149,7 @@ impl Workspace {
     /// names no author): a request's identity, a commit's or a branch's card, a file's or a
     /// folder's whole path. Without one, its own long hover gives the whole title when it is cut.
     fn title_hover(&self, page: Option<&Page>, text: String, mono: bool, cx: &App) -> AnyElement {
-        use super::hover::{CommitCard, CutInTip, Hover};
+        use super::hover::{CutInTip, Hover};
         let style = |title: gpui::Stateful<gpui::Div>| {
             title
                 .font_weight(FontWeight::SEMIBOLD)
@@ -165,12 +165,8 @@ impl Workspace {
         );
         let plain = || style(super::hover::cut("bar-title", text.clone())).into_any_element();
         let commit = |id: &git2::Oid| {
-            self.history
-                .read(cx)
-                .commits
-                .iter()
-                .position(|c| c.id == *id)
-                .and_then(|ix| self.commit_card(ix, cx))
+            self.branches()?
+                .commit_card(*id, self.web.as_ref(), cx)
         };
         match page {
             Some(
@@ -181,7 +177,7 @@ impl Workspace {
             },
             Some(Page::RequestCommit(_, id) | Page::BranchCommit(_, id)) => match commit(id) {
                 Some(card) => title
-                    .card(move |_, cx| CommitCard::show(&card, cx))
+                    .card(move |window, cx| card(window, cx))
                     .into_any_element(),
                 None => plain(),
             },
@@ -189,19 +185,18 @@ impl Workspace {
                 Page::Branch(refname)
                 | Page::BranchCommits(refname, ..)
                 | Page::Versions(refname, ..),
-            ) => match self
-                .history
-                .read(cx)
-                .branches
+            ) => match self.branch_list(cx)
                 .iter()
                 .position(|b| &b.refname == refname)
                 .and_then(|ix| {
                     let request = self
                         .request_of_branch(ix, cx)
                         .map(|m| (m.iid, m.title.clone()));
-                    artoo_branches::card::branch_card(self.history.read(cx), ix, request)
+                    self.branches()?.branch_card(ix, request, cx)
                 }) {
-                Some(build) => title.card(build).into_any_element(),
+                Some(build) => title
+                    .card(move |window, cx| build(window, cx))
+                    .into_any_element(),
                 None => plain(),
             },
             Some(Page::File(path)) => {
@@ -232,16 +227,14 @@ impl Workspace {
             .map(crate::labels::project_name)
             .unwrap_or_default();
         let branch = |refname: &str| {
-            self.history
-                .read(cx)
-                .branches
+            self.branch_list(cx)
                 .iter()
                 .find(|b| b.refname == refname)
                 .map_or_else(|| refname.to_owned(), |b| b.name.clone())
         };
         let versions = |a: usize, b: usize| match (
-            self.history.read(cx).versions.get(a),
-            self.history.read(cx).versions.get(b),
+            self.version_at(a, cx),
+            self.version_at(b, cx),
         ) {
             (Some(a), Some(b)) => format!("v{} → v{}", a.number, b.number),
             _ => "versions".to_owned(),
@@ -437,10 +430,7 @@ impl Workspace {
             // The file or the project's folder in the app it belongs to, named (#78).
             (Space::Code, _) => out.extend(self.open_in_button(cx)),
             (Space::Branches, Some(Page::Branch(refname))) => {
-                let ix = self
-                    .history
-                    .read(cx)
-                    .branches
+                let ix = self.branch_list(cx)
                     .iter()
                     .position(|b| &b.refname == refname);
                 match ix.and_then(|ix| self.request_of_branch(ix, cx).map(|m| m.iid)) {

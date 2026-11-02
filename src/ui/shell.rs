@@ -177,7 +177,7 @@ impl Workspace {
     }
 
     pub(super) fn has_news(&self, cx: &gpui::App) -> bool {
-        self.history.read(cx).has_news()
+        self.branches().is_some_and(|b| b.has_news(cx))
     }
 
     /// Runs `f` on the shell this workspace is a tab of.

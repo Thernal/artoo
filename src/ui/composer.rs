@@ -67,18 +67,14 @@ impl Workspace {
 
     /// Where a comment is written, for the reader of the export: a commit or a version range.
     fn comment_at(&self, cx: &App) -> String {
-        match self.history.read(cx).selection {
-            Selection::Commit(ix) => self
-                .history
-                .read(cx)
-                .commits
-                .get(ix)
+        match self.selection(cx) {
+            Selection::Commit(ix) => self.commit_info(ix, cx)
                 .map(|c| format::short(c.id))
                 .unwrap_or_default(),
             Selection::Commits { newest, oldest } => {
                 match (
-                    self.history.read(cx).commits.get(oldest),
-                    self.history.read(cx).commits.get(newest),
+                    self.commit_info(oldest, cx),
+                    self.commit_info(newest, cx),
                 ) {
                     (Some(a), Some(b)) => {
                         format!("{}..{}", format::short(a.id), format::short(b.id))
@@ -88,8 +84,8 @@ impl Workspace {
             }
             Selection::Versions { from, to } => {
                 match (
-                    self.history.read(cx).versions.get(from),
-                    self.history.read(cx).versions.get(to),
+                    self.version_at(from, cx),
+                    self.version_at(to, cx),
                 ) {
                     (Some(a), Some(b)) => format!("v{}→v{}", a.number, b.number),
                     _ => String::new(),

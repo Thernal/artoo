@@ -416,6 +416,36 @@ impl Workspace {
         self.services.get()
     }
 
+    /// What the tab reads most of the branches (`Branches`): the list, the branch open, what the diff shows of it,
+    /// its commits and versions.
+    pub(super) fn branch_list(&self, cx: &App) -> std::sync::Arc<Vec<crate::git::BranchRef>> {
+        self.branches().map(|b| b.list(cx)).unwrap_or_default()
+    }
+
+    pub(super) fn branch_ix(&self, cx: &App) -> Option<usize> {
+        self.branches()?.branch(cx)
+    }
+
+    pub(super) fn selection(&self, cx: &App) -> Selection {
+        self.branches().map_or(Selection::None, |b| b.selection(cx))
+    }
+
+    pub(super) fn commit_count(&self, cx: &App) -> usize {
+        self.branches().map_or(0, |b| b.commit_count(cx))
+    }
+
+    pub(super) fn commit_info(&self, ix: usize, cx: &App) -> Option<crate::git::CommitInfo> {
+        self.branches()?.commit(ix, cx)
+    }
+
+    pub(super) fn commit_at(&self, id: Oid, cx: &App) -> Option<usize> {
+        self.branches()?.commit_of(id, cx)
+    }
+
+    pub(super) fn version_at(&self, ix: usize, cx: &App) -> Option<artoo_core::git::Version> {
+        self.branches()?.version(ix, cx)
+    }
+
     /// Something was opened: its space and page come on screen, over the Inbox or Settings. From
     /// another space it was a link, and the page says where it came from.
     pub(super) fn arrive(&mut self, page: Page, cx: &mut App) {

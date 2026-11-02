@@ -84,21 +84,7 @@ fn item_of(route: &Route) -> Option<String> {
     Some(format!("request {number}"))
 }
 
-/// What a merge request is read from (`History::request_branch`): its own fields, as its host says them.
-pub struct RequestOf<'a> {
-    pub number: u64,
-    /// The branch it is from, and the one it goes into.
-    pub source: &'a str,
-    pub target: &'a str,
-    /// Its head, as the host has it.
-    pub head: &'a str,
-    /// Open, not merged nor closed.
-    pub open: bool,
-    /// The commit it was merged with, once it is.
-    pub merged_with: Option<&'a str>,
-    /// On GitHub, where a fork's pull request is fetched to `pr/<n>`.
-    pub github: bool,
-}
+pub use artoo_branches_api::RequestOf;
 
 impl History {
     /// Route `route` on screen (`Pages.show`): shown unless it is what is loaded (`loaded_route`, with the

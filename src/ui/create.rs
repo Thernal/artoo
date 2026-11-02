@@ -35,9 +35,8 @@ impl Workspace {
             return cx.notify();
         }
         let Some(branch) = ix
-            .or(self.history.read(cx).branch)
-            .and_then(|i| self.history.read(cx).branches.get(i))
-            .cloned()
+            .or(self.branch_ix(cx))
+            .and_then(|i| self.branch_list(cx).get(i).cloned())
         else {
             return;
         };
@@ -57,12 +56,14 @@ impl Workspace {
                 reviewers: d.reviewers.clone(),
             });
         self.field = None;
-        self.history.update(cx, |h, _| h.find.text = None);
+        if let Some(branches) = self.branches() {
+            branches.drop_find(cx);
+        }
         self.palette = None;
         self.ctx_menu.update(cx, |m, cx| m.shut(cx));
         self.bfilter.clear();
         let host = super::host_of(&web, cx);
-        let branches = self.history.read(cx).branches.clone();
+        let branches = self.branch_list(cx);
         let Some(here) = self.create_here(&branches) else {
             return;
         };
@@ -111,7 +112,7 @@ impl Workspace {
     /// again.
     pub(super) fn pick_branch(&mut self, name: String, source: bool, cx: &mut Context<Self>) {
         self.take_keyboard(Input::Part(INPUT), cx);
-        let branches = self.history.read(cx).branches.clone();
+        let branches = self.branch_list(cx);
         let Some(here) = self.create_here(&branches) else {
             return;
         };
@@ -128,7 +129,7 @@ impl Workspace {
 
     /// ↑ ↓ on From's or Into's list (`Requests::step_branch_list`).
     pub(super) fn step_branch_list(&mut self, down: bool, cx: &mut Context<Self>) -> bool {
-        let branches = self.history.read(cx).branches.clone();
+        let branches = self.branch_list(cx);
         let took = self
             .requests
             .update(cx, |rq, _| rq.step_branch_list(&branches, down));
@@ -188,7 +189,7 @@ impl Workspace {
 
     /// The quick way over the branch view (`Requests::render_create_quick`).
     pub(super) fn render_create_quick(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let branches = self.history.read(cx).branches.clone();
+        let branches = self.branch_list(cx);
         let look = self.create_look(&branches, cx);
         let acts = self.request_acts(cx);
         self.requests

@@ -19,18 +19,8 @@ impl Workspace {
             let files = Some((iid, d.files.len()));
             self.requests.update(cx, |rq, _| rq.files = files);
         }
-        if self
-            .history
-            .read(cx)
-            .shows_branch(self.review.read(cx).diff.as_ref().map(|d| &d.header))
-            && let Some(d) = self.review.read(cx).diff.as_ref()
-        {
-            let files = Some(d.files.len());
-            self.history.update(cx, |h, _| {
-                if let Some(f) = h.page.as_mut() {
-                    f.files = files;
-                }
-            });
+        if let Some(branches) = self.branches() {
+            branches.count_files(cx);
         }
     }
 

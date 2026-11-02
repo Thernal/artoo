@@ -13,7 +13,7 @@ use gpui::{App, Context};
 impl Workspace {
     /// The timeline's last version: what an outdated discussion's is compared with.
     pub(super) fn latest_version(&self, cx: &App) -> Option<usize> {
-        self.history.read(cx).versions.last().map(|v| v.number)
+        self.branches().and_then(|b| b.latest_version(cx)).map(|v| v.number)
     }
 
     /// Follows the line of every discussion written on an earlier version to the latest
@@ -40,7 +40,7 @@ impl Workspace {
         else {
             return;
         };
-        let Some(latest) = self.history.read(cx).versions.last().map(|v| v.number) else {
+        let Some(latest) = self.branches().and_then(|b| b.latest_version(cx)).map(|v| v.number) else {
             return;
         };
         let stops = h.stops(t.new_line.or(t.old_line), latest);
@@ -63,11 +63,9 @@ impl Workspace {
             return;
         };
         let index = |number: usize| {
-            self.history
-                .read(cx)
-                .versions
+            (self.branches()?.versions(cx))
                 .iter()
-                .position(|v| v.number == number)
+                .position(|v| v.0 == number)
         };
         let (Some(&(va, la)), Some(&(vb, lb))) = (since.stops.get(a), since.stops.get(b)) else {
             return;
@@ -82,8 +80,9 @@ impl Workspace {
             rv.jump_line = at;
             rv.jump_whole = at.is_some();
         });
-        self.history
-            .update(cx, |h, _| h.version_tab = super::VersionTab::Files);
+        if let Some(branches) = self.branches() {
+            branches.show_version_files(cx);
+        }
         self.load_versions(from, to, Some(since.path.clone()), cx);
     }
 
@@ -99,10 +98,10 @@ impl Workspace {
         else {
             return Vec::new();
         };
-        let Selection::Versions { from, to } = self.history.read(cx).selection else {
+        let Selection::Versions { from, to } = self.selection(cx) else {
             return Vec::new();
         };
-        let number = |i: usize| self.history.read(cx).versions.get(i).map(|v| v.number);
+        let number = |i: usize| self.version_at(i, cx).map(|v| v.number);
         let stop = |n: Option<usize>| since.stops.iter().find(|(v, _)| Some(*v) == n);
         let (Some(&(_, a)), Some(&(_, b))) = (stop(number(from)), stop(number(to))) else {
             return Vec::new();

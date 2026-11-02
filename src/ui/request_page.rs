@@ -26,13 +26,13 @@ impl Workspace {
             // Tabbed only while it is the branch loaded.
             Item::Branch(_) => (
                 true,
-                self.history.read(cx).page.as_ref().and_then(|f| f.files),
+                self.branches().and_then(|b| b.branch_files(cx)),
             ),
             Item::Compare(..) | Item::WorkingTree => return None,
         };
         let count = |section: Section| match section {
             Section::Overview => None,
-            Section::Commits => loaded.then_some(self.history.read(cx).commits.len()),
+            Section::Commits => loaded.then_some(self.commit_count(cx)),
             Section::Changes => files,
         };
         Some(self.item_sections(cx).iter().copied().fold(
@@ -58,20 +58,16 @@ impl Workspace {
 
     /// ↑ ↓ in a request's Commits: another commit picked, nothing opened.
     pub(super) fn step_commit_pick(&mut self, down: bool, cx: &mut Context<Self>) {
-        self.history.update(cx, |h, cx| {
-            h.step_pick(down);
-            cx.notify()
-        });
+        if let Some(branches) = self.branches() {
+            branches.step_pick(down, cx);
+        }
     }
 
     /// ↵ in a request's Commits: the commit picked opens as a level under it, or the run picked
     /// as one diff.
     pub(super) fn open_commit_pick(&mut self, cx: &mut Context<Self>) {
-        if let Some((newest, oldest)) = self.history.read(cx).picked_run() {
-            return self.pick(Selection::Commits { newest, oldest }, cx);
-        }
-        if let Some(ix) = self.history.read(cx).picked() {
-            self.pick(Selection::Commit(ix), cx);
+        if let Some(picked) = self.branches().and_then(|b| b.picked(cx)) {
+            self.pick(picked, cx);
         }
     }
 
@@ -83,19 +79,14 @@ impl Workspace {
         else {
             return false;
         };
-        let Some(at) = self
-            .history
-            .read(cx)
-            .commits
-            .iter()
-            .position(|c| c.id == id)
+        let Some(at) = self.commit_at(id, cx)
         else {
             return false;
         };
         let to = if forward {
             at.checked_sub(1)
         } else {
-            (at + 1 < self.history.read(cx).commits.len()).then_some(at + 1)
+            (at + 1 < self.commit_count(cx)).then_some(at + 1)
         };
         if let Some(to) = to {
             self.pick(Selection::Commit(to), cx);

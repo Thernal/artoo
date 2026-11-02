@@ -109,14 +109,7 @@ pub struct CommitsLook {
     pub web: Option<WebRemote>,
 }
 
-/// What the panel holds on a route (`History::panel_shows`).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Shows {
-    pub versions: bool,
-    pub commits: bool,
-    /// A comparison's own commits.
-    pub compare: bool,
-}
+pub use artoo_branches_api::PanelShows as Shows;
 
 /// The side panel of the tab's branch's and request's pages, at the width the shell gives it (`Pages::side`).
 pub struct Panel {

@@ -83,7 +83,7 @@ impl Workspace {
             self.zen_strip(
                 "identity-zen",
                 self.zen.is_none(),
-                if self.history.read(cx).message_open {
+                if self.branches().is_some_and(|b| b.message_open(cx)) {
                     320.
                 } else {
                     110.

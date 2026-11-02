@@ -2,9 +2,9 @@
 //! commits, two of its versions compared —, of two refs compared and of the working tree, which anyone opens through
 //! the `Frame`; and the branches listed, as a part reads them (`Branches`).
 
-use artoo_core::git::{BranchRef, CommitInfo, Deco};
+use artoo_core::git::{BranchRef, CommitInfo, Deco, Version, WebRemote};
 use artoo_core::route::{Place, Route};
-use gpui::{AnyElement, App};
+use gpui::{AnyElement, AnyView, App, Window};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -43,6 +43,15 @@ pub enum Shows {
     },
     /// Nothing changed.
     Stay,
+}
+
+/// What the side panel holds on a route (`Branches::panel_shows`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct PanelShows {
+    pub versions: bool,
+    pub commits: bool,
+    /// A comparison's own commits.
+    pub compare: bool,
 }
 
 /// A page waiting, shown (`Branches::finish_waiting`): the commit it shows, when it shows one.
@@ -108,6 +117,31 @@ pub enum Applied {
     /// What was shown no longer is: the diff goes.
     Cleared,
 }
+
+/// A ref by its name, at its tip: a comparison's or a merge request's side.
+pub type NamedTip = (String, git2::Oid);
+
+/// A merge request on the branch open: its base and head, and its number.
+pub type RequestSides = (NamedTip, NamedTip, u64);
+
+/// What a merge request is read from (`Branches::request_branch`): its own fields, as its host says them.
+pub struct RequestOf<'a> {
+    pub number: u64,
+    /// The branch it is from, and the one it goes into.
+    pub source: &'a str,
+    pub target: &'a str,
+    /// Its head, as the host has it.
+    pub head: &'a str,
+    /// Open, not merged nor closed.
+    pub open: bool,
+    /// The commit it was merged with, once it is.
+    pub merged_with: Option<&'a str>,
+    /// On GitHub, where a fork's pull request is fetched to `pr/<n>`.
+    pub github: bool,
+}
+
+/// A card a long hover shows (a commit's, a branch's), made when it shows.
+pub type Card = std::rc::Rc<dyn Fn(&mut Window, &mut App) -> AnyView>;
 
 /// A row of Branches' list: the working tree, or a branch (#72), by its place in `Branches::list`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -297,6 +331,109 @@ pub trait Branches {
 
     /// The working tree's halves: what is not staged only, or all of it.
     fn set_only_unstaged(&self, on: bool, cx: &mut App);
+
+    /// Commit `id`'s place in the list.
+    fn commit_of(&self, id: git2::Oid, cx: &App) -> Option<usize>;
+
+    /// The first `limit` commits of the list that `keep` keeps, newest first.
+    fn commits_where(
+        &self,
+        keep: &dyn Fn(&CommitInfo) -> bool,
+        limit: usize,
+        cx: &App,
+    ) -> Vec<CommitInfo>;
+
+    /// Version `ix` of the request open (oldest first), and its latest.
+    fn version(&self, ix: usize, cx: &App) -> Option<Version>;
+    fn latest_version(&self, cx: &App) -> Option<Version>;
+
+    /// The version comparison shows the files that changed (not its commits paired).
+    fn show_version_files(&self, cx: &mut App);
+
+    /// The Commits section folded; the commit's message open over its diff; newer commits or versions waiting
+    /// to be shown; a branch being read.
+    fn commits_folded(&self, cx: &App) -> bool;
+    fn message_open(&self, cx: &App) -> bool;
+    fn has_news(&self, cx: &App) -> bool;
+    fn reading(&self, cx: &App) -> bool;
+
+    /// The search's text goes, its list left as it is (another field took the keyboard).
+    fn drop_find(&self, cx: &mut App);
+
+    /// ↑ ↓ in the commit list: what the selection moves to (a commit, the working tree above the first), if it
+    /// moves.
+    fn step_row(&self, down: bool, cx: &App) -> Option<Selection>;
+
+    /// ↑ ↓ in a Commits page: another commit picked, nothing opened; ↵ opens what is picked, a commit or a run.
+    fn step_pick(&self, down: bool, cx: &mut App);
+    fn picked(&self, cx: &App) -> Option<Selection>;
+
+    /// What the side panel holds on `route`.
+    fn panel_shows(&self, route: Option<&Route>, cx: &App) -> PanelShows;
+
+    /// A diff arrived: the branch page learns how many files it has, when it is the page's own. The branch
+    /// page's count.
+    fn count_files(&self, cx: &mut App);
+    fn branch_files(&self, cx: &App) -> Option<usize>;
+
+    /// Commit `id`'s card (`web` its page on the host), branch `ix`'s (`request` the one riding on it).
+    fn commit_card(&self, id: git2::Oid, web: Option<&WebRemote>, cx: &App) -> Option<Card>;
+    fn branch_card(&self, ix: usize, request: Option<(u64, String)>, cx: &App) -> Option<Card>;
+
+    /// What `head` changed against `base`, since their merge base or directly, a request's diff or not.
+    fn compare(
+        &self,
+        base: NamedTip,
+        head: NamedTip,
+        since: bool,
+        request: Option<u64>,
+        cx: &mut App,
+    );
+
+    /// The comparison `route` is, its commits read; a run of them narrowing its diff.
+    fn compare_listed(&self, route: Option<&Route>, cx: &App) -> bool;
+    fn compare_narrowed(&self, route: Option<&Route>, cx: &App) -> bool;
+
+    /// The commits of the comparison `route` is read, unless they are these already (esc back from a pick); none
+    /// picked. Any other route has none.
+    fn read_compare(&self, route: Option<&Route>, cx: &mut App);
+
+    /// A click on a comparison's commit `ix`: its diff alone; with ⇧ (`span`) the run from the one clicked last
+    /// to it; `keep` the file to stay on. Whether it is shown.
+    fn pick_compare(&self, ix: usize, span: bool, keep: Option<String>, cx: &mut App) -> bool;
+
+    /// The run picked shown under the comparison's own page. Whether a run is picked.
+    fn show_compare_pick(&self, keep: Option<String>, cx: &mut App) -> bool;
+
+    /// ↑ ↓ in the commits of the comparison `route` is: the one above or below the run picked, shown. Whether it
+    /// moved.
+    fn step_compare(
+        &self,
+        route: Option<&Route>,
+        down: bool,
+        keep: Option<String>,
+        cx: &mut App,
+    ) -> bool;
+
+    /// The title of `route`'s comparison narrowed to one of its commits: the commit's subject.
+    fn compare_title(&self, route: &Route, cx: &App) -> Option<String>;
+
+    /// The merge request waiting for its branch to be read, and the one whose diff is open.
+    fn request_sides(&self, cx: &App) -> (Option<RequestSides>, Option<RequestSides>);
+    fn set_pending_request(&self, sides: Option<RequestSides>, cx: &mut App);
+    fn set_open_request(&self, sides: Option<RequestSides>, cx: &mut App);
+
+    /// The branch request `of` is read from, and its sides when they are not the branches' own.
+    fn request_branch(&self, of: &RequestOf, cx: &App) -> Option<(usize, Option<RequestSides>)>;
+
+    /// The branches read again (a fetch): the branch open stays open where it still is.
+    fn set_list(&self, branches: Vec<BranchRef>, cx: &mut App);
+
+    /// The open request's Commits read again from `base` to `head`; a commit or a run picked in it stays picked.
+    fn show_request_commits(&self, base: &NamedTip, head: &NamedTip, cx: &mut App);
+
+    /// The host's versions of the open request in the timeline, when there is more than one.
+    fn show_request_versions(&self, versions: Option<&(u64, Vec<Version>)>, cx: &mut App);
 }
 
 /// A branch, by its refname.

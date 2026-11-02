@@ -445,11 +445,9 @@ impl Workspace {
                     pick: Pick::Request(m.iid),
                 })
             });
+        let list = self.branch_list(cx);
         let branches = crate::rank::rank(
-            self.history
-                .read(cx)
-                .branches
-                .iter()
+            list.iter()
                 .enumerate()
                 .filter(|(_, b)| b.kind == crate::git::RefKind::Local),
             query,
@@ -489,7 +487,9 @@ impl Workspace {
         };
         self.field = None;
         self.review.update(cx, |rv, _| rv.dfind = None);
-        self.history.update(cx, |h, _| h.find.text = None);
+        if let Some(branches) = self.branches() {
+            branches.drop_find(cx);
+        }
         self.ctx_menu.update(cx, |m, cx| m.shut(cx));
         self.reset_field_edit();
         let theme = matches!(kind, Kind::Theme);
@@ -693,18 +693,15 @@ impl Workspace {
                     pick: Pick::Branch(ix),
                 })
                 .collect(),
-            Scope::Commits => self
-                .history
-                .read(cx)
-                .commits
-                .iter()
-                .filter(|c| {
+            Scope::Commits => self.branches()
+                .map(|b| b.commits_where(&|c| {
                     words.is_empty()
                         || matches(&words, &c.summary)
                         || matches(&words, &c.author)
                         || c.id.to_string().starts_with(&words[0])
-                })
-                .take(60)
+                }, 60, cx))
+                .unwrap_or_default()
+                .into_iter()
                 .map(|c| Item {
                     group: "Commits",
                     label: c.summary.clone(),
@@ -1047,17 +1044,15 @@ impl Workspace {
         }
         if scope.is_none() && !words.is_empty() {
             items.extend(
-                self.history
-                    .read(cx)
-                    .commits
-                    .iter()
-                    .filter(|c| {
+                self.branches()
+                .map(|b| b.commits_where(&|c| {
                         matches(&words, &c.summary)
                             || matches(&words, &c.author)
                             || c.id.to_string().starts_with(&words[0])
-                    })
-                    .take(4)
-                    .map(|c| Item {
+                    }, 4, cx))
+                .unwrap_or_default()
+                .into_iter()
+                .map(|c| Item {
                         group: "Commits",
                         label: c.summary.clone(),
                         detail: format!("{} · {}", format::short(c.id), c.author),
@@ -1228,12 +1223,7 @@ impl Workspace {
             // A result opens in its space (#71): a commit or a file of what is loaded on its page.
             Pick::Commit(id) => {
                 self.palette = None;
-                if let Some(ix) = self
-                    .history
-                    .read(cx)
-                    .commits
-                    .iter()
-                    .position(|c| c.id == id)
+                if let Some(ix) = self.commit_at(id, cx)
                 {
                     self.open_commit(ix, cx);
                 }
@@ -1324,11 +1314,9 @@ impl Workspace {
         if self.root.is_none() {
             return;
         }
-        let review = self.review_handle();
-        let (b, h) = (base.clone(), head.clone());
-        self.history.update(cx, |hist, cx| {
-            hist.show_compare(b, h, since_merge_base, request, &*review, cx)
-        });
+        if let Some(branches) = self.branches() {
+            branches.compare(base.clone(), head.clone(), since_merge_base, request, cx);
+        }
         // The whole request is its page; a commit or versions of it were (#71).
         if request.is_some() {
             self.record(cx);

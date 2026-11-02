@@ -198,10 +198,7 @@ impl Workspace {
                         call: self.agent_calls.get(&open.item).filter(|_| !on).cloned(),
                     },
                     Item::Branch(refname) => {
-                        let name = self
-                            .history
-                            .read(cx)
-                            .branches
+                        let name = self.branch_list(cx)
                             .iter()
                             .find(|b| &b.refname == refname)
                             .map_or_else(|| refname.clone(), |b| b.name.clone());

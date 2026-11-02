@@ -15,11 +15,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// A ref's name and the commit it points at.
-pub type NamedTip = (String, git2::Oid);
-
-/// A merge request on the branch open: its base and head, and its number.
-pub type RequestSides = (NamedTip, NamedTip, u64);
+pub use artoo_branches_api::{NamedTip, RequestSides};
 
 pub use artoo_branches_api::Selection;
 
@@ -700,6 +696,343 @@ impl artoo_branches_api::Branches for Handle {
             .and_then(|r| r.current(cx));
         h.update(cx, |h, cx| h.show_opened(route, current, &*review, cx));
     }
+
+    fn commit_of(&self, id: git2::Oid, cx: &gpui::App) -> Option<usize> {
+        self.0
+            .upgrade()?
+            .read(cx)
+            .commits
+            .iter()
+            .position(|c| c.id == id)
+    }
+
+    fn commits_where(
+        &self,
+        keep: &dyn Fn(&CommitInfo) -> bool,
+        limit: usize,
+        cx: &gpui::App,
+    ) -> Vec<CommitInfo> {
+        self.0.upgrade().map_or_else(Vec::new, |h| {
+            h.read(cx)
+                .commits
+                .iter()
+                .filter(|c| keep(c))
+                .take(limit)
+                .cloned()
+                .collect()
+        })
+    }
+
+    fn version(&self, ix: usize, cx: &gpui::App) -> Option<Version> {
+        self.0.upgrade()?.read(cx).versions.get(ix).cloned()
+    }
+
+    fn latest_version(&self, cx: &gpui::App) -> Option<Version> {
+        self.0.upgrade()?.read(cx).versions.last().cloned()
+    }
+
+    fn show_version_files(&self, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, _| h.version_tab = VersionTab::Files);
+        }
+    }
+
+    fn commits_folded(&self, cx: &gpui::App) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|h| h.read(cx).sections.commits)
+    }
+
+    fn message_open(&self, cx: &gpui::App) -> bool {
+        self.0.upgrade().is_some_and(|h| h.read(cx).message_open)
+    }
+
+    fn has_news(&self, cx: &gpui::App) -> bool {
+        self.0.upgrade().is_some_and(|h| h.read(cx).has_news())
+    }
+
+    fn reading(&self, cx: &gpui::App) -> bool {
+        self.0.upgrade().is_some_and(|h| h.read(cx).task.is_some())
+    }
+
+    fn drop_find(&self, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, _| h.find.text = None);
+        }
+    }
+
+    fn step_row(&self, down: bool, cx: &gpui::App) -> Option<Selection> {
+        let h = self.0.upgrade()?;
+        let h = h.read(cx);
+        Some(match h.step_row(down, h.wt.count > 0)? {
+            Row::Commit(ix) => Selection::Commit(ix),
+            Row::WorkingTree => Selection::WorkingTree,
+        })
+    }
+
+    fn step_pick(&self, down: bool, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, cx| {
+                h.step_pick(down);
+                cx.notify()
+            });
+        }
+    }
+
+    fn picked(&self, cx: &gpui::App) -> Option<Selection> {
+        let h = self.0.upgrade()?;
+        let h = h.read(cx);
+        match h.picked_run() {
+            Some((newest, oldest)) => Some(Selection::Commits { newest, oldest }),
+            None => h.picked().map(Selection::Commit),
+        }
+    }
+
+    fn panel_shows(
+        &self,
+        route: Option<&artoo_core::route::Route>,
+        cx: &gpui::App,
+    ) -> artoo_branches_api::PanelShows {
+        self.0
+            .upgrade()
+            .map(|h| h.read(cx).panel_shows(route))
+            .unwrap_or_default()
+    }
+
+    fn count_files(&self, cx: &mut gpui::App) {
+        let (Some(h), Some(review)) = (self.0.upgrade(), self.review()) else {
+            return;
+        };
+        let Some(d) = review.shown(cx) else {
+            return;
+        };
+        h.update(cx, |h, _| {
+            if h.shows_branch(Some(&d.header))
+                && let Some(f) = h.page.as_mut()
+            {
+                f.files = Some(d.files.len());
+            }
+        });
+    }
+
+    fn branch_files(&self, cx: &gpui::App) -> Option<usize> {
+        self.0.upgrade()?.read(cx).page.as_ref()?.files
+    }
+
+    fn commit_card(
+        &self,
+        id: git2::Oid,
+        web: Option<&artoo_core::git::WebRemote>,
+        cx: &gpui::App,
+    ) -> Option<artoo_branches_api::Card> {
+        let h = self.0.upgrade()?;
+        let h = h.read(cx);
+        let info = h.commits.iter().find(|c| c.id == id)?.clone();
+        let card = h.card(info, web);
+        Some(std::rc::Rc::new(move |_, cx| {
+            crate::card::CommitCard::show(&card, cx)
+        }))
+    }
+
+    fn branch_card(
+        &self,
+        ix: usize,
+        request: Option<(u64, String)>,
+        cx: &gpui::App,
+    ) -> Option<artoo_branches_api::Card> {
+        let build = crate::card::branch_card(self.0.upgrade()?.read(cx), ix, request)?;
+        Some(std::rc::Rc::new(build))
+    }
+
+    fn compare(
+        &self,
+        base: NamedTip,
+        head: NamedTip,
+        since: bool,
+        request: Option<u64>,
+        cx: &mut gpui::App,
+    ) {
+        let (Some(h), Some(review)) = (self.0.upgrade(), self.review()) else {
+            return;
+        };
+        h.update(cx, |h, cx| {
+            h.show_compare(base, head, since, request, &*review, cx)
+        });
+    }
+
+    fn compare_listed(&self, route: Option<&artoo_core::route::Route>, cx: &gpui::App) -> bool {
+        let (Some(h), Some(route)) = (self.0.upgrade(), route) else {
+            return false;
+        };
+        h.read(cx).compare_of(route).is_some()
+    }
+
+    fn compare_narrowed(&self, route: Option<&artoo_core::route::Route>, cx: &gpui::App) -> bool {
+        let (Some(h), Some(route)) = (self.0.upgrade(), route) else {
+            return false;
+        };
+        let h = h.read(cx);
+        h.compare_of(route).is_some_and(|c| c.picked.is_some()) && h.selection == Selection::None
+    }
+
+    fn read_compare(&self, route: Option<&artoo_core::route::Route>, cx: &mut gpui::App) {
+        let Some(h) = self.0.upgrade() else {
+            return;
+        };
+        use artoo_core::route::Place;
+        let of = route
+            .and_then(artoo_branches_api::CompareRoute::from_route)
+            .and_then(|r| {
+                let oid = |hex: &str| git2::Oid::from_str(hex).ok();
+                let base = (r.base.clone(), oid(&r.base_commit)?);
+                Some((base, (r.head.clone(), oid(&r.head_commit)?), r.since))
+            });
+        h.update(cx, |h, cx| match of {
+            Some(of) => h.read_compare(of, cx),
+            None => h.compare = None,
+        });
+    }
+
+    fn pick_compare(&self, ix: usize, span: bool, keep: Option<String>, cx: &mut gpui::App) -> bool {
+        let Some(h) = self.0.upgrade() else {
+            return false;
+        };
+        let picked = h.update(cx, |h, _| h.compare.as_mut().map(|c| c.pick(ix, span)));
+        picked.is_some() && self.show_compare_pick(keep, cx)
+    }
+
+    fn show_compare_pick(&self, keep: Option<String>, cx: &mut gpui::App) -> bool {
+        let (Some(h), Some(review)) = (self.0.upgrade(), self.review()) else {
+            return false;
+        };
+        h.update(cx, |h, cx| h.show_compare_pick(keep, &*review, cx))
+    }
+
+    fn step_compare(
+        &self,
+        route: Option<&artoo_core::route::Route>,
+        down: bool,
+        keep: Option<String>,
+        cx: &mut gpui::App,
+    ) -> bool {
+        let (Some(h), Some(route)) = (self.0.upgrade(), route) else {
+            return false;
+        };
+        let Some(to) = h.read(cx).compare_of(route).and_then(|c| c.step(down)) else {
+            return false;
+        };
+        let shown = self.pick_compare(to, false, keep, cx);
+        h.read(cx)
+            .compare_scroll
+            .scroll_to_item(to, gpui::ScrollStrategy::Nearest);
+        shown
+    }
+
+    fn compare_title(&self, route: &artoo_core::route::Route, cx: &gpui::App) -> Option<String> {
+        self.0.upgrade()?.read(cx).compare_title(route)
+    }
+
+    fn request_sides(&self, cx: &gpui::App) -> (Option<RequestSides>, Option<RequestSides>) {
+        self.0.upgrade().map_or((None, None), |h| {
+            let h = h.read(cx);
+            (h.pending_request.clone(), h.open_request.clone())
+        })
+    }
+
+    fn set_pending_request(&self, sides: Option<RequestSides>, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, _| h.pending_request = sides);
+        }
+    }
+
+    fn set_open_request(&self, sides: Option<RequestSides>, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, _| h.open_request = sides);
+        }
+    }
+
+    fn request_branch(
+        &self,
+        of: &crate::opening::RequestOf,
+        cx: &gpui::App,
+    ) -> Option<(usize, Option<RequestSides>)> {
+        self.0.upgrade()?.read(cx).request_branch(of)
+    }
+
+    fn set_list(&self, branches: Vec<BranchRef>, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, _| {
+                let open = h.branch.and_then(|ix| h.branches.get(ix)).map(|b| b.refname.clone());
+                h.branches = Arc::new(branches);
+                h.branch = open.and_then(|r| h.branches.iter().position(|b| b.refname == r));
+            });
+        }
+    }
+
+    fn show_request_commits(&self, base: &NamedTip, head: &NamedTip, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, _| {
+                let id = |ix: usize| h.commits.get(ix).map(|c| c.id);
+                let picked = match h.selection {
+                    Selection::Commit(ix) => id(ix).map(|a| (a, a)),
+                    Selection::Commits { newest, oldest } => id(newest).zip(id(oldest)),
+                    _ => None,
+                };
+                h.show_request_commits(base, head);
+                let at = |id: git2::Oid| h.commits.iter().position(|c| c.id == id);
+                if let Some((a, b)) = picked
+                    && let (Some(a), Some(b)) = (at(a), at(b))
+                {
+                    h.selection = match h.selection {
+                        Selection::Commit(_) => Selection::Commit(a),
+                        _ => Selection::Commits {
+                            newest: a,
+                            oldest: b,
+                        },
+                    }
+                }
+            });
+        }
+    }
+
+    fn show_request_versions(&self, versions: Option<&(u64, Vec<Version>)>, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, _| h.show_request_versions(versions));
+        }
+    }
+}
+
+/// The history's acts as its views ask them: what is its own — a version clicked, a section folded, the version
+/// comparison's tab, a commit's message — it answers, the rest the tab (`tab`).
+pub fn acts(history: &gpui::Entity<History>, tab: Acts) -> Acts {
+    let history = history.downgrade();
+    std::rc::Rc::new(move |act, cx| {
+        let Some(h) = history.upgrade() else {
+            return tab(act, cx);
+        };
+        match act {
+            Act::Version { ix, more } => {
+                let (from, to) = h.read(cx).versions_clicked(ix, more);
+                tab(Act::Versions { from, to }, cx)
+            }
+            Act::FindCommits => {
+                if h.read(cx).sections.commits {
+                    h.update(cx, |h, cx| h.fold(crate::panel::Fold::Commits, cx));
+                }
+                tab(Act::FindField, cx)
+            }
+            Act::Fold(fold) => h.update(cx, |h, cx| h.fold(fold, cx)),
+            Act::VersionTab(version_tab) => h.update(cx, |h, cx| {
+                h.version_tab = version_tab;
+                cx.notify()
+            }),
+            Act::Message => h.update(cx, |h, cx| {
+                h.message_open = !h.message_open;
+                cx.notify()
+            }),
+            act => tab(act, cx),
+        }
+    })
 }
 
 #[cfg(test)]

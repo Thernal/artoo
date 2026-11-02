@@ -6,7 +6,6 @@
 use super::px;
 use super::review::Review;
 use super::{Workspace, theme};
-use artoo_branches::history::Row;
 use artoo_review::changes::FileItem;
 use artoo_shell_api::ListKey;
 use gpui::{App, Context, Rgba};
@@ -81,8 +80,8 @@ impl Workspace {
         }
         // A tabbed item's commits are its Commits tab, not a section of the panel (#73, #74).
         if self.side_open()
-            && !self.history.read(cx).sections.commits
-            && (self.panel_shows(cx).commits || self.shown_compare(cx).is_some())
+            && !self.branches().is_some_and(|b| b.commits_folded(cx))
+            && (self.panel_shows(cx).commits || self.shown_compare(cx))
         {
             out.push(Zone::Commits);
         }
@@ -126,7 +125,7 @@ impl Workspace {
             return self.step_commit_pick(down, cx);
         }
         match self.zone {
-            Zone::Commits if self.shown_compare(cx).is_some() => {
+            Zone::Commits if self.shown_compare(cx) => {
                 return self.step_compare_pick(down, cx);
             }
             Zone::Commits => self.step_commit_row(down, cx),
@@ -276,11 +275,10 @@ impl Workspace {
 
     /// The working tree entry above the commits counts as the row before the first commit.
     fn step_commit_row(&mut self, down: bool, cx: &mut Context<Self>) {
-        let working = self.history.read(cx).wt.count > 0;
-        match self.history.read(cx).step_row(down, working) {
-            Some(Row::Commit(ix)) => self.pick(super::Selection::Commit(ix), cx),
-            Some(Row::WorkingTree) => self.open_working_tree(cx),
-            None => {}
+        match self.branches().and_then(|b| b.step_row(down, cx)) {
+            Some(super::Selection::Commit(ix)) => self.pick(super::Selection::Commit(ix), cx),
+            Some(super::Selection::WorkingTree) => self.open_working_tree(cx),
+            _ => {}
         }
     }
 

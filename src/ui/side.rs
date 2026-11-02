@@ -7,20 +7,22 @@ use super::nav::Page;
 use super::zones::Zone;
 use super::{Selection, Workspace};
 use artoo_branches::history::{Act, Acts};
-use artoo_branches::panel::{Fold, Shows};
+use artoo_branches_api::PanelShows;
 use gpui::{App, Context};
 use std::rc::Rc;
 
 impl Workspace {
-    /// How the history's views ask the tab.
+    /// How the history's views ask the tab: what is the history's own it answers first
+    /// (`artoo_branches::history::acts`).
     pub(super) fn history_acts(&self, cx: &Context<Self>) -> Acts {
         let this = cx.weak_entity();
         Rc::new(move |act, cx| {
             this.update(cx, |this, cx| match act {
-                Act::Version { ix, more } => {
-                    let (from, to) = this.history.read(cx).versions_clicked(ix, more);
-                    this.pick(Selection::Versions { from, to }, cx)
-                }
+                Act::Version { .. }
+                | Act::FindCommits
+                | Act::Fold(_)
+                | Act::VersionTab(_)
+                | Act::Message => {}
                 Act::Commit(ix) => {
                     this.close_drawer(cx);
                     this.pick(Selection::Commit(ix), cx)
@@ -35,14 +37,7 @@ impl Workspace {
                     this.unpick_compare(cx);
                 }
                 Act::WorkingTree => this.open_working_tree(cx),
-                Act::FindCommits => {
-                    if this.history.read(cx).sections.commits {
-                        this.history.update(cx, |h, cx| h.fold(Fold::Commits, cx));
-                    }
-                    this.start_find(cx)
-                }
                 Act::FindField => this.start_find(cx),
-                Act::Fold(fold) => this.history.update(cx, |h, cx| h.fold(fold, cx)),
                 Act::CommitsZone => this.set_zone(Zone::Commits, cx),
                 Act::BranchMenu { ix, at } => this.branch_context(ix, at, cx),
                 Act::PickRow { row, clicks } => this.pick_branch_row(row, clicks, cx),
@@ -57,16 +52,7 @@ impl Workspace {
                     request,
                 } => this.run_compare(base, head, since, request, cx),
                 Act::Versions { from, to } => this.pick(Selection::Versions { from, to }, cx),
-                Act::VersionTab(tab) => {
-                    this.history.update(cx, |h, _| h.version_tab = tab);
-                    cx.notify();
-                }
                 Act::ShowNew => this.apply_pending(cx),
-                Act::Message => {
-                    this.history
-                        .update(cx, |h, _| h.message_open = !h.message_open);
-                    cx.notify();
-                }
                 Act::Copy(text) => this.run_act(super::menu::Act::Copy(text), cx),
                 Act::OpenUrl(url) => this.run_act(super::menu::Act::OpenUrl(url), cx),
             })
@@ -82,10 +68,12 @@ impl Workspace {
             .update(cx, |rv, cx| rv.open_changes(open, keep, true, cx));
     }
 
-    /// What the panel holds on the page on screen (`History::panel_shows`).
-    pub(super) fn panel_shows(&self, cx: &App) -> Shows {
+    /// What the panel holds on the page on screen (`Branches::panel_shows`).
+    pub(super) fn panel_shows(&self, cx: &App) -> PanelShows {
         let route = self.nav_page().map(Page::route);
-        self.history.read(cx).panel_shows(route.as_ref())
+        self.branches()
+            .map(|b| b.panel_shows(route.as_ref(), cx))
+            .unwrap_or_default()
     }
 
     /// The panel's sections on this page as icons, where it folds into the menu's column (#80):
@@ -110,7 +98,7 @@ impl Workspace {
                 if shows.versions {
                     icons.push(("layers", "Versions", None));
                 }
-                if (shows.commits && !self.history.read(cx).commits.is_empty()) || shows.compare {
+                if (shows.commits && self.commit_count(cx) > 0) || shows.compare {
                     icons.push(("commit", "Commits", Some(Zone::Commits)));
                 }
                 if self

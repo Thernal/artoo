@@ -8,14 +8,13 @@ use super::waiting::Op;
 use super::{Header, Selection, Workspace};
 use crate::git::Repo;
 use crate::mr::{self, Mr};
-use artoo_branches::opening::RequestOf;
+use artoo_branches_api::RequestOf;
 use artoo_hosts_api::connect::{self, Connect, Here};
 use artoo_requests::discussions::Listing;
 use artoo_requests::requests::{Act, Acts};
 pub(super) use artoo_requests::requests::{Past, Requests, Scope, Sides, sides};
 use gpui::{App, ClickEvent, Context, WeakEntity, div, prelude::*};
 use std::rc::Rc;
-use std::sync::Arc;
 
 impl Workspace {
     /// The list shows the merged or the closed requests, or the open ones again (#114).
@@ -97,7 +96,8 @@ impl Workspace {
     /// The request whose source branch is branch `ix` (`feat/x` and `origin/feat/x` alike), or
     /// whose head it is.
     pub(super) fn request_of_branch<'a>(&self, ix: usize, cx: &'a App) -> Option<&'a Mr> {
-        let b = self.history.read(cx).branches.get(ix)?;
+        let list = self.branch_list(cx);
+        let b = list.get(ix)?;
         self.requests.read(cx).of_branch(b)
     }
 
@@ -131,7 +131,7 @@ impl Workspace {
         use artoo_requests::requests::Event;
         match event {
             Event::Listed => {
-                if let Some(ix) = self.history.read(cx).branch {
+                if let Some(ix) = self.branch_ix(cx) {
                     self.sync_request(ix, cx);
                 }
                 self.requests_listed(cx);
@@ -175,9 +175,12 @@ impl Workspace {
     /// branch is branch `ix` becomes the current one and its discussions are read. A branch opened
     /// in Branches is a branch: no request rides on it (#71).
     pub(super) fn sync_request(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let history = self.history.read(cx);
-        let iid = (history.pending_request.as_ref())
-            .or(history.open_request.as_ref())
+        let (pending, open) = self
+            .branches()
+            .map(|b| b.request_sides(cx))
+            .unwrap_or_default();
+        let iid = (pending.as_ref())
+            .or(open.as_ref())
             .map(|r| r.2)
             .filter(|iid| {
                 // Its source branch, or a branch at its head (a merged one's, #114).
@@ -187,7 +190,7 @@ impl Workspace {
                         .requests
                         .read(cx)
                         .find(*iid)
-                        .zip(self.history.read(cx).branches.get(ix))
+                        .zip(self.branch_list(cx).get(ix))
                         .is_some_and(|(m, b)| {
                             m.state != mr::MrState::Opened && b.tip.to_string() == m.head
                         })
@@ -239,7 +242,9 @@ impl Workspace {
             let (label, detail) = (m.title.clone(), super::words::number(iid));
             self.remember_place(super::recents::Key::Request(iid), label, detail);
         }
-        self.history.update(cx, |h, _| h.pending_request = None);
+        if let Some(branches) = self.branches() {
+            branches.set_pending_request(None, cx);
+        }
         // A GitHub pull request from a fork has no branch here; `pr/<n>` is where the hint below
         // fetches its head.
         let github = self.web.as_ref().is_some_and(|w| w.github);
@@ -252,7 +257,7 @@ impl Workspace {
             merged_with: m.merged_with.as_deref(),
             github,
         };
-        let found = self.history.read(cx).request_branch(&of);
+        let found = self.branches().and_then(|b| b.request_branch(&of, cx));
         let Some((src, sides)) = found else {
             // Not here: its head is fetched from the host, once, and then it opens (#114).
             if self
@@ -279,9 +284,10 @@ impl Workspace {
         self.error = None;
         // Its page now, before the branch it is read from replaces what is loaded (#71).
         self.arrive(super::nav::Page::Request(iid), cx);
-        if let Some(sides) = sides {
-            self.history
-                .update(cx, |h, _| h.pending_request = Some(sides));
+        if let Some(sides) = sides
+            && let Some(branches) = self.branches()
+        {
+            branches.set_pending_request(Some(sides), cx);
         }
         self.select_branch(src, None, cx);
     }
@@ -313,9 +319,10 @@ impl Workspace {
             this.update(cx, |this, cx| {
                 this.toast_over(&news, cx);
                 match read {
-                    Ok(branches) => {
-                        this.history
-                            .update(cx, |h, _| h.branches = Arc::new(branches));
+                    Ok(list) => {
+                        if let Some(branches) = this.branches() {
+                            branches.set_list(list, cx);
+                        }
                         this.select_request(iid, cx);
                     }
                     Err(e) => {
@@ -344,11 +351,11 @@ impl Workspace {
 
     /// The request's state goes: what is loaded is its branch, as a branch.
     pub(super) fn drop_request(&mut self, cx: &mut Context<Self>) {
-        self.history.update(cx, |h, _| {
-            h.open_request = None;
-            h.pending_request = None;
-        });
-        if let Some(ix) = self.history.read(cx).branch {
+        if let Some(branches) = self.branches() {
+            branches.set_open_request(None, cx);
+            branches.set_pending_request(None, cx);
+        }
+        if let Some(ix) = self.branch_ix(cx) {
             self.sync_request(ix, cx);
         }
     }
@@ -412,12 +419,15 @@ impl Workspace {
         else {
             return;
         };
-        let history = self.history.read(cx);
-        let waiting = history.pending_request.as_ref().is_some_and(|p| p.2 == iid);
+        let Some(branches) = self.branches() else {
+            return;
+        };
+        let (pending, open) = branches.request_sides(cx);
+        let waiting = pending.as_ref().is_some_and(|p| p.2 == iid);
         let open = if waiting {
-            history.pending_request.clone()
+            pending
         } else {
-            history.open_request.clone().filter(|o| o.2 == iid)
+            open.filter(|o| o.2 == iid)
         };
         let (Some((base, head, _)), Some(root)) = (open, self.root.clone()) else {
             return;
@@ -438,45 +448,16 @@ impl Workspace {
             Sides::Host(b, h) => {
                 let (base, head) = ((base.0, b), (head.0, h));
                 if waiting {
-                    self.history
-                        .update(cx, |h, _| h.pending_request = Some((base, head, iid)));
+                    branches.set_pending_request(Some((base, head, iid)), cx);
                     return;
                 }
-                let open = Some((base.clone(), head.clone(), iid));
-                self.history.update(cx, |h, _| h.open_request = open);
+                branches.set_open_request(Some((base.clone(), head.clone(), iid)), cx);
                 // The Commits tab is read again; a commit or a run picked in it stays picked.
-                let id = |ix: usize| self.history.read(cx).commits.get(ix).map(|c| c.id);
-                let picked = match self.history.read(cx).selection {
-                    Selection::Commit(ix) => id(ix).map(|a| (a, a)),
-                    Selection::Commits { newest, oldest } => id(newest).zip(id(oldest)),
-                    _ => None,
-                };
-                self.history
-                    .update(cx, |h, _| h.show_request_commits(&base, &head));
-                let at = |id: git2::Oid| {
-                    self.history
-                        .read(cx)
-                        .commits
-                        .iter()
-                        .position(|c| c.id == id)
-                };
-                if let Some((a, b)) = picked
-                    && let (Some(a), Some(b)) = (at(a), at(b))
-                {
-                    self.history.update(cx, |h, _| {
-                        h.selection = match h.selection {
-                            Selection::Commit(_) => Selection::Commit(a),
-                            _ => Selection::Commits {
-                                newest: a,
-                                oldest: b,
-                            },
-                        }
-                    });
-                }
+                branches.show_request_commits(&base, &head, cx);
                 let whole = self.request_loaded(iid, cx)
                     || (self.review.read(cx).diff.is_none()
                         && self.nav_page() == Some(&Page::Request(iid)));
-                if self.history.read(cx).selection == Selection::None && whole {
+                if self.selection(cx) == Selection::None && whole {
                     self.run_compare(base, head, true, Some(iid), cx);
                 }
                 cx.notify();
@@ -524,14 +505,10 @@ impl Workspace {
             this.update(cx, |this, cx| {
                 this.toast_over(&news, cx);
                 match read {
-                    Ok(branches) => {
-                        let open = this
-                            .history.read(cx).branch
-                            .and_then(|ix| this.history.read(cx).branches.get(ix))
-                            .map(|b| b.refname.clone());
-                        this.history.update(cx, |h, _| h.branches = Arc::new(branches));
-                        this.history.update(cx, |h, _| h.branch =
-                            open.and_then(|r| h.branches.iter().position(|b| b.refname == r)));
+                    Ok(list) => {
+                        if let Some(branches) = this.branches() {
+                            branches.set_list(list, cx);
+                        }
                         this.follow_host_sides(iid, cx);
                     }
                     Err(e) => {
@@ -551,10 +528,10 @@ impl Workspace {
     /// Shows GitLab's versions of the open request in the timeline, when there is more than one
     /// (`History::show_request_versions`).
     pub(super) fn apply_mr_versions(&mut self, cx: &mut App) {
-        let requests = &self.requests;
-        self.history.update(cx, |h, cx| {
-            h.show_request_versions(requests.read(cx).versions.as_ref())
-        });
+        let versions = self.requests.read(cx).versions.clone();
+        if let Some(branches) = self.branches() {
+            branches.show_request_versions(versions.as_ref(), cx);
+        }
     }
 
     /// Is the whole request whose discussions are loaded on screen, as its page (#71)? Its keys

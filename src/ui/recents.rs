@@ -49,12 +49,7 @@ impl Workspace {
                     None => self.open_file_view(path, cx),
                 }
             }
-            Key::Commit(id) => match self
-                .history
-                .read(cx)
-                .commits
-                .iter()
-                .position(|c| c.id == id)
+            Key::Commit(id) => match self.commit_at(id, cx)
             {
                 Some(ix) => self.open_commit(ix, cx),
                 None => {

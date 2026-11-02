@@ -13,7 +13,9 @@ use std::rc::Rc;
 
 impl Workspace {
     pub(super) fn open_settings(&mut self, cx: &mut Context<Self>) {
-        self.history.update(cx, |h, _| h.find.text = None);
+        if let Some(branches) = self.branches() {
+            branches.drop_find(cx);
+        }
         self.refilter(cx);
         // Set up's "every key in Settings → Keyboard": Settings takes its place.
         self.setup = None;

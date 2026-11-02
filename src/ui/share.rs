@@ -78,19 +78,14 @@ impl Workspace {
     /// Branch, tag or commit `name` as the host has it, its remote dropped; why not when it is a
     /// branch only on this Mac.
     fn on_host(&self, name: &str, cx: &App) -> Result<String, String> {
-        let Some(branch) = self
-            .history
-            .read(cx)
-            .branches
-            .iter()
-            .find(|b| b.name == name)
-        else {
+        let list = self.branch_list(cx);
+        let Some(branch) = list.iter().find(|b| b.name == name) else {
             return Ok(name.to_owned());
         };
         if branch.kind == RefKind::Remote {
             return Ok(name.split_once('/').map_or(name, |(_, n)| n).to_owned());
         }
-        let pushed = self.history.read(cx).branches.iter().any(|b| {
+        let pushed = list.iter().any(|b| {
             b.kind == RefKind::Remote && b.name.split_once('/').is_some_and(|(_, n)| n == name)
         });
         if pushed {
@@ -119,9 +114,7 @@ impl Workspace {
         else {
             return true;
         };
-        self.history
-            .read(cx)
-            .branches
+        self.branch_list(cx)
             .iter()
             .filter(|b| b.kind != RefKind::Local)
             .any(|b| repo.contains(b.tip, sha))
@@ -196,8 +189,8 @@ impl Workspace {
     fn versions_link(&self, web: &WebRemote, iid: u64, from: usize, to: usize, cx: &App) -> Link {
         let request = self.request_link(web, iid, cx);
         let (Some(a), Some(b)) = (
-            self.history.read(cx).versions.get(from),
-            self.history.read(cx).versions.get(to),
+            self.version_at(from, cx),
+            self.version_at(to, cx),
         ) else {
             return request;
         };
@@ -253,7 +246,8 @@ impl Workspace {
                         self.on_host(&name, cx).unwrap_or_else(|_| sha.to_string())
                     }
                     None => {
-                        let head = self.history.read(cx).branches.iter().find(|b| b.is_head);
+                        let list = self.branch_list(cx);
+                        let head = list.iter().find(|b| b.is_head);
                         let Some(head) = head else {
                             return Err("No branch is checked out: no link to read it at".into());
                         };
@@ -294,12 +288,8 @@ impl Workspace {
                 Ok(self.versions_link(web, *iid, *from, *to, cx))
             }
             Page::Branch(refname) => {
-                let branch = self
-                    .history
-                    .read(cx)
-                    .branches
-                    .iter()
-                    .find(|b| b.refname == *refname);
+                let list = self.branch_list(cx);
+                let branch = list.iter().find(|b| b.refname == *refname);
                 let name = branch.map_or(refname.as_str(), |b| b.name.as_str());
                 self.branch_link(name, cx)
             }
@@ -384,10 +374,7 @@ impl Workspace {
         let link = match item {
             Item::Request(iid) => return self.request_context(*iid, at, cx),
             Item::Branch(refname) => {
-                if let Some(ix) = self
-                    .history
-                    .read(cx)
-                    .branches
+                if let Some(ix) = self.branch_list(cx)
                     .iter()
                     .position(|b| b.refname == *refname)
                 {

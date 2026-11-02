@@ -4,7 +4,6 @@
 //! both re-exported here.
 
 use super::{Workspace, format, px, theme};
-pub(super) use artoo_branches::card::CommitCard;
 pub(super) use artoo_ui_kit::hover::*;
 use gpui::{
     AnyView, App, ClickEvent, Context, FontWeight, IntoElement, Render, StatefulInteractiveElement,
@@ -121,16 +120,6 @@ impl MentionHover {
 }
 
 impl Workspace {
-    /// The card of commit `ix` of the list.
-    pub(super) fn commit_card(&self, ix: usize, cx: &App) -> Option<CommitCard> {
-        Some(self.card_of(self.history.read(cx).commits.get(ix)?.clone(), cx))
-    }
-
-    /// The card of commit `info`, of whatever list.
-    pub(super) fn card_of(&self, info: crate::git::CommitInfo, cx: &App) -> CommitCard {
-        self.history.read(cx).card(info, self.web.as_ref())
-    }
-
     /// The card of the person named `name` (`login` when known): their part in the open request.
     pub(super) fn person_card(
         &self,
@@ -179,7 +168,7 @@ impl Workspace {
         let theirs = |l: &str, n: &str| (!login.is_empty() && l == login) || n == name;
         let pushed = m
             .filter(|m| theirs(&m.author_login, &m.author))
-            .and_then(|_| self.history.read(cx).versions.last())
+            .and_then(|_| self.branches().and_then(|b| b.latest_version(cx)))
             .filter(|v| v.time > 0)
             .map(|v| format!("Pushed v{} {}", v.number, format::ago(v.time)));
         let wrote = m

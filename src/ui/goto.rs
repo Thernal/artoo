@@ -88,13 +88,7 @@ impl Workspace {
                 }
             }
             Target::Commit(sha) => {
-                match self
-                    .history
-                    .read(cx)
-                    .commits
-                    .iter()
-                    .position(|c| c.id.to_string().starts_with(&sha))
-                {
+                match self.branches().and_then(|b| b.commit_ix(&sha, cx)) {
                     Some(ix) => self.open_commit(ix, cx),
                     // Elsewhere in the repository: the first branch that has it, at that commit.
                     None => match self.branch_with(&sha, cx) {
@@ -113,13 +107,11 @@ impl Workspace {
             }
             Target::Branch(name) => {
                 let ix =
-                    self.history
-                        .read(cx)
-                        .branches
+                    self.branch_list(cx)
                         .iter()
                         .position(|b| b.name == name)
                         .or_else(|| {
-                            self.history.read(cx).branches.iter().position(|b| {
+                            self.branch_list(cx).iter().position(|b| {
                                 b.name.split_once('/').is_some_and(|(_, n)| n == name)
                             })
                         });
@@ -139,13 +131,13 @@ impl Workspace {
     fn branch_with(&self, sha: &str, cx: &App) -> Option<(usize, git2::Oid)> {
         let repo = Repo::open(self.root.as_ref()?).ok()?;
         let id = repo.resolve(sha).ok()?;
-        let mut order: Vec<usize> = (0..self.history.read(cx).branches.len()).collect();
+        let mut order: Vec<usize> = (0..self.branch_list(cx).len()).collect();
         order.sort_by_key(|&ix| {
-            self.history.read(cx).branches[ix].kind != crate::git::RefKind::Local
+            self.branch_list(cx)[ix].kind != crate::git::RefKind::Local
         });
         order
             .into_iter()
-            .find(|&ix| repo.contains(self.history.read(cx).branches[ix].tip, id))
+            .find(|&ix| repo.contains(self.branch_list(cx)[ix].tip, id))
             .map(|ix| (ix, id))
     }
 
@@ -155,8 +147,8 @@ impl Workspace {
         let ready = match &self.pending_link {
             None => return,
             Some(Target::Request { .. }) => self.root.is_some() && !self.requests.read(cx).loading,
-            Some(Target::Commit(_)) => !self.history.read(cx).commits.is_empty(),
-            Some(Target::Branch(_)) => !self.history.read(cx).branches.is_empty(),
+            Some(Target::Commit(_)) => self.commit_count(cx) > 0,
+            Some(Target::Branch(_)) => !self.branch_list(cx).is_empty(),
         };
         if ready && let Some(target) = self.pending_link.take() {
             self.go_to(target, cx);

@@ -152,15 +152,10 @@ impl Workspace {
         {
             return Some(m.source.clone());
         }
-        let shown = match (
-            self.nav.space,
-            self.history
-                .read(cx)
-                .branch
-                .and_then(|ix| self.history.read(cx).branches.get(ix)),
-        ) {
+        let list = self.branch_list(cx);
+        let shown = match (self.nav.space, self.branch_ix(cx).and_then(|ix| list.get(ix))) {
             (super::spaces::Space::Branches, Some(b)) => Some(b),
-            _ => self.history.read(cx).branches.iter().find(|b| b.is_head),
+            _ => list.iter().find(|b| b.is_head),
         }?;
         // A remote branch is the branch it tracks there.
         Some(match shown.kind {

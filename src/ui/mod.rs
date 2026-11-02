@@ -86,7 +86,7 @@ use crate::git::{DiffSettings, Repo};
 use crate::rows::{self, Row};
 use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
 use artoo_branches::head;
-use artoo_branches::history::{History, VersionTab};
+use artoo_branches::history::History;
 use artoo_branches_api::{Event as BranchesEvent, Selection};
 use artoo_review::diff::{Diff, Header, Notice};
 use artoo_review::diff_view::{self, CODE_SIZE};
@@ -1850,7 +1850,10 @@ impl Workspace {
         // and its answers to the history's acts.
         services.set(this.history.clone());
         services.set(artoo_branches::history::handle(&this.history, &services));
-        services.set(this.history_acts(cx));
+        services.set(artoo_branches::history::acts(
+            &this.history,
+            this.history_acts(cx),
+        ));
         // Its requests, which the requests' parts read and draw, as the other features ask them, and its answers
         // to their acts.
         services.set(this.requests.clone());

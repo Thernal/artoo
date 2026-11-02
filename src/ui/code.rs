@@ -199,7 +199,7 @@ impl Host for CodeHost {
     fn branches(&self, cx: &App) -> Vec<BranchRef> {
         self.0
             .upgrade()
-            .map(|tab| tab.read(cx).history.read(cx).branches.to_vec())
+            .map(|tab| tab.read(cx).branch_list(cx).to_vec())
             .unwrap_or_default()
     }
 
