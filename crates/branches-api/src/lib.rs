@@ -59,6 +59,56 @@ pub struct Settled {
     pub follow: bool,
 }
 
+/// What the tab hears of the branches' reads (`Branches::on_event`).
+#[derive(Clone)]
+pub enum Event {
+    /// The branch open was read: the tab shows it (`Branches::show_read`).
+    Read,
+    /// More of its history is listed.
+    Older,
+    /// ↵ in the commits' search: commit `ix`, the first found, shown.
+    Picked(usize),
+    /// A read failed: what to say.
+    Failed(String),
+    /// The working tree changed: what shows it reads it again.
+    Working,
+    /// The working tree's poll came round, changed or not: what rides on its beat looks (the agents' answers,
+    /// pictures come in).
+    Beat,
+    /// The repository re-read after it changed under the window (`Branches::reload`): what it found.
+    Reloaded(Reloaded),
+}
+
+/// What a re-read of the repository found.
+#[derive(Clone)]
+pub enum Reloaded {
+    /// No branch is open: the branches are listed anew, nothing else.
+    Listed,
+    /// The branch open is gone: the checked-out one, or the first, to fall back to.
+    Gone {
+        refname: String,
+        fallback: Option<usize>,
+    },
+    /// Nothing new on the branch open.
+    Same,
+    /// Only the reflog moved: a new version of the same history; `seen` versions were listed before.
+    Versions { seen: usize },
+    /// New commits, held back until the user asks for them.
+    Held,
+    /// The repository could not be read (mid-rebase, for a moment): the next change tries again.
+    Unreadable,
+}
+
+/// What showing the commits held back leaves to do with the diff shown (`Branches::apply_pending`).
+pub enum Applied {
+    /// The selection still holds, at its new index.
+    Kept,
+    /// The commit shown is gone: the newest is shown instead.
+    Newest,
+    /// What was shown no longer is: the diff goes.
+    Cleared,
+}
+
 /// What a part reads of the tab's branches (`Rc<dyn Branches>` in its services).
 pub trait Branches {
     /// The branches listed, local and remote.
@@ -170,6 +220,21 @@ pub trait Branches {
 
     /// The commits' search given `text`: the list filtered.
     fn search(&self, text: String, cx: &mut App);
+
+    /// `hear` hears what the branches' reads come to, for as long as the tab lives.
+    fn on_event(&self, hear: std::rc::Rc<dyn Fn(&Event, &mut App)>, cx: &mut App);
+
+    /// The repository changed under the window: the branches and the branch open read again in the background;
+    /// what it found is said (`Event::Reloaded`).
+    fn reload(&self, cx: &mut App);
+
+    /// What was found on the branch open no longer applies (another one is open, or it is read anew), nor does a
+    /// re-read under way.
+    fn forget_news(&self, cx: &mut App);
+
+    /// The commits held back shown, the selection kept where it still holds; with how many versions were listed
+    /// before. `None` when nothing was held back.
+    fn apply_pending(&self, cx: &mut App) -> Option<(Applied, usize)>;
 }
 
 /// A branch, by its refname.

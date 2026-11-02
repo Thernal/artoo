@@ -2,8 +2,9 @@
 //! pill over the commits, and the versions that arrived since the user last looked. The watch reads the repository;
 //! the history keeps what it found (`History::reloaded`) and shows it when asked (`History::apply_pending`).
 
-use crate::history::{Act, Acts, History, Older, Selection};
-use artoo_core::git::{BranchRef, CommitInfo, Version};
+use crate::history::{Act, Acts, Event, History, Older, Selection};
+use crate::reading::COMMIT_PAGE;
+use artoo_core::git::{BranchRef, CommitInfo, Repo, Version};
 use artoo_ui_kit::{ROW_RADIUS, px, theme};
 use gpui::{Div, Stateful, div, prelude::*};
 use std::sync::Arc;
@@ -16,34 +17,57 @@ pub struct Pending {
     pub new: Option<usize>,
 }
 
-/// What a re-read of the repository found (`History::reloaded`).
-pub enum Reloaded {
-    /// No branch is open: the branches are listed anew, nothing else.
-    Listed,
-    /// The branch open is gone: the checked-out one, or the first, to fall back to.
-    Gone {
-        refname: String,
-        fallback: Option<usize>,
-    },
-    /// Nothing new on the branch open.
-    Same,
-    /// Only the reflog moved: a new version of the same history; `seen` versions were listed before.
-    Versions { seen: usize },
-    /// New commits, held back until the user asks for them (`pending`).
-    Held,
-}
-
-/// What showing the commits held back leaves to do with the diff shown (`History::apply_pending`).
-pub enum Applied {
-    /// The selection still holds, at its new index.
-    Kept,
-    /// The commit shown is gone: the newest is shown instead.
-    Newest,
-    /// What was shown no longer is: the diff goes.
-    Cleared,
-}
+pub use artoo_branches_api::{Applied, Reloaded};
 
 impl History {
+    /// The repository changed under the window: the branches and the open branch's versions and history read again
+    /// in the background, as much history as is listed (the pages scrolled to, #25); what it found kept and said
+    /// (`Event::Reloaded`).
+    pub fn reload(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let refname = self
+            .branch
+            .and_then(|ix| self.branches.get(ix))
+            .map(|b| b.refname.clone());
+        let count = self.commits.len().max(COMMIT_PAGE);
+        self.reload = Some(cx.spawn(async move |this, cx| {
+            let loaded = cx
+                .background_executor()
+                .spawn(async move {
+                    let repo = Repo::open(&root)?;
+                    let branches = repo.branches()?;
+                    let tip = refname
+                        .as_ref()
+                        .and_then(|r| branches.iter().find(|b| &b.refname == r))
+                        .map(|b| b.tip);
+                    let open = match (&refname, tip) {
+                        (Some(r), Some(tip)) => Some((
+                            r.clone(),
+                            repo.versions(r).unwrap_or_default(),
+                            repo.log(tip, 0, count, None)?,
+                        )),
+                        _ => None,
+                    };
+                    anyhow::Ok((branches, refname, open, repo.decorations()))
+                })
+                .await;
+            this.update(cx, |h, cx| {
+                let reloaded = match loaded {
+                    Ok((branches, refname, open, decor)) => {
+                        h.decor = decor;
+                        h.reloaded(branches, refname, open)
+                    }
+                    // Mid-rebase the repository can be unreadable for a moment; the next change retries.
+                    Err(_) => Reloaded::Unreadable,
+                };
+                cx.emit(Event::Reloaded(reloaded));
+            })
+            .ok();
+        }));
+    }
+
     /// The repository re-read: its `branches`, and of the branch open (`refname`) its versions and commits when it
     /// is still there. What it found is kept, or said.
     pub fn reloaded(
@@ -129,6 +153,7 @@ impl History {
     pub fn forget_news(&mut self) {
         self.pending = None;
         self.new_from = None;
+        self.reload = None;
     }
 
     /// Versions of `len` arrived: those past the ones listed are new.

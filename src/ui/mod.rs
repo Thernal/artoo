@@ -86,9 +86,8 @@ use crate::git::{DiffSettings, Repo};
 use crate::rows::{self, Row};
 use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
 use artoo_branches::head;
-use artoo_branches::history::{self, History, VersionTab};
-use artoo_branches::reading::COMMIT_PAGE;
-use artoo_branches_api::Selection;
+use artoo_branches::history::{History, VersionTab};
+use artoo_branches_api::{Event as BranchesEvent, Selection};
 use artoo_review::diff::{Diff, Header, Notice};
 use artoo_review::diff_view::{self, CODE_SIZE};
 use artoo_review::review::{self, Opt};
@@ -1899,7 +1898,17 @@ impl Workspace {
         cx.subscribe(&this.review, Self::review_event).detach();
         cx.observe(&this.history, |_, _, cx| cx.notify()).detach();
         cx.observe(&this.review, |_, _, cx| cx.notify()).detach();
-        cx.subscribe(&this.history, Self::history_event).detach();
+        // What the branches' reads come to.
+        if let Some(branches) = this.branches() {
+            let tab = cx.weak_entity();
+            branches.on_event(
+                Rc::new(move |event, cx| {
+                    tab.update(cx, |this, cx| this.history_event(event, cx))
+                        .ok();
+                }),
+                cx,
+            );
+        }
         cx.observe(&this.requests, |_, _, cx| cx.notify()).detach();
         // The notes' lines followed to the head shown: they are pinned again.
         let tab = cx.weak_entity();
@@ -2115,23 +2124,19 @@ impl Workspace {
     }
 
     /// What the history said: a branch read is shown, more of its history searched, a failed read said.
-    fn history_event(
-        &mut self,
-        _: gpui::Entity<History>,
-        event: &history::Event,
-        cx: &mut Context<Self>,
-    ) {
+    fn history_event(&mut self, event: &BranchesEvent, cx: &mut Context<Self>) {
         match event {
-            history::Event::Read => self.branch_read(cx),
-            history::Event::Older => {
+            BranchesEvent::Read => self.branch_read(cx),
+            BranchesEvent::Older => {
                 self.refilter(cx);
                 self.index_paths(cx);
             }
-            history::Event::Failed(err) => self.error = Some(err.clone().into()),
-            history::Event::Picked(ix) => self.pick(Selection::Commit(*ix), cx),
-            history::Event::Working => self.working_changed(cx),
+            BranchesEvent::Failed(err) => self.error = Some(err.clone().into()),
+            BranchesEvent::Picked(ix) => self.pick(Selection::Commit(*ix), cx),
+            BranchesEvent::Working => self.working_changed(cx),
             // The beat redraws only what changed on it.
-            history::Event::Beat => return self.beat(cx),
+            BranchesEvent::Beat => return self.beat(cx),
+            BranchesEvent::Reloaded(reloaded) => self.apply_reload(reloaded.clone(), cx),
         }
         cx.notify();
     }

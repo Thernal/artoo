@@ -84,6 +84,8 @@ pub struct History {
     pub pending: Option<crate::news::Pending>,
     /// Versions from this index on arrived since the user last looked.
     pub new_from: Option<usize>,
+    /// The repository read again after it changed (`reload`).
+    pub reload: Option<Task<()>>,
     /// The commit the Commits page has picked (#73), and with shift the other end of a run of them
     /// (`commits_page`).
     pub pick: Option<git2::Oid>,
@@ -92,22 +94,7 @@ pub struct History {
     pub widths: artoo_ui_kit::room::Widths,
 }
 
-/// What the tab hears of the history's reads.
-pub enum Event {
-    /// The branch open was read: the tab shows it (`History::settle`).
-    Read,
-    /// More of its history is listed.
-    Older,
-    /// ↵ in the commits' search: commit `ix`, the first found, shown.
-    Picked(usize),
-    /// A read failed: what to say.
-    Failed(String),
-    /// The working tree changed (`History::start_working_poll`): what shows it reads it again.
-    Working,
-    /// The working tree's poll came round, changed or not: what rides on its beat looks (the agents' answers,
-    /// pictures come in).
-    Beat,
-}
+pub use artoo_branches_api::Event;
 
 impl EventEmitter<Event> for History {}
 
@@ -261,6 +248,7 @@ impl Default for History {
             sections: Default::default(),
             pending: None,
             new_from: None,
+            reload: None,
             pick: None,
             pick_to: None,
             widths: Default::default(),
@@ -495,6 +483,29 @@ impl artoo_branches_api::Branches for Handle {
                 h.refilter();
             });
         }
+    }
+
+    fn on_event(&self, hear: std::rc::Rc<dyn Fn(&Event, &mut gpui::App)>, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            cx.subscribe(&h, move |_, event: &Event, cx| hear(event, cx))
+                .detach();
+        }
+    }
+
+    fn reload(&self, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, cx| h.reload(cx));
+        }
+    }
+
+    fn forget_news(&self, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, _| h.forget_news());
+        }
+    }
+
+    fn apply_pending(&self, cx: &mut gpui::App) -> Option<(artoo_branches_api::Applied, usize)> {
+        self.0.upgrade()?.update(cx, |h, cx| h.apply_pending(cx))
     }
 
     fn stop_waiting(&self, cx: &mut gpui::App) {

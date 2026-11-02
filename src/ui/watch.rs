@@ -3,9 +3,9 @@
 //! reads — fetching is a separate, opt-in feature.
 
 use super::px;
-use super::{COMMIT_PAGE, Selection, Workspace, theme};
-use crate::git::{self, BranchRef, CommitInfo, Repo, Version};
-use artoo_branches::news::{Applied, Reloaded};
+use super::{Selection, Workspace, theme};
+use crate::git;
+use artoo_branches_api::{Applied, Reloaded};
 use gpui::{App, ClickEvent, Context, Rgba, Task, div, prelude::*};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -46,7 +46,6 @@ pub struct Watch {
     git_dir: Option<PathBuf>,
     fingerprint: u64,
     pub status: Status,
-    task: Option<Task<()>>,
     flash: Option<Task<()>>,
 }
 
@@ -56,7 +55,6 @@ impl Default for Watch {
             git_dir: None,
             fingerprint: 0,
             status: Status::UpToDate,
-            task: None,
             flash: None,
         }
     }
@@ -68,7 +66,6 @@ impl Watch {
         self.git_dir = Some(git_dir);
         self.fingerprint = fingerprint;
         self.status = Status::UpToDate;
-        self.task = None;
     }
 }
 
@@ -76,8 +73,9 @@ impl Workspace {
     /// The user moved to another branch, or reads it anew: what was found on the old one no
     /// longer applies (the history's news), nor does a read under way.
     pub(super) fn forget_news(&mut self, cx: &mut App) {
-        self.watch.task = None;
-        self.history.update(cx, |h, _| h.forget_news());
+        if let Some(branches) = self.branches() {
+            branches.forget_news(cx);
+        }
     }
 
     /// Starts the polling loop for the life of the window.
@@ -150,69 +148,26 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Re-reads the branches and the open branch's history and versions in the background.
+    /// The repository changed: it is read again in the background (`Branches::reload`).
     fn repository_changed(&mut self, fingerprint: u64, cx: &mut Context<Self>) {
         self.watch.fingerprint = fingerprint;
-        let Some(root) = self.root.clone() else {
+        if self.root.is_none() {
             return;
-        };
+        }
         self.set_status(Status::Changed, cx);
-        let refname = self
-            .history
-            .read(cx)
-            .branch
-            .and_then(|ix| self.history.read(cx).branches.get(ix))
-            .map(|b| b.refname.clone());
-        // As much history as is listed, the pages scrolled to included (#25).
-        let count = self.history.read(cx).commits.len().max(COMMIT_PAGE);
-        self.watch.task = Some(cx.spawn(async move |this, cx| {
-            let loaded = cx
-                .background_executor()
-                .spawn(async move {
-                    let repo = Repo::open(&root)?;
-                    let branches = repo.branches()?;
-                    let tip = refname
-                        .as_ref()
-                        .and_then(|r| branches.iter().find(|b| &b.refname == r))
-                        .map(|b| b.tip);
-                    let open = match (&refname, tip) {
-                        (Some(r), Some(tip)) => Some((
-                            r.clone(),
-                            repo.versions(r).unwrap_or_default(),
-                            repo.log(tip, 0, count, None)?,
-                        )),
-                        _ => None,
-                    };
-                    anyhow::Ok((branches, refname, open, repo.decorations()))
-                })
-                .await;
-            this.update(cx, |this, cx| match loaded {
-                Ok((branches, refname, open, decor)) => {
-                    this.history.update(cx, |h, _| h.decor = decor);
-                    this.apply_reload(branches, refname, open, cx)
-                }
-                // Mid-rebase the repository can be unreadable for a moment; the next change retries.
-                Err(_) => this.set_status(Status::UpToDate, cx),
-            })
-            .ok();
-        }));
+        if let Some(branches) = self.branches() {
+            branches.reload(cx);
+        }
     }
 
-    fn apply_reload(
-        &mut self,
-        branches: Vec<BranchRef>,
-        refname: Option<String>,
-        open: Option<(String, Vec<Version>, Vec<CommitInfo>)>,
-        cx: &mut Context<Self>,
-    ) {
-        let reloaded = self
-            .history
-            .update(cx, |h, _| h.reloaded(branches, refname, open));
+    /// What the re-read found (`Event::Reloaded`): the status says it; a branch gone falls back to the current one,
+    /// a comparison follows its latest version.
+    pub(super) fn apply_reload(&mut self, reloaded: Reloaded, cx: &mut Context<Self>) {
         if self.nav.space == super::spaces::Space::Branches && self.at_root_list() {
             self.read_branch_facts(cx);
         }
         match reloaded {
-            Reloaded::Listed | Reloaded::Same | Reloaded::Held => {
+            Reloaded::Listed | Reloaded::Same | Reloaded::Held | Reloaded::Unreadable => {
                 self.set_status(Status::UpToDate, cx)
             }
             Reloaded::Gone { refname, fallback } => {
@@ -235,7 +190,7 @@ impl Workspace {
 
     /// Shows what a refresh found: the new commits at the top, the selection and scroll kept.
     pub(super) fn apply_pending(&mut self, cx: &mut Context<Self>) {
-        let Some((applied, seen)) = self.history.update(cx, |h, cx| h.apply_pending(cx)) else {
+        let Some((applied, seen)) = self.branches().and_then(|b| b.apply_pending(cx)) else {
             return;
         };
         match applied {
@@ -251,10 +206,14 @@ impl Workspace {
     /// same file, same scroll position, and a notice that can undo it. Commits never need this —
     /// a commit's diff cannot change.
     fn follow_latest_version(&mut self, seen: usize, cx: &mut Context<Self>) {
-        let Selection::Versions { from, to } = self.history.read(cx).selection else {
+        let Some(branches) = self.branches() else {
             return;
         };
-        let latest = self.history.read(cx).versions.len().saturating_sub(1);
+        let Selection::Versions { from, to } = branches.selection(cx) else {
+            return;
+        };
+        let versions = branches.versions(cx);
+        let latest = versions.len().saturating_sub(1);
         if seen == 0 || to + 1 != seen || latest <= to {
             return;
         }
@@ -268,7 +227,7 @@ impl Workspace {
             .map(|(path, _)| path.clone());
         let undo = Some((from, to));
         self.load_versions(from, latest, file, cx);
-        let number = self.history.read(cx).versions[latest].number;
+        let number = versions[latest].0;
         // `load_versions` clears the notice of the diff it replaces; this one belongs to the new.
         self.review.update(cx, |rv, _| {
             rv.notice = Some(super::Notice {
