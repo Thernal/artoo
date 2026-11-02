@@ -452,6 +452,10 @@ impl artoo_requests_api::Requests for Handle {
             .collect()
     }
 
+    fn versions(&self, cx: &App) -> Option<(u64, Vec<artoo_core::git::Version>)> {
+        self.0.upgrade()?.read(cx).versions.clone()
+    }
+
     fn back_to_list(&self, number: u64, cx: &mut App) {
         if let Some(requests) = self.0.upgrade() {
             requests.update(cx, |rq, _| rq.rows.picked = Some(number));

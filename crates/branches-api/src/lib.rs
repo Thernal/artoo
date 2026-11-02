@@ -2,10 +2,12 @@
 //! commits, two of its versions compared —, of two refs compared and of the working tree, which anyone opens through
 //! the `Frame`; and the branches listed, as a part reads them (`Branches`).
 
-use artoo_core::git::{BranchRef, CommitInfo};
+use artoo_core::git::{BranchRef, CommitInfo, Deco};
 use artoo_core::route::{Place, Route};
 use gpui::{AnyElement, App};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// What of the branch open the diff shows: a commit, a run of commits (indexes, newest first), two versions, the
@@ -46,6 +48,15 @@ pub enum Shows {
 /// A page waiting, shown (`Branches::finish_waiting`): the commit it shows, when it shows one.
 pub struct Finished {
     pub commit: Option<CommitInfo>,
+}
+
+/// What showing a branch read came to (`Branches::show_read`).
+pub struct Settled {
+    /// The commits shown, in order: the tab keeps them among the places opened lately.
+    pub commits: Vec<CommitInfo>,
+    /// A page of the branch or of the request on it is shown, which the page on screen follows; not the branch's
+    /// own Changes.
+    pub follow: bool,
 }
 
 /// What a part reads of the tab's branches (`Rc<dyn Branches>` in its services).
@@ -99,6 +110,51 @@ pub trait Branches {
     /// The page waiting shown, once what it asks for is in (a request's commits, a branch's versions); `None`
     /// while it waits, or when none does.
     fn finish_waiting(&self, cx: &mut App) -> Option<Finished>;
+
+    /// A project opened at `root` with its `branches`, the refs' decorations when it is a repository; `fresh`
+    /// when it is another than before (the commits' search starts over).
+    fn opened(
+        &self,
+        root: PathBuf,
+        branches: Vec<BranchRef>,
+        decor: Option<HashMap<git2::Oid, Vec<Deco>>>,
+        fresh: bool,
+        cx: &mut App,
+    );
+
+    /// The branch to open first: the one named `refname`, else the checked-out one, else the first listed.
+    fn first_branch(&self, refname: Option<&str>, cx: &App) -> Option<usize>;
+
+    /// Branch `ix` (of `list`) opened at commit `keep`, what the one before showed forgotten; whether it is read
+    /// anew.
+    fn open_branch(&self, ix: usize, keep: Option<git2::Oid>, cx: &mut App) -> bool;
+
+    /// What the branch open showed forgotten: no branch open.
+    fn forget(&self, cx: &mut App);
+
+    /// The diff of the branch open let go; the branch stays open.
+    fn clear_diff(&self, cx: &mut App);
+
+    /// Commit `ix` of the branch open shown, `keep` the file to open in it: the commit, when there is one.
+    fn show_commit(&self, ix: usize, keep: Option<String>, cx: &mut App) -> Option<CommitInfo>;
+
+    /// A run of its commits as one diff (indexes, newest first); whether it was shown.
+    fn show_commits(
+        &self,
+        newest: usize,
+        oldest: usize,
+        keep: Option<String>,
+        cx: &mut App,
+    ) -> bool;
+
+    /// Two of its versions compared; whether they were.
+    fn show_versions(&self, from: usize, to: usize, keep: Option<String>, cx: &mut App) -> bool;
+
+    /// The interdiff of one modified commit of the comparison shown; whether it was shown.
+    fn show_interdiff(&self, pair: usize, cx: &mut App) -> bool;
+
+    /// The branch read shown (`Event::Read`): its page, the commit asked for, or the request waiting for it.
+    fn show_read(&self, cx: &mut App) -> Option<Settled>;
 }
 
 /// A branch, by its refname.

@@ -2,7 +2,7 @@
 //! its commits, two of its versions compared —, which anyone opens through the `Frame`; and what other features ask
 //! of the requests read (`Requests`, a tab's service).
 
-use artoo_core::git::BranchRef;
+use artoo_core::git::{BranchRef, Version};
 use artoo_core::route::Place;
 use gpui::App;
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,9 @@ pub trait Requests {
 
     /// Esc from request `number`'s page back to the list: its row is picked and brought into view.
     fn back_to_list(&self, number: u64, cx: &mut App);
+
+    /// The versions the host keeps of the request open (its number with them), once read.
+    fn versions(&self, cx: &App) -> Option<(u64, Vec<Version>)>;
 }
 
 /// A merge request, by its number.

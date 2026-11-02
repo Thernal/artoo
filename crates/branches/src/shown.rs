@@ -9,14 +9,7 @@ use artoo_core::git::{CommitInfo, Version};
 use artoo_review_api::{Review, Source};
 use gpui::{App, Context, ScrollStrategy};
 
-/// What showing a branch read came to (`History::show_read`).
-pub struct Settled {
-    /// The commits shown, in order: the tab keeps them among the places opened lately.
-    pub commits: Vec<CommitInfo>,
-    /// A page of the branch or of the request on it is shown, which the page on screen follows; not the branch's
-    /// own Changes.
-    pub follow: bool,
-}
+pub use artoo_branches_api::Settled;
 
 impl History {
     /// The branch read shown (`settle`), its commits filtered and their paths indexed: a branch with its own commits

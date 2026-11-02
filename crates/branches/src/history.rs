@@ -286,6 +286,13 @@ struct Handle(
     std::rc::Weak<artoo_shell_api::Services>,
 );
 
+impl Handle {
+    /// The tab's review, which the history's diffs open in.
+    fn review(&self) -> Option<std::rc::Rc<dyn artoo_review_api::Review>> {
+        self.1.upgrade()?.get()
+    }
+}
+
 impl artoo_branches_api::Branches for Handle {
     fn tabbed(&self, refname: &str, cx: &gpui::App) -> bool {
         self.0.upgrade().is_some_and(|h| h.read(cx).tabbed(refname))
@@ -345,6 +352,117 @@ impl artoo_branches_api::Branches for Handle {
         self.0
             .upgrade()?
             .update(cx, |h, cx| h.finish_waiting(&*review, cx))
+    }
+
+    fn opened(
+        &self,
+        root: PathBuf,
+        branches: Vec<BranchRef>,
+        decor: Option<HashMap<git2::Oid, Vec<Deco>>>,
+        fresh: bool,
+        cx: &mut gpui::App,
+    ) {
+        let Some(h) = self.0.upgrade() else {
+            return;
+        };
+        h.update(cx, |h, _| {
+            if fresh {
+                h.find.reset();
+            }
+            if let Some(decor) = decor {
+                h.decor = decor;
+                h.forget_news();
+            }
+            h.root = Some(root);
+            h.branches = Arc::new(branches);
+        });
+    }
+
+    fn first_branch(&self, refname: Option<&str>, cx: &gpui::App) -> Option<usize> {
+        let h = self.0.upgrade()?;
+        let branches = &h.read(cx).branches;
+        refname
+            .and_then(|r| branches.iter().position(|b| b.refname == r))
+            .or_else(|| branches.iter().position(|b| b.is_head))
+            .or((!branches.is_empty()).then_some(0))
+    }
+
+    fn open_branch(&self, ix: usize, keep: Option<git2::Oid>, cx: &mut gpui::App) -> bool {
+        let (Some(h), Some(review)) = (self.0.upgrade(), self.review()) else {
+            return false;
+        };
+        h.update(cx, |h, cx| h.open_branch(ix, keep, &*review, cx))
+    }
+
+    fn forget(&self, cx: &mut gpui::App) {
+        if let (Some(h), Some(review)) = (self.0.upgrade(), self.review()) {
+            h.update(cx, |h, cx| h.forget(&*review, cx));
+        }
+    }
+
+    fn clear_diff(&self, cx: &mut gpui::App) {
+        if let (Some(h), Some(review)) = (self.0.upgrade(), self.review()) {
+            h.update(cx, |h, cx| h.clear_diff(&*review, cx));
+        }
+    }
+
+    fn show_commit(
+        &self,
+        ix: usize,
+        keep: Option<String>,
+        cx: &mut gpui::App,
+    ) -> Option<CommitInfo> {
+        let review = self.review()?;
+        self.0
+            .upgrade()?
+            .update(cx, |h, cx| h.show_commit(ix, keep, &*review, cx))
+    }
+
+    fn show_commits(
+        &self,
+        newest: usize,
+        oldest: usize,
+        keep: Option<String>,
+        cx: &mut gpui::App,
+    ) -> bool {
+        let (Some(h), Some(review)) = (self.0.upgrade(), self.review()) else {
+            return false;
+        };
+        h.update(cx, |h, cx| {
+            h.show_commits(newest, oldest, keep, &*review, cx)
+        })
+    }
+
+    fn show_versions(
+        &self,
+        from: usize,
+        to: usize,
+        keep: Option<String>,
+        cx: &mut gpui::App,
+    ) -> bool {
+        let (Some(h), Some(review)) = (self.0.upgrade(), self.review()) else {
+            return false;
+        };
+        h.update(cx, |h, cx| h.show_versions(from, to, keep, &*review, cx))
+    }
+
+    fn show_interdiff(&self, pair: usize, cx: &mut gpui::App) -> bool {
+        let (Some(h), Some(review)) = (self.0.upgrade(), self.review()) else {
+            return false;
+        };
+        h.update(cx, |h, cx| h.show_interdiff(pair, &*review, cx))
+    }
+
+    fn show_read(&self, cx: &mut gpui::App) -> Option<artoo_branches_api::Settled> {
+        let review = self.review()?;
+        let versions = self
+            .1
+            .upgrade()?
+            .get::<std::rc::Rc<dyn artoo_requests_api::Requests>>()
+            .and_then(|r| r.versions(cx));
+        self.0
+            .upgrade()?
+            .update(cx, |h, cx| h.show_read(versions.as_ref(), &*review, cx))
     }
 
     fn stop_waiting(&self, cx: &mut gpui::App) {

@@ -1998,12 +1998,8 @@ impl Workspace {
                         this.project = Some(project.clone());
                         this.host = web.as_ref().map(|w| host_of(w, cx));
                         this.web = web;
-                        this.history.update(cx, |h, _| h.decor = decor);
                         this.me = me.unwrap_or_else(|| "You".to_owned());
                         this.recent = storage::remember(&root);
-                        if this.root.as_ref() != Some(&root) {
-                            this.history.update(cx, |h, _| h.find.reset());
-                        }
                         if this.root.as_ref() != Some(&root) {
                             this.agents.load_comments(project.clone(), cx);
                             this.agents.load_notes(project.clone(), cx);
@@ -2011,7 +2007,6 @@ impl Workspace {
                             this.compose = None;
                         }
                         this.watch.watch(git_dir, fingerprint);
-                        this.history.update(cx, |h, _| h.forget_news());
                         this.start_working_poll(cx);
                         this.load_requests(cx);
                         // The documents this repository reads as Source (#11).
@@ -2027,30 +2022,18 @@ impl Workspace {
                             code.set_project(root.clone(), false, fresh, &key, cx);
                         }
                         this.review.update(cx, |rv, _| rv.root = Some(root.clone()));
-                        this.history.update(cx, |h, _| h.root = Some(root.clone()));
+                        let fresh = this.root.as_ref() != Some(&root);
+                        if let Some(branches_api) = this.branches() {
+                            branches_api.opened(root.clone(), branches, Some(decor), fresh, cx);
+                        }
                         this.root = Some(root);
                         // Once the root is this repository's: it reads whether fetch is off for it (#141).
                         this.start_fetching(cx);
-                        this.history
-                            .update(cx, |h, _| h.branches = Arc::new(branches));
                         let refresh = keep.is_some();
                         let (refname, commit) = keep.unzip();
-                        let ix = refname
-                            .and_then(|r| {
-                                this.history
-                                    .read(cx)
-                                    .branches
-                                    .iter()
-                                    .position(|b| b.refname == r)
-                            })
-                            .or_else(|| {
-                                this.history
-                                    .read(cx)
-                                    .branches
-                                    .iter()
-                                    .position(|b| b.is_head)
-                            })
-                            .or((!this.history.read(cx).branches.is_empty()).then_some(0));
+                        let ix = this
+                            .branches()
+                            .and_then(|b| b.first_branch(refname.as_deref(), cx));
                         this.clear_branch(cx);
                         if !refresh {
                             // Opened: the space and pages it was left on (#71).
@@ -2086,8 +2069,8 @@ impl Workspace {
         self.host = None;
         self.recent = storage::remember(&root);
         self.project = Some(root.clone());
-        if self.root.as_ref() != Some(&root) {
-            self.history.update(cx, |h, _| h.find.reset());
+        let fresh = self.root.as_ref() != Some(&root);
+        if fresh {
             self.agents.load_comments(root.clone(), cx);
             self.marks_stamp = None;
             self.compose = None;
@@ -2105,32 +2088,34 @@ impl Workspace {
             code.set_project(root.clone(), true, fresh, &crate::comment::key(&root), cx);
         }
         self.review.update(cx, |rv, _| rv.root = Some(root.clone()));
-        self.history.update(cx, |h, _| h.root = Some(root.clone()));
+        if let Some(branches) = self.branches() {
+            branches.opened(root.clone(), Vec::new(), None, fresh, cx);
+        }
         self.root = Some(root);
-        self.history.update(cx, |h, _| h.branches = Arc::default());
         self.clear_branch(cx);
         self.nav = nav::Nav::default();
-        self.history.update(cx, |h, _| h.waiting = None);
+        if let Some(branches) = self.branches() {
+            branches.stop_waiting(cx);
+        }
         self.show(spaces::Space::Code, None, cx);
     }
 
     fn clear_branch(&mut self, cx: &mut App) {
         self.forget_news(cx);
-        let review = self.review_handle();
-        self.history.update(cx, |h, cx| h.forget(&*review, cx));
+        if let Some(branches) = self.branches() {
+            branches.forget(cx);
+        }
     }
 
     fn clear_diff(&mut self, cx: &mut App) {
-        let review = self.review_handle();
-        self.history.update(cx, |h, cx| h.clear_diff(&*review, cx));
+        if let Some(branches) = self.branches() {
+            branches.clear_diff(cx);
+        }
     }
 
     /// Branch `ix` opened at commit `keep` (`History::open_branch`).
     fn select_branch(&mut self, ix: usize, keep: Option<git2::Oid>, cx: &mut Context<Self>) {
-        let review = self.review_handle();
-        let read = self
-            .history
-            .update(cx, |h, cx| h.open_branch(ix, keep, &*review, cx));
+        let read = self.branches().is_some_and(|b| b.open_branch(ix, keep, cx));
         self.branch_opened(ix, read, cx);
     }
 
@@ -2170,12 +2155,7 @@ impl Workspace {
     /// request on it waiting for its commits (`History::show_read`). The page follows what it shows, its commits
     /// are kept among the places opened lately, and a link or a draft waiting for it goes on.
     fn branch_read(&mut self, cx: &mut Context<Self>) {
-        let versions = self.requests.read(cx).versions.clone();
-        let review = self.review_handle();
-        let Some(settled) = self
-            .history
-            .update(cx, |h, cx| h.show_read(versions.as_ref(), &*review, cx))
-        else {
+        let Some(settled) = self.branches().and_then(|b| b.show_read(cx)) else {
             return;
         };
         if settled.follow {
@@ -2198,11 +2178,7 @@ impl Workspace {
         if self.root.is_none() {
             return;
         }
-        let review = self.review_handle();
-        let Some(commit) = self
-            .history
-            .update(cx, |h, cx| h.show_commit(ix, keep, &*review, cx))
-        else {
+        let Some(commit) = self.branches().and_then(|b| b.show_commit(ix, keep, cx)) else {
             return;
         };
         self.record(cx);
@@ -2229,10 +2205,10 @@ impl Workspace {
         if self.root.is_none() {
             return;
         }
-        let review = self.review_handle();
-        if !self.history.update(cx, |h, cx| {
-            h.show_commits(newest, oldest, keep, &*review, cx)
-        }) {
+        if !self
+            .branches()
+            .is_some_and(|b| b.show_commits(newest, oldest, keep, cx))
+        {
             return;
         }
         self.record(cx);
@@ -2254,10 +2230,9 @@ impl Workspace {
         if self.root.is_none() {
             return;
         }
-        let review = self.review_handle();
         if !self
-            .history
-            .update(cx, |h, cx| h.show_versions(from, to, keep, &*review, cx))
+            .branches()
+            .is_some_and(|b| b.show_versions(from, to, keep, cx))
         {
             return;
         }
@@ -2272,11 +2247,7 @@ impl Workspace {
         if self.root.is_none() {
             return;
         }
-        let review = self.review_handle();
-        if self
-            .history
-            .update(cx, |h, cx| h.show_interdiff(pair, &*review, cx))
-        {
+        if self.branches().is_some_and(|b| b.show_interdiff(pair, cx)) {
             cx.notify();
         }
     }
