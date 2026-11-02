@@ -155,6 +155,21 @@ pub trait Branches {
 
     /// The branch read shown (`Event::Read`): its page, the commit asked for, or the request waiting for it.
     fn show_read(&self, cx: &mut App) -> Option<Settled>;
+
+    /// The branch open, by its place in `list`.
+    fn branch(&self, cx: &App) -> Option<usize>;
+
+    /// What of the branch open the diff shows.
+    fn selection(&self, cx: &App) -> Selection;
+
+    /// Commit `ix` of those listed of the branch open.
+    fn commit(&self, ix: usize, cx: &App) -> Option<CommitInfo>;
+
+    /// The listed commit whose id starts with `prefix`.
+    fn commit_ix(&self, prefix: &str, cx: &App) -> Option<usize>;
+
+    /// The commits' search given `text`: the list filtered.
+    fn search(&self, text: String, cx: &mut App);
 }
 
 /// A branch, by its refname.

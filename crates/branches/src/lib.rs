@@ -47,6 +47,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     let Some(history) = services.get::<Entity<history::History>>() else {
         return Parts::default();
     };
+    let (versions, commits) = (history.downgrade(), history.downgrade());
     let panel = panel::view(history.clone(), &frame, cx);
     services.set(panel.clone());
     services.set(commits_page::view(history.clone(), &frame, cx));
@@ -61,6 +62,21 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
             pairs::piece(history.clone(), services),
         ],
         pages: Some(page::pages(history, panel, frame, cx)),
+        // A side panel section folded (a snapshot run never saves it).
+        snapshots: vec![
+            (
+                "fold-versions",
+                Rc::new(move |cx| {
+                    versions.update(cx, |h, _| h.sections.versions = true).ok();
+                }),
+            ),
+            (
+                "fold-commits",
+                Rc::new(move |cx| {
+                    commits.update(cx, |h, _| h.sections.commits = true).ok();
+                }),
+            ),
+        ],
         ..Default::default()
     }
 }

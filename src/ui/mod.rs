@@ -730,12 +730,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         }
         if let Ok(prefix) = std::env::var("ARTOO_SNAPSHOT_COMMIT") {
             ws.update(cx, |this, cx| {
-                let found = this
-                    .history
-                    .read(cx)
-                    .commits
-                    .iter()
-                    .position(|c| c.id.to_string().starts_with(&prefix));
+                let found = this.branches().and_then(|b| b.commit_ix(&prefix, cx));
                 if let Some(ix) = found {
                     this.select_commit(ix, cx);
                 }
@@ -986,11 +981,8 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         // newest commit, a request.
                         "branchmenu" => {
                             if let Some(ix) = this
-                                .history
-                                .read(cx)
-                                .branches
-                                .iter()
-                                .position(|b| b.is_head)
+                                .branches()
+                                .and_then(|b| b.list(cx).iter().position(|b| b.is_head))
                             {
                                 this.branch_context(ix, Point::new(px(420.), px(160.)), cx);
                             }
@@ -1058,15 +1050,6 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         "page-notes" => {
                             let ix = this.review.read(cx).file;
                             this.page_block_notes(ix, cx);
-                            continue;
-                        }
-                        // A side panel section folded (a snapshot run never saves it).
-                        "fold-versions" => {
-                            this.history.update(cx, |h, _| h.sections.versions = true);
-                            continue;
-                        }
-                        "fold-commits" => {
-                            this.history.update(cx, |h, _| h.sections.commits = true);
                             continue;
                         }
                         "fold-places" => {
@@ -1224,8 +1207,9 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         }
         if let Ok(text) = std::env::var("ARTOO_SNAPSHOT_SEARCH") {
             ws.update(cx, |this, cx| {
-                this.history.update(cx, |h, _| h.find.text = Some(text));
-                this.refilter(cx);
+                if let Some(branches) = this.branches() {
+                    branches.search(text, cx);
+                }
                 this.review.update(cx, |rv, _| rv.recompute_matches());
                 cx.notify();
             });
@@ -1233,8 +1217,9 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         }
         if versions {
             ws.update(cx, |this, cx| {
-                if this.history.read(cx).versions.len() > 1 {
-                    this.select_versions(0, this.history.read(cx).versions.len() - 1, cx);
+                let count = this.branches().map_or(0, |b| b.versions(cx).len());
+                if count > 1 {
+                    this.select_versions(0, count - 1, cx);
                 }
             });
             wait(1500).await;
@@ -2502,7 +2487,10 @@ impl Workspace {
                 "Copy path:line",
                 Act::Copy(format!("{path}:{line}")),
             ));
-            if matches!(self.history.read(cx).selection, Selection::Commit(_)) {
+            if matches!(
+                self.branches().map(|b| b.selection(cx)),
+                Some(Selection::Commit(_))
+            ) {
                 share.push(Entry::new(
                     format!("Copy git show {}", format::short(rev)),
                     Act::Copy(format!("git show {}", format::short(rev))),
@@ -2513,7 +2501,7 @@ impl Workspace {
     }
 
     fn commit_context(&mut self, ix: usize, at: Point<gpui::Pixels>, cx: &mut Context<Self>) {
-        let Some(commit) = self.history.read(cx).commits.get(ix) else {
+        let Some(commit) = self.branches().and_then(|b| b.commit(ix, cx)) else {
             return;
         };
         let mut groups = vec![vec![
@@ -2568,7 +2556,7 @@ impl Workspace {
         at: Point<gpui::Pixels>,
         cx: &mut Context<Self>,
     ) {
-        let Some(branch) = self.history.read(cx).branches.get(ix) else {
+        let Some(branch) = self.branches().and_then(|b| b.list(cx).get(ix).cloned()) else {
             return;
         };
         let mut groups = vec![vec![Entry::new(
@@ -2605,7 +2593,7 @@ impl Workspace {
             .as_ref()
             .and_then(|d| d.files.get(self.review.read(cx).file))
             .map(|f| f.path().to_owned());
-        match self.history.read(cx).selection {
+        match self.branches().map_or(Selection::None, |b| b.selection(cx)) {
             Selection::Commit(ix) => self.load_commit(ix, keep, cx),
             Selection::Commits { newest, oldest } => self.load_commits(newest, oldest, keep, cx),
             Selection::Versions { from, to } => self.load_versions(from, to, keep, cx),
@@ -2697,13 +2685,12 @@ impl Workspace {
         let Some(root) = self.root.clone() else {
             return;
         };
-        let branch = self
-            .history
-            .read(cx)
-            .branch
-            .and_then(|ix| self.history.read(cx).branches.get(ix));
-        let commit = match self.history.read(cx).selection {
-            Selection::Commit(ix) => self.history.read(cx).commits.get(ix).map(|c| c.id),
+        let branches = self.branches();
+        let branch = branches
+            .as_ref()
+            .and_then(|b| Some(b.list(cx).get(b.branch(cx)?)?.clone()));
+        let commit = match branches.as_ref().map(|b| b.selection(cx)) {
+            Some(Selection::Commit(ix)) => branches.and_then(|b| b.commit(ix, cx)).map(|c| c.id),
             _ => None,
         };
         let keep = branch.map(|b| (b.refname.clone(), commit));
@@ -3206,13 +3193,12 @@ impl artoo_review_api::Host for TabHost {
     }
 
     fn version_of(&self, tip: git2::Oid, cx: &App) -> Option<usize> {
-        let workspace = self.0.upgrade()?;
-        let history = workspace.read(cx).history.read(cx);
-        history
-            .versions
-            .iter()
-            .find(|v| v.tip == tip)
-            .map(|v| v.number)
+        let branches = self.0.upgrade()?.read(cx).branches()?;
+        branches
+            .versions(cx)
+            .into_iter()
+            .find(|(_, t)| *t == tip)
+            .map(|(number, _)| number)
     }
 
     fn changes(&self, event: artoo_review_api::ChangesEvent, cx: &mut App) {

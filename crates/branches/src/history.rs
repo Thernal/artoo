@@ -465,6 +465,38 @@ impl artoo_branches_api::Branches for Handle {
             .update(cx, |h, cx| h.show_read(versions.as_ref(), &*review, cx))
     }
 
+    fn branch(&self, cx: &gpui::App) -> Option<usize> {
+        self.0.upgrade()?.read(cx).branch
+    }
+
+    fn selection(&self, cx: &gpui::App) -> Selection {
+        self.0
+            .upgrade()
+            .map_or(Selection::None, |h| h.read(cx).selection)
+    }
+
+    fn commit(&self, ix: usize, cx: &gpui::App) -> Option<CommitInfo> {
+        self.0.upgrade()?.read(cx).commits.get(ix).cloned()
+    }
+
+    fn commit_ix(&self, prefix: &str, cx: &gpui::App) -> Option<usize> {
+        self.0
+            .upgrade()?
+            .read(cx)
+            .commits
+            .iter()
+            .position(|c| c.id.to_string().starts_with(prefix))
+    }
+
+    fn search(&self, text: String, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, _| {
+                h.find.text = Some(text);
+                h.refilter();
+            });
+        }
+    }
+
     fn stop_waiting(&self, cx: &mut gpui::App) {
         if let Some(h) = self.0.upgrade() {
             h.update(cx, |h, _| h.waiting = None);
