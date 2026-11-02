@@ -88,7 +88,6 @@ use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
 use artoo_branches::head;
 use artoo_branches::history::{self, History, Selection, VersionTab};
 use artoo_branches::reading::COMMIT_PAGE;
-use artoo_branches::working::WorkingState;
 use artoo_review::diff::{Diff, Header, Notice};
 use artoo_review::diff_view::{self, CODE_SIZE};
 use artoo_review::review::{self, Opt};
@@ -2159,6 +2158,9 @@ impl Workspace {
             }
             history::Event::Failed(err) => self.error = Some(err.clone().into()),
             history::Event::Picked(ix) => self.pick(Selection::Commit(*ix), cx),
+            history::Event::Working => self.working_changed(cx),
+            // The beat redraws only what changed on it.
+            history::Event::Beat => return self.beat(cx),
         }
         cx.notify();
     }

@@ -116,6 +116,11 @@ pub enum Event {
     Picked(usize),
     /// A read failed: what to say.
     Failed(String),
+    /// The working tree changed (`History::start_working_poll`): what shows it reads it again.
+    Working,
+    /// The working tree's poll came round, changed or not: what rides on its beat looks (the agents' answers,
+    /// pictures come in).
+    Beat,
 }
 
 impl EventEmitter<Event> for History {}

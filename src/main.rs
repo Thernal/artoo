@@ -8,8 +8,8 @@ mod ui;
 /// The agents' models: the comments for an agent, their notes, what goes over their folder.
 use artoo_agents_api::{bus, comment, notes};
 use artoo_core::{
-    applog, editor, files, fswatch, git, labels, links, markdown, mddiff, platform, rank, rows,
-    storage, symbols, textedit, themes,
+    applog, editor, files, git, labels, links, markdown, mddiff, platform, rank, rows, storage,
+    symbols, textedit, themes,
 };
 /// The hosts' models (a request, a thread, a draft…), by the name the views knew them by before #165.
 use artoo_hosts_api as mr;
