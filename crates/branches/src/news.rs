@@ -1,11 +1,12 @@
 //! What the tab's watch found on the branch open (#49): newer commits held back until the user asks for them, their
 //! pill over the commits, and the versions that arrived since the user last looked. The watch reads the repository;
-//! the history keeps what it found.
+//! the history keeps what it found (`History::reloaded`) and shows it when asked (`History::apply_pending`).
 
-use crate::history::{Act, Acts, History};
-use artoo_core::git::{CommitInfo, Version};
+use crate::history::{Act, Acts, History, Older, Selection};
+use artoo_core::git::{BranchRef, CommitInfo, Version};
 use artoo_ui_kit::{ROW_RADIUS, px, theme};
 use gpui::{Div, Stateful, div, prelude::*};
+use std::sync::Arc;
 
 /// What a refresh found on the open branch, held back until the user asks for it.
 pub struct Pending {
@@ -15,7 +16,115 @@ pub struct Pending {
     pub new: Option<usize>,
 }
 
+/// What a re-read of the repository found (`History::reloaded`).
+pub enum Reloaded {
+    /// No branch is open: the branches are listed anew, nothing else.
+    Listed,
+    /// The branch open is gone: the checked-out one, or the first, to fall back to.
+    Gone {
+        refname: String,
+        fallback: Option<usize>,
+    },
+    /// Nothing new on the branch open.
+    Same,
+    /// Only the reflog moved: a new version of the same history; `seen` versions were listed before.
+    Versions { seen: usize },
+    /// New commits, held back until the user asks for them (`pending`).
+    Held,
+}
+
+/// What showing the commits held back leaves to do with the diff shown (`History::apply_pending`).
+pub enum Applied {
+    /// The selection still holds, at its new index.
+    Kept,
+    /// The commit shown is gone: the newest is shown instead.
+    Newest,
+    /// What was shown no longer is: the diff goes.
+    Cleared,
+}
+
 impl History {
+    /// The repository re-read: its `branches`, and of the branch open (`refname`) its versions and commits when it
+    /// is still there. What it found is kept, or said.
+    pub fn reloaded(
+        &mut self,
+        branches: Vec<BranchRef>,
+        refname: Option<String>,
+        open: Option<(String, Vec<Version>, Vec<CommitInfo>)>,
+    ) -> Reloaded {
+        self.branches = Arc::new(branches);
+        let Some(refname) = refname else {
+            return Reloaded::Listed;
+        };
+        let Some((_, versions, commits)) = open else {
+            let fallback = self
+                .branches
+                .iter()
+                .position(|b| b.is_head)
+                .or((!self.branches.is_empty()).then_some(0));
+            return Reloaded::Gone { refname, fallback };
+        };
+        self.branch = self.branches.iter().position(|b| b.refname == refname);
+        let old_first = self.commits.first().map(|c| c.id);
+        let first_same = old_first == commits.first().map(|c| c.id);
+        if first_same && versions.len() == self.versions.len() {
+            self.pending = None;
+            return Reloaded::Same;
+        }
+        let new = old_first.and_then(|id| commits.iter().position(|c| c.id == id));
+        if first_same {
+            let seen = self.versions.len();
+            self.mark_new_versions(versions.len());
+            self.versions = versions;
+            return Reloaded::Versions { seen };
+        }
+        self.pending = Some(Pending {
+            commits,
+            versions,
+            new,
+        });
+        Reloaded::Held
+    }
+
+    /// Shows what a refresh found: the new commits at the top, the selection kept where it still holds; with how
+    /// many versions were listed before. `None` when nothing was held back.
+    pub fn apply_pending(&mut self, cx: &mut gpui::Context<Self>) -> Option<(Applied, usize)> {
+        let pending = self.pending.take()?;
+        let selected = match self.selection {
+            Selection::Commit(ix) => self.commits.get(ix).map(|c| c.id),
+            _ => None,
+        };
+        let seen = self.versions.len();
+        self.mark_new_versions(pending.versions.len());
+        self.versions = pending.versions;
+        self.commits = pending.commits;
+        // Older history goes on from the new tip.
+        if self.older.is_some() {
+            self.older = self.commits.first().map(|tip| Older {
+                tip: tip.id,
+                task: None,
+            });
+        }
+        self.refilter();
+        self.index_paths(cx);
+        let applied = match (self.selection, selected) {
+            (Selection::Commit(_), Some(id)) => {
+                match self.commits.iter().position(|c| c.id == id) {
+                    // The commit is still there, further down: only its index moved.
+                    Some(ix) => {
+                        self.selection = Selection::Commit(ix);
+                        Applied::Kept
+                    }
+                    None => Applied::Newest,
+                }
+            }
+            (Selection::Versions { to, .. }, _) if to < self.versions.len() => Applied::Kept,
+            (Selection::WorkingTree, _) => Applied::Kept,
+            _ => Applied::Cleared,
+        };
+        Some((applied, seen))
+    }
+
     /// What was found on the branch no longer applies: another one is open, or it is read anew.
     pub fn forget_news(&mut self) {
         self.pending = None;

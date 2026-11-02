@@ -5,11 +5,9 @@
 use super::px;
 use super::{COMMIT_PAGE, Selection, Workspace, theme};
 use crate::git::{self, BranchRef, CommitInfo, Repo, Version};
-use artoo_branches::history::Older;
-use artoo_branches::news::Pending;
+use artoo_branches::news::{Applied, Reloaded};
 use gpui::{App, ClickEvent, Context, Rgba, Task, div, prelude::*};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 
 /// How often the git directory is checked.
@@ -207,108 +205,43 @@ impl Workspace {
         open: Option<(String, Vec<Version>, Vec<CommitInfo>)>,
         cx: &mut Context<Self>,
     ) {
-        self.history
-            .update(cx, |h, _| h.branches = Arc::new(branches));
+        let reloaded = self
+            .history
+            .update(cx, |h, _| h.reloaded(branches, refname, open));
         if self.nav.space == super::spaces::Space::Branches && self.at_root_list() {
             self.read_branch_facts(cx);
         }
-        let Some(refname) = refname else {
-            return self.set_status(Status::UpToDate, cx);
-        };
-        let Some((_, versions, commits)) = open else {
-            // The open branch is gone: fall back to the checked-out one, and say so.
-            self.error =
-                Some(format!("{refname} no longer exists — showing the current branch.").into());
-            let ix = self
-                .history
-                .read(cx)
-                .branches
-                .iter()
-                .position(|b| b.is_head)
-                .or((!self.history.read(cx).branches.is_empty()).then_some(0));
-            self.clear_branch(cx);
-            if let Some(ix) = ix {
-                self.select_branch(ix, None, cx);
+        match reloaded {
+            Reloaded::Listed | Reloaded::Same | Reloaded::Held => {
+                self.set_status(Status::UpToDate, cx)
             }
-            return self.set_status(Status::Reloaded, cx);
-        };
-        self.history.update(cx, |h, _| {
-            h.branch = h.branches.iter().position(|b| b.refname == refname)
-        });
-
-        let old_first = self.history.read(cx).commits.first().map(|c| c.id);
-        let first_same = old_first == commits.first().map(|c| c.id);
-        if first_same && versions.len() == self.history.read(cx).versions.len() {
-            self.history.update(cx, |h, _| h.pending = None);
-            return self.set_status(Status::UpToDate, cx);
+            Reloaded::Gone { refname, fallback } => {
+                // The open branch is gone: fall back to the checked-out one, and say so.
+                self.error = Some(
+                    format!("{refname} no longer exists — showing the current branch.").into(),
+                );
+                self.clear_branch(cx);
+                if let Some(ix) = fallback {
+                    self.select_branch(ix, None, cx);
+                }
+                self.set_status(Status::Reloaded, cx)
+            }
+            Reloaded::Versions { seen } => {
+                self.follow_latest_version(seen, cx);
+                self.set_status(Status::Reloaded, cx)
+            }
         }
-        let new = old_first.and_then(|id| commits.iter().position(|c| c.id == id));
-        if first_same {
-            // Only the reflog moved: a new version of the same history.
-            let seen = self.history.read(cx).versions.len();
-            self.history.update(cx, |h, _| {
-                h.mark_new_versions(versions.len());
-                h.versions = versions
-            });
-            self.follow_latest_version(seen, cx);
-            return self.set_status(Status::Reloaded, cx);
-        }
-        self.history.update(cx, |h, _| {
-            h.pending = Some(Pending {
-                commits,
-                versions,
-                new,
-            })
-        });
-        self.set_status(Status::UpToDate, cx);
     }
 
     /// Shows what a refresh found: the new commits at the top, the selection and scroll kept.
     pub(super) fn apply_pending(&mut self, cx: &mut Context<Self>) {
-        let Some(pending) = self.history.update(cx, |h, _| h.pending.take()) else {
+        let Some((applied, seen)) = self.history.update(cx, |h, cx| h.apply_pending(cx)) else {
             return;
         };
-        let selected = match self.history.read(cx).selection {
-            Selection::Commit(ix) => self.history.read(cx).commits.get(ix).map(|c| c.id),
-            _ => None,
-        };
-        let seen = self.history.read(cx).versions.len();
-        self.history.update(cx, |h, _| {
-            h.mark_new_versions(pending.versions.len());
-            h.versions = pending.versions;
-            h.commits = pending.commits;
-            // Older history goes on from the new tip.
-            if h.older.is_some() {
-                h.older = h.commits.first().map(|tip| Older {
-                    tip: tip.id,
-                    task: None,
-                });
-            }
-        });
-        self.refilter(cx);
-        self.index_paths(cx);
-        match (self.history.read(cx).selection, selected) {
-            (Selection::Commit(_), Some(id)) => {
-                match self
-                    .history
-                    .read(cx)
-                    .commits
-                    .iter()
-                    .position(|c| c.id == id)
-                {
-                    // The commit is still there, further down: only its index moved.
-                    Some(ix) => self
-                        .history
-                        .update(cx, |h, _| h.selection = Selection::Commit(ix)),
-                    None => self.select_commit(0, cx),
-                }
-            }
-            (Selection::Versions { from, to }, _) if to < self.history.read(cx).versions.len() => {
-                self.history
-                    .update(cx, |h, _| h.selection = Selection::Versions { from, to });
-            }
-            (Selection::WorkingTree, _) => {}
-            _ => self.clear_diff(cx),
+        match applied {
+            Applied::Kept => {}
+            Applied::Newest => self.select_commit(0, cx),
+            Applied::Cleared => self.clear_diff(cx),
         }
         self.follow_latest_version(seen, cx);
         self.set_status(Status::Reloaded, cx);
