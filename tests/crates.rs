@@ -46,8 +46,6 @@ const OPEN: &[&str] = &[
     "artoo-review",
     // Merge requests: the lists, the request open, the changes waiting.
     "artoo-requests",
-    // Branches: the history, its versions and commits, the working tree's state.
-    "artoo-branches",
 ];
 
 /// The `artoo-*` crates `manifest` depends on, its dev-dependencies left out.

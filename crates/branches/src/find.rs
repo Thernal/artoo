@@ -18,7 +18,7 @@ use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// The search's field as an input of the tab's (`artoo_shell_api::Input`).
-pub const INPUT: &str = "branches.search";
+pub use artoo_branches_api::SEARCH_INPUT as INPUT;
 
 /// Commits whose paths are read per background step.
 const PATH_CHUNK: usize = 250;

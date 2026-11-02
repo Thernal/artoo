@@ -85,10 +85,8 @@ mod zones;
 use crate::git::{DiffSettings, Repo};
 use crate::rows::{self, Row};
 use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
-use artoo_branches::head;
-use artoo_branches::history::History;
 use artoo_branches_api::{Event as BranchesEvent, Selection};
-use artoo_review::diff::{Diff, Header, Notice};
+use artoo_review::diff::{Header, Notice};
 use artoo_review::diff_view::{self, CODE_SIZE};
 use artoo_review::review::{self, Opt};
 use artoo_shell_api::frame::{Drag, Split};
@@ -1493,7 +1491,6 @@ pub struct Workspace {
     draft_at: Option<usize>,
     title: String,
     /// The branch open, its commits and versions, what the diff shows of them (`artoo_branches`).
-    history: gpui::Entity<History>,
     /// What the tab's features offer one another (`Frame::services`): Code among them (#165).
     services: Rc<artoo_shell_api::Services>,
     /// The project is a plain folder, not a git repository: Code is all it has (#75).
@@ -1772,7 +1769,6 @@ impl Workspace {
             hover_note: None,
             notices: cx.new(|_| Default::default()),
             title: String::new(),
-            history: cx.new(|_| History::new()),
             services: services.clone(),
             plain: false,
             project: None,
@@ -1846,14 +1842,9 @@ impl Workspace {
         services.set(artoo_review::review::handle(&review));
         // The review itself, which its parts read and type in.
         services.set(review.clone());
-        // Its history, which the branches' parts read and type in, its branches as the other parts read them,
-        // and its answers to the history's acts.
-        services.set(this.history.clone());
-        services.set(artoo_branches::history::handle(&this.history, &services));
-        services.set(artoo_branches::history::acts(
-            &this.history,
-            this.history_acts(cx),
-        ));
+        // Its answers to what the branches' views ask: the branches' parts make their history in a tab that has
+        // them.
+        services.set(artoo_branches_api::TabActs(this.history_acts(cx)));
         // Its requests, which the requests' parts read and draw, as the other features ask them, and its answers
         // to their acts.
         services.set(this.requests.clone());
@@ -1899,10 +1890,16 @@ impl Workspace {
         }
         Self::start_watching(this.on_screen.clone(), cx);
         cx.subscribe(&this.review, Self::review_event).detach();
-        cx.observe(&this.history, |_, _, cx| cx.notify()).detach();
         cx.observe(&this.review, |_, _, cx| cx.notify()).detach();
-        // What the branches' reads come to.
+        // What the branches' reads come to; any change of theirs drawn.
         if let Some(branches) = this.branches() {
+            let tab = cx.weak_entity();
+            branches.on_change(
+                Rc::new(move |cx| {
+                    tab.update(cx, |_, cx| cx.notify()).ok();
+                }),
+                cx,
+            );
             let tab = cx.weak_entity();
             branches.on_event(
                 Rc::new(move |event, cx| {
@@ -3034,7 +3031,7 @@ impl Workspace {
     }
 
     /// What the screen shows, in a few words: zen's one line on top, a request's or what the diff is of.
-    fn header_title(&self, diff: &Diff, cx: &App) -> String {
+    fn header_title(&self, cx: &App) -> String {
         if let Some(m) = self
             .requests
             .read(cx)
@@ -3044,7 +3041,10 @@ impl Workspace {
         {
             return format!("{} {}", words::number(m.iid), m.title);
         }
-        head::title(diff, self.compare_title(cx))
+        let route = self.nav_page().map(nav::Page::route);
+        self.branches()
+            .and_then(|b| b.diff_title(route.as_ref(), cx))
+            .unwrap_or_default()
     }
 }
 

@@ -143,6 +143,94 @@ pub struct RequestOf<'a> {
 /// A card a long hover shows (a commit's, a branch's), made when it shows.
 pub type Card = std::rc::Rc<dyn Fn(&mut Window, &mut App) -> AnyView>;
 
+/// What the version comparison shows: the files that changed, or the commits paired up.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum VersionTab {
+    Files,
+    Commits,
+}
+
+/// A section of the panel the history's.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Fold {
+    Versions,
+    Commits,
+}
+
+/// What a click in the branches' views asks: the branches answer their own (a version clicked, the commits'
+/// search's chip, a fold, the version comparison's tab, the message), the tab the rest (`TabActs`).
+#[derive(Clone)]
+pub enum Act {
+    /// Version `ix` clicked, with ⌘ (`more`) or not: from the one picked to it, else to the latest.
+    Version { ix: usize, more: bool },
+    /// Commit `ix` clicked: its diff, the drawer gone.
+    Commit(usize),
+    /// A right click on commit `ix` at `at`: its menu.
+    CommitMenu {
+        ix: usize,
+        at: gpui::Point<gpui::Pixels>,
+    },
+    /// A comparison's commit `ix` clicked, with ⇧ (`span`) or not (`Branches::pick_compare`).
+    PickCompare { ix: usize, span: bool },
+    /// The comparison whole again: the "only" pill's ×.
+    WholeCompare,
+    /// The working tree's chip: its diff against HEAD.
+    WorkingTree,
+    /// The search's chip: the commits' search, their section open.
+    FindCommits,
+    /// A click in the search's field: it takes the keyboard.
+    FindField,
+    /// A section of the side panel folded or opened.
+    Fold(Fold),
+    /// A press in the Commits section: its list takes the keyboard (↑ ↓).
+    CommitsZone,
+    /// A right click on the branch line at `at`: branch `ix`'s menu.
+    BranchMenu {
+        ix: usize,
+        at: gpui::Point<gpui::Pixels>,
+    },
+    /// A row of Branches clicked, `clicks` times: picked, or opened.
+    PickRow {
+        row: BranchRow,
+        clicks: usize,
+    },
+    /// A row of Branches opened: the working tree, or the branch.
+    OpenRow(BranchRow),
+    /// A branch's request, by its number.
+    ShowRequest(u64),
+    /// A remote's branches folded or open.
+    ToggleRemote(String),
+    /// The working tree's halves: what is not staged only, or all of it.
+    OnlyUnstaged(bool),
+    /// What `head` changed against `base`, since their merge base or directly, a request's diff or not.
+    Compare {
+        base: (String, git2::Oid),
+        head: (String, git2::Oid),
+        since: bool,
+        request: Option<u64>,
+    },
+    /// Versions `from` and `to` compared: an interdiff's way back to their commits.
+    Versions { from: usize, to: usize },
+    /// The version comparison's tab: its files, or its commits paired.
+    VersionTab(VersionTab),
+    /// A commit's message open under its title, or folded.
+    Message,
+    /// The pill's newer commits listed.
+    ShowNew,
+    /// Text to the clipboard: a commit's id.
+    Copy(String),
+    /// A page on the host: a commit's.
+    OpenUrl(String),
+}
+
+/// The tab's answer to what the branches' views ask it (`Act`), in its services: the branches answer their own
+/// first.
+#[derive(Clone)]
+pub struct TabActs(pub std::rc::Rc<dyn Fn(Act, &mut App)>);
+
+/// The commits' search, as one of the tab's inputs.
+pub const SEARCH_INPUT: &str = "branches.search";
+
 /// A row of Branches' list: the working tree, or a branch (#72), by its place in `Branches::list`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BranchRow {
@@ -434,6 +522,13 @@ pub trait Branches {
 
     /// The host's versions of the open request in the timeline, when there is more than one.
     fn show_request_versions(&self, versions: Option<&(u64, Vec<Version>)>, cx: &mut App);
+
+    /// `hear` is told whenever the branches change, to draw again.
+    fn on_change(&self, hear: std::rc::Rc<dyn Fn(&mut App)>, cx: &mut App);
+
+    /// What the diff the review shows is of, in a few words (its title on `route`, a comparison narrowed to one
+    /// commit that commit's subject).
+    fn diff_title(&self, route: Option<&Route>, cx: &App) -> Option<String>;
 }
 
 /// A branch, by its refname.

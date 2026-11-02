@@ -45,7 +45,7 @@ impl Workspace {
                     .diff
                     .as_ref()
                     .filter(|_| self.zen.is_some() || self.motion.recent("zen"))
-                    .map(|diff| {
+                    .map(|_| {
                         self.zen_strip(
                             "zen-head",
                             self.zen.is_some(),
@@ -56,7 +56,7 @@ impl Workspace {
                                 .child(
                                     self.review
                                         .read(cx)
-                                        .render_zen_head(self.header_title(diff, cx), self.zen_one),
+                                        .render_zen_head(self.header_title(cx), self.zen_one),
                                 )
                                 .child(div().h(px(gap()))),
                             cx,

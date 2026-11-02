@@ -18,7 +18,7 @@ impl Workspace {
         if let Some(branches) = self.branches() {
             branches.open_find(cx);
         }
-        self.take_keyboard(Input::Part(artoo_branches::find::INPUT), cx);
+        self.take_keyboard(Input::Part(artoo_branches_api::SEARCH_INPUT), cx);
         cx.notify();
     }
 

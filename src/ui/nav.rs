@@ -214,7 +214,7 @@ impl Section {
     }
 }
 
-pub use artoo_branches::roots::BranchRow;
+pub use artoo_branches_api::BranchRow;
 
 /// A request or branch open under its space, and where it was left.
 #[derive(Clone)]

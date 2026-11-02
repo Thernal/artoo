@@ -1,37 +1,38 @@
-//! Branches (#165 stage 4): what the tab keeps of the repository's branches — the branch open with its commits and
-//! versions and what the diff shows of them (`history`), what its page says of it (`facts`), the commits' search
+//! Branches (#165 stage 4, the tab split's B): the repository's branches in a tab — the branch open with its commits
+//! and versions and what the diff shows of them (`history`), what its page says of it (`facts`), the commits' search
 //! (`find`), a comparison's own commits (`compare`), the working tree as last looked at (`working`) and what the
 //! Branches list reads for its rows (`roots`) — and what they read from the repository (`reading`), each read the
-//! entity's own task, the tab hearing what follows as a `history::Event`. Its views draw the side panel's rows
-//! (`side`), a commit's card (`card`), the line over a branch's page (`facts`), a comparison's pill (`compare`) and
-//! the Branches list (`list`) and the head over a diff with its toolbar's left (`head`), a click asking the tab a
-//! `history::Act`; the Branches space's own page is theirs (`page`). The app's other views read and draw the
-//! history for now.
+//! entity's own task. Its parts make the history in a tab that answers its acts and offer it as
+//! `artoo_branches_api::Branches`, which the app and the other features read and ask; what follows a read the tab
+//! hears as the contract's `Event`. Its views draw the side panel (`panel`, `side`), a commit's card (`card`), the line
+//! over a branch's page (`facts`), a comparison's pill (`compare`), the Branches list (`list`) and the head over a
+//! diff with its toolbar's left (`head`); a click is an `Act`, the branches' own answered here, the rest the tab's
+//! (`TabActs`). The Branches space's own page is theirs (`page`).
 
-pub mod card;
-pub mod commits_page;
-pub mod compare;
-pub mod done;
-pub mod facts;
-pub mod find;
-pub mod head;
-pub mod history;
-pub mod list;
-pub mod news;
-pub mod opening;
-pub mod page;
-pub mod pairs;
-pub mod panel;
-pub mod place;
-pub mod reading;
-pub mod roots;
-pub mod shown;
-pub mod side;
-pub mod waiting;
-pub mod working;
+mod card;
+mod commits_page;
+mod compare;
+mod done;
+mod facts;
+mod find;
+mod head;
+mod history;
+mod list;
+mod news;
+mod opening;
+mod page;
+mod pairs;
+mod panel;
+mod place;
+mod reading;
+mod roots;
+mod shown;
+mod side;
+mod waiting;
+mod working;
 
 use artoo_shell_api::{Frame, Parts};
-use gpui::{App, Entity, Window};
+use gpui::{App, AppContext, Window};
 use std::rc::Rc;
 
 /// Branches' parts in every tab: the commits' search as one of its inputs, a branch's line, the head over a diff,
@@ -41,12 +42,16 @@ pub fn install(cx: &mut App) {
     artoo_shell_api::add_parts(cx, parts);
 }
 
-/// The parts of a tab that offers its history; none in one that does not.
+/// The parts of a tab that answers the branches' acts (`TabActs`): its history, made here, its branches as the
+/// other parts read them (`Branches`); none in one that does not.
 fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     let services = frame.services();
-    let Some(history) = services.get::<Entity<history::History>>() else {
+    let Some(tab) = services.get::<artoo_branches_api::TabActs>() else {
         return Parts::default();
     };
+    let history = cx.new(|_| history::History::new());
+    services.set(history::handle(&history, &services));
+    services.set(history::acts(&history, tab));
     let (versions, commits) = (history.downgrade(), history.downgrade());
     let panel = panel::view(history.clone(), &frame, cx);
     services.set(panel.clone());

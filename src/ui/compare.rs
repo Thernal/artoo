@@ -79,10 +79,4 @@ impl Workspace {
         self.run_compare(base, head, since, None, cx);
         true
     }
-
-    /// The title of a comparison narrowed to one of its commits: the commit's subject (`Branches::compare_title`).
-    pub(super) fn compare_title(&self, cx: &App) -> Option<String> {
-        let route = self.nav_page()?.route();
-        self.branches()?.compare_title(&route, cx)
-    }
 }

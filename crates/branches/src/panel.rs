@@ -26,35 +26,28 @@ use gpui::{
 };
 use std::rc::{Rc, Weak};
 
-/// A section of the panel the history's.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Fold {
-    Versions,
-    Commits,
+pub use artoo_branches_api::Fold;
+
+/// Section `fold`'s header's id.
+fn id(fold: Fold) -> &'static str {
+    match fold {
+        Fold::Versions => "fold-versions",
+        Fold::Commits => "fold-commits",
+    }
 }
 
-impl Fold {
-    /// Its header's id.
-    pub fn id(self) -> &'static str {
-        match self {
-            Fold::Versions => "fold-versions",
-            Fold::Commits => "fold-commits",
-        }
-    }
-
-    /// Its key in `storage::PANEL`.
-    fn key(self) -> &'static str {
-        match self {
-            Fold::Versions => "fold_versions",
-            Fold::Commits => "fold_commits",
-        }
+/// Section `fold`'s key in `storage::PANEL`.
+fn key(fold: Fold) -> &'static str {
+    match fold {
+        Fold::Versions => "fold_versions",
+        Fold::Commits => "fold_commits",
     }
 }
 
 /// Section `fold`'s header (`artoo_ui_kit::panel::head`), a click on it asking `Act::Fold`.
 pub fn head(fold: Fold, h: Head, acts: &Acts) -> Stateful<Div> {
     let acts = acts.clone();
-    panel::head(fold.id(), h, move |cx| acts(Act::Fold(fold), cx))
+    panel::head(id(fold), h, move |cx| acts(Act::Fold(fold), cx))
 }
 
 /// How the history's sections are folded, as the user left them, and how they fold now: what each fold was last
@@ -74,7 +67,7 @@ impl Sections {
     /// As the user left them.
     pub fn load() -> Self {
         let folded = |fold: Fold| {
-            storage::value(storage::PANEL, fold.key(), storage::LAYOUT).is_some_and(|v| v == "true")
+            storage::value(storage::PANEL, key(fold), storage::LAYOUT).is_some_and(|v| v == "true")
         };
         Self {
             versions: folded(Fold::Versions),
@@ -83,17 +76,9 @@ impl Sections {
         }
     }
 
-    /// Whether `fold` is folded.
-    pub fn folded(&self, fold: Fold) -> bool {
-        match fold {
-            Fold::Versions => self.versions,
-            Fold::Commits => self.commits,
-        }
-    }
-
     /// Whether `fold` moves now: folded or opened a moment ago.
     fn moving(&self, fold: Fold) -> bool {
-        self.motion.recent(fold.id())
+        self.motion.recent(id(fold))
     }
 }
 
@@ -263,8 +248,8 @@ impl History {
             Fold::Commits => &mut self.sections.commits,
         };
         *folded = !*folded;
-        storage::set_value(storage::PANEL, fold.key(), &folded.to_string());
-        self.sections.motion.mark(fold.id());
+        storage::set_value(storage::PANEL, key(fold), &folded.to_string());
+        self.sections.motion.mark(id(fold));
         motion::redraw_after(cx);
         cx.notify();
     }

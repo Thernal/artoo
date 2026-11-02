@@ -17,14 +17,7 @@ use std::sync::Arc;
 
 pub use artoo_branches_api::{NamedTip, RequestSides};
 
-pub use artoo_branches_api::Selection;
-
-/// What the version comparison shows: the files that changed, or the commits paired up.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum VersionTab {
-    Files,
-    Commits,
-}
+pub use artoo_branches_api::{Act, Selection, VersionTab};
 
 /// More of a branch's history to read past the commits listed, from `tip` (#25).
 pub struct Older {
@@ -94,72 +87,7 @@ pub use artoo_branches_api::Event;
 
 impl EventEmitter<Event> for History {}
 
-/// What a click in the history's views asks of the tab.
-#[derive(Clone)]
-pub enum Act {
-    /// Version `ix` clicked, with ⌘ (`more`) or not (`History::versions_clicked`).
-    Version { ix: usize, more: bool },
-    /// Commit `ix` clicked: its diff, the drawer gone.
-    Commit(usize),
-    /// A right click on commit `ix` at `at`: its menu.
-    CommitMenu {
-        ix: usize,
-        at: gpui::Point<gpui::Pixels>,
-    },
-    /// A comparison's commit `ix` clicked, with ⇧ (`span`) or not (`CompareCommits::pick`).
-    PickCompare { ix: usize, span: bool },
-    /// The comparison whole again: the "only" pill's ×.
-    WholeCompare,
-    /// The working tree's chip: its diff against HEAD.
-    WorkingTree,
-    /// The search's chip: the commits' search, their section open.
-    FindCommits,
-    /// A click in the search's field: it takes the keyboard.
-    FindField,
-    /// A section of the side panel folded or opened.
-    Fold(crate::panel::Fold),
-    /// A press in the Commits section: its list takes the keyboard (↑ ↓).
-    CommitsZone,
-    /// A right click on the branch line at `at`: branch `ix`'s menu.
-    BranchMenu {
-        ix: usize,
-        at: gpui::Point<gpui::Pixels>,
-    },
-    /// A row of Branches clicked, `clicks` times: picked, or opened.
-    PickRow {
-        row: crate::roots::BranchRow,
-        clicks: usize,
-    },
-    /// A row of Branches opened: the working tree, or the branch.
-    OpenRow(crate::roots::BranchRow),
-    /// A branch's request, by its number.
-    ShowRequest(u64),
-    /// A remote's branches folded or open.
-    ToggleRemote(String),
-    /// The working tree's halves: what is not staged only, or all of it.
-    OnlyUnstaged(bool),
-    /// What `head` changed against `base`, since their merge base or directly, a request's diff or not.
-    Compare {
-        base: (String, git2::Oid),
-        head: (String, git2::Oid),
-        since: bool,
-        request: Option<u64>,
-    },
-    /// Versions `from` and `to` compared: an interdiff's way back to their commits.
-    Versions { from: usize, to: usize },
-    /// The version comparison's tab: its files, or its commits paired.
-    VersionTab(VersionTab),
-    /// A commit's message open under its title, or folded.
-    Message,
-    /// The pill's newer commits listed.
-    ShowNew,
-    /// Text to the clipboard: a commit's id.
-    Copy(String),
-    /// A page on the host: a commit's.
-    OpenUrl(String),
-}
-
-/// How a view asks the tab an `Act`.
+/// How a view asks an `Act`: the branches' own answered (`acts`), the rest the tab's.
 pub type Acts = std::rc::Rc<dyn Fn(Act, &mut gpui::App)>;
 
 impl History {
@@ -1000,11 +928,24 @@ impl artoo_branches_api::Branches for Handle {
             h.update(cx, |h, _| h.show_request_versions(versions));
         }
     }
+
+    fn on_change(&self, hear: std::rc::Rc<dyn Fn(&mut gpui::App)>, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            cx.observe(&h, move |_, cx| hear(cx)).detach();
+        }
+    }
+
+    fn diff_title(&self, route: Option<&artoo_core::route::Route>, cx: &gpui::App) -> Option<String> {
+        let diff = self.review()?.shown(cx)?;
+        let compare = route.and_then(|r| self.compare_title(r, cx));
+        Some(crate::head::title(&diff, compare))
+    }
 }
 
 /// The history's acts as its views ask them: what is its own — a version clicked, a section folded, the version
 /// comparison's tab, a commit's message — it answers, the rest the tab (`tab`).
-pub fn acts(history: &gpui::Entity<History>, tab: Acts) -> Acts {
+pub fn acts(history: &gpui::Entity<History>, tab: artoo_branches_api::TabActs) -> Acts {
+    let tab = tab.0;
     let history = history.downgrade();
     std::rc::Rc::new(move |act, cx| {
         let Some(h) = history.upgrade() else {
