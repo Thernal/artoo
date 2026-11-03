@@ -188,7 +188,7 @@ impl Workspace {
         let (Some(root), Some(path)) = (self.root.clone(), t.path.clone()) else {
             return;
         };
-        let Some(m) = self.requests.read(cx).find(n.iid) else {
+        let Some(m) = self.find_request(n.iid, cx) else {
             return;
         };
         let heads: Vec<String> = t.commit.iter().cloned().chain([m.head.clone()]).collect();

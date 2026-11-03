@@ -16,12 +16,8 @@ impl Workspace {
         let at = self.page_section(cx)?;
         let (loaded, files) = match self.nav_page()?.item()? {
             Item::Request(iid) => (
-                self.requests.read(cx).current == Some(iid),
-                self.requests
-                    .read(cx)
-                    .files
-                    .filter(|(of, _)| *of == iid)
-                    .map(|(_, n)| n),
+                self.current_request(cx) == Some(iid),
+                self.requests_api().and_then(|r| r.files(iid, cx)),
             ),
             // Tabbed only while it is the branch loaded.
             Item::Branch(_) => (true, self.branches().and_then(|b| b.branch_files(cx))),

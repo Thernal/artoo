@@ -33,8 +33,8 @@ impl Workspace {
     /// through the versions that changed it.
     pub(super) fn compare_since(&mut self, ix: usize, cx: &mut Context<Self>) {
         let (Some(t), Some(iid)) = (
-            self.requests.read(cx).threads.get(ix),
-            self.requests.read(cx).current,
+            self.request_thread(ix, cx),
+            self.current_request(cx),
         ) else {
             return;
         };
@@ -112,10 +112,7 @@ impl Workspace {
         let (Some(&(_, a)), Some(&(_, b))) = (stop(number(from)), stop(number(to))) else {
             return Vec::new();
         };
-        let ix = self
-            .requests
-            .read(cx)
-            .threads
+        let ix = self.request_threads(cx)
             .iter()
             .position(|t| t.id == since.thread);
         let at = b.map(|l| (false, l)).or(a.map(|l| (true, l)));
@@ -167,14 +164,11 @@ impl Workspace {
         let Some((iid, note)) = self.since_on_open else {
             return;
         };
-        if self.requests.read(cx).current != Some(iid) {
+        if self.current_request(cx) != Some(iid) {
             return;
         }
         self.since_on_open = None;
-        let ix = self
-            .requests
-            .read(cx)
-            .threads
+        let ix = self.request_threads(cx)
             .iter()
             .position(|t| t.notes.iter().any(|n| n.id == note));
         if let Some(ix) = ix
@@ -182,7 +176,7 @@ impl Workspace {
                 .requests
                 .read(cx)
                 .histories
-                .get(&self.requests.read(cx).threads[ix].id)
+                .get(&self.request_threads(cx)[ix].id)
                 .is_some_and(LineHistory::changed)
         {
             self.compare_since(ix, cx);

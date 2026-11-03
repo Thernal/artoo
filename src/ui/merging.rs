@@ -130,7 +130,7 @@ impl Workspace {
     /// The host merged it, or set it to merge when the pipeline succeeds: a toast says which, and
     /// the list is read again — a request merged moves to Merged, as one merged elsewhere does.
     pub(super) fn merged(&mut self, iid: u64, merge: &Merge, cx: &mut Context<Self>) {
-        let here = self.requests.read(cx).current == Some(iid);
+        let here = self.current_request(cx) == Some(iid);
         if merge.when_pipeline_succeeds {
             let text = format!("{} merges when the pipeline succeeds", self.reference(iid));
             self.toast_info(text.into(), cx);
@@ -148,7 +148,7 @@ impl Workspace {
                 .merge
                 .as_ref()
                 .is_some_and(|h| h.deletes_itself);
-        if let Some(m) = self.requests.read(cx).find(iid) {
+        if let Some(m) = self.find_request(iid, cx) {
             let deleted = match merge.delete_branch || deletes {
                 true => format!(" · {} deleted", m.source),
                 false => String::new(),

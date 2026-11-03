@@ -186,19 +186,16 @@ impl Workspace {
                 // Its source branch, or a branch at its head (a merged one's, #114).
                 self.request_of_branch(ix, cx)
                     .is_some_and(|m| m.iid == *iid)
-                    || self
-                        .requests
-                        .read(cx)
-                        .find(*iid)
+                    || self.find_request(*iid, cx)
                         .zip(self.branch_list(cx).get(ix))
                         .is_some_and(|(m, b)| {
                             m.state != mr::MrState::Opened && b.tip.to_string() == m.head
                         })
             });
-        if iid == self.requests.read(cx).current && iid.is_none() {
+        if iid == self.current_request(cx) && iid.is_none() {
             return;
         }
-        if iid != self.requests.read(cx).current {
+        if iid != self.current_request(cx) {
             self.requests.update(cx, |rq, _| rq.forget_open());
             self.draft_at = None;
         }
@@ -209,9 +206,9 @@ impl Workspace {
                 .read(cx)
                 .walk
                 .is_none_or(|(walked, _)| walked != iid)
-                && let Some(m) = self.requests.read(cx).find(iid)
+                && let Some(m) = self.find_request(iid, cx)
             {
-                let task = Some((iid, self.group_of(m, cx)));
+                let task = Some((iid, self.group_of(&m, cx)));
                 self.requests.update(cx, |rq, _| rq.walk = task);
             }
             self.requests.update(cx, |rq, _| rq.mark_opened(iid));
@@ -233,12 +230,12 @@ impl Workspace {
     /// Opens merge request `iid`: its branch in the lists and, as the diff, what the branch adds to
     /// its target — the diff the discussions and new comments belong to.
     pub(super) fn select_request(&mut self, iid: u64, cx: &mut Context<Self>) {
-        let Some(m) = self.requests.read(cx).find(iid).cloned() else {
+        let Some(m) = self.find_request(iid, cx) else {
             return;
         };
         let (source, target) = (m.source.clone(), m.target.clone());
         self.load_request_versions(iid, cx);
-        if let Some(m) = self.requests.read(cx).find(iid) {
+        if let Some(m) = self.find_request(iid, cx) {
             let (label, detail) = (m.title.clone(), super::words::number(iid));
             self.remember_place(super::recents::Key::Request(iid), label, detail);
         }
@@ -298,10 +295,7 @@ impl Workspace {
         let Some(root) = self.root.clone() else {
             return;
         };
-        let head = self
-            .requests
-            .read(cx)
-            .find(iid)
+        let head = self.find_request(iid, cx)
             .map(|m| m.head.clone())
             .filter(|h| !h.is_empty());
         let news = format!("Fetching {}…", super::words::number(iid));
@@ -344,7 +338,7 @@ impl Workspace {
 
     /// ⌥⌘L: closes the request on screen, back to the list (as ⌘W on it does).
     pub(super) fn leave_request(&mut self, cx: &mut Context<Self>) {
-        if let Some(iid) = self.requests.read(cx).current {
+        if let Some(iid) = self.current_request(cx) {
             self.close_open(&super::nav::Item::Request(iid), cx);
         }
     }
@@ -373,7 +367,7 @@ impl Workspace {
         } else {
             let at = shown
                 .iter()
-                .position(|m| Some(m.iid) == self.requests.read(cx).current);
+                .position(|m| Some(m.iid) == self.current_request(cx));
             Some(shown[at.map_or(n - 1, |a| (a + n - 1) % n)].clone())
         };
         let Some(next) = next.map(|m| m.iid) else {
@@ -469,7 +463,7 @@ impl Workspace {
     /// branch for the base, its head for the head —, then compares it from them; says why when
     /// the fetch fails.
     fn fetch_request_sides(&mut self, iid: u64, base: bool, head: bool, cx: &mut Context<Self>) {
-        let (Some(root), Some(m)) = (self.root.clone(), self.requests.read(cx).find(iid)) else {
+        let (Some(root), Some(m)) = (self.root.clone(), self.find_request(iid, cx)) else {
             return;
         };
         let target = m.target.clone();
@@ -537,7 +531,7 @@ impl Workspace {
     /// Is the whole request whose discussions are loaded on screen, as its page (#71)? Its keys
     /// (`a`, ⇧N, Submit review) act only then, never on one loaded under another page.
     pub(super) fn showing_request(&self, cx: &App) -> bool {
-        self.requests.read(cx).current.is_some_and(|iid| {
+        self.current_request(cx).is_some_and(|iid| {
             self.request_loaded(iid, cx)
                 && self.nav.space == super::spaces::Space::Requests
                 && self.nav_page() == Some(&super::nav::Page::Request(iid))
@@ -546,7 +540,7 @@ impl Workspace {
 
     /// The diff loaded is the whole of request `iid`, whatever page is on screen.
     pub(super) fn request_loaded(&self, iid: u64, cx: &App) -> bool {
-        self.requests.read(cx).current == Some(iid)
+        self.current_request(cx) == Some(iid)
             && matches!(
                 self.review.read(cx).diff.as_ref().map(|d| &d.header),
                 Some(Header::Compare { request: Some(i), .. }) if *i == iid
@@ -558,7 +552,7 @@ impl Workspace {
         self.review
             .read(cx)
             .current_path()
-            .map(|path| self.requests.read(cx).request_threads_in(&path))
+            .map(|path| self.requests_api().map(|r| r.threads_in(&path, cx)).unwrap_or_default())
             .unwrap_or_default()
     }
 
@@ -682,10 +676,7 @@ impl Workspace {
         let Some(diff) = &self.review.read(cx).diff else {
             return Vec::new();
         };
-        let mut order: Vec<(usize, u32, usize)> = self
-            .requests
-            .read(cx)
-            .threads
+        let mut order: Vec<(usize, u32, usize)> = self.request_threads(cx)
             .iter()
             .enumerate()
             .filter_map(|(ix, t)| {
@@ -723,7 +714,7 @@ impl Workspace {
         if !self.mr_open(ix, cx) {
             self.set_thread_open(ix, true, cx);
         }
-        let t = &self.requests.read(cx).threads[ix];
+        let t = &self.request_threads(cx)[ix];
         if let Some(path) = t.path.clone() {
             let (line, old) = (t.new_line.or(t.old_line).unwrap_or(1), t.new_line.is_none());
             self.jump_to_line(&path, line, old, cx);
@@ -774,11 +765,7 @@ impl Workspace {
 
     /// Is discussion `ix` shown open? A resolved one starts folded, as in GitLab.
     pub(super) fn mr_open(&self, ix: usize, cx: &App) -> bool {
-        let default = self
-            .requests
-            .read(cx)
-            .threads
-            .get(ix)
+        let default = self.request_thread(ix, cx)
             .is_some_and(|t| !t.resolved);
         default != self.toggled_mr.contains(&ix)
     }
@@ -813,7 +800,7 @@ impl Workspace {
         cx: &App,
     ) -> gpui::AnyElement {
         use artoo_requests::thread::{self, DraftEvent, DraftLook};
-        let Some(id) = self.requests.read(cx).drafts.get(ix).map(|d| d.id) else {
+        let Some(id) = self.request_drafts(cx).get(ix).map(|d| d.id) else {
             return div().into_any_element();
         };
         let look = DraftLook {
@@ -848,21 +835,21 @@ impl Workspace {
         + 'static,
         cx: &mut Context<Self>,
     ) {
-        if let Some(iid) = self.requests.read(cx).current {
+        if let Some(iid) = self.current_request(cx) {
             self.send_change(iid, ops, work, Self::say_refused, cx);
         }
     }
 
     /// Resolves discussion `ix`, or opens it again: it folds, or opens, at once (#139).
     pub(super) fn toggle_resolved(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let Some(t) = self.requests.read(cx).threads.get(ix) else {
+        let Some(t) = self.request_thread(ix, cx) else {
             return;
         };
         if super::waiting::is_temp_thread(&t.id) {
             return;
         }
         let (id, resolved) = (t.id.clone(), !t.resolved);
-        let Some(iid) = self.requests.read(cx).current else {
+        let Some(iid) = self.current_request(cx) else {
             return;
         };
         // Shown as its new state shows it.
@@ -878,8 +865,8 @@ impl Workspace {
     /// `a`: approves the open request, or takes one's approval back.
     pub(super) fn toggle_approval(&mut self, cx: &mut Context<Self>) {
         let (Some(iid), Some(a)) = (
-            self.requests.read(cx).current,
-            self.requests.read(cx).approvals.clone(),
+            self.current_request(cx),
+            self.requests_api().and_then(|r| r.approvals(cx)).clone(),
         ) else {
             return;
         };
@@ -890,10 +877,7 @@ impl Workspace {
         if a.mine {
             self.request_action(op, move |host| host.unapprove(iid), cx);
         } else if a.can {
-            let head = self
-                .requests
-                .read(cx)
-                .find(iid)
+            let head = self.find_request(iid, cx)
                 .map(|m| m.head.clone())
                 .unwrap_or_default();
             self.request_action(op, move |host| host.approve(iid, &head), cx);
@@ -924,7 +908,7 @@ impl Workspace {
         };
         let ix = order[next].2;
         self.draft_at = Some(ix);
-        let d = &self.requests.read(cx).drafts[ix];
+        let d = &self.request_drafts(cx)[ix];
         if let Some(path) = d.path.clone() {
             let (line, old) = (d.new_line.or(d.old_line).unwrap_or(1), d.new_line.is_none());
             self.jump_to_line(&path, line, old, cx);
@@ -934,9 +918,7 @@ impl Workspace {
 
     /// The agent that wrote each pending comment an agent wrote, by its id (#150).
     pub(super) fn draft_agents(&self, cx: &App) -> std::collections::HashMap<u64, String> {
-        self.requests
-            .read(cx)
-            .drafts
+        self.request_drafts(cx)
             .iter()
             .filter_map(|d| Some((d.id, self.draft_agent(d.id, cx)?.to_owned())))
             .collect()
@@ -947,10 +929,7 @@ impl Workspace {
         let Some(diff) = self.review.read(cx).diff.as_ref() else {
             return Vec::new();
         };
-        let mut order: Vec<(usize, u32, usize)> = self
-            .requests
-            .read(cx)
-            .drafts
+        let mut order: Vec<(usize, u32, usize)> = self.request_drafts(cx)
             .iter()
             .enumerate()
             .filter_map(|(ix, d)| {
@@ -964,10 +943,7 @@ impl Workspace {
     }
 
     pub(super) fn discard_draft(&mut self, id: u64, cx: &mut Context<Self>) {
-        let Some(iid) = self
-            .requests
-            .read(cx)
-            .current
+        let Some(iid) = self.current_request(cx)
             .filter(|_| !super::waiting::is_temp(id))
         else {
             return;
@@ -982,10 +958,7 @@ impl Workspace {
     /// Send this now: pending comment `id` is published alone and becomes a discussion on its
     /// line; the others stay pending. A failure leaves it pending and says why (#138).
     pub(super) fn send_draft_now(&mut self, id: u64, cx: &mut Context<Self>) {
-        let Some(iid) = self
-            .requests
-            .read(cx)
-            .current
+        let Some(iid) = self.current_request(cx)
             .filter(|_| !super::waiting::is_temp(id))
         else {
             return;
@@ -1007,11 +980,8 @@ impl Workspace {
     fn delete_own_note(&mut self, thread: usize, note: u64, cx: &mut Context<Self>) {
         self.confirm_note = None;
         let (Some(iid), Some(discussion)) = (
-            self.requests.read(cx).current,
-            self.requests
-                .read(cx)
-                .threads
-                .get(thread)
+            self.current_request(cx),
+            self.request_thread(thread, cx)
                 .map(|t| t.id.clone()),
         ) else {
             return;
@@ -1047,7 +1017,7 @@ impl Workspace {
     /// The Discussions window's count: the request's own discussions and pending notes (#76).
     pub(super) fn comments_total(&self, cx: &App) -> usize {
         if self.showing_request(cx) {
-            self.requests.read(cx).threads.len() + self.requests.read(cx).drafts.len()
+            self.request_threads(cx).len() + self.request_drafts(cx).len()
         } else {
             0
         }
@@ -1067,8 +1037,8 @@ impl Workspace {
         &self,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
-        let loading = self.requests.read(cx).loading && self.requests.read(cx).list.is_empty();
-        if self.requests.read(cx).login.is_none() || loading {
+        let loading = self.requests_listing(cx) && self.request_list(cx).is_empty();
+        if self.request_login(cx).is_none() || loading {
             return None;
         }
         // The merged or the closed: as many as the host says, or counted as far as read (#114,
@@ -1076,7 +1046,7 @@ impl Workspace {
         let past = self.requests.read(cx).view != mr::MrState::Opened;
         let count = |scope: Scope| {
             if !past {
-                let list = &self.requests.read(cx).list;
+                let list = &self.request_list(cx);
                 return list
                     .iter()
                     .filter(|m| self.requests.read(cx).in_scope(m, scope))

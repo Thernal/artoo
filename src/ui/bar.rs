@@ -214,7 +214,7 @@ impl Workspace {
     }
 
     pub(super) fn request_tip(&self, iid: u64, cx: &App) -> Option<String> {
-        self.requests.read(cx).request_tip(iid)
+        self.requests_api()?.request_tip(iid, cx)
     }
 
     /// The path above the page, and its own id.
@@ -349,11 +349,11 @@ impl Workspace {
             }),
             // Once the filters say it with their counts, the name has none.
             (Space::Requests, None)
-                if self.requests.read(cx).available
-                    && self.requests.read(cx).login.is_none()
-                    && !self.requests.read(cx).list.is_empty() =>
+                if self.requests_available(cx)
+                    && self.request_login(cx).is_none()
+                    && !self.request_list(cx).is_empty() =>
             {
-                Some(self.requests.read(cx).list.len().to_string())
+                Some(self.request_list(cx).len().to_string())
             }
             (Space::Branches, None) => Some(self.branches_count(cx)),
             (Space::Code, Some(Page::File(_))) => self
@@ -382,7 +382,7 @@ impl Workspace {
     ) -> Option<AnyElement> {
         match (space, page) {
             (Space::Inbox, _) => Some(self.inbox_filters(cx).into_any_element()),
-            (Space::Requests, None) if self.requests.read(cx).available => {
+            (Space::Requests, None) if self.requests_available(cx) => {
                 self.request_filters(cx).map(IntoElement::into_any_element)
             }
             (Space::Requests | Space::Branches, Some(_)) => {
@@ -401,7 +401,7 @@ impl Workspace {
     ) -> Vec<AnyElement> {
         let mut out = Vec::new();
         match (space, page) {
-            (Space::Requests, None) if self.requests.read(cx).available => {
+            (Space::Requests, None) if self.requests_available(cx) => {
                 out.push(self.bar_filter("Filter", cx))
             }
             (Space::Branches, None) => out.push(self.bar_filter("Filter branches", cx)),
@@ -444,7 +444,7 @@ impl Workspace {
                         .into_any_element(),
                     ),
                     // Not while one is being written: its own Create is the primary then.
-                    None if self.requests.read(cx).available && !self.creating(cx) => out.push(
+                    None if self.requests_available(cx) && !self.creating(cx) => out.push(
                         bar_button("bar-create", "Create merge request", "⌥⌘M", true)
                             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 this.open_create(ix, cx)
@@ -472,7 +472,7 @@ impl Workspace {
                 );
             }
             (Space::Requests, Some(Page::Request(_))) if self.showing_request(cx) => {
-                let pending = self.requests.read(cx).drafts.len();
+                let pending = self.request_drafts(cx).len();
                 let label = match pending {
                     0 => "Submit review".to_owned(),
                     n => format!("Submit review · {n}"),
@@ -483,21 +483,15 @@ impl Workspace {
                         .into_any_element(),
                 );
                 // A merged or closed one says so where its approval would be (#114).
-                let state = self
-                    .requests
-                    .read(cx)
-                    .current
-                    .and_then(|iid| self.requests.read(cx).find(iid))
+                let state = self.current_request(cx)
+                    .and_then(|iid| self.find_request(iid, cx))
                     .map(|m| m.state)
                     .unwrap_or_default();
-                if state == crate::mr::MrState::Opened {
-                    let acts = self.request_acts(cx);
-                    let rq = self.requests.read(cx);
-                    out.extend(
-                        rq.render_approval_chip(acts.clone())
-                            .map(IntoElement::into_any_element),
-                    );
-                    out.extend(rq.render_merge_control(self.compact(), self.on_github(), acts));
+                if state == crate::mr::MrState::Opened
+                    && let Some(requests) = self.requests_api()
+                {
+                    out.extend(requests.approval_chip(cx));
+                    out.extend(requests.merge_control(self.compact(), self.on_github(), cx));
                 } else {
                     let color = if state == crate::mr::MrState::Merged {
                         theme::accent()

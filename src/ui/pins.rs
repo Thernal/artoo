@@ -125,7 +125,7 @@ impl Workspace {
             .filter(|c| c.path == path && c.file.is_none());
         let showing = self.showing_request(cx);
         let theirs = if showing {
-            self.requests.read(cx).request_threads_in(path)
+            self.requests_api().map(|r| r.threads_in(path, cx)).unwrap_or_default()
         } else {
             self.since_thread_in(path, cx)
         };
@@ -135,9 +135,7 @@ impl Workspace {
             Vec::new()
         };
         let reply_of = |ix: usize| {
-            self.requests
-                .read(cx)
-                .drafts
+            self.request_drafts(cx)
                 .get(ix)
                 .and_then(|d| self.requests.read(cx).draft_thread(d))
         };

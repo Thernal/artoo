@@ -15,12 +15,12 @@ impl Workspace {
             return;
         };
         let host = super::host_of(&remote, cx);
-        if !self.requests.read(cx).available {
+        if !self.requests_available(cx) {
             self.notices.update(cx, |n, _| n.list.clear());
             return;
         }
         let reading = self.notices.update(cx, |n, _| n.begin(&remote.base));
-        let requests = self.requests.read(cx).list.clone();
+        let requests = self.request_list(cx);
         let tick = self.requests.read(cx).waiting.tick();
         let task = cx.spawn(async move |this, cx| {
             let found = cx
@@ -32,7 +32,7 @@ impl Workspace {
                     let news = std::mem::take(&mut arrived.news);
                     this.notify_notices(news, cx);
                     this.settle_waiting(cx);
-                    let me = this.requests.read(cx).login.clone().unwrap_or_default();
+                    let me = this.request_login(cx).unwrap_or_default();
                     let requests = this.requests.clone();
                     this.notices.update(cx, |n, cx| {
                         for iid in n.iids() {

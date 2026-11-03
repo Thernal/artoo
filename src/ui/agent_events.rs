@@ -65,7 +65,7 @@ impl Workspace {
     /// `agent` wrote `count` pending comments on request `iid`: the request on screen reads them
     /// in, and a toast offers to go to them.
     fn agent_left(&mut self, agent: String, iid: u64, count: usize, cx: &mut Context<Self>) {
-        if self.requests.read(cx).current == Some(iid) {
+        if self.current_request(cx) == Some(iid) {
             self.reload_threads(cx);
         }
         // Its row under Merge requests, quietly, with a dot (#160).
@@ -389,8 +389,8 @@ impl Workspace {
             .iter()
             .filter(|m| m.iid == iid && m.agent == agent)
             .filter_map(|m| m.draft);
-        if self.requests.read(cx).current == Some(iid) && !self.requests.read(cx).reading {
-            ids.filter(|id| self.requests.read(cx).drafts.iter().any(|d| d.id == *id))
+        if self.current_request(cx) == Some(iid) && !self.requests.read(cx).reading {
+            ids.filter(|id| self.request_drafts(cx).iter().any(|d| d.id == *id))
                 .count()
         } else {
             ids.count()
@@ -413,7 +413,7 @@ impl Workspace {
 
     /// The agent that wrote pending comment `id` of the request open, when one did.
     pub(super) fn draft_agent(&self, id: u64, cx: &App) -> Option<&str> {
-        let iid = self.requests.read(cx).current?;
+        let iid = self.current_request(cx)?;
         self.agent_marks
             .iter()
             .find(|m| m.iid == iid && m.draft == Some(id))

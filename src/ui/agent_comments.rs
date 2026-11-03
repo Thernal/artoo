@@ -244,7 +244,7 @@ impl Workspace {
             return;
         };
         let body = compose.edit.text().trim().to_owned();
-        let Some(t) = self.requests.read(cx).threads.get(ix) else {
+        let Some(t) = self.request_thread(ix, cx) else {
             return;
         };
         if body.is_empty() {

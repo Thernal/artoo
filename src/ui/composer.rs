@@ -300,7 +300,7 @@ impl Workspace {
                 (c.path.clone(), c.old, c.line, c.body.clone())
             }
             Change::Note { thread, note } => {
-                let Some(t) = self.requests.read(cx).threads.get(thread) else {
+                let Some(t) = self.request_thread(thread, cx) else {
                     return;
                 };
                 let Some(n) = t
@@ -386,8 +386,8 @@ impl Workspace {
             }
             Change::Note { thread, note } => {
                 let (Some(t), Some(iid)) = (
-                    self.requests.read(cx).threads.get(thread),
-                    self.requests.read(cx).current,
+                    self.request_thread(thread, cx),
+                    self.current_request(cx),
                 ) else {
                     return;
                 };

@@ -26,7 +26,7 @@ impl Workspace {
         let (Some(_), Some(web)) = (self.root.as_ref(), self.web.clone()) else {
             return;
         };
-        if !self.requests.read(cx).available {
+        if !self.requests_available(cx) {
             self.error = Some(
                 super::words::say("Needs a GitLab token: Settings → Merge requests.")
                     .into_owned()

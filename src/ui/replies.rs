@@ -12,11 +12,7 @@ impl Workspace {
     /// Starts a reply under discussion `ix` of the open merge request.
     pub(super) fn start_reply(&mut self, ix: usize, cx: &mut Context<Self>) {
         // One still on its way to the host has no id to reply to yet (#139).
-        let Some(t) = self
-            .requests
-            .read(cx)
-            .threads
-            .get(ix)
+        let Some(t) = self.request_thread(ix, cx)
             .filter(|t| !super::waiting::is_temp_thread(&t.id))
         else {
             return;
@@ -130,9 +126,9 @@ impl Workspace {
 
     /// One's own last note in discussion `ix`, when the request can take changes.
     pub(super) fn my_note_in(&self, ix: usize, cx: &App) -> Option<u64> {
-        let login = self.requests.read(cx).login.as_deref()?;
+        let login = self.request_login(cx)?;
         self.request_target(cx)?;
-        let t = self.requests.read(cx).threads.get(ix)?;
+        let t = self.request_thread(ix, cx)?;
         t.notes
             .iter()
             .rev()
@@ -227,8 +223,8 @@ impl Workspace {
     pub(super) fn post_reply(&mut self, ix: usize, cx: &mut Context<Self>) {
         let (Some(compose), Some(thread), Some(iid)) = (
             self.compose.as_ref(),
-            self.requests.read(cx).threads.get(ix),
-            self.requests.read(cx).current,
+            self.request_thread(ix, cx),
+            self.current_request(cx),
         ) else {
             return;
         };
@@ -267,16 +263,13 @@ impl Workspace {
         // A reply or an edit comes back to its discussion, wherever it moved.
         let thread = compose
             .thread()
-            .and_then(|ix| self.requests.read(cx).threads.get(ix))
+            .and_then(|ix| self.request_thread(ix, cx))
             .map(|t| t.id.clone());
         self.refresh_rows(cx);
         self.review.update(cx, |rv, _| rv.remeasure_pages());
         let refused = move |this: &mut Self, why: String, cx: &mut Context<Self>| {
             let place = match &thread {
-                Some(id) => this
-                    .requests
-                    .read(cx)
-                    .threads
+                Some(id) => this.request_threads(cx)
                     .iter()
                     .position(|t| &t.id == id),
                 None => Some(usize::MAX),
@@ -291,12 +284,12 @@ impl Workspace {
                         })
                 }
                 Target::Request(_) => {
-                    this.requests.read(cx).current == Some(iid)
+                    this.current_request(cx) == Some(iid)
                         && (compose.page.is_some()
                             || this.review.read(cx).current_path().as_deref()
                                 == Some(compose.path.as_str()))
                 }
-                _ => this.requests.read(cx).current == Some(iid),
+                _ => this.current_request(cx) == Some(iid),
             };
             match place {
                 Some(ix) if this.compose.is_none() && shows => {

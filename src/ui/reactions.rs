@@ -46,17 +46,13 @@ impl Workspace {
         else {
             return;
         };
-        let Some(note) = self
-            .requests
-            .read(cx)
-            .threads
-            .get(ix)
-            .and_then(|t| t.notes.last())
+        let Some(note) = self.request_thread(ix, cx)
+            .and_then(|t| t.notes.last().map(|n| n.id))
         else {
             return;
         };
         self.thread_at = Some(ix);
-        self.open_reaction_grid(note.id, cx);
+        self.open_reaction_grid(note, cx);
     }
 
     pub(super) fn open_reaction_grid(&mut self, note: u64, cx: &mut Context<Self>) {

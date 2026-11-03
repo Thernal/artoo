@@ -17,7 +17,9 @@ impl Workspace {
             } = d.header
         {
             let files = Some((iid, d.files.len()));
-            self.requests.update(cx, |rq, _| rq.files = files);
+            if let Some(requests) = self.requests_api() {
+                requests.set_files(files, cx);
+            }
         }
         if let Some(branches) = self.branches() {
             branches.count_files(cx);

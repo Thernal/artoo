@@ -44,10 +44,7 @@ impl Workspace {
     /// Request `iid`'s page: the one the host gave, else made from the remote.
     fn request_link(&self, web: &WebRemote, iid: u64, cx: &App) -> Link {
         Link {
-            url: self
-                .requests
-                .read(cx)
-                .find(iid)
+            url: self.find_request(iid, cx)
                 .map_or_else(|| web.request(iid), |m| m.url.clone()),
             what: words::number(iid),
         }
@@ -200,13 +197,8 @@ impl Workspace {
             };
         }
         let id = self
-            .requests
-            .read(cx)
-            .version_ids
-            .as_ref()
-            .filter(|(of, _)| *of == iid)
-            .and_then(|(_, ids)| ids.iter().find(|(head, _)| *head == b.tip))
-            .map(|(_, id)| *id)
+            .requests_api()
+            .and_then(|r| r.version_id(iid, b.tip, cx))
             .filter(|id| *id > 0);
         let url = match id {
             Some(id) if a.number < b.number => {

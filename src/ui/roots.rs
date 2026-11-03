@@ -89,13 +89,8 @@ impl Workspace {
 
     /// The request picked in the list: its pipeline and approvals, once per update of it.
     pub(super) fn read_preview(&mut self, cx: &mut Context<Self>) {
-        let Some(m) = self
-            .requests
-            .read(cx)
-            .rows
-            .picked
-            .and_then(|iid| self.requests.read(cx).find(iid))
-            .cloned()
+        let Some(m) = self.requests_api().and_then(|r| r.picked_row(cx))
+            .and_then(|iid| self.find_request(iid, cx))
         else {
             return;
         };
@@ -157,7 +152,7 @@ impl Workspace {
 
     /// Merge requests' list with nothing picked: the first request listed is.
     pub(super) fn pick_first_request(&mut self, cx: &mut Context<Self>) {
-        if self.requests.read(cx).rows.picked.is_none() {
+        if self.requests_api().and_then(|r| r.picked_row(cx)).is_none() {
             let first = self.listed_requests(cx).first().map(|m| m.iid);
             self.requests.update(cx, |rq, _| rq.rows.picked = first);
         }
@@ -188,7 +183,7 @@ impl Workspace {
     /// the picked one, which stays under its band.
     pub(super) fn listed_requests(&self, cx: &App) -> Vec<Mr> {
         let past = self.requests.read(cx).view != MrState::Opened;
-        let picked = self.requests.read(cx).rows.picked;
+        let picked = self.requests_api().and_then(|r| r.picked_row(cx));
         self.shown_requests(cx)
             .into_iter()
             .filter(|m| past || picked == Some(m.iid) || !self.folds(self.group_of(m, cx), cx))
@@ -197,10 +192,7 @@ impl Workspace {
 
     /// Whether you have been inside request `iid`: opened here, or files of it marked (#81).
     pub(super) fn opened_before(&self, iid: u64, cx: &App) -> bool {
-        let head = self
-            .requests
-            .read(cx)
-            .find(iid)
+        let head = self.find_request(iid, cx)
             .and_then(|m| git2::Oid::from_str(&m.head).ok());
         self.requests.read(cx).rows.opened(iid)
             || !matches!(self.review.read(cx).request_seen(iid, head), Seen::Never)
@@ -231,11 +223,8 @@ impl Workspace {
     /// ↵ on Merge requests' root: the picked request opens — for one of yours with discussions
     /// waiting, at the first of them.
     pub(super) fn open_picked_request(&mut self, iid: u64, cx: &mut Context<Self>) {
-        let me = self.requests.read(cx).login.clone().unwrap_or_default();
-        let mine = self
-            .requests
-            .read(cx)
-            .find(iid)
+        let me = self.request_login(cx).unwrap_or_default();
+        let mine = self.find_request(iid, cx)
             .is_some_and(|m| !me.is_empty() && m.author_login == me);
         let note = mine
             .then(|| {

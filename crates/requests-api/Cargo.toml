@@ -9,5 +9,8 @@ publish = false
 [dependencies]
 # Its routes are the core's `Place`s.
 artoo-core = { path = "../core" }
+# A completion's choices are the kit's.
+artoo-ui-kit = { path = "../ui-kit" }
+git2.workspace = true
 gpui.workspace = true
 serde.workspace = true

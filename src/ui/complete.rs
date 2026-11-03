@@ -15,6 +15,6 @@ impl Workspace {
         closed: Option<usize>,
         cx: &App,
     ) -> Option<(usize, Vec<Choice>)> {
-        self.requests.read(cx).completion(text, caret, closed)
+        self.requests_api()?.completion(text, caret, closed, cx)
     }
 }

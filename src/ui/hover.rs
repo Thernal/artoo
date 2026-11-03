@@ -129,9 +129,7 @@ impl Workspace {
         cx: &App,
     ) -> PersonCard {
         let login = if login.is_empty() {
-            self.requests
-                .read(cx)
-                .members
+            self.request_members(cx)
                 .iter()
                 .find(|(_, n)| n == name)
                 .map(|(l, _)| l.clone())
@@ -139,18 +137,12 @@ impl Workspace {
         } else {
             login.to_owned()
         };
-        let m = self
-            .requests
-            .read(cx)
-            .current
-            .and_then(|iid| self.requests.read(cx).find(iid));
-        let approved = self
-            .requests
-            .read(cx)
-            .approvals
+        let m = self.current_request(cx)
+            .and_then(|iid| self.find_request(iid, cx));
+        let approved = self.requests_api().and_then(|r| r.approvals(cx))
             .as_ref()
             .is_some_and(|a| a.by.iter().any(|b| b == name));
-        let role = m.and_then(|m| {
+        let role = m.as_ref().and_then(|m| {
             let mine = |l: &str| !login.is_empty() && l == login;
             if mine(&m.author_login) || m.author == name {
                 Some("Author of this merge request".to_owned())
@@ -167,15 +159,14 @@ impl Workspace {
         // What they did last here: the author's last push, anyone's last note.
         let theirs = |l: &str, n: &str| (!login.is_empty() && l == login) || n == name;
         let pushed = m
+            .as_ref()
             .filter(|m| theirs(&m.author_login, &m.author))
             .and_then(|_| self.branches().and_then(|b| b.latest_version(cx)))
             .filter(|v| v.time > 0)
             .map(|v| format!("Pushed v{} {}", v.number, format::ago(v.time)));
         let wrote = m
             .and_then(|_| {
-                self.requests
-                    .read(cx)
-                    .threads
+                self.request_threads(cx)
                     .iter()
                     .flat_map(|t| &t.notes)
                     .filter(|n| theirs(&n.login, &n.author))
@@ -252,10 +243,7 @@ impl Workspace {
         let Some(login) = self.mention_hover.as_ref().map(|h| h.login.clone()) else {
             return;
         };
-        let name = self
-            .requests
-            .read(cx)
-            .members
+        let name = self.request_members(cx)
             .iter()
             .find(|(l, _)| *l == login)
             .map_or_else(|| login.clone(), |(_, n)| n.clone());

@@ -8,16 +8,7 @@ use artoo_hosts_api::{self as mr, Draft, Mr, Pipeline, Thread};
 use gpui::{App, Entity, Task, WeakEntity};
 use std::rc::Rc;
 
-/// Which requests the list shows: All · To review · Mine in Merge requests' bar (#70, #72).
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
-pub enum Scope {
-    #[default]
-    All,
-    /// The token's user is asked to review.
-    ReviewMe,
-    /// The token's user wrote it.
-    Mine,
-}
+pub use artoo_requests_api::Scope;
 
 /// The merged or the closed requests (#114): each scope's own, as the host picks them (#169).
 #[derive(Default)]
@@ -411,12 +402,27 @@ impl Requests {
     }
 }
 
-/// The tab's requests as other features ask them (`artoo_requests_api::Requests`, a service).
-pub fn handle(requests: &Entity<Requests>) -> Rc<dyn artoo_requests_api::Requests> {
-    Rc::new(Handle(requests.downgrade()))
+/// The tab's requests as other features ask them (`artoo_requests_api::Requests`, a service); a click in what it
+/// draws asks the tab's acts in `services`.
+pub fn handle(
+    requests: &Entity<Requests>,
+    services: &Rc<artoo_shell_api::Services>,
+) -> Rc<dyn artoo_requests_api::Requests> {
+    Rc::new(Handle(requests.downgrade(), Rc::downgrade(services)))
 }
 
-struct Handle(WeakEntity<Requests>);
+/// Weak: the services hold it.
+struct Handle(WeakEntity<Requests>, std::rc::Weak<artoo_shell_api::Services>);
+
+impl Handle {
+    /// How a view's click asks the tab.
+    fn acts(&self) -> Acts {
+        self.1
+            .upgrade()
+            .and_then(|s| s.get::<Acts>())
+            .unwrap_or_else(|| Rc::new(|_, _| {}))
+    }
+}
 
 impl artoo_requests_api::Requests for Handle {
     fn of_branch(&self, branch: &BranchRef, cx: &App) -> Option<(u64, String)> {
@@ -461,5 +467,142 @@ impl artoo_requests_api::Requests for Handle {
             requests.update(cx, |rq, _| rq.rows.picked = Some(number));
             requests.read(cx).rows.reveal.set(true);
         }
+    }
+
+    fn find(&self, number: u64, cx: &App) -> Option<Mr> {
+        self.0.upgrade()?.read(cx).find(number).cloned()
+    }
+
+    fn list(&self, cx: &App) -> Vec<Mr> {
+        self.0
+            .upgrade()
+            .map(|r| r.read(cx).list.clone())
+            .unwrap_or_default()
+    }
+
+    fn available(&self, cx: &App) -> bool {
+        self.0.upgrade().is_some_and(|r| r.read(cx).available)
+    }
+
+    fn login(&self, cx: &App) -> Option<String> {
+        self.0.upgrade()?.read(cx).login.clone()
+    }
+
+    fn members(&self, cx: &App) -> Vec<(String, String)> {
+        self.0
+            .upgrade()
+            .map(|r| r.read(cx).members.clone())
+            .unwrap_or_default()
+    }
+
+    fn approvals(&self, cx: &App) -> Option<mr::Approvals> {
+        self.0.upgrade()?.read(cx).approvals.clone()
+    }
+
+    fn threads(&self, cx: &App) -> Vec<Thread> {
+        self.0
+            .upgrade()
+            .map(|r| r.read(cx).threads.clone())
+            .unwrap_or_default()
+    }
+
+    fn thread(&self, ix: usize, cx: &App) -> Option<Thread> {
+        self.0.upgrade()?.read(cx).threads.get(ix).cloned()
+    }
+
+    fn drafts(&self, cx: &App) -> Vec<Draft> {
+        self.0
+            .upgrade()
+            .map(|r| r.read(cx).drafts.clone())
+            .unwrap_or_default()
+    }
+
+    fn draft_place(&self, ix: usize, cx: &App) -> Option<(String, Option<u32>, Option<u32>)> {
+        let requests = self.0.upgrade()?;
+        let rq = requests.read(cx);
+        rq.draft_place(rq.drafts.get(ix)?)
+    }
+
+    fn threads_in(&self, path: &str, cx: &App) -> Vec<(usize, bool, u32)> {
+        self.0
+            .upgrade()
+            .map(|r| r.read(cx).request_threads_in(path))
+            .unwrap_or_default()
+    }
+
+    fn request_tip(&self, number: u64, cx: &App) -> Option<String> {
+        self.0.upgrade()?.read(cx).request_tip(number)
+    }
+
+    fn version_id(&self, number: u64, head: git2::Oid, cx: &App) -> Option<u64> {
+        let requests = self.0.upgrade()?;
+        let (of, ids) = requests.read(cx).version_ids.as_ref()?;
+        (*of == number)
+            .then(|| ids.iter().find(|(h, _)| *h == head).map(|(_, id)| *id))
+            .flatten()
+    }
+
+    fn tried(&self, number: u64, cx: &App) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|r| r.read(cx).tried.contains(&number))
+    }
+
+    fn count_in(&self, scope: Scope, cx: &App) -> usize {
+        self.0.upgrade().map_or(0, |r| {
+            let rq = r.read(cx);
+            rq.list.iter().filter(|m| rq.in_scope(m, scope)).count()
+        })
+    }
+
+    fn grid_open(&self, cx: &App) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|r| r.read(cx).reaction_grid.is_some())
+    }
+
+    fn merge_card_open(&self, cx: &App) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|r| r.read(cx).merging.is_some())
+    }
+
+    fn completion(
+        &self,
+        text: &str,
+        caret: usize,
+        closed: Option<usize>,
+        cx: &App,
+    ) -> Option<(usize, Vec<artoo_ui_kit::complete::Choice>)> {
+        self.0.upgrade()?.read(cx).completion(text, caret, closed)
+    }
+
+    fn files(&self, number: u64, cx: &App) -> Option<usize> {
+        let (of, n) = self.0.upgrade()?.read(cx).files?;
+        (of == number).then_some(n)
+    }
+
+    fn set_files(&self, files: Option<(u64, usize)>, cx: &mut App) {
+        if let Some(requests) = self.0.upgrade() {
+            requests.update(cx, |rq, _| rq.files = files);
+        }
+    }
+
+    fn picked_row(&self, cx: &App) -> Option<u64> {
+        self.0.upgrade()?.read(cx).rows.picked
+    }
+
+    fn approval_chip(&self, cx: &mut App) -> Option<gpui::AnyElement> {
+        let acts = self.acts();
+        let chip = self.0.upgrade()?.read(cx).render_approval_chip(acts)?;
+        Some(gpui::IntoElement::into_any_element(chip))
+    }
+
+    fn merge_control(&self, compact: bool, github: bool, cx: &mut App) -> Option<gpui::AnyElement> {
+        let acts = self.acts();
+        self.0
+            .upgrade()?
+            .read(cx)
+            .render_merge_control(compact, github, acts)
     }
 }

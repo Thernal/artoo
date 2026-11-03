@@ -1402,10 +1402,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             && (view.contains("hover-note") || view.contains("reaction-grid"))
         {
             ws.update(cx, |this, cx| {
-                let note = this
-                    .requests
-                    .read(cx)
-                    .threads
+                let note = this.request_threads(cx)
                     .iter()
                     .find(|t| t.path.is_some())
                     .and_then(|t| t.notes.first())
@@ -1848,7 +1845,10 @@ impl Workspace {
         // Its requests, which the requests' parts read and draw, as the other features ask them, and its answers
         // to their acts.
         services.set(this.requests.clone());
-        services.set(artoo_requests::requests::handle(&this.requests));
+        services.set(artoo_requests::requests::handle(
+            &this.requests,
+            &services,
+        ));
         services.set(requests::acts_of(cx.weak_entity()));
         // Its agents, which their parts draw — the Agents window, the card, the notes' summary,
         // Settings → Agents — the tab their host.
@@ -2571,7 +2571,7 @@ impl Workspace {
         // Its page on the host; one only on this Mac says so instead (#162).
         let link = self.branch_link(&branch.name, cx).ok();
         groups[0].extend(self.branch_link_entry(&branch.name, cx));
-        if self.requests.read(cx).available && branch.name != "main" && branch.name != "master" {
+        if self.requests_available(cx) && branch.name != "main" && branch.name != "master" {
             groups.push(vec![
                 Entry::new("Create merge request…", Act::CreateRequest(ix)).key("⌥⌘M"),
             ]);
@@ -3032,12 +3032,9 @@ impl Workspace {
 
     /// What the screen shows, in a few words: zen's one line on top, a request's or what the diff is of.
     fn header_title(&self, cx: &App) -> String {
-        if let Some(m) = self
-            .requests
-            .read(cx)
-            .current
+        if let Some(m) = self.current_request(cx)
             .filter(|_| self.showing_request(cx))
-            .and_then(|iid| self.requests.read(cx).find(iid))
+            .and_then(|iid| self.find_request(iid, cx))
         {
             return format!("{} {}", words::number(m.iid), m.title);
         }

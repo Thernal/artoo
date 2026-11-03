@@ -411,6 +411,48 @@ impl Workspace {
         self.services.get()
     }
 
+    /// What the tab reads most of the requests (`Requests`): the one open, a request by its number, the list, the
+    /// open one's discussions and your pending comments on it.
+    pub(super) fn current_request(&self, cx: &App) -> Option<u64> {
+        self.requests_api()?.current(cx)
+    }
+
+    pub(super) fn find_request(&self, number: u64, cx: &App) -> Option<crate::mr::Mr> {
+        self.requests_api()?.find(number, cx)
+    }
+
+    pub(super) fn request_list(&self, cx: &App) -> Vec<crate::mr::Mr> {
+        self.requests_api().map(|r| r.list(cx)).unwrap_or_default()
+    }
+
+    pub(super) fn requests_available(&self, cx: &App) -> bool {
+        self.requests_api().is_some_and(|r| r.available(cx))
+    }
+
+    pub(super) fn requests_listing(&self, cx: &App) -> bool {
+        self.requests_api().is_some_and(|r| r.listing(cx))
+    }
+
+    pub(super) fn request_login(&self, cx: &App) -> Option<String> {
+        self.requests_api()?.login(cx)
+    }
+
+    pub(super) fn request_members(&self, cx: &App) -> Vec<(String, String)> {
+        self.requests_api().map(|r| r.members(cx)).unwrap_or_default()
+    }
+
+    pub(super) fn request_threads(&self, cx: &App) -> Vec<crate::mr::Thread> {
+        self.requests_api().map(|r| r.threads(cx)).unwrap_or_default()
+    }
+
+    pub(super) fn request_thread(&self, ix: usize, cx: &App) -> Option<crate::mr::Thread> {
+        self.requests_api()?.thread(ix, cx)
+    }
+
+    pub(super) fn request_drafts(&self, cx: &App) -> Vec<crate::mr::Draft> {
+        self.requests_api().map(|r| r.drafts(cx)).unwrap_or_default()
+    }
+
     /// The branches as a page asks them.
     pub(super) fn branches(&self) -> Option<std::rc::Rc<dyn artoo_branches_api::Branches>> {
         self.services.get()

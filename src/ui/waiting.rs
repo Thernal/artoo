@@ -53,7 +53,7 @@ impl Workspace {
                 if this.inbox {
                     this.load_notices(cx);
                 }
-                if this.requests.read(cx).current == Some(iid) {
+                if this.current_request(cx) == Some(iid) {
                     this.reload_threads(cx);
                 }
                 cx.notify();
@@ -75,10 +75,10 @@ impl Workspace {
     pub(super) fn show_waiting(&mut self, iid: u64, cx: &mut App) {
         let me = (
             self.me.clone(),
-            self.requests.read(cx).login.clone().unwrap_or_default(),
+            self.request_login(cx).unwrap_or_default(),
         );
         let me = (me.0.as_str(), me.1.as_str());
-        if self.requests.read(cx).current == Some(iid) {
+        if self.current_request(cx) == Some(iid) {
             let r = &self.requests.read(cx);
             let thread_id = |ix: usize| r.threads.get(ix).map(|t| t.id.clone());
             let toggled: Vec<String> = self
@@ -131,7 +131,7 @@ impl Workspace {
 
     /// The changes the request open and the Inbox both hold now are let go.
     pub(super) fn settle_waiting(&mut self, cx: &mut App) {
-        let (current, from) = (self.requests.read(cx).current, self.requests.read(cx).from);
+        let (current, from) = (self.current_request(cx), self.requests.read(cx).from);
         let notices = self.notices.clone();
         self.requests.update(cx, |rq, cx| {
             let notices = notices.read(cx);
@@ -148,7 +148,7 @@ impl Workspace {
     /// comment sent now and the second deleted.
     #[cfg(feature = "snapshot")]
     pub(super) fn snapshot_changes(&mut self, cx: &mut Context<Self>) {
-        let on_lines: Vec<usize> = (self.requests.read(cx).threads.iter().enumerate())
+        let on_lines: Vec<usize> = (self.request_threads(cx).iter().enumerate())
             .filter(|(_, t)| t.path.is_some() && t.resolvable)
             .map(|(ix, _)| ix)
             .collect();
@@ -164,7 +164,7 @@ impl Workspace {
         }
         self.toggle_approval(cx);
         // The first pending comment sent now, the second deleted.
-        let drafts: Vec<u64> = self.requests.read(cx).drafts.iter().map(|d| d.id).collect();
+        let drafts: Vec<u64> = self.request_drafts(cx).iter().map(|d| d.id).collect();
         if let Some(&id) = drafts.first() {
             self.send_draft_now(id, cx);
         }

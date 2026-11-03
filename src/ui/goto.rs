@@ -61,14 +61,14 @@ impl Workspace {
     pub(super) fn go_to(&mut self, target: Target, cx: &mut Context<Self>) {
         match target {
             Target::Request { iid, note, line } => {
-                if self.requests.read(cx).find(iid).is_none() {
+                if self.find_request(iid, cx).is_none() {
                     // The list is still loading, or it is not an open one (merged, closed: read
                     // on its own, #114): come back when it is in.
-                    if self.requests.read(cx).loading
-                        || !self.requests.read(cx).tried.contains(&iid)
+                    if self.requests_listing(cx)
+                        || !self.requests_api().is_some_and(|r| r.tried(iid, cx))
                     {
                         self.pending_link = Some(Target::Request { iid, note, line });
-                        if !self.requests.read(cx).loading {
+                        if !self.requests_listing(cx) {
                             self.read_left(vec![iid], cx);
                         }
                     } else {
@@ -144,7 +144,7 @@ impl Workspace {
     pub(super) fn follow_pending_link(&mut self, cx: &mut Context<Self>) {
         let ready = match &self.pending_link {
             None => return,
-            Some(Target::Request { .. }) => self.root.is_some() && !self.requests.read(cx).loading,
+            Some(Target::Request { .. }) => self.root.is_some() && !self.requests_listing(cx),
             Some(Target::Commit(_)) => self.commit_count(cx) > 0,
             Some(Target::Branch(_)) => !self.branch_list(cx).is_empty(),
         };
@@ -160,10 +160,7 @@ impl Workspace {
             return;
         };
         let place = match &spot {
-            Spot::Note(id) => self
-                .requests
-                .read(cx)
-                .threads
+            Spot::Note(id) => self.request_threads(cx)
                 .iter()
                 .enumerate()
                 .find(|(_, t)| t.notes.iter().any(|n| n.id == *id))
@@ -176,7 +173,7 @@ impl Workspace {
                 .draft_order(cx)
                 .into_iter()
                 .map(|(.., ix)| ix)
-                .find(|&ix| ids.contains(&self.requests.read(cx).drafts[ix].id))
+                .find(|&ix| ids.contains(&self.request_drafts(cx)[ix].id))
                 .and_then(|ix| {
                     let rq = self.requests.read(cx);
                     let (path, new, old) = rq.draft_place(&rq.drafts[ix])?;

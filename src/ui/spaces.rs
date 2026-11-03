@@ -64,8 +64,8 @@ impl Workspace {
         match space {
             Space::Branches if self.plain => Some(Missing::Git),
             Space::Code | Space::Branches => None,
-            Space::Inbox | Space::Requests if self.requests.read(cx).available => None,
-            Space::Inbox | Space::Requests if self.requests.read(cx).connectable => {
+            Space::Inbox | Space::Requests if self.requests_available(cx) => None,
+            Space::Inbox | Space::Requests if self.requests_api().is_some_and(|r| r.connectable(cx)) => {
                 Some(Missing::Token)
             }
             Space::Inbox | Space::Requests => Some(Missing::Remote),
@@ -77,12 +77,8 @@ impl Workspace {
         match space {
             Space::Inbox => self.inbox_unread(cx),
             Space::Requests => self
-                .requests
-                .read(cx)
-                .list
-                .iter()
-                .filter(|m| self.requests.read(cx).in_scope(m, Scope::ReviewMe))
-                .count(),
+                .requests_api()
+                .map_or(0, |r| r.count_in(Scope::ReviewMe, cx)),
             Space::Code | Space::Branches => 0,
         }
     }
@@ -131,8 +127,8 @@ impl Workspace {
                     .any(|c| c.state == crate::comment::State::Draft && paths.contains(&c.path));
                 match &open.item {
                     Item::Request(iid) => {
-                        let m = self.requests.read(cx).find(*iid);
-                        let title = m.map(|m| m.title.clone()).unwrap_or_default();
+                        let m = self.find_request(*iid, cx);
+                        let title = m.as_ref().map(|m| m.title.clone()).unwrap_or_default();
                         // One merged or closed since stays here, saying so, until closed (#114).
                         let state = m
                             .map(|m| m.state)

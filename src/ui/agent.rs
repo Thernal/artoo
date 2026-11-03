@@ -146,8 +146,8 @@ impl Workspace {
     /// The branch of the page on screen, as a note written there keeps it: a request's source
     /// branch, a branch's own, else the one checked out (#77).
     pub(super) fn page_branch(&self, cx: &App) -> Option<String> {
-        if let Some(iid) = self.requests.read(cx).current
-            && let Some(m) = self.requests.read(cx).find(iid)
+        if let Some(iid) = self.current_request(cx)
+            && let Some(m) = self.find_request(iid, cx)
             && self.nav.space == super::spaces::Space::Requests
         {
             return Some(m.source.clone());
