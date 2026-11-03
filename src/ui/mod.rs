@@ -1502,7 +1502,7 @@ pub struct Workspace {
     /// The window this workspace is in: a repository can open in a new tab of it from anywhere.
     window: gpui::AnyWindowHandle,
     /// The bell and its list (`notifications.rs`).
-    notices: gpui::Entity<notifications::Notices>,
+    notices: gpui::Entity<artoo_requests::notices::Notices>,
     /// The "this tab or a new tab?" card (`opening.rs`).
     open_ask: Option<opening::OpenAsk>,
     /// What is beside a folder of Code's path, listed under it (`beside.rs`, #132).
@@ -1524,7 +1524,7 @@ pub struct Workspace {
     confirm_note: Option<u64>,
     /// The Inbox place is shown, and which of its notifications it lists.
     inbox: bool,
-    inbox_view: gpui::Entity<inbox::InboxView>,
+    inbox_view: gpui::Entity<artoo_requests::inbox::InboxView>,
     /// The note under the pointer: its reaction bar shows (#9).
     hover_note: Option<u64>,
     requests: gpui::Entity<requests::Requests>,
@@ -1862,7 +1862,7 @@ impl Workspace {
         // Its notifications and what the Inbox selected, which the requests' Inbox draws, the tab its host.
         services.set(this.notices.clone());
         services.set(this.inbox_view.clone());
-        services.set::<Rc<dyn artoo_requests::inbox_page::InboxHost>>(Rc::new(inbox::InboxHost(
+        services.set::<Rc<dyn artoo_requests_api::InboxHost>>(Rc::new(inbox::InboxHost(
             cx.weak_entity(),
         )));
         services.set::<Rc<dyn artoo_requests::root::RootHost>>(Rc::new(roots::RootHost(

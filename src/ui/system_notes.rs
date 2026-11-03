@@ -128,7 +128,7 @@ impl Workspace {
     /// New notices in the Inbox (#26): each said apart, or many as one.
     pub(super) fn notify_notices(
         &mut self,
-        fresh: Vec<super::notifications::Notice>,
+        fresh: &[artoo_requests_api::News],
         cx: &mut Context<Self>,
     ) {
         let project = self.tab_title();
@@ -137,7 +137,7 @@ impl Workspace {
             let body = fresh
                 .iter()
                 .take(MOST_APART)
-                .map(|n| format!("{} {}", n.who, n.kind_verb()))
+                .map(|n| format!("{} {}", n.who, n.verb))
                 .collect::<Vec<_>>()
                 .join(" · ");
             return self.notify_system("inbox".to_owned(), title, body, Open::Inbox, cx);
@@ -146,11 +146,11 @@ impl Workspace {
             let title = format!(
                 "{} {} · {}",
                 n.who,
-                n.kind_verb(),
+                n.verb,
                 super::words::number(n.iid)
             );
             let body = format!("{}\n{project}", n.title);
-            self.notify_system(n.key.clone(), title, body, Open::Notice(n.key), cx);
+            self.notify_system(n.key.clone(), title, body, Open::Notice(n.key.clone()), cx);
         }
     }
 
@@ -194,8 +194,7 @@ impl Workspace {
     /// What a click on one opens, its tab on screen.
     fn open_system_note(&mut self, open: Open, cx: &mut Context<Self>) {
         match open {
-            Open::Notice(key) => match self.notices.read(cx).list.iter().position(|n| n.key == key)
-            {
+            Open::Notice(key) => match self.requests_api().and_then(|r| r.notice_by_key(&key, cx)) {
                 Some(ix) => self.open_notice(ix, cx),
                 None => self.go_space(super::spaces::Space::Inbox, cx),
             },

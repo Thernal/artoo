@@ -6,8 +6,10 @@ use artoo_core::git::{BranchRef, DiffLine, Version, WebRemote};
 use artoo_core::mr::{Approvals, Draft, Merge, Mr, MrState, Thread};
 use artoo_core::route::Place;
 use artoo_ui_kit::complete::Choice;
-use gpui::{AnyElement, App, KeyDownEvent};
+use artoo_ui_kit::markdown::Selecting;
+use gpui::{AnyElement, App, KeyDownEvent, Pixels, Point};
 use std::path::PathBuf;
+use std::rc::Rc;
 use serde::{Deserialize, Serialize};
 
 /// Which requests the list shows: All · To review · Mine in Merge requests' bar (#70, #72).
@@ -113,6 +115,104 @@ pub type Answered = Box<dyn FnOnce(Result<(), Option<String>>, &mut App)>;
 pub struct Moved {
     pub threads: Vec<Option<usize>>,
     pub drafts: Vec<Option<usize>>,
+}
+
+/// Which notifications the Inbox lists.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum InboxFilter {
+    #[default]
+    All,
+    Mentions,
+    /// What your agents answered (#116).
+    Agents,
+    Reviews,
+}
+
+/// A row of the Inbox: a notice from the host, or a note of yours an agent answered (#116), by its comment's id.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum InboxRow {
+    Notice(usize),
+    Agent(u64),
+}
+
+/// Your notes an agent answered that wait for you (#116): each note's id, when the agent last wrote, and the key that
+/// is read once looked at (a new answer is new again).
+pub type Answers<'a> = &'a [(u64, i64, String)];
+
+/// How a row of the Inbox looks.
+pub struct RowLook {
+    /// Not read yet: bold, its dot blue.
+    pub fresh: bool,
+    /// Selected.
+    pub on: bool,
+    /// The list has 260 px (#79): when, and the start of what was written.
+    pub wide: bool,
+}
+
+/// What a click in the Inbox asks the tab.
+pub enum InboxEvent {
+    /// A filter chosen: its first row is selected.
+    Filter(InboxFilter),
+    /// Notice `0`'s row clicked: selected, or opened where the tab is narrow (#80).
+    Pick(usize),
+    /// Notice `0`'s request opened.
+    Open(usize),
+    /// Done with notice `0`.
+    Done(usize),
+    /// The composer under the notice selected.
+    Reply,
+    /// Discussion `id` of request `iid` resolved, or opened again.
+    Resolve { iid: u64, id: String, resolved: bool },
+    /// Request `iid`'s menu, at the pointer.
+    Menu { iid: u64, at: Point<Pixels> },
+}
+
+/// How the tab answers the Inbox's clicks.
+pub type OnInbox = Rc<dyn Fn(InboxEvent, &mut App)>;
+
+/// What the Inbox asks of the tab (`Rc<dyn InboxHost>` in its services).
+pub trait InboxHost {
+    /// Your notes an agent answered that wait for you: each one's id, when the agent last wrote, and the key read
+    /// once it is looked at (a new answer is new again).
+    fn answers(&self, cx: &App) -> Vec<(u64, i64, String)>;
+
+    /// The row of the answer to note `id`.
+    fn answer_row(&self, id: u64, look: RowLook, cx: &App) -> AnyElement;
+
+    /// The answer to note `id` previewed; `None` once it is gone.
+    fn answer_preview(&self, id: u64, cx: &App) -> Option<AnyElement>;
+
+    /// The agent says it is done with note `id`: E resolves it.
+    fn answer_done(&self, id: u64, cx: &App) -> bool;
+
+    /// The composer, while it writes a reply to the notice selected.
+    fn writing(&self, cx: &App) -> Option<AnyElement>;
+
+    /// Selecting in comments.
+    fn selecting(&self, cx: &App) -> Option<Selecting>;
+
+    /// Comments drawn as markdown.
+    fn rich(&self, cx: &App) -> bool;
+
+    /// The tab narrow: no preview beside the list, and a click opens a notice (#80).
+    fn narrow(&self, cx: &App) -> bool;
+
+    /// A click in the Inbox.
+    fn act(&self, event: InboxEvent, cx: &mut App);
+}
+
+/// What a notice is answered with: its request, its discussion (none: a comment on the request), and its path and
+/// line when the discussion is on code.
+pub type ReplyTo = (u64, Option<String>, Option<(String, u32)>);
+
+/// A notification new since the last read, said to the system (#26): its key, its request and the request's title,
+/// who did it and what ("mentioned you").
+pub struct News {
+    pub key: String,
+    pub iid: u64,
+    pub title: String,
+    pub who: String,
+    pub verb: &'static str,
 }
 
 /// What other features ask of a tab's merge requests, from its services (`Rc<dyn Requests>`).
@@ -288,6 +388,49 @@ pub trait Requests {
     /// An id given to what is not on the host yet: a note or a pending comment, a discussion.
     fn is_temp(&self, id: u64) -> bool;
     fn is_temp_thread(&self, id: &str) -> bool;
+
+    /// The Inbox's notifications read again in the background, and every few minutes after (`me` the name the
+    /// changes waiting show by); what is new is told as an event. `refresh_notices`: everything read afresh, not
+    /// only what reports a change (the Inbox opened).
+    fn read_notices(&self, me: &str, cx: &mut App);
+    fn refresh_notices(&self, me: &str, cx: &mut App);
+    /// Notice `ix` opened, read from now on: its request and its note.
+    fn open_notice(&self, ix: usize, cx: &mut App) -> Option<(u64, Option<u64>)>;
+    /// `e`: done with notice `ix` — a to-do marked done on the host (refused, it comes back and the tab hears why),
+    /// a comment read from now on.
+    fn dismiss_notice(&self, ix: usize, cx: &mut App);
+    /// Everything listed read, and `others` (the agents' answers' keys) with it; key `key` read.
+    fn read_all_notices(&self, others: Vec<String>, cx: &mut App);
+    fn mark_read(&self, key: String, cx: &mut App);
+    /// The notice keyed `key`, by its place; the request of notice `ix`; the request of the notice selected.
+    fn notice_by_key(&self, key: &str, cx: &App) -> Option<usize>;
+    fn notice_request(&self, ix: usize, cx: &App) -> Option<u64>;
+    fn selected_notice(&self, cx: &App) -> Option<u64>;
+    /// Request `number` has notices not read.
+    fn unread_of(&self, number: u64, cx: &App) -> bool;
+    /// The Inbox's count: notices not read, and the agents' `answers` not looked at.
+    fn unread_with(&self, answers: Answers, cx: &App) -> usize;
+    /// The discussions of request `number` waiting for its author, as the notifications read them.
+    fn waiting_threads(&self, number: u64, cx: &App) -> Vec<Thread>;
+
+    /// What the Inbox lists under its filter, newest first, with the agents' `answers`; the row selected; the row
+    /// after it or before it (j k).
+    fn inbox_rows(&self, answers: Answers, cx: &App) -> Vec<InboxRow>;
+    fn inbox_current(&self, answers: Answers, cx: &App) -> Option<InboxRow>;
+    fn inbox_step(&self, answers: Answers, down: bool, cx: &App) -> Option<InboxRow>;
+    /// Row `row` selected (none: the first notice).
+    fn inbox_pick(&self, row: Option<InboxRow>, cx: &mut App);
+    /// The code the selected notice's discussion is on, read once, in the background.
+    fn read_excerpt(&self, cx: &mut App);
+    fn set_inbox_filter(&self, filter: InboxFilter, cx: &mut App);
+    /// The Inbox's filters, in its page bar.
+    fn inbox_filters(&self, on: OnInbox, cx: &App) -> AnyElement;
+    /// What the notice selected is answered with: its request, its discussion (none: a comment on the request)
+    /// and where that is on the code; none for a review request or a to-do.
+    fn inbox_reply_to(&self, cx: &App) -> Option<ReplyTo>;
+    /// What the Inbox's composer writes to: a request, and its discussion.
+    fn inbox_reply(&self, cx: &App) -> Option<(u64, Option<String>)>;
+    fn set_inbox_reply(&self, reply: Option<(u64, Option<String>)>, cx: &mut App);
 }
 
 /// A merge request, by its number.

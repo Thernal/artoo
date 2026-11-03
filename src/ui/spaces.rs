@@ -157,7 +157,7 @@ impl Workspace {
                             mono: false,
                             on,
                             drafts,
-                            news: self.notices.read(cx).unread_of(*iid),
+                            news: self.requests_api().is_some_and(|r| r.unread_of(*iid, cx)),
                             agent,
                             call: self.agent_calls.get(&open.item).filter(|_| !on).cloned(),
                         }

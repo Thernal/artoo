@@ -3,9 +3,11 @@
 //! discussion is on, read from the repository (`excerpt`). The tab draws it for now.
 
 use crate::notices::{Kind, Notices};
+use crate::requests::Requests;
+use artoo_requests_api::ReplyTo;
 use artoo_core::git::{DiffLine, DiffSettings, LineKind, Repo};
 use artoo_ui_kit::excerpt::{Excerpt, ExcerptLine};
-use gpui::Task;
+use gpui::{Context, Entity, Task};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -13,38 +15,21 @@ use std::path::{Path, PathBuf};
 const ABOVE: usize = 3;
 const BELOW: usize = 2;
 
-/// Which notifications the Inbox lists.
-#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
-pub enum InboxFilter {
-    #[default]
-    All,
-    Mentions,
-    /// What your agents answered (#116).
-    Agents,
-    Reviews,
-}
+pub use artoo_requests_api::{Answers, InboxFilter, InboxRow};
 
-impl InboxFilter {
-    pub fn lets(self, kind: Kind) -> bool {
-        match self {
-            InboxFilter::All => true,
-            InboxFilter::Mentions => kind == Kind::Mention,
-            InboxFilter::Agents => false,
-            InboxFilter::Reviews => kind == Kind::Review,
-        }
-    }
-
-    pub fn lets_agents(self) -> bool {
-        matches!(self, InboxFilter::All | InboxFilter::Agents)
+/// Whether `filter` lists a notice of kind `kind`.
+fn lets(filter: InboxFilter, kind: Kind) -> bool {
+    match filter {
+        InboxFilter::All => true,
+        InboxFilter::Mentions => kind == Kind::Mention,
+        InboxFilter::Agents => false,
+        InboxFilter::Reviews => kind == Kind::Review,
     }
 }
 
-/// A row of the Inbox: a notice from the host, or a note of yours an agent answered (#116), by
-/// its comment's id.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum InboxRow {
-    Notice(usize),
-    Agent(u64),
+/// Whether `filter` lists the agents' answers.
+fn lets_agents(filter: InboxFilter) -> bool {
+    matches!(filter, InboxFilter::All | InboxFilter::Agents)
 }
 
 /// What the Inbox keeps of the notice selected and the code read for it.
@@ -62,10 +47,6 @@ pub struct InboxView {
     pub agent: Option<u64>,
 }
 
-/// Your notes an agent answered that wait for you (#116): each note's id, when the agent last wrote, and the key that
-/// is read once looked at (a new answer is new again).
-pub type Answers<'a> = &'a [(u64, i64, String)];
-
 impl InboxView {
     /// What the Inbox lists under its filter, newest first: the `notices`, and the agents' `answers`.
     pub fn rows(&self, notices: &Notices, answers: Answers) -> Vec<InboxRow> {
@@ -74,10 +55,10 @@ impl InboxView {
             .list
             .iter()
             .enumerate()
-            .filter(|(_, n)| filter.lets(n.kind))
+            .filter(|(_, n)| lets(filter, n.kind))
             .map(|(ix, n)| (n.created, InboxRow::Notice(ix)))
             .collect();
-        if filter.lets_agents() {
+        if lets_agents(filter) {
             rows.extend(
                 answers
                     .iter()
@@ -111,6 +92,77 @@ impl InboxView {
             (None, _) => 0,
         };
         Some(rows[next])
+    }
+}
+
+impl Requests {
+    /// The notice selected changed (or its discussions came in): reads the code its discussion is on into `view`,
+    /// once, in the background.
+    pub(crate) fn read_excerpt(&mut self, notices: &Entity<Notices>, view: &Entity<InboxView>, cx: &mut Context<Self>) {
+        let ns = notices.read(cx);
+        let Some(n) = ns.list.get(ns.at) else {
+            return;
+        };
+        let Some(t) = n.note.and_then(|note| ns.thread_of(n.iid, note)) else {
+            return;
+        };
+        if view.read(cx).excerpts.contains_key(&t.id) {
+            return;
+        }
+        let (Some(root), Some(path)) = (self.root.clone(), t.path.clone()) else {
+            return;
+        };
+        let Some(m) = self.find(n.iid) else {
+            return;
+        };
+        let heads: Vec<String> = t.commit.iter().cloned().chain([m.head.clone()]).collect();
+        let (id, target, new, old) = (t.id.clone(), m.target.clone(), t.new_line, t.old_line);
+        let (reading, into) = (id.clone(), view.downgrade());
+        let task = cx.spawn(async move |this, cx| {
+            let found = cx
+                .background_executor()
+                .spawn(async move { excerpt(&root, &target, &heads, &path, new, old) })
+                .await;
+            into.update(cx, |v, _| {
+                v.reading.take_if(|r| *r == id);
+                v.excerpts.insert(id, found);
+            })
+            .ok();
+            this.update(cx, |_, cx| cx.notify()).ok();
+        });
+        view.update(cx, |v, _| {
+            v.reading = Some(reading);
+            v.task = Some(task);
+        });
+    }
+}
+
+/// What the notice selected in `notices` is answered with; none for a review request or a to-do.
+pub(crate) fn reply_to(notices: &Notices) -> Option<ReplyTo> {
+    let n = notices.list.get(notices.at)?;
+    if matches!(n.kind, Kind::Review | Kind::Todo) {
+        return None;
+    }
+    let thread = n.note.and_then(|note| notices.thread_of(n.iid, note));
+    Some(match thread {
+        Some(t) => (
+            n.iid,
+            Some(t.id.clone()),
+            t.path.clone().zip(t.new_line.or(t.old_line)),
+        ),
+        None => (n.iid, None, None),
+    })
+}
+
+/// Row `row` of the Inbox selected in `view` and `notices` (none: the first notice).
+pub(crate) fn pick(row: Option<InboxRow>, view: &mut InboxView, notices: &mut Notices) {
+    match row {
+        Some(InboxRow::Agent(id)) => view.agent = Some(id),
+        Some(InboxRow::Notice(ix)) => {
+            view.agent = None;
+            notices.at = ix;
+        }
+        None => notices.at = 0,
     }
 }
 

@@ -767,15 +767,9 @@ impl Workspace {
         match space {
             Space::Inbox => {
                 // The newest row: a notice, or an agent's answer (#116).
-                match self.inbox_rows(cx).first().copied() {
-                    Some(super::inbox::InboxRow::Agent(id)) => {
-                        self.inbox_view.update(cx, |v, _| v.agent = Some(id))
-                    }
-                    Some(super::inbox::InboxRow::Notice(ix)) => {
-                        self.inbox_view.update(cx, |v, _| v.agent = None);
-                        self.notices.update(cx, |n, _| n.at = ix);
-                    }
-                    None => self.notices.update(cx, |n, _| n.at = 0),
+                let first = self.inbox_rows(cx).first().copied();
+                if let Some(requests) = self.requests_api() {
+                    requests.inbox_pick(first, cx);
                 }
                 self.refresh_notices(cx);
             }

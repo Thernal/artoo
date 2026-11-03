@@ -116,10 +116,10 @@ impl Workspace {
 
     /// The discussions of request `iid` waiting for its author (`waiting`). Read with the
     /// notifications (`notices`), so only for requests read there.
-    fn waiting_threads<'a>(&self, iid: u64, cx: &'a App) -> Vec<&'a Thread> {
-        self.requests
-            .read(cx)
-            .waiting_for_me(self.notices.read(cx).threads_of(iid).unwrap_or_default())
+    fn waiting_threads(&self, iid: u64, cx: &App) -> Vec<Thread> {
+        self.requests_api()
+            .map(|r| r.waiting_threads(iid, cx))
+            .unwrap_or_default()
     }
 
     /// The branches a search lists, by index (`History::listed`).

@@ -6,49 +6,19 @@
 
 use crate::inbox::{InboxRow, InboxView};
 use crate::inbox_view::{
-    self, InboxEvent, NoticeLook, OnInbox, RowLook, foot_keys, notice_preview, notice_row,
+    self, NoticeLook, OnInbox, RowLook, foot_keys, notice_preview, notice_row,
 };
 use crate::list;
 use crate::notices::{Kind, Notices};
 use crate::requests::{Acts, Requests};
 use artoo_shell_api::{Frame, Pages};
 use artoo_ui_kit::format::{self, now};
-use artoo_ui_kit::markdown::Selecting;
 use artoo_ui_kit::room::Widths;
 use artoo_ui_kit::{gap, island, px, theme};
 use gpui::{AnyElement, App, Context, Entity, Render, Window, div, prelude::*};
 use std::rc::Rc;
 
-/// What the Inbox asks of the tab (`Rc<dyn InboxHost>` in its services).
-pub trait InboxHost {
-    /// Your notes an agent answered that wait for you: each one's id, when the agent last wrote, and the key read
-    /// once it is looked at (a new answer is new again).
-    fn answers(&self, cx: &App) -> Vec<(u64, i64, String)>;
-
-    /// The row of the answer to note `id`.
-    fn answer_row(&self, id: u64, look: RowLook, cx: &App) -> AnyElement;
-
-    /// The answer to note `id` previewed; `None` once it is gone.
-    fn answer_preview(&self, id: u64, cx: &App) -> Option<AnyElement>;
-
-    /// The agent says it is done with note `id`: E resolves it.
-    fn answer_done(&self, id: u64, cx: &App) -> bool;
-
-    /// The composer, while it writes a reply to the notice selected.
-    fn writing(&self, cx: &App) -> Option<AnyElement>;
-
-    /// Selecting in comments.
-    fn selecting(&self, cx: &App) -> Option<Selecting>;
-
-    /// Comments drawn as markdown.
-    fn rich(&self, cx: &App) -> bool;
-
-    /// The tab narrow: no preview beside the list, and a click opens a notice (#80).
-    fn narrow(&self, cx: &App) -> bool;
-
-    /// A click in the Inbox.
-    fn act(&self, event: InboxEvent, cx: &mut App);
-}
+pub use artoo_requests_api::InboxHost;
 
 /// The Inbox in one tab.
 pub struct InboxPage {

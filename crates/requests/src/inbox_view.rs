@@ -16,35 +16,11 @@ use artoo_ui_kit::keys::{self, On};
 use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::{ROW_RADIUS, format, gap, icons, island, px, theme, words};
 use gpui::{
-    AnyElement, App, ClickEvent, Div, FontWeight, MouseButton, MouseDownEvent, Pixels, Point,
+    AnyElement, App, ClickEvent, Div, FontWeight, MouseButton, MouseDownEvent,
     Stateful, div, prelude::*,
 };
-use std::rc::Rc;
 
-/// What a click in the Inbox asks the tab.
-pub enum InboxEvent {
-    /// A filter chosen: its first row is selected.
-    Filter(InboxFilter),
-    /// Notice `0`'s row clicked: selected, or opened where the tab is narrow (#80).
-    Pick(usize),
-    /// Notice `0`'s request opened.
-    Open(usize),
-    /// Done with notice `0`.
-    Done(usize),
-    /// The composer under the notice selected.
-    Reply,
-    /// Discussion `id` of request `iid` resolved, or opened again.
-    Resolve {
-        iid: u64,
-        id: String,
-        resolved: bool,
-    },
-    /// Request `iid`'s menu, at the pointer.
-    Menu { iid: u64, at: Point<Pixels> },
-}
-
-/// How the tab answers the Inbox's clicks.
-pub type OnInbox = Rc<dyn Fn(InboxEvent, &mut App)>;
+pub use artoo_requests_api::{InboxEvent, OnInbox, RowLook};
 
 /// The Inbox's filters, in its page bar (#71).
 pub fn filters(shown: InboxFilter, on: &OnInbox) -> Div {
@@ -142,16 +118,6 @@ pub fn heading(text: &'static str) -> AnyElement {
         .text_color(theme::faint())
         .child(text)
         .into_any_element()
-}
-
-/// How a notice's row looks.
-pub struct RowLook {
-    /// Not read yet: bold, its dot blue.
-    pub fresh: bool,
-    /// Selected.
-    pub on: bool,
-    /// The list has 260 px (#79): when, and the start of what was written.
-    pub wide: bool,
 }
 
 /// Notice `ix`: unread dot, who did what, the request always; when, and the start of what was written, while the

@@ -326,7 +326,7 @@ impl Workspace {
     /// The request the Inbox shows: the one of the notice picked.
     fn inbox_request(&self, cx: &App) -> Option<u64> {
         match self.inbox_current(cx)? {
-            super::inbox::InboxRow::Notice(ix) => self.notices.read(cx).list.get(ix).map(|n| n.iid),
+            super::inbox::InboxRow::Notice(ix) => self.requests_api()?.notice_request(ix, cx),
             super::inbox::InboxRow::Agent(_) => None,
         }
     }

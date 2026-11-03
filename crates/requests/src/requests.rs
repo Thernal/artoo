@@ -5,7 +5,8 @@
 use crate::group::Group;
 use artoo_core::git::{BranchRef, RefKind, Repo, Version};
 use artoo_hosts_api::{self as mr, Draft, Mr, Pipeline, Thread};
-use artoo_requests_api::{Answered, Change, Moved};
+use artoo_requests_api::{Answered, Change, InboxFilter, InboxRow, Moved, OnInbox};
+use gpui::{AnyElement, IntoElement};
 use gpui::{App, Entity, Task, WeakEntity};
 use std::rc::Rc;
 
@@ -72,6 +73,8 @@ pub enum Event {
     Create(crate::create::CreateKey),
     /// A call to the host was refused, and why.
     Failed(String),
+    /// The notifications were read: those new since the last read, to say to the system (#26).
+    Noticed(Vec<artoo_requests_api::News>),
 }
 
 impl gpui::EventEmitter<Event> for Requests {}
@@ -447,6 +450,16 @@ impl Handle {
     /// The Inbox's notices, from the tab's services.
     fn notices(&self) -> Option<Entity<crate::notices::Notices>> {
         self.1.upgrade()?.get()
+    }
+
+    /// The Inbox's view, from the tab's services.
+    fn inbox(&self) -> Option<Entity<crate::inbox::InboxView>> {
+        self.1.upgrade()?.get()
+    }
+
+    /// Reads the notices.
+    fn read_notices_with<R>(&self, cx: &App, f: impl FnOnce(&crate::notices::Notices) -> R) -> Option<R> {
+        Some(f(self.notices()?.read(cx)))
     }
 
     /// How a view's click asks the tab.
@@ -941,16 +954,8 @@ impl artoo_requests_api::Requests for Handle {
     }
 
     fn settle_waiting(&self, cx: &mut App) {
-        let (Some(requests), notices) = (self.0.upgrade(), self.notices()) else {
-            return;
-        };
-        requests.update(cx, |rq, cx| {
-            let (current, from) = (rq.current, rq.from);
-            let notices = notices.as_ref().map(|n| n.read(cx));
-            rq.waiting.settle(|iid, done| {
-                (current != Some(iid) || from > done) && notices.is_none_or(|n| n.holds(iid, done))
-            })
-        });
+        let notices = self.notices();
+        self.update(cx, |rq, cx| rq.settle_waiting(notices.as_ref(), cx));
     }
 
     fn is_temp(&self, id: u64) -> bool {
@@ -959,5 +964,132 @@ impl artoo_requests_api::Requests for Handle {
 
     fn is_temp_thread(&self, id: &str) -> bool {
         crate::waiting::is_temp_thread(id)
+    }
+
+    fn read_notices(&self, me: &str, cx: &mut App) {
+        if let Some(notices) = self.notices() {
+            let me = me.to_owned();
+            self.update(cx, |rq, cx| rq.read_notices(notices, me, cx));
+        }
+    }
+
+    fn refresh_notices(&self, me: &str, cx: &mut App) {
+        if let Some(notices) = self.notices() {
+            notices.update(cx, |n, _| n.forget());
+        }
+        self.read_notices(me, cx);
+    }
+
+    fn open_notice(&self, ix: usize, cx: &mut App) -> Option<(u64, Option<u64>)> {
+        let n = self.notices()?.update(cx, |n, _| n.open(ix))?;
+        Some((n.iid, n.note))
+    }
+
+    fn dismiss_notice(&self, ix: usize, cx: &mut App) {
+        if let Some(notices) = self.notices() {
+            self.update(cx, |rq, cx| rq.dismiss_notice(notices, ix, cx));
+        }
+    }
+
+    fn read_all_notices(&self, others: Vec<String>, cx: &mut App) {
+        if let Some(notices) = self.notices() {
+            notices.update(cx, |n, _| n.read_all(others));
+        }
+    }
+
+    fn mark_read(&self, key: String, cx: &mut App) {
+        if let Some(notices) = self.notices() {
+            notices.update(cx, |n, _| n.mark_read(key));
+        }
+    }
+
+    fn notice_by_key(&self, key: &str, cx: &App) -> Option<usize> {
+        self.read_notices_with(cx, |n| n.list.iter().position(|n| n.key == key))?
+    }
+
+    fn notice_request(&self, ix: usize, cx: &App) -> Option<u64> {
+        self.read_notices_with(cx, |n| n.list.get(ix).map(|n| n.iid))?
+    }
+
+    fn selected_notice(&self, cx: &App) -> Option<u64> {
+        self.read_notices_with(cx, |n| n.list.get(n.at).map(|n| n.iid))?
+    }
+
+    fn unread_of(&self, number: u64, cx: &App) -> bool {
+        self.read_notices_with(cx, |n| n.unread_of(number))
+            .unwrap_or(false)
+    }
+
+    fn unread_with(&self, answers: artoo_requests_api::Answers, cx: &App) -> usize {
+        self.read_notices_with(cx, |n| n.unread_with(answers))
+            .unwrap_or(0)
+    }
+
+    fn waiting_threads(&self, number: u64, cx: &App) -> Vec<Thread> {
+        let Some(requests) = self.0.upgrade() else {
+            return Vec::new();
+        };
+        let rq = requests.read(cx);
+        self.read_notices_with(cx, |n| {
+            rq.waiting_for_me(n.threads_of(number).unwrap_or_default())
+                .into_iter()
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+    }
+
+    fn inbox_rows(&self, answers: artoo_requests_api::Answers, cx: &App) -> Vec<InboxRow> {
+        let (Some(view), Some(notices)) = (self.inbox(), self.notices()) else {
+            return Vec::new();
+        };
+        view.read(cx).rows(notices.read(cx), answers)
+    }
+
+    fn inbox_current(&self, answers: artoo_requests_api::Answers, cx: &App) -> Option<InboxRow> {
+        self.inbox()?.read(cx).current(self.notices()?.read(cx), answers)
+    }
+
+    fn inbox_step(&self, answers: artoo_requests_api::Answers, down: bool, cx: &App) -> Option<InboxRow> {
+        self.inbox()?.read(cx).step(self.notices()?.read(cx), answers, down)
+    }
+
+    fn inbox_pick(&self, row: Option<InboxRow>, cx: &mut App) {
+        let (Some(view), Some(notices)) = (self.inbox(), self.notices()) else {
+            return;
+        };
+        view.update(cx, |v, cx| notices.update(cx, |n, _| crate::inbox::pick(row, v, n)));
+    }
+
+    fn read_excerpt(&self, cx: &mut App) {
+        let (Some(view), Some(notices)) = (self.inbox(), self.notices()) else {
+            return;
+        };
+        self.update(cx, |rq, cx| rq.read_excerpt(&notices, &view, cx));
+    }
+
+    fn set_inbox_filter(&self, filter: InboxFilter, cx: &mut App) {
+        if let Some(view) = self.inbox() {
+            view.update(cx, |v, _| v.filter = filter);
+        }
+    }
+
+    fn inbox_filters(&self, on: OnInbox, cx: &App) -> AnyElement {
+        let filter = self.inbox().map(|v| v.read(cx).filter).unwrap_or_default();
+        crate::inbox_view::filters(filter, &on).into_any_element()
+    }
+
+    fn inbox_reply_to(&self, cx: &App) -> Option<artoo_requests_api::ReplyTo> {
+        self.read_notices_with(cx, crate::inbox::reply_to)?
+    }
+
+    fn inbox_reply(&self, cx: &App) -> Option<(u64, Option<String>)> {
+        self.inbox()?.read(cx).reply.clone()
+    }
+
+    fn set_inbox_reply(&self, reply: Option<(u64, Option<String>)>, cx: &mut App) {
+        if let Some(view) = self.inbox() {
+            view.update(cx, |v, _| v.reply = reply);
+        }
     }
 }

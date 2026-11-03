@@ -138,6 +138,7 @@ impl Workspace {
             Event::Created { iid, source } => self.created(*iid, source, cx),
             Event::Create(asked) => self.create_asked(asked.clone(), cx),
             Event::Failed(e) => self.error = Some(e.clone().into()),
+            Event::Noticed(news) => self.notices_read(news, cx),
         }
         cx.notify();
     }
