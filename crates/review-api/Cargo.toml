@@ -9,5 +9,7 @@ publish = false
 [dependencies]
 # A source names the core's commits and versions.
 artoo-core = { path = "../core" }
+# A document's page is selected as a comment is.
+artoo-ui-kit = { path = "../ui-kit" }
 git2.workspace = true
 gpui.workspace = true

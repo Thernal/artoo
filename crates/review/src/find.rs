@@ -14,10 +14,10 @@ use gpui::{App, ClickEvent, Context, Div, Entity, WeakEntity, div, prelude::*};
 use std::rc::Rc;
 use std::sync::Arc;
 
-/// The find bar's field among the tab's inputs.
-pub const INPUT: &str = "review.find";
-
 /// Where a find goes in the one scroll: a file and its row.
+/// The find's field among the tab's inputs.
+pub const INPUT: &str = artoo_review_api::FIND_INPUT;
+
 pub type Found = Option<(usize, usize)>;
 
 impl Review {

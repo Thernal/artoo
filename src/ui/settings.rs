@@ -2,7 +2,6 @@
 //! window refreshes itself. Designed in `../Design/mockups/settings/a-general.html`. Its frame — the sections, the
 //! heading, Done — is drawn by the shell (`artoo_shell_api::settings`).
 
-use super::diff_view;
 use super::px;
 use super::{ISLAND_RADIUS, Workspace, theme};
 use crate::editor::{self, Editor};
@@ -183,7 +182,7 @@ impl Workspace {
                         .bg(theme::editor())
                         .border_1()
                         .border_color(theme::island_border())
-                        .child(diff_view::mark_preview(s.mark_style)),
+                        .children(self.review_api().map(|r| r.mark_preview(s.mark_style))),
                 )
                 .child(item(
                     "Default mode",

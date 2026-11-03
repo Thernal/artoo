@@ -6,19 +6,15 @@ use crate::diff_view::{LineNote, NoteTone};
 use crate::review::Review;
 use artoo_core::anchor::{Place, find_line};
 use artoo_core::rows::{self, FileData, Pin, Row};
-use std::collections::HashMap;
 
-/// A line an agent wrote on: what it is (a comment's or a note's id), the side, the line written on and its text then,
-/// and the line followed to the diff shown when the text no longer matches (#46).
-pub struct Anchored {
-    pub id: u64,
-    pub old: bool,
-    pub line: u32,
-    pub code: String,
-    pub followed: Option<u32>,
+pub use artoo_review_api::{Anchored, FilePins, Pins};
+
+/// Where an anchored comment is on the file now.
+trait Placed {
+    fn line_in(&self, data: &FileData) -> Option<u32>;
 }
 
-impl Anchored {
+impl Placed for Anchored {
     /// Where it is in the file built as `data`.
     fn line_in(&self, data: &FileData) -> Option<u32> {
         let side = data.side(self.old);
@@ -29,25 +25,15 @@ impl Anchored {
     }
 }
 
-/// What other features put on one file's lines.
-#[derive(Default)]
-pub struct FilePins {
-    /// The agents' notes on the new side, in the order drawn (#151).
-    pub notes: Vec<Anchored>,
-    /// The agents' comments.
-    pub comments: Vec<Anchored>,
-    /// Rows under lines known without the text: discussions each with its replies, pending comments, the
-    /// composer.
-    pub fixed: Vec<Pin>,
-    /// Gutter marks known without the text: bookmarks, discussions, pending comments.
-    pub marks: Vec<(bool, u32, NoteTone)>,
-    /// A composer is open in this file; the `c` prompt does not hang beside it.
-    pub composing: bool,
+/// What a file's pins come to: its rows, its gutter's marks.
+pub trait Laid {
+    fn rows(&self, data: &FileData, go: Option<(bool, u32)>) -> Vec<Pin>;
+    fn marks(&self, data: Option<&FileData>) -> Vec<LineNote>;
 }
 
-impl FilePins {
+impl Laid for FilePins {
     /// The pins of the file built as `data`, the `c` prompt's composer under `go` unless one is open here.
-    pub fn rows(&self, data: &FileData, go: Option<(bool, u32)>) -> Vec<Pin> {
+    fn rows(&self, data: &FileData, go: Option<(bool, u32)>) -> Vec<Pin> {
         // Why the line is as it is comes before what is said about it.
         let notes = self.notes.iter().filter_map(|n| {
             Some(Pin {
@@ -77,7 +63,7 @@ impl FilePins {
 
     /// The gutter's marks of the file built as `data`: one per line with comments, in the colour of the most
     /// important kind there (the request's, then one's pending, then the agent's).
-    pub fn marks(&self, data: Option<&FileData>) -> Vec<LineNote> {
+    fn marks(&self, data: Option<&FileData>) -> Vec<LineNote> {
         let mut out: Vec<LineNote> = Vec::new();
         let mut add = |old: bool, line: u32, tone: NoteTone| match out
             .iter_mut()
@@ -115,9 +101,6 @@ impl FilePins {
         out
     }
 }
-
-/// What others put on the lines of each file, by path: gathered by the tab for the files a layout lays out.
-pub type Pins = HashMap<String, FilePins>;
 
 /// The review's side: the rows and marks of a file with what others pinned on it.
 impl Review {

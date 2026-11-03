@@ -6,7 +6,7 @@
 use super::Workspace;
 use super::rows::Row;
 use super::typing::{self, Input};
-use artoo_review::goline::GoLineKey;
+use artoo_review_api::GoLineKey;
 use gpui::{App, Context, WeakEntity, div, prelude::*};
 
 impl Workspace {
@@ -37,7 +37,7 @@ impl Workspace {
         // On a file read in Code: the number of the line to write a note on (#75).
         if self.code_file_shown(cx) && !self.settings_open && self.compose.is_none() {
             self.review.update(cx, |rv, _| rv.open_goline());
-            self.take_keyboard(Input::Part(artoo_review::goline::INPUT), cx);
+            self.take_keyboard(Input::Part(artoo_review_api::GOLINE_INPUT), cx);
             return cx.notify();
         }
         if self.diff_data(cx).is_none() || self.settings_open || self.compose.is_some() {
@@ -49,7 +49,7 @@ impl Workspace {
         }
         self.zone = super::zones::Zone::Diff;
         self.review.update(cx, |rv, _| rv.open_goline());
-        self.take_keyboard(Input::Part(artoo_review::goline::INPUT), cx);
+        self.take_keyboard(Input::Part(artoo_review_api::GOLINE_INPUT), cx);
         self.move_marker(cx);
         cx.notify();
     }
@@ -112,7 +112,7 @@ impl Workspace {
         this: WeakEntity<Self>,
         cx: &App,
     ) -> gpui::AnyElement {
-        let input = Input::Part(artoo_review::goline::INPUT);
+        let input = Input::Part(artoo_review_api::GOLINE_INPUT);
         let active = self.has_keyboard(input, cx);
         let review = self.review.downgrade();
         match self

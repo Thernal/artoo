@@ -11,10 +11,12 @@
 pub mod diff;
 
 use artoo_core::git::{CommitInfo, PairCommit, Version};
-use artoo_core::rows::{FileData, Row};
+use artoo_core::rows::{FileData, Pin, Row};
 use artoo_core::storage::ViewOptions;
 use git2::Oid;
+use artoo_ui_kit::markdown::Selecting;
 use gpui::{AnyElement, App, Rgba};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -75,6 +77,10 @@ pub trait Review {
     fn diff_list(&self, cx: &App) -> gpui::ListState;
     fn char_width(&self, cx: &App) -> f32;
     fn root(&self, cx: &App) -> Option<PathBuf>;
+    /// The marks a file's pins put in its gutter, `data` its built diff.
+    fn pin_marks(&self, pins: &FilePins, data: Option<&FileData>) -> Vec<LineNote>;
+    /// Two sample lines, for Settings: what a changed word looks like in `marks`.
+    fn mark_preview(&self, marks: artoo_core::storage::MarkStyle) -> AnyElement;
 
     /// How a diff is read now (the view's options: whitespace ignored or not).
     fn settings(&self, cx: &App) -> artoo_core::git::DiffSettings;
@@ -319,4 +325,206 @@ impl ImageMode {
             ImageMode::Onion => "Onion skin",
         }
     }
+}
+
+// ---- what the tab and the review say to each other -----------------------------------------------------------
+
+/// The field of the line typed after `c` among the tab's inputs.
+pub const GOLINE_INPUT: &str = "review.goline";
+
+/// The find bar's field among the tab's inputs.
+pub const FIND_INPUT: &str = "review.find";
+
+/// The path filter's field among the tab's inputs.
+pub const FILTER_INPUT: &str = "review.filter";
+
+/// The size of code at 100 %.
+pub const CODE_SIZE: f32 = 12.;
+
+/// What a key did to the line typed after `c`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GoLineKey {
+    /// Esc: the marker goes.
+    Close,
+    /// The line changed: the marker moves once the rows are laid out again (`place_marker`).
+    Moved,
+    /// ↵: the comment opens there (`goline_at`).
+    Finish,
+    /// Nothing for the marker.
+    Kept,
+}
+
+/// A hit opened: the search closes, the diff's find takes its words and the file opens at its line.
+pub struct FoundInFiles {
+    pub query: String,
+    pub path: String,
+    pub line: u32,
+    pub old: bool,
+}
+
+/// A click in the search, for the tab to answer.
+#[derive(Clone, Copy)]
+pub enum SearchEvent {
+    /// Outside its window.
+    Close,
+    Case,
+    Word,
+    Regex,
+    /// Hit `ix` opened.
+    Open(usize),
+}
+
+/// What a key typed in the search came to.
+pub enum SearchKeyed {
+    Kept,
+    Closed,
+    Open(FoundInFiles),
+}
+
+/// A click on a document's page or its switch, for the tab to answer.
+#[derive(Clone)]
+pub enum PageEvent {
+    /// Document `path` read Rendered (`false`) or as Source.
+    Source { path: String, to: bool },
+    /// A block's count: its comments shown under it on the page, or hidden again.
+    Notes { ix: usize, old: bool, first: u32 },
+    /// A block's +: a comment written on the line it starts on.
+    Comment { ix: usize, old: bool, first: u32 },
+    /// A removed section's line, by path and first old line: shown where it was, or folded again.
+    Fold(String, u32),
+}
+
+/// What answers a page's clicks.
+pub type OnPage = Rc<dyn Fn(PageEvent, &mut App)>;
+
+/// What the tab gives a document's page to draw it with.
+pub struct PageLook {
+    /// The comment marks on its lines.
+    pub notes: Vec<LineNote>,
+    /// What goes under a block (the composer, its opened comments), by side and first line.
+    pub under: HashMap<(bool, u32), Vec<AnyElement>>,
+    /// Split's column heads: the versions compared.
+    pub heads: (String, String),
+    /// A block's text can be selected and copied, as a comment's.
+    pub selecting: Selecting,
+    /// Just turned from Source: it fades in (#56, 15).
+    pub coming: bool,
+    pub on: OnPage,
+}
+
+/// A change the user did not ask for, with the way back.
+pub struct Notice {
+    pub text: String,
+    /// The versions compared before (from, to), to go back to.
+    pub undo: Option<(usize, usize)>,
+}
+
+/// A view option, for the toolbar and the View menu.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Opt {
+    Unified,
+    Wrap,
+    FullContext,
+    Whitespace,
+    OneFile,
+    FoldReviewed,
+}
+
+/// How a file stands in the review.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ReviewState {
+    Open,
+    Done,
+    /// Marked, but the file is not what it was when it was marked.
+    Stale,
+}
+
+/// Whose comment sits on a line.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NoteTone {
+    /// A discussion on the merge request (GitLab).
+    Request,
+    /// A pending comment of one's own on the request.
+    Draft,
+    /// A comment kept for the agent.
+    Agent,
+    /// A line marked with F3.
+    Bookmark,
+}
+
+/// A line that has comments: drawn as a mark in its gutter.
+#[derive(Clone, Copy, Debug)]
+pub struct LineNote {
+    pub old: bool,
+    pub line: u32,
+    pub tone: NoteTone,
+    pub count: usize,
+}
+
+/// A line an agent wrote on: what it is (a comment's or a note's id), the side, the line written on and its text then,
+/// and the line followed to the diff shown when the text no longer matches (#46).
+pub struct Anchored {
+    pub id: u64,
+    pub old: bool,
+    pub line: u32,
+    pub code: String,
+    pub followed: Option<u32>,
+}
+
+/// What other features put on one file's lines.
+#[derive(Default)]
+pub struct FilePins {
+    /// The agents' notes on the new side, in the order drawn (#151).
+    pub notes: Vec<Anchored>,
+    /// The agents' comments.
+    pub comments: Vec<Anchored>,
+    /// Rows under lines known without the text: discussions each with its replies, pending comments, the
+    /// composer.
+    pub fixed: Vec<Pin>,
+    /// Gutter marks known without the text: bookmarks, discussions, pending comments.
+    pub marks: Vec<(bool, u32, NoteTone)>,
+    /// A composer is open in this file; the `c` prompt does not hang beside it.
+    pub composing: bool,
+}
+
+/// What others put on the lines of each file, by path: gathered by the tab for the files a layout lays out.
+pub type Pins = HashMap<String, FilePins>;
+
+/// What other features put on the file's lines: the agents' notes, each its id, the line it was written on and
+/// that line's text then, and the line of the note being written.
+#[derive(Default)]
+pub struct FileNotes {
+    pub notes: Vec<(u64, u32, String)>,
+    pub compose: Option<u32>,
+}
+
+/// What the review says to the tab that holds it, which follows (`Workspace::review_event`).
+pub enum Event {
+    /// A diff came, and the file to open in it; `None` when it has no files.
+    Loaded(Option<usize>),
+    /// A diff or a file could not be read: why.
+    Failed(String),
+    /// The rows of the file shown alone were built: the tab lays them out with what is pinned on its lines.
+    FileBuilt,
+    /// The rows of file `ix` of the stack were built: the tab lays them out with what is pinned on its lines.
+    StackBuilt(usize),
+    /// A file the diff does not change was read and is shown in its place (`Review::read_file`).
+    FileRead,
+    /// What is drawn changed (blame came, a tip to show): the tab draws again.
+    Changed,
+    /// The find went to row `row` of file `file` in the one scroll: the tab makes the file the active one, its
+    /// pins laid out, and the row comes into view.
+    Found { file: usize, row: usize },
+    /// The line typed after `c` moved the marker, asks to write there, or closed: the tab lays the rows out with
+    /// what is pinned on them, and opens the composer.
+    GoLine(GoLineKey),
+    /// A click on a document's switch (`md_page::emitting`).
+    Page(PageEvent),
+}
+
+/// A row of the Changes list, as the keyboard moves over it: a file, or a folder or a group by its key.
+#[derive(Clone)]
+pub enum ItemKey {
+    File(usize),
+    Dir(String),
 }

@@ -3,7 +3,7 @@
 //! the diff and runs between two positions (line and byte offset into that line's text).
 
 use super::{CopySelection, SelectAll, Workspace};
-use artoo_review::select::{Pos, Sel, word_at};
+use artoo_core::select::{Pos, Sel, word_at};
 use gpui::{App, ClipboardItem, Context, Window};
 
 impl Workspace {

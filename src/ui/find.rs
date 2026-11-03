@@ -3,7 +3,6 @@
 
 use super::Workspace;
 use super::typing::Input;
-use artoo_review::find::Found;
 use gpui::{App, Context, KeyDownEvent};
 
 impl Workspace {
@@ -36,7 +35,7 @@ impl Workspace {
     }
 
     /// Where a find went in the one scroll (`ReviewEvent::Found`): its file the active one, the row in view.
-    pub(super) fn go_found(&mut self, found: Found, cx: &mut Context<Self>) {
+    pub(super) fn go_found(&mut self, found: Option<(usize, usize)>, cx: &mut Context<Self>) {
         if let Some((file, row)) = found {
             self.activate_file(file, cx);
             self.review.update(cx, |rv, _| rv.scroll_to_row(row));
@@ -167,7 +166,7 @@ impl Workspace {
     pub(super) fn start_dfind(&mut self, cx: &mut Context<Self>) {
         self.settings_open = false;
         self.review.update(cx, |rv, _| rv.open_find());
-        self.take_keyboard(Input::Part(artoo_review::find::INPUT), cx);
+        self.take_keyboard(Input::Part(artoo_review_api::FIND_INPUT), cx);
         cx.notify();
     }
 

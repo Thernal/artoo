@@ -4,7 +4,7 @@
 //! Designed in `../Design/mockups/ide-ideas/a-ideas.html` (1).
 
 use super::{Header, Workspace};
-use artoo_review::reviewed::State;
+use artoo_review_api::ReviewState as State;
 use gpui::{App, Context};
 
 impl Workspace {

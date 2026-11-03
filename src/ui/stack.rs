@@ -9,7 +9,7 @@
 //! makes them active.
 
 use super::Workspace;
-use artoo_review::reviewed::State;
+use artoo_review_api::ReviewState as State;
 use gpui::{App, Context};
 
 impl Workspace {

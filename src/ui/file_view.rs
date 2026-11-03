@@ -9,7 +9,7 @@
 use super::spaces::Space;
 use super::{Header, Workspace, format};
 use artoo_code_api::FilePage;
-use artoo_review::file_view::FileNotes;
+use artoo_review_api::FileNotes;
 use gpui::{App, Context, prelude::*};
 use std::rc::Rc;
 

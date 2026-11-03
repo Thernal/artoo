@@ -1,7 +1,7 @@
 //! The composer (#9, #51, #129, #168): a + in the gutter opens it under the line — on a page, a file or a folder
 //! in Code too —, for the agent, a merge request, a reply or an edit; its keys routed, the completion's choices,
 //! who it goes to and what its foot's buttons do. The comment itself, its editing and its drawing, the foot's
-//! too, are the review's (`artoo_review::composer`). What it writes
+//! too, are the review's (`artoo_ui_kit::composer`). What it writes
 //! goes to its owner: the agents' comments (`agent_comments.rs`), a
 //! request (`replies.rs`). Comments for an agent are kept on this Mac (`crate::review`), never in the reviewed
 //! repository. Designed in `../Design/mockups/line-comments/a-agent-comments.html`.
@@ -15,7 +15,7 @@ use super::{Selection, Workspace, format};
 use crate::comment::{Comment, State};
 use crate::markdown::Helper;
 use crate::textedit::TextEdit;
-pub(super) use artoo_review::composer::{
+pub(super) use artoo_ui_kit::composer::{
     Change, Compose, ComposeAct, ComposeActs, FootEvent, FootLook, Look, Room, Short, Target,
     Typed, room_for,
 };

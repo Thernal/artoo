@@ -9,7 +9,6 @@ pub mod annotate;
 pub mod changes;
 pub mod changes_view;
 pub mod column;
-pub mod composer;
 pub mod diff;
 pub mod diff_view;
 pub mod file_view;

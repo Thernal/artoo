@@ -8,9 +8,6 @@ use artoo_ui_kit::{ROW_RADIUS, icons, px, theme};
 use gpui::{Context, Div, Entity, MouseButton, Stateful, div, prelude::*};
 use std::rc::Rc;
 
-/// The path filter's field among the tab's inputs.
-pub const INPUT: &str = "review.filter";
-
 impl Review {
     /// ⌥⌘P: the filter open to take the keyboard, the Changes section with it (`keep`: as the user leaves it, not
     /// zen's for a while).
@@ -66,6 +63,9 @@ impl Review {
         })
     }
 }
+
+/// The path filter's field among the tab's inputs.
+pub const INPUT: &str = artoo_review_api::FILTER_INPUT;
 
 /// The path filter's field as one of the tab's inputs: what is typed filters the files; esc lets it go.
 pub fn input(review: Entity<Review>) -> Input {

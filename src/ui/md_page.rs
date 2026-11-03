@@ -2,18 +2,18 @@
 //! its blocks (the composer, the comments of a block opened), the marks on its lines and Split's heads, and answers
 //! its clicks and its switch's (`PageEvent`).
 
-use super::diff_view::NoteTone;
+use artoo_review_api::NoteTone;
 use super::{Selection, Workspace, px};
 use crate::markdown;
 use crate::mddiff::Row;
-use artoo_review::md_page::{PageEvent, PageLook};
+use artoo_review_api::{PageEvent, PageLook};
 use gpui::{AnyElement, App, Context, WeakEntity, div, prelude::*};
 use std::collections::HashMap;
 use std::rc::Rc;
 
 impl Workspace {
     /// How a page's clicks come to the tab.
-    fn page_on(this: WeakEntity<Self>) -> artoo_review::md_page::OnPage {
+    fn page_on(this: WeakEntity<Self>) -> artoo_review_api::OnPage {
         Rc::new(move |event, cx| {
             this.update(cx, |this, cx| this.page_event(event, cx)).ok();
         })
@@ -42,9 +42,9 @@ impl Workspace {
                 let rows = rv.page.rows(file);
                 let path = file.path().to_owned();
                 let data = (ix == rv.file).then_some(rv.data.as_deref()).flatten();
-                let notes = self
-                    .pins_of(&path, cx)
-                    .marks(data)
+                let pins = self.pins_of(&path, cx);
+                let notes = (self.review_api().map(|r| r.pin_marks(&pins, data)))
+                    .unwrap_or_default()
                     .into_iter()
                     .filter(|n| n.tone != NoteTone::Bookmark)
                     .collect();

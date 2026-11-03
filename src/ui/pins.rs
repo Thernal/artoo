@@ -5,10 +5,10 @@
 
 use super::Workspace;
 use super::composer::Target;
-use super::diff_view::NoteTone;
+use artoo_review_api::NoteTone;
 use super::rows::{Pin, Row};
 use crate::comment::Place;
-use artoo_review::pins::{Anchored, FilePins, Pins};
+use artoo_review_api::{Anchored, FilePins, Pins};
 use gpui::{App, Context};
 
 /// The tab's side: what is pinned on the files a layout lays out, gathered now.
@@ -47,7 +47,7 @@ impl Workspace {
         let only_bookmark = self.review.read(cx).notes.iter().any(|n| {
             n.old == old
                 && n.line == line
-                && n.tone == super::diff_view::NoteTone::Bookmark
+                && n.tone == NoteTone::Bookmark
                 && n.count == 1
         });
         if only_bookmark {

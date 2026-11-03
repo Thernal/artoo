@@ -2,7 +2,7 @@
 //! window, gives it its field and the keys, and opens what is found.
 
 use super::Workspace;
-use artoo_review::find_files::{Keyed, SearchEvent};
+use artoo_review_api::{SearchEvent, SearchKeyed as Keyed};
 use gpui::{AnyElement, Context, KeyDownEvent, prelude::*};
 use std::rc::Rc;
 

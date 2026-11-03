@@ -14,7 +14,7 @@ use std::rc::Rc;
 
 /// A diff row's height and its code's size at 100 %.
 pub const DIFF_ROW: f32 = 20.;
-pub const CODE_SIZE: f32 = 12.;
+pub use artoo_review_api::CODE_SIZE;
 
 const TAB_WIDTH: usize = 4;
 /// Width of the `+`/`−` column in a unified diff.
@@ -69,29 +69,9 @@ pub struct AnnCell {
 }
 
 /// The width of the annotation column.
+pub use artoo_review_api::{LineNote, NoteTone};
+
 pub const ANNOT_W: f32 = 172.;
-
-/// Whose comment sits on a line.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum NoteTone {
-    /// A discussion on the merge request (GitLab).
-    Request,
-    /// A pending comment of one's own on the request.
-    Draft,
-    /// A comment kept for the agent.
-    Agent,
-    /// A line marked with F3.
-    Bookmark,
-}
-
-/// A line that has comments: drawn as a mark in its gutter.
-#[derive(Clone, Copy, Debug)]
-pub struct LineNote {
-    pub old: bool,
-    pub line: u32,
-    pub tone: NoteTone,
-    pub count: usize,
-}
 
 /// A callback about a diff line: (on the removed side, line number, …).
 type OnLine = Box<dyn Fn(bool, u32, &mut App)>;

@@ -163,3 +163,12 @@ mod tests {
         assert_eq!(reason("fetch: forced-update"), "fetch");
     }
 }
+
+/// `12.3 KB`.
+pub fn bytes(n: usize) -> String {
+    match n {
+        n if n < 1024 => format!("{n} B"),
+        n if n < 1024 * 1024 => format!("{:.1} KB", n as f64 / 1024.),
+        n => format!("{:.1} MB", n as f64 / (1024. * 1024.)),
+    }
+}

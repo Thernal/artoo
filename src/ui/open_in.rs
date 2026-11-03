@@ -487,7 +487,7 @@ impl Workspace {
             "This file can’t be shown as text".to_owned(),
             format!(
                 "{} of binary data.",
-                artoo_review::image_view::bytes(size as usize)
+                artoo_ui_kit::format::bytes(size as usize)
             ),
             Some(actions.into_any_element()),
         )

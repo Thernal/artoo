@@ -442,6 +442,8 @@ name = "artoo-requests-api"
 version = "1.3.0"
 dependencies = [
  "artoo-core",
+ "artoo-ui-kit",
+ "git2",
  "gpui-pre",
  "serde",
 ]
@@ -465,6 +467,7 @@ name = "artoo-review-api"
 version = "1.3.0"
 dependencies = [
  "artoo-core",
+ "artoo-ui-kit",
  "git2",
  "gpui-pre",
 ]
@@ -494,6 +497,7 @@ version = "1.3.0"
 dependencies = [
  "artoo-core",
  "chrono",
+ "git2",
  "gpui-pre",
  "regex",
 ]

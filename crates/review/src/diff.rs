@@ -3,17 +3,11 @@
 
 use artoo_core::git::{DiffSettings, Repo};
 use artoo_review_api::Source;
+pub use artoo_review_api::Notice;
 pub use artoo_review_api::diff::{Diff, FileTags, Header};
 use artoo_ui_kit::format;
 use std::path::Path;
 use std::sync::Arc;
-
-/// A change the user did not ask for, with the way back.
-pub struct Notice {
-    pub text: String,
-    /// The versions compared before (from, to), to go back to.
-    pub undo: Option<(usize, usize)>,
-}
 
 /// What `source` is, read from the repository at `root` with `settings`.
 pub fn read(root: &Path, source: Source, settings: DiffSettings) -> anyhow::Result<Diff> {

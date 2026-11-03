@@ -86,9 +86,9 @@ use crate::git::Repo;
 use crate::rows::{self, Row};
 use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
 use artoo_branches_api::{Event as BranchesEvent, Selection};
-use artoo_review::diff::{Header, Notice};
-use artoo_review::diff_view::{self, CODE_SIZE};
-use artoo_review::review::{self, Opt};
+use artoo_review::review;
+use artoo_review_api::diff::Header;
+use artoo_review_api::{CODE_SIZE, Notice, Opt};
 use artoo_shell_api::frame::{Drag, Split};
 use artoo_shell_api::title;
 use artoo_ui_kit::controls::tag;
@@ -961,10 +961,10 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         }
                         "linemenu" => {
                             this.review.update(cx, |rv, _| {
-                                rv.sel = Some(artoo_review::select::Sel {
+                                rv.sel = Some(artoo_core::select::Sel {
                                     old: false,
-                                    anchor: artoo_review::select::Pos { line: 66, byte: 4 },
-                                    head: artoo_review::select::Pos { line: 68, byte: 12 },
+                                    anchor: artoo_core::select::Pos { line: 66, byte: 4 },
+                                    head: artoo_core::select::Pos { line: 68, byte: 12 },
                                 })
                             });
                             this.line_context(false, 67, Point::new(px(900.), px(520.)), cx);
@@ -1021,9 +1021,9 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         "swipe" | "onion" => {
                             this.review.update(cx, |rv, _| {
                                 rv.images.mode = if name.trim() == "swipe" {
-                                    artoo_review::image_view::Mode::Swipe
+                                    artoo_review_api::ImageMode::Swipe
                                 } else {
-                                    artoo_review::image_view::Mode::Onion
+                                    artoo_review_api::ImageMode::Onion
                                 }
                             });
                             continue;
@@ -2742,7 +2742,7 @@ impl Workspace {
         self.zone = zones::Zone::Files;
         let keep = self.zen.is_none();
         self.review.update(cx, |rv, cx| rv.open_filter(keep, cx));
-        self.take_keyboard(typing::Input::Part(artoo_review::path_filter::INPUT), cx);
+        self.take_keyboard(typing::Input::Part(artoo_review_api::FILTER_INPUT), cx);
         cx.notify();
     }
 
@@ -3169,7 +3169,7 @@ impl artoo_review_api::Host for TabHost {
                 }
                 PaneEvent::Review => {
                     let rv = this.review.read(cx);
-                    if rv.review_state(rv.file) == Some(artoo_review::reviewed::State::Done) {
+                    if rv.review_state(rv.file) == Some(artoo_review_api::ReviewState::Done) {
                         this.toggle_reviewed(cx)
                     } else {
                         this.mark_and_advance(cx)
@@ -3216,7 +3216,7 @@ impl artoo_review_api::Host for TabHost {
             .update(cx, |this, cx| match event {
                 ChangesEvent::ToggleReviewed(ix) => {
                     let done = this.review.read(cx).review_state(ix)
-                        == Some(artoo_review::reviewed::State::Done);
+                        == Some(artoo_review_api::ReviewState::Done);
                     this.set_reviewed(ix, !done, cx);
                 }
                 ChangesEvent::FolderReviewed { folder, done } => {

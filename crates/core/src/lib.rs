@@ -20,6 +20,7 @@ pub mod rank;
 pub mod route;
 pub mod rows;
 pub mod search;
+pub mod select;
 pub mod storage;
 pub mod structural;
 pub mod symbols;

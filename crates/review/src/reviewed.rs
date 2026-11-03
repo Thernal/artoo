@@ -8,14 +8,7 @@ use artoo_core::storage;
 use artoo_review_api::Seen;
 use std::collections::HashMap;
 
-/// How a file stands in the review.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum State {
-    Open,
-    Done,
-    /// Marked, but the file is not what it was when it was marked.
-    Stale,
-}
+pub use artoo_review_api::ReviewState as State;
 
 /// A file marked reviewed: its fingerprint then, when (0: not known, an older mark), and the head
 /// the diff was at — its version says "at v2" (X59).

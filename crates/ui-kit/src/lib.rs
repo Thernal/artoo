@@ -4,6 +4,7 @@
 //! A module draws with this and GPUI alone.
 
 pub mod complete;
+pub mod composer;
 pub mod controls;
 pub mod discussion;
 pub mod done;

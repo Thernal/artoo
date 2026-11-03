@@ -5,10 +5,10 @@
 
 use artoo_core::markdown::Helper;
 use artoo_core::textedit::TextEdit;
-use artoo_ui_kit::complete::Choice;
-use artoo_ui_kit::discussion::{self, Kind, Source};
-use artoo_ui_kit::input::{self, Edit};
-use artoo_ui_kit::{hover, icons, keys, markdown, px, theme};
+use crate::complete::Choice;
+use crate::discussion::{self, Kind, Source};
+use crate::input::{self, Edit};
+use crate::{hover, icons, keys, markdown, px, theme};
 use gpui::{AnyElement, App, Div, Keystroke, Pixels, Point, Rgba, SharedString, div, prelude::*};
 use std::rc::Rc;
 

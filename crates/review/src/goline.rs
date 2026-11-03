@@ -12,21 +12,9 @@ use artoo_ui_kit::{ROW_RADIUS, hover, px, theme};
 use gpui::{App, Div, Entity, Keystroke, WeakEntity, div, prelude::*};
 use std::rc::Rc;
 
+pub use artoo_review_api::GoLineKey;
 /// The field of the line typed after `c` among the tab's inputs.
-pub const INPUT: &str = "review.goline";
-
-/// What a key did to the line typed after `c`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum GoLineKey {
-    /// Esc: the marker goes.
-    Close,
-    /// The line changed: the marker moves once the rows are laid out again (`place_marker`).
-    Moved,
-    /// ↵: the comment opens there (`goline_at`).
-    Finish,
-    /// Nothing for the marker.
-    Kept,
-}
+pub const INPUT: &str = artoo_review_api::GOLINE_INPUT;
 
 impl Review {
     /// The line after `c` starts empty: it stands for the first change.

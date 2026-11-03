@@ -23,16 +23,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
-/// A view option, for the toolbar and the View menu.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Opt {
-    Unified,
-    Wrap,
-    FullContext,
-    Whitespace,
-    OneFile,
-    FoldReviewed,
-}
+pub use artoo_review_api::Opt;
 
 /// Where the diff's top is: the file, the line (and whether on the old side) of the nearest row
 /// that has one, how far into that row.
@@ -152,29 +143,7 @@ pub struct Review {
     pub changes_motion: motion::Marks,
 }
 
-/// What the review says to the tab that holds it, which follows (`Workspace::review_event`).
-pub enum ReviewEvent {
-    /// A diff came, and the file to open in it; `None` when it has no files.
-    Loaded(Option<usize>),
-    /// A diff or a file could not be read: why.
-    Failed(String),
-    /// The rows of the file shown alone were built: the tab lays them out with what is pinned on its lines.
-    FileBuilt,
-    /// The rows of file `ix` of the stack were built: the tab lays them out with what is pinned on its lines.
-    StackBuilt(usize),
-    /// A file the diff does not change was read and is shown in its place (`Review::read_file`).
-    FileRead,
-    /// What is drawn changed (blame came, a tip to show): the tab draws again.
-    Changed,
-    /// The find went to row `row` of file `file` in the one scroll: the tab makes the file the active one, its
-    /// pins laid out, and the row comes into view.
-    Found { file: usize, row: usize },
-    /// The line typed after `c` moved the marker, asks to write there, or closed: the tab lays the rows out with
-    /// what is pinned on them, and opens the composer.
-    GoLine(crate::goline::GoLineKey),
-    /// A click on a document's switch (`md_page::emitting`).
-    Page(crate::md_page::PageEvent),
-}
+pub use artoo_review_api::Event as ReviewEvent;
 
 impl gpui::EventEmitter<ReviewEvent> for Review {}
 
@@ -281,6 +250,18 @@ impl artoo_review_api::Review for Handle {
 
     fn root(&self, cx: &App) -> Option<PathBuf> {
         self.0.upgrade()?.read(cx).root.clone()
+    }
+
+    fn pin_marks(
+        &self,
+        pins: &artoo_review_api::FilePins,
+        data: Option<&FileData>,
+    ) -> Vec<artoo_review_api::LineNote> {
+        crate::pins::Laid::marks(pins, data)
+    }
+
+    fn mark_preview(&self, marks: artoo_core::storage::MarkStyle) -> gpui::AnyElement {
+        diff_view::mark_preview(marks).into_any_element()
     }
 
     fn place(&self, cx: &App) -> Option<(String, gpui::ListOffset)> {

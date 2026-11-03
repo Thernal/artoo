@@ -73,13 +73,7 @@ impl FileView {
     }
 }
 
-/// What other features put on the file's lines: the agents' notes, each its id, the line it was written on and
-/// that line's text then, and the line of the note being written.
-#[derive(Default)]
-pub struct FileNotes {
-    pub notes: Vec<(u64, u32, String)>,
-    pub compose: Option<u32>,
-}
+pub use artoo_review_api::FileNotes;
 
 /// The rows of a file of `lines`: its lines, each with the notes on it and the note being written.
 pub fn rows(lines: &[String], notes: &FileNotes) -> Vec<Row> {

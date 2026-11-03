@@ -166,36 +166,7 @@ impl Review {
     }
 }
 
-/// A click on a document's page or its switch, for the tab to answer.
-#[derive(Clone)]
-pub enum PageEvent {
-    /// Document `path` read Rendered (`false`) or as Source.
-    Source { path: String, to: bool },
-    /// A block's count: its comments shown under it on the page, or hidden again.
-    Notes { ix: usize, old: bool, first: u32 },
-    /// A block's +: a comment written on the line it starts on.
-    Comment { ix: usize, old: bool, first: u32 },
-    /// A removed section's line, by path and first old line: shown where it was, or folded again.
-    Fold(String, u32),
-}
-
-/// What answers a page's clicks.
-pub type OnPage = Rc<dyn Fn(PageEvent, &mut App)>;
-
-/// What the tab gives a document's page to draw it with.
-pub struct PageLook {
-    /// The comment marks on its lines.
-    pub notes: Vec<LineNote>,
-    /// What goes under a block (the composer, its opened comments), by side and first line.
-    pub under: HashMap<(bool, u32), Vec<AnyElement>>,
-    /// Split's column heads: the versions compared.
-    pub heads: (String, String),
-    /// A block's text can be selected and copied, as a comment's.
-    pub selecting: Selecting,
-    /// Just turned from Source: it fades in (#56, 15).
-    pub coming: bool,
-    pub on: OnPage,
-}
+pub use artoo_review_api::{OnPage, PageEvent, PageLook};
 
 /// A page's clicks said to the tab that holds `this` (`ReviewEvent::Page`).
 pub fn emitting(this: WeakEntity<Review>) -> OnPage {

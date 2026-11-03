@@ -42,35 +42,10 @@ pub struct FindFiles {
     scroll: ScrollHandle,
 }
 
-/// A hit opened: the search closes, the diff's find takes its words and the file opens at its line.
-pub struct Found {
-    pub query: String,
-    pub path: String,
-    pub line: u32,
-    pub old: bool,
-}
-
-/// A click in the search, for the tab to answer.
-#[derive(Clone, Copy)]
-pub enum SearchEvent {
-    /// Outside its window.
-    Close,
-    Case,
-    Word,
-    Regex,
-    /// Hit `ix` opened.
-    Open(usize),
-}
+pub use artoo_review_api::{FoundInFiles as Found, SearchEvent, SearchKeyed as Keyed};
 
 /// What answers the search's clicks.
 pub type OnSearch = Rc<dyn Fn(SearchEvent, &mut Window, &mut App)>;
-
-/// What a key typed in the search came to.
-pub enum Keyed {
-    Kept,
-    Closed,
-    Open(Found),
-}
 
 /// Where `needle` first occurs in `hay` (a byte range), under the toggles.
 fn find_in(hay: &str, needle: &str, case: bool, word: bool) -> Option<Range<usize>> {

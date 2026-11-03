@@ -17,6 +17,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 /// The box an image is drawn in at most, before the interface zoom.
+pub use artoo_ui_kit::format::bytes;
+
 pub const MAX_W: f32 = 720.;
 pub const MAX_H: f32 = 520.;
 
@@ -77,15 +79,6 @@ pub fn format(kind: ImageKind) -> ImageFormat {
         ImageKind::Ico => ImageFormat::Ico,
         ImageKind::Tiff => ImageFormat::Tiff,
         ImageKind::Svg => ImageFormat::Svg,
-    }
-}
-
-/// `12.3 KB`.
-pub fn bytes(n: usize) -> String {
-    match n {
-        n if n < 1024 => format!("{n} B"),
-        n if n < 1024 * 1024 => format!("{:.1} KB", n as f64 / 1024.),
-        n => format!("{:.1} MB", n as f64 / (1024. * 1024.)),
     }
 }
 
