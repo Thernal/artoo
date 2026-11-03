@@ -492,6 +492,66 @@ pub trait Review {
 
     /// The blocks whose comments are shown under them: path, side, first line.
     fn page_notes_open(&self, cx: &App) -> Vec<(String, bool, u32)>;
+
+    /// The Changes list open or closed, at once.
+    fn set_changes_open(&self, open: bool, cx: &mut App);
+
+    /// The diff's find's matches found again.
+    fn recompute_matches(&self, cx: &mut App);
+
+    /// The repository's folder, a copy of the tab's: the marks' keys, blame.
+    fn set_root(&self, root: PathBuf, cx: &mut App);
+
+    /// The file shown scrolls back where it was before it was built again.
+    fn restore_file_scroll(&self, cx: &mut App);
+
+    /// File `ix` (`file`) alone becomes the one shown; its rows are built in the background, then said.
+    fn show_file(&self, ix: usize, file: artoo_core::git::FileDiff, cx: &mut App);
+
+    /// The file shown laid out again with `pins`.
+    fn relayout(&self, pins: &Pins, cx: &mut App);
+
+    /// Every file laid out again with `pins`.
+    fn relayout_all(&self, pins: &Pins, cx: &mut App);
+
+    /// The hidden lines of unchanged run `segment` shown in place, laid out with `pins`: true when they were hidden.
+    fn expand_gap(&self, segment: usize, pins: &Pins, cx: &mut App) -> bool;
+
+    /// View option `opt` is on.
+    fn option(&self, opt: Opt, cx: &App) -> bool;
+
+    /// View option `opt` turned on or off: true when it changed.
+    fn set_option(&self, opt: Opt, value: bool, cx: &mut App) -> bool;
+
+    /// How the diff is drawn (split, unified, …): true when it changed.
+    fn set_mode(&self, mode: artoo_core::storage::DiffMode, cx: &mut App) -> bool;
+
+    /// Blame is shown beside the lines.
+    fn annotating(&self, cx: &App) -> bool;
+
+    /// Generated file `path` shown in full anyway, its rows built.
+    fn unfold(&self, path: &str, cx: &mut App);
+
+    /// The Changes list's path filter open to take the keyboard; `keep`: as the user leaves it.
+    fn open_filter(&self, keep: bool, cx: &mut App);
+
+    /// No file shown: the next one is built anew.
+    fn clear_file(&self, cx: &mut App);
+
+    /// The file shown, when it is shown alone as a page that scrolls on its own.
+    fn page_alone_file(&self, cx: &App) -> Option<usize>;
+
+    /// An SVG shows its text diff (`true`) or its picture.
+    fn set_svg_source(&self, source: bool, cx: &mut App);
+
+    /// How images are looked at.
+    fn set_image_mode(&self, mode: ImageMode, cx: &mut App);
+
+    /// Where the swipe is, or how opaque the new image is: 0 … 1.
+    fn set_image_mix(&self, mix: f32, cx: &mut App);
+
+    /// The files under folder `path` of the Changes list.
+    fn files_under(&self, path: &str, cx: &App) -> Vec<usize>;
 }
 
 /// An item page's middle as the review draws it (#165 I5d): what the route on screen is of, the parts' pieces over

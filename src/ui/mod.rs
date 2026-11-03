@@ -736,10 +736,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         }
         if let Ok(path) = std::env::var("ARTOO_SNAPSHOT_FILE") {
             ws.update(cx, |this, cx| {
-                let found = this
-                    .review
-                    .read(cx)
-                    .diff
+                let found = this.shown_diff(cx)
                     .as_ref()
                     .and_then(|d| d.files.iter().position(|f| f.path() == path));
                 if let Some(ix) = found {
@@ -814,7 +811,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         "underlined" => {
                             // Not saved either: only this frame.
                             this.settings.mark_style = crate::storage::MarkStyle::Underlined;
-                            this.review.update(cx, |rv, _| rv.settings = this.settings);
+                            this.rv().set_settings(this.settings, cx);
                             continue;
                         }
                         "comments" => {
@@ -826,7 +823,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                                 continue;
                             };
                             let target =
-                                this.review.read(cx).rows.iter().find_map(|row| match row {
+                                this.rv().rows(cx).iter().find_map(|row| match row {
                                     Row::Split { right: Some(c), .. }
                                     | Row::Unified {
                                         cell: c,
@@ -867,7 +864,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             ) else {
                                 continue;
                             };
-                            let line = this.review.read(cx).rows.iter().find_map(|row| match row {
+                            let line = this.rv().rows(cx).iter().find_map(|row| match row {
                                 Row::Split { right: Some(c), .. }
                                 | Row::Unified {
                                     cell: c,
@@ -946,12 +943,11 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             continue;
                         }
                         "notice" => {
-                            this.review.update(cx, |rv, _| {
-                                rv.notice = Some(Notice {
-                                    text: "v3 arrived — this comparison now ends at v3.".into(),
-                                    undo: None,
-                                })
-                            });
+                            let notice = Notice {
+                                text: "v3 arrived — this comparison now ends at v3.".into(),
+                                undo: None,
+                            };
+                            this.rv().set_notice(Some(notice), cx);
                             continue;
                         }
                         "viewmenu" => {
@@ -960,13 +956,12 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             continue;
                         }
                         "linemenu" => {
-                            this.review.update(cx, |rv, _| {
-                                rv.sel = Some(artoo_core::select::Sel {
-                                    old: false,
-                                    anchor: artoo_core::select::Pos { line: 66, byte: 4 },
-                                    head: artoo_core::select::Pos { line: 68, byte: 12 },
-                                })
-                            });
+                            let sel = artoo_core::select::Sel {
+                                old: false,
+                                anchor: artoo_core::select::Pos { line: 66, byte: 4 },
+                                head: artoo_core::select::Pos { line: 68, byte: 12 },
+                            };
+                            this.rv().set_sel(Some(sel), cx);
                             this.line_context(false, 67, Point::new(px(900.), px(520.)), cx);
                             continue;
                         }
@@ -1019,13 +1014,12 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             continue;
                         }
                         "swipe" | "onion" => {
-                            this.review.update(cx, |rv, _| {
-                                rv.images.mode = if name.trim() == "swipe" {
-                                    artoo_review_api::ImageMode::Swipe
-                                } else {
-                                    artoo_review_api::ImageMode::Onion
-                                }
-                            });
+                            let mode = if name.trim() == "swipe" {
+                                artoo_review_api::ImageMode::Swipe
+                            } else {
+                                artoo_review_api::ImageMode::Onion
+                            };
+                            this.rv().set_image_mode(mode, cx);
                             continue;
                         }
                         "agents" => {
@@ -1072,19 +1066,19 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         "rail-tabs" => {
                             this.settings.projects = crate::storage::Projects::Tabs;
                             share_settings(&this.settings);
-                            this.review.update(cx, |rv, _| rv.settings = this.settings);
+                            this.rv().set_settings(this.settings, cx);
                             continue;
                         }
                         "rail-menu" => {
                             this.settings.projects = crate::storage::Projects::Menu;
                             share_settings(&this.settings);
-                            this.review.update(cx, |rv, _| rv.settings = this.settings);
+                            this.rv().set_settings(this.settings, cx);
                             continue;
                         }
                         "flat" => {
                             this.settings.flat = true;
                             share_settings(&this.settings);
-                            this.review.update(cx, |rv, _| rv.settings = this.settings);
+                            this.rv().set_settings(this.settings, cx);
                             continue;
                         }
                         "appearance" => {
@@ -1158,7 +1152,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             continue;
                         }
                         "fold-changes" => {
-                            this.review.update(cx, |rv, _| rv.changes_open = false);
+                            this.rv().set_changes_open(false, cx);
                             continue;
                         }
                         // A tool window on the right, without saving it as the open one.
@@ -1210,7 +1204,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                 if let Some(branches) = this.branches() {
                     branches.search(text, cx);
                 }
-                this.review.update(cx, |rv, _| rv.recompute_matches());
+                this.rv().recompute_matches(cx);
                 cx.notify();
             });
             wait(800).await;
@@ -2009,8 +2003,7 @@ impl Workspace {
                         this.start_working_poll(cx);
                         this.load_requests(cx);
                         // The documents this repository reads as Source (#11).
-                        this.review
-                            .update(cx, |rv, _| rv.page.load(&crate::comment::key(&root)));
+                        this.rv().load_pages(&crate::comment::key(&root), cx);
                         // Its requests list's folds and the requests opened (#81).
                         let key = crate::comment::key(&root);
                         if let Some(requests) = this.requests_api() {
@@ -2022,7 +2015,7 @@ impl Workspace {
                             let key = crate::comment::key(&root);
                             code.set_project(root.clone(), false, fresh, &key, cx);
                         }
-                        this.review.update(cx, |rv, _| rv.root = Some(root.clone()));
+                        this.rv().set_root(root.clone(), cx);
                         let fresh = this.root.as_ref() != Some(&root);
                         if let Some(branches_api) = this.branches() {
                             branches_api.opened(root.clone(), branches, Some(decor), fresh, cx);
@@ -2080,8 +2073,7 @@ impl Workspace {
         self.fetch = Default::default();
         self.start_working_poll(cx);
         self.load_requests(cx);
-        self.review
-            .update(cx, |rv, _| rv.page.load(&crate::comment::key(&root)));
+        self.rv().load_pages(&crate::comment::key(&root), cx);
         let key = crate::comment::key(&root);
         if let Some(requests) = self.requests_api() {
             requests.load_rows(&key, cx);
@@ -2090,7 +2082,7 @@ impl Workspace {
             let fresh = self.root.as_ref() != Some(&root);
             code.set_project(root.clone(), true, fresh, &crate::comment::key(&root), cx);
         }
-        self.review.update(cx, |rv, _| rv.root = Some(root.clone()));
+        self.rv().set_root(root.clone(), cx);
         if let Some(branches) = self.branches() {
             branches.opened(root.clone(), Vec::new(), None, fresh, cx);
         }
@@ -2279,7 +2271,7 @@ impl Workspace {
                 self.relayout(cx);
                 self.refresh_annotations(cx);
                 self.apply_jump(cx);
-                self.review.update(cx, |rv, _| rv.restore_file_scroll());
+                self.rv().restore_file_scroll(cx);
             }
             ReviewEvent::StackBuilt(ix) => self.stack_built(*ix, cx),
             ReviewEvent::FileRead => self.file_read(cx),
@@ -2292,11 +2284,7 @@ impl Workspace {
     }
 
     fn select_file(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let Some(file) = self
-            .review
-            .read(cx)
-            .diff
-            .as_ref()
+        let Some(file) = (self.shown_diff(cx).as_ref())
             .and_then(|d| d.files.get(ix))
             .cloned()
         else {
@@ -2310,42 +2298,39 @@ impl Workspace {
         if self.wants_stack(cx) {
             return self.stack_select(ix, cx);
         }
-        self.review.update(cx, |rv, cx| rv.show_file(ix, file, cx));
+        self.rv().show_file(ix, file, cx);
         cx.notify();
     }
 
     /// Lays the selected file out again (`Review::relayout`) with what is pinned on its lines now.
     fn relayout(&mut self, cx: &mut App) {
         let pins = self.open_pins(cx);
-        self.review.update(cx, |rv, _| rv.relayout(&pins));
+        self.rv().relayout(&pins, cx);
     }
 
     /// Every file laid out again (`Review::relayout_all`) with what is pinned on their lines now.
     fn relayout_all(&mut self, cx: &mut App) {
         let pins = self.all_pins(cx);
-        self.review.update(cx, |rv, _| rv.relayout_all(&pins));
+        self.rv().relayout_all(&pins, cx);
     }
 
     /// Shows the hidden lines of an unchanged run in place (`Review::expand_gap`).
     fn expand_gap(&mut self, segment: usize, cx: &mut Context<Self>) {
         let pins = self.open_pins(cx);
-        if self
-            .review
-            .update(cx, |rv, _| rv.expand_gap(segment, &pins))
-        {
+        if self.rv().expand_gap(segment, &pins, cx) {
             cx.notify();
         }
     }
 
     fn set_option(&mut self, opt: Opt, value: bool, cx: &mut Context<Self>) {
-        if self.review.read(cx).option(opt) != value {
+        if self.rv().option(opt, cx) != value {
             self.set_option_unsaved(opt, value, cx);
             self.view_options(cx).save();
         }
     }
 
     fn set_option_unsaved(&mut self, opt: Opt, value: bool, cx: &mut Context<Self>) {
-        if !self.review.update(cx, |rv, _| rv.set_option(opt, value)) {
+        if !self.rv().set_option(opt, value, cx) {
             return;
         }
         cx.set_menus(menus(&self.view_options(cx), cx));
@@ -2362,11 +2347,11 @@ impl Workspace {
 
     /// Changes what a diff marks inside changed lines. Not remembered: Settings holds the default.
     fn set_mode(&mut self, mode: DiffMode, cx: &mut Context<Self>) {
-        if !self.review.update(cx, |rv, _| rv.set_mode(mode)) {
+        if !self.rv().set_mode(mode, cx) {
             return;
         }
         cx.set_menus(menus(&self.view_options(cx), cx));
-        if self.review.read(cx).stack.is_some() {
+        if self.rv().stacked(cx) {
             self.reopen_stack(cx);
         } else {
             self.select_file(self.diff_file(cx), cx);
@@ -2403,7 +2388,7 @@ impl Workspace {
                         .checked(o.wrap),
                     Entry::new("Annotate (blame)", Act::Annotate)
                         .key("⌥⌘B")
-                        .checked(self.review.read(cx).annotate),
+                        .checked(self.rv().annotating(cx)),
                 ],
             ),
             (
@@ -2451,11 +2436,11 @@ impl Workspace {
         let Some(data) = &self.diff_data(cx) else {
             return;
         };
-        let in_selection = self.review.read(cx).sel.is_some_and(|s| {
+        let in_selection = self.rv().sel(cx).is_some_and(|s| {
             let (start, end) = s.ends();
             !s.is_empty() && s.old == old && (start.line..=end.line).contains(&line)
         });
-        let copy = match self.review.read(cx).selected_text() {
+        let copy = match self.rv().selected_text(cx) {
             Some(text) if in_selection => Entry::new("Copy selection", Act::Copy(text)).key("⌘C"),
             _ => Entry::new(
                 "Copy line",
@@ -2480,7 +2465,7 @@ impl Workspace {
         let mut share = Vec::new();
         if let (Some(path), Some(rev)) = (
             self.current_path(cx),
-            self.review.read(cx).viewed_rev(),
+            self.rv().viewed_rev(cx),
         ) {
             if let (false, Some(web)) = (old, &self.web) {
                 share.push(
@@ -2530,10 +2515,7 @@ impl Workspace {
     }
 
     fn file_context(&mut self, ix: usize, at: Point<gpui::Pixels>, cx: &mut Context<Self>) {
-        let Some(path) = self
-            .review
-            .read(cx)
-            .diff
+        let Some(path) = self.shown_diff(cx)
             .as_ref()
             .and_then(|d| d.files.get(ix))
             .map(|f| f.path().to_owned())
@@ -2589,15 +2571,12 @@ impl Workspace {
     }
 
     fn toggle(&mut self, opt: Opt, cx: &mut Context<Self>) {
-        self.set_option(opt, !self.review.read(cx).option(opt), cx);
+        self.set_option(opt, !self.rv().option(opt, cx), cx);
     }
 
     /// Recomputes the selected commit's or versions' diff, staying on the same file.
     fn reload_diff(&mut self, cx: &mut Context<Self>) {
-        let keep = self
-            .review
-            .read(cx)
-            .diff
+        let keep = self.shown_diff(cx)
             .as_ref()
             .and_then(|d| d.files.get(self.diff_file(cx)))
             .map(|f| f.path().to_owned());
@@ -2632,7 +2611,7 @@ impl Workspace {
         self.settings.ui_zoom = zoom;
         self.save_settings(cx);
         apply_ui_zoom(zoom, window);
-        self.review.update(cx, |rv, _| rv.char_width = 0.);
+        self.rv().set_char_width(0., cx);
         self.relayout_all(cx);
         cx.notify();
     }
@@ -2646,7 +2625,7 @@ impl Workspace {
         self.settings.zoom = zoom;
         self.save_settings(cx);
         // The width of a character is measured again at the new size; the rows change height.
-        self.review.update(cx, |rv, _| rv.char_width = 0.);
+        self.rv().set_char_width(0., cx);
         self.relayout_all(cx);
         cx.notify();
     }
@@ -2654,17 +2633,14 @@ impl Workspace {
     /// The side panel's Changes is open and has the files as a zone.
     pub(super) fn files_zone(&self, cx: &App) -> bool {
         self.side_open()
-            && self.review.read(cx).changes_open
-            && self
-                .review
-                .read(cx)
-                .diff
+            && self.rv().changes_open(cx)
+            && self.shown_diff(cx)
                 .as_ref()
                 .is_some_and(|d| d.files.len() > 1)
     }
 
     fn unfold(&mut self, path: &str, cx: &mut Context<Self>) {
-        self.review.update(cx, |rv, cx| rv.unfold(path, cx));
+        self.rv().unfold(path, cx);
         cx.notify();
     }
 
@@ -2741,7 +2717,7 @@ impl Workspace {
         }
         self.zone = zones::Zone::Files;
         let keep = self.zen.is_none();
-        self.review.update(cx, |rv, cx| rv.open_filter(keep, cx));
+        self.rv().open_filter(keep, cx);
         self.take_keyboard(typing::Input::Part(artoo_review_api::FILTER_INPUT), cx);
         cx.notify();
     }
@@ -2814,18 +2790,16 @@ impl Workspace {
         match self.zen.take() {
             Some((sidebar, files)) => {
                 self.layout.show_sidebar = sidebar;
-                self.review
-                    .update(cx, |rv, cx| rv.open_changes(files, true, false, cx));
+                self.rv().open_changes(files, true, false, cx);
                 // One file at a time goes with it: every file in one scroll again.
                 if std::mem::take(&mut self.zen_one) {
                     self.show_files_anew(cx);
                 }
             }
             None => {
-                self.zen = Some((self.layout.show_sidebar, self.review.read(cx).changes_open));
+                self.zen = Some((self.layout.show_sidebar, self.rv().changes_open(cx)));
                 self.layout.show_sidebar = false;
-                self.review
-                    .update(cx, |rv, cx| rv.open_changes(false, false, false, cx));
+                self.rv().open_changes(false, false, false, cx);
             }
         }
         self.save_layout();
@@ -2859,9 +2833,9 @@ impl Workspace {
     /// The files shown again as they now should be, one at a time or in one scroll, the file and
     /// the place in it kept.
     fn show_files_anew(&mut self, cx: &mut Context<Self>) {
-        self.review
-            .update(cx, |rv, _| rv.restore_scroll = rv.scroll_place());
-        self.review.update(cx, |rv, _| rv.clear_file());
+        let place = self.rv().place(cx);
+        self.rv().restore_at(place, cx);
+        self.rv().clear_file(cx);
         self.select_file(self.diff_file(cx), cx);
     }
 
@@ -2916,7 +2890,7 @@ impl Workspace {
     }
 
     fn palette_up(&mut self, _: &PaletteUp, _: &mut Window, cx: &mut Context<Self>) {
-        if self.review.read(cx).find_files_open() {
+        if self.rv().find_files_open(cx) {
             return self.ffind_step(false, cx);
         }
         if self.beside.is_some() {
@@ -2926,7 +2900,7 @@ impl Workspace {
     }
 
     fn palette_down(&mut self, _: &PaletteDown, _: &mut Window, cx: &mut Context<Self>) {
-        if self.review.read(cx).find_files_open() {
+        if self.rv().find_files_open(cx) {
             return self.ffind_step(true, cx);
         }
         if self.beside.is_some() {
@@ -3013,16 +2987,7 @@ impl Workspace {
     /// file, the part's input with the keyboard.
     pub(super) fn chrome(&self, cx: &mut Context<Self>) -> artoo_shell_api::Chrome {
         let this = cx.entity().downgrade();
-        let alone = {
-            let rv = self.review.read(cx);
-            let ix = rv.file;
-            rv.diff
-                .as_ref()
-                .and_then(|d| d.files.get(ix))
-                .filter(|f| rv.stack.is_none() && !rv.generated_folded(f) && rv.shows_page(f))
-                .map(|_| ix)
-        }
-        .map(|ix| self.render_page_alone(ix, this, cx));
+        let alone = (self.rv().page_alone_file(cx)).map(|ix| self.render_page_alone(ix, this, cx));
         artoo_shell_api::Chrome {
             border: self.zone_border(zones::Zone::Diff),
             menu_open: self.ctx_menu.read(cx).is_open(),
@@ -3143,12 +3108,12 @@ impl artoo_review_api::Host for TabHost {
                 PaneEvent::Step { forward } => this.step_change(forward, cx),
                 PaneEvent::Unfold(path) => this.unfold(&path, cx),
                 PaneEvent::SvgSource(source) => {
-                    this.review.update(cx, |rv, _| rv.images.source = source);
+                    this.rv().set_svg_source(source, cx);
                     cx.notify();
                 }
                 PaneEvent::UndoNotice => this.undo_notice(cx),
                 PaneEvent::DismissNotice => {
-                    this.review.update(cx, |rv, _| rv.notice = None);
+                    this.rv().set_notice(None, cx);
                     cx.notify();
                 }
                 PaneEvent::Unified(on) => this.set_option(Opt::Unified, on, cx),
@@ -3160,16 +3125,16 @@ impl artoo_review_api::Host for TabHost {
                     this.open_titled(at, groups, cx);
                 }
                 PaneEvent::ImageMode(mode) => {
-                    this.review.update(cx, |rv, _| rv.images.mode = mode);
+                    this.rv().set_image_mode(mode, cx);
                     cx.notify();
                 }
                 PaneEvent::ImageMix(mix) => {
-                    this.review.update(cx, |rv, _| rv.images.mix = mix);
+                    this.rv().set_image_mix(mix, cx);
                     cx.notify();
                 }
                 PaneEvent::Review => {
-                    let rv = this.review.read(cx);
-                    if rv.review_state(rv.file) == Some(artoo_review_api::ReviewState::Done) {
+                    let ix = this.diff_file(cx);
+                    if this.rv().review_state(ix, cx) == Some(artoo_review_api::ReviewState::Done) {
                         this.toggle_reviewed(cx)
                     } else {
                         this.mark_and_advance(cx)
@@ -3215,12 +3180,12 @@ impl artoo_review_api::Host for TabHost {
         self.0
             .update(cx, |this, cx| match event {
                 ChangesEvent::ToggleReviewed(ix) => {
-                    let done = this.review.read(cx).review_state(ix)
+                    let done = this.rv().review_state(ix, cx)
                         == Some(artoo_review_api::ReviewState::Done);
                     this.set_reviewed(ix, !done, cx);
                 }
                 ChangesEvent::FolderReviewed { folder, done } => {
-                    let ixs = this.review.read(cx).files_under(&folder);
+                    let ixs = this.rv().files_under(&folder, cx);
                     this.set_reviewed_many(&ixs, done, cx);
                 }
                 ChangesEvent::ReviewAll => this.toggle_all_reviewed(cx),

@@ -8,7 +8,8 @@ use artoo_core::rows::{FileData, Row};
 use artoo_core::storage::{Settings, ViewOptions};
 use artoo_review_api::diff::Diff;
 use artoo_review_api::{
-    FileNotes, FileRead, FoundInFiles, Host, ItemKey, LineNote, Notice, OnSearch, PageLook, Pins, ReviewState,
+    FileNotes, FileRead, FoundInFiles, Host, ImageMode, ItemKey, LineNote, Notice, OnSearch, Opt, PageLook, Pins,
+    ReviewState,
     SearchEvent,
     SearchKeyed, Source,
 };
@@ -775,5 +776,91 @@ impl artoo_review_api::Review for Handle {
 
     fn page_notes_open(&self, cx: &App) -> Vec<(String, bool, u32)> {
         self.read(cx, |rv, _| rv.page.notes_open.iter().cloned().collect())
+    }
+
+    fn set_changes_open(&self, open: bool, cx: &mut App) {
+        self.with(cx, |rv, _| rv.changes_open = open)
+    }
+
+    fn recompute_matches(&self, cx: &mut App) {
+        self.with(cx, |rv, _| rv.recompute_matches())
+    }
+
+    fn set_root(&self, root: PathBuf, cx: &mut App) {
+        self.with(cx, |rv, _| rv.root = Some(root))
+    }
+
+    fn restore_file_scroll(&self, cx: &mut App) {
+        self.with(cx, |rv, _| rv.restore_file_scroll())
+    }
+
+    fn show_file(&self, ix: usize, file: artoo_core::git::FileDiff, cx: &mut App) {
+        self.with(cx, |rv, cx| rv.show_file(ix, file, cx))
+    }
+
+    fn relayout(&self, pins: &Pins, cx: &mut App) {
+        self.with(cx, |rv, _| rv.relayout(pins))
+    }
+
+    fn relayout_all(&self, pins: &Pins, cx: &mut App) {
+        self.with(cx, |rv, _| rv.relayout_all(pins))
+    }
+
+    fn expand_gap(&self, segment: usize, pins: &Pins, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| rv.expand_gap(segment, pins))
+    }
+
+    fn option(&self, opt: Opt, cx: &App) -> bool {
+        self.read(cx, |rv, _| rv.option(opt))
+    }
+
+    fn set_option(&self, opt: Opt, value: bool, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| rv.set_option(opt, value))
+    }
+
+    fn set_mode(&self, mode: artoo_core::storage::DiffMode, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| rv.set_mode(mode))
+    }
+
+    fn annotating(&self, cx: &App) -> bool {
+        self.read(cx, |rv, _| rv.annotate)
+    }
+
+    fn unfold(&self, path: &str, cx: &mut App) {
+        self.with(cx, |rv, cx| rv.unfold(path, cx))
+    }
+
+    fn open_filter(&self, keep: bool, cx: &mut App) {
+        self.with(cx, |rv, cx| rv.open_filter(keep, cx))
+    }
+
+    fn clear_file(&self, cx: &mut App) {
+        self.with(cx, |rv, _| rv.clear_file())
+    }
+
+    fn page_alone_file(&self, cx: &App) -> Option<usize> {
+        self.read(cx, |rv, _| {
+            let ix = rv.file;
+            (rv.diff.as_ref())
+                .and_then(|d| d.files.get(ix))
+                .filter(|f| rv.stack.is_none() && !rv.generated_folded(f) && rv.shows_page(f))
+                .map(|_| ix)
+        })
+    }
+
+    fn set_svg_source(&self, source: bool, cx: &mut App) {
+        self.with(cx, |rv, _| rv.images.source = source)
+    }
+
+    fn set_image_mode(&self, mode: ImageMode, cx: &mut App) {
+        self.with(cx, |rv, _| rv.images.mode = mode)
+    }
+
+    fn set_image_mix(&self, mix: f32, cx: &mut App) {
+        self.with(cx, |rv, _| rv.images.mix = mix)
+    }
+
+    fn files_under(&self, path: &str, cx: &App) -> Vec<usize> {
+        self.read(cx, |rv, _| rv.files_under(path))
     }
 }
