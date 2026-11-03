@@ -825,8 +825,8 @@ impl artoo_requests_api::Requests for Handle {
         let notices = self.notices();
         let mut sent = false;
         self.with_host(cx, |rq, host, cx| {
-            let (ops, work) = rq.ops_of(number, change);
-            rq.send_ops(number, ops, work, host, notices, answered, cx);
+            let ops = rq.ops_of(number, change);
+            rq.send_ops(number, ops, host, notices, answered, cx);
             sent = true;
         });
         sent
@@ -854,13 +854,13 @@ impl artoo_requests_api::Requests for Handle {
                             cx.notify();
                             rq.submit_refused(iid, card, why.clone())
                         });
-                        Err(Some(why).filter(|_| !back.unwrap_or(false)))
+                        Err((!back.unwrap_or(false)).then_some(why))
                     }
                     other => other,
                 };
                 answered(result, cx);
             });
-            rq.send_ops(iid, ops, work, host, notices, answered, cx);
+            rq.send_ops(iid, (ops, work), host, notices, answered, cx);
             sent = true;
         });
         sent

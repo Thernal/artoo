@@ -1407,10 +1407,9 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                 this.hover_note = note;
                 if view.contains("reaction-grid")
                     && let Some(note) = note
+                    && let Some(requests) = this.requests_api()
                 {
-                    if let Some(requests) = this.requests_api() {
-                        requests.open_grid(note, cx);
-                    }
+                    requests.open_grid(note, cx);
                 }
                 this.refresh_rows(cx);
                 cx.notify();

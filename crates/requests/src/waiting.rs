@@ -452,14 +452,13 @@ impl Requests {
         }
     }
 
-    /// Sends `ops` on request `iid` with `work` on `host`: they show at once, faded; taken, they apply until a read
-    /// holds them; refused, they are taken back. The Inbox reads the request again on its next look; `answered`
-    /// follows.
+    /// Sends `ops` on request `iid` with `work` on `host` (`sent`, as `ops_of` makes them): they show at once, faded;
+    /// taken, they apply until a read holds them; refused, they are taken back. The Inbox reads the request again on
+    /// its next look; `answered` follows.
     pub(crate) fn send_ops(
         &mut self,
         iid: u64,
-        ops: Vec<Op>,
-        work: Work,
+        (ops, work): (Vec<Op>, Work),
         host: Arc<dyn Host>,
         notices: Option<Entity<Notices>>,
         answered: Answered,

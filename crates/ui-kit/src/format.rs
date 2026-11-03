@@ -130,6 +130,15 @@ pub fn plural(n: usize, noun: &str) -> String {
     }
 }
 
+/// `12.3 KB`.
+pub fn bytes(n: usize) -> String {
+    match n {
+        n if n < 1024 => format!("{n} B"),
+        n if n < 1024 * 1024 => format!("{:.1} KB", n as f64 / 1024.),
+        n => format!("{:.1} MB", n as f64 / (1024. * 1024.)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,14 +170,5 @@ mod tests {
         assert_eq!(reason("commit (amend): fix"), "amend");
         assert_eq!(reason("rebase (finish): refs/heads/x onto 123"), "rebase");
         assert_eq!(reason("fetch: forced-update"), "fetch");
-    }
-}
-
-/// `12.3 KB`.
-pub fn bytes(n: usize) -> String {
-    match n {
-        n if n < 1024 => format!("{n} B"),
-        n if n < 1024 * 1024 => format!("{:.1} KB", n as f64 / 1024.),
-        n => format!("{:.1} MB", n as f64 / (1024. * 1024.)),
     }
 }

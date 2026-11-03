@@ -584,6 +584,122 @@ pub fn read(host: &dyn Host, requests: &[Mr], reading: Reading) -> anyhow::Resul
     })
 }
 
+impl Requests {
+    /// Reads the to-dos and the discussions of the user's requests again into `notices`, in the background, and every
+    /// `EVERY` after; `me` the name the changes waiting show by. What is new is told (`Event::Noticed`).
+    pub(crate) fn read_notices(
+        &mut self,
+        notices: Entity<Notices>,
+        me: String,
+        cx: &mut Context<Self>,
+    ) {
+        let (Some(host), Some(base)) = (self.host(cx), self.web.as_ref().map(|w| w.base.clone()))
+        else {
+            return;
+        };
+        if !self.available {
+            notices.update(cx, |n, _| n.list.clear());
+            return;
+        }
+        let reading = notices.update(cx, |n, _| n.begin(&base));
+        let (requests, tick) = (self.list.clone(), self.waiting.tick());
+        let (into, again) = (notices.clone(), me.clone());
+        let task = cx.spawn(async move |this, cx| {
+            let found = cx
+                .background_executor()
+                .spawn(async move { read(&*host, &requests, reading) })
+                .await;
+            this.update(cx, |rq, cx| {
+                if let Some(mut arrived) = into.update(cx, |n, _| n.arrive(found, tick)) {
+                    let news = std::mem::take(&mut arrived.news);
+                    rq.settle_waiting(Some(&into), cx);
+                    let login = rq.login.clone().unwrap_or_default();
+                    let waiting = &rq.waiting;
+                    into.update(cx, |n, _| {
+                        for iid in n.iids() {
+                            n.show(iid, waiting, (&me, &login));
+                        }
+                        n.put(arrived);
+                    });
+                    cx.emit(Event::Noticed(news.into_iter().map(told).collect()));
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+        notices.update(cx, |n, _| n.task = Some(task));
+        if notices.read(cx).poll.is_none() {
+            let watched = notices.clone();
+            let poll = cx.spawn(async move |this, cx| {
+                loop {
+                    cx.background_executor().timer(EVERY).await;
+                    let (notices, me) = (watched.clone(), again.clone());
+                    if this
+                        .update(cx, |rq, cx| rq.read_notices(notices, me, cx))
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+            });
+            notices.update(cx, |n, _| n.poll = Some(poll));
+        }
+    }
+
+    /// The changes the request open and the Inbox's `notices` both hold now are let go.
+    pub(crate) fn settle_waiting(&mut self, notices: Option<&Entity<Notices>>, cx: &App) {
+        let (current, from) = (self.current, self.from);
+        let notices = notices.map(|n| n.read(cx));
+        self.waiting.settle(|iid, done| {
+            (current != Some(iid) || from > done) && notices.is_none_or(|n| n.holds(iid, done))
+        });
+    }
+
+    /// `e`: done with notice `ix` of `notices`: gone at once; a to-do is marked done on the host, and a refusal puts it
+    /// back where it was and says why (#139).
+    pub(crate) fn dismiss_notice(
+        &mut self,
+        notices: Entity<Notices>,
+        ix: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let base = self.web.as_ref().map(|w| w.base.clone());
+        let Some(n) = notices.update(cx, |ns, _| ns.dismiss(ix, base.as_deref())) else {
+            return;
+        };
+        if let Some(id) = n.todo
+            && let Some(host) = self.host(cx)
+        {
+            cx.spawn(async move |this, cx| {
+                let done = cx
+                    .background_executor()
+                    .spawn(async move { host.mark_todo_done(id) })
+                    .await;
+                this.update(cx, |_, cx| {
+                    if let Err(e) = done {
+                        notices.update(cx, |ns, _| ns.put_back(ix, n));
+                        cx.emit(Event::Failed(format!("Not marked done — {e:#}")));
+                    }
+                })
+                .ok();
+            })
+            .detach();
+        }
+        cx.notify();
+    }
+}
+
+/// A notice new since the last read, as the tab says it to the system.
+fn told(n: Notice) -> News {
+    News {
+        verb: n.kind_verb(),
+        key: n.key,
+        iid: n.iid,
+        title: n.title,
+        who: n.who,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -729,121 +845,5 @@ mod tests {
         assert_eq!(saved, "a\tnote:1\nb\tnote:9\nb\ttodo:3\n");
         assert_eq!(read_of(&saved, "b"), now);
         assert_eq!(read_of(&saved, "a"), ["note:1".to_owned()].into());
-    }
-}
-
-impl Requests {
-    /// Reads the to-dos and the discussions of the user's requests again into `notices`, in the background, and every
-    /// `EVERY` after; `me` the name the changes waiting show by. What is new is told (`Event::Noticed`).
-    pub(crate) fn read_notices(
-        &mut self,
-        notices: Entity<Notices>,
-        me: String,
-        cx: &mut Context<Self>,
-    ) {
-        let (Some(host), Some(base)) = (self.host(cx), self.web.as_ref().map(|w| w.base.clone()))
-        else {
-            return;
-        };
-        if !self.available {
-            notices.update(cx, |n, _| n.list.clear());
-            return;
-        }
-        let reading = notices.update(cx, |n, _| n.begin(&base));
-        let (requests, tick) = (self.list.clone(), self.waiting.tick());
-        let (into, again) = (notices.clone(), me.clone());
-        let task = cx.spawn(async move |this, cx| {
-            let found = cx
-                .background_executor()
-                .spawn(async move { read(&*host, &requests, reading) })
-                .await;
-            this.update(cx, |rq, cx| {
-                if let Some(mut arrived) = into.update(cx, |n, _| n.arrive(found, tick)) {
-                    let news = std::mem::take(&mut arrived.news);
-                    rq.settle_waiting(Some(&into), cx);
-                    let login = rq.login.clone().unwrap_or_default();
-                    let waiting = &rq.waiting;
-                    into.update(cx, |n, _| {
-                        for iid in n.iids() {
-                            n.show(iid, waiting, (&me, &login));
-                        }
-                        n.put(arrived);
-                    });
-                    cx.emit(Event::Noticed(news.into_iter().map(told).collect()));
-                }
-                cx.notify();
-            })
-            .ok();
-        });
-        notices.update(cx, |n, _| n.task = Some(task));
-        if notices.read(cx).poll.is_none() {
-            let watched = notices.clone();
-            let poll = cx.spawn(async move |this, cx| {
-                loop {
-                    cx.background_executor().timer(EVERY).await;
-                    let (notices, me) = (watched.clone(), again.clone());
-                    if this
-                        .update(cx, |rq, cx| rq.read_notices(notices, me, cx))
-                        .is_err()
-                    {
-                        return;
-                    }
-                }
-            });
-            notices.update(cx, |n, _| n.poll = Some(poll));
-        }
-    }
-
-    /// The changes the request open and the Inbox's `notices` both hold now are let go.
-    pub(crate) fn settle_waiting(&mut self, notices: Option<&Entity<Notices>>, cx: &App) {
-        let (current, from) = (self.current, self.from);
-        let notices = notices.map(|n| n.read(cx));
-        self.waiting.settle(|iid, done| {
-            (current != Some(iid) || from > done) && notices.is_none_or(|n| n.holds(iid, done))
-        });
-    }
-
-    /// `e`: done with notice `ix` of `notices`: gone at once; a to-do is marked done on the host, and a refusal puts it
-    /// back where it was and says why (#139).
-    pub(crate) fn dismiss_notice(
-        &mut self,
-        notices: Entity<Notices>,
-        ix: usize,
-        cx: &mut Context<Self>,
-    ) {
-        let base = self.web.as_ref().map(|w| w.base.clone());
-        let Some(n) = notices.update(cx, |ns, _| ns.dismiss(ix, base.as_deref())) else {
-            return;
-        };
-        if let Some(id) = n.todo
-            && let Some(host) = self.host(cx)
-        {
-            cx.spawn(async move |this, cx| {
-                let done = cx
-                    .background_executor()
-                    .spawn(async move { host.mark_todo_done(id) })
-                    .await;
-                this.update(cx, |_, cx| {
-                    if let Err(e) = done {
-                        notices.update(cx, |ns, _| ns.put_back(ix, n));
-                        cx.emit(Event::Failed(format!("Not marked done — {e:#}")));
-                    }
-                })
-                .ok();
-            })
-            .detach();
-        }
-        cx.notify();
-    }
-}
-
-/// A notice new since the last read, as the tab says it to the system.
-fn told(n: Notice) -> News {
-    News {
-        verb: n.kind_verb(),
-        key: n.key,
-        iid: n.iid,
-        title: n.title,
-        who: n.who,
     }
 }
