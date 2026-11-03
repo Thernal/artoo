@@ -4,23 +4,17 @@
 use artoo_ui_kit::theme;
 use gpui::Rgba;
 
-/// What a request needs from you: the list's groups, in their order.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub enum Group {
-    /// You are asked to review it, or started at its head.
-    Asks,
-    /// You marked files of it, and it was pushed since.
-    Updated,
-    /// Not asked of you, and nothing of it reviewed yet: new to you; after what changed, before
-    /// what is reviewed.
-    New,
-    /// Its head is reviewed.
-    Reviewed,
-    Yours,
+pub use artoo_requests_api::Group;
+
+/// How a group's band says it, and how the list's file keeps it.
+pub trait Band {
+    fn heading(self) -> &'static str;
+    fn icon(self) -> (&'static str, Rgba);
+    fn key(self) -> &'static str;
 }
 
-impl Group {
-    pub fn heading(self) -> &'static str {
+impl Band for Group {
+    fn heading(self) -> &'static str {
         match self {
             Group::Asks => "Needs your review",
             Group::Updated => "Updated since your review",
@@ -32,7 +26,7 @@ impl Group {
 
     /// The icon and colour its band opens with: the group says how far your review is, its rows
     /// do not (#81).
-    pub fn icon(self) -> (&'static str, Rgba) {
+    fn icon(self) -> (&'static str, Rgba) {
         match self {
             Group::Asks => ("eye", theme::accent()),
             Group::Updated => ("refresh", theme::warning()),
@@ -43,7 +37,7 @@ impl Group {
     }
 
     /// As `requests-list.txt` writes it.
-    pub fn key(self) -> &'static str {
+    fn key(self) -> &'static str {
         match self {
             Group::Asks => "asks",
             Group::Updated => "updated",
@@ -53,16 +47,17 @@ impl Group {
             Group::Yours => "yours",
         }
     }
+}
 
-    pub fn parse(key: &str) -> Option<Group> {
-        [
-            Group::Asks,
-            Group::Updated,
-            Group::New,
-            Group::Reviewed,
-            Group::Yours,
-        ]
-        .into_iter()
-        .find(|g| g.key() == key)
-    }
+/// The group the list's file names `key`.
+pub fn parse(key: &str) -> Option<Group> {
+    [
+        Group::Asks,
+        Group::Updated,
+        Group::New,
+        Group::Reviewed,
+        Group::Yours,
+    ]
+    .into_iter()
+    .find(|g| g.key() == key)
 }

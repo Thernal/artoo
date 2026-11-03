@@ -16,7 +16,6 @@ use artoo_ui_kit::input::{self, Edit};
 use artoo_ui_kit::keys::{self, On};
 use artoo_ui_kit::{ROW_RADIUS, px, theme, words};
 use gpui::{ClickEvent, Context, FontWeight, KeyDownEvent, div, prelude::*};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 const VERDICTS: [Verdict; 3] = [Verdict::Comment, Verdict::Approve, Verdict::RequestChanges];
@@ -67,17 +66,7 @@ impl SubmitCard {
     }
 }
 
-/// What the card is drawn with that the tab knows.
-pub struct SubmitLook {
-    /// The summary has the keyboard.
-    pub active: bool,
-    /// Comments are drawn rich: a pending one's line is without its markdown.
-    pub rich: bool,
-    /// The host is GitHub: a pending comment is not sent alone (#138).
-    pub github: bool,
-    /// The agent that wrote a pending comment, by its id (#150).
-    pub agents: HashMap<u64, String>,
-}
+pub use artoo_requests_api::SubmitLook;
 
 /// What a submit sends: the request, the changes shown until the host answers, the call, and the
 /// card, given back if the host refuses (`Requests::submit_refused`).

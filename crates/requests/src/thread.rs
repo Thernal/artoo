@@ -7,87 +7,14 @@ use crate::reactions::Hovered;
 use crate::requests::{Acts, Requests};
 use crate::waiting::{FADED, is_temp, is_temp_thread};
 use artoo_core::markdown as text;
-use artoo_ui_kit::discussion::{self, Card, Kind, Source, icon_button};
+use artoo_ui_kit::discussion::{self, Kind, Source, icon_button};
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, CutInTip};
-use artoo_ui_kit::markdown::{self, Selecting};
-use artoo_ui_kit::motion::Marks;
+use artoo_ui_kit::markdown;
 use artoo_ui_kit::{ROW_RADIUS, keys, px, theme, words};
 use gpui::{AnyElement, App, ClickEvent, Entity, FontWeight, SharedString, div, prelude::*};
-use std::rc::Rc;
 
-/// What a discussion is drawn with that the tab knows.
-pub struct ThreadLook<'a> {
-    /// How far its frame sits from the left: under its line's code.
-    pub indent: f32,
-    pub open: bool,
-    /// It has the keyboard: `r` `x` `o` `e` act on it.
-    pub focused: bool,
-    /// A request is open to post to.
-    pub target: bool,
-    /// The newest version, for the history of an outdated line.
-    pub latest: Option<usize>,
-    pub selecting: Selecting,
-    /// Comments drawn as markdown.
-    pub rich: bool,
-    /// What relative links are relative to.
-    pub link_base: Option<&'a str>,
-    /// A narrow diff: buttons are their icons.
-    pub tight: bool,
-    /// The note being edited and its box, in its place.
-    pub editing: Option<(u64, AnyElement)>,
-    /// A reply being written to it: the box, where Reply… was.
-    pub replying: Option<Option<AnyElement>>,
-    /// A comment is being written somewhere: no note is edited meanwhile.
-    pub composing: bool,
-    /// One's own last note in it: `e` edits it.
-    pub mine: Option<u64>,
-    /// The note under the pointer: its reaction bar shows.
-    pub hovered: Option<u64>,
-    /// The note whose Delete asks "Delete on GitLab?".
-    pub confirm: Option<u64>,
-    pub github: bool,
-    /// The tab's motion: reaction pills grow and fade.
-    pub marks: &'a Marks,
-    /// Who you are, by name: your avatar on the reply row.
-    pub me: &'a str,
-    /// A person's card on a long hover over their avatar, by their name and login.
-    pub card: &'a dyn Fn(&str, &str) -> Card,
-    /// Its notes folding (#56, 10; #110): by key, motion and whether open; `None` once shut.
-    pub fold: &'a dyn Fn(String, &str, bool, AnyElement) -> Option<AnyElement>,
-    /// It was folded or opened a moment ago: its notes are drawn on their way.
-    pub moving: bool,
-}
-
-/// A click on a discussion.
-#[derive(Clone, Copy)]
-pub enum ThreadEvent {
-    /// Folded (`false`) or opened from its bar.
-    Fold(bool),
-    /// Clicked: it takes the keyboard.
-    Pick,
-    /// ⌥M: markdown as written or formatted.
-    ToggleRich,
-    /// The pointer came on note `note` (`true`) or left it.
-    Hover {
-        note: u64,
-        on: bool,
-    },
-    Reply,
-    /// Resolved, or opened again.
-    Resolve,
-    /// One's own note `0` edited.
-    Edit(u64),
-    /// Delete on note `0`: it asks first.
-    AskDelete(u64),
-    /// Deleted on the host, asked.
-    Delete(u64),
-    /// Cancel on the question.
-    KeepNote,
-}
-
-/// What answers a discussion's clicks.
-pub type OnThread = Rc<dyn Fn(ThreadEvent, &mut App)>;
+pub use artoo_requests_api::{DraftEvent, DraftLook, OnDraft, OnThread, ThreadEvent, ThreadLook};
 
 /// Discussion `ix` of the request open, as `look` says, `requests` its entity.
 pub fn render_thread(
@@ -465,34 +392,6 @@ fn delete_button(note: u64, asking: bool, tight: bool, on: OnThread) -> AnyEleme
         )
         .into_any_element()
 }
-
-/// What a pending comment is drawn with that the tab knows.
-pub struct DraftLook<'a> {
-    pub indent: f32,
-    /// It has the keyboard.
-    pub focused: bool,
-    pub selecting: Selecting,
-    pub rich: bool,
-    pub link_base: Option<&'a str>,
-    pub tight: bool,
-    /// The host publishes one pending comment alone (GitLab); GitHub only with its review (#138).
-    pub one: bool,
-    /// The agent that wrote it, when one did (#150).
-    pub agent: Option<&'a str>,
-    pub me: &'a str,
-}
-
-/// A click on a pending comment.
-#[derive(Clone, Copy)]
-pub enum DraftEvent {
-    /// Send this now: published alone.
-    Send,
-    ToggleRich,
-    Delete,
-}
-
-/// What answers a pending comment's clicks.
-pub type OnDraft = Rc<dyn Fn(DraftEvent, &mut App)>;
 
 /// Pending comment `ix` of the request open: a dashed frame, only its author sees it until the review is
 /// submitted.

@@ -2,7 +2,7 @@
 //! pipelines, pushes, reactions, what stands in a merge's way and what a merge sends — the plain types the hosts'
 //! contract answers in and the requests' speaks (`artoo_hosts_api` and `artoo_requests_api` show them).
 
-use crate::git::DiffLine;
+use crate::git::{BranchRef, DiffLine, RefKind, Repo};
 
 /// Where a merge request is in its life (#114): open, merged, or closed without merging.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -348,5 +348,49 @@ impl Merge {
             message,
             when_pipeline_succeeds,
         }
+    }
+}
+
+/// A request's base and head as its host compares it (GitLab: the latest version's `diff_refs`;
+/// GitHub: the base branch's and the head's commits); `None` where the host gave none.
+pub type HostSides = (Option<git2::Oid>, Option<git2::Oid>);
+
+/// How a request is compared once its host's sides are known (#145).
+#[derive(Debug, PartialEq, Eq)]
+pub enum Sides {
+    /// The sides read from this clone already give the host's diff.
+    Same,
+    /// The host's base and head, both here: the request is compared from them.
+    Host(git2::Oid, git2::Oid),
+    /// The host names a commit this clone lacks — the base, the head or both —, to fetch first.
+    Missing { base: bool, head: bool },
+}
+
+/// The host's sides against the ones read from this clone, `here`: the target's tip (a merged
+/// request's merge commit's first parent) and the source branch's. A target not fetched lately
+/// starts the compare at an old merge base, and every target commit after it shows as the
+/// request's; a fast-forward merge puts the head in the target, and nothing shows.
+pub fn sides(repo: &Repo, host: HostSides, here: (git2::Oid, git2::Oid)) -> Sides {
+    let lacks = |id: Option<git2::Oid>| id.is_some_and(|id| !repo.has_commit(id));
+    let (base, head) = (lacks(host.0), lacks(host.1));
+    if base || head {
+        return Sides::Missing { base, head };
+    }
+    let (base, head) = (host.0.unwrap_or(here.0), host.1.unwrap_or(here.1));
+    if head == here.1 && repo.start_of(base, head) == repo.start_of(here.0, here.1) {
+        Sides::Same
+    } else {
+        Sides::Host(base, head)
+    }
+}
+
+/// The branch `branch` names as the host does: `feature-x`, not `origin/feature-x`.
+pub fn source_of(branch: &BranchRef) -> String {
+    match branch.kind {
+        RefKind::Remote => branch
+            .name
+            .split_once('/')
+            .map_or(branch.name.clone(), |(_, n)| n.to_owned()),
+        RefKind::Local | RefKind::Request => branch.name.clone(),
     }
 }

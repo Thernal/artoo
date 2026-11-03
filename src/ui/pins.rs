@@ -130,14 +130,12 @@ impl Workspace {
             self.since_thread_in(path, cx)
         };
         let drafts = if showing {
-            self.requests.read(cx).drafts_in(path)
+            self.requests_api().map(|r| r.drafts_in(path, cx)).unwrap_or_default()
         } else {
             Vec::new()
         };
         let reply_of = |ix: usize| {
-            self.request_drafts(cx)
-                .get(ix)
-                .and_then(|d| self.requests.read(cx).draft_thread(d))
+            self.requests_api().and_then(|r| r.draft_thread(ix, cx))
         };
         let mut fixed = Vec::new();
         // A reply waiting to be sent comes right under its own discussion (#166).

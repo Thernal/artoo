@@ -62,17 +62,7 @@ impl LineHistory {
     }
 }
 
-/// A comparison opened from an outdated discussion: the versions that changed its line, to step
-/// through (#46 C, its stepper v3 → v5 → v7).
-#[derive(Clone, Debug)]
-pub struct Since {
-    pub iid: u64,
-    /// The discussion it was opened from.
-    pub thread: String,
-    pub path: String,
-    /// Version numbers, oldest first, with where the line is in each (`None`: gone).
-    pub stops: Vec<(usize, Option<u32>)>,
-}
+pub use artoo_requests_api::Since;
 
 impl Requests {
     /// Over the diff while it is one of the stepper's comparisons (`shown`, the versions compared): the versions

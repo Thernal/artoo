@@ -1,31 +1,20 @@
-//! New merge request (`artoo_requests::create` keeps the form and draws it): the tab opens it on a
+//! New merge request (the requests keep the form and draw it): the tab opens it on a
 //! branch, from an agent's draft for it (#152) when there is one, gives it the keyboard, shows the
 //! diff of the pair it would merge and puts the quick way over the branch view (the requests draw the
 //! form in the diff's place).
 
 use super::Workspace;
 use super::typing::Input;
-use crate::git::BranchRef;
-use artoo_requests::create::{
-    CreateKey, CreateLook, Drafted, Here, INPUT, Pair, Totals, source_of,
-};
+use artoo_core::mr::source_of;
+use artoo_requests_api::{CreateKey, Drafted, INPUT, Pair};
 use gpui::{AnyElement, App, Context};
 
 impl Workspace {
-    /// What the form reads of the repository: its folder, its `branches` (the history's), the host.
-    fn create_here<'a>(&'a self, branches: &'a [BranchRef]) -> Option<Here<'a>> {
-        Some(Here {
-            root: self.root.as_deref()?,
-            branches,
-            github: self.on_github(),
-        })
-    }
-
     /// Opens the form for branch `ix` (the open one when `None`).
     pub(super) fn open_create(&mut self, ix: Option<usize>, cx: &mut Context<Self>) {
-        let (Some(_), Some(web)) = (self.root.as_ref(), self.web.clone()) else {
+        if self.root.is_none() || self.web.is_none() {
             return;
-        };
+        }
         if !self.requests_available(cx) {
             self.error = Some(
                 super::words::say("Needs a GitLab token: Settings → Merge requests.")
@@ -62,14 +51,9 @@ impl Workspace {
         self.palette = None;
         self.ctx_menu.update(cx, |m, cx| m.shut(cx));
         self.bfilter.clear();
-        let host = super::host_of(&web, cx);
-        let branches = self.branch_list(cx);
-        let Some(here) = self.create_here(&branches) else {
-            return;
-        };
-        let pair = self.requests.update(cx, |rq, cx| {
-            rq.open_create(&here, &branch, drafted, host, cx)
-        });
+        let pair = self
+            .requests_api()
+            .and_then(|r| r.open_create(&branch, drafted, cx));
         self.take_keyboard(Input::Part(INPUT), cx);
         self.compare_pair(pair, cx);
         cx.notify();
@@ -85,54 +69,48 @@ impl Workspace {
     /// Templates ▾ chose `ix`. Chosen from a list over the form: the form has the keyboard again.
     pub(super) fn use_template(&mut self, ix: usize, cx: &mut Context<Self>) {
         self.take_keyboard(Input::Part(INPUT), cx);
-        self.requests.update(cx, |rq, _| rq.use_template(ix));
+        if let Some(requests) = self.requests_api() {
+            requests.use_template(ix, cx);
+        }
         cx.notify();
     }
 
     /// A snapshot's way in: `create-templates`, `create-labels`, `create-milestone`.
     #[cfg(feature = "snapshot")]
     pub(super) fn open_create_menu(&mut self, name: &str, cx: &mut Context<Self>) {
-        self.requests
-            .update(cx, |rq, cx| rq.open_create_menu(name, cx));
+        if let Some(requests) = self.requests_api() {
+            requests.open_create_menu(name, cx);
+        }
     }
 
     /// ⌘K → Create merge request: the quick way, starting at Into.
     pub(super) fn open_create_quick(&mut self, cx: &mut Context<Self>) {
         self.open_create(None, cx);
-        self.requests.update(cx, |rq, _| rq.create_quick());
+        if let Some(requests) = self.requests_api() {
+            requests.create_quick(cx);
+        }
         cx.notify();
     }
 
     /// The form is open.
     pub(super) fn creating(&self, cx: &App) -> bool {
-        self.requests.read(cx).creating.is_some()
+        self.requests_api().is_some_and(|r| r.creating(cx))
     }
 
     /// From's or Into's list picked. Chosen from a list over the form: the form has the keyboard
     /// again.
     pub(super) fn pick_branch(&mut self, name: String, source: bool, cx: &mut Context<Self>) {
         self.take_keyboard(Input::Part(INPUT), cx);
-        let branches = self.branch_list(cx);
-        let Some(here) = self.create_here(&branches) else {
-            return;
-        };
-        let pair = self.requests.update(cx, |rq, _| {
-            if source {
-                rq.pick_source(&here, name)
-            } else {
-                rq.pick_target(&here, name)
-            }
-        });
+        let pair = self
+            .requests_api()
+            .and_then(|r| r.pick_branch(name, source, cx));
         self.compare_pair(pair, cx);
         cx.notify();
     }
 
     /// ↑ ↓ on From's or Into's list (`Requests::step_branch_list`).
     pub(super) fn step_branch_list(&mut self, down: bool, cx: &mut Context<Self>) -> bool {
-        let branches = self.branch_list(cx);
-        let took = self
-            .requests
-            .update(cx, |rq, _| rq.step_branch_list(&branches, down));
+        let took = (self.requests_api()).is_some_and(|r| r.step_branch_list(down, cx));
         if took {
             cx.notify();
         }
@@ -163,29 +141,10 @@ impl Workspace {
         cx.notify();
     }
 
-    /// "3 commits · 8 files · +46 −12": the diff of the pair.
-    fn create_totals(&self, cx: &App) -> Option<Totals> {
-        Totals::of(self.review.read(cx).diff.as_ref()?)
-    }
-
-    /// What the form is drawn with that the tab knows, the history's `branches` among it.
-    fn create_look<'a>(&self, branches: &'a [BranchRef], cx: &Context<Self>) -> CreateLook<'a> {
-        CreateLook {
-            typing: self.has_keyboard(Input::Part(INPUT), cx),
-            github: self.on_github(),
-            base: self.web.as_ref().map(|w| w.base.clone()),
-            selecting: Some(self.selecting(cx.entity().downgrade())),
-            totals: self.create_totals(cx),
-            branches,
-        }
-    }
-
     /// The quick way over the branch view (`Requests::render_create_quick`).
     pub(super) fn render_create_quick(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let branches = self.branch_list(cx);
-        let look = self.create_look(&branches, cx);
-        let acts = self.request_acts(cx);
-        self.requests
-            .update(cx, |rq, cx| rq.render_create_quick(&look, acts, cx))
+        let typing = self.has_keyboard(Input::Part(INPUT), cx);
+        let selecting = self.selecting(cx.entity().downgrade());
+        self.requests_api()?.render_create_quick(typing, selecting, cx)
     }
 }

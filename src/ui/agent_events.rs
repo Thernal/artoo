@@ -229,7 +229,7 @@ impl Workspace {
                 self.go_to(crate::links::Target::Request { iid, note, line }, cx);
                 if let Some(id) = draft {
                     self.spot = Some(Spot::Drafts(vec![id]));
-                    if self.request_loaded(iid, cx) && !self.requests.read(cx).reading {
+                    if self.request_loaded(iid, cx) && !self.requests_api().is_some_and(|r| r.reading(cx)) {
                         self.resolve_spot(true, cx);
                     }
                 }
@@ -356,7 +356,7 @@ impl Workspace {
         }
         self.spot = Some(Spot::Drafts(ids));
         // Loaded with its comments in: now; else as they come in (`sync_request`).
-        if self.request_loaded(iid, cx) && !self.requests.read(cx).reading {
+        if self.request_loaded(iid, cx) && !self.requests_api().is_some_and(|r| r.reading(cx)) {
             self.resolve_spot(true, cx);
         }
         cx.notify();
@@ -389,7 +389,7 @@ impl Workspace {
             .iter()
             .filter(|m| m.iid == iid && m.agent == agent)
             .filter_map(|m| m.draft);
-        if self.current_request(cx) == Some(iid) && !self.requests.read(cx).reading {
+        if self.current_request(cx) == Some(iid) && !self.requests_api().is_some_and(|r| r.reading(cx)) {
             ids.filter(|id| self.request_drafts(cx).iter().any(|d| d.id == *id))
                 .count()
         } else {

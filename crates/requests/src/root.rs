@@ -25,31 +25,7 @@ use artoo_ui_kit::{gap, island, px, theme};
 use gpui::{AnyElement, App, Context, Entity, Render, Window, div, prelude::*};
 use std::rc::Rc;
 
-/// What Merge requests' own page asks of the tab (`Rc<dyn RootHost>` in its services).
-pub trait RootHost {
-    /// The panel that connects the project's host, in the list's place while it has no token.
-    fn connect(&self, cx: &mut App) -> AnyElement;
-
-    /// A row folding with its group (#110): by its key, its group's motion and whether it is open; `None` once it
-    /// is shut.
-    fn fold(
-        &self,
-        key: String,
-        moving: &str,
-        open: bool,
-        row: AnyElement,
-        cx: &App,
-    ) -> Option<AnyElement>;
-
-    /// Comments drawn as markdown.
-    fn rich(&self, cx: &App) -> bool;
-
-    /// The tab narrow: no preview beside the list, and a click opens a request (#80).
-    fn narrow(&self, cx: &App) -> bool;
-
-    /// The next page of the merged or the closed of the scope shown read: the list's end is in sight.
-    fn more(&self, cx: &mut App);
-}
+pub use artoo_requests_api::RootHost;
 
 /// Merge requests' own page in one tab.
 pub struct RootPage {

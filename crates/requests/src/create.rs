@@ -136,19 +136,24 @@ pub struct Here<'a> {
     pub github: bool,
 }
 
-/// An agent's draft for the branch (#152): what the form starts from.
-pub struct Drafted {
-    pub agent: String,
-    pub target: String,
-    pub title: String,
-    pub description: String,
-    pub labels: Vec<String>,
-    pub reviewers: Vec<String>,
+pub use artoo_requests_api::{CreateKey, Drafted, INPUT, Pair};
+
+/// The repository the form is written in: its folder and whether its host is GitHub.
+pub struct Repository {
+    pub root: std::path::PathBuf,
+    pub github: bool,
 }
 
-/// The pair a request would merge, Into then From, each a branch's name and tip: the tab shows
-/// its diff, under Changes and as the files on the left.
-pub type Pair = ((String, Oid), (String, Oid));
+impl Repository {
+    /// What the form reads, with the repository's `branches`.
+    pub fn of<'a>(&'a self, branches: &'a [BranchRef]) -> Here<'a> {
+        Here {
+            root: &self.root,
+            branches,
+            github: self.github,
+        }
+    }
+}
 
 /// The pair's diff as the tab shows it: its files, the lines added and removed.
 #[derive(Clone, Copy)]
@@ -189,15 +194,6 @@ pub struct CreateLook<'a> {
     pub branches: &'a [BranchRef],
 }
 
-/// What a key on the form asks of the tab.
-#[derive(Clone)]
-pub enum CreateKey {
-    /// ⌘↵: create the request, or open the one there is.
-    Create,
-    /// Another branch was picked: the pair's diff.
-    Compare(Pair),
-}
-
 /// The quick way is open: its own esc leaves it.
 fn n_quick(n: &Option<NewRequest>) -> bool {
     n.as_ref().is_some_and(|n| n.quick)
@@ -208,16 +204,7 @@ fn area_of(rq: &mut Requests) -> Option<&mut Area> {
     rq.creating.as_mut().map(|n| &mut n.area)
 }
 
-/// The branch `branch` names as the host does: `feature-x`, not `origin/feature-x`.
-pub fn source_of(branch: &BranchRef) -> String {
-    match branch.kind {
-        RefKind::Remote => branch
-            .name
-            .split_once('/')
-            .map_or(branch.name.clone(), |(_, n)| n.to_owned()),
-        RefKind::Local | RefKind::Request => branch.name.clone(),
-    }
-}
+pub use artoo_core::mr::source_of;
 
 /// The tip of `name` on origin (`origin/name`).
 fn remote_tip(branches: &[BranchRef], name: &str) -> Option<Oid> {
@@ -437,6 +424,14 @@ impl Requests {
     }
 
     /// Templates ▾: the description becomes template `ix`.
+    /// What the form reads of the repository: its folder and its host (`Repository::of` adds the branches).
+    pub fn here(&self) -> Option<Repository> {
+        Some(Repository {
+            root: self.root.clone()?,
+            github: self.web.as_ref().is_some_and(|w| w.github),
+        })
+    }
+
     pub fn use_template(&mut self, ix: usize) {
         if let Some(n) = self.creating.as_mut()
             && let Some((name, text)) = n.templates.get(ix).cloned()
@@ -2234,9 +2229,6 @@ impl Requests {
         )
     }
 }
-
-/// The New merge request form's field among the tab's inputs.
-pub const INPUT: &str = "requests.create";
 
 /// The form's fields as one of the tab's inputs: its keys read the branches (`Branches` in `services`); what
 /// they ask of the tab comes to it as `Event::Create`. ↑ ↓ are its own while the description types.

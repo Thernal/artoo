@@ -10,28 +10,8 @@ use artoo_ui_kit::format::one_line;
 use artoo_ui_kit::hover::{self, Hover, Tip};
 use artoo_ui_kit::{ROW_RADIUS, px, theme};
 use gpui::{AnyElement, ClickEvent, FontWeight, div, prelude::*};
-use std::collections::HashMap;
 
-/// What the window is drawn with that the tab knows.
-pub struct Listing {
-    /// The request's diff is on screen: its discussions are listed, else none.
-    pub showing: bool,
-    /// Comments are drawn rich: a line of one is without its markdown.
-    pub rich: bool,
-    /// The host is GitHub: a pending comment is not sent alone (#138).
-    pub github: bool,
-    /// The timeline's last version.
-    pub latest: Option<usize>,
-    /// The agent that wrote a pending comment, by its id (#150).
-    pub agents: HashMap<u64, String>,
-}
-
-/// The window's count, its body (which scrolls itself) and its foot, Submit review.
-pub struct Window {
-    pub count: Option<String>,
-    pub body: AnyElement,
-    pub foot: Option<AnyElement>,
-}
+pub use artoo_requests_api::{DiscussionsWindow as Window, Listing};
 
 impl Requests {
     /// The Discussions tool window: the request's discussions and pending notes — public ones only,

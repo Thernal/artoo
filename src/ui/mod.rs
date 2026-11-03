@@ -1055,15 +1055,17 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         }
                         // Merge requests' root narrowed to the ones you wrote (#72).
                         "mine-requests" => {
-                            this.requests
-                                .update(cx, |rq, _| rq.scope = requests::Scope::Mine);
+                            if let Some(requests) = this.requests_api() {
+                                requests.set_scope(requests::Scope::Mine, cx);
+                            }
                             this.go_space(spaces::Space::Requests, cx);
                             continue;
                         }
                         // Merge requests' root narrowed to the ones that ask for a review.
                         "review-requests" => {
-                            this.requests
-                                .update(cx, |rq, _| rq.scope = requests::Scope::ReviewMe);
+                            if let Some(requests) = this.requests_api() {
+                                requests.set_scope(requests::Scope::ReviewMe, cx);
+                            }
                             this.go_space(spaces::Space::Requests, cx);
                             continue;
                         }
@@ -1136,8 +1138,9 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             continue;
                         }
                         "all-requests" => {
-                            this.requests
-                                .update(cx, |rq, _| rq.scope = requests::Scope::All);
+                            if let Some(requests) = this.requests_api() {
+                                requests.set_scope(requests::Scope::All, cx);
+                            }
                             this.go_space(spaces::Space::Requests, cx);
                             continue;
                         }
@@ -1411,8 +1414,9 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                 if view.contains("reaction-grid")
                     && let Some(note) = note
                 {
-                    this.requests
-                        .update(cx, |rq, _| rq.open_reaction_grid(note));
+                    if let Some(requests) = this.requests_api() {
+                        requests.open_grid(note, cx);
+                    }
                 }
                 this.refresh_rows(cx);
                 cx.notify();
@@ -1865,7 +1869,7 @@ impl Workspace {
         services.set::<Rc<dyn artoo_requests_api::InboxHost>>(Rc::new(inbox::InboxHost(
             cx.weak_entity(),
         )));
-        services.set::<Rc<dyn artoo_requests::root::RootHost>>(Rc::new(roots::RootHost(
+        services.set::<Rc<dyn artoo_requests_api::RootHost>>(Rc::new(roots::RootHost(
             cx.weak_entity(),
         )));
         services.set::<Rc<dyn artoo_code_api::Host>>(Rc::new(code::CodeHost(cx.weak_entity())));
@@ -2008,7 +2012,9 @@ impl Workspace {
                             .update(cx, |rv, _| rv.page.load(&crate::comment::key(&root)));
                         // Its requests list's folds and the requests opened (#81).
                         let key = crate::comment::key(&root);
-                        this.requests.update(cx, |rq, _| rq.rows.load(&key));
+                        if let Some(requests) = this.requests_api() {
+                            requests.load_rows(&key, cx);
+                        }
                         // Code's project, its pinned tabs (#20).
                         if let Some(code) = this.code() {
                             let fresh = this.root.as_ref() != Some(&root);
@@ -2076,7 +2082,9 @@ impl Workspace {
         self.review
             .update(cx, |rv, _| rv.page.load(&crate::comment::key(&root)));
         let key = crate::comment::key(&root);
-        self.requests.update(cx, |rq, _| rq.rows.load(&key));
+        if let Some(requests) = self.requests_api() {
+            requests.load_rows(&key, cx);
+        }
         if let Some(code) = self.code() {
             let fresh = self.root.as_ref() != Some(&root);
             code.set_project(root.clone(), true, fresh, &crate::comment::key(&root), cx);

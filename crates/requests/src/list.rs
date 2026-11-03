@@ -3,7 +3,7 @@
 //! review read for its preview. Its views draw the rows under their bands, the preview, why none is listed and the
 //! banner while the list cannot be read; the tab puts them in the root's frame (`ListLook`, `Body`).
 
-use crate::group::Group;
+use crate::group::{Band, Group};
 use crate::requests::{Act, Acts, Requests, Scope};
 use artoo_core::git::{DiffSettings, Repo};
 use artoo_core::{markdown, rank, storage};
@@ -291,7 +291,7 @@ fn kept_list(text: &str, repo: &str) -> Option<(HashSet<Group>, HashSet<u64>, bo
     let field = |n: usize| parts.get(n).copied().unwrap_or_default().split(',');
     let chosen = parts.get(2) == Some(&"folds");
     let folded = field(0)
-        .filter_map(Group::parse)
+        .filter_map(crate::group::parse)
         .filter(|_| chosen)
         .collect();
     let opened = field(1).filter_map(|iid| iid.parse().ok()).collect();

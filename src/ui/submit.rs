@@ -4,13 +4,13 @@
 use super::Workspace;
 use super::tools::ToolView;
 use super::typing::{self, Input};
-use artoo_requests::submit::SubmitLook;
+use artoo_requests_api::SubmitLook;
 use gpui::{App, Context, KeyDownEvent, prelude::*};
 
 impl Workspace {
     /// ⇧⌘↵ or "Submit review": the card, on Comment.
     pub(super) fn open_submit(&mut self, cx: &mut Context<Self>) {
-        if !self.showing_request(cx) || !self.requests.update(cx, |rq, _| rq.open_submit_card()) {
+        if !self.showing_request(cx) || !self.requests_api().is_some_and(|r| r.open_submit(cx)) {
             return;
         }
         self.take_keyboard(Input::Submit, cx);
@@ -18,17 +18,19 @@ impl Workspace {
     }
 
     pub(super) fn close_submit(&mut self, cx: &mut Context<Self>) {
-        self.requests.update(cx, |rq, cx| rq.close_submit(cx));
+        if let Some(requests) = self.requests_api() {
+            requests.close_submit(cx);
+        }
     }
 
     /// Submit review's card is open.
     pub(super) fn submitting(&self, cx: &App) -> bool {
-        self.requests.read(cx).submitting.is_some()
+        self.requests_api().is_some_and(|r| r.submitting(cx))
     }
 
     /// The card's keys (`Requests::submit_key`); ⌘↵ submits.
     pub(super) fn submit_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
-        if self.requests.update(cx, |rq, cx| rq.submit_key(event, cx)) {
+        if self.requests_api().is_some_and(|r| r.submit_key(event, cx)) {
             self.run_submit(cx);
         }
     }
@@ -52,10 +54,7 @@ impl Workspace {
             github: self.on_github(),
             agents: self.draft_agents(cx),
         };
-        let acts = self.request_acts(cx);
-        let (body, foot) = self
-            .requests
-            .update(cx, |rq, cx| rq.submit_card(look, acts, cx))?;
+        let (body, foot) = self.requests_api()?.submit_card(look, cx)?;
         Some(ToolView {
             title: "Submit review".into(),
             count: None,

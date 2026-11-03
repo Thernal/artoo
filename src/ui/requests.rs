@@ -10,9 +10,10 @@ use crate::git::Repo;
 use crate::mr::{self, Mr};
 use artoo_branches_api::RequestOf;
 use artoo_hosts_api::connect::{self, Connect, Here};
-use artoo_requests::discussions::Listing;
-use artoo_requests::requests::{Act, Acts};
-pub(super) use artoo_requests::requests::{Requests, Scope, Sides, sides};
+use artoo_core::mr::{Sides, sides};
+pub(super) use artoo_requests::requests::Requests;
+pub(super) use artoo_requests_api::Scope;
+use artoo_requests_api::{Act, Acts, Listing};
 use gpui::{App, ClickEvent, Context, WeakEntity, div, prelude::*};
 use std::rc::Rc;
 
@@ -73,10 +74,10 @@ impl Workspace {
 
     /// The request whose source branch is branch `ix` (`feat/x` and `origin/feat/x` alike), or
     /// whose head it is.
-    pub(super) fn request_of_branch<'a>(&self, ix: usize, cx: &'a App) -> Option<&'a Mr> {
+    pub(super) fn request_of_branch(&self, ix: usize, cx: &App) -> Option<Mr> {
         let list = self.branch_list(cx);
-        let b = list.get(ix)?;
-        self.requests.read(cx).of_branch(b)
+        let (iid, _) = self.requests_api()?.of_branch(list.get(ix)?, cx)?;
+        self.find_request(iid, cx)
     }
 
     /// Reads the current request's discussions, pending comments and approvals again
@@ -87,19 +88,14 @@ impl Workspace {
         }
     }
 
-    /// How the tab answers what the requests' views ask (`requests::Act`).
-    pub(super) fn request_acts(&self, cx: &Context<Self>) -> Acts {
-        acts_of(cx.weak_entity())
-    }
-
     /// What the requests tell the tab after a read of their own.
     pub(super) fn requests_event(
         &mut self,
-        _: gpui::Entity<artoo_requests::requests::Requests>,
-        event: &artoo_requests::requests::Event,
+        _: gpui::Entity<Requests>,
+        event: &artoo_requests_api::Event,
         cx: &mut Context<Self>,
     ) {
-        use artoo_requests::requests::Event;
+        use artoo_requests_api::Event;
         match event {
             Event::Listed => {
                 if let Some(ix) = self.branch_ix(cx) {
@@ -168,25 +164,13 @@ impl Workspace {
             return;
         }
         if iid != self.current_request(cx) {
-            self.requests.update(cx, |rq, _| rq.forget_open());
             self.draft_at = None;
         }
-        self.requests.update(cx, |rq, _| rq.current = iid);
+        let Some(requests) = self.requests_api() else {
+            return;
+        };
+        requests.follow(iid, cx);
         if let Some(iid) = iid {
-            if self
-                .requests
-                .read(cx)
-                .walk
-                .is_none_or(|(walked, _)| walked != iid)
-                && let Some(m) = self.find_request(iid, cx)
-            {
-                let task = Some((iid, self.group_of(&m, cx)));
-                self.requests.update(cx, |rq, _| rq.walk = task);
-            }
-            self.requests.update(cx, |rq, _| rq.mark_opened(iid));
-        }
-        self.requests.update(cx, |rq, _| rq.reading = false);
-        if let (Some(iid), Some(requests)) = (iid, self.requests_api()) {
             requests.read_open(iid, cx);
         }
     }
@@ -228,8 +212,8 @@ impl Workspace {
         let Some((src, sides)) = found else {
             // Not here: its head is fetched from the host, once, and then it opens (#114).
             if self
-                .requests
-                .update(cx, |rq, _| rq.heads_fetched.insert(iid))
+                .requests_api()
+                .is_some_and(|r| r.fetch_head_once(iid, cx))
             {
                 return self.fetch_request_head(iid, github, cx);
             }
@@ -351,9 +335,7 @@ impl Workspace {
 
     /// The next request to review below the open one (`Requests::next_request`).
     fn next_request(&self, cx: &App) -> Option<Mr> {
-        let review = self.review.read(cx);
-        let seen = |m: &Mr| review.request_seen(m.iid, git2::Oid::from_str(&m.head).ok());
-        self.requests.read(cx).next_request(&self.bfilter, &seen)
+        self.requests_api()?.next_request(&self.bfilter, cx)
     }
 
     /// Reads the pushes GitLab kept for request `iid` (`Requests::load_versions`); they become the
@@ -368,13 +350,7 @@ impl Workspace {
     /// (#145): the sides waiting for its branch to load take them, or the open request is compared
     /// again when its diff would differ. A side that is not here is fetched first, once.
     fn follow_host_sides(&mut self, iid: u64, cx: &mut Context<Self>) {
-        let Some(host) = self
-            .requests
-            .read(cx)
-            .host
-            .filter(|(i, _)| *i == iid)
-            .map(|(_, h)| h)
-        else {
+        let Some(host) = self.requests_api().and_then(|r| r.host_sides(iid, cx)) else {
             return;
         };
         let Some(branches) = self.branches() else {
@@ -397,8 +373,8 @@ impl Workspace {
             Sides::Same => {}
             Sides::Missing { base, head } => {
                 if self
-                    .requests
-                    .update(cx, |rq, _| rq.sides_fetched.insert(iid))
+                    .requests_api()
+                    .is_some_and(|r| r.fetch_sides_once(iid, cx))
                 {
                     self.fetch_request_sides(iid, base, head, cx);
                 }
@@ -432,11 +408,9 @@ impl Workspace {
         };
         let target = m.target.clone();
         let github = self.web.as_ref().is_some_and(|w| w.github);
-        let sha = self
-            .requests
-            .read(cx)
-            .host
-            .and_then(|(_, h)| h.1)
+        let sha = (self.requests_api())
+            .and_then(|r| r.host_sides(iid, cx))
+            .and_then(|h| h.1)
             .map(|h| h.to_string());
         let number = super::words::number(iid);
         let news = if base {
@@ -486,7 +460,7 @@ impl Workspace {
     /// Shows GitLab's versions of the open request in the timeline, when there is more than one
     /// (`History::show_request_versions`).
     pub(super) fn apply_mr_versions(&mut self, cx: &mut App) {
-        let versions = self.requests.read(cx).versions.clone();
+        let versions = self.requests_api().and_then(|r| r.versions(cx));
         if let Some(branches) = self.branches() {
             branches.show_request_versions(versions.as_ref(), cx);
         }
@@ -529,7 +503,7 @@ impl Workspace {
         this: WeakEntity<Self>,
         cx: &App,
     ) -> gpui::AnyElement {
-        use artoo_requests::thread::{self, ThreadLook};
+        use artoo_requests_api::{OnThread, ThreadLook};
         let replying = self.compose.as_ref().is_some_and(|c| {
             matches!(
                 c.target,
@@ -581,22 +555,24 @@ impl Workspace {
             fold: &fold,
             moving: self.motion.recent(&format!("thread-{ix}")),
         };
-        let acts = acts_of(this.clone());
-        let on: thread::OnThread = Rc::new(move |event, cx| {
+        let on: OnThread = Rc::new(move |event, cx| {
             this.update(cx, |this, cx| this.thread_event(ix, event, cx))
                 .ok();
         });
-        thread::render_thread(&self.requests, ix, look, acts, on, cx)
+        match self.requests_api() {
+            Some(requests) => requests.render_thread(ix, look, on, cx),
+            None => div().into_any_element(),
+        }
     }
 
     /// A click on discussion `ix` (`artoo_requests::thread::ThreadEvent`).
     fn thread_event(
         &mut self,
         ix: usize,
-        event: artoo_requests::thread::ThreadEvent,
+        event: artoo_requests_api::ThreadEvent,
         cx: &mut Context<Self>,
     ) {
-        use artoo_requests::thread::ThreadEvent;
+        use artoo_requests_api::ThreadEvent;
         match event {
             ThreadEvent::Fold(open) => {
                 self.thread_at = Some(ix);
@@ -763,7 +739,7 @@ impl Workspace {
         this: WeakEntity<Self>,
         cx: &App,
     ) -> gpui::AnyElement {
-        use artoo_requests::thread::{self, DraftEvent, DraftLook};
+        use artoo_requests_api::{DraftEvent, DraftLook, OnDraft};
         let Some(id) = self.request_drafts(cx).get(ix).map(|d| d.id) else {
             return div().into_any_element();
         };
@@ -778,7 +754,7 @@ impl Workspace {
             agent: self.draft_agent(id, cx),
             me: &self.me,
         };
-        let on: thread::OnDraft = Rc::new(move |event, cx| {
+        let on: OnDraft = Rc::new(move |event, cx| {
             this.update(cx, |this, cx| match event {
                 DraftEvent::Send => this.send_draft_now(id, cx),
                 DraftEvent::ToggleRich => this.toggle_rich_comments(cx),
@@ -786,7 +762,10 @@ impl Workspace {
             })
             .ok();
         });
-        thread::render_draft(self.requests.read(cx), ix, look, on, cx)
+        match self.requests_api() {
+            Some(requests) => requests.render_draft(ix, look, on, cx),
+            None => div().into_any_element(),
+        }
     }
 
     /// A change to the open request; a refusal says why in the error bar (#139).
@@ -877,11 +856,9 @@ impl Workspace {
         let Some(diff) = self.review.read(cx).diff.as_ref() else {
             return Vec::new();
         };
-        let mut order: Vec<(usize, u32, usize)> = self.request_drafts(cx)
-            .iter()
-            .enumerate()
-            .filter_map(|(ix, d)| {
-                let (path, new, old) = self.requests.read(cx).draft_place(d)?;
+        let mut order: Vec<(usize, u32, usize)> = (0..self.request_drafts(cx).len())
+            .filter_map(|ix| {
+                let (path, new, old) = self.requests_api()?.draft_place(ix, cx)?;
                 let file = diff.files.iter().position(|f| f.path() == path)?;
                 Some((file, new.or(old)?, ix))
             })
@@ -921,7 +898,6 @@ impl Workspace {
 
     /// The Discussions tool window (`Requests::discussions_window`).
     pub(super) fn discussions_tool(&self, cx: &mut Context<Self>) -> ToolView {
-        let rq = self.requests.read(cx);
         let look = Listing {
             showing: self.showing_request(cx),
             rich: self.settings.rich_comments,
@@ -929,7 +905,15 @@ impl Workspace {
             latest: self.latest_version(cx),
             agents: self.draft_agents(cx),
         };
-        let window = rq.discussions_window(look, self.request_acts(cx));
+        let Some(window) = self.requests_api().map(|r| r.discussions(look, cx)) else {
+            return ToolView {
+                title: "Discussions".into(),
+                count: None,
+                actions: Vec::new(),
+                body: div().into_any_element(),
+                foot: None,
+            };
+        };
         ToolView {
             title: "Discussions".into(),
             count: window.count,
@@ -952,9 +936,9 @@ impl Workspace {
     /// The requests the scope and filter let through, in the order the list shows them
     /// (`Requests::shown`).
     pub(super) fn shown_requests(&self, cx: &App) -> Vec<Mr> {
-        let review = self.review.read(cx);
-        let seen = |m: &Mr| review.request_seen(m.iid, git2::Oid::from_str(&m.head).ok());
-        self.requests.read(cx).shown(&self.bfilter, &seen)
+        self.requests_api()
+            .map(|r| r.shown(&self.bfilter, cx))
+            .unwrap_or_default()
     }
 
     /// All · To review · Mine with their counts, in Merge requests' bar, once the token's user is
@@ -967,36 +951,23 @@ impl Workspace {
         if self.request_login(cx).is_none() || loading {
             return None;
         }
-        // The merged or the closed: as many as the host says, or counted as far as read (#114,
-        // #169).
-        let past = self.requests.read(cx).view != mr::MrState::Opened;
-        let count = |scope: Scope| {
-            if !past {
-                let list = &self.request_list(cx);
-                return list
-                    .iter()
-                    .filter(|m| self.requests.read(cx).in_scope(m, scope))
-                    .count()
-                    .to_string();
-            }
-            let pages = self.requests.read(cx).past.of_scope(scope);
-            match pages.total {
-                Some(total) => total.to_string(),
-                None => format!("{}{}", pages.list.len(), if pages.more { "+" } else { "" }),
-            }
-        };
+        let requests = self.requests_api()?;
+        let view = requests.view(cx);
+        let past = view != mr::MrState::Opened;
+        let count = |scope: Scope| requests.scope_count(scope, cx);
         let filter = |scope: Scope, id: &'static str, name: &'static str| {
             artoo_ui_kit::controls::chip(
                 id,
                 format!("{name} {}", count(scope)),
-                self.requests.read(cx).scope == scope,
+                requests.scope(cx) == scope,
             )
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.requests.update(cx, |rq, _| rq.scope = scope);
+                if let Some(requests) = this.requests_api() {
+                    requests.set_scope(scope, cx);
+                }
                 cx.notify();
             }))
         };
-        let view = self.requests.read(cx).view;
         let state =
             artoo_ui_kit::controls::chip("request-state", format!("{} ▾", view.word()), past)
                 .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
@@ -1133,7 +1104,7 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
             Act::React { note, name } => this.toggle_reaction(note, &name, cx),
             Act::OpenGrid(note) => this.open_reaction_grid(note, cx),
             Act::CloseGrid(note) => {
-                if this.requests.read(cx).grid_note() == Some(note) {
+                if this.requests_api().and_then(|r| r.grid_note(cx)) == Some(note) {
                     this.close_reaction_grid(cx)
                 }
             }
@@ -1160,13 +1131,17 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
             Act::SinceStep { a, b } => this.go_since(a, b, cx),
             Act::SinceAll => this.leave_since(cx),
             Act::ToggleGroup(g) => {
-                this.mark_motion(&format!("group-{}", g.key()), cx);
-                this.requests.update(cx, |rq, _| rq.rows.toggle(g));
+                if let Some(requests) = this.requests_api() {
+                    let key = requests.toggle_group(g, cx);
+                    this.mark_motion(&key, cx);
+                }
                 cx.notify();
             }
             Act::RetryPast => this.retry_past_page(cx),
             Act::ShowAll => {
-                this.requests.update(cx, |rq, _| rq.scope = Scope::All);
+                if let Some(requests) = this.requests_api() {
+                    requests.set_scope(Scope::All, cx);
+                }
                 this.bfilter.clear();
                 this.field = None;
                 cx.notify();

@@ -189,7 +189,7 @@ impl Workspace {
                 .and_then(|ix| {
                     let request = self
                         .request_of_branch(ix, cx)
-                        .map(|m| (m.iid, m.title.clone()));
+                        .map(|m| (m.iid, m.title));
                     self.branches()?.branch_card(ix, request, cx)
                 }) {
                 Some(build) => title

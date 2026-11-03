@@ -3,9 +3,14 @@
 //! sent to it not yet read back. The tab reads and draws them.
 
 use crate::group::Group;
-use artoo_core::git::{BranchRef, RefKind, Repo, Version};
+use artoo_core::git::{BranchRef, RefKind, Version};
 use artoo_hosts_api::{self as mr, Draft, Mr, Pipeline, Thread};
-use artoo_requests_api::{Answered, Change, InboxFilter, InboxRow, Moved, OnInbox};
+use artoo_requests_api::{
+    Answered, Change, DiscussionsWindow, DraftLook, Drafted, InboxFilter, InboxRow, Listing,
+    Moved, OnDraft, OnInbox, OnThread, Pair, Since, SubmitLook, ThreadLook,
+};
+use artoo_ui_kit::markdown::Selecting;
+use gpui::KeyDownEvent;
 use gpui::{AnyElement, IntoElement};
 use gpui::{App, Entity, Task, WeakEntity};
 use std::rc::Rc;
@@ -45,114 +50,11 @@ pub struct Pages {
     pub task: Option<Task<()>>,
 }
 
-/// What the requests tell the tab after a read of their own (`reading`).
-pub enum Event {
-    /// The open list was read, or could not be.
-    Listed,
-    /// Requests gone from the open list were read.
-    Left,
-    /// Request `iid`, opened, was read (`read`), or could not be.
-    Opened { iid: u64, read: bool },
-    /// The open request `iid`'s discussions, pending comments and approvals were read again: what
-    /// shows is made again on them.
-    Read(u64),
-    /// Request `iid`'s versions were read: its diff follows them.
-    Versions(u64),
-    /// The lines of the outdated discussions were followed to the latest version.
-    Histories,
-    /// The reactions on the open request's notes were read.
-    Awards,
-    /// The host merged request `iid`, or set it to merge when the pipeline succeeds (`merge`).
-    Merged {
-        iid: u64,
-        merge: crate::merge::Merge,
-    },
-    /// The host created request `iid` from branch `source`.
-    Created { iid: u64, source: String },
-    /// A key on the New merge request form asks the tab: create, or the pair's diff.
-    Create(crate::create::CreateKey),
-    /// A call to the host was refused, and why.
-    Failed(String),
-    /// The notifications were read: those new since the last read, to say to the system (#26).
-    Noticed(Vec<artoo_requests_api::News>),
-}
+pub use artoo_requests_api::Event;
 
 impl gpui::EventEmitter<Event> for Requests {}
 
-/// What a view of the requests asks the tab (`Acts`).
-pub enum Act {
-    /// `a`: approve the request open, or take one's approval back.
-    ToggleApproval,
-    /// The list of what is in the way of a merge, at a window position.
-    MergeReasons(gpui::Point<gpui::Pixels>),
-    /// The card before a merge goes.
-    OpenMerge,
-    /// The host puts the request's commits on top of its target.
-    Rebase,
-    /// Merging when the pipeline succeeds is cancelled.
-    CancelAutoMerge,
-    /// Your reaction `name` on note `note`, added or taken back.
-    React { note: u64, name: String },
-    /// ☺+ opened on note `note`.
-    OpenGrid(u64),
-    /// ☺+ closed, when it is open on note `note`.
-    CloseGrid(u64),
-    /// A note for your agent on discussion `thread` (#50 G).
-    ThreadNote(usize),
-    /// A reply to discussion `thread` with `login` already mentioned.
-    ReplyMentioning { thread: usize, login: String },
-    /// Outdated discussion `ix`'s version compared with the latest.
-    CompareSince(usize),
-    /// The diff shows line `line` of file `path` (`old`: the removed side).
-    JumpToLine { path: String, line: u32, old: bool },
-    /// Submit review's card.
-    OpenSubmit,
-    /// Pending comment `id` published alone (#138).
-    SendNow(u64),
-    /// A right click on request `iid`'s line: its link and its number (#162).
-    RequestContext {
-        iid: u64,
-        at: gpui::Point<gpui::Pixels>,
-    },
-    /// Submit review's card sends the review.
-    RunSubmit,
-    /// The New merge request form creates the request, or opens the one there is.
-    CreateGo,
-    /// Templates ▾ chose template `ix` for the description.
-    UseTemplate(usize),
-    /// From's list chose a branch.
-    PickSource(String),
-    /// Into's list chose a branch.
-    PickTarget(String),
-    /// Merge's card sends the merge.
-    RunMerge,
-    /// Merge was refused for a push after the version on the page: the card goes, the new one
-    /// comes.
-    ShowNewVersion,
-    /// Request `iid`'s row picked in the list, by a click.
-    PickRequest(u64),
-    /// Request `iid` opened, at note `note` (a discussion waiting for you) when there is one.
-    OpenRequest { iid: u64, note: Option<u64> },
-    /// The list's group folded or unfolded.
-    ToggleGroup(crate::group::Group),
-    /// The merged or closed page that could not be read, read again.
-    RetryPast,
-    /// Every request listed again: the scope All, the filter cleared.
-    ShowAll,
-    /// The open list read again.
-    Relist,
-    /// Settings, at the requests' token.
-    RenewToken,
-    /// Back to your branch from the request open.
-    LeaveRequest,
-    /// The outdated discussion's stepper: its stops `a` → `b` compared, at its line.
-    SinceStep { a: usize, b: usize },
-    /// The outdated discussion's comparison left for all the request's changes.
-    SinceAll,
-}
-
-/// How the tab answers what the requests' views ask.
-pub type Acts = std::rc::Rc<dyn Fn(Act, &mut gpui::App)>;
+pub use artoo_requests_api::{Act, Acts};
 
 #[derive(Default)]
 pub struct Requests {
@@ -250,38 +152,7 @@ pub struct Requests {
     pub thread_task: Option<Task<()>>,
 }
 
-/// A request's base and head as its host compares it (GitLab: the latest version's `diff_refs`;
-/// GitHub: the base branch's and the head's commits); `None` where the host gave none.
-pub type HostSides = (Option<git2::Oid>, Option<git2::Oid>);
-
-/// How a request is compared once its host's sides are known (#145).
-#[derive(Debug, PartialEq, Eq)]
-pub enum Sides {
-    /// The sides read from this clone already give the host's diff.
-    Same,
-    /// The host's base and head, both here: the request is compared from them.
-    Host(git2::Oid, git2::Oid),
-    /// The host names a commit this clone lacks — the base, the head or both —, to fetch first.
-    Missing { base: bool, head: bool },
-}
-
-/// The host's sides against the ones read from this clone, `here`: the target's tip (a merged
-/// request's merge commit's first parent) and the source branch's. A target not fetched lately
-/// starts the compare at an old merge base, and every target commit after it shows as the
-/// request's; a fast-forward merge puts the head in the target, and nothing shows.
-pub fn sides(repo: &Repo, host: HostSides, here: (git2::Oid, git2::Oid)) -> Sides {
-    let lacks = |id: Option<git2::Oid>| id.is_some_and(|id| !repo.has_commit(id));
-    let (base, head) = (lacks(host.0), lacks(host.1));
-    if base || head {
-        return Sides::Missing { base, head };
-    }
-    let (base, head) = (host.0.unwrap_or(here.0), host.1.unwrap_or(here.1));
-    if head == here.1 && repo.start_of(base, head) == repo.start_of(here.0, here.1) {
-        Sides::Same
-    } else {
-        Sides::Host(base, head)
-    }
-}
+pub use artoo_core::mr::{HostSides, Sides, sides};
 
 impl Requests {
     /// The remote's host, when the repository has one.
@@ -450,6 +321,26 @@ impl Handle {
     /// The Inbox's notices, from the tab's services.
     fn notices(&self) -> Option<Entity<crate::notices::Notices>> {
         self.1.upgrade()?.get()
+    }
+
+    /// How far you reviewed request `m` (the review's word).
+    fn seen(&self, m: &Mr, cx: &App) -> artoo_review_api::Seen {
+        self.review().map_or(artoo_review_api::Seen::Never, |r| {
+            r.request_seen(m.iid, git2::Oid::from_str(&m.head).ok(), cx)
+        })
+    }
+
+    /// The tab's review and its branches, from its services.
+    fn review(&self) -> Option<Rc<dyn artoo_review_api::Review>> {
+        self.1.upgrade()?.get()
+    }
+
+    fn branch_list(&self, cx: &App) -> std::sync::Arc<Vec<BranchRef>> {
+        self.1
+            .upgrade()
+            .and_then(|s| s.get::<Rc<dyn artoo_branches_api::Branches>>())
+            .map(|b| b.list(cx))
+            .unwrap_or_default()
     }
 
     /// The Inbox's view, from the tab's services.
@@ -1091,5 +982,298 @@ impl artoo_requests_api::Requests for Handle {
         if let Some(view) = self.inbox() {
             view.update(cx, |v, _| v.reply = reply);
         }
+    }
+
+    fn follow(&self, number: Option<u64>, cx: &mut App) {
+        let group = number
+            .and_then(|n| self.find(n, cx))
+            .map(|m| artoo_requests_api::Requests::group_of(self, &m, cx));
+        self.update(cx, |rq, _| {
+            if number != rq.current {
+                rq.forget_open();
+            }
+            rq.current = number;
+            if let Some(iid) = number {
+                if rq.walk.is_none_or(|(walked, _)| walked != iid)
+                    && let Some(group) = group
+                {
+                    rq.walk = Some((iid, group));
+                }
+                rq.mark_opened(iid);
+            }
+            rq.reading = false;
+        });
+    }
+
+    fn reading(&self, cx: &App) -> bool {
+        self.0.upgrade().is_some_and(|r| r.read(cx).reading)
+    }
+
+    fn fetch_head_once(&self, number: u64, cx: &mut App) -> bool {
+        self.update(cx, |rq, _| rq.heads_fetched.insert(number))
+            .unwrap_or(false)
+    }
+
+    fn fetch_sides_once(&self, number: u64, cx: &mut App) -> bool {
+        self.update(cx, |rq, _| rq.sides_fetched.insert(number))
+            .unwrap_or(false)
+    }
+
+    fn host_sides(&self, number: u64, cx: &App) -> Option<HostSides> {
+        let (iid, sides) = self.0.upgrade()?.read(cx).host?;
+        (iid == number).then_some(sides)
+    }
+
+    fn shown(&self, filter: &str, cx: &App) -> Vec<Mr> {
+        let Some(requests) = self.0.upgrade() else {
+            return Vec::new();
+        };
+        requests.read(cx).shown(filter, &|m| self.seen(m, cx))
+    }
+
+    fn next_request(&self, filter: &str, cx: &App) -> Option<Mr> {
+        self.0
+            .upgrade()?
+            .read(cx)
+            .next_request(filter, &|m| self.seen(m, cx))
+    }
+
+    fn group_of(&self, m: &Mr, cx: &App) -> Group {
+        let seen = self.seen(m, cx);
+        self.0
+            .upgrade()
+            .map_or(Group::New, |r| r.read(cx).group_of(m, seen))
+    }
+
+    fn view(&self, cx: &App) -> mr::MrState {
+        self.0
+            .upgrade()
+            .map(|r| r.read(cx).view)
+            .unwrap_or_default()
+    }
+
+    fn set_scope(&self, scope: Scope, cx: &mut App) {
+        self.update(cx, |rq, cx| {
+            rq.scope = scope;
+            cx.notify();
+        });
+    }
+
+    fn scope_count(&self, scope: Scope, cx: &App) -> String {
+        let Some(requests) = self.0.upgrade() else {
+            return String::new();
+        };
+        let rq = requests.read(cx);
+        // The merged or the closed: as many as the host says, or counted as far as read (#114, #169).
+        if rq.view == mr::MrState::Opened {
+            let n = rq.list.iter().filter(|m| rq.in_scope(m, scope)).count();
+            return n.to_string();
+        }
+        let pages = rq.past.of_scope(scope);
+        match pages.total {
+            Some(total) => total.to_string(),
+            None => format!("{}{}", pages.list.len(), if pages.more { "+" } else { "" }),
+        }
+    }
+
+    fn toggle_group(&self, group: Group, cx: &mut App) -> String {
+        use crate::group::Band;
+        self.update(cx, |rq, cx| {
+            rq.rows.toggle(group);
+            cx.notify();
+        });
+        format!("group-{}", group.key())
+    }
+
+    fn pick_row(&self, number: Option<u64>, cx: &mut App) {
+        self.update(cx, |rq, _| rq.rows.picked = number);
+    }
+
+    fn reveal_row(&self, cx: &mut App) {
+        if let Some(requests) = self.0.upgrade() {
+            requests.read(cx).rows.reveal.set(true);
+        }
+    }
+
+    fn folds(&self, group: Group, filtering: bool, cx: &App) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|r| r.read(cx).rows.folds(group, filtering))
+    }
+
+    fn row_opened(&self, number: u64, cx: &App) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|r| r.read(cx).rows.opened(number))
+    }
+
+    fn load_rows(&self, key: &str, cx: &mut App) {
+        self.update(cx, |rq, _| rq.rows.load(key));
+    }
+
+    fn render_thread(&self, ix: usize, look: ThreadLook, on: OnThread, cx: &App) -> AnyElement {
+        let Some(requests) = self.0.upgrade() else {
+            return gpui::div().into_any_element();
+        };
+        crate::thread::render_thread(&requests, ix, look, self.acts(), on, cx)
+    }
+
+    fn render_draft(&self, ix: usize, look: DraftLook, on: OnDraft, cx: &App) -> AnyElement {
+        let Some(requests) = self.0.upgrade() else {
+            return gpui::div().into_any_element();
+        };
+        crate::thread::render_draft(requests.read(cx), ix, look, on, cx)
+    }
+
+    fn drafts_in(&self, path: &str, cx: &App) -> Vec<(usize, bool, u32)> {
+        self.0
+            .upgrade()
+            .map(|r| r.read(cx).drafts_in(path))
+            .unwrap_or_default()
+    }
+
+    fn draft_thread(&self, ix: usize, cx: &App) -> Option<usize> {
+        let requests = self.0.upgrade()?;
+        let rq = requests.read(cx);
+        rq.draft_thread(rq.drafts.get(ix)?)
+    }
+
+    fn discussions(&self, look: Listing, cx: &App) -> DiscussionsWindow {
+        match self.0.upgrade() {
+            Some(requests) => requests.read(cx).discussions_window(look, self.acts()),
+            None => DiscussionsWindow {
+                count: None,
+                body: gpui::div().into_any_element(),
+                foot: None,
+            },
+        }
+    }
+
+    fn open_submit(&self, cx: &mut App) -> bool {
+        self.update(cx, |rq, _| rq.open_submit_card())
+            .unwrap_or(false)
+    }
+
+    fn close_submit(&self, cx: &mut App) {
+        self.update(cx, |rq, cx| rq.close_submit(cx));
+    }
+
+    fn submitting(&self, cx: &App) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|r| r.read(cx).submitting.is_some())
+    }
+
+    fn submit_key(&self, event: &KeyDownEvent, cx: &mut App) -> bool {
+        self.update(cx, |rq, cx| rq.submit_key(event, cx))
+            .unwrap_or(false)
+    }
+
+    fn submit_card(&self, look: SubmitLook, cx: &mut App) -> Option<(gpui::Stateful<gpui::Div>, gpui::Div)> {
+        let acts = self.acts();
+        self.update(cx, |rq, cx| rq.submit_card(look, acts, cx))?
+    }
+
+    fn open_create(&self, branch: &BranchRef, drafted: Option<Drafted>, cx: &mut App) -> Option<Pair> {
+        let requests = self.0.upgrade()?;
+        let host = requests.read(cx).host(cx)?;
+        let branches = self.branch_list(cx);
+        let here = requests.read(cx).here()?;
+        requests.update(cx, |rq, cx| rq.open_create(&here.of(&branches), branch, drafted, host, cx))
+    }
+
+    fn use_template(&self, ix: usize, cx: &mut App) {
+        self.update(cx, |rq, _| rq.use_template(ix));
+    }
+
+    fn open_create_menu(&self, name: &str, cx: &mut App) {
+        self.update(cx, |rq, cx| rq.open_create_menu(name, cx));
+    }
+
+    fn create_quick(&self, cx: &mut App) {
+        self.update(cx, |rq, _| rq.create_quick());
+    }
+
+    fn creating(&self, cx: &App) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|r| r.read(cx).creating.is_some())
+    }
+
+    fn pick_branch(&self, name: String, source: bool, cx: &mut App) -> Option<Pair> {
+        let branches = self.branch_list(cx);
+        let here = self.0.upgrade()?.read(cx).here()?;
+        self.update(cx, |rq, _| {
+            let here = here.of(&branches);
+            if source {
+                rq.pick_source(&here, name)
+            } else {
+                rq.pick_target(&here, name)
+            }
+        })?
+    }
+
+    fn step_branch_list(&self, down: bool, cx: &mut App) -> bool {
+        let branches = self.branch_list(cx);
+        self.update(cx, |rq, cx| {
+            let took = rq.step_branch_list(&branches, down);
+            if took {
+                cx.notify();
+            }
+            took
+        })
+        .unwrap_or(false)
+    }
+
+    fn render_create_quick(&self, typing: bool, selecting: Selecting, cx: &mut App) -> Option<AnyElement> {
+        let requests = self.0.upgrade()?;
+        let branches = self.branch_list(cx);
+        let shown = self.review().and_then(|r| r.shown(cx));
+        let web = requests.read(cx).web.clone();
+        let look = crate::create::CreateLook {
+            typing,
+            github: web.as_ref().is_some_and(|w| w.github),
+            base: web.map(|w| w.base),
+            selecting: Some(selecting),
+            totals: shown.as_ref().and_then(|d| crate::create::Totals::of(d)),
+            branches: &branches,
+        };
+        let acts = self.acts();
+        requests.update(cx, |rq, cx| rq.render_create_quick(&look, acts, cx))
+    }
+
+    fn start_since(&self, ix: usize, latest: usize, cx: &mut App) -> Option<usize> {
+        self.update(cx, |rq, _| {
+            let iid = rq.current?;
+            let t = rq.threads.get(ix)?;
+            let (h, path) = (rq.histories.get(&t.id)?, t.path.clone()?);
+            let stops = h.stops(t.new_line.or(t.old_line), latest);
+            let last = stops.len().checked_sub(1)?;
+            let thread = t.id.clone();
+            rq.since = Some(Since {
+                iid,
+                thread,
+                path,
+                stops,
+            });
+            Some(last)
+        })?
+    }
+
+    fn since(&self, cx: &App) -> Option<Since> {
+        self.0.upgrade()?.read(cx).since.clone()
+    }
+
+    fn leave_since(&self, cx: &mut App) -> Option<u64> {
+        self.update(cx, |rq, _| rq.since.take().map(|s| s.iid))?
+    }
+
+    fn line_changed(&self, thread: &str, cx: &App) -> bool {
+        self.0.upgrade().is_some_and(|r| {
+            r.read(cx)
+                .histories
+                .get(thread)
+                .is_some_and(crate::outdated::LineHistory::changed)
+        })
     }
 }

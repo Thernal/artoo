@@ -12,7 +12,7 @@ use super::nav::BranchRow;
 use super::{Workspace, island, keys, px, theme};
 use crate::git::BranchRef;
 use crate::mr::{Mr, MrState, Thread};
-pub(super) use artoo_requests::group::Group;
+pub(super) use artoo_requests_api::Group;
 use artoo_review_api::Seen;
 use gpui::{AnyElement, App, ClickEvent, Context, Div, WeakEntity, div, prelude::*};
 
@@ -109,9 +109,8 @@ impl Workspace {
 
     /// Request `m`'s group in the list.
     pub(super) fn group_of(&self, m: &Mr, cx: &App) -> Group {
-        let head = git2::Oid::from_str(&m.head).ok();
-        let seen = self.review.read(cx).request_seen(m.iid, head);
-        self.requests.read(cx).group_of(m, seen)
+        self.requests_api()
+            .map_or(Group::New, |r| r.group_of(m, cx))
     }
 
     /// The discussions of request `iid` waiting for its author (`waiting`). Read with the
@@ -149,14 +148,18 @@ impl Workspace {
     pub(super) fn pick_first_request(&mut self, cx: &mut Context<Self>) {
         if self.requests_api().and_then(|r| r.picked_row(cx)).is_none() {
             let first = self.listed_requests(cx).first().map(|m| m.iid);
-            self.requests.update(cx, |rq, _| rq.rows.picked = first);
+            if let Some(requests) = self.requests_api() {
+                requests.pick_row(first, cx);
+            }
         }
     }
 
     /// A root list's row picked, by a click or ↑ ↓.
     pub(super) fn pick_request(&mut self, iid: u64, cx: &mut Context<Self>) {
-        self.requests.update(cx, |rq, _| rq.rows.picked = Some(iid));
-        self.requests.read(cx).rows.reveal.set(true);
+        if let Some(requests) = self.requests_api() {
+            requests.pick_row(Some(iid), cx);
+            requests.reveal_row(cx);
+        }
         self.read_preview(cx);
         cx.notify();
     }
@@ -171,13 +174,14 @@ impl Workspace {
     /// Whether group `g`'s rows are folded away; a filter typed opens every group.
     fn folds(&self, g: Group, cx: &App) -> bool {
         let filtering = !self.bfilter.trim().is_empty();
-        self.requests.read(cx).rows.folds(g, filtering)
+        self.requests_api()
+            .is_some_and(|r| r.folds(g, filtering, cx))
     }
 
     /// The requests the list has a row for, in its order: those of folded groups left out, but
     /// the picked one, which stays under its band.
     pub(super) fn listed_requests(&self, cx: &App) -> Vec<Mr> {
-        let past = self.requests.read(cx).view != MrState::Opened;
+        let past = self.requests_api().is_some_and(|r| r.view(cx) != MrState::Opened);
         let picked = self.requests_api().and_then(|r| r.picked_row(cx));
         self.shown_requests(cx)
             .into_iter()
@@ -189,7 +193,7 @@ impl Workspace {
     pub(super) fn opened_before(&self, iid: u64, cx: &App) -> bool {
         let head = self.find_request(iid, cx)
             .and_then(|m| git2::Oid::from_str(&m.head).ok());
-        self.requests.read(cx).rows.opened(iid)
+        self.requests_api().is_some_and(|r| r.row_opened(iid, cx))
             || !matches!(self.review.read(cx).request_seen(iid, head), Seen::Never)
     }
 
@@ -289,10 +293,10 @@ impl Workspace {
     }
 }
 
-/// What Merge requests' own page asks of the tab (`artoo_requests::root::RootHost`).
+/// What Merge requests' own page asks of the tab (`artoo_requests_api::RootHost`).
 pub(super) struct RootHost(pub WeakEntity<Workspace>);
 
-impl artoo_requests::root::RootHost for RootHost {
+impl artoo_requests_api::RootHost for RootHost {
     fn connect(&self, cx: &mut App) -> AnyElement {
         self.0
             .update(cx, |this, cx| this.render_connect(cx).into_any_element())
@@ -323,7 +327,9 @@ impl artoo_requests::root::RootHost for RootHost {
     fn more(&self, cx: &mut App) {
         self.0
             .update(cx, |this, cx| {
-                this.load_past_page(this.requests.read(cx).scope, cx)
+                if let Some(scope) = this.requests_api().map(|r| r.scope(cx)) {
+                    this.load_past_page(scope, cx)
+                }
             })
             .ok();
     }

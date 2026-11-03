@@ -4,10 +4,14 @@
 
 use artoo_core::git::{BranchRef, DiffLine, Version, WebRemote};
 use artoo_core::mr::{Approvals, Draft, Merge, Mr, MrState, Thread};
+pub use artoo_core::mr::HostSides;
 use artoo_core::route::Place;
 use artoo_ui_kit::complete::Choice;
+use artoo_ui_kit::discussion::Card;
 use artoo_ui_kit::markdown::Selecting;
-use gpui::{AnyElement, App, KeyDownEvent, Pixels, Point};
+use artoo_ui_kit::motion::Marks;
+use std::collections::HashMap;
+use gpui::{AnyElement, App, Div, KeyDownEvent, Pixels, Point, Stateful};
 use std::path::PathBuf;
 use std::rc::Rc;
 use serde::{Deserialize, Serialize};
@@ -214,6 +218,330 @@ pub struct News {
     pub who: String,
     pub verb: &'static str,
 }
+
+/// What the requests tell the tab after a read of their own (`reading`).
+pub enum Event {
+    /// The open list was read, or could not be.
+    Listed,
+    /// Requests gone from the open list were read.
+    Left,
+    /// Request `iid`, opened, was read (`read`), or could not be.
+    Opened { iid: u64, read: bool },
+    /// The open request `iid`'s discussions, pending comments and approvals were read again: what
+    /// shows is made again on them.
+    Read(u64),
+    /// Request `iid`'s versions were read: its diff follows them.
+    Versions(u64),
+    /// The lines of the outdated discussions were followed to the latest version.
+    Histories,
+    /// The reactions on the open request's notes were read.
+    Awards,
+    /// The host merged request `iid`, or set it to merge when the pipeline succeeds (`merge`).
+    Merged {
+        iid: u64,
+        merge: Merge,
+    },
+    /// The host created request `iid` from branch `source`.
+    Created { iid: u64, source: String },
+    /// A key on the New merge request form asks the tab: create, or the pair's diff.
+    Create(CreateKey),
+    /// A call to the host was refused, and why.
+    Failed(String),
+    /// The notifications were read: those new since the last read, to say to the system (#26).
+    Noticed(Vec<News>),
+}
+
+/// What a view of the requests asks the tab (`Acts`).
+pub enum Act {
+    /// `a`: approve the request open, or take one's approval back.
+    ToggleApproval,
+    /// The list of what is in the way of a merge, at a window position.
+    MergeReasons(gpui::Point<gpui::Pixels>),
+    /// The card before a merge goes.
+    OpenMerge,
+    /// The host puts the request's commits on top of its target.
+    Rebase,
+    /// Merging when the pipeline succeeds is cancelled.
+    CancelAutoMerge,
+    /// Your reaction `name` on note `note`, added or taken back.
+    React { note: u64, name: String },
+    /// ☺+ opened on note `note`.
+    OpenGrid(u64),
+    /// ☺+ closed, when it is open on note `note`.
+    CloseGrid(u64),
+    /// A note for your agent on discussion `thread` (#50 G).
+    ThreadNote(usize),
+    /// A reply to discussion `thread` with `login` already mentioned.
+    ReplyMentioning { thread: usize, login: String },
+    /// Outdated discussion `ix`'s version compared with the latest.
+    CompareSince(usize),
+    /// The diff shows line `line` of file `path` (`old`: the removed side).
+    JumpToLine { path: String, line: u32, old: bool },
+    /// Submit review's card.
+    OpenSubmit,
+    /// Pending comment `id` published alone (#138).
+    SendNow(u64),
+    /// A right click on request `iid`'s line: its link and its number (#162).
+    RequestContext {
+        iid: u64,
+        at: gpui::Point<gpui::Pixels>,
+    },
+    /// Submit review's card sends the review.
+    RunSubmit,
+    /// The New merge request form creates the request, or opens the one there is.
+    CreateGo,
+    /// Templates ▾ chose template `ix` for the description.
+    UseTemplate(usize),
+    /// From's list chose a branch.
+    PickSource(String),
+    /// Into's list chose a branch.
+    PickTarget(String),
+    /// Merge's card sends the merge.
+    RunMerge,
+    /// Merge was refused for a push after the version on the page: the card goes, the new one
+    /// comes.
+    ShowNewVersion,
+    /// Request `iid`'s row picked in the list, by a click.
+    PickRequest(u64),
+    /// Request `iid` opened, at note `note` (a discussion waiting for you) when there is one.
+    OpenRequest { iid: u64, note: Option<u64> },
+    /// The list's group folded or unfolded.
+    ToggleGroup(Group),
+    /// The merged or closed page that could not be read, read again.
+    RetryPast,
+    /// Every request listed again: the scope All, the filter cleared.
+    ShowAll,
+    /// The open list read again.
+    Relist,
+    /// Settings, at the requests' token.
+    RenewToken,
+    /// Back to your branch from the request open.
+    LeaveRequest,
+    /// The outdated discussion's stepper: its stops `a` → `b` compared, at its line.
+    SinceStep { a: usize, b: usize },
+    /// The outdated discussion's comparison left for all the request's changes.
+    SinceAll,
+}
+
+/// How the tab answers what the requests' views ask.
+pub type Acts = std::rc::Rc<dyn Fn(Act, &mut gpui::App)>;
+
+/// An agent's draft for the branch (#152): what the form starts from.
+pub struct Drafted {
+    pub agent: String,
+    pub target: String,
+    pub title: String,
+    pub description: String,
+    pub labels: Vec<String>,
+    pub reviewers: Vec<String>,
+}
+
+/// The pair a request would merge, Into then From, each a branch's name and tip: the tab shows
+/// its diff, under Changes and as the files on the left.
+pub type Pair = ((String, git2::Oid), (String, git2::Oid));
+
+/// What a key on the form asks of the tab.
+#[derive(Clone)]
+pub enum CreateKey {
+    /// ⌘↵: create the request, or open the one there is.
+    Create,
+    /// Another branch was picked: the pair's diff.
+    Compare(Pair),
+}
+
+/// The New merge request form's field among the tab's inputs.
+pub const INPUT: &str = "requests.create";
+
+/// What a request needs from you: the list's groups, in their order.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum Group {
+    /// You are asked to review it, or started at its head.
+    Asks,
+    /// You marked files of it, and it was pushed since.
+    Updated,
+    /// Not asked of you, and nothing of it reviewed yet: new to you; after what changed, before
+    /// what is reviewed.
+    New,
+    /// Its head is reviewed.
+    Reviewed,
+    Yours,
+}
+
+/// What a discussion is drawn with that the tab knows.
+pub struct ThreadLook<'a> {
+    /// How far its frame sits from the left: under its line's code.
+    pub indent: f32,
+    pub open: bool,
+    /// It has the keyboard: `r` `x` `o` `e` act on it.
+    pub focused: bool,
+    /// A request is open to post to.
+    pub target: bool,
+    /// The newest version, for the history of an outdated line.
+    pub latest: Option<usize>,
+    pub selecting: Selecting,
+    /// Comments drawn as markdown.
+    pub rich: bool,
+    /// What relative links are relative to.
+    pub link_base: Option<&'a str>,
+    /// A narrow diff: buttons are their icons.
+    pub tight: bool,
+    /// The note being edited and its box, in its place.
+    pub editing: Option<(u64, AnyElement)>,
+    /// A reply being written to it: the box, where Reply… was.
+    pub replying: Option<Option<AnyElement>>,
+    /// A comment is being written somewhere: no note is edited meanwhile.
+    pub composing: bool,
+    /// One's own last note in it: `e` edits it.
+    pub mine: Option<u64>,
+    /// The note under the pointer: its reaction bar shows.
+    pub hovered: Option<u64>,
+    /// The note whose Delete asks "Delete on GitLab?".
+    pub confirm: Option<u64>,
+    pub github: bool,
+    /// The tab's motion: reaction pills grow and fade.
+    pub marks: &'a Marks,
+    /// Who you are, by name: your avatar on the reply row.
+    pub me: &'a str,
+    /// A person's card on a long hover over their avatar, by their name and login.
+    pub card: &'a dyn Fn(&str, &str) -> Card,
+    /// Its notes folding (#56, 10; #110): by key, motion and whether open; `None` once shut.
+    pub fold: &'a dyn Fn(String, &str, bool, AnyElement) -> Option<AnyElement>,
+    /// It was folded or opened a moment ago: its notes are drawn on their way.
+    pub moving: bool,
+}
+
+/// A click on a discussion.
+#[derive(Clone, Copy)]
+pub enum ThreadEvent {
+    /// Folded (`false`) or opened from its bar.
+    Fold(bool),
+    /// Clicked: it takes the keyboard.
+    Pick,
+    /// ⌥M: markdown as written or formatted.
+    ToggleRich,
+    /// The pointer came on note `note` (`true`) or left it.
+    Hover {
+        note: u64,
+        on: bool,
+    },
+    Reply,
+    /// Resolved, or opened again.
+    Resolve,
+    /// One's own note `0` edited.
+    Edit(u64),
+    /// Delete on note `0`: it asks first.
+    AskDelete(u64),
+    /// Deleted on the host, asked.
+    Delete(u64),
+    /// Cancel on the question.
+    KeepNote,
+}
+
+/// What answers a discussion's clicks.
+pub type OnThread = Rc<dyn Fn(ThreadEvent, &mut App)>;
+
+/// What a pending comment is drawn with that the tab knows.
+pub struct DraftLook<'a> {
+    pub indent: f32,
+    /// It has the keyboard.
+    pub focused: bool,
+    pub selecting: Selecting,
+    pub rich: bool,
+    pub link_base: Option<&'a str>,
+    pub tight: bool,
+    /// The host publishes one pending comment alone (GitLab); GitHub only with its review (#138).
+    pub one: bool,
+    /// The agent that wrote it, when one did (#150).
+    pub agent: Option<&'a str>,
+    pub me: &'a str,
+}
+
+/// A click on a pending comment.
+#[derive(Clone, Copy)]
+pub enum DraftEvent {
+    /// Send this now: published alone.
+    Send,
+    ToggleRich,
+    Delete,
+}
+
+/// What answers a pending comment's clicks.
+pub type OnDraft = Rc<dyn Fn(DraftEvent, &mut App)>;
+
+/// What the window is drawn with that the tab knows.
+pub struct Listing {
+    /// The request's diff is on screen: its discussions are listed, else none.
+    pub showing: bool,
+    /// Comments are drawn rich: a line of one is without its markdown.
+    pub rich: bool,
+    /// The host is GitHub: a pending comment is not sent alone (#138).
+    pub github: bool,
+    /// The timeline's last version.
+    pub latest: Option<usize>,
+    /// The agent that wrote a pending comment, by its id (#150).
+    pub agents: HashMap<u64, String>,
+}
+
+/// The window's count, its body (which scrolls itself) and its foot, Submit review.
+pub struct DiscussionsWindow {
+    pub count: Option<String>,
+    pub body: AnyElement,
+    pub foot: Option<AnyElement>,
+}
+
+/// What the card is drawn with that the tab knows.
+pub struct SubmitLook {
+    /// The summary has the keyboard.
+    pub active: bool,
+    /// Comments are drawn rich: a pending one's line is without its markdown.
+    pub rich: bool,
+    /// The host is GitHub: a pending comment is not sent alone (#138).
+    pub github: bool,
+    /// The agent that wrote a pending comment, by its id (#150).
+    pub agents: HashMap<u64, String>,
+}
+
+/// A comparison opened from an outdated discussion: the versions that changed its line, to step
+/// through (#46 C, its stepper v3 → v5 → v7).
+#[derive(Clone, Debug)]
+pub struct Since {
+    pub iid: u64,
+    /// The discussion it was opened from.
+    pub thread: String,
+    pub path: String,
+    /// Version numbers, oldest first, with where the line is in each (`None`: gone).
+    pub stops: Vec<(usize, Option<u32>)>,
+}
+
+/// What Merge requests' own page asks of the tab (`Rc<dyn RootHost>` in its services).
+pub trait RootHost {
+    /// The panel that connects the project's host, in the list's place while it has no token.
+    fn connect(&self, cx: &mut App) -> AnyElement;
+
+    /// A row folding with its group (#110): by its key, its group's motion and whether it is open; `None` once it
+    /// is shut.
+    fn fold(
+        &self,
+        key: String,
+        moving: &str,
+        open: bool,
+        row: AnyElement,
+        cx: &App,
+    ) -> Option<AnyElement>;
+
+    /// Comments drawn as markdown.
+    fn rich(&self, cx: &App) -> bool;
+
+    /// The tab narrow: no preview beside the list, and a click opens a request (#80).
+    fn narrow(&self, cx: &App) -> bool;
+
+    /// The next page of the merged or the closed of the scope shown read: the list's end is in sight.
+    fn more(&self, cx: &mut App);
+}
+
+/// How the tab answers the requests' acts besides their own: offered in the services before their parts are made.
+#[derive(Clone)]
+pub struct TabActs(pub Acts);
 
 /// What other features ask of a tab's merge requests, from its services (`Rc<dyn Requests>`).
 pub trait Requests {
@@ -431,6 +759,75 @@ pub trait Requests {
     /// What the Inbox's composer writes to: a request, and its discussion.
     fn inbox_reply(&self, cx: &App) -> Option<(u64, Option<String>)>;
     fn set_inbox_reply(&self, reply: Option<(u64, Option<String>)>, cx: &mut App);
+
+    /// The request open set to `number`, riding on the branch open: what was kept of another goes, it counts as
+    /// opened, and the walk to the next to review starts from its group.
+    fn follow(&self, number: Option<u64>, cx: &mut App);
+    /// Its discussions are being read.
+    fn reading(&self, cx: &App) -> bool;
+    /// Request `number`'s head, or what its host compares it from, to be fetched: `true` the first time only.
+    fn fetch_head_once(&self, number: u64, cx: &mut App) -> bool;
+    fn fetch_sides_once(&self, number: u64, cx: &mut App) -> bool;
+    /// The base and head request `number`'s host compares it from, once read.
+    fn host_sides(&self, number: u64, cx: &App) -> Option<HostSides>;
+    /// The requests the scope and `filter` let through, in the order the list shows them; the next to review below
+    /// the open one; the group of request `m`.
+    fn shown(&self, filter: &str, cx: &App) -> Vec<Mr>;
+    fn next_request(&self, filter: &str, cx: &App) -> Option<Mr>;
+    fn group_of(&self, m: &Mr, cx: &App) -> Group;
+    /// The state the list shows (Open ▾); the scope (All · To review · Mine) set; how many scope `scope` has, as
+    /// its chip says it ("12", "20+").
+    fn view(&self, cx: &App) -> MrState;
+    fn set_scope(&self, scope: Scope, cx: &mut App);
+    fn scope_count(&self, scope: Scope, cx: &App) -> String;
+    /// The list's group `group` folded or unfolded: the key its motion goes by.
+    fn toggle_group(&self, group: Group, cx: &mut App) -> String;
+    /// The row picked in the list (by a click, ↑ ↓); it scrolled into sight; a group folded (unless `filtering`);
+    /// request `number` opened before; the list's folds and opened requests read for project `key`.
+    fn pick_row(&self, number: Option<u64>, cx: &mut App);
+    fn reveal_row(&self, cx: &mut App);
+    fn folds(&self, group: Group, filtering: bool, cx: &App) -> bool;
+    fn row_opened(&self, number: u64, cx: &App) -> bool;
+    fn load_rows(&self, key: &str, cx: &mut App);
+
+    /// Discussion `ix` of the request open, as `look` says, and pending comment `ix`.
+    fn render_thread(&self, ix: usize, look: ThreadLook, on: OnThread, cx: &App) -> AnyElement;
+    fn render_draft(&self, ix: usize, look: DraftLook, on: OnDraft, cx: &App) -> AnyElement;
+    /// The pending comments on lines of file `path`: (index, old side, line); the discussion pending comment `ix`
+    /// replies to.
+    fn drafts_in(&self, path: &str, cx: &App) -> Vec<(usize, bool, u32)>;
+    fn draft_thread(&self, ix: usize, cx: &App) -> Option<usize>;
+    /// The Discussions tool window.
+    fn discussions(&self, look: Listing, cx: &App) -> DiscussionsWindow;
+
+    /// Submit review's card opened (`false` with no request open), closed; whether it is open; a key on it (`true`:
+    /// ⌘↵ submits); its body and foot, for the tool window.
+    fn open_submit(&self, cx: &mut App) -> bool;
+    fn close_submit(&self, cx: &mut App);
+    fn submitting(&self, cx: &App) -> bool;
+    fn submit_key(&self, event: &KeyDownEvent, cx: &mut App) -> bool;
+    fn submit_card(&self, look: SubmitLook, cx: &mut App) -> Option<(Stateful<Div>, Div)>;
+
+    /// New merge request's form opened on `branch` (from an agent's draft for it): the pair it would merge.
+    fn open_create(&self, branch: &BranchRef, drafted: Option<Drafted>, cx: &mut App) -> Option<Pair>;
+    /// Templates ▾ chose `ix`; a list over the form opened (a snapshot's way in); the quick way, at Into.
+    fn use_template(&self, ix: usize, cx: &mut App);
+    fn open_create_menu(&self, name: &str, cx: &mut App);
+    fn create_quick(&self, cx: &mut App);
+    /// The form is open.
+    fn creating(&self, cx: &App) -> bool;
+    /// From's (`source`) or Into's list chose `name`: the pair; ↑ ↓ on the list open (`true`: taken).
+    fn pick_branch(&self, name: String, source: bool, cx: &mut App) -> Option<Pair>;
+    fn step_branch_list(&self, down: bool, cx: &mut App) -> bool;
+    /// The quick way over the branch view, `typing` while the form has the keyboard.
+    fn render_create_quick(&self, typing: bool, selecting: Selecting, cx: &mut App) -> Option<AnyElement>;
+
+    /// Compare with the new version for discussion `ix`, `latest` the newest: the stepper set, its last stop; the
+    /// stepper as it is; left (the request it was on); the line of discussion `thread` changed since it was written.
+    fn start_since(&self, ix: usize, latest: usize, cx: &mut App) -> Option<usize>;
+    fn since(&self, cx: &App) -> Option<Since>;
+    fn leave_since(&self, cx: &mut App) -> Option<u64>;
+    fn line_changed(&self, thread: &str, cx: &App) -> bool;
 }
 
 /// A merge request, by its number.

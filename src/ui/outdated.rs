@@ -7,7 +7,6 @@
 //! grouped by the version it was written on.
 
 use super::{Selection, Workspace};
-pub(super) use artoo_requests::outdated::{LineHistory, Since};
 use gpui::{App, Context};
 
 impl Workspace {
@@ -30,40 +29,17 @@ impl Workspace {
     /// line now with the whole function around it (or, the line gone, where it was), and a stepper
     /// through the versions that changed it.
     pub(super) fn compare_since(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let (Some(t), Some(iid)) = (
-            self.request_thread(ix, cx),
-            self.current_request(cx),
-        ) else {
+        let Some(latest) = self.latest_version(cx) else {
             return;
         };
-        let (Some(h), Some(path)) = (self.requests.read(cx).histories.get(&t.id), t.path.clone())
-        else {
-            return;
-        };
-        let Some(latest) = self
-            .branches()
-            .and_then(|b| b.latest_version(cx))
-            .map(|v| v.number)
-        else {
-            return;
-        };
-        let stops = h.stops(t.new_line.or(t.old_line), latest);
-        let last = stops.len() - 1;
-        let thread = t.id.clone();
-        self.requests.update(cx, |rq, _| {
-            rq.since = Some(Since {
-                iid,
-                thread,
-                path,
-                stops,
-            })
-        });
-        self.go_since(0, last, cx);
+        if let Some(last) = self.requests_api().and_then(|r| r.start_since(ix, latest, cx)) {
+            self.go_since(0, last, cx);
+        }
     }
 
     /// The stepper: versions `a` → `b` of the stops, at the line in `b`.
     pub(super) fn go_since(&mut self, a: usize, b: usize, cx: &mut Context<Self>) {
-        let Some(since) = self.requests.read(cx).since.clone() else {
+        let Some(since) = self.requests_api().and_then(|r| r.since(cx)) else {
             return;
         };
         let index = |number: usize| {
@@ -93,11 +69,8 @@ impl Workspace {
     /// The stepper's comparison of file `path` shown: its discussion pinned on the line, in the
     /// later version or, gone there, in the earlier one (#46 C).
     pub(super) fn since_thread_in(&self, path: &str, cx: &App) -> Vec<(usize, bool, u32)> {
-        let Some(since) = self
-            .requests
-            .read(cx)
-            .since
-            .as_ref()
+        let Some(since) = (self.requests_api())
+            .and_then(|r| r.since(cx))
             .filter(|s| s.path == path)
         else {
             return Vec::new();
@@ -121,8 +94,8 @@ impl Workspace {
 
     /// The stepper's comparison left: all the request's changes again.
     pub(super) fn leave_since(&mut self, cx: &mut Context<Self>) {
-        if let Some(since) = self.requests.update(cx, |rq, _| rq.since.take()) {
-            self.open_request(since.iid, cx);
+        if let Some(iid) = self.requests_api().and_then(|r| r.leave_since(cx)) {
+            self.open_request(iid, cx);
         }
     }
 
@@ -170,12 +143,8 @@ impl Workspace {
             .iter()
             .position(|t| t.notes.iter().any(|n| n.id == note));
         if let Some(ix) = ix
-            && self
-                .requests
-                .read(cx)
-                .histories
-                .get(&self.request_threads(cx)[ix].id)
-                .is_some_and(LineHistory::changed)
+            && let Some(requests) = self.requests_api()
+            && requests.line_changed(&self.request_threads(cx)[ix].id, cx)
         {
             self.compare_since(ix, cx);
         }
