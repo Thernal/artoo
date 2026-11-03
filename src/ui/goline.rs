@@ -36,19 +36,19 @@ impl Workspace {
         }
         // On a file read in Code: the number of the line to write a note on (#75).
         if self.code_file_shown(cx) && !self.settings_open && self.compose.is_none() {
-            self.review.update(cx, |rv, _| rv.open_goline());
+            self.rv().open_goline(cx);
             self.take_keyboard(Input::Part(artoo_review_api::GOLINE_INPUT), cx);
             return cx.notify();
         }
         if self.diff_data(cx).is_none() || self.settings_open || self.compose.is_some() {
             return;
         }
-        if let Some((old, first, last)) = self.review.read(cx).selected_lines() {
+        if let Some((old, first, last)) = self.rv().selected_lines(cx) {
             self.zone = super::zones::Zone::Diff;
             return self.start_comment_on(old, Some(first), last, cx);
         }
         self.zone = super::zones::Zone::Diff;
-        self.review.update(cx, |rv, _| rv.open_goline());
+        self.rv().open_goline(cx);
         self.take_keyboard(Input::Part(artoo_review_api::GOLINE_INPUT), cx);
         self.move_marker(cx);
         cx.notify();
@@ -56,7 +56,7 @@ impl Workspace {
 
     /// The line marker goes, nothing written.
     pub(super) fn close_goline(&mut self, cx: &mut App) {
-        self.review.update(cx, |rv, _| rv.close_goline());
+        self.rv().close_goline(cx);
         self.refresh_rows(cx);
     }
 
@@ -75,13 +75,13 @@ impl Workspace {
     fn move_marker(&mut self, cx: &mut App) {
         // The prompt row moves with the marker, so the rows are laid out again first.
         self.refresh_rows(cx);
-        self.review.update(cx, |rv, _| rv.place_marker());
+        self.rv().place_marker(cx);
     }
 
     /// Opens the composer under the marked line.
     fn finish_goline(&mut self, cx: &mut Context<Self>) {
         let file = self.code_file_shown(cx);
-        match self.review.update(cx, |rv, _| rv.goline_at(file)) {
+        match self.rv().goline_at(file, cx) {
             None => cx.notify(),
             Some(Err(why)) => {
                 self.error = Some(why.into());
@@ -91,8 +91,8 @@ impl Workspace {
             Some(Ok((old, line))) => {
                 self.reveal_line(line, old, cx);
                 self.start_comment(old, line, cx);
-                if let Some(at) = self.review.read(cx).row_of_line(line, old) {
-                    self.review.update(cx, |rv, _| rv.reveal_rows(at..at + 2));
+                if let Some(at) = self.rv().row_of_line(line, old, cx) {
+                    self.rv().reveal_rows(at..at + 2, cx);
                 }
             }
         }
@@ -100,7 +100,7 @@ impl Workspace {
 
     /// Opens the collapsed run of unchanged lines that holds `line`, if there is one.
     fn reveal_line(&mut self, line: u32, old: bool, cx: &mut App) {
-        if self.review.update(cx, |rv, _| rv.open_run_of(line, old)) {
+        if self.rv().open_run_of(line, old, cx) {
             self.relayout(cx);
         }
     }
@@ -114,12 +114,7 @@ impl Workspace {
     ) -> gpui::AnyElement {
         let input = Input::Part(artoo_review_api::GOLINE_INPUT);
         let active = self.has_keyboard(input, cx);
-        let review = self.review.downgrade();
-        match self
-            .review
-            .read(cx)
-            .render_goline_row(indent, active, review)
-        {
+        match self.rv().render_goline_row(indent, active, cx) {
             Some(row) => typing::input_box_of(row, input, this).into_any_element(),
             None => div().into_any_element(),
         }
@@ -144,10 +139,7 @@ impl Workspace {
             self.apply_jump(cx);
             return;
         }
-        let ix = self
-            .review
-            .read(cx)
-            .diff
+        let ix = self.shown_diff(cx)
             .as_ref()
             .and_then(|d| d.files.iter().position(|f| f.path() == path));
         match ix {
@@ -168,16 +160,13 @@ impl Workspace {
     /// out: the line, opened first when it is folded away, with the discussions or the pending
     /// comment below it in view.
     pub(super) fn apply_jump(&mut self, cx: &mut Context<Self>) {
-        if let Some((line, old)) = self.review.update(cx, |rv, _| rv.jump_line.take()) {
+        if let Some((line, old)) = self.rv().take_jump(cx) {
             self.reveal_line(line, old, cx);
-            if self
-                .review
-                .update(cx, |rv, _| std::mem::take(&mut rv.jump_whole))
-            {
+            if self.rv().take_jump_whole(cx) {
                 self.reveal_function(line, old, cx);
             }
-            if let Some(at) = self.review.read(cx).row_of_line(line, old) {
-                let under = self.review.read(cx).rows[at + 1..]
+            if let Some(at) = self.rv().row_of_line(line, old, cx) {
+                let under = self.rv().rows(cx)[at + 1..]
                     .iter()
                     .take_while(|r| {
                         matches!(
@@ -186,23 +175,17 @@ impl Workspace {
                         )
                     })
                     .count();
-                self.review
-                    .update(cx, |rv, _| rv.reveal_rows(at..at + 1 + under));
+                self.rv().reveal_rows(at..at + 1 + under, cx);
                 cx.notify();
             }
         }
         let Some(id) = self.jump.take() else {
             return;
         };
-        if let Some(at) = self
-            .review
-            .read(cx)
-            .rows
-            .iter()
+        if let Some(at) = (self.rv().rows(cx).iter())
             .position(|r| *r == Row::Thread(id))
         {
-            self.review
-                .update(cx, |rv, _| rv.reveal_rows(at.saturating_sub(1)..at + 1));
+            self.rv().reveal_rows(at.saturating_sub(1)..at + 1, cx);
             cx.notify();
         }
     }

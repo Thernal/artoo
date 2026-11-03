@@ -8,7 +8,8 @@ use artoo_core::rows::{FileData, Row};
 use artoo_core::storage::{Settings, ViewOptions};
 use artoo_review_api::diff::Diff;
 use artoo_review_api::{
-    FileNotes, FileRead, FoundInFiles, Host, ItemKey, LineNote, Notice, OnSearch, Pins, ReviewState, SearchEvent,
+    FileNotes, FileRead, FoundInFiles, Host, ItemKey, LineNote, Notice, OnSearch, PageLook, Pins, ReviewState,
+    SearchEvent,
     SearchKeyed, Source,
 };
 use artoo_ui_kit::markdown::Selecting;
@@ -666,5 +667,113 @@ impl artoo_review_api::Review for Handle {
 
     fn file_key(&self, ix: usize, cx: &App) -> Option<String> {
         self.read(cx, |rv, _| rv.file_key(ix))
+    }
+
+    fn open_goline(&self, cx: &mut App) {
+        self.with(cx, |rv, _| rv.open_goline())
+    }
+
+    fn selected_lines(&self, cx: &App) -> Option<(bool, u32, u32)> {
+        self.read(cx, |rv, _| rv.selected_lines())
+    }
+
+    fn close_goline(&self, cx: &mut App) {
+        self.with(cx, |rv, _| rv.close_goline())
+    }
+
+    fn place_marker(&self, cx: &mut App) {
+        self.with(cx, |rv, _| rv.place_marker())
+    }
+
+    fn goline_at(&self, file: bool, cx: &mut App) -> Option<Result<(bool, u32), String>> {
+        self.with(cx, |rv, _| rv.goline_at(file))
+    }
+
+    fn row_of_line(&self, line: u32, old: bool, cx: &App) -> Option<usize> {
+        self.read(cx, |rv, _| rv.row_of_line(line, old))
+    }
+
+    fn reveal_rows(&self, rows: std::ops::Range<usize>, cx: &mut App) {
+        self.with(cx, |rv, _| rv.reveal_rows(rows))
+    }
+
+    fn open_run_of(&self, line: u32, old: bool, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| rv.open_run_of(line, old))
+    }
+
+    fn render_goline_row(&self, indent: f32, active: bool, cx: &App) -> Option<gpui::Div> {
+        self.read(cx, |rv, _| rv.render_goline_row(indent, active, self.0.clone()))
+    }
+
+    fn take_jump(&self, cx: &mut App) -> Option<(u32, bool)> {
+        self.with(cx, |rv, _| rv.jump_line.take())
+    }
+
+    fn take_jump_whole(&self, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| std::mem::take(&mut rv.jump_whole))
+    }
+
+    fn flip_page_fold(&self, key: (String, u32), cx: &mut App) {
+        self.with(cx, |rv, _| rv.flip_page_fold(key))
+    }
+
+    fn page_rows(&self, ix: usize, cx: &App) -> Rc<Vec<artoo_core::mddiff::Row>> {
+        self.read(cx, |rv, _| {
+            (rv.diff.as_ref())
+                .and_then(|d| d.files.get(ix))
+                .map(|f| rv.page.rows(f))
+                .unwrap_or_default()
+        })
+    }
+
+    fn render_page(&self, ix: usize, look: PageLook, cx: &App) -> AnyElement {
+        match self.0.upgrade() {
+            Some(rv) => rv.read(cx).render_page(ix, look, cx),
+            None => gpui::Empty.into_any_element(),
+        }
+    }
+
+    fn render_page_alone(&self, ix: usize, look: PageLook, cx: &App) -> AnyElement {
+        match self.0.upgrade() {
+            Some(rv) => rv.read(cx).render_page_alone(ix, look, cx),
+            None => gpui::Empty.into_any_element(),
+        }
+    }
+
+    fn step_page(&self, forward: bool, cx: &mut App) -> Option<bool> {
+        self.with(cx, |rv, _| rv.step_page(forward))
+    }
+
+    fn scroll_page(&self, down: bool, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| rv.scroll_page(down))
+    }
+
+    fn load_pages(&self, repo: &str, cx: &mut App) {
+        self.with(cx, |rv, _| rv.page.load(repo))
+    }
+
+    fn set_page_source(&self, path: &str, source: bool, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| rv.page.set_source(path, source))
+    }
+
+    fn sync_stack(&self, cx: &mut App) {
+        self.with(cx, |rv, _| rv.sync_stack())
+    }
+
+    fn page_is_source(&self, path: &str, cx: &App) -> bool {
+        self.read(cx, |rv, _| rv.page.is_source(path))
+    }
+
+    fn flip_page_notes(&self, path: String, old: bool, first: u32, cx: &mut App) {
+        self.with(cx, |rv, _| {
+            let key = (path, old, first);
+            if !rv.page.notes_open.remove(&key) {
+                rv.page.notes_open.insert(key);
+            }
+        })
+    }
+
+    fn page_notes_open(&self, cx: &App) -> Vec<(String, bool, u32)> {
+        self.read(cx, |rv, _| rv.page.notes_open.iter().cloned().collect())
     }
 }

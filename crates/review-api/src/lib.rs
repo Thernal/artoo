@@ -423,6 +423,75 @@ pub trait Review {
 
     /// File `ix`'s key in the Changes list: its group and path.
     fn file_key(&self, ix: usize, cx: &App) -> Option<String>;
+
+    /// The line after `c` opened: it starts empty, standing for the first change.
+    fn open_goline(&self, cx: &mut App);
+
+    /// The lines selected in the diff: side, first and last.
+    fn selected_lines(&self, cx: &App) -> Option<(bool, u32, u32)>;
+
+    /// The line after `c` closed.
+    fn close_goline(&self, cx: &mut App);
+
+    /// The marker on the typed line's row, in view.
+    fn place_marker(&self, cx: &mut App);
+
+    /// The line the marker is on (`file`: of the file Code reads), or why there is none; it closes.
+    fn goline_at(&self, file: bool, cx: &mut App) -> Option<Result<(bool, u32), String>>;
+
+    /// The row of line `line` of a side in the file shown.
+    fn row_of_line(&self, line: u32, old: bool, cx: &App) -> Option<usize>;
+
+    /// Rows `rows` of the file shown in view.
+    fn reveal_rows(&self, rows: std::ops::Range<usize>, cx: &mut App);
+
+    /// The folded run of unchanged lines holding `line` opened: true when there was one.
+    fn open_run_of(&self, line: u32, old: bool, cx: &mut App) -> bool;
+
+    /// The prompt of `c` under the marked line; `active` it has the keyboard.
+    fn render_goline_row(&self, indent: f32, active: bool, cx: &App) -> Option<gpui::Div>;
+
+    /// The line to go to once the file is built, taken.
+    fn take_jump(&self, cx: &mut App) -> Option<(u32, bool)>;
+
+    /// Whether the line gone to opens its whole run of unchanged lines, taken.
+    fn take_jump_whole(&self, cx: &mut App) -> bool;
+
+    /// A removed section's line of a document, by path and first old line: shown where it was, or folded again.
+    fn flip_page_fold(&self, key: (String, u32), cx: &mut App);
+
+    /// File `ix`'s blocks as its page shows them.
+    fn page_rows(&self, ix: usize, cx: &App) -> Rc<Vec<artoo_core::mddiff::Row>>;
+
+    /// File `ix` as a page in the list of every file.
+    fn render_page(&self, ix: usize, look: PageLook, cx: &App) -> AnyElement;
+
+    /// File `ix` alone as a page that scrolls on its own.
+    fn render_page_alone(&self, ix: usize, look: PageLook, cx: &App) -> AnyElement;
+
+    /// n / p on a page viewed alone: `None` when it is not one, else whether it went.
+    fn step_page(&self, forward: bool, cx: &mut App) -> Option<bool>;
+
+    /// Space and ⇧space on a page viewed alone: whether it took them.
+    fn scroll_page(&self, down: bool, cx: &mut App) -> bool;
+
+    /// The documents read as Source in repository `repo`, read from disk.
+    fn load_pages(&self, repo: &str, cx: &mut App);
+
+    /// Document `path` read as Source (`true`) or Rendered: true when it changed.
+    fn set_page_source(&self, path: &str, source: bool, cx: &mut App) -> bool;
+
+    /// The stack's files follow how documents are read.
+    fn sync_stack(&self, cx: &mut App);
+
+    /// Document `path` is read as Source.
+    fn page_is_source(&self, path: &str, cx: &App) -> bool;
+
+    /// A block's comments shown under it on its page, or hidden again.
+    fn flip_page_notes(&self, path: String, old: bool, first: u32, cx: &mut App);
+
+    /// The blocks whose comments are shown under them: path, side, first line.
+    fn page_notes_open(&self, cx: &App) -> Vec<(String, bool, u32)>;
 }
 
 /// An item page's middle as the review draws it (#165 I5d): what the route on screen is of, the parts' pieces over

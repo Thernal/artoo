@@ -26,8 +26,7 @@ impl Workspace {
             PageEvent::Notes { ix, old, first } => self.toggle_page_notes(ix, old, first, cx),
             PageEvent::Comment { ix, old, first } => self.start_page_comment(ix, old, first, cx),
             PageEvent::Fold(path, line) => {
-                self.review
-                    .update(cx, |rv, _| rv.flip_page_fold((path, line)));
+                self.rv().flip_page_fold((path, line), cx);
                 cx.notify();
             }
         }
@@ -36,15 +35,14 @@ impl Workspace {
     /// What file `ix`'s page is drawn with: the marks on its lines, what goes under its blocks,
     /// Split's heads.
     fn page_look(&self, ix: usize, this: WeakEntity<Self>, cx: &App) -> PageLook {
-        let rv = self.review.read(cx);
-        let (notes, under) = match rv.diff.as_ref().and_then(|d| d.files.get(ix)) {
+        let diff = self.shown_diff(cx);
+        let (notes, under) = match diff.as_ref().and_then(|d| d.files.get(ix)) {
             Some(file) => {
-                let rows = rv.page.rows(file);
+                let rows = self.rv().page_rows(ix, cx);
                 let path = file.path().to_owned();
-                let data = (ix == rv.file).then_some(rv.data.as_deref()).flatten();
+                let data = (ix == self.diff_file(cx)).then(|| self.diff_data(cx)).flatten();
                 let pins = self.pins_of(&path, cx);
-                let notes = (self.review_api().map(|r| r.pin_marks(&pins, data)))
-                    .unwrap_or_default()
+                let notes = (self.rv().pin_marks(&pins, data.as_deref()))
                     .into_iter()
                     .filter(|n| n.tone != NoteTone::Bookmark)
                     .collect();
@@ -65,7 +63,7 @@ impl Workspace {
     /// File `ix` as a page in the list of every file (`Review::render_page`).
     pub(super) fn render_page(&self, ix: usize, this: WeakEntity<Self>, cx: &App) -> AnyElement {
         let look = self.page_look(ix, this, cx);
-        self.review.read(cx).render_page(ix, look, cx)
+        self.rv().render_page(ix, look, cx)
     }
 
     /// File `ix` alone as a page that scrolls on its own (`Review::render_page_alone`).
@@ -76,12 +74,12 @@ impl Workspace {
         cx: &App,
     ) -> AnyElement {
         let look = self.page_look(ix, this, cx);
-        self.review.read(cx).render_page_alone(ix, look, cx)
+        self.rv().render_page_alone(ix, look, cx)
     }
 
     /// n / p on a page viewed alone (`Review::step_page`). Whether the page took the keys.
     pub(super) fn step_page(&mut self, forward: bool, cx: &mut Context<Self>) -> bool {
-        match self.review.update(cx, |rv, _| rv.step_page(forward)) {
+        match self.rv().step_page(forward, cx) {
             None => false,
             Some(went) => {
                 if went {
@@ -94,7 +92,7 @@ impl Workspace {
 
     /// Space and ⇧space on a page viewed alone (`Review::scroll_page`). Whether the page took it.
     pub(super) fn scroll_page(&mut self, down: bool, cx: &mut Context<Self>) -> bool {
-        let took = self.review.update(cx, |rv, _| rv.scroll_page(down));
+        let took = self.rv().scroll_page(down, cx);
         if took {
             cx.notify();
         }
@@ -104,30 +102,23 @@ impl Workspace {
     /// Document `path` read Rendered or as Source.
     pub(super) fn set_page_source(&mut self, path: &str, source: bool, cx: &mut Context<Self>) {
         if let Some(root) = &self.root {
-            self.review
-                .update(cx, |rv, _| rv.page.load(&crate::comment::key(root)));
+            self.rv().load_pages(&crate::comment::key(root), cx);
         }
-        if !self
-            .review
-            .update(cx, |rv, _| rv.page.set_source(path, source))
-        {
+        if !self.rv().set_page_source(path, source, cx) {
             return;
         }
         // The other form fades in: Source's rows as a file just opened, the page as a page
         // (#56, 15).
-        if let Some(ix) = self
-            .review
-            .read(cx)
-            .diff
+        if let Some(ix) = self.shown_diff(cx)
             .as_ref()
             .and_then(|d| d.files.iter().position(|f| f.path() == path))
         {
             self.mark_motion(&format!("file-{ix}"), cx);
             self.mark_motion(&format!("page-{ix}"), cx);
         }
-        self.review.update(cx, |rv, _| rv.sync_stack());
+        self.rv().sync_stack(cx);
         self.build_stack(cx);
-        if self.review.read(cx).stack.is_none() {
+        if !self.rv().stacked(cx) {
             self.relayout(cx);
         }
         cx.notify();
@@ -135,10 +126,7 @@ impl Workspace {
 
     /// M: the active file, when it is a document, turns Rendered or Source.
     pub(super) fn toggle_page_source(&mut self, cx: &mut Context<Self>) {
-        let Some(path) = self
-            .review
-            .read(cx)
-            .diff
+        let Some(path) = self.shown_diff(cx)
             .as_ref()
             .and_then(|d| d.files.get(self.diff_file(cx)))
             .map(|f| f.path().to_owned())
@@ -146,23 +134,14 @@ impl Workspace {
         else {
             return;
         };
-        let source = self.review.read(cx).page.is_source(&path);
+        let source = self.rv().page_is_source(&path, cx);
         self.set_page_source(&path, !source, cx);
     }
 
     /// The comment button of file `ix`'s third block (a snapshot's way in).
     #[cfg(feature = "snapshot")]
     pub(super) fn page_block_comment(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let Some(file) = self
-            .review
-            .read(cx)
-            .diff
-            .as_ref()
-            .and_then(|d| d.files.get(ix))
-        else {
-            return;
-        };
-        let rows = self.review.read(cx).page.rows(file);
+        let rows = self.rv().page_rows(ix, cx);
         if let Some((_, (line, _))) = rows.get(2).and_then(|r| r.new.clone()) {
             self.start_page_comment(ix, false, line, cx);
         }
@@ -171,16 +150,7 @@ impl Workspace {
     /// The count of file `ix`'s third block opened (a snapshot's way in).
     #[cfg(feature = "snapshot")]
     pub(super) fn page_block_notes(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let Some(file) = self
-            .review
-            .read(cx)
-            .diff
-            .as_ref()
-            .and_then(|d| d.files.get(ix))
-        else {
-            return;
-        };
-        let rows = self.review.read(cx).page.rows(file);
+        let rows = self.rv().page_rows(ix, cx);
         if let Some((_, (line, _))) = rows.get(2).and_then(|r| r.new.clone()) {
             self.toggle_page_notes(ix, false, line, cx);
         }
@@ -188,25 +158,15 @@ impl Workspace {
 
     /// A block's count: its comments shown under it on the page, or hidden again.
     fn toggle_page_notes(&mut self, ix: usize, old: bool, first: u32, cx: &mut Context<Self>) {
-        let Some(path) = self
-            .review
-            .read(cx)
-            .diff
+        let Some(path) = self.shown_diff(cx)
             .as_ref()
             .and_then(|d| d.files.get(ix))
             .map(|f| f.path().to_owned())
         else {
             return;
         };
-        let key = (path, old, first);
-        if !self
-            .review
-            .update(cx, |rv, _| rv.page.notes_open.remove(&key))
-        {
-            self.review
-                .update(cx, |rv, _| rv.page.notes_open.insert(key));
-        }
-        self.review.update(cx, |rv, _| rv.remeasure_pages());
+        self.rv().flip_page_notes(path, old, first, cx);
+        self.rv().remeasure_pages(cx);
         cx.notify();
     }
 
@@ -236,7 +196,7 @@ impl Workspace {
                 .or_default()
                 .push(div().mt(px(8.)).child(composer).into_any_element());
         }
-        for (p, old, first) in &self.review.read(cx).page.notes_open {
+        for (p, old, first) in &self.rv().page_notes_open(cx) {
             let Some((first, last)) = span(*old, *first).filter(|_| p == path) else {
                 continue;
             };
