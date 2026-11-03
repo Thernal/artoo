@@ -27,40 +27,37 @@ impl Workspace {
     }
 
     pub(super) fn set_reviewed(&mut self, ix: usize, done: bool, cx: &mut Context<Self>) {
-        if self.review.update(cx, |rv, _| rv.set_reviewed(ix, done)) {
+        if self.rv().set_reviewed(ix, done, cx) {
             cx.notify();
         }
     }
 
     /// Marks or unmarks files `ixs` at once (all of them, a folder).
     pub(super) fn set_reviewed_many(&mut self, ixs: &[usize], done: bool, cx: &mut Context<Self>) {
-        if self
-            .review
-            .update(cx, |rv, _| rv.set_reviewed_many(ixs, done))
-        {
+        if self.rv().set_reviewed_many(ixs, done, cx) {
             cx.notify();
         }
     }
 
     /// ⌥⇧V and the buttons: every file the list shows marked, or (when all are) unmarked.
     pub(super) fn toggle_all_reviewed(&mut self, cx: &mut Context<Self>) {
-        let shown = self.review.read(cx).file_order();
+        let shown = self.rv().file_order(cx);
         let done = shown
             .iter()
-            .all(|&ix| self.review.read(cx).review_state(ix) == Some(State::Done));
+            .all(|&ix| self.rv().review_state(ix, cx) == Some(State::Done));
         self.set_reviewed_many(&shown, !done, cx);
     }
 
     /// `⇧V`: marks or unmarks the open file.
     pub(super) fn toggle_reviewed(&mut self, cx: &mut Context<Self>) {
         let ix = self.diff_file(cx);
-        let done = self.review.read(cx).review_state(ix) == Some(State::Done);
+        let done = self.rv().review_state(ix, cx) == Some(State::Done);
         self.set_reviewed(ix, !done, cx);
     }
 
     /// `v`: marks the open file read and opens the next one that is not.
     pub(super) fn mark_and_advance(&mut self, cx: &mut Context<Self>) {
-        if self.review.read(cx).review_scope.is_none() {
+        if self.rv().review_scope(cx).is_none() {
             return;
         }
         self.set_reviewed(self.diff_file(cx), true, cx);
@@ -69,9 +66,9 @@ impl Workspace {
 
     /// Opens the next file, in the tree's order, that is not marked read (`Review::next_unreviewed`).
     pub(super) fn next_unreviewed(&mut self, cx: &mut Context<Self>) {
-        if let Some(ix) = self.review.update(cx, |rv, _| rv.next_unreviewed()) {
+        if let Some(ix) = self.rv().next_unreviewed(cx) {
             self.select_file(ix, cx);
-            self.review.read(cx).scroll_file_into_view(ix);
+            self.rv().scroll_file_into_view(ix, cx);
         }
     }
 }

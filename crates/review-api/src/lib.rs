@@ -297,6 +297,132 @@ pub trait Review {
 
     /// Find in files drawn, `field` the tab's field of its words.
     fn render_find_files(&self, field: AnyElement, on: OnSearch, cx: &App) -> Option<AnyElement>;
+
+    /// A press on a line at byte `byte`: the caret, a word or the line, by click count; ⇧ extends.
+    fn press(&self, old: bool, line: u32, byte: usize, clicks: usize, shift: bool, cx: &mut App);
+
+    /// The pointer moved over a line with the button down: the selection reaches it. True when it moved.
+    fn drag(&self, old: bool, line: u32, byte: usize, cx: &mut App) -> bool;
+
+    /// The text selected in the diff (`None`: none).
+    fn set_sel(&self, sel: Option<artoo_core::select::Sel>, cx: &mut App);
+
+    /// The selection in the diff gone: true when there was one.
+    fn clear_sel(&self, cx: &mut App) -> bool;
+
+    /// The selection's text.
+    fn selected_text(&self, cx: &App) -> Option<String>;
+
+    /// The diff's find steps to the next match (or the one before): its file and row.
+    fn step_find(&self, forward: bool, cx: &mut App) -> Option<(usize, usize)>;
+
+    /// Row `row` of the file shown comes into view.
+    fn scroll_to_row(&self, row: usize, cx: &mut App);
+
+    /// The keyboard steps to the next change (or the one before): true when it moved.
+    fn step_change(&self, forward: bool, cx: &mut App) -> bool;
+
+    /// The card saying every file is reviewed shows.
+    fn done_open(&self, cx: &App) -> bool;
+
+    /// The line typed after `c` is open.
+    fn goline_open(&self, cx: &App) -> bool;
+
+    /// The diff's find is open.
+    fn find_open(&self, cx: &App) -> bool;
+
+    /// The Changes list's path filter.
+    fn path_filter(&self, cx: &App) -> String;
+
+    /// The Changes list's path filter emptied.
+    fn clear_path_filter(&self, cx: &mut App);
+
+    /// The diff's find opened.
+    fn open_find(&self, cx: &mut App);
+
+    /// The diff's find closed.
+    fn close_find(&self, cx: &mut App);
+
+    /// The diff's find looks for `text`: the match it went to, its file and row.
+    fn find(&self, text: String, cx: &mut App) -> Option<(usize, usize)>;
+
+    /// All files in one scroll, file `ix` the active one: true when the stack is to be built.
+    fn open_stack(&self, ix: usize, cx: &mut App) -> bool;
+
+    /// The stack opened again where it was: true when it is to be built.
+    fn reopen_stack(&self, cx: &mut App) -> bool;
+
+    /// File `ix` of the stack is folded.
+    fn folded(&self, ix: usize, cx: &App) -> bool;
+
+    /// File `ix`'s header at the top of the stack.
+    fn scroll_to_header(&self, ix: usize, cx: &mut App);
+
+    /// File `ix` of the stack the active one, laid out with `pins`: true when it changed.
+    fn activate_file(&self, ix: usize, pins: &Pins, cx: &mut App) -> bool;
+
+    /// File `ix` of the stack folded or unfolded: true when the stack is to be built.
+    fn flip_fold(&self, ix: usize, cx: &mut App) -> bool;
+
+    /// Reviewed files folded again, as the option says.
+    fn refold(&self, cx: &mut App);
+
+    /// The file the stack scrolled to, and those scrolled past.
+    fn scrolled_to(&self, cx: &App) -> Option<(usize, Vec<usize>)>;
+
+    /// How file `ix` stands in the review.
+    fn review_state(&self, ix: usize, cx: &App) -> Option<ReviewState>;
+
+    /// The stack's files built.
+    fn build_stack(&self, cx: &mut App);
+
+    /// File `ix` of the stack was built: laid out with `pins`; true when it is the active one.
+    fn built(&self, ix: usize, pins: &Pins, cx: &mut App) -> bool;
+
+    /// The stack's files laid out again with `pins`.
+    fn relayout_stack(&self, pins: &Pins, cx: &mut App);
+
+    /// A file of the stack is folded.
+    fn any_folded(&self, cx: &App) -> bool;
+
+    /// Every file of the stack opened (or folded): true when it is to be built.
+    fn expand_all(&self, open: bool, cx: &mut App) -> bool;
+
+    /// File `ix` marked reviewed, or not: true when it changed.
+    fn set_reviewed(&self, ix: usize, done: bool, cx: &mut App) -> bool;
+
+    /// Files `ixs` marked reviewed, or not: true when one changed.
+    fn set_reviewed_many(&self, ixs: &[usize], done: bool, cx: &mut App) -> bool;
+
+    /// The files in the order the Changes list shows them.
+    fn file_order(&self, cx: &App) -> Vec<usize>;
+
+    /// The next file not reviewed, after the one shown.
+    fn next_unreviewed(&self, cx: &mut App) -> Option<usize>;
+
+    /// File `ix`'s row of the Changes list in view.
+    fn scroll_file_into_view(&self, ix: usize, cx: &App);
+
+    /// The folder of the Changes list the keyboard is on.
+    fn fcursor(&self, cx: &App) -> Option<String>;
+
+    /// The keyboard on a folder of the Changes list (`None`: on a file).
+    fn set_fcursor(&self, dir: Option<String>, cx: &mut App);
+
+    /// File `file` is generated and folded.
+    fn generated_folded(&self, file: &artoo_core::git::FileDiff, cx: &App) -> bool;
+
+    /// Generated file `path` unfolded.
+    fn unfold_generated(&self, path: String, cx: &mut App);
+
+    /// What the Changes list shows, as keys for keyboard movement.
+    fn item_keys(&self, cx: &App) -> Vec<ItemKey>;
+
+    /// Folder `dir` of the Changes list is folded.
+    fn dir_folded(&self, dir: &str, cx: &App) -> bool;
+
+    /// File `ix`'s key in the Changes list: its group and path.
+    fn file_key(&self, ix: usize, cx: &App) -> Option<String>;
 }
 
 /// An item page's middle as the review draws it (#165 I5d): what the route on screen is of, the parts' pieces over

@@ -1,13 +1,15 @@
 //! What the tab and its pages ask of the review (`artoo_review_api::Review`): its handle, offered in the tab's
 //! services. What it changes is changed at once: ask it from anywhere but the review's own update.
 
+use crate::changes::FileItem;
 use crate::diff_view;
 use crate::review::Review;
 use artoo_core::rows::{FileData, Row};
 use artoo_core::storage::{Settings, ViewOptions};
 use artoo_review_api::diff::Diff;
 use artoo_review_api::{
-    FileNotes, FileRead, FoundInFiles, Host, LineNote, Notice, OnSearch, Pins, SearchEvent, SearchKeyed, Source,
+    FileNotes, FileRead, FoundInFiles, Host, ItemKey, LineNote, Notice, OnSearch, Pins, ReviewState, SearchEvent,
+    SearchKeyed, Source,
 };
 use artoo_ui_kit::markdown::Selecting;
 use git2::Oid;
@@ -485,5 +487,184 @@ impl artoo_review_api::Review for Handle {
 
     fn render_find_files(&self, field: AnyElement, on: OnSearch, cx: &App) -> Option<AnyElement> {
         self.read(cx, |rv, _| rv.render_find_files(field, on))
+    }
+
+    fn press(&self, old: bool, line: u32, byte: usize, clicks: usize, shift: bool, cx: &mut App) {
+        self.with(cx, |rv, _| rv.press(old, line, byte, clicks, shift))
+    }
+
+    fn drag(&self, old: bool, line: u32, byte: usize, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| rv.drag(old, line, byte))
+    }
+
+    fn set_sel(&self, sel: Option<artoo_core::select::Sel>, cx: &mut App) {
+        self.with(cx, |rv, _| rv.sel = sel)
+    }
+
+    fn clear_sel(&self, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| rv.sel.take().is_some())
+    }
+
+    fn selected_text(&self, cx: &App) -> Option<String> {
+        self.read(cx, |rv, _| rv.selected_text())
+    }
+
+    fn step_find(&self, forward: bool, cx: &mut App) -> Option<(usize, usize)> {
+        self.with(cx, |rv, _| rv.step_find(forward))
+    }
+
+    fn scroll_to_row(&self, row: usize, cx: &mut App) {
+        self.with(cx, |rv, _| rv.scroll_to_row(row))
+    }
+
+    fn step_change(&self, forward: bool, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| rv.step_change(forward))
+    }
+
+    fn done_open(&self, cx: &App) -> bool {
+        self.read(cx, |rv, _| rv.done_card)
+    }
+
+    fn goline_open(&self, cx: &App) -> bool {
+        self.read(cx, |rv, _| rv.goline.is_some())
+    }
+
+    fn find_open(&self, cx: &App) -> bool {
+        self.read(cx, |rv, _| rv.dfind.is_some())
+    }
+
+    fn path_filter(&self, cx: &App) -> String {
+        self.read(cx, |rv, _| rv.pfilter.clone())
+    }
+
+    fn clear_path_filter(&self, cx: &mut App) {
+        self.with(cx, |rv, _| rv.pfilter.clear())
+    }
+
+    fn open_find(&self, cx: &mut App) {
+        self.with(cx, |rv, _| rv.open_find())
+    }
+
+    fn close_find(&self, cx: &mut App) {
+        self.with(cx, |rv, _| rv.close_find())
+    }
+
+    fn find(&self, text: String, cx: &mut App) -> Option<(usize, usize)> {
+        self.with(cx, |rv, cx| rv.find(text, cx))
+    }
+
+    fn open_stack(&self, ix: usize, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| rv.open_stack(ix))
+    }
+
+    fn reopen_stack(&self, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| rv.reopen_stack())
+    }
+
+    fn folded(&self, ix: usize, cx: &App) -> bool {
+        self.read(cx, |rv, _| rv.folded(ix))
+    }
+
+    fn scroll_to_header(&self, ix: usize, cx: &mut App) {
+        self.with(cx, |rv, _| rv.scroll_to_header(ix))
+    }
+
+    fn activate_file(&self, ix: usize, pins: &Pins, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| rv.activate_file(ix, pins))
+    }
+
+    fn flip_fold(&self, ix: usize, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| rv.flip_fold(ix))
+    }
+
+    fn refold(&self, cx: &mut App) {
+        self.with(cx, |rv, _| rv.refold())
+    }
+
+    fn scrolled_to(&self, cx: &App) -> Option<(usize, Vec<usize>)> {
+        self.read(cx, |rv, _| rv.scrolled_to())
+    }
+
+    fn review_state(&self, ix: usize, cx: &App) -> Option<ReviewState> {
+        self.read(cx, |rv, _| rv.review_state(ix))
+    }
+
+    fn build_stack(&self, cx: &mut App) {
+        self.with(cx, |rv, cx| rv.build_stack(cx))
+    }
+
+    fn built(&self, ix: usize, pins: &Pins, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| rv.built(ix, pins))
+    }
+
+    fn relayout_stack(&self, pins: &Pins, cx: &mut App) {
+        self.with(cx, |rv, _| rv.relayout_stack(pins))
+    }
+
+    fn any_folded(&self, cx: &App) -> bool {
+        self.read(cx, |rv, _| rv.any_folded())
+    }
+
+    fn expand_all(&self, open: bool, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| rv.expand_all(open))
+    }
+
+    fn set_reviewed(&self, ix: usize, done: bool, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| rv.set_reviewed(ix, done))
+    }
+
+    fn set_reviewed_many(&self, ixs: &[usize], done: bool, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| rv.set_reviewed_many(ixs, done))
+    }
+
+    fn file_order(&self, cx: &App) -> Vec<usize> {
+        self.read(cx, |rv, _| rv.file_order())
+    }
+
+    fn next_unreviewed(&self, cx: &mut App) -> Option<usize> {
+        self.with(cx, |rv, _| rv.next_unreviewed())
+    }
+
+    fn scroll_file_into_view(&self, ix: usize, cx: &App) {
+        self.read(cx, |rv, _| rv.scroll_file_into_view(ix))
+    }
+
+    fn fcursor(&self, cx: &App) -> Option<String> {
+        self.read(cx, |rv, _| rv.fcursor.clone())
+    }
+
+    fn set_fcursor(&self, dir: Option<String>, cx: &mut App) {
+        self.with(cx, |rv, _| rv.fcursor = dir)
+    }
+
+    fn generated_folded(&self, file: &artoo_core::git::FileDiff, cx: &App) -> bool {
+        self.read(cx, |rv, _| rv.generated_folded(file))
+    }
+
+    fn unfold_generated(&self, path: String, cx: &mut App) {
+        self.with(cx, |rv, _| {
+            rv.unfolded.insert(path);
+        })
+    }
+
+    fn item_keys(&self, cx: &App) -> Vec<ItemKey> {
+        self.read(cx, |rv, _| {
+            rv.items()
+                .into_iter()
+                .map(|item| match item {
+                    FileItem::File { ix, .. } => ItemKey::File(ix),
+                    FileItem::Dir { path, .. } => ItemKey::Dir(path),
+                    FileItem::Group { group, .. } => ItemKey::Dir(group.key().into()),
+                })
+                .collect()
+        })
+    }
+
+    fn dir_folded(&self, dir: &str, cx: &App) -> bool {
+        self.read(cx, |rv, _| rv.collapsed.contains(dir))
+    }
+
+    fn file_key(&self, ix: usize, cx: &App) -> Option<String> {
+        self.read(cx, |rv, _| rv.file_key(ix))
     }
 }

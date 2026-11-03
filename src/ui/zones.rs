@@ -4,9 +4,8 @@
 //! the one that has it, and ↵ goes one step in.
 
 use super::px;
-use super::review::Review;
 use super::{Workspace, theme};
-use artoo_review::changes::FileItem;
+use artoo_review_api::ItemKey;
 use artoo_shell_api::ListKey;
 use gpui::{App, Context, Rgba};
 
@@ -132,9 +131,7 @@ impl Workspace {
             Zone::Branches => self.step_pick(down, cx),
             Zone::Files => self.step_file_item(down, cx),
             Zone::Diff => {
-                self.review
-                    .read(cx)
-                    .diff_list
+                self.diff_list(cx)
                     .scroll_by(px(if down { LINE } else { -LINE }))
             }
             Zone::Tool => match self.tool() {
@@ -154,7 +151,7 @@ impl Workspace {
         match self.zone {
             Zone::Files
                 if !self.view_options(cx).list_files
-                    && self.review.read(cx).pfilter.trim().is_empty() =>
+                    && self.rv().path_filter(cx).trim().is_empty() =>
             {
                 self.tree_horizontal(forward, cx)
             }
@@ -174,7 +171,7 @@ impl Workspace {
     }
 
     pub(super) fn step_file(&mut self, forward: bool, cx: &mut Context<Self>) {
-        let order = self.review.read(cx).file_order();
+        let order = self.rv().file_order(cx);
         let Some(at) = order.iter().position(|&ix| ix == self.diff_file(cx)) else {
             return;
         };
@@ -224,7 +221,7 @@ impl Workspace {
                 }
             }
             Zone::Files => {
-                if let Some(dir) = self.review.read(cx).fcursor.clone() {
+                if let Some(dir) = self.rv().fcursor(cx) {
                     self.toggle_dir(&dir, cx);
                 } else {
                     self.set_zone(Zone::Diff, cx);
@@ -232,16 +229,12 @@ impl Workspace {
             }
             Zone::Diff => {
                 // A folded generated file opens on ↵.
-                if let Some(path) = self
-                    .review
-                    .read(cx)
-                    .diff
-                    .as_ref()
+                if let Some(path) = (self.shown_diff(cx).as_ref())
                     .and_then(|d| d.files.get(self.diff_file(cx)))
-                    .filter(|f| self.review.read(cx).generated_folded(f))
+                    .filter(|f| self.rv().generated_folded(f, cx))
                     .map(|f| f.path().to_owned())
                 {
-                    self.review.update(cx, |rv, _| rv.unfolded.insert(path));
+                    self.rv().unfold_generated(path, cx);
                     cx.notify();
                 }
             }
@@ -253,9 +246,7 @@ impl Workspace {
         if self.scroll_page(down, cx) {
             return;
         }
-        self.review
-            .read(cx)
-            .diff_list
+        self.diff_list(cx)
             .scroll_by(px(if down { PAGE } else { -PAGE }));
         cx.notify();
     }
@@ -333,8 +324,8 @@ impl Workspace {
 
     /// ↑ ↓ over what the files island shows, folders included.
     fn step_file_item(&mut self, down: bool, cx: &mut Context<Self>) {
-        let items = item_keys(self.review.read(cx));
-        let here = match &self.review.read(cx).fcursor {
+        let items = self.rv().item_keys(cx);
+        let here = match &self.rv().fcursor(cx) {
             Some(dir) => items
                 .iter()
                 .position(|k| matches!(k, ItemKey::Dir(d) if d == dir)),
@@ -349,11 +340,11 @@ impl Workspace {
         };
         match to.map(|i| items[i].clone()) {
             Some(ItemKey::File(ix)) => {
-                self.review.update(cx, |rv, _| rv.fcursor = None);
+                self.rv().set_fcursor(None, cx);
                 self.select_file(ix, cx);
             }
             Some(ItemKey::Dir(path)) => {
-                self.review.update(cx, |rv, _| rv.fcursor = Some(path));
+                self.rv().set_fcursor(Some(path), cx);
                 cx.notify();
             }
             None => {}
@@ -362,8 +353,8 @@ impl Workspace {
 
     /// In the tree: → opens a folder or goes into the diff, ← closes a folder or goes up to it.
     fn tree_horizontal(&mut self, forward: bool, cx: &mut Context<Self>) {
-        if let Some(dir) = self.review.read(cx).fcursor.clone() {
-            let open = !self.review.read(cx).collapsed.contains(&dir);
+        if let Some(dir) = self.rv().fcursor(cx) {
+            let open = !self.rv().dir_folded(&dir, cx);
             match (forward, open) {
                 (true, false) | (false, true) => self.toggle_dir(&dir, cx),
                 (true, true) => self.step_file_item(true, cx),
@@ -376,8 +367,8 @@ impl Workspace {
             return;
         }
         // ← on a file: the folder it is in, or its group (#22).
-        if let Some(path) = self.review.read(cx).file_key(self.diff_file(cx)) {
-            let parent = item_keys(self.review.read(cx))
+        if let Some(path) = self.rv().file_key(self.diff_file(cx), cx) {
+            let parent = (self.rv().item_keys(cx))
                 .into_iter()
                 .filter_map(|k| match k {
                     ItemKey::Dir(d) if path.starts_with(&format!("{d}/")) => Some(d),
@@ -385,28 +376,9 @@ impl Workspace {
                 })
                 .next_back();
             if parent.is_some() {
-                self.review.update(cx, |rv, _| rv.fcursor = parent);
+                self.rv().set_fcursor(parent, cx);
                 cx.notify();
             }
         }
     }
-}
-
-#[derive(Clone)]
-pub enum ItemKey {
-    File(usize),
-    Dir(String),
-}
-
-/// What the files island shows, as keys for keyboard movement.
-fn item_keys(review: &Review) -> Vec<ItemKey> {
-    review
-        .items()
-        .into_iter()
-        .map(|item| match item {
-            FileItem::File { ix, .. } => ItemKey::File(ix),
-            FileItem::Dir { path, .. } => ItemKey::Dir(path),
-            FileItem::Group { group, .. } => ItemKey::Dir(group.key().into()),
-        })
-        .collect()
 }

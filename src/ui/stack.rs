@@ -17,10 +17,7 @@ impl Workspace {
     pub(super) fn wants_stack(&self, cx: &App) -> bool {
         !self.view_options(cx).one_file
             && !(self.zen_one && self.zen.is_some())
-            && self
-                .review
-                .read(cx)
-                .diff
+            && self.shown_diff(cx)
                 .as_ref()
                 .is_some_and(|d| d.files.len() > 1)
     }
@@ -28,14 +25,14 @@ impl Workspace {
     /// Puts the files of the diff in one list and shows file `ix` at the top (`Review::open_stack`), then
     /// builds them.
     fn open_stack(&mut self, ix: usize, cx: &mut Context<Self>) {
-        if self.review.update(cx, |rv, _| rv.open_stack(ix)) {
+        if self.rv().open_stack(ix, cx) {
             self.build_stack(cx);
         }
     }
 
     /// Builds the stack again (a new diff mode), keeping the place.
     pub(super) fn reopen_stack(&mut self, cx: &mut Context<Self>) {
-        if self.review.update(cx, |rv, _| rv.reopen_stack()) {
+        if self.rv().reopen_stack(cx) {
             self.build_stack(cx);
         }
     }
@@ -43,14 +40,14 @@ impl Workspace {
     /// Picking file `ix` (the files island, ← →, `v`, a link): it becomes active, opens when it
     /// was folded, and its header comes to the top.
     pub(super) fn stack_select(&mut self, ix: usize, cx: &mut Context<Self>) {
-        if self.review.read(cx).stack.is_none() {
+        if !self.rv().stacked(cx) {
             return self.open_stack(ix, cx);
         }
         self.activate_file(ix, cx);
-        if self.review.read(cx).folded(ix) {
+        if self.rv().folded(ix, cx) {
             self.flip_fold(ix, cx);
         }
-        self.review.update(cx, |rv, _| rv.scroll_to_header(ix));
+        self.rv().scroll_to_header(ix, cx);
         if self.diff_data(cx).is_some() {
             self.apply_jump(cx);
         }
@@ -62,7 +59,7 @@ impl Workspace {
     /// (`Review::activate_file`).
     pub(super) fn activate_file(&mut self, ix: usize, cx: &mut Context<Self>) {
         let pins = self.open_pins(cx);
-        if self.review.update(cx, |rv, _| rv.activate_file(ix, &pins)) {
+        if self.rv().activate_file(ix, &pins, cx) {
             self.refresh_annotations(cx);
             cx.notify();
         }
@@ -72,7 +69,7 @@ impl Workspace {
     pub(super) fn flip_fold(&mut self, ix: usize, cx: &mut Context<Self>) {
         // Its rows fade in as it opens (#56, 9).
         self.mark_motion(&format!("file-{ix}"), cx);
-        if self.review.update(cx, |rv, _| rv.flip_fold(ix)) {
+        if self.rv().flip_fold(ix, cx) {
             self.build_stack(cx);
             cx.notify();
         }
@@ -80,7 +77,7 @@ impl Workspace {
 
     /// View → Fold reviewed files changed: every file goes back to its default.
     pub(super) fn refold(&mut self, cx: &mut Context<Self>) {
-        self.review.update(cx, |rv, _| rv.refold());
+        self.rv().refold(cx);
         self.build_stack(cx);
     }
 
@@ -91,13 +88,13 @@ impl Workspace {
         if self.has_keyboard(super::typing::Input::Compose, cx) {
             return;
         }
-        let Some((to, passed)) = self.review.read(cx).scrolled_to() else {
+        let Some((to, passed)) = self.rv().scrolled_to(cx) else {
             return;
         };
         self.activate_file(to, cx);
         let passed: Vec<usize> = passed
             .into_iter()
-            .filter(|&ix| self.review.read(cx).review_state(ix) == Some(State::Open))
+            .filter(|&ix| self.rv().review_state(ix, cx) == Some(State::Open))
             .collect();
         if !passed.is_empty() {
             self.set_reviewed_many(&passed, true, cx);
@@ -108,21 +105,18 @@ impl Workspace {
 
     /// Builds the files' rows in the review's task (`Review::build_stack`).
     pub(super) fn build_stack(&mut self, cx: &mut Context<Self>) {
-        self.review.update(cx, |rv, cx| rv.build_stack(cx));
+        self.rv().build_stack(cx);
     }
 
     /// File `ix`'s rows were built (`ReviewEvent::StackBuilt`): laid out with what is pinned on its lines
     /// (`Review::built`); the active file's blame and jump follow.
     pub(super) fn stack_built(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let path = self
-            .review
-            .read(cx)
-            .diff
+        let path = self.shown_diff(cx)
             .as_ref()
             .and_then(|d| d.files.get(ix))
             .map(|f| f.path().to_owned());
         let pins = self.pins_for(path, cx);
-        if self.review.update(cx, |rv, _| rv.built(ix, &pins)) {
+        if self.rv().built(ix, &pins, cx) {
             self.refresh_annotations(cx);
             self.apply_jump(cx);
         }
@@ -131,21 +125,21 @@ impl Workspace {
     /// Lays every file out again (`Review::relayout_stack`) with what is pinned on their lines now.
     pub(super) fn relayout_stack(&mut self, cx: &mut App) {
         let pins = self.all_pins(cx);
-        self.review.update(cx, |rv, _| rv.relayout_stack(&pins));
+        self.rv().relayout_stack(&pins, cx);
     }
 
     // ---- folding all, finding in all ----------------------------------------------------------
 
     /// ⌥⇧A: every file open when some are folded, else every file folded.
     pub(super) fn toggle_expand_all(&mut self, cx: &mut Context<Self>) {
-        let open = self.review.read(cx).any_folded();
+        let open = self.rv().any_folded(cx);
         self.expand_all(open, cx);
     }
 
     /// Opens every file (`open`), or folds every file to its header.
     pub(super) fn expand_all(&mut self, open: bool, cx: &mut Context<Self>) {
         self.mark_motion("files", cx);
-        if self.review.update(cx, |rv, _| rv.expand_all(open)) {
+        if self.rv().expand_all(open, cx) {
             self.build_stack(cx);
             cx.notify();
         }

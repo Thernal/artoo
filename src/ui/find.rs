@@ -30,7 +30,7 @@ impl Workspace {
 
     /// ⌘G / ⇧⌘G: the match after or before (`Review::step_find`).
     pub(super) fn step_match(&mut self, forward: bool, cx: &mut Context<Self>) {
-        let found = self.review.update(cx, |rv, _| rv.step_find(forward));
+        let found = self.rv().step_find(forward, cx);
         self.go_found(found, cx);
     }
 
@@ -38,7 +38,7 @@ impl Workspace {
     pub(super) fn go_found(&mut self, found: Option<(usize, usize)>, cx: &mut Context<Self>) {
         if let Some((file, row)) = found {
             self.activate_file(file, cx);
-            self.review.update(cx, |rv, _| rv.scroll_to_row(row));
+            self.rv().scroll_to_row(row, cx);
         }
         cx.notify();
     }
@@ -49,7 +49,7 @@ impl Workspace {
         if self.step_page(forward, cx) {
             return;
         }
-        if self.review.update(cx, |rv, _| rv.step_change(forward)) {
+        if self.rv().step_change(forward, cx) {
             cx.notify();
         }
     }
@@ -92,8 +92,8 @@ impl Workspace {
         // Esc closes the innermost thing — a card, menu or popover, the find bar, a filter, the
         // tool window with the keyboard — then goes one page up (#71).
         if key.key == "escape" {
-            if self.review.read(cx).done_card {
-                self.review.update(cx, |rv, _| rv.done_card = false);
+            if self.rv().done_open(cx) {
+                self.rv().close_done(cx);
                 cx.notify();
             } else if self.label_edit.is_some() {
                 self.close_label(cx);
@@ -104,10 +104,10 @@ impl Workspace {
                 cx.notify();
             } else if self.ctx_menu.read(cx).is_open() {
                 self.close_menu(cx);
-            } else if self.review.read(cx).goline.is_some() {
+            } else if self.rv().goline_open(cx) {
                 self.close_goline(cx);
                 cx.notify();
-            } else if self.review.read(cx).dfind.is_some() {
+            } else if self.rv().find_open(cx) {
                 self.close_dfind(cx);
             } else if self.branches().is_some_and(|b| b.searching(cx)) {
                 self.close_find(cx);
@@ -121,7 +121,7 @@ impl Workspace {
                 self.settings_open = false;
                 cx.notify();
             } else if self.note_sel.take().is_some()
-                || self.review.update(cx, |rv, _| rv.sel.take().is_some())
+                || self.rv().clear_sel(cx)
             {
                 cx.notify();
             } else if self.tool().is_some() && self.zone == super::zones::Zone::Tool {
@@ -144,13 +144,13 @@ impl Workspace {
 
     /// Esc after esc: the filter that was left with text, of the list on screen, is cleared.
     fn clear_filter(&mut self, cx: &mut App) -> bool {
-        if !self.review.read(cx).pfilter.is_empty()
+        if !self.rv().path_filter(cx).is_empty()
             && self.shown_diff(cx).is_some()
             && self
                 .space()
                 .is_some_and(|s| s != super::spaces::Space::Code)
         {
-            self.review.update(cx, |rv, _| rv.pfilter.clear());
+            self.rv().clear_path_filter(cx);
             return true;
         }
         if !self.bfilter.is_empty() && self.at_root_list() {
@@ -165,19 +165,19 @@ impl Workspace {
     /// ⌘F: a find bar over the open diff, like the page find of a browser or an IDE.
     pub(super) fn start_dfind(&mut self, cx: &mut Context<Self>) {
         self.settings_open = false;
-        self.review.update(cx, |rv, _| rv.open_find());
+        self.rv().open_find(cx);
         self.take_keyboard(Input::Part(artoo_review_api::FIND_INPUT), cx);
         cx.notify();
     }
 
     pub(super) fn close_dfind(&mut self, cx: &mut Context<Self>) {
-        self.review.update(cx, |rv, _| rv.close_find());
+        self.rv().close_find(cx);
         cx.notify();
     }
 
     /// Find `text` in the diff (`Review::find`), where it goes followed.
     pub(super) fn set_dfind(&mut self, text: String, cx: &mut Context<Self>) {
-        let found = self.review.update(cx, |rv, cx| rv.find(text, cx));
+        let found = self.rv().find(text, cx);
         self.go_found(found, cx);
     }
 

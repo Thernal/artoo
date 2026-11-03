@@ -19,38 +19,7 @@ impl Workspace {
     ) {
         self.ctx_menu.update(cx, |m, cx| m.shut(cx));
         self.note_sel = None;
-        let at = Pos { line, byte };
-        let text = self.review.read(cx).line_text(old, line);
-        self.review.update(cx, |rv, _| rv.selecting = true);
-        self.review.update(cx, |rv, _| {
-            rv.sel = match (rv.sel, clicks, shift) {
-                (Some(sel), 1, true) if sel.old == old => Some(Sel { head: at, ..sel }),
-                (_, 2, _) => {
-                    let w = word_at(&text, byte);
-                    Some(Sel {
-                        old,
-                        anchor: Pos {
-                            line,
-                            byte: w.start,
-                        },
-                        head: Pos { line, byte: w.end },
-                    })
-                }
-                (_, n, _) if n >= 3 => Some(Sel {
-                    old,
-                    anchor: Pos { line, byte: 0 },
-                    head: Pos {
-                        line,
-                        byte: text.len(),
-                    },
-                }),
-                _ => Some(Sel {
-                    old,
-                    anchor: at,
-                    head: at,
-                }),
-            }
-        });
+        self.rv().press(old, line, byte, clicks, shift, cx);
         cx.notify();
     }
 
@@ -62,20 +31,7 @@ impl Workspace {
         byte: usize,
         cx: &mut Context<Self>,
     ) {
-        if !self.review.read(cx).selecting {
-            return;
-        }
-        let head = Pos { line, byte };
-        let moved = self.review.update(cx, |rv, _| {
-            if let Some(sel) = &mut rv.sel
-                && sel.old == old
-                && sel.head != head
-            {
-                sel.head = head;
-                return true;
-            }
-            false
-        });
+        let moved = self.rv().drag(old, line, byte, cx);
         if moved {
             cx.notify();
         }
@@ -93,7 +49,7 @@ impl Workspace {
         let text = self
             .field_selection(cx)
             .or_else(|| self.note_sel.as_ref().and_then(|s| s.text()))
-            .or_else(|| self.review.read(cx).selected_text());
+            .or_else(|| self.rv().selected_text(cx));
         if let Some(text) = text {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
         }
@@ -126,7 +82,7 @@ impl Workspace {
         let Some(data) = &self.diff_data(cx) else {
             return;
         };
-        let old = self.review.read(cx).sel.is_some_and(|s| s.old);
+        let old = self.rv().sel(cx).is_some_and(|s| s.old);
         let side = data.side(old);
         let last = side.count().max(1);
         let sel = Sel {
@@ -137,7 +93,7 @@ impl Workspace {
                 byte: side.line(last).0.len(),
             },
         };
-        self.review.update(cx, |rv, _| rv.sel = Some(sel));
+        self.rv().set_sel(Some(sel), cx);
         cx.notify();
     }
 }
@@ -177,7 +133,7 @@ impl Workspace {
                 shift,
                 texts,
             } => {
-                self.review.update(cx, |rv, _| rv.sel = None);
+                self.rv().set_sel(None, cx);
                 self.ctx_menu.update(cx, |m, cx| m.shut(cx));
                 let text = texts.borrow().get(block).cloned().unwrap_or_default();
                 let same = self.note_sel.as_ref().is_some_and(|s| s.note == note);
