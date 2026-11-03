@@ -152,6 +152,9 @@ pub type Acts = std::rc::Rc<dyn Fn(Act, &mut gpui::App)>;
 
 #[derive(Default)]
 pub struct Requests {
+    /// The repository open and its remote's web address: what is read, and the host asked.
+    pub root: Option<std::path::PathBuf>,
+    pub web: Option<artoo_core::git::WebRemote>,
     pub scope: Scope,
     /// The project's members, for `@` completion (#51).
     pub members: Vec<(String, String)>,
@@ -277,6 +280,11 @@ pub fn sides(repo: &Repo, host: HostSides, here: (git2::Oid, git2::Oid)) -> Side
 }
 
 impl Requests {
+    /// The remote's host, when the repository has one.
+    pub fn host(&self, cx: &App) -> Option<std::sync::Arc<dyn artoo_hosts_api::Host>> {
+        Some(artoo_hosts_api::get(cx).of(self.web.as_ref()?))
+    }
+
     /// The request on branch `b`: a local or remote branch's, by the branch it is from; a request's own ref's, by
     /// its number.
     pub fn of_branch(&self, b: &BranchRef) -> Option<&Mr> {
@@ -415,6 +423,26 @@ pub fn handle(
 struct Handle(WeakEntity<Requests>, std::rc::Weak<artoo_shell_api::Services>);
 
 impl Handle {
+    /// Runs `f` on the requests with their host, when they have one.
+    fn with_host(
+        &self,
+        cx: &mut App,
+        f: impl FnOnce(&mut Requests, std::sync::Arc<dyn artoo_hosts_api::Host>, &mut gpui::Context<Requests>),
+    ) {
+        let Some(requests) = self.0.upgrade() else {
+            return;
+        };
+        let Some(host) = requests.read(cx).host(cx) else {
+            return;
+        };
+        requests.update(cx, |rq, cx| f(rq, host, cx));
+    }
+
+    /// Runs `f` on the requests.
+    fn update<R>(&self, cx: &mut App, f: impl FnOnce(&mut Requests, &mut gpui::Context<Requests>) -> R) -> Option<R> {
+        Some(self.0.upgrade()?.update(cx, f))
+    }
+
     /// How a view's click asks the tab.
     fn acts(&self) -> Acts {
         self.1
@@ -604,5 +632,249 @@ impl artoo_requests_api::Requests for Handle {
             .upgrade()?
             .read(cx)
             .render_merge_control(compact, github, acts)
+    }
+
+    fn set_repository(
+        &self,
+        root: Option<std::path::PathBuf>,
+        web: Option<artoo_core::git::WebRemote>,
+        cx: &mut App,
+    ) {
+        self.update(cx, |rq, _| (rq.root, rq.web) = (root, web));
+    }
+
+    fn reset(&self, cx: &mut App) {
+        self.update(cx, |rq, _| {
+            let (root, web) = (rq.root.take(), rq.web.take());
+            *rq = Requests::default();
+            (rq.root, rq.web) = (root, web);
+        });
+    }
+
+    fn set_token(&self, available: bool, connectable: bool, loading: bool, cx: &mut App) {
+        self.update(cx, |rq, _| {
+            rq.available = available;
+            rq.connectable = connectable;
+            rq.loading = loading;
+        });
+    }
+
+    fn clear_list(&self, cx: &mut App) {
+        self.update(cx, |rq, _| {
+            rq.list.clear();
+            rq.error = None;
+        });
+    }
+
+    fn read_list(&self, cx: &mut App) {
+        self.with_host(cx, |rq, host, cx| rq.read_list(host, cx));
+    }
+
+    fn set_view(&self, state: mr::MrState, cx: &mut App) {
+        let reads = self.update(cx, |rq, _| {
+            rq.view = state;
+            rq.rows.picked = None;
+            if state == mr::MrState::Opened || rq.past.of == state {
+                return false;
+            }
+            // Every scope's first page at once: the chips count them all.
+            let mut past = crate::requests::Past {
+                of: state,
+                ..Default::default()
+            };
+            for pages in &mut past.scopes {
+                pages.more = true;
+            }
+            rq.past = past;
+            true
+        });
+        if reads == Some(true) {
+            for scope in [Scope::All, Scope::ReviewMe, Scope::Mine] {
+                self.load_past_page(scope, cx);
+            }
+        }
+    }
+
+    fn scope(&self, cx: &App) -> Scope {
+        self.0.upgrade().map(|r| r.read(cx).scope).unwrap_or_default()
+    }
+
+    fn load_past_page(&self, scope: Scope, cx: &mut App) {
+        self.with_host(cx, |rq, host, cx| rq.load_past_page(scope, host, cx));
+    }
+
+    fn retry_past_page(&self, cx: &mut App) {
+        self.with_host(cx, |rq, host, cx| rq.retry_past_page(host, cx));
+    }
+
+    fn read_left(&self, numbers: Vec<u64>, cx: &mut App) {
+        self.with_host(cx, |rq, host, cx| rq.read_left(numbers, host, cx));
+    }
+
+    fn reload_threads(&self, cx: &mut App) {
+        self.with_host(cx, |rq, host, cx| rq.reload_threads(host, cx));
+    }
+
+    fn read_open(&self, number: u64, cx: &mut App) {
+        self.with_host(cx, |rq, host, cx| rq.read_open(number, host, cx));
+    }
+
+    fn load_versions(&self, number: u64, cx: &mut App) {
+        self.update(cx, |rq, _| {
+            rq.versions = None;
+            rq.host = None;
+        });
+        self.with_host(cx, |rq, host, cx| {
+            if let Some(root) = rq.root.clone() {
+                rq.load_versions(number, host, root, cx);
+            }
+        });
+    }
+
+    fn compute_histories(&self, cx: &mut App) {
+        self.update(cx, |rq, cx| {
+            if let Some(root) = rq.root.clone() {
+                rq.compute_histories(root, cx);
+            }
+        });
+    }
+
+    fn load_awards(&self, cx: &mut App) {
+        self.with_host(cx, |rq, host, cx| rq.load_awards(host, cx));
+    }
+
+    fn toggle_reaction(&self, note: u64, name: &str, cx: &mut App) {
+        self.with_host(cx, |rq, host, cx| rq.toggle_reaction(note, name, host, cx));
+    }
+
+    fn read_preview(&self, request: &Mr, viewed: Option<(git2::Oid, git2::Oid)>, cx: &mut App) {
+        let settings = self
+            .1
+            .upgrade()
+            .and_then(|s| s.get::<Rc<dyn artoo_review_api::Review>>())
+            .map(|review| review.settings(cx))
+            .unwrap_or_default();
+        self.with_host(cx, |rq, host, cx| {
+            if let Some(root) = rq.root.clone() {
+                rq.read_preview(request, viewed, host, root, settings, cx);
+            }
+        });
+    }
+
+    fn reload_merge(&self, cx: &mut App) {
+        self.with_host(cx, |rq, host, cx| rq.reload_merge(host, cx));
+    }
+
+    fn run_merge(&self, cx: &mut App) {
+        self.with_host(cx, |rq, host, cx| rq.run_merge(host, cx));
+    }
+
+    fn rebase(&self, cx: &mut App) {
+        self.with_host(cx, |rq, host, cx| {
+            rq.merge_call("Rebasing…", host, |host, iid, _| host.rebase(iid), cx)
+        });
+    }
+
+    fn cancel_auto_merge(&self, cx: &mut App) {
+        self.with_host(cx, |rq, host, cx| {
+            rq.merge_call(
+                "Cancelling…",
+                host,
+                |host, iid, node| host.cancel_auto_merge(iid, node),
+                cx,
+            )
+        });
+    }
+
+    fn merged(&self, number: u64, merge: &mr::Merge, github: bool, cx: &mut App) -> Option<String> {
+        self.update(cx, |rq, _| {
+            let here = rq.current == Some(number);
+            let reference = crate::merging::reference(number, github);
+            if merge.when_pipeline_succeeds {
+                if let Some(host) = rq.merge.as_mut().filter(|_| here) {
+                    host.auto_set = true;
+                }
+                return Some(format!("{reference} merges when the pipeline succeeds"));
+            }
+            let deletes = here && rq.merge.as_ref().is_some_and(|h| h.deletes_itself);
+            let said = rq.find(number).map(|m| {
+                let deleted = match merge.delete_branch || deletes {
+                    true => format!(" · {} deleted", m.source),
+                    false => String::new(),
+                };
+                format!("{reference} merged into {}{deleted}", m.target)
+            });
+            if here {
+                rq.merge = None;
+            }
+            said
+        })
+        .flatten()
+    }
+
+    fn open_merge_card(&self, when: bool, github: bool, cx: &mut App) -> bool {
+        self.update(cx, |rq, _| rq.open_merge_card(when, github))
+            .unwrap_or(false)
+    }
+
+    fn merge_key(&self, event: &gpui::KeyDownEvent, cx: &mut App) -> bool {
+        self.update(cx, |rq, cx| rq.merge_key(event, cx))
+            .unwrap_or(false)
+    }
+
+    fn drop_merge(&self, cx: &mut App) {
+        self.update(cx, |rq, _| {
+            rq.merging = None;
+            rq.merge = None;
+        });
+    }
+
+    fn merge_stand(&self, cx: &App) -> Option<artoo_requests_api::Stand> {
+        self.0.upgrade()?.read(cx).merge_stand()
+    }
+
+    fn pipeline_url(&self, cx: &App) -> Option<String> {
+        Some(self.0.upgrade()?.read(cx).pipeline.as_ref()?.url.clone())
+    }
+
+    fn merge_card(
+        &self,
+        look: artoo_requests_api::CardLook,
+        cx: &mut App,
+    ) -> Option<gpui::AnyElement> {
+        let acts = self.acts();
+        self.update(cx, |rq, cx| {
+            rq.render_merge_card(look, acts, cx)
+                .map(gpui::IntoElement::into_any_element)
+        })
+        .flatten()
+    }
+
+    fn open_grid(&self, note: u64, cx: &mut App) {
+        self.update(cx, |rq, _| rq.open_reaction_grid(note));
+    }
+
+    fn close_grid(&self, cx: &mut App) {
+        self.update(cx, |rq, _| rq.close_reaction_grid());
+    }
+
+    fn grid_note(&self, cx: &App) -> Option<u64> {
+        self.0.upgrade()?.read(cx).grid_note()
+    }
+
+    fn reaction_key(
+        &self,
+        event: &gpui::KeyDownEvent,
+        github: bool,
+        cx: &mut App,
+    ) -> Option<artoo_requests_api::GridKey> {
+        self.update(cx, |rq, cx| rq.reaction_key(event, github, cx))
+            .flatten()
+    }
+
+    fn submit_create(&self, cx: &mut App) -> Option<u64> {
+        let requests = self.0.upgrade()?;
+        let host = requests.read(cx).host(cx)?;
+        requests.update(cx, |rq, cx| rq.submit_create(host, cx))
     }
 }

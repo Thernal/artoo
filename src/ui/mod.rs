@@ -82,7 +82,7 @@ mod welcome;
 mod working;
 mod zones;
 
-use crate::git::{DiffSettings, Repo};
+use crate::git::Repo;
 use crate::rows::{self, Row};
 use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
 use artoo_branches_api::{Event as BranchesEvent, Selection};
@@ -2245,12 +2245,6 @@ impl Workspace {
     /// The tab's review as a page asks it (`artoo_review_api::Review`).
     pub(super) fn review_handle(&self) -> Rc<dyn artoo_review_api::Review> {
         artoo_review::review::handle(&self.review)
-    }
-
-    fn settings(&self, cx: &App) -> DiffSettings {
-        DiffSettings {
-            ignore_whitespace: self.review.read(cx).options.ignore_whitespace,
-        }
     }
 
     /// What the review said: the tab follows a diff that came (the agents' lines on it, the pages' counts, its

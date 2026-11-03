@@ -46,13 +46,7 @@ pub struct Grid {
     offset: Rc<Cell<f32>>,
 }
 
-/// What a key in ☺+ asks of the tab.
-pub enum GridKey {
-    /// ↵: react with the one picked (none when nothing matches), and close.
-    React(Option<String>),
-    /// Esc.
-    Close,
-}
+pub use artoo_requests_api::GridKey;
 
 /// The note a hover bar is drawn on, and what it knows of the tab.
 pub struct Hovered {

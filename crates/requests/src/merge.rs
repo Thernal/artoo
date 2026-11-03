@@ -7,25 +7,7 @@
 use crate::requests::Requests;
 use artoo_hosts_api::{Approvals, MrState, Pipeline};
 pub use artoo_hosts_api::{Merge, MergeState, Method, Squash};
-
-/// Where a reason it cannot merge is fixed.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Fix {
-    /// Nothing to go to: someone has to act (another approval).
-    Nowhere,
-    /// The request's discussions, on its Overview.
-    Discussions,
-    /// A page on the host: the pipeline, the request itself.
-    Page(String),
-}
-
-/// One thing in the way: what, the words, where it is fixed.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Block {
-    pub what: &'static str,
-    pub detail: String,
-    pub fix: Fix,
-}
+pub use artoo_requests_api::{Block, Fix, Stand};
 
 /// What the page knows besides the host's word: fresher than it after an approval or a
 /// discussion resolved here.
@@ -38,21 +20,6 @@ pub struct Known<'a> {
     /// The request's page on the host.
     pub url: &'a str,
     pub target: &'a str,
-}
-
-/// Where merging stands.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Stand {
-    /// Set to merge when the pipeline succeeds.
-    Auto,
-    InTheWay(Vec<Block>),
-    /// The host is still working it out.
-    Checking,
-    /// Behind its target by this many commits, and the host can rebase it (GitLab).
-    Rebase(u32),
-    /// The pipeline runs: merging can be set for when it succeeds.
-    Running,
-    Ready,
 }
 
 /// GitLab's statuses that `stand` says from what the page knows, or that are no reason at all.

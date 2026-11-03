@@ -12,85 +12,63 @@ use artoo_branches_api::RequestOf;
 use artoo_hosts_api::connect::{self, Connect, Here};
 use artoo_requests::discussions::Listing;
 use artoo_requests::requests::{Act, Acts};
-pub(super) use artoo_requests::requests::{Past, Requests, Scope, Sides, sides};
+pub(super) use artoo_requests::requests::{Requests, Scope, Sides, sides};
 use gpui::{App, ClickEvent, Context, WeakEntity, div, prelude::*};
 use std::rc::Rc;
 
 impl Workspace {
     /// The list shows the merged or the closed requests, or the open ones again (#114).
     pub(super) fn set_request_view(&mut self, state: mr::MrState, cx: &mut Context<Self>) {
-        self.requests.update(cx, |rq, _| rq.view = state);
-        self.requests.update(cx, |rq, _| rq.rows.picked = None);
-        if state != mr::MrState::Opened && self.requests.read(cx).past.of != state {
-            // Every scope's first page at once: the chips count them all.
-            let mut past = Past {
-                of: state,
-                ..Past::default()
-            };
-            for pages in &mut past.scopes {
-                pages.more = true;
-            }
-            self.requests.update(cx, |rq, _| rq.past = past);
-            for scope in [Scope::All, Scope::ReviewMe, Scope::Mine] {
-                self.load_past_page(scope, cx);
-            }
+        if let Some(requests) = self.requests_api() {
+            requests.set_view(state, cx);
         }
         cx.notify();
     }
 
     /// The next page of `scope`'s merged or closed requests (`Requests::load_past_page`).
     pub(super) fn load_past_page(&mut self, scope: Scope, cx: &mut Context<Self>) {
-        let Some(host) = self.host(cx) else {
-            return;
-        };
-        self.requests
-            .update(cx, |rq, cx| rq.load_past_page(scope, host, cx));
+        if let Some(requests) = self.requests_api() {
+            requests.load_past_page(scope, cx);
+        }
     }
 
     /// The page of the scope shown that could not be read, again.
     pub(super) fn retry_past_page(&mut self, cx: &mut Context<Self>) {
-        let Some(host) = self.host(cx) else {
-            return;
-        };
-        self.requests
-            .update(cx, |rq, cx| rq.retry_past_page(host, cx));
+        if let Some(requests) = self.requests_api() {
+            requests.retry_past_page(cx);
+        }
     }
 
     /// What became of requests `iids`, gone from the open list or a link's (`Requests::read_left`).
     pub(super) fn read_left(&mut self, iids: Vec<u64>, cx: &mut Context<Self>) {
-        let Some(host) = self.host(cx) else {
-            return;
-        };
-        self.requests
-            .update(cx, |rq, cx| rq.read_left(iids, host, cx));
+        if let Some(requests) = self.requests_api() {
+            requests.read_left(iids, cx);
+        }
     }
 
     /// Reads the open merge requests of the repository's project, when a token is configured.
     pub(super) fn load_requests(&mut self, cx: &mut Context<Self>) {
-        let Some(remote) = self.web.clone() else {
-            self.requests.update(cx, |rq, _| *rq = Requests::default());
+        let Some(requests) = self.requests_api() else {
             return;
         };
-        let host = super::host_of(&remote, cx);
-        let available = host.available();
-        self.requests.update(cx, |rq, _| rq.available = available);
+        requests.set_repository(self.root.clone(), self.web.clone(), cx);
+        let Some(remote) = self.web.clone() else {
+            return requests.reset(cx);
+        };
+        let available = super::host_of(&remote, cx).available();
         // The way picked borrows a token not read yet this run (the CLI's, git's): read first.
         if !available && self.connecting().is_some_and(|c| c.to_borrow(&remote)) {
-            self.requests.update(cx, |rq, _| rq.connectable = false);
-            self.requests.update(cx, |rq, _| rq.loading = true);
+            requests.set_token(available, false, true, cx);
             return self.borrow_token(cx);
         }
-        self.requests.update(cx, |rq, _| rq.loading = false);
-        self.requests
-            .update(cx, |rq, _| rq.connectable = !available);
+        requests.set_token(available, !available, false, cx);
         if !available {
-            self.requests.update(cx, |rq, _| rq.list.clear());
-            self.requests.update(cx, |rq, _| rq.error = None);
+            requests.clear_list(cx);
             // The ways in this computer offers (#142, #156).
             return self.look_for_token(cx);
         }
         self.renew_ssh_token(cx);
-        self.requests.update(cx, |rq, cx| rq.read_list(host, cx));
+        requests.read_list(cx);
     }
 
     /// The request whose source branch is branch `ix` (`feat/x` and `origin/feat/x` alike), or
@@ -104,21 +82,14 @@ impl Workspace {
     /// Reads the current request's discussions, pending comments and approvals again
     /// (`Requests::reload_threads`).
     pub(super) fn reload_threads(&mut self, cx: &mut Context<Self>) {
-        let Some(host) = self.host(cx) else {
-            return;
-        };
-        self.requests
-            .update(cx, |rq, cx| rq.reload_threads(host, cx));
+        if let Some(requests) = self.requests_api() {
+            requests.reload_threads(cx);
+        }
     }
 
     /// How the tab answers what the requests' views ask (`requests::Act`).
     pub(super) fn request_acts(&self, cx: &Context<Self>) -> Acts {
         acts_of(cx.weak_entity())
-    }
-
-    /// The open repository's host, when it has one.
-    pub(super) fn host(&self, cx: &App) -> Option<std::sync::Arc<dyn artoo_hosts_api::Host>> {
-        self.web.as_ref().map(|remote| super::host_of(remote, cx))
     }
 
     /// What the requests tell the tab after a read of their own.
@@ -214,11 +185,9 @@ impl Workspace {
             self.requests.update(cx, |rq, _| rq.mark_opened(iid));
         }
         self.requests.update(cx, |rq, _| rq.reading = false);
-        let (Some(iid), Some(host)) = (iid, self.host(cx)) else {
-            return;
-        };
-        self.requests
-            .update(cx, |rq, cx| rq.read_open(iid, host, cx));
+        if let (Some(iid), Some(requests)) = (iid, self.requests_api()) {
+            requests.read_open(iid, cx);
+        }
     }
 
     /// Request `iid` opened as its page: kept in the history, and loaded unless it is (`load_page`,
@@ -389,15 +358,9 @@ impl Workspace {
     /// Reads the pushes GitLab kept for request `iid` (`Requests::load_versions`); they become the
     /// versions timeline once the request's diff is open.
     fn load_request_versions(&mut self, iid: u64, cx: &mut Context<Self>) {
-        self.requests.update(cx, |rq, _| {
-            rq.versions = None;
-            rq.host = None;
-        });
-        let (Some(host), Some(root)) = (self.host(cx), self.root.clone()) else {
-            return;
-        };
-        self.requests
-            .update(cx, |rq, cx| rq.load_versions(iid, host, root, cx));
+        if let Some(requests) = self.requests_api() {
+            requests.load_versions(iid, cx);
+        }
     }
 
     /// Request `iid` is compared from the base and head its host gives, once they are known

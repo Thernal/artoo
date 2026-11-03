@@ -77,7 +77,7 @@ pub enum Act {
     /// Set up's Code colours (#143): a code theme, None following the window.
     CodeTheme(Option<String>),
     /// A reason a request cannot merge, where it is fixed (#164).
-    MergeFix(crate::merge::Fix),
+    MergeFix(artoo_requests_api::Fix),
     /// A part's item (`artoo_shell_api::MenuItem`), run once the menu has closed.
     Part(artoo_shell_api::Run),
 }

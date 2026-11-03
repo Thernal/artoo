@@ -31,15 +31,7 @@ pub struct MergeCard {
     area: Area,
 }
 
-/// What the card is drawn with that the tab knows.
-pub struct CardLook {
-    /// The commits of the request's branch.
-    pub commits: usize,
-    /// The host is GitHub.
-    pub github: bool,
-    /// The message has the keyboard.
-    pub active: bool,
-}
+pub use artoo_requests_api::CardLook;
 
 /// A request's number as its host writes it: `!12` on GitLab, `#12` on GitHub.
 pub fn reference(iid: u64, github: bool) -> String {

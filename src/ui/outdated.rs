@@ -21,11 +21,9 @@ impl Workspace {
     /// Follows the line of every discussion written on an earlier version to the latest
     /// (`Requests::compute_histories`).
     pub(super) fn compute_histories(&mut self, cx: &mut Context<Self>) {
-        let Some(root) = self.root.clone() else {
-            return;
-        };
-        self.requests
-            .update(cx, |rq, cx| rq.compute_histories(root, cx));
+        if let Some(requests) = self.requests_api() {
+            requests.compute_histories(cx);
+        }
     }
 
     /// Compare with the new version, for discussion `ix`: its version against the latest, at its

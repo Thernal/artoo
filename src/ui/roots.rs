@@ -94,20 +94,15 @@ impl Workspace {
         else {
             return;
         };
-        let (Some(remote), Some(root)) = (self.web.clone(), self.root.clone()) else {
-            return;
-        };
-        let host = super::host_of(&remote, cx);
         // Pushed since your review: what changed since the push you viewed.
         let head = git2::Oid::from_str(&m.head).ok();
         let viewed = match self.review.read(cx).request_seen(m.iid, head) {
             Seen::Earlier => head.zip(self.review.read(cx).reviewed_head(m.iid, head)),
             _ => None,
         };
-        let settings = self.settings(cx);
-        self.requests.update(cx, |rq, cx| {
-            rq.read_preview(&m, viewed, host, root, settings, cx)
-        });
+        if let Some(requests) = self.requests_api() {
+            requests.read_preview(&m, viewed, cx);
+        }
     }
 
     // ---- what the lists hold ---------------------------------------------------------------

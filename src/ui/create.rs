@@ -149,14 +149,7 @@ impl Workspace {
 
     /// Creates the request (`Requests::submit_create`), or opens the one there is for the pair.
     pub(super) fn submit_create(&mut self, cx: &mut Context<Self>) {
-        let Some(remote) = self.web.clone() else {
-            return;
-        };
-        let host = super::host_of(&remote, cx);
-        if let Some(iid) = self
-            .requests
-            .update(cx, |rq, cx| rq.submit_create(host, cx))
-        {
+        if let Some(iid) = self.requests_api().and_then(|r| r.submit_create(cx)) {
             self.open_request(iid, cx);
         }
     }

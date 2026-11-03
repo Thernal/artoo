@@ -4,27 +4,25 @@
 //! note.
 
 use super::Workspace;
-use artoo_requests::reactions::GridKey;
+use artoo_requests_api::GridKey;
 use gpui::Context;
 
 impl Workspace {
     /// Reads the reactions on every note of the open request (`Requests::load_awards`).
     pub(super) fn load_awards(&mut self, cx: &mut Context<Self>) {
-        let Some(host) = self.host(cx) else {
-            return;
-        };
-        self.requests.update(cx, |rq, cx| rq.load_awards(host, cx));
+        if let Some(requests) = self.requests_api() {
+            requests.load_awards(cx);
+        }
     }
 
     /// Adds your reaction `name` to note `note`, or takes it back (`Requests::toggle_reaction`).
     pub(super) fn toggle_reaction(&mut self, note: u64, name: &str, cx: &mut Context<Self>) {
         // A pill added pops in (#56, 11).
         self.mark_motion(&format!("award-{note}-{name}"), cx);
-        let Some(host) = self.host(cx) else {
+        let Some(requests) = self.requests_api() else {
             return;
         };
-        self.requests
-            .update(cx, |rq, cx| rq.toggle_reaction(note, name, host, cx));
+        requests.toggle_reaction(note, name, cx);
         self.refresh_rows(cx);
         cx.notify();
     }
@@ -56,14 +54,17 @@ impl Workspace {
     }
 
     pub(super) fn open_reaction_grid(&mut self, note: u64, cx: &mut Context<Self>) {
-        self.requests
-            .update(cx, |rq, _| rq.open_reaction_grid(note));
+        if let Some(requests) = self.requests_api() {
+            requests.open_grid(note, cx);
+        }
         self.refresh_rows(cx);
         cx.notify();
     }
 
     pub(super) fn close_reaction_grid(&mut self, cx: &mut Context<Self>) {
-        self.requests.update(cx, |rq, _| rq.close_reaction_grid());
+        if let Some(requests) = self.requests_api() {
+            requests.close_grid(cx);
+        }
         self.refresh_rows(cx);
         cx.notify();
     }
@@ -71,13 +72,13 @@ impl Workspace {
     /// Keys while ☺+ is open (`Requests::reaction_key`): ↵ reacts with the one picked, esc closes.
     pub(super) fn reaction_key(&mut self, event: &gpui::KeyDownEvent, cx: &mut Context<Self>) {
         let github = self.on_github();
-        let Some(note) = self.requests.read(cx).grid_note() else {
+        let Some(requests) = self.requests_api() else {
             return;
         };
-        match self
-            .requests
-            .update(cx, |rq, cx| rq.reaction_key(event, github, cx))
-        {
+        let Some(note) = requests.grid_note(cx) else {
+            return;
+        };
+        match requests.reaction_key(event, github, cx) {
             Some(GridKey::React(name)) => {
                 if let Some(name) = name {
                     self.toggle_reaction(note, &name, cx);
