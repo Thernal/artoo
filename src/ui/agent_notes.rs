@@ -104,10 +104,10 @@ impl Workspace {
 
     /// The notes on the changes the diff shows (`notes::shown`), by the page's branch.
     pub(super) fn notes_shown<'a>(&self, cx: &'a App) -> Vec<&'a Notes> {
-        let Some(diff) = self.review.read(cx).diff.as_deref() else {
+        let Some(diff) = self.shown_diff(cx) else {
             return Vec::new();
         };
-        crate::notes::shown(self.agents.notes(cx), &shown(diff), self.page_branch(cx))
+        crate::notes::shown(self.agents.notes(cx), &shown(&diff), self.page_branch(cx))
     }
 
     /// The notes shown on lines of file `path`, built as `data`: (id, line on the new side).
@@ -131,7 +131,7 @@ impl Workspace {
     pub(super) fn map_agent_notes(&mut self, cx: &mut Context<Self>) {
         let (root, shown, branch) = (
             self.root.clone(),
-            self.review.read(cx).diff.as_deref().map(shown),
+            self.shown_diff(cx).as_deref().map(shown),
             self.page_branch(cx),
         );
         self.agents.follow(root, shown, branch, cx);
@@ -186,9 +186,9 @@ impl Workspace {
             .read(cx)
             .diff
             .as_ref()
-            .and_then(|d| d.files.get(self.review.read(cx).file))
+            .and_then(|d| d.files.get(self.diff_file(cx)))
             .map(|f| f.path().to_owned());
-        let first = match (&self.review.read(cx).data, path) {
+        let first = match (&self.diff_data(cx), path) {
             (Some(data), Some(path)) => self.notes_in(&path, data, cx).first().map(|&(id, _)| id),
             _ => None,
         };
@@ -243,7 +243,7 @@ impl Workspace {
         let look = NoteLook {
             mark: self.agent_mark(&notes.agent, cx),
             rich: self.settings.rich_comments,
-            tight: self.review.read(cx).tight,
+            tight: self.tight(cx),
             selecting: self.selecting(this.clone()),
         };
         view::note_card(notes, note, indent, look, Self::note_on(this), cx)

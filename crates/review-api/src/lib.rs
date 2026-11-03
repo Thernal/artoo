@@ -11,7 +11,8 @@
 pub mod diff;
 
 use artoo_core::git::{CommitInfo, PairCommit, Version};
-use artoo_core::rows::Row;
+use artoo_core::rows::{FileData, Row};
+use artoo_core::storage::ViewOptions;
 use git2::Oid;
 use gpui::{AnyElement, App, Rgba};
 use std::path::PathBuf;
@@ -61,6 +62,19 @@ pub trait Review {
 
     /// The diff shown, once it is read.
     fn shown(&self, cx: &App) -> Option<Arc<diff::Diff>>;
+
+    /// The file the diff is at, by its place, and its path; the open file's rows' data.
+    fn file(&self, cx: &App) -> usize;
+    fn current_path(&self, cx: &App) -> Option<String>;
+    fn data(&self, cx: &App) -> Option<Arc<FileData>>;
+    /// The diff is narrow: buttons are their icons (`tight`); the list beside it folds (`narrow`).
+    fn tight(&self, cx: &App) -> bool;
+    fn narrow(&self, cx: &App) -> bool;
+    /// How the diff is viewed (View ▾); the diff's list of rows; a code character's width; the repository it reads.
+    fn options(&self, cx: &App) -> ViewOptions;
+    fn diff_list(&self, cx: &App) -> gpui::ListState;
+    fn char_width(&self, cx: &App) -> f32;
+    fn root(&self, cx: &App) -> Option<PathBuf>;
 
     /// How a diff is read now (the view's options: whitespace ignored or not).
     fn settings(&self, cx: &App) -> artoo_core::git::DiffSettings;

@@ -15,7 +15,7 @@ use gpui::{App, Context};
 impl Workspace {
     /// Every file in one scroll: the option is on and the diff has more than one file.
     pub(super) fn wants_stack(&self, cx: &App) -> bool {
-        !self.review.read(cx).options.one_file
+        !self.view_options(cx).one_file
             && !(self.zen_one && self.zen.is_some())
             && self
                 .review
@@ -51,7 +51,7 @@ impl Workspace {
             self.flip_fold(ix, cx);
         }
         self.review.update(cx, |rv, _| rv.scroll_to_header(ix));
-        if self.review.read(cx).data.is_some() {
+        if self.diff_data(cx).is_some() {
             self.apply_jump(cx);
         }
         self.build_stack(cx);

@@ -704,7 +704,7 @@ impl Workspace {
     /// against the new menus at once, and the action it fires must not find the workspace still
     /// being updated (a crash when a recorded key was also a new menu shortcut).
     pub(super) fn refresh_menus(&self, cx: &mut Context<Self>) {
-        let menus = super::menus(&self.review.read(cx).options, cx);
+        let menus = super::menus(&self.view_options(cx), cx);
         cx.spawn(async move |_, cx| {
             cx.background_executor()
                 .timer(std::time::Duration::from_millis(50))

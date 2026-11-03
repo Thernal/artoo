@@ -199,7 +199,7 @@ impl Workspace {
                     .get(self.review.read(cx).change_at.unwrap_or(0))
                     .and_then(|&row| self.review.read(cx).new_line_of_row(row))
                     .unwrap_or(1);
-                Some((root.join(self.review.read(cx).current_path()?), line))
+                Some((root.join(self.current_path(cx)?), line))
             }
             _ => None,
         }
@@ -427,7 +427,7 @@ impl Workspace {
         let app = self
             .open_target(cx)
             .and_then(|(path, _)| self.open_app(&path))?;
-        let label = if self.review.read(cx).tight {
+        let label = if self.tight(cx) {
             "↗".to_owned()
         } else {
             format!("Open in {} ↗", app.name())

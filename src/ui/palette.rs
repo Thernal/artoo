@@ -822,7 +822,7 @@ impl Workspace {
                 .read(cx)
                 .diff
                 .as_ref()
-                .and_then(|d| d.files.get(self.review.read(cx).file))
+                .and_then(|d| d.files.get(self.diff_file(cx)))
             else {
                 return Vec::new();
             };
@@ -939,7 +939,7 @@ impl Workspace {
         let name = |path: &str| path.rsplit('/').next().unwrap_or_default().to_owned();
         let mut items: Vec<Item> = Vec::new();
         let mut seen = std::collections::HashSet::new();
-        if let Some(diff) = &self.review.read(cx).diff {
+        if let Some(diff) = &self.shown_diff(cx) {
             for (ix, f) in crate::rank::rank(diff.files.iter().enumerate(), query, |(_, f)| {
                 f.path().rsplit('/').next().unwrap_or_default()
             })
@@ -1226,7 +1226,7 @@ impl Workspace {
             }
             Pick::Symbol { old, line } => {
                 self.palette = None;
-                if let Some(path) = self.review.read(cx).current_path() {
+                if let Some(path) = self.current_path(cx) {
                     self.jump_to_line(&path, line, old, cx);
                 }
             }

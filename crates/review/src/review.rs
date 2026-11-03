@@ -241,6 +241,48 @@ impl artoo_review_api::Review for Handle {
         self.0.upgrade()?.read(cx).diff.clone()
     }
 
+    fn file(&self, cx: &App) -> usize {
+        self.0.upgrade().map_or(0, |r| r.read(cx).file)
+    }
+
+    fn current_path(&self, cx: &App) -> Option<String> {
+        self.0.upgrade()?.read(cx).current_path()
+    }
+
+    fn data(&self, cx: &App) -> Option<Arc<FileData>> {
+        self.0.upgrade()?.read(cx).data.clone()
+    }
+
+    fn tight(&self, cx: &App) -> bool {
+        self.0.upgrade().is_some_and(|r| r.read(cx).tight)
+    }
+
+    fn narrow(&self, cx: &App) -> bool {
+        self.0.upgrade().is_some_and(|r| r.read(cx).narrow)
+    }
+
+    fn options(&self, cx: &App) -> ViewOptions {
+        self.0
+            .upgrade()
+            .map(|r| r.read(cx).options)
+            .unwrap_or_default()
+    }
+
+    fn diff_list(&self, cx: &App) -> gpui::ListState {
+        match self.0.upgrade() {
+            Some(r) => r.read(cx).diff_list.clone(),
+            None => gpui::ListState::new(0, gpui::ListAlignment::Top, gpui::px(0.)),
+        }
+    }
+
+    fn char_width(&self, cx: &App) -> f32 {
+        self.0.upgrade().map_or(0., |r| r.read(cx).char_width)
+    }
+
+    fn root(&self, cx: &App) -> Option<PathBuf> {
+        self.0.upgrade()?.read(cx).root.clone()
+    }
+
     fn place(&self, cx: &App) -> Option<(String, gpui::ListOffset)> {
         self.0.upgrade()?.read(cx).scroll_place()
     }

@@ -102,7 +102,7 @@ impl Workspace {
     /// Shows the unchanged lines of the function around `line` (the side `old`), so a comparison
     /// reads the whole function (#46 C).
     pub(super) fn reveal_function(&mut self, line: u32, old: bool, cx: &mut App) {
-        let Some(data) = self.review.read(cx).data.clone() else {
+        let Some(data) = self.diff_data(cx) else {
             return;
         };
         let side = data.side(old);

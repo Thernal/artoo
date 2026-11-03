@@ -118,7 +118,7 @@ impl Workspace {
             self.set_zone(Zone::Tool, cx);
         } else if self.zone == Zone::Tool {
             self.set_zone(
-                if self.review.read(cx).diff.is_some() {
+                if self.shown_diff(cx).is_some() {
                     Zone::Diff
                 } else {
                     Zone::Commits

@@ -387,7 +387,7 @@ impl Workspace {
                 // The Commits tab is read again; a commit or a run picked in it stays picked.
                 branches.show_request_commits(&base, &head, cx);
                 let whole = self.request_loaded(iid, cx)
-                    || (self.review.read(cx).diff.is_none()
+                    || (self.shown_diff(cx).is_none()
                         && self.nav_page() == Some(&Page::Request(iid)));
                 if self.selection(cx) == Selection::None && whole {
                     self.run_compare(base, head, true, Some(iid), cx);
@@ -478,7 +478,7 @@ impl Workspace {
     pub(super) fn request_loaded(&self, iid: u64, cx: &App) -> bool {
         self.current_request(cx) == Some(iid)
             && matches!(
-                self.review.read(cx).diff.as_ref().map(|d| &d.header),
+                self.shown_diff(cx).as_ref().map(|d| &d.header),
                 Some(Header::Compare { request: Some(i), .. }) if *i == iid
             )
     }
@@ -536,7 +536,7 @@ impl Workspace {
             selecting: self.selecting(this.clone()),
             rich: self.settings.rich_comments,
             link_base: self.link_base(),
-            tight: self.review.read(cx).tight,
+            tight: self.tight(cx),
             editing,
             replying: replying.then(|| {
                 self.reply_editor(this.clone(), cx)
@@ -611,7 +611,7 @@ impl Workspace {
 
     /// The discussions on lines of the files of this diff, in reading order.
     fn thread_order(&self, cx: &App) -> Vec<usize> {
-        let Some(diff) = &self.review.read(cx).diff else {
+        let Some(diff) = &self.shown_diff(cx) else {
             return Vec::new();
         };
         let mut order: Vec<(usize, u32, usize)> = self.request_threads(cx)
@@ -747,7 +747,7 @@ impl Workspace {
             selecting: self.selecting(this.clone()),
             rich: self.settings.rich_comments,
             link_base: self.link_base(),
-            tight: self.review.read(cx).tight,
+            tight: self.tight(cx),
             one: self.sends_one_draft(),
             agent: self.draft_agent(id, cx),
             me: &self.me,
@@ -851,7 +851,7 @@ impl Workspace {
 
     /// The pending comments on lines of the diff loaded, in its order: (file, line, index).
     pub(super) fn draft_order(&self, cx: &App) -> Vec<(usize, u32, usize)> {
-        let Some(diff) = self.review.read(cx).diff.as_ref() else {
+        let Some(diff) = self.shown_diff(cx) else {
             return Vec::new();
         };
         let mut order: Vec<(usize, u32, usize)> = (0..self.request_drafts(cx).len())
@@ -1073,7 +1073,7 @@ impl Workspace {
     ) {
         self.review
             .update(cx, |rv, _| rv.jump_line = Some((line, old)));
-        if self.review.read(cx).current_path().as_deref() == Some(path) {
+        if self.current_path(cx).as_deref() == Some(path) {
             self.apply_jump(cx);
             return;
         }

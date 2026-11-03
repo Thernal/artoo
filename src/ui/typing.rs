@@ -146,7 +146,7 @@ impl Keys for Workspace {
             settings: self.settings_open,
             space: self.space(),
             page: self.nav_page().cloned(),
-            file: self.review.read(cx).current_path(),
+            file: self.current_path(cx),
         }
     }
 
@@ -157,7 +157,7 @@ impl Keys for Workspace {
             .read(cx)
             .diff
             .as_ref()
-            .and_then(|d| d.files.get(self.review.read(cx).file))
+            .and_then(|d| d.files.get(self.diff_file(cx)))
             .map(|f| f.path());
         at.settings == self.settings_open
             && at.space == self.space()

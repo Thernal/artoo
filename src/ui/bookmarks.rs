@@ -120,8 +120,8 @@ impl Workspace {
     pub(super) fn toggle_bookmark_at(&mut self, line: u32, cx: &mut Context<Self>) {
         let (Some(scope), Some(path), Some(data)) = (
             self.review.read(cx).review_scope.clone(),
-            self.review.read(cx).current_path(),
-            self.review.read(cx).data.clone(),
+            self.current_path(cx),
+            self.diff_data(cx),
         ) else {
             return;
         };

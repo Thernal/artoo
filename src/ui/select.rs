@@ -123,7 +123,7 @@ impl Workspace {
 
     /// ⌘A: the whole side of the diff that is being read (the new one, unless the old is selected).
     pub(super) fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(data) = &self.review.read(cx).data else {
+        let Some(data) = &self.diff_data(cx) else {
             return;
         };
         let old = self.review.read(cx).sel.is_some_and(|s| s.old);

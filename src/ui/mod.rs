@@ -820,8 +820,8 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         "comments" => {
                             // Unsaved sample comments on the first changed line, one being written.
                             let (Some(data), Some(path)) = (
-                                &this.review.read(cx).data,
-                                this.review.read(cx).current_path(),
+                                &this.diff_data(cx),
+                                this.current_path(cx),
                             ) else {
                                 continue;
                             };
@@ -862,8 +862,8 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         // An agent comment sent, and the agent asking back with a plan (#10).
                         "agent-form" => {
                             let (Some(data), Some(path)) = (
-                                &this.review.read(cx).data,
-                                this.review.read(cx).current_path(),
+                                &this.diff_data(cx),
+                                this.current_path(cx),
                             ) else {
                                 continue;
                             };
@@ -1039,13 +1039,13 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         }
                         // A comment on the rendered document's third block (#11).
                         "page-comment" => {
-                            let ix = this.review.read(cx).file;
+                            let ix = this.diff_file(cx);
                             this.page_block_comment(ix, cx);
                             continue;
                         }
                         // The comments of the rendered document's third block, opened.
                         "page-notes" => {
-                            let ix = this.review.read(cx).file;
+                            let ix = this.diff_file(cx);
                             this.page_block_notes(ix, cx);
                             continue;
                         }
@@ -2340,7 +2340,7 @@ impl Workspace {
     fn set_option(&mut self, opt: Opt, value: bool, cx: &mut Context<Self>) {
         if self.review.read(cx).option(opt) != value {
             self.set_option_unsaved(opt, value, cx);
-            self.review.read(cx).options.save();
+            self.view_options(cx).save();
         }
     }
 
@@ -2348,13 +2348,13 @@ impl Workspace {
         if !self.review.update(cx, |rv, _| rv.set_option(opt, value)) {
             return;
         }
-        cx.set_menus(menus(&self.review.read(cx).options, cx));
+        cx.set_menus(menus(&self.view_options(cx), cx));
         match opt {
             Opt::Unified | Opt::FullContext => self.relayout_all(cx),
             Opt::FoldReviewed => self.refold(cx),
             Opt::OneFile => self.show_files_anew(cx),
             // Same rows, new heights.
-            Opt::Wrap => self.review.read(cx).diff_list.remeasure(),
+            Opt::Wrap => self.diff_list(cx).remeasure(),
             Opt::Whitespace => self.reload_diff(cx),
         }
         cx.notify();
@@ -2365,11 +2365,11 @@ impl Workspace {
         if !self.review.update(cx, |rv, _| rv.set_mode(mode)) {
             return;
         }
-        cx.set_menus(menus(&self.review.read(cx).options, cx));
+        cx.set_menus(menus(&self.view_options(cx), cx));
         if self.review.read(cx).stack.is_some() {
             self.reopen_stack(cx);
         } else {
-            self.select_file(self.review.read(cx).file, cx);
+            self.select_file(self.diff_file(cx), cx);
         }
         cx.notify();
     }
@@ -2377,7 +2377,7 @@ impl Workspace {
     /// The View menu: the diff mode, then the options that are on or off.
     /// The View ▾ menu (#48 A): one flat list of what the toolbar does not show, in groups.
     fn view_menu(&self, cx: &App) -> Vec<(Option<&'static str>, Vec<Entry>)> {
-        let o = self.review.read(cx).options;
+        let o = self.view_options(cx);
         let tool = self.tool();
         vec![
             (
@@ -2448,7 +2448,7 @@ impl Workspace {
         at: Point<gpui::Pixels>,
         cx: &mut Context<Self>,
     ) {
-        let Some(data) = &self.review.read(cx).data else {
+        let Some(data) = &self.diff_data(cx) else {
             return;
         };
         let in_selection = self.review.read(cx).sel.is_some_and(|s| {
@@ -2468,7 +2468,7 @@ impl Workspace {
         )];
         if let (false, Some(path), Some(editor)) = (
             old,
-            self.review.read(cx).current_path(),
+            self.current_path(cx),
             crate::editor::pick(self.settings.editor),
         ) {
             second.push(Entry::new(
@@ -2479,7 +2479,7 @@ impl Workspace {
         // What a reviewer pastes into a chat: a link to the line, its place, the command.
         let mut share = Vec::new();
         if let (Some(path), Some(rev)) = (
-            self.review.read(cx).current_path(),
+            self.current_path(cx),
             self.review.read(cx).viewed_rev(),
         ) {
             if let (false, Some(web)) = (old, &self.web) {
@@ -2599,7 +2599,7 @@ impl Workspace {
             .read(cx)
             .diff
             .as_ref()
-            .and_then(|d| d.files.get(self.review.read(cx).file))
+            .and_then(|d| d.files.get(self.diff_file(cx)))
             .map(|f| f.path().to_owned());
         match self.branches().map_or(Selection::None, |b| b.selection(cx)) {
             Selection::Commit(ix) => self.load_commit(ix, keep, cx),
@@ -2862,7 +2862,7 @@ impl Workspace {
         self.review
             .update(cx, |rv, _| rv.restore_scroll = rv.scroll_place());
         self.review.update(cx, |rv, _| rv.clear_file());
-        self.select_file(self.review.read(cx).file, cx);
+        self.select_file(self.diff_file(cx), cx);
     }
 
     fn toggle_unified(&mut self, _: &ToggleUnified, _: &mut Window, cx: &mut Context<Self>) {
@@ -2870,7 +2870,7 @@ impl Workspace {
     }
 
     fn cycle_mode(&mut self, _: &CycleMode, _: &mut Window, cx: &mut Context<Self>) {
-        self.set_mode(self.review.read(cx).options.mode.next(), cx);
+        self.set_mode(self.view_options(cx).mode.next(), cx);
     }
 
     fn set_lines(&mut self, _: &SetLines, _: &mut Window, cx: &mut Context<Self>) {
@@ -2948,7 +2948,7 @@ impl Workspace {
     fn find_action(&mut self, _: &Find, _: &mut Window, cx: &mut Context<Self>) {
         if self.at_root_list() && !self.settings_open {
             self.start_field(lists::Field::Branches, cx);
-        } else if self.review.read(cx).diff.is_some() && !self.settings_open {
+        } else if self.shown_diff(cx).is_some() && !self.settings_open {
             self.start_dfind(cx);
         } else {
             self.start_find(cx);

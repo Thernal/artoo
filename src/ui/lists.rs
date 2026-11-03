@@ -195,9 +195,9 @@ pub enum Field {
 
 impl Workspace {
     pub(super) fn set_file_view(&mut self, list: bool, cx: &mut Context<Self>) {
-        if self.review.read(cx).options.list_files != list {
+        if self.view_options(cx).list_files != list {
             self.review.update(cx, |rv, _| rv.options.list_files = list);
-            self.review.read(cx).options.save();
+            self.view_options(cx).save();
             cx.notify();
         }
     }

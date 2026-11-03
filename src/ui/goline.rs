@@ -40,7 +40,7 @@ impl Workspace {
             self.take_keyboard(Input::Part(artoo_review::goline::INPUT), cx);
             return cx.notify();
         }
-        if self.review.read(cx).data.is_none() || self.settings_open || self.compose.is_some() {
+        if self.diff_data(cx).is_none() || self.settings_open || self.compose.is_some() {
             return;
         }
         if let Some((old, first, last)) = self.review.read(cx).selected_lines() {
@@ -140,7 +140,7 @@ impl Workspace {
             return self.open_folder_page(folder.to_owned(), cx);
         }
         self.jump = Some(id);
-        if self.review.read(cx).current_path().as_ref() == Some(&path) {
+        if self.current_path(cx).as_ref() == Some(&path) {
             self.apply_jump(cx);
             return;
         }

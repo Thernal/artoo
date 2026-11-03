@@ -146,7 +146,7 @@ impl Workspace {
     /// Esc after esc: the filter that was left with text, of the list on screen, is cleared.
     fn clear_filter(&mut self, cx: &mut App) -> bool {
         if !self.review.read(cx).pfilter.is_empty()
-            && self.review.read(cx).diff.is_some()
+            && self.shown_diff(cx).is_some()
             && self
                 .space()
                 .is_some_and(|s| s != super::spaces::Space::Code)

@@ -36,7 +36,7 @@ impl Workspace {
 
     /// A click on commit `ix`: its diff alone; with ⇧ the run from the one clicked last to it.
     pub(super) fn pick_compare_commit(&mut self, ix: usize, span: bool, cx: &mut Context<Self>) {
-        let keep = self.review.read(cx).current_path();
+        let keep = self.current_path(cx);
         if self.root.is_some()
             && self
                 .branches()
@@ -49,7 +49,7 @@ impl Workspace {
     /// ↑ ↓ in the comparison's commits: the one above or below the one picked.
     pub(super) fn step_compare_pick(&mut self, down: bool, cx: &mut Context<Self>) {
         let route = self.nav_page().map(Page::route);
-        let keep = self.review.read(cx).current_path();
+        let keep = self.current_path(cx);
         if self.root.is_some()
             && self
                 .branches()

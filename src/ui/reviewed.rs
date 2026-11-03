@@ -11,7 +11,7 @@ impl Workspace {
     /// Called when a diff arrives (the review indexed it, `Review::index`): a request's and a branch's pages
     /// learn how many files it has.
     pub(super) fn count_files(&mut self, cx: &mut App) {
-        if let Some(d) = &self.review.read(cx).diff
+        if let Some(d) = &self.shown_diff(cx)
             && let Header::Compare {
                 request: Some(iid), ..
             } = d.header
@@ -53,7 +53,7 @@ impl Workspace {
 
     /// `⇧V`: marks or unmarks the open file.
     pub(super) fn toggle_reviewed(&mut self, cx: &mut Context<Self>) {
-        let ix = self.review.read(cx).file;
+        let ix = self.diff_file(cx);
         let done = self.review.read(cx).review_state(ix) == Some(State::Done);
         self.set_reviewed(ix, !done, cx);
     }
@@ -63,7 +63,7 @@ impl Workspace {
         if self.review.read(cx).review_scope.is_none() {
             return;
         }
-        self.set_reviewed(self.review.read(cx).file, true, cx);
+        self.set_reviewed(self.diff_file(cx), true, cx);
         self.next_unreviewed(cx);
     }
 

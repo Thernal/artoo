@@ -85,7 +85,7 @@ impl Workspace {
         {
             out.push(Zone::Commits);
         }
-        if self.review.read(cx).diff.is_some() && !self.settings_open {
+        if self.shown_diff(cx).is_some() && !self.settings_open {
             if self.files_zone(cx) {
                 out.push(Zone::Files);
             }
@@ -153,7 +153,7 @@ impl Workspace {
     pub(super) fn zone_horizontal(&mut self, forward: bool, cx: &mut Context<Self>) {
         match self.zone {
             Zone::Files
-                if !self.review.read(cx).options.list_files
+                if !self.view_options(cx).list_files
                     && self.review.read(cx).pfilter.trim().is_empty() =>
             {
                 self.tree_horizontal(forward, cx)
@@ -175,7 +175,7 @@ impl Workspace {
 
     pub(super) fn step_file(&mut self, forward: bool, cx: &mut Context<Self>) {
         let order = self.review.read(cx).file_order();
-        let Some(at) = order.iter().position(|&ix| ix == self.review.read(cx).file) else {
+        let Some(at) = order.iter().position(|&ix| ix == self.diff_file(cx)) else {
             return;
         };
         let to = if forward {
@@ -212,7 +212,7 @@ impl Workspace {
             }
             Zone::Branches => {}
             Zone::Commits => {
-                if self.review.read(cx).diff.is_some() {
+                if self.shown_diff(cx).is_some() {
                     self.set_zone(
                         if self.files_zone(cx) {
                             Zone::Files
@@ -237,7 +237,7 @@ impl Workspace {
                     .read(cx)
                     .diff
                     .as_ref()
-                    .and_then(|d| d.files.get(self.review.read(cx).file))
+                    .and_then(|d| d.files.get(self.diff_file(cx)))
                     .filter(|f| self.review.read(cx).generated_folded(f))
                     .map(|f| f.path().to_owned())
                 {
@@ -263,9 +263,9 @@ impl Workspace {
     /// Home and End: the top or the bottom of the diff.
     pub(super) fn diff_edge(&mut self, end: bool, cx: &mut Context<Self>) {
         if end {
-            self.review.read(cx).diff_list.scroll_to_end();
+            self.diff_list(cx).scroll_to_end();
         } else {
-            self.review.read(cx).diff_list.scroll_to(gpui::ListOffset {
+            self.diff_list(cx).scroll_to(gpui::ListOffset {
                 item_ix: 0,
                 offset_in_item: px(0.),
             });
@@ -340,7 +340,7 @@ impl Workspace {
                 .position(|k| matches!(k, ItemKey::Dir(d) if d == dir)),
             None => items
                 .iter()
-                .position(|k| matches!(k, ItemKey::File(ix) if *ix == self.review.read(cx).file)),
+                .position(|k| matches!(k, ItemKey::File(ix) if *ix == self.diff_file(cx))),
         };
         let to = match (here, down) {
             (Some(i), true) => (i + 1 < items.len()).then(|| i + 1),
@@ -376,7 +376,7 @@ impl Workspace {
             return;
         }
         // ← on a file: the folder it is in, or its group (#22).
-        if let Some(path) = self.review.read(cx).file_key(self.review.read(cx).file) {
+        if let Some(path) = self.review.read(cx).file_key(self.diff_file(cx)) {
             let parent = item_keys(self.review.read(cx))
                 .into_iter()
                 .filter_map(|k| match k {

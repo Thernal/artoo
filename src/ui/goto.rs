@@ -178,7 +178,7 @@ impl Workspace {
                     let (path, new, old) = self.requests_api()?.draft_place(ix, cx)?;
                     Some((None, Some(ix), path, new.or(old)?, new.is_none()))
                 }),
-            Spot::Line(l) => self.review.read(cx).diff.as_ref().and_then(|d| {
+            Spot::Line(l) => self.shown_diff(cx).as_ref().and_then(|d| {
                 let file = d
                     .files
                     .iter()

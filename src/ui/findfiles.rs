@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 impl Workspace {
     pub(super) fn open_find_files(&mut self, cx: &mut Context<Self>) {
-        if self.review.read(cx).diff.is_none() || self.settings_open {
+        if self.shown_diff(cx).is_none() || self.settings_open {
             return;
         }
         self.palette = None;

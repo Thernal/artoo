@@ -125,12 +125,12 @@ impl Workspace {
             return;
         };
         let body = compose.edit.text().trim().to_owned();
-        let head = match self.review.read(cx).diff.as_ref().map(|d| &d.header) {
+        let head = match self.shown_diff(cx).as_ref().map(|d| &d.header) {
             Some(super::Header::Compare { head, .. }) => head.1.to_string(),
             _ => return,
         };
         // On a page the file is the page's, and its counters come from its hunks (#11).
-        let at_file = compose.page.unwrap_or(self.review.read(cx).file);
+        let at_file = compose.page.unwrap_or(self.diff_file(cx));
         let file = self
             .review
             .read(cx)
@@ -230,7 +230,7 @@ impl Workspace {
                 Target::Request(_) => {
                     this.current_request(cx) == Some(iid)
                         && (compose.page.is_some()
-                            || this.review.read(cx).current_path().as_deref()
+                            || this.current_path(cx).as_deref()
                                 == Some(compose.path.as_str()))
                 }
                 _ => this.current_request(cx) == Some(iid),

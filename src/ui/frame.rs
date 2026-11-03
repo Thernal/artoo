@@ -197,7 +197,7 @@ impl Render for Workspace {
             "a change of the settings did not reach the review's copy (save_settings)"
         );
         debug_assert_eq!(
-            self.review.read(cx).root,
+            self.review_root(cx),
             self.root,
             "the review's root is not the tab's"
         );
@@ -242,7 +242,7 @@ impl Render for Workspace {
             zones::Zone::Files => !self.files_zone(cx),
             _ => false,
         };
-        if folded_zone && self.review.read(cx).diff.is_some() {
+        if folded_zone && self.shown_diff(cx).is_some() {
             self.zone = zones::Zone::Diff;
         }
         let body = self.review.read(cx).body_width.get();
@@ -250,7 +250,7 @@ impl Render for Workspace {
         let narrow = (body > 0. && body < 700.) || self.menu_narrow();
         // At the interface size chosen: 600 px of the design is more at 150 %.
         let tight = body > 0. && body < f32::from(px(600.));
-        if narrow != self.review.read(cx).narrow || tight != self.review.read(cx).tight {
+        if narrow != self.diff_narrow(cx) || tight != self.tight(cx) {
             self.review.update(cx, |rv, _| {
                 rv.narrow = narrow;
                 rv.tight = tight;
@@ -258,7 +258,7 @@ impl Render for Workspace {
             self.relayout_all(cx);
         }
         self.follow_scroll(cx);
-        if self.review.read(cx).char_width == 0. || self.char_face != theme::code_font() {
+        if self.char_width(cx) == 0. || self.char_face != theme::code_font() {
             self.char_face = theme::code_font();
             let text = window.text_system();
             let id = text.resolve_font(&font(self.char_face.clone()));
@@ -387,7 +387,7 @@ impl Render for Workspace {
         .on_action(cx.listener(|this, _: &ShowBookmarks, _, cx| {
             if this.palette.is_some() {
                 this.close_palette(cx);
-            } else if this.review.read(cx).diff.is_some() {
+            } else if this.shown_diff(cx).is_some() {
                 this.open_palette(palette::Kind::Bookmarks, cx);
             }
         }))
@@ -397,7 +397,7 @@ impl Render for Workspace {
         .on_action(cx.listener(|this, _: &ShowStructure, _, cx| {
             if this.palette.is_some() {
                 this.close_palette(cx);
-            } else if this.review.read(cx).diff.is_some() {
+            } else if this.shown_diff(cx).is_some() {
                 this.open_palette(palette::Kind::Structure, cx);
             }
         }))

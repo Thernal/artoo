@@ -26,7 +26,7 @@ impl Workspace {
             return;
         }
         if self.nav.space != Space::Code && !self.plain {
-            let rev = match self.review.read(cx).diff.as_ref().map(|d| &d.header) {
+            let rev = match self.shown_diff(cx).as_ref().map(|d| &d.header) {
                 Some(Header::WorkingTree { .. }) => Some(None),
                 Some(_) => self
                     .review

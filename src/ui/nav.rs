@@ -406,6 +406,56 @@ impl Workspace {
         Page::from_route(&self.branches()?.loaded(on_screen.as_ref(), cx)?)
     }
 
+    /// The review as a page asks it (`Review`), and what the tab reads most of it: the diff shown, the file it is at
+    /// and its path, the open file's rows, whether the diff is narrow, the view's options, the diff's list, a code
+    /// character's width, the repository it reads.
+    pub(super) fn review_api(&self) -> Option<std::rc::Rc<dyn artoo_review_api::Review>> {
+        self.services.get()
+    }
+
+    pub(super) fn shown_diff(&self, cx: &App) -> Option<std::sync::Arc<artoo_review_api::diff::Diff>> {
+        self.review_api()?.shown(cx)
+    }
+
+    pub(super) fn diff_file(&self, cx: &App) -> usize {
+        self.review_api().map_or(0, |r| r.file(cx))
+    }
+
+    pub(super) fn current_path(&self, cx: &App) -> Option<String> {
+        self.review_api()?.current_path(cx)
+    }
+
+    pub(super) fn diff_data(&self, cx: &App) -> Option<std::sync::Arc<crate::rows::FileData>> {
+        self.review_api()?.data(cx)
+    }
+
+    pub(super) fn tight(&self, cx: &App) -> bool {
+        self.review_api().is_some_and(|r| r.tight(cx))
+    }
+
+    pub(super) fn diff_narrow(&self, cx: &App) -> bool {
+        self.review_api().is_some_and(|r| r.narrow(cx))
+    }
+
+    pub(super) fn view_options(&self, cx: &App) -> crate::storage::ViewOptions {
+        self.review_api().map(|r| r.options(cx)).unwrap_or_default()
+    }
+
+    pub(super) fn diff_list(&self, cx: &App) -> gpui::ListState {
+        match self.review_api() {
+            Some(r) => r.diff_list(cx),
+            None => gpui::ListState::new(0, gpui::ListAlignment::Top, gpui::px(0.)),
+        }
+    }
+
+    pub(super) fn char_width(&self, cx: &App) -> f32 {
+        self.review_api().map_or(0., |r| r.char_width(cx))
+    }
+
+    pub(super) fn review_root(&self, cx: &App) -> Option<std::path::PathBuf> {
+        self.review_api()?.root(cx)
+    }
+
     /// The requests as a page asks them.
     pub(super) fn requests_api(&self) -> Option<std::rc::Rc<dyn artoo_requests_api::Requests>> {
         self.services.get()

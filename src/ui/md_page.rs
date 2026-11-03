@@ -140,7 +140,7 @@ impl Workspace {
             .read(cx)
             .diff
             .as_ref()
-            .and_then(|d| d.files.get(self.review.read(cx).file))
+            .and_then(|d| d.files.get(self.diff_file(cx)))
             .map(|f| f.path().to_owned())
             .filter(|p| markdown::is_document(p))
         else {

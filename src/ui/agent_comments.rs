@@ -18,8 +18,8 @@ impl Workspace {
     pub(super) fn place_in_open_file(&self, comment: &Comment, cx: &App) -> Option<Place> {
         self.place_in_file(
             comment,
-            &self.review.read(cx).current_path()?,
-            self.review.read(cx).data.as_ref()?,
+            &self.current_path(cx)?,
+            self.diff_data(cx).as_ref()?,
         )
     }
 
@@ -43,11 +43,9 @@ impl Workspace {
     /// was written on to the diff shown, in the background (#46).
     pub(super) fn map_agent_comments(&mut self, cx: &mut Context<Self>) {
         self.agent_lines.clear();
-        let (Some(root), Some(head), Some(diff)) = (
-            self.root.clone(),
-            self.review.read(cx).shown_head(),
-            self.review.read(cx).diff.as_ref(),
-        ) else {
+        let (Some(root), Some(head), Some(diff)) =
+            (self.root.clone(), self.review.read(cx).shown_head(), self.shown_diff(cx))
+        else {
             return;
         };
         let paths: Vec<String> = diff.files.iter().map(|f| f.path().to_owned()).collect();
@@ -439,7 +437,7 @@ impl Workspace {
                         None,
                         None,
                         Kind::Plain,
-                        self.review.read(cx).tight,
+                        self.tight(cx),
                     )
                     .h(px(24.))
                     .px(px(8.))
@@ -459,7 +457,7 @@ impl Workspace {
                     None,
                     None,
                     Kind::Danger,
-                    self.review.read(cx).tight,
+                    self.tight(cx),
                 )
                 .h(px(24.))
                 .px(px(8.))
@@ -508,7 +506,7 @@ impl Workspace {
                 edit_button(
                     ("edit-agent", id),
                     None,
-                    self.review.read(cx).tight,
+                    self.tight(cx),
                     change,
                     editing,
                 )

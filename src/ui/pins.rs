@@ -15,7 +15,7 @@ use gpui::{App, Context};
 impl Workspace {
     /// The pins of the open file.
     pub(super) fn open_pins(&self, cx: &App) -> Pins {
-        self.pins_for(self.review.read(cx).current_path(), cx)
+        self.pins_for(self.current_path(cx), cx)
     }
 
     /// The pins of every file of the diff.
@@ -218,8 +218,8 @@ impl Workspace {
         if self.review.read(cx).stack.is_some() {
             return self.relayout_stack(cx);
         }
-        let top = self.review.read(cx).diff_list.logical_scroll_top();
+        let top = self.diff_list(cx).logical_scroll_top();
         self.relayout(cx);
-        self.review.read(cx).diff_list.scroll_to(top);
+        self.diff_list(cx).scroll_to(top);
     }
 }

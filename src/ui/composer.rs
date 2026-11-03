@@ -191,7 +191,7 @@ impl Workspace {
     /// How much of its foot the field being written has room for (`room_for`). Its own width
     /// decides, wherever it is — the diff, a file in Code, a folder's page —, or the narrow diff's.
     pub(super) fn compose_room(&self, cx: &App) -> Room {
-        room_for(self.widths.width("composer"), self.review.read(cx).tight)
+        room_for(self.widths.width("composer"), self.tight(cx))
     }
 
     /// Under L: the secondary buttons keep only their icon, named in the tooltip, the keycaps go,
@@ -257,8 +257,8 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let (Some(data), Some(path)) = (
-            &self.review.read(cx).data,
-            self.review.read(cx).current_path(),
+            &self.diff_data(cx),
+            self.current_path(cx),
         ) else {
             return;
         };
@@ -437,7 +437,7 @@ impl Workspace {
 
     /// The merge request whose diff is open, when a comment can be posted to it.
     pub(super) fn request_target(&self, cx: &App) -> Option<u64> {
-        match self.review.read(cx).diff.as_ref()?.header {
+        match self.shown_diff(cx).as_ref()?.header {
             super::Header::Compare {
                 request: Some(iid),
                 since_merge_base: true,
@@ -503,7 +503,7 @@ impl Workspace {
         let id = self.comments(cx).iter().map(|c| c.id).max().unwrap_or(0) + 1;
         let above = match (
             compose.first,
-            &self.review.read(cx).data,
+            &self.diff_data(cx),
             &self.review.read(cx).file_view,
         ) {
             // On a file read in Code: its own lines, whatever diff is loaded (#104).
@@ -570,7 +570,7 @@ impl Workspace {
                 .and_then(|c| c.completion_key(key, at, &choices))
         {
             if changed {
-                self.review.read(cx).diff_list.remeasure();
+                self.diff_list(cx).remeasure();
             }
             return cx.notify();
         }
@@ -595,7 +595,7 @@ impl Workspace {
             Typed::Changed => {}
         }
         // The box grows with its text.
-        self.review.read(cx).diff_list.remeasure();
+        self.diff_list(cx).remeasure();
         cx.notify();
     }
 
@@ -687,7 +687,7 @@ impl Workspace {
             return;
         };
         compose.apply(helper);
-        self.review.read(cx).diff_list.remeasure();
+        self.diff_list(cx).remeasure();
         cx.notify();
     }
 
@@ -697,7 +697,7 @@ impl Workspace {
         }
         if let Some(compose) = self.compose.as_mut() {
             compose.toggle_preview();
-            self.review.read(cx).diff_list.remeasure();
+            self.diff_list(cx).remeasure();
             cx.notify();
         }
     }
@@ -706,7 +706,7 @@ impl Workspace {
     pub(super) fn toggle_rich_comments(&mut self, cx: &mut Context<Self>) {
         self.settings.rich_comments = !self.settings.rich_comments;
         self.save_settings(cx);
-        self.review.read(cx).diff_list.remeasure();
+        self.diff_list(cx).remeasure();
         cx.notify();
     }
 

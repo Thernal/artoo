@@ -324,7 +324,7 @@ impl Workspace {
         // On screen already, it is read again as asked.
         if let Some(on) = unstaged
             && matches!(
-                self.review.read(cx).diff.as_ref().map(|d| &d.header),
+                self.shown_diff(cx).as_ref().map(|d| &d.header),
                 Some(super::Header::WorkingTree { only_unstaged }) if *only_unstaged != on
             )
         {

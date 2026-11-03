@@ -26,7 +26,7 @@ impl Workspace {
         }
         if self.branches().map(|b| b.selection(cx)) == Some(Selection::WorkingTree) {
             // Reload in place: the selected file stays.
-            let keep = self.review.read(cx).current_path();
+            let keep = self.current_path(cx);
             self.load_working_tree(keep, cx);
         }
         cx.notify();
@@ -61,7 +61,7 @@ impl Workspace {
         if let Some(branches) = self.branches() {
             branches.set_only_unstaged(on, cx);
         }
-        let keep = self.review.read(cx).current_path();
+        let keep = self.current_path(cx);
         self.load_working_tree(keep, cx);
     }
 }
