@@ -13,7 +13,7 @@ use artoo_core::storage::{DiffMode, Settings, ViewOptions};
 use artoo_review_api::Source;
 use artoo_ui_kit::{ISLAND_RADIUS, flat, motion, px, theme};
 use gpui::{
-    App, Context, ListState, ScrollStrategy, ScrollWheelEvent, Task,
+    App, Context, ListAlignment, ListState, ScrollStrategy, ScrollWheelEvent, Task,
     UniformListScrollHandle, canvas, div, list, prelude::*,
 };
 use std::cell::Cell as Shared;
@@ -141,6 +141,77 @@ pub struct Review {
     pub changes_open: bool,
     /// Its toggle's mark: its rows stay drawn while it folds.
     pub changes_motion: motion::Marks,
+}
+
+impl Review {
+    /// A tab's review, nothing shown yet: the app's `settings` (the tab keeps its copy equal to its own), the view's
+    /// options and the marks of what is reviewed as last saved.
+    pub fn new(settings: Settings) -> Self {
+        Self {
+            root: None,
+            pfilter: String::new(),
+            fcursor: None,
+            settings,
+            char_width: 0.,
+            options: ViewOptions::load(&settings),
+            notes: Vec::new(),
+            images: Default::default(),
+            view_button: Default::default(),
+            page: Default::default(),
+            annotate: false,
+            annotations: Vec::new(),
+            annot_task: None,
+            blames: Default::default(),
+            blame_tip: None,
+            file_view: None,
+            file_reading: None,
+            reviewed: crate::reviewed::Store::load(),
+            done_card: false,
+            review_scope: None,
+            fps: Vec::new(),
+            unfolded: HashSet::new(),
+            narrow: false,
+            tight: false,
+            goline: None,
+            goline_row: None,
+            jump_line: None,
+            jump_whole: false,
+            diff: None,
+            file: 0,
+            collapsed: HashSet::new(),
+            sel: None,
+            selecting: false,
+            dfind: None,
+            dterms: Arc::default(),
+            dfind_regex: false,
+            dfind_error: None,
+            find_area: Default::default(),
+            goline_area: Default::default(),
+            filter_area: Default::default(),
+            filter_open: false,
+            widths: Default::default(),
+            ffind: None,
+            changes: Vec::new(),
+            change_at: None,
+            matches: Vec::new(),
+            match_at: 0,
+            notice: None,
+            restore_scroll: None,
+            data: None,
+            rows: Vec::new(),
+            expanded: HashSet::new(),
+            diff_list: ListState::new(0, ListAlignment::Top, px(400.)),
+            stack: None,
+            offset: 0.,
+            body_width: Rc::new(Shared::new(0.)),
+            file_scroll: UniformListScrollHandle::new(),
+            diff_task: None,
+            view_task: None,
+            frame: None,
+            changes_open: crate::changes_view::changes_left_open(),
+            changes_motion: Default::default(),
+        }
+    }
 }
 
 pub use artoo_review_api::Event as ReviewEvent;

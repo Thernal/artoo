@@ -552,6 +552,12 @@ pub trait Review {
 
     /// The files under folder `path` of the Changes list.
     fn files_under(&self, path: &str, cx: &App) -> Vec<usize>;
+
+    /// What the review says (`Event`), heard by `hear` as long as it lives.
+    fn on_event(&self, hear: Hears, cx: &mut App);
+
+    /// Any change of the review, heard by `hear` as long as it lives.
+    fn on_change(&self, hear: Rc<dyn Fn(&mut App)>, cx: &mut App);
 }
 
 /// An item page's middle as the review draws it (#165 I5d): what the route on screen is of, the parts' pieces over
@@ -969,3 +975,6 @@ pub struct FileRead {
 
 /// What answers find in files' clicks.
 pub type OnSearch = Rc<dyn Fn(SearchEvent, &mut gpui::Window, &mut App)>;
+
+/// What hears the review's events (`Review::on_event`).
+pub type Hears = Rc<dyn Fn(&Event, &mut App)>;

@@ -5,33 +5,33 @@
 //! (`changes_view`), Find in files (`find_files`) and the find bar (`find`), whose field is one of its parts' inputs
 //! as the line typed after `c` is (`goline`).
 
-pub mod annotate;
-pub mod changes;
-pub mod changes_view;
-pub mod column;
-pub mod diff;
-pub mod diff_view;
-pub mod file_view;
-pub mod find;
-pub mod find_files;
-pub mod goline;
-pub mod handle;
-pub mod image_view;
-pub mod item;
-pub mod lines;
-pub mod lists;
-pub mod md_page;
-pub mod pane;
-pub mod path_filter;
-pub mod pins;
-pub mod review;
-pub mod reviewed;
-pub mod select;
-pub mod stack;
-pub mod zen;
+mod annotate;
+mod changes;
+mod changes_view;
+mod column;
+mod diff;
+mod diff_view;
+mod file_view;
+mod find;
+mod find_files;
+mod goline;
+mod handle;
+mod image_view;
+mod item;
+mod lines;
+mod lists;
+mod md_page;
+mod pane;
+mod path_filter;
+mod pins;
+mod review;
+mod reviewed;
+mod select;
+mod stack;
+mod zen;
 
 use artoo_shell_api::{Frame, Parts};
-use gpui::{App, Entity, Window};
+use gpui::{App, AppContext, Window};
 use std::rc::Rc;
 
 /// The review's parts in every tab: the find bar's field and the line typed after `c` as its inputs; its item
@@ -41,12 +41,19 @@ pub fn install(cx: &mut App) {
 }
 
 /// The parts of a tab that offers its review; none in one that does not.
+/// The parts of a tab that hosts the review (`artoo_review_api::Host`): the review made, offered to the tab and its
+/// pages (`Review`, the file Code reads), its page and its inputs; none in another tab.
 fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
-    let Some(review) = frame.services().get::<Entity<review::Review>>() else {
+    let services = frame.services();
+    if services.get::<Rc<dyn artoo_review_api::Host>>().is_none() {
         return Parts::default();
-    };
+    }
+    let settings = artoo_core::storage::Settings::load();
+    let review = cx.new(|_| review::Review::new(settings));
     review.update(cx, |rv, _| rv.frame = Some(Rc::downgrade(&frame)));
-    frame.services().set(item::view(review.clone(), &frame, cx));
+    services.set(file_view::file_view(&review));
+    services.set(handle::handle(&review));
+    services.set(item::view(review.clone(), &frame, cx));
     Parts {
         inputs: vec![
             find::input(review.clone()),

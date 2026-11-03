@@ -778,7 +778,7 @@ impl Workspace {
         let Some(item) = page.item() else {
             return;
         };
-        let review = self.review_handle();
+        let review = self.rv();
         let place = review.place(cx);
         let paths: Vec<String> = review
             .shown(cx)
@@ -854,7 +854,7 @@ impl Workspace {
             let loaded = self.loaded_page(cx).and_then(|p| p.item());
             if loaded.as_ref() != Some(&item) {
                 let place = self.nav.opened(&item).and_then(|o| o.place.clone());
-                self.review_handle().restore_at(place, cx);
+                self.rv().restore_at(place, cx);
             }
         }
         self.show_pages(page.space(), Some(&page), opened, cx);
@@ -1243,7 +1243,7 @@ impl Workspace {
             .then(|| self.nav.opened(&item).and_then(|o| o.place.clone()))
             .flatten();
         self.arrive(Page::Branch(refname), cx);
-        self.review_handle().restore_at(place, cx);
+        self.rv().restore_at(place, cx);
         self.select_branch(ix, keep, cx);
     }
 }

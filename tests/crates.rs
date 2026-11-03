@@ -36,15 +36,9 @@ fn may_depend(from: Role, to: Role) -> bool {
 /// Edges the roles forbid, allowed for now, each until the stage that removes it.
 const ALLOWED: &[(&str, &str)] = &[];
 
-/// Implementations whose `lib.rs` still shows more than functions, each until the stage that narrows it.
-///
-/// The review, the last of the three the tab is made of (stage 4 closed without them, the developer 2026-11-01): the
-/// tab (`Workspace`) keeps its entity and reads it throughout, so it shows its modules until the tab's split reaches
-/// it; the branches and the requests are split already.
-const OPEN: &[&str] = &[
-    // The review: its entity, the diff's rows, the composer, the find bar.
-    "artoo-review",
-];
+/// Implementations whose `lib.rs` still shows more than functions, each until the stage that narrows it: none since
+/// the tab's split (the review, the branches and the requests each make their state in their parts).
+const OPEN: &[&str] = &[];
 
 /// The `artoo-*` crates `manifest` depends on, its dev-dependencies left out.
 fn depends_on(manifest: &str) -> Vec<String> {

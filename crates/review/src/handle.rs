@@ -8,7 +8,7 @@ use artoo_core::rows::{FileData, Row};
 use artoo_core::storage::{Settings, ViewOptions};
 use artoo_review_api::diff::Diff;
 use artoo_review_api::{
-    FileNotes, FileRead, FoundInFiles, Host, ImageMode, ItemKey, LineNote, Notice, OnSearch, Opt, PageLook, Pins,
+    Event, FileNotes, FileRead, FoundInFiles, Hears, Host, ImageMode, ItemKey, LineNote, Notice, OnSearch, Opt, PageLook, Pins,
     ReviewState,
     SearchEvent,
     SearchKeyed, Source,
@@ -862,5 +862,18 @@ impl artoo_review_api::Review for Handle {
 
     fn files_under(&self, path: &str, cx: &App) -> Vec<usize> {
         self.read(cx, |rv, _| rv.files_under(path))
+    }
+
+    fn on_event(&self, hear: Hears, cx: &mut App) {
+        if let Some(review) = self.0.upgrade() {
+            cx.subscribe(&review, move |_, event: &Event, cx| hear(event, cx))
+                .detach();
+        }
+    }
+
+    fn on_change(&self, hear: Rc<dyn Fn(&mut App)>, cx: &mut App) {
+        if let Some(review) = self.0.upgrade() {
+            cx.observe(&review, move |_, cx| hear(cx)).detach();
+        }
     }
 }

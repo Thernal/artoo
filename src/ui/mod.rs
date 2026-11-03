@@ -86,21 +86,20 @@ use crate::git::Repo;
 use crate::rows::{self, Row};
 use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
 use artoo_branches_api::{Event as BranchesEvent, Selection};
-use artoo_review::review;
 use artoo_review_api::diff::Header;
 use artoo_review_api::{CODE_SIZE, Notice, Opt};
 use artoo_shell_api::frame::{Drag, Split};
 use artoo_shell_api::title;
 use artoo_ui_kit::controls::tag;
 use gpui::{
-    App, Context, FocusHandle, KeyBinding, KeyDownEvent, ListAlignment, ListState, Menu, MenuItem,
+    App, Context, FocusHandle, KeyBinding, KeyDownEvent, Menu, MenuItem,
     MouseButton, MouseDownEvent, MouseMoveEvent, PathPromptOptions, Point, SharedString, Task,
-    TitlebarOptions, UniformListScrollHandle, Window, WindowBounds, WindowOptions, actions, div,
+    TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div,
     font, prelude::*, size,
 };
 use lists::Field;
 use menu::{Act, Entry};
-use review::ReviewEvent;
+use artoo_review_api::Event as ReviewEvent;
 use std::cell::Cell as Shared;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -1457,9 +1456,6 @@ pub struct Workspace {
     pending_link: Option<crate::links::Target>,
     /// The comment or line a link pointed at, waiting for the request's diff and discussions.
     spot: Option<goto::Spot>,
-    /// The diff on screen and how it is read: its files and rows, the find over it, the marks of files read, the
-    /// annotations (#165 stage 4: the review's state, on its way out of the tab).
-    review: gpui::Entity<review::Review>,
     /// The theme open in Settings → Appearance's editor (`appearance.rs`).
     theme_edit: Option<appearance::ThemeEdit>,
     /// The value of its selected token, as typed.
@@ -1656,70 +1652,6 @@ impl Workspace {
             settings.save();
         }
         let start = path.or_else(|| open_recent.then(|| recent.first().cloned()).flatten());
-        let review = cx.new(|_| review::Review {
-            root: None,
-            pfilter: String::new(),
-            fcursor: None,
-            settings,
-            char_width: 0.,
-            options: ViewOptions::load(&settings),
-            notes: Vec::new(),
-            images: Default::default(),
-            view_button: Default::default(),
-            page: Default::default(),
-            annotate: false,
-            annotations: Vec::new(),
-            annot_task: None,
-            blames: Default::default(),
-            blame_tip: None,
-            file_view: None,
-            file_reading: None,
-            reviewed: artoo_review::reviewed::Store::load(),
-            done_card: false,
-            review_scope: None,
-            fps: Vec::new(),
-            unfolded: HashSet::new(),
-            narrow: false,
-            tight: false,
-            goline: None,
-            goline_row: None,
-            jump_line: None,
-            jump_whole: false,
-            diff: None,
-            file: 0,
-            collapsed: HashSet::new(),
-            sel: None,
-            selecting: false,
-            dfind: None,
-            dterms: Arc::default(),
-            dfind_regex: false,
-            dfind_error: None,
-            find_area: Default::default(),
-            goline_area: Default::default(),
-            filter_area: Default::default(),
-            filter_open: false,
-            widths: Default::default(),
-            ffind: None,
-            changes: Vec::new(),
-            change_at: None,
-            matches: Vec::new(),
-            match_at: 0,
-            notice: None,
-            restore_scroll: None,
-            data: None,
-            rows: Vec::new(),
-            expanded: HashSet::new(),
-            diff_list: ListState::new(0, ListAlignment::Top, px(400.)),
-            stack: None,
-            offset: 0.,
-            body_width: Rc::new(Shared::new(0.)),
-            file_scroll: UniformListScrollHandle::new(),
-            diff_task: None,
-            view_task: None,
-            frame: None,
-            changes_open: artoo_review::changes_view::changes_left_open(),
-            changes_motion: Default::default(),
-        });
         let services = Rc::new(artoo_shell_api::Services::default());
         let frame: Rc<dyn artoo_shell_api::Frame> =
             Rc::new(parts::TabFrame(cx.weak_entity(), services.clone()));
@@ -1741,7 +1673,6 @@ impl Workspace {
             keys_filter: String::new(),
             keys_exact: false,
             keys_changed_only: false,
-            review: review.clone(),
             theme_edit: None,
             theme_value: String::new(),
             pending_link: None,
@@ -1825,11 +1756,6 @@ impl Workspace {
             char_face: theme::code_font(),
             repo_task: None,
         };
-        // The tab's review as its pages ask it, the tab as Code's host.
-        services.set(artoo_review::file_view::file_view(&review));
-        services.set(artoo_review::handle::handle(&review));
-        // The review itself, which its parts read and type in.
-        services.set(review.clone());
         // Its answers to what the branches' views ask: the branches' parts make their history in a tab that has
         // them.
         services.set(artoo_branches_api::TabActs(this.history_acts(cx)));
@@ -1872,8 +1798,22 @@ impl Workspace {
             this.open_repo(path, None, cx);
         }
         Self::start_watching(this.on_screen.clone(), cx);
-        cx.subscribe(&this.review, Self::review_event).detach();
-        cx.observe(&this.review, |_, _, cx| cx.notify()).detach();
+        // The review its parts made, its copy of the settings the tab's; what it says heard, any change drawn.
+        this.rv().set_settings(this.settings, cx);
+        let tab = cx.weak_entity();
+        this.rv().on_change(
+            Rc::new(move |cx| {
+                tab.update(cx, |_, cx| cx.notify()).ok();
+            }),
+            cx,
+        );
+        let tab = cx.weak_entity();
+        this.rv().on_event(
+            Rc::new(move |event, cx| {
+                tab.update(cx, |this, cx| this.review_event(event, cx)).ok();
+            }),
+            cx,
+        );
         // What the branches' reads come to; any change of theirs drawn.
         if let Some(branches) = this.branches() {
             let tab = cx.weak_entity();
@@ -2243,19 +2183,9 @@ impl Workspace {
         }
     }
 
-    /// The tab's review as a page asks it (`artoo_review_api::Review`).
-    pub(super) fn review_handle(&self) -> Rc<dyn artoo_review_api::Review> {
-        artoo_review::handle::handle(&self.review)
-    }
-
     /// What the review said: the tab follows a diff that came (the agents' lines on it, the pages' counts, its
     /// first file, the spot asked for), lays out what was built with what is pinned on it, and draws again.
-    fn review_event(
-        &mut self,
-        _: gpui::Entity<review::Review>,
-        event: &ReviewEvent,
-        cx: &mut Context<Self>,
-    ) {
+    fn review_event(&mut self, event: &ReviewEvent, cx: &mut Context<Self>) {
         match event {
             ReviewEvent::Loaded(file) => {
                 self.map_agent_comments(cx);
