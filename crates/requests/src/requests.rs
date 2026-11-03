@@ -152,7 +152,7 @@ pub struct Requests {
     pub thread_task: Option<Task<()>>,
 }
 
-pub use artoo_core::mr::{HostSides, Sides, sides};
+pub use artoo_core::mr::HostSides;
 
 impl Requests {
     /// The remote's host, when the repository has one.
@@ -287,11 +287,26 @@ impl Requests {
 
 /// The tab's requests as other features ask them (`artoo_requests_api::Requests`, a service); a click in what it
 /// draws asks the tab's acts in `services`.
-pub fn handle(
+pub(crate) fn handle(
     requests: &Entity<Requests>,
     services: &Rc<artoo_shell_api::Services>,
 ) -> Rc<dyn artoo_requests_api::Requests> {
     Rc::new(Handle(requests.downgrade(), Rc::downgrade(services)))
+}
+
+/// How the requests' views ask: the past page read again is theirs, the rest the tab's (`tab`).
+pub(crate) fn acts(requests: &Entity<Requests>, tab: artoo_requests_api::TabActs) -> Acts {
+    let (tab, requests) = (tab.0, requests.downgrade());
+    Rc::new(move |act, cx| match act {
+        Act::RetryPast => {
+            if let Some(requests) = requests.upgrade()
+                && let Some(host) = requests.read(cx).host(cx)
+            {
+                requests.update(cx, |rq, cx| rq.retry_past_page(host, cx));
+            }
+        }
+        act => tab(act, cx),
+    })
 }
 
 /// Weak: the services hold it.
@@ -1266,6 +1281,19 @@ impl artoo_requests_api::Requests for Handle {
 
     fn leave_since(&self, cx: &mut App) -> Option<u64> {
         self.update(cx, |rq, _| rq.since.take().map(|s| s.iid))?
+    }
+
+    fn on_event(&self, hear: artoo_requests_api::Hears, cx: &mut App) {
+        if let Some(requests) = self.0.upgrade() {
+            cx.subscribe(&requests, move |_, event: &Event, cx| hear(event, cx))
+                .detach();
+        }
+    }
+
+    fn on_change(&self, hear: Rc<dyn Fn(&mut App)>, cx: &mut App) {
+        if let Some(requests) = self.0.upgrade() {
+            cx.observe(&requests, move |_, cx| hear(cx)).detach();
+        }
     }
 
     fn line_changed(&self, thread: &str, cx: &App) -> bool {

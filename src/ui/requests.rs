@@ -11,7 +11,6 @@ use crate::mr::{self, Mr};
 use artoo_branches_api::RequestOf;
 use artoo_hosts_api::connect::{self, Connect, Here};
 use artoo_core::mr::{Sides, sides};
-pub(super) use artoo_requests::requests::Requests;
 pub(super) use artoo_requests_api::Scope;
 use artoo_requests_api::{Act, Acts, Listing};
 use gpui::{App, ClickEvent, Context, WeakEntity, div, prelude::*};
@@ -91,7 +90,6 @@ impl Workspace {
     /// What the requests tell the tab after a read of their own.
     pub(super) fn requests_event(
         &mut self,
-        _: gpui::Entity<Requests>,
         event: &artoo_requests_api::Event,
         cx: &mut Context<Self>,
     ) {

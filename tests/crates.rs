@@ -38,14 +38,12 @@ const ALLOWED: &[(&str, &str)] = &[];
 
 /// Implementations whose `lib.rs` still shows more than functions, each until the stage that narrows it.
 ///
-/// The three the tab is made of (stage 4 closed without them, the developer 2026-11-01): the tab (`Workspace`) is
-/// their shared screen, keeping their entities and reading them throughout, so they show their modules until it is
-/// split into their screens, an issue of its own.
+/// The review, the last of the three the tab is made of (stage 4 closed without them, the developer 2026-11-01): the
+/// tab (`Workspace`) keeps its entity and reads it throughout, so it shows its modules until the tab's split reaches
+/// it; the branches and the requests are split already.
 const OPEN: &[&str] = &[
     // The review: its entity, the diff's rows, the composer, the find bar.
     "artoo-review",
-    // Merge requests: the lists, the request open, the changes waiting.
-    "artoo-requests",
 ];
 
 /// The `artoo-*` crates `manifest` depends on, its dev-dependencies left out.

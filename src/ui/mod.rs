@@ -1505,8 +1505,6 @@ pub struct Workspace {
     shell: Option<gpui::WeakEntity<shell::Shell>>,
     /// The window this workspace is in: a repository can open in a new tab of it from anywhere.
     window: gpui::AnyWindowHandle,
-    /// The bell and its list (`notifications.rs`).
-    notices: gpui::Entity<artoo_requests::notices::Notices>,
     /// The "this tab or a new tab?" card (`opening.rs`).
     open_ask: Option<opening::OpenAsk>,
     /// What is beside a folder of Code's path, listed under it (`beside.rs`, #132).
@@ -1528,10 +1526,8 @@ pub struct Workspace {
     confirm_note: Option<u64>,
     /// The Inbox place is shown, and which of its notifications it lists.
     inbox: bool,
-    inbox_view: gpui::Entity<artoo_requests::inbox::InboxView>,
     /// The note under the pointer: its reaction bar shows (#9).
     hover_note: Option<u64>,
-    requests: gpui::Entity<requests::Requests>,
     /// The menu's scroll (#146).
     places: spaces::Places,
     /// The card for a new merge request, while it is open.
@@ -1766,9 +1762,7 @@ impl Workspace {
             codex_beat: None,
             confirm_note: None,
             inbox: false,
-            inbox_view: cx.new(|_| Default::default()),
             hover_note: None,
-            notices: cx.new(|_| Default::default()),
             title: String::new(),
             services: services.clone(),
             plain: false,
@@ -1777,7 +1771,6 @@ impl Workspace {
             zone: zones::Zone::default(),
             fetch: fetch::Fetch::default(),
             shell: None,
-            requests: cx.new(|_| requests::Requests::default()),
             places: Default::default(),
             shortcuts: greet,
             zoom_applied: false,
@@ -1846,14 +1839,8 @@ impl Workspace {
         // Its answers to what the branches' views ask: the branches' parts make their history in a tab that has
         // them.
         services.set(artoo_branches_api::TabActs(this.history_acts(cx)));
-        // Its requests, which the requests' parts read and draw, as the other features ask them, and its answers
-        // to their acts.
-        services.set(this.requests.clone());
-        services.set(artoo_requests::requests::handle(
-            &this.requests,
-            &services,
-        ));
-        services.set(requests::acts_of(cx.weak_entity()));
+        // Its answers to what the requests' views ask: the requests' parts make their state in a tab that has them.
+        services.set(artoo_requests_api::TabActs(requests::acts_of(cx.weak_entity())));
         // Its agents, which their parts draw — the Agents window, the card, the notes' summary,
         // Settings → Agents — the tab their host.
         services.set(this.agents.clone());
@@ -1863,9 +1850,7 @@ impl Workspace {
         services.set::<Rc<dyn artoo_agents_api::view::NotesHost>>(Rc::new(agent_notes::NotesHost(
             cx.weak_entity(),
         )));
-        // Its notifications and what the Inbox selected, which the requests' Inbox draws, the tab its host.
-        services.set(this.notices.clone());
-        services.set(this.inbox_view.clone());
+        // The Inbox's and Merge requests' own page's host.
         services.set::<Rc<dyn artoo_requests_api::InboxHost>>(Rc::new(inbox::InboxHost(
             cx.weak_entity(),
         )));
@@ -1913,7 +1898,24 @@ impl Workspace {
                 cx,
             );
         }
-        cx.observe(&this.requests, |_, _, cx| cx.notify()).detach();
+        // What the requests' reads come to; any change of theirs drawn.
+        if let Some(requests) = this.requests_api() {
+            let tab = cx.weak_entity();
+            requests.on_change(
+                Rc::new(move |cx| {
+                    tab.update(cx, |_, cx| cx.notify()).ok();
+                }),
+                cx,
+            );
+            let tab = cx.weak_entity();
+            requests.on_event(
+                Rc::new(move |event, cx| {
+                    tab.update(cx, |this, cx| this.requests_event(event, cx))
+                        .ok();
+                }),
+                cx,
+            );
+        }
         // The notes' lines followed to the head shown: they are pinned again.
         let tab = cx.weak_entity();
         this.agents.on_followed(
@@ -1926,7 +1928,6 @@ impl Workspace {
             }),
             cx,
         );
-        cx.subscribe(&this.requests, Self::requests_event).detach();
         // A connect ended: Set up looks whether the profiles have Artoo now.
         let tab = cx.weak_entity();
         this.agents.on_connecting(

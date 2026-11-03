@@ -13,7 +13,6 @@ use artoo_core::{
 };
 /// The hosts' models (a request, a thread, a draft…), by the name the views knew them by before #165.
 use artoo_hosts_api as mr;
-use artoo_requests::merge;
 use artoo_ui_kit::file_icons;
 use std::path::PathBuf;
 

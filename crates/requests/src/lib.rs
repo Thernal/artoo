@@ -3,32 +3,32 @@
 //! (`outdated`), the reactions on its notes, where merging it stands (`merge`), the notifications (`notices`) and the Inbox's (`inbox`) — and what they read from their host
 //! (`reading`). The space's own page is theirs (`root`); the app's other views read and draw them for now.
 
-pub mod bar;
-pub mod complete;
-pub mod create;
-pub mod discussions;
-pub mod group;
-pub mod inbox;
-pub mod inbox_page;
-pub mod inbox_view;
-pub mod list;
-pub mod merge;
-pub mod merging;
-pub mod notices;
-pub mod outdated;
-pub mod page;
-pub mod pieces;
-pub mod reactions;
-pub mod reading;
-pub mod requests;
-pub mod root;
-pub mod submit;
-pub mod tabs;
-pub mod thread;
-pub mod waiting;
+mod bar;
+mod complete;
+mod create;
+mod discussions;
+mod group;
+mod inbox;
+mod inbox_page;
+mod inbox_view;
+mod list;
+mod merge;
+mod merging;
+mod notices;
+mod outdated;
+mod page;
+mod pieces;
+mod reactions;
+mod reading;
+mod requests;
+mod root;
+mod submit;
+mod tabs;
+mod thread;
+mod waiting;
 
 use artoo_shell_api::{Frame, Parts};
-use gpui::{App, Entity, Window};
+use gpui::{App, AppContext, Entity, Window};
 use std::rc::Rc;
 
 /// The requests' parts in every tab: a request being written's header and a request's line on the item page,
@@ -39,12 +39,19 @@ pub fn install(cx: &mut App) {
     artoo_shell_api::add_parts(cx, inbox_parts);
 }
 
-/// The parts of a tab that offers its requests; none in one that does not.
+/// The parts of a tab that answers the requests' acts (`TabActs`): their state made — the requests, the
+/// notifications, what the Inbox selected —, `Requests` offered and their own `Acts`; none in another tab.
 fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     let services = frame.services();
-    let Some(requests) = services.get::<Entity<requests::Requests>>() else {
+    let Some(tab) = services.get::<artoo_requests_api::TabActs>() else {
         return Parts::default();
     };
+    let requests = cx.new(|_| requests::Requests::default());
+    services.set(requests.clone());
+    services.set(cx.new(|_| notices::Notices::default()));
+    services.set(cx.new(|_| inbox::InboxView::default()));
+    services.set(requests::handle(&requests, &services));
+    services.set(requests::acts(&requests, tab));
     services.set(tabs::view(requests.clone(), &frame, cx));
     Parts {
         inputs: vec![create::input(requests.clone(), services.clone())],

@@ -539,6 +539,9 @@ pub trait RootHost {
     fn more(&self, cx: &mut App);
 }
 
+/// Who hears what the requests' reads come to (`Requests::on_event`).
+pub type Hears = Rc<dyn Fn(&Event, &mut App)>;
+
 /// How the tab answers the requests' acts besides their own: offered in the services before their parts are made.
 #[derive(Clone)]
 pub struct TabActs(pub Acts);
@@ -828,6 +831,11 @@ pub trait Requests {
     fn since(&self, cx: &App) -> Option<Since>;
     fn leave_since(&self, cx: &mut App) -> Option<u64>;
     fn line_changed(&self, thread: &str, cx: &App) -> bool;
+
+    /// `hear` hears what the requests' reads come to, and is told whenever they change (to draw again), for as long
+    /// as the tab lives.
+    fn on_event(&self, hear: Hears, cx: &mut App);
+    fn on_change(&self, hear: Rc<dyn Fn(&mut App)>, cx: &mut App);
 }
 
 /// A merge request, by its number.

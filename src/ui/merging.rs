@@ -5,7 +5,7 @@
 use super::menu::{Act, Entry};
 use super::typing::Input;
 use super::{Workspace, px};
-use crate::merge::Merge;
+use crate::mr::Merge;
 use artoo_requests_api::{CardLook, Fix, Stand};
 use gpui::{Context, KeyDownEvent, Pixels, Point};
 
