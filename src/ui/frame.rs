@@ -192,7 +192,7 @@ impl title::TitleHost for TitleGlue {
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         debug_assert_eq!(
-            self.review.read(cx).settings,
+            self.rv().app_settings(cx),
             self.settings,
             "a change of the settings did not reach the review's copy (save_settings)"
         );
@@ -245,16 +245,13 @@ impl Render for Workspace {
         if folded_zone && self.shown_diff(cx).is_some() {
             self.zone = zones::Zone::Diff;
         }
-        let body = self.review.read(cx).body_width.get();
+        let body = self.rv().body_width(cx);
         // Under 1280 px of window too (#80).
         let narrow = (body > 0. && body < 700.) || self.menu_narrow();
         // At the interface size chosen: 600 px of the design is more at 150 %.
         let tight = body > 0. && body < f32::from(px(600.));
         if narrow != self.diff_narrow(cx) || tight != self.tight(cx) {
-            self.review.update(cx, |rv, _| {
-                rv.narrow = narrow;
-                rv.tight = tight;
-            });
+            self.rv().set_room(narrow, tight, cx);
             self.relayout_all(cx);
         }
         self.follow_scroll(cx);
@@ -262,11 +259,10 @@ impl Render for Workspace {
             self.char_face = theme::code_font();
             let text = window.text_system();
             let id = text.resolve_font(&font(self.char_face.clone()));
-            self.review.update(cx, |rv, _| {
-                rv.char_width = text
-                    .advance(id, px(rv.code_size()), 'm')
-                    .map_or(7.2, |size| f32::from(size.width))
-            });
+            let width = text
+                .advance(id, px(self.rv().code_size(cx)), 'm')
+                .map_or(7.2, |size| f32::from(size.width));
+            self.rv().set_char_width(width, cx);
         }
 
         let mut root = div().id("workspace");
@@ -557,7 +553,7 @@ impl Render for Workspace {
         .on_mouse_up(
             MouseButton::Left,
             cx.listener(|this, _, _, cx| {
-                this.review.update(cx, |rv, _| rv.selecting = false);
+                this.rv().set_selecting(false, cx);
                 this.end_drag(cx)
             }),
         )
@@ -599,7 +595,7 @@ impl Render for Workspace {
                 .then(|| self.ctx_menu.clone()),
         )
         .children(self.render_mention_card(cx))
-        .children(self.review.read(cx).render_blame_tip())
+        .children(self.rv().render_blame_tip(cx))
         .children(self.render_find_files(cx))
         .children(self.render_open_ask(cx))
         .children(self.render_beside_backdrop(cx))

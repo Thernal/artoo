@@ -6,7 +6,10 @@ use crate::review::Review;
 use artoo_core::rows::{FileData, Row};
 use artoo_core::storage::{Settings, ViewOptions};
 use artoo_review_api::diff::Diff;
-use artoo_review_api::{FileRead, Host, LineNote, Source};
+use artoo_review_api::{
+    FileNotes, FileRead, FoundInFiles, Host, LineNote, Notice, OnSearch, Pins, SearchEvent, SearchKeyed, Source,
+};
+use artoo_ui_kit::markdown::Selecting;
 use git2::Oid;
 use gpui::{AnyElement, App, Entity, IntoElement, WeakEntity};
 use std::path::PathBuf;
@@ -225,6 +228,7 @@ impl artoo_review_api::Review for Handle {
         self.read(cx, |rv, _| {
             rv.file_view.as_ref().map(|v| FileRead {
                 path: v.path.clone(),
+                rev: v.rev(),
                 at: v.at().to_owned(),
                 lines: v.line_count(),
             })
@@ -331,5 +335,155 @@ impl artoo_review_api::Review for Handle {
 
     fn annotation(&self, ix: usize, cx: &App) -> Option<Oid> {
         self.read(cx, |rv, _| rv.annotations.get(ix).map(|c| c.id))
+    }
+
+    fn app_settings(&self, cx: &App) -> Settings {
+        self.read(cx, |rv, _| rv.settings)
+    }
+
+    fn body_width(&self, cx: &App) -> f32 {
+        self.read(cx, |rv, _| rv.body_width.get())
+    }
+
+    fn set_room(&self, narrow: bool, tight: bool, cx: &mut App) {
+        self.with(cx, |rv, _| {
+            rv.narrow = narrow;
+            rv.tight = tight;
+        })
+    }
+
+    fn code_size(&self, cx: &App) -> f32 {
+        self.read(cx, |rv, _| rv.code_size())
+    }
+
+    fn set_char_width(&self, width: f32, cx: &mut App) {
+        self.with(cx, |rv, _| rv.char_width = width)
+    }
+
+    fn set_selecting(&self, on: bool, cx: &mut App) {
+        self.with(cx, |rv, _| rv.selecting = on)
+    }
+
+    fn render_blame_tip(&self, cx: &App) -> Option<AnyElement> {
+        self.read(cx, |rv, _| rv.render_blame_tip())
+    }
+
+    fn clear_find(&self, cx: &mut App) {
+        self.with(cx, |rv, _| rv.dfind = None)
+    }
+
+    fn line_pair(&self, line: u32, old: bool, cx: &App) -> (Option<u32>, Option<u32>) {
+        self.read(cx, |rv, _| rv.line_pair(line, old))
+    }
+
+    fn diff_line(&self, line: u32, old: bool, cx: &App) -> Option<artoo_core::git::DiffLine> {
+        self.read(cx, |rv, _| rv.diff_line(line, old))
+    }
+
+    fn remeasure_pages(&self, cx: &mut App) {
+        self.with(cx, |rv, _| rv.remeasure_pages())
+    }
+
+    fn set_notice(&self, notice: Option<Notice>, cx: &mut App) {
+        self.with(cx, |rv, _| rv.notice = notice)
+    }
+
+    fn take_notice(&self, cx: &mut App) -> Option<Notice> {
+        self.with(cx, |rv, _| rv.notice.take())
+    }
+
+    fn review_scope(&self, cx: &App) -> Option<String> {
+        self.read(cx, |rv, _| rv.review_scope.clone())
+    }
+
+    fn sel(&self, cx: &App) -> Option<artoo_core::select::Sel> {
+        self.read(cx, |rv, _| rv.sel)
+    }
+
+    fn first_change_line(&self, cx: &App) -> Option<u32> {
+        self.read(cx, |rv, _| {
+            let row = *rv.changes.first()?;
+            rv.new_line_of_row(row)
+        })
+    }
+
+    fn set_line_notes(&self, pins: &Pins, cx: &mut App) {
+        self.with(cx, |rv, _| rv.notes = rv.line_notes(pins))
+    }
+
+    fn set_jump_line(&self, at: Option<(u32, bool)>, cx: &mut App) {
+        self.with(cx, |rv, _| rv.jump_line = at)
+    }
+
+    fn file_view_line(&self, line: u32, cx: &App) -> Option<String> {
+        self.read(cx, |rv, _| {
+            rv.file_view
+                .as_ref()
+                .and_then(|v| v.line(line).map(str::to_owned))
+        })
+    }
+
+    fn file_lines_shown(&self, cx: &App) -> bool {
+        self.read(cx, |rv, _| rv.file_lines_shown())
+    }
+
+    fn viewed_rev(&self, cx: &App) -> Option<Oid> {
+        self.read(cx, |rv, _| rv.viewed_rev())
+    }
+
+    fn reveal_file_line(&self, line: u32, notes: &FileNotes, cx: &mut App) {
+        self.with(cx, |rv, _| rv.reveal_file_line(line, notes))
+    }
+
+    fn file_top_line(&self, path: &str, notes: &FileNotes, cx: &App) -> u32 {
+        self.read(cx, |rv, _| rv.file_top_line(path, notes))
+    }
+
+    fn file_reading(&self, path: &str, cx: &App) -> bool {
+        self.read(cx, |rv, _| {
+            rv.file_reading.is_some() && rv.file_view.as_ref().is_none_or(|v| v.path != path)
+        })
+    }
+
+    fn file_binary(&self, cx: &App) -> Option<Option<u64>> {
+        self.read(cx, |rv, _| rv.file_view.as_ref().map(|v| v.binary))
+    }
+
+    fn render_file_view(&self, host: Rc<dyn Host>, notes: &FileNotes, binary: Option<AnyElement>, selecting: Selecting, cx: &mut App) -> Option<(gpui::Div, AnyElement)> {
+        self.with(cx, |rv, cx| rv.render_file_view(host, notes, binary, selecting, cx))
+    }
+
+    fn open_find_files(&self, cx: &mut App) {
+        self.with(cx, |rv, _| rv.open_find_files())
+    }
+
+    fn close_find_files(&self, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| rv.close_find_files())
+    }
+
+    fn find_files_key(&self, key: &gpui::Keystroke, field: &mut artoo_core::textedit::TextEdit, cx: &mut App) -> SearchKeyed {
+        self.0
+            .update(cx, |rv, cx| rv.find_files_key(key, field, cx))
+            .unwrap_or(SearchKeyed::Kept)
+    }
+
+    fn find_files_step(&self, down: bool, cx: &mut App) -> bool {
+        self.with(cx, |rv, _| rv.find_files_step(down))
+    }
+
+    fn open_found(&self, ix: usize, cx: &mut App) -> Option<FoundInFiles> {
+        self.with(cx, |rv, _| rv.open_found(ix))
+    }
+
+    fn find_files_toggle(&self, toggle: SearchEvent, cx: &mut App) {
+        self.with(cx, |rv, _| rv.find_files_toggle(toggle))
+    }
+
+    fn find_files_query(&self, cx: &App) -> Option<String> {
+        self.read(cx, |rv, _| rv.find_files_query().map(str::to_owned))
+    }
+
+    fn render_find_files(&self, field: AnyElement, on: OnSearch, cx: &App) -> Option<AnyElement> {
+        self.read(cx, |rv, _| rv.render_find_files(field, on))
     }
 }

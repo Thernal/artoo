@@ -15,7 +15,6 @@ use gpui::{
     StyledText, Window, div, prelude::*,
 };
 use std::ops::Range;
-use std::rc::Rc;
 
 /// No more results than a person can read.
 const MAX_HITS: usize = 400;
@@ -42,10 +41,8 @@ pub struct FindFiles {
     scroll: ScrollHandle,
 }
 
-pub use artoo_review_api::{FoundInFiles as Found, SearchEvent, SearchKeyed as Keyed};
+pub use artoo_review_api::{FoundInFiles as Found, OnSearch, SearchEvent, SearchKeyed as Keyed};
 
-/// What answers the search's clicks.
-pub type OnSearch = Rc<dyn Fn(SearchEvent, &mut Window, &mut App)>;
 
 /// Where `needle` first occurs in `hay` (a byte range), under the toggles.
 fn find_in(hay: &str, needle: &str, case: bool, word: bool) -> Option<Range<usize>> {

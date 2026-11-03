@@ -14,21 +14,19 @@ impl Workspace {
         self.palette = None;
         self.field = None;
         self.reset_field_edit();
-        self.review.update(cx, |rv, _| rv.open_find_files());
+        self.rv().open_find_files(cx);
         cx.notify();
     }
 
     pub(super) fn close_find_files(&mut self, cx: &mut Context<Self>) {
-        if self.review.update(cx, |rv, _| rv.close_find_files()) {
+        if self.rv().close_find_files(cx) {
             cx.notify();
         }
     }
 
     pub(super) fn ffind_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
-        let field = &mut self.field_edit;
-        let keyed = self
-            .review
-            .update(cx, |rv, cx| rv.find_files_key(&event.keystroke, field, cx));
+        let rv = self.rv();
+        let keyed = rv.find_files_key(&event.keystroke, &mut self.field_edit, cx);
         if let Keyed::Open(found) = keyed {
             self.set_dfind(found.query, cx);
             self.jump_to_line(&found.path, found.line, found.old, cx);
@@ -37,7 +35,7 @@ impl Workspace {
     }
 
     pub(super) fn ffind_step(&mut self, down: bool, cx: &mut Context<Self>) {
-        if self.review.update(cx, |rv, _| rv.find_files_step(down)) {
+        if self.rv().find_files_step(down, cx) {
             cx.notify();
         }
     }
@@ -46,18 +44,18 @@ impl Workspace {
         match event {
             SearchEvent::Close => return self.close_find_files(cx),
             SearchEvent::Open(ix) => {
-                if let Some(found) = self.review.update(cx, |rv, _| rv.open_found(ix)) {
+                if let Some(found) = self.rv().open_found(ix, cx) {
                     self.set_dfind(found.query, cx);
                     self.jump_to_line(&found.path, found.line, found.old, cx);
                 }
             }
-            toggle => self.review.update(cx, |rv, _| rv.find_files_toggle(toggle)),
+            toggle => self.rv().find_files_toggle(toggle, cx),
         }
         cx.notify();
     }
 
     pub(super) fn render_find_files(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let query = self.review.read(cx).find_files_query()?.to_owned();
+        let query = self.rv().find_files_query(cx)?;
         let field = self
             .field_text(&query, true, "Search the diff", cx)
             .into_any_element();
@@ -66,6 +64,6 @@ impl Workspace {
             this.update(cx, |this, cx| this.search_event(event, cx))
                 .ok();
         });
-        self.review.read(cx).render_find_files(field, on)
+        self.rv().render_find_files(field, on, cx)
     }
 }

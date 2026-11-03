@@ -327,7 +327,7 @@ impl Workspace {
                 Some("Every other merge request in the list is reviewed, or yours.".into());
             return cx.notify();
         };
-        self.review.update(cx, |rv, _| rv.done_card = false);
+        self.rv().close_done(cx);
         self.open_request(next, cx);
     }
 
@@ -485,9 +485,7 @@ impl Workspace {
 
     /// The discussions on lines of the open file: (index, old side, line).
     pub(super) fn request_threads_here(&self, cx: &App) -> Vec<(usize, bool, u32)> {
-        self.review
-            .read(cx)
-            .current_path()
+        self.current_path(cx)
             .map(|path| self.requests_api().map(|r| r.threads_in(&path, cx)).unwrap_or_default())
             .unwrap_or_default()
     }
@@ -664,10 +662,9 @@ impl Workspace {
     /// the first open one from the top of the view.
     pub(super) fn acting_thread(&self, cx: &App) -> Option<usize> {
         self.thread_at.or_else(|| {
-            let top = self.review.read(cx).local_top();
-            self.review
-                .read(cx)
-                .rows
+            let top = self.rv().local_top(cx);
+            self.rv()
+                .rows(cx)
                 .iter()
                 .skip(top)
                 .find_map(|row| match row {
@@ -1071,21 +1068,17 @@ impl Workspace {
         old: bool,
         cx: &mut Context<Self>,
     ) {
-        self.review
-            .update(cx, |rv, _| rv.jump_line = Some((line, old)));
+        self.rv().set_jump_line(Some((line, old)), cx);
         if self.current_path(cx).as_deref() == Some(path) {
             self.apply_jump(cx);
             return;
         }
-        let ix = self
-            .review
-            .read(cx)
-            .diff
+        let ix = self.shown_diff(cx)
             .as_ref()
             .and_then(|d| d.files.iter().position(|f| f.path() == path));
         match ix {
             Some(ix) => self.select_file(ix, cx),
-            None => self.review.update(cx, |rv, _| rv.jump_line = None),
+            None => self.rv().set_jump_line(None, cx),
         }
     }
 }

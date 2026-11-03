@@ -43,7 +43,7 @@ impl Workspace {
     /// The lines selected in the file read in Code, first and last (1-based); a selection that
     /// ends at the start of a line does not take that line (#104).
     pub(super) fn file_selected_lines(&self, cx: &App) -> Option<(u32, u32)> {
-        let view = self.review.read(cx).file_view.as_ref()?;
+        let view = self.rv().file_read(cx)?;
         let sel = self
             .note_sel
             .as_ref()
@@ -108,10 +108,9 @@ impl Workspace {
         line: u32,
         cx: &mut Context<Self>,
     ) {
-        let Some(file) = self
-            .review
-            .read(cx)
-            .diff
+        let diff = self.shown_diff(cx);
+
+        let Some(file) = diff
             .as_ref()
             .and_then(|d| d.files.get(ix))
         else {
@@ -143,7 +142,7 @@ impl Workspace {
         });
         self.take_keyboard(Input::Compose, cx);
         self.reset_field_edit();
-        self.review.update(cx, |rv, _| rv.remeasure_pages());
+        self.rv().remeasure_pages(cx);
         cx.notify();
     }
 
@@ -160,10 +159,10 @@ impl Workspace {
         line: u32,
         cx: &mut Context<Self>,
     ) {
-        let Some(view) = &self.review.read(cx).file_view else {
+        let Some(view) = self.rv().file_read(cx) else {
             return;
         };
-        let Some(code) = view.line(line) else {
+        let Some(code) = self.rv().file_view_line(line, cx) else {
             return;
         };
         self.compose = Some(Compose {
@@ -173,14 +172,14 @@ impl Workspace {
             line,
             code: code.to_owned(),
             edit: TextEdit::default(),
-            at: view.at().to_owned(),
+            at: view.at,
             target: Target::Agent,
             error: None,
             preview: false,
             pick: 0,
             closed: None,
             page: None,
-            file: Some(view.rev()),
+            file: Some(view.rev),
             answers: None,
         });
         self.take_keyboard(Input::Compose, cx);
@@ -476,7 +475,7 @@ impl Workspace {
     pub(super) fn cancel_comment(&mut self, cx: &mut Context<Self>) {
         if self.compose.take().is_some() {
             self.refresh_rows(cx);
-            self.review.update(cx, |rv, _| rv.remeasure_pages());
+            self.rv().remeasure_pages(cx);
             cx.notify();
         }
     }
@@ -504,11 +503,11 @@ impl Workspace {
         let above = match (
             compose.first,
             &self.diff_data(cx),
-            &self.review.read(cx).file_view,
+            self.rv().file_read(cx),
         ) {
             // On a file read in Code: its own lines, whatever diff is loaded (#104).
-            (Some(first), _, Some(view)) if compose.file.is_some() => (first..compose.line)
-                .filter_map(|n| view.line(n).map(str::to_owned))
+            (Some(first), _, Some(_)) if compose.file.is_some() => (first..compose.line)
+                .filter_map(|n| self.rv().file_view_line(n, cx))
                 .collect(),
             (Some(first), Some(data), _) if compose.file.is_none() => (first..compose.line)
                 .map(|n| data.side(compose.old).line(n).0.to_owned())
@@ -526,7 +525,7 @@ impl Workspace {
             at: compose.at,
             commit: match compose.file {
                 Some(rev) => rev.map(|id| id.to_string()),
-                None => self.review.read(cx).shown_head().map(|id| id.to_string()),
+                None => self.rv().shown_head(cx).map(|id| id.to_string()),
             },
             branch: self.page_branch(cx),
             answers: compose.answers,
@@ -536,7 +535,7 @@ impl Workspace {
         self.save_comments(cx);
         self.copied = false;
         self.refresh_rows(cx);
-        self.review.update(cx, |rv, _| rv.remeasure_pages());
+        self.rv().remeasure_pages(cx);
         cx.notify();
     }
 

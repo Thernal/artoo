@@ -131,10 +131,9 @@ impl Workspace {
         };
         // On a page the file is the page's, and its counters come from its hunks (#11).
         let at_file = compose.page.unwrap_or(self.diff_file(cx));
-        let file = self
-            .review
-            .read(cx)
-            .diff
+        let diff = self.shown_diff(cx);
+
+        let file = diff
             .as_ref()
             .and_then(|d| d.files.get(at_file));
         let pair = file
@@ -149,11 +148,11 @@ impl Workspace {
         };
         self.last_request_target = Some(iid);
         let (old_line, new_line) =
-            pair.unwrap_or_else(|| self.review.read(cx).line_pair(compose.line, compose.old));
+            pair.unwrap_or_else(|| self.rv().line_pair(compose.line, compose.old, cx));
         let range = compose.first.and_then(|first| {
             Some((
-                self.review.read(cx).diff_line(first, compose.old)?,
-                self.review.read(cx).diff_line(compose.line, compose.old)?,
+                self.rv().diff_line(first, compose.old, cx)?,
+                self.rv().diff_line(compose.line, compose.old, cx)?,
             ))
         });
         let path = new_path.clone().or(old_path.clone()).unwrap_or_default();
@@ -211,7 +210,7 @@ impl Workspace {
             .and_then(|ix| self.request_thread(ix, cx))
             .map(|t| t.id.clone());
         self.refresh_rows(cx);
-        self.review.update(cx, |rv, _| rv.remeasure_pages());
+        self.rv().remeasure_pages(cx);
         let refused = move |this: &mut Self, why: String, cx: &mut Context<Self>| {
             let place = match &thread {
                 Some(id) => this.request_threads(cx)
@@ -248,7 +247,7 @@ impl Workspace {
                     this.take_keyboard(Input::Compose, cx);
                     this.reset_field_edit();
                     this.refresh_rows(cx);
-                    this.review.update(cx, |rv, _| rv.remeasure_pages());
+                    this.rv().remeasure_pages(cx);
                 }
                 _ => {
                     cx.write_to_clipboard(ClipboardItem::new_string(

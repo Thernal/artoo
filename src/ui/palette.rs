@@ -417,8 +417,8 @@ impl Workspace {
     /// says how far its review got.
     fn switch_items(&self, query: &str, open_only: bool, cx: &App) -> Vec<Item> {
         let state = |head: Option<Oid>| match head {
-            Some(h) if self.review.read(cx).head_reviewed(h) => (true, "✓ reviewed".to_owned()),
-            Some(h) => match self.review.read(cx).head_part(h) {
+            Some(h) if self.rv().head_reviewed(h, cx) => (true, "✓ reviewed".to_owned()),
+            Some(h) => match self.rv().head_part(h, cx) {
                 Some((done, total)) => (false, format!("{done}/{total} reviewed")),
                 None => (false, "not reviewed".to_owned()),
             },
@@ -487,7 +487,7 @@ impl Workspace {
                 .unwrap_or_default(),
         };
         self.field = None;
-        self.review.update(cx, |rv, _| rv.dfind = None);
+        self.rv().clear_find(cx);
         if let Some(branches) = self.branches() {
             branches.drop_find(cx);
         }
@@ -817,10 +817,9 @@ impl Workspace {
         }
         if matches!(p.kind, Kind::Structure) {
             let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-            let Some(file) = self
-                .review
-                .read(cx)
-                .diff
+            let diff = self.shown_diff(cx);
+
+            let Some(file) = diff
                 .as_ref()
                 .and_then(|d| d.files.get(self.diff_file(cx)))
             else {
@@ -1240,10 +1239,7 @@ impl Workspace {
             // In Code a file opens there, as a tab, changed or not (#75).
             Pick::File(ix) if self.nav.space == super::spaces::Space::Code => {
                 self.palette = None;
-                if let Some(path) = self
-                    .review
-                    .read(cx)
-                    .diff
+                if let Some(path) = self.shown_diff(cx)
                     .as_ref()
                     .and_then(|d| d.files.get(ix))
                     .map(|f| f.path().to_owned())
@@ -1400,10 +1396,7 @@ impl Workspace {
                     key,
                     // A file's icon before it (#95).
                     icon: match &item.pick {
-                        Pick::File(f) => self
-                            .review
-                            .read(cx)
-                            .diff
+                        Pick::File(f) => self.shown_diff(cx)
                             .as_ref()
                             .and_then(|d| d.files.get(*f))
                             .map(|f| f.path().to_owned()),

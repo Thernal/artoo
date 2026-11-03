@@ -86,11 +86,11 @@ impl Store {
 impl Workspace {
     /// The marked lines of file `path` (new side).
     pub(super) fn bookmarks_in(&self, path: &str, cx: &App) -> Vec<u32> {
-        let Some(scope) = self.review.read(cx).review_scope.as_deref() else {
+        let Some(scope) = self.rv().review_scope(cx) else {
             return Vec::new();
         };
         self.bookmarks
-            .of(scope)
+            .of(&scope)
             .iter()
             .filter(|m| m.path == path)
             .map(|m| m.line)
@@ -99,10 +99,7 @@ impl Workspace {
 
     /// F3: the line under the last click gets a mark, or loses it.
     pub(super) fn toggle_bookmark(&mut self, cx: &mut Context<Self>) {
-        let line = self
-            .review
-            .read(cx)
-            .sel
+        let line = (self.rv().sel(cx))
             .filter(|s| !s.old)
             .map(|s| s.ends().0.line)
             .or_else(|| self.bookmark_fallback_line(cx));
@@ -113,13 +110,12 @@ impl Workspace {
 
     /// With nothing clicked: the first changed line shown.
     fn bookmark_fallback_line(&self, cx: &App) -> Option<u32> {
-        let row = *self.review.read(cx).changes.first()?;
-        self.review.read(cx).new_line_of_row(row)
+        self.rv().first_change_line(cx)
     }
 
     pub(super) fn toggle_bookmark_at(&mut self, line: u32, cx: &mut Context<Self>) {
         let (Some(scope), Some(path), Some(data)) = (
-            self.review.read(cx).review_scope.clone(),
+            self.rv().review_scope(cx),
             self.current_path(cx),
             self.diff_data(cx),
         ) else {
@@ -136,18 +132,14 @@ impl Workspace {
 
     /// The marks of the open diff, for the list.
     pub(super) fn bookmark_list(&self, cx: &App) -> Vec<Bookmark> {
-        self.review
-            .read(cx)
-            .review_scope
-            .as_deref()
-            .map(|s| self.bookmarks.of(s).to_vec())
+        (self.rv().review_scope(cx))
+            .map(|s| self.bookmarks.of(&s).to_vec())
             .unwrap_or_default()
     }
 
     fn relayout_notes(&mut self, cx: &mut App) {
         let pins = self.open_pins(cx);
-        self.review
-            .update(cx, |rv, _| rv.notes = rv.line_notes(&pins));
+        self.rv().set_line_notes(&pins, cx);
     }
 }
 

@@ -195,6 +195,108 @@ pub trait Review {
 
     /// The commit blame says line `ix` (0-based) of the file shown is from.
     fn annotation(&self, ix: usize, cx: &App) -> Option<Oid>;
+
+    /// The app's settings as the review has them.
+    fn app_settings(&self, cx: &App) -> Settings;
+
+    /// The diff's body's width, as last drawn.
+    fn body_width(&self, cx: &App) -> f32;
+
+    /// The diff narrow (its secondary buttons their icons) and tight (under 600 px of the design).
+    fn set_room(&self, narrow: bool, tight: bool, cx: &mut App);
+
+    /// The size code is drawn at, the settings' zoom applied.
+    fn code_size(&self, cx: &App) -> f32;
+
+    /// Advance of one code character, measured in the face drawn.
+    fn set_char_width(&self, width: f32, cx: &mut App);
+
+    /// A drag selecting text in the diff started or ended.
+    fn set_selecting(&self, on: bool, cx: &mut App);
+
+    /// Blame's tip over a line number, when one shows.
+    fn render_blame_tip(&self, cx: &App) -> Option<AnyElement>;
+
+    /// The diff's find closed, its words gone.
+    fn clear_find(&self, cx: &mut App);
+
+    /// Line `line` of a side's other side's line numbers: (old, new).
+    fn line_pair(&self, line: u32, old: bool, cx: &App) -> (Option<u32>, Option<u32>);
+
+    /// Line `line` of a side of the file shown, as the host speaks of it.
+    fn diff_line(&self, line: u32, old: bool, cx: &App) -> Option<artoo_core::git::DiffLine>;
+
+    /// Documents' pages measured again: what goes under their blocks changed.
+    fn remeasure_pages(&self, cx: &mut App);
+
+    /// A change the reviewer did not ask for, with the way back (`None`: it goes).
+    fn set_notice(&self, notice: Option<Notice>, cx: &mut App);
+
+    /// The notice shown, taken away.
+    fn take_notice(&self, cx: &mut App) -> Option<Notice>;
+
+    /// The key of the review's marks: the repository and what the diff is of.
+    fn review_scope(&self, cx: &App) -> Option<String>;
+
+    /// The text selected in the diff.
+    fn sel(&self, cx: &App) -> Option<artoo_core::select::Sel>;
+
+    /// The new line of the file shown's first change.
+    fn first_change_line(&self, cx: &App) -> Option<u32>;
+
+    /// The marks of the file shown's lines, from what is pinned on them.
+    fn set_line_notes(&self, pins: &Pins, cx: &mut App);
+
+    /// The line to go to once the file is built (`None`: none).
+    fn set_jump_line(&self, at: Option<(u32, bool)>, cx: &mut App);
+
+    /// Line `line` (1-based) of the file Code reads.
+    fn file_view_line(&self, line: u32, cx: &App) -> Option<String>;
+
+    /// The file Code reads shows its lines (not a document rendered, an image or nothing).
+    fn file_lines_shown(&self, cx: &App) -> bool;
+
+    /// The revision the file Code reads is at (`None`: the working tree).
+    fn viewed_rev(&self, cx: &App) -> Option<Oid>;
+
+    /// Line `line` of the file Code reads in view, `notes` placed among its lines.
+    fn reveal_file_line(&self, line: u32, notes: &FileNotes, cx: &mut App);
+
+    /// The line at the top of file `path` read in Code, `notes` placed among its lines.
+    fn file_top_line(&self, path: &str, notes: &FileNotes, cx: &App) -> u32;
+
+    /// A file is being read that is not on screen yet (`path` not the one shown).
+    fn file_reading(&self, path: &str, cx: &App) -> bool;
+
+    /// The file Code reads is binary: its size (`Some(None)`: text; `None`: no file).
+    fn file_binary(&self, cx: &App) -> Option<Option<u64>>;
+
+    /// The file Code reads drawn: its head and its body; `binary` what stands for a binary file's lines.
+    fn render_file_view(&self, host: Rc<dyn Host>, notes: &FileNotes, binary: Option<AnyElement>, selecting: Selecting, cx: &mut App) -> Option<(gpui::Div, AnyElement)>;
+
+    /// Find in files opened.
+    fn open_find_files(&self, cx: &mut App);
+
+    /// Find in files closed: true when it was open.
+    fn close_find_files(&self, cx: &mut App) -> bool;
+
+    /// A key typed in find in files, edited in the tab's `field`.
+    fn find_files_key(&self, key: &gpui::Keystroke, field: &mut artoo_core::textedit::TextEdit, cx: &mut App) -> SearchKeyed;
+
+    /// Find in files' selection moved down or up: true when it moved.
+    fn find_files_step(&self, down: bool, cx: &mut App) -> bool;
+
+    /// Hit `ix` of find in files opened: it closes, and what to open.
+    fn open_found(&self, ix: usize, cx: &mut App) -> Option<FoundInFiles>;
+
+    /// A toggle of find in files (case, word, regular expression).
+    fn find_files_toggle(&self, toggle: SearchEvent, cx: &mut App);
+
+    /// What find in files looks for, while it is open.
+    fn find_files_query(&self, cx: &App) -> Option<String>;
+
+    /// Find in files drawn, `field` the tab's field of its words.
+    fn render_find_files(&self, field: AnyElement, on: OnSearch, cx: &App) -> Option<AnyElement>;
 }
 
 /// An item page's middle as the review draws it (#165 I5d): what the route on screen is of, the parts' pieces over
@@ -604,6 +706,11 @@ pub enum ItemKey {
 /// The file Code reads: its path, the revision it is at in words, how many lines it has.
 pub struct FileRead {
     pub path: String,
+    /// The revision it is at (`None`: the working tree).
+    pub rev: Option<Oid>,
     pub at: String,
     pub lines: usize,
 }
+
+/// What answers find in files' clicks.
+pub type OnSearch = Rc<dyn Fn(SearchEvent, &mut gpui::Window, &mut App)>;

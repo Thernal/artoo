@@ -217,45 +217,31 @@ impl Workspace {
         if seen == 0 || to + 1 != seen || latest <= to {
             return;
         }
-        self.review
-            .update(cx, |rv, _| rv.restore_scroll = rv.scroll_place());
-        let file = self
-            .review
-            .read(cx)
-            .restore_scroll
-            .as_ref()
-            .map(|(path, _)| path.clone());
+        let place = self.rv().place(cx);
+        self.rv().restore_at(place.clone(), cx);
+        let file = place.map(|(path, _)| path);
         let undo = Some((from, to));
         self.load_versions(from, latest, file, cx);
         let number = versions[latest].0;
         // `load_versions` clears the notice of the diff it replaces; this one belongs to the new.
-        self.review.update(cx, |rv, _| {
-            rv.notice = Some(super::Notice {
-                text: format!(
-                    "v{} arrived — this comparison now ends at v{}.",
-                    number, number
-                ),
-                undo,
-            })
-        });
+        let notice = super::Notice {
+            text: format!("v{number} arrived — this comparison now ends at v{number}."),
+            undo,
+        };
+        self.rv().set_notice(Some(notice), cx);
     }
 
     /// Goes back to the comparison a notice replaced, at the same place in the file.
     pub(super) fn undo_notice(&mut self, cx: &mut Context<Self>) {
-        let Some(notice) = self.review.update(cx, |rv, _| rv.notice.take()) else {
+        let Some(notice) = self.rv().take_notice(cx) else {
             return;
         };
         let Some((from, to)) = notice.undo else {
             return;
         };
-        self.review
-            .update(cx, |rv, _| rv.restore_scroll = rv.scroll_place());
-        let file = self
-            .review
-            .read(cx)
-            .restore_scroll
-            .as_ref()
-            .map(|(path, _)| path.clone());
+        let place = self.rv().place(cx);
+        self.rv().restore_at(place.clone(), cx);
+        let file = place.map(|(path, _)| path);
         self.load_versions(from, to, file, cx);
     }
 
