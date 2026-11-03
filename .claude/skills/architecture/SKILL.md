@@ -82,43 +82,47 @@ independent of each other); the Rust form below waits for the developer's review
 - **Review**: `install` reads nothing; a contract holds no logic; places, actions and toasts go through the
   shell.
 
-## Today (#165, stage 4 closed)
+## Today (#165, stage 4 closed; the tab split 2026-11-03)
 
-The target above is reached for every feature but the three the tab is made of; until the tab is split:
+The target above is reached for every feature: each implementation shows the app functions alone, and `OPEN` and
+`ALLOWED` in `tests/crates.rs` are empty.
 
 - `src/ui/` is the app's: the window's root (its tabs, the keymap, the keyboard's rule) and the tab (`Workspace`),
-  which is the review's, the requests' and the branches' shared screen — it keeps their entities and reads them
-  throughout, as `impl Workspace` blocks. Splitting it into their screens is an issue of its own (opened with the
-  Artoo repository); `artoo-review`, `artoo-requests` and `artoo-branches` stay in `OPEN` until then. New work on
-  them goes into their crates as far as it can, asked through their contracts.
+  the review's, the requests' and the branches' shared screen. It keeps none of their state: each feature's parts
+  make its entity in a tab that hosts it (the review's `Host`, the requests' and the branches' `TabActs` in the tab's
+  services), offer its contract there, and the tab asks them through it (`Workspace::rv`, `requests_api`,
+  `branches`), hearing what they say through it too (`on_event`, `on_change`). What its `impl Workspace` blocks
+  still do is coordination across them — a branch's commit picked is the history's selection and the review loading
+  its diff, a request opened, the composer's targets — and the frame they share: the page on screen and its
+  history, the side panel, zones and the keyboard's rule, ⌘K, `menu::Act`, `toast`. New work on a feature goes into
+  its crate, asked through its contract; what is the tab's stays coordination.
 - Done: the shell (`artoo-shell`, every piece of the frame through `artoo-shell-api`'s render contracts), Code,
   updates and reports, hosts (the hosts' contract, the connect panel a part of every tab behind
   `artoo_hosts_api::connect::Connect`, markdown's pictures through the kit's `Pictures` port) and agents (their
   models, a tab's agents `artoo_agents_api::tab::Agents`, the folder the windows read `bus::Folder`, what the tab
-  draws of them a render contract `view`) each show the app functions alone. `artoo-shell-api` holds actions,
-  parts (a title-bar item, a card over the window, a tool window, Settings rows, snapshot views, a space's pages,
-  inputs, pieces) and `Frame`; the tab draws them (`src/ui/parts.rs`).
+  draws of them a render contract `view`). `artoo-shell-api` holds actions, parts (a title-bar item, a card over the
+  window, a tool window, Settings rows, snapshot views, a space's pages, inputs, pieces) and `Frame`; the tab draws
+  them (`src/ui/parts.rs`).
 - `Page` (`src/ui/nav.rs`) is a closed enum the route registry replaces; it is kept as a route already (the
-  core's `Route` and `Place`; the app's kinds in `src/ui/routes.rs`, each to move to its owner's `-api` with its
-  pages; Code's, the branches' and a merge request's are there). `menu::Act` and `toast` still know the other features. Meanwhile a new page, action or toast is added there in the shape the registries will take: one
-  variant, one id, one owner.
-- `artoo-review` (stage 4, R3) holds the review: the entity (`review::Review`) with its events and its host, the
-  row drawing (`diff_view`) and the types it keeps, the diff's rows having gone to the core (`artoo_core::rows`).
-  Going to a line, the comment being written and the input it is written in are its own (R4); the find bar, the
-  Changes list, the head line and the composer's foot (who sees it, its buttons) are still drawn by the tab.
-  `artoo-review-api` holds what a page asks of the tab's review: for now the file Code reads (`FileView`), offered
-  in the tab's services. A discussion's pieces are the kit's (`discussion`, with the `People` port hosts provide).
-- `artoo-requests` (stage 4, R5) holds what the tab keeps of merge requests (the lists, the request open, the
-  changes waiting) and draws most of its views — the bar's pieces, Overview, Discussions, Merge's card, Submit
-  review, the New merge request form, reactions, the list —, a click asking the tab an `Act` and what a view needs
-  of the tab given as a `…Look`; the tab keeps the root's frame (the list's island, its handle, the preview's).
-  How far your review got (`Seen`) it reads from `artoo-review-api`. Its space's pages go through the registry with
-  the branches' (the review's diff and the side panel they share), the Inbox with the agents' views; a thread on the
-  diff's lines with the composer as an entity (R4d).
-- `artoo-branches` (stage 4, B) holds what the tab keeps of the repository's branches as an entity (`History`, each
-  read its own task, the tab hearing what follows as a `history::Event`): the branches, the one open and what its
-  page says, its versions and commits, what the diff shows of them, the commits' search, a comparison's commits, the
-  working tree's state and the Branches list's facts. Its views draw the side panel's rows (versions, commits) and a
-  commit's card, a click asking the tab an `Act`; the app's other views read the history and draw the side panel
-  (Versions · Commits · Changes) a branch's and a request's pages share.
-- The three in `OPEN` show their modules; everything else shows functions alone.
+  core's `Route` and `Place`), each kind's type its owner's contract's (Code's, the branches', a merge request's),
+  `src/ui/routes.rs` mapping them; it stays the window root's until a place comes from outside the app (a plugin).
+  `menu::Act` and `toast` still know the other features. Meanwhile a new page, action or toast is added there in
+  the shape the registries will take: one variant, one id, one owner.
+- `artoo-review` holds the review: the entity (`review::Review`) with its events, its handle (`handle`), the row
+  drawing (`diff_view`), the find, going to a line, the selection, the stack, reviewed marks, documents' pages, find
+  in files, Code's file, the Changes list; the diff's rows are the core's (`artoo_core::rows`), a selection's ends
+  too (`artoo_core::select`). `artoo-review-api` holds `Review` — a diff opened and all the tab asks of it — with the
+  plain types they speak (`Event`, `GoLineKey`, `PageEvent` / `PageLook`, `Opt`, `ReviewState`, `Pins`,
+  `FileNotes`, `Notice`, `ItemKey`, …), `Host` (what it asks of the tab) and `FileView` (the file Code reads). The
+  composer — a comment being written, its editing, its input and foot — is the kit's (`artoo_ui_kit::composer`):
+  the tab routes it to the review's lines, a request's discussions and the agents.
+- `artoo-requests` holds merge requests' state — the lists, the request open, the changes sent and not read back,
+  the notifications and the Inbox's — and draws most of their views, a click asking the tab an `Act` and what a
+  view needs of the tab given as a `…Look`. `artoo-requests-api` holds `Requests` and the plain types they speak;
+  the hosts' types two contracts need are the core's (`artoo_core::mr`). How far your review got (`Seen`) they read
+  from `artoo-review-api`.
+- `artoo-branches` holds the repository's branches as an entity (`History`, each read its own task): the branches,
+  the one open and what its page says, its versions and commits, what the diff shows of them, the commits' search,
+  a comparison's commits, the working tree's state and the Branches list's facts; its views draw the side panel's
+  rows and a commit's card. `artoo-branches-api` holds `Branches`, the routes of its pages and the plain types it
+  speaks.

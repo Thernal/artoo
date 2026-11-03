@@ -9,56 +9,65 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   --workspace` green before a commit to `main`.
 - **A Cargo workspace (#165).** The root package is the app (`src/main.rs`, `src/ui/`);
   `crates/core` (`artoo-core`) holds what draws nothing — it has no GPUI — and depends on no feature: git, highlighting, the platform
-  layer, storage, themes, markdown and the diff helpers, among them the diff's rows (`rows`: a file built to rows in
+  layer, storage, themes, markdown and the diff helpers, among them a selection's ends (`select`), the diff's rows (`rows`: a file built to rows in
   the background, laid out for the view options, with what is pinned on its lines merged in) and a line written on found
   again once the file changed (`anchor`, a comment's and an agent's note's); the app's `build.rs` gives a build its commit, handed to the core as it starts (`artoo_core::set_commit`, read by
   `artoo_core::version`), so a commit rebuilds the app alone. `crates/review` (`artoo-review`, #165 stage 4):
-  the review — the entity (`review::Review`, its events; its `Host` the contract's), its row drawing (`diff_view`), the file's pane
+  the review — the entity (`review::Review`, made by its parts in a tab that hosts it; its events and its `Host` the
+  contract's), its handle (`handle`: `artoo_review_api::Review`, in the tab's services), its row drawing (`diff_view`), the file's pane
   (`pane`: its line, its notice, its rows or what stands in their place, the toolbar's options; what others put on it a
   `PaneLook`, a click a `PaneEvent` to its host), zen's head (`zen`: the tab's words for what is shown), what it does
-  to the open file's lines (`lines`), the find (`find`), going to a line (`goline`), the comment being written and
-  the input it is written in (`composer`: `Compose`, its `Target`, `render_input`), the Changes list as it keeps it (`lists`) and draws it (`changes_view`: the side panel's section, its header with Tree · List, `changes_section`; the progress with Mark all, the
+  to the open file's lines (`lines`), the find (`find`), going to a line (`goline`), the Changes list as it keeps it (`lists`) and draws it (`changes_view`: the side panel's section, its header with Tree · List, `changes_section`; the progress with Mark all, the
   files' total, a file's and a folder's box, the rows of the tree or the flat list, a group's header; the tab's field
   and width a `ChangesLook`, its fold a `SectionLook`, a click a `ChangesEvent`, a tree's rows fading in and a mark's version the host's), and the types it
   keeps: the selection's
-  (`select`), the reviewed marks' store (`reviewed`), blame's (`annotate`), the one scroll's blocks (`stack`), what
+  (`select`: a press and a drag; its ends `artoo_core::select`), the reviewed marks' store (`reviewed`), blame's (`annotate`), the one scroll's blocks (`stack`), what
   other features pin on a file's lines (`pins`: the agents' comments and notes as `Anchored` lines) and the diff shown
   (`diff`: what it is of, its files, the working tree's words, the notice of a change not asked for, its undo the
   versions compared before), with the state of images (`image_view`), pages (`md_page`) and Code's file
   (`file_view`), and the Changes list's rows (`changes`); the app's
-  views read them as `ui::diff_view` and `artoo_review::…`, and draw the find bar and the composer's foot (who sees it, its buttons: `ui/composer.rs`). `crates/updates` (`artoo-updates`) asks for
+  lib shows `install` alone: the app asks it through `artoo-review-api` (`Workspace::rv`) and routes the composer
+  (`ui/composer.rs`). `crates/updates` (`artoo-updates`) asks for
   newer releases and draws what it found (its `install` alone is shown). `crates/code` (`artoo-code`): Code — the
   project's tree beside a folder's page or a file's tabs, read at a revision (`space.rs`; its `install` alone is
   shown); `src/ui/code.rs` is the tab's side: what the tab asks of it, the Outline tool window, the tab as its host.
   `crates/code-api` (`artoo-code-api`): Code's contract — its routes (`code.file`, `code.folder`), `Code` (what the
   tab asks of it, offered in the tab's services) and `Host` (what it asks of the tab). `crates/review-api`
-  (`artoo-review-api`): what a page asks of the tab's review — what a diff is of (`Source`: a commit, a run,
+  (`artoo-review-api`): the review's contract — what a diff is of (`Source`: a commit, a run,
   versions, an interdiff, the working tree, a comparison; the review reads it, `Review::open`), the handle a page
-  opens one through (`Review`: open, open again in place, clear, the diff shown; `artoo_review::review::handle`, in the tab's services),
+  opens one through and all the tab asks of it (`Review`: open, open again in place, clear, the diff shown, its
+  files and rows, the find, going to a line, the stack, reviewed marks, documents' pages, find in files, Code's file;
+  what it says, `Event`, heard with `on_event`; in the tab's services, made by its parts), the plain types they speak
+  (`GoLineKey`, `PageEvent` / `PageLook`, `Opt`, `ReviewState`, `Pins`, `FileNotes`, `Notice`, `ItemKey`, …),
   the diff it shows
   (`diff`: `Diff`, what it is of as `Header`, the working tree's `FileTags`), what its host draws
-  on its rows and does with their events (`Host`, `LineEvent`, `FileEvent`, `PaneEvent`, `ChangesEvent`; the tab
-  for now), the file Code reads
+  on its rows and does with their events (`Host`, `LineEvent`, `FileEvent`, `PaneEvent`, `ChangesEvent`; the tab,
+  whose services having one is what makes the review's parts make it), the file Code reads
   (`FileView`), how far a request's review got (`Seen`).
   `crates/branches-api` (`artoo-branches-api`): branches' contract — the routes of a branch's pages
   (`branches.branch`, `branches.commit`, `branches.commits`, `branches.versions`), of a comparison
-  (`branches.compare`) and of the working tree (`branches.working-tree`).
+  (`branches.compare`) and of the working tree (`branches.working-tree`), and `Branches` (what the tab and the others
+  ask of the history; its events heard with `on_event`) with the plain types it speaks, the tab's answers to its
+  views' acts (`TabActs`, which makes its parts make the history).
   `crates/requests-api` (`artoo-requests-api`): merge requests' contract — the routes of a request's pages
-  (`requests.request`, `requests.commit`, `requests.commits`, `requests.versions`) and what others ask of them, a
-  tab's service (`Requests::of_branch`; `artoo_requests::requests::handle` makes it). `crates/requests`
+  (`requests.request`, `requests.commit`, `requests.commits`, `requests.versions`) and `Requests`, what the tab and
+  the others ask of them (the lists, the request open and its discussions, changes sent, notifications and the
+  Inbox, Submit review, a new merge request; what they say, `Event`, heard with `on_event`), with the plain types they
+  speak and the tab's answers to their views' acts (`TabActs`, which makes their parts make their state); the hosts'
+  types two contracts need are the core's (`artoo_core::mr`). `crates/requests`
   (`artoo-requests`, #165 stage 4; a part, `install`: its pieces of the item page, a request being written's header
-  and a request's line, `pieces`): what the tab keeps of merge requests — the lists and their groups (`group`),
+  and a request's line, `pieces`; its state made by its parts): merge requests — the lists and their groups (`group`),
   the request open (`requests`), the changes sent to its host and not read back (`waiting`), what became of an
   outdated discussion's line (`outdated`, its history drawn), the reactions on its notes (`reactions`: the pills,
   the hover bar, ☺+'s grid), where merging it stands (`merge`) — and what they read from their host
-  (`reading`), each read the entity's own task, the tab hearing what follows as a `requests::Event`. Its views draw
+  (`reading`), each read the entity's own task, the tab hearing what follows through the contract; the notifications
+  and the Inbox's state (`notices`, `inbox`). Its views draw
   from it, a click asking the tab a `requests::Act`: the request's bar pieces (`bar`), Overview and the line over
   Commits and Changes (`page`), the Discussions window (`discussions`), Merge's card (`merging`), Submit review
   (`submit`), the New merge request form (`create`), who and which emoji a token completes to (`complete`), the
   list (`list`: its groups and folds, the picked one's preview read, the rows, bands, preview, why none is listed,
   the banner while it cannot be read); a card's text keeps its own caret (`area`). The tab gives each what it
-  knows (a `…Look`) and puts it in its frame; the Inbox and a thread drawn on the diff's lines are still the
-  app's. `crates/branches` (`artoo-branches`, #165 stage 4; a part, `install`): what the tab keeps of the repository's branches, an entity
+  knows (a `…Look`) and puts it in its frame. `crates/branches` (`artoo-branches`, #165 stage 4; a part, `install`; its state made by its parts): the repository's branches, an entity
   (`History`) whose reads, of the repository it keeps (`root`), are each its own task (`reading`) — the branch open,
   a merge request on it (waiting for it to be read, or open: `RequestSides`, its commits and the host's versions of
   it listed), a page waiting for them (`waiting`: a commit, a run, versions, shown once they are in), its versions
@@ -71,7 +80,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   reads for its rows (`roots`) —, and its sections of the side panel (`panel`: their folds, `Act::Fold`; the Versions, Commits and a comparison's commits sections, the tab giving what is its in a `CommitsLook`), the views of its rows and its lists, the commits' and a comparison's, each its own `uniform_list` (`side`), a commit's card (`card`) and the
   head over a diff with its toolbar's left (`head`: a piece of the item page, `head::piece`; what the diff is of, the working tree's halves, a comparison's
   sides and warnings, the versions' tabs; its text selectable through the tab), a click asking the tab a
-  `history::Act`; the app's other views read and draw the history, the side panel a
+  `history::Act`; the app's other views read the history through `Branches` and draw the side panel a
   request's page shares among them.
   `crates/shell-api` (`artoo-shell-api`): the
   shell's contract — actions (the app menu and ⌘K list them), parts each tab draws (title-bar items, cards over the
@@ -93,7 +102,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   (`comment`, `notes`, `bus`); a tab's agents (`tab::Agents`, made with `tab::tab`), the folder the windows read
   (`bus::Folder`), and what the tab draws of them (`view`, a render contract with its hosts). `crates/ui-kit` (`artoo-ui-kit`): the design system —
   theme, the interface size (`px`, `ui_zoom`), panes and rows (`island`, `row`), icons, keycaps, motion, row room,
-  formats, words, the dragged label, Reveal's words and the toggle chips on their track (`controls`: `chip`, `group`), a list's row pieces and a page's empty state (`unread_dot`,
+  formats, words, the composer (`composer`: a comment being written, its editing, its input and foot), the dragged label, Reveal's words and the toggle chips on their track (`controls`: `chip`, `group`), a list's row pieces and a page's empty state (`unread_dot`,
   `progress_badge`, `pill`, `primary_button`, `outline_button`, `empty_state`), tooltips and the
   cut (`hover`: `Hover`, `Tip`, `TipOwned`, `cut`, `mid`), a page's side panel and its sections' headers (`panel`: `head`, `panel`, `rule`, `open_share`, `count`), the text field and its editing (`input`; `Area`, a field its owner keeps), the token completed in one (`@`, `:`) and its list
   (`complete`), file and folder icons (`file_icons`), comments drawn as markdown
@@ -105,7 +114,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   person and branch cards; which field has the keys), re-exporting the kit's. The crates' rules — which crate code goes to, what may depend on
   what, contracts (`-api`), wiring (`install`), routes and actions, fakes — are the `architecture` skill
   (`.claude/skills/architecture/`): read it before adding a crate, moving code between crates or adding a dependency
-  between them; `tests/crates.rs` checks them, its `ALLOWED` and `OPEN` the exceptions, each until the stage that removes it. `main.rs` imports its modules (`use artoo_core::{git, …}`),
+  between them; `tests/crates.rs` checks them, its `ALLOWED` and `OPEN` the exceptions, each until the stage that removes it (both empty since the tab's split). `main.rs` imports its modules (`use artoo_core::{git, …}`),
   so `crate::git::…` reads as before. An implementation never depends on another implementation. A test guard in a
   crate is `platform::sandboxed()`, never `cfg!(test)` alone (false in a crate another crate's tests call): the
   callers' dev-dependencies turn on its `sandbox` feature. Items another crate's tests need are
