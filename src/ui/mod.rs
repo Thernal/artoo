@@ -86,20 +86,19 @@ use crate::git::Repo;
 use crate::rows::{self, Row};
 use crate::storage::{self, DiffMode, Layout, Settings, ViewOptions};
 use artoo_branches_api::{Event as BranchesEvent, Selection};
+use artoo_review_api::Event as ReviewEvent;
 use artoo_review_api::diff::Header;
 use artoo_review_api::{CODE_SIZE, Notice, Opt};
 use artoo_shell_api::frame::{Drag, Split};
 use artoo_shell_api::title;
 use artoo_ui_kit::controls::tag;
 use gpui::{
-    App, Context, FocusHandle, KeyBinding, KeyDownEvent, Menu, MenuItem,
-    MouseButton, MouseDownEvent, MouseMoveEvent, PathPromptOptions, Point, SharedString, Task,
-    TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div,
-    font, prelude::*, size,
+    App, Context, FocusHandle, KeyBinding, KeyDownEvent, Menu, MenuItem, MouseButton,
+    MouseDownEvent, MouseMoveEvent, PathPromptOptions, Point, SharedString, Task, TitlebarOptions,
+    Window, WindowBounds, WindowOptions, actions, div, font, prelude::*, size,
 };
 use lists::Field;
 use menu::{Act, Entry};
-use artoo_review_api::Event as ReviewEvent;
 use std::cell::Cell as Shared;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -735,7 +734,8 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         }
         if let Ok(path) = std::env::var("ARTOO_SNAPSHOT_FILE") {
             ws.update(cx, |this, cx| {
-                let found = this.shown_diff(cx)
+                let found = this
+                    .shown_diff(cx)
                     .as_ref()
                     .and_then(|d| d.files.iter().position(|f| f.path() == path));
                 if let Some(ix) = found {
@@ -1398,7 +1398,8 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             && (view.contains("hover-note") || view.contains("reaction-grid"))
         {
             ws.update(cx, |this, cx| {
-                let note = this.request_threads(cx)
+                let note = this
+                    .request_threads(cx)
                     .iter()
                     .find(|t| t.path.is_some())
                     .and_then(|t| t.notes.first())
@@ -1760,7 +1761,9 @@ impl Workspace {
         // them.
         services.set(artoo_branches_api::TabActs(this.history_acts(cx)));
         // Its answers to what the requests' views ask: the requests' parts make their state in a tab that has them.
-        services.set(artoo_requests_api::TabActs(requests::acts_of(cx.weak_entity())));
+        services.set(artoo_requests_api::TabActs(requests::acts_of(
+            cx.weak_entity(),
+        )));
         // Its agents, which their parts draw — the Agents window, the card, the notes' summary,
         // Settings → Agents — the tab their host.
         services.set(this.agents.clone());
@@ -2393,10 +2396,7 @@ impl Workspace {
         }
         // What a reviewer pastes into a chat: a link to the line, its place, the command.
         let mut share = Vec::new();
-        if let (Some(path), Some(rev)) = (
-            self.current_path(cx),
-            self.rv().viewed_rev(cx),
-        ) {
+        if let (Some(path), Some(rev)) = (self.current_path(cx), self.rv().viewed_rev(cx)) {
             if let (false, Some(web)) = (old, &self.web) {
                 share.push(
                     Entry::new(
@@ -2445,7 +2445,8 @@ impl Workspace {
     }
 
     fn file_context(&mut self, ix: usize, at: Point<gpui::Pixels>, cx: &mut Context<Self>) {
-        let Some(path) = self.shown_diff(cx)
+        let Some(path) = self
+            .shown_diff(cx)
             .as_ref()
             .and_then(|d| d.files.get(ix))
             .map(|f| f.path().to_owned())
@@ -2506,7 +2507,8 @@ impl Workspace {
 
     /// Recomputes the selected commit's or versions' diff, staying on the same file.
     fn reload_diff(&mut self, cx: &mut Context<Self>) {
-        let keep = self.shown_diff(cx)
+        let keep = self
+            .shown_diff(cx)
             .as_ref()
             .and_then(|d| d.files.get(self.diff_file(cx)))
             .map(|f| f.path().to_owned());
@@ -2564,7 +2566,8 @@ impl Workspace {
     pub(super) fn files_zone(&self, cx: &App) -> bool {
         self.side_open()
             && self.rv().changes_open(cx)
-            && self.shown_diff(cx)
+            && self
+                .shown_diff(cx)
                 .as_ref()
                 .is_some_and(|d| d.files.len() > 1)
     }
@@ -2930,7 +2933,8 @@ impl Workspace {
 
     /// What the screen shows, in a few words: zen's one line on top, a request's or what the diff is of.
     fn header_title(&self, cx: &App) -> String {
-        if let Some(m) = self.current_request(cx)
+        if let Some(m) = self
+            .current_request(cx)
             .filter(|_| self.showing_request(cx))
             .and_then(|iid| self.find_request(iid, cx))
         {
@@ -3110,8 +3114,8 @@ impl artoo_review_api::Host for TabHost {
         self.0
             .update(cx, |this, cx| match event {
                 ChangesEvent::ToggleReviewed(ix) => {
-                    let done = this.rv().review_state(ix, cx)
-                        == Some(artoo_review_api::ReviewState::Done);
+                    let done =
+                        this.rv().review_state(ix, cx) == Some(artoo_review_api::ReviewState::Done);
                     this.set_reviewed(ix, !done, cx);
                 }
                 ChangesEvent::FolderReviewed { folder, done } => {

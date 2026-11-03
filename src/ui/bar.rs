@@ -187,9 +187,7 @@ impl Workspace {
                 .iter()
                 .position(|b| &b.refname == refname)
                 .and_then(|ix| {
-                    let request = self
-                        .request_of_branch(ix, cx)
-                        .map(|m| (m.iid, m.title));
+                    let request = self.request_of_branch(ix, cx).map(|m| (m.iid, m.title));
                     self.branches()?.branch_card(ix, request, cx)
                 }) {
                 Some(build) => title
@@ -476,7 +474,8 @@ impl Workspace {
                         .into_any_element(),
                 );
                 // A merged or closed one says so where its approval would be (#114).
-                let state = self.current_request(cx)
+                let state = self
+                    .current_request(cx)
                     .and_then(|iid| self.find_request(iid, cx))
                     .map(|m| m.state)
                     .unwrap_or_default();

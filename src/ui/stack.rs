@@ -17,7 +17,8 @@ impl Workspace {
     pub(super) fn wants_stack(&self, cx: &App) -> bool {
         !self.view_options(cx).one_file
             && !(self.zen_one && self.zen.is_some())
-            && self.shown_diff(cx)
+            && self
+                .shown_diff(cx)
                 .as_ref()
                 .is_some_and(|d| d.files.len() > 1)
     }
@@ -111,7 +112,8 @@ impl Workspace {
     /// File `ix`'s rows were built (`ReviewEvent::StackBuilt`): laid out with what is pinned on its lines
     /// (`Review::built`); the active file's blame and jump follow.
     pub(super) fn stack_built(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let path = self.shown_diff(cx)
+        let path = self
+            .shown_diff(cx)
             .as_ref()
             .and_then(|d| d.files.get(ix))
             .map(|f| f.path().to_owned());

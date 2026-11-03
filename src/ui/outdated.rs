@@ -32,7 +32,10 @@ impl Workspace {
         let Some(latest) = self.latest_version(cx) else {
             return;
         };
-        if let Some(last) = self.requests_api().and_then(|r| r.start_since(ix, latest, cx)) {
+        if let Some(last) = self
+            .requests_api()
+            .and_then(|r| r.start_since(ix, latest, cx))
+        {
             self.go_since(0, last, cx);
         }
     }
@@ -80,7 +83,8 @@ impl Workspace {
         let (Some(&(_, a)), Some(&(_, b))) = (stop(number(from)), stop(number(to))) else {
             return Vec::new();
         };
-        let ix = self.request_threads(cx)
+        let ix = self
+            .request_threads(cx)
             .iter()
             .position(|t| t.id == since.thread);
         let at = b.map(|l| (false, l)).or(a.map(|l| (true, l)));
@@ -136,7 +140,8 @@ impl Workspace {
             return;
         }
         self.since_on_open = None;
-        let ix = self.request_threads(cx)
+        let ix = self
+            .request_threads(cx)
             .iter()
             .position(|t| t.notes.iter().any(|n| n.id == note));
         if let Some(ix) = ix

@@ -85,7 +85,9 @@ impl Workspace {
     /// j k in the Inbox: the next or previous listed notice.
     pub(super) fn inbox_step(&mut self, down: bool, cx: &mut Context<Self>) {
         let answers = self.agent_notices(cx);
-        let next = self.requests_api().and_then(|r| r.inbox_step(&answers, down, cx));
+        let next = self
+            .requests_api()
+            .and_then(|r| r.inbox_step(&answers, down, cx));
         if let Some(next) = next {
             self.inbox_select(next, cx);
         }

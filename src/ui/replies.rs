@@ -4,15 +4,16 @@
 use super::Workspace;
 use super::composer::{Compose, Target};
 use super::typing::Input;
-use artoo_requests_api::Change;
 use crate::textedit::TextEdit;
+use artoo_requests_api::Change;
 use gpui::{App, ClipboardItem, Context};
 
 impl Workspace {
     /// Starts a reply under discussion `ix` of the open merge request.
     pub(super) fn start_reply(&mut self, ix: usize, cx: &mut Context<Self>) {
         // One still on its way to the host has no id to reply to yet (#139).
-        let Some(t) = self.request_thread(ix, cx)
+        let Some(t) = self
+            .request_thread(ix, cx)
             .filter(|t| !self.is_temp_thread(&t.id))
         else {
             return;
@@ -91,7 +92,8 @@ impl Workspace {
 
     /// Posts the Inbox's reply: to its discussion, or as a comment on the request.
     pub(super) fn post_inbox_reply(&mut self, cx: &mut Context<Self>) {
-        let (Some(compose), Some((iid, discussion))) = (self.compose.as_ref(), self.inbox_reply(cx))
+        let (Some(compose), Some((iid, discussion))) =
+            (self.compose.as_ref(), self.inbox_reply(cx))
         else {
             return;
         };
@@ -133,9 +135,7 @@ impl Workspace {
         let at_file = compose.page.unwrap_or(self.diff_file(cx));
         let diff = self.shown_diff(cx);
 
-        let file = diff
-            .as_ref()
-            .and_then(|d| d.files.get(at_file));
+        let file = diff.as_ref().and_then(|d| d.files.get(at_file));
         let pair = file
             .filter(|_| compose.page.is_some())
             .map(|f| f.line_pair(compose.old, compose.line));
@@ -190,12 +190,7 @@ impl Workspace {
     /// and the comment shows at once, faded (#139). Refused, the composer comes back with its text
     /// and the reason when nothing else is being written and its place still shows; else its text
     /// goes to the clipboard and the error bar says why.
-    pub(super) fn submit_compose(
-        &mut self,
-        iid: u64,
-        change: Change,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn submit_compose(&mut self, iid: u64, change: Change, cx: &mut Context<Self>) {
         if self.web.is_none() {
             return;
         }
@@ -213,9 +208,7 @@ impl Workspace {
         self.rv().remeasure_pages(cx);
         let refused = move |this: &mut Self, why: String, cx: &mut Context<Self>| {
             let place = match &thread {
-                Some(id) => this.request_threads(cx)
-                    .iter()
-                    .position(|t| &t.id == id),
+                Some(id) => this.request_threads(cx).iter().position(|t| &t.id == id),
                 None => Some(usize::MAX),
             };
             let shows = match compose.target {
@@ -229,8 +222,7 @@ impl Workspace {
                 Target::Request(_) => {
                     this.current_request(cx) == Some(iid)
                         && (compose.page.is_some()
-                            || this.current_path(cx).as_deref()
-                                == Some(compose.path.as_str()))
+                            || this.current_path(cx).as_deref() == Some(compose.path.as_str()))
                 }
                 _ => this.current_request(cx) == Some(iid),
             };

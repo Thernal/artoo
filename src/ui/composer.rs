@@ -110,10 +110,7 @@ impl Workspace {
     ) {
         let diff = self.shown_diff(cx);
 
-        let Some(file) = diff
-            .as_ref()
-            .and_then(|d| d.files.get(ix))
-        else {
+        let Some(file) = diff.as_ref().and_then(|d| d.files.get(ix)) else {
             return;
         };
         let text = if old { &file.old_text } else { &file.new_text };
@@ -255,10 +252,7 @@ impl Workspace {
         line: u32,
         cx: &mut Context<Self>,
     ) {
-        let (Some(data), Some(path)) = (
-            &self.diff_data(cx),
-            self.current_path(cx),
-        ) else {
+        let (Some(data), Some(path)) = (&self.diff_data(cx), self.current_path(cx)) else {
             return;
         };
         let code = data.side(old).line(line).0.to_owned();
@@ -301,11 +295,7 @@ impl Workspace {
                 let Some(t) = self.request_thread(thread, cx) else {
                     return;
                 };
-                let Some(n) = t
-                    .notes
-                    .iter()
-                    .find(|n| n.id == note && !self.is_temp(n.id))
-                else {
+                let Some(n) = t.notes.iter().find(|n| n.id == note && !self.is_temp(n.id)) else {
                     return;
                 };
                 self.thread_at = Some(thread);
@@ -383,10 +373,9 @@ impl Workspace {
                 cx.notify();
             }
             Change::Note { thread, note } => {
-                let (Some(t), Some(iid)) = (
-                    self.request_thread(thread, cx),
-                    self.current_request(cx),
-                ) else {
+                let (Some(t), Some(iid)) =
+                    (self.request_thread(thread, cx), self.current_request(cx))
+                else {
                     return;
                 };
                 let thread = t.id.clone();
@@ -500,11 +489,7 @@ impl Workspace {
         }
         self.last_request_target = None;
         let id = self.comments(cx).iter().map(|c| c.id).max().unwrap_or(0) + 1;
-        let above = match (
-            compose.first,
-            &self.diff_data(cx),
-            self.rv().file_read(cx),
-        ) {
+        let above = match (compose.first, &self.diff_data(cx), self.rv().file_read(cx)) {
             // On a file read in Code: its own lines, whatever diff is loaded (#104).
             (Some(first), _, Some(_)) if compose.file.is_some() => (first..compose.line)
                 .filter_map(|n| self.rv().file_view_line(n, cx))

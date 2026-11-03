@@ -100,7 +100,8 @@ impl Workspace {
                 if (shows.commits && self.commit_count(cx) > 0) || shows.compare {
                     icons.push(("commit", "Commits", Some(Zone::Commits)));
                 }
-                if self.shown_diff(cx)
+                if self
+                    .shown_diff(cx)
                     .as_ref()
                     .is_some_and(|d| !d.files.is_empty())
                 {

@@ -130,10 +130,9 @@ impl Workspace {
             Zone::Commits => self.step_commit_row(down, cx),
             Zone::Branches => self.step_pick(down, cx),
             Zone::Files => self.step_file_item(down, cx),
-            Zone::Diff => {
-                self.diff_list(cx)
-                    .scroll_by(px(if down { LINE } else { -LINE }))
-            }
+            Zone::Diff => self
+                .diff_list(cx)
+                .scroll_by(px(if down { LINE } else { -LINE })),
             Zone::Tool => match self.tool() {
                 Some(super::tools::Tool::Discussions) => return self.step_thread(down, cx),
                 Some(super::tools::Tool::Part(id)) => {
@@ -286,7 +285,9 @@ impl Workspace {
         };
         if self.nav.space == super::spaces::Space::Requests {
             let shown: Vec<u64> = self.listed_requests(cx).iter().map(|m| m.iid).collect();
-            let at = self.requests_api().and_then(|r| r.picked_row(cx))
+            let at = self
+                .requests_api()
+                .and_then(|r| r.picked_row(cx))
                 .and_then(|iid| shown.iter().position(|i| *i == iid));
             if let Some(iid) = step(at, shown.len()).map(|i| shown[i]) {
                 self.pick_request(iid, cx);
@@ -308,7 +309,9 @@ impl Workspace {
     pub(super) fn open_pick(&mut self, cx: &mut Context<Self>) {
         if self.nav.space == super::spaces::Space::Requests {
             let shown: Vec<u64> = self.listed_requests(cx).iter().map(|m| m.iid).collect();
-            let pick = self.requests_api().and_then(|r| r.picked_row(cx))
+            let pick = self
+                .requests_api()
+                .and_then(|r| r.picked_row(cx))
                 .filter(|iid| shown.contains(iid));
             if let Some(iid) = pick.or(shown.first().copied()) {
                 self.open_picked_request(iid, cx);

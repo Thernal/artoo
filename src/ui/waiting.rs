@@ -78,7 +78,11 @@ impl Workspace {
             return;
         };
         let thread = |ix: usize| moved.threads.get(ix).copied().flatten();
-        self.toggled_mr = self.toggled_mr.iter().filter_map(|&ix| thread(ix)).collect();
+        self.toggled_mr = self
+            .toggled_mr
+            .iter()
+            .filter_map(|&ix| thread(ix))
+            .collect();
         self.thread_at = self.thread_at.and_then(thread);
         self.draft_at = (self.draft_at).and_then(|ix| moved.drafts.get(ix).copied().flatten());
         if let Some(c) = self.compose.as_mut()

@@ -8,10 +8,8 @@ use artoo_core::rows::{FileData, Row};
 use artoo_core::storage::{Settings, ViewOptions};
 use artoo_review_api::diff::Diff;
 use artoo_review_api::{
-    Event, FileNotes, FileRead, FoundInFiles, Hears, Host, ImageMode, ItemKey, LineNote, Notice, OnSearch, Opt, PageLook, Pins,
-    ReviewState,
-    SearchEvent,
-    SearchKeyed, Source,
+    Event, FileNotes, FileRead, FoundInFiles, Hears, Host, ImageMode, ItemKey, LineNote, Notice,
+    OnSearch, Opt, PageLook, Pins, ReviewState, SearchEvent, SearchKeyed, Source,
 };
 use artoo_ui_kit::markdown::Selecting;
 use git2::Oid;
@@ -30,11 +28,18 @@ struct Handle(WeakEntity<Review>);
 impl Handle {
     /// What `f` reads of the review; nothing once it is gone.
     fn read<T: Default>(&self, cx: &App, f: impl FnOnce(&Review, &App) -> T) -> T {
-        self.0.upgrade().map(|r| f(r.read(cx), cx)).unwrap_or_default()
+        self.0
+            .upgrade()
+            .map(|r| f(r.read(cx), cx))
+            .unwrap_or_default()
     }
 
     /// What `f` does to the review; nothing once it is gone.
-    fn with<T: Default>(&self, cx: &mut App, f: impl FnOnce(&mut Review, &mut gpui::Context<Review>) -> T) -> T {
+    fn with<T: Default>(
+        &self,
+        cx: &mut App,
+        f: impl FnOnce(&mut Review, &mut gpui::Context<Review>) -> T,
+    ) -> T {
         self.0.update(cx, f).unwrap_or_default()
     }
 }
@@ -333,7 +338,14 @@ impl artoo_review_api::Review for Handle {
         self.with(cx, |rv, cx| rv.refresh_annotations(cx))
     }
 
-    fn hover_line_number(&self, ix: usize, old: bool, line: u32, at: Option<gpui::Point<gpui::Pixels>>, cx: &mut App) -> bool {
+    fn hover_line_number(
+        &self,
+        ix: usize,
+        old: bool,
+        line: u32,
+        at: Option<gpui::Point<gpui::Pixels>>,
+        cx: &mut App,
+    ) -> bool {
         self.with(cx, |rv, cx| rv.hover_line_number(ix, old, line, at, cx))
     }
 
@@ -453,8 +465,17 @@ impl artoo_review_api::Review for Handle {
         self.read(cx, |rv, _| rv.file_view.as_ref().map(|v| v.binary))
     }
 
-    fn render_file_view(&self, host: Rc<dyn Host>, notes: &FileNotes, binary: Option<AnyElement>, selecting: Selecting, cx: &mut App) -> Option<(gpui::Div, AnyElement)> {
-        self.with(cx, |rv, cx| rv.render_file_view(host, notes, binary, selecting, cx))
+    fn render_file_view(
+        &self,
+        host: Rc<dyn Host>,
+        notes: &FileNotes,
+        binary: Option<AnyElement>,
+        selecting: Selecting,
+        cx: &mut App,
+    ) -> Option<(gpui::Div, AnyElement)> {
+        self.with(cx, |rv, cx| {
+            rv.render_file_view(host, notes, binary, selecting, cx)
+        })
     }
 
     fn open_find_files(&self, cx: &mut App) {
@@ -465,7 +486,12 @@ impl artoo_review_api::Review for Handle {
         self.with(cx, |rv, _| rv.close_find_files())
     }
 
-    fn find_files_key(&self, key: &gpui::Keystroke, field: &mut artoo_core::textedit::TextEdit, cx: &mut App) -> SearchKeyed {
+    fn find_files_key(
+        &self,
+        key: &gpui::Keystroke,
+        field: &mut artoo_core::textedit::TextEdit,
+        cx: &mut App,
+    ) -> SearchKeyed {
         self.0
             .update(cx, |rv, cx| rv.find_files_key(key, field, cx))
             .unwrap_or(SearchKeyed::Kept)
@@ -703,7 +729,9 @@ impl artoo_review_api::Review for Handle {
     }
 
     fn render_goline_row(&self, indent: f32, active: bool, cx: &App) -> Option<gpui::Div> {
-        self.read(cx, |rv, _| rv.render_goline_row(indent, active, self.0.clone()))
+        self.read(cx, |rv, _| {
+            rv.render_goline_row(indent, active, self.0.clone())
+        })
     }
 
     fn take_jump(&self, cx: &mut App) -> Option<(u32, bool)> {

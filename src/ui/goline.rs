@@ -139,7 +139,8 @@ impl Workspace {
             self.apply_jump(cx);
             return;
         }
-        let ix = self.shown_diff(cx)
+        let ix = self
+            .shown_diff(cx)
             .as_ref()
             .and_then(|d| d.files.iter().position(|f| f.path() == path));
         match ix {
@@ -182,9 +183,7 @@ impl Workspace {
         let Some(id) = self.jump.take() else {
             return;
         };
-        if let Some(at) = (self.rv().rows(cx).iter())
-            .position(|r| *r == Row::Thread(id))
-        {
+        if let Some(at) = (self.rv().rows(cx).iter()).position(|r| *r == Row::Thread(id)) {
             self.rv().reveal_rows(at.saturating_sub(1)..at + 1, cx);
             cx.notify();
         }

@@ -69,7 +69,8 @@ impl Workspace {
     /// head over a diff), while a diff is shown: zen folds it up as it does the bar (the most a
     /// commit's header is tall, its message open or not).
     pub(super) fn render_identity(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let identity = self.shown_diff(cx)
+        let identity = self
+            .shown_diff(cx)
             .is_some()
             .then_some(())
             .filter(|_| self.zen.is_none() || self.motion.recent("zen"))

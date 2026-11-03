@@ -256,8 +256,8 @@ impl Workspace {
         cx: &App,
     ) -> Option<gpui::AnyElement> {
         let data = self.diff_data(cx);
-        let open = (data.as_deref())
-            .filter(|_| self.current_path(cx).as_deref() == Some(c.path.as_str()));
+        let open =
+            (data.as_deref()).filter(|_| self.current_path(cx).as_deref() == Some(c.path.as_str()));
         let line = |n: u32| {
             let side = open?.side(false);
             (n >= 1 && n <= side.count()).then(|| side.line(n).0.to_owned())

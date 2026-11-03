@@ -43,7 +43,6 @@ pub struct FindFiles {
 
 pub use artoo_review_api::{FoundInFiles as Found, OnSearch, SearchEvent, SearchKeyed as Keyed};
 
-
 /// Where `needle` first occurs in `hay` (a byte range), under the toggles.
 fn find_in(hay: &str, needle: &str, case: bool, word: bool) -> Option<Range<usize>> {
     if needle.is_empty() {

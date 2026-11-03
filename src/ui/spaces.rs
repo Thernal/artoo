@@ -65,7 +65,9 @@ impl Workspace {
             Space::Branches if self.plain => Some(Missing::Git),
             Space::Code | Space::Branches => None,
             Space::Inbox | Space::Requests if self.requests_available(cx) => None,
-            Space::Inbox | Space::Requests if self.requests_api().is_some_and(|r| r.connectable(cx)) => {
+            Space::Inbox | Space::Requests
+                if self.requests_api().is_some_and(|r| r.connectable(cx)) =>
+            {
                 Some(Missing::Token)
             }
             Space::Inbox | Space::Requests => Some(Missing::Remote),

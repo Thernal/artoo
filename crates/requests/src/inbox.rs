@@ -4,8 +4,8 @@
 
 use crate::notices::{Kind, Notices};
 use crate::requests::Requests;
-use artoo_requests_api::ReplyTo;
 use artoo_core::git::{DiffLine, DiffSettings, LineKind, Repo};
+use artoo_requests_api::ReplyTo;
 use artoo_ui_kit::excerpt::{Excerpt, ExcerptLine};
 use gpui::{Context, Entity, Task};
 use std::collections::HashMap;
@@ -98,7 +98,12 @@ impl InboxView {
 impl Requests {
     /// The notice selected changed (or its discussions came in): reads the code its discussion is on into `view`,
     /// once, in the background.
-    pub(crate) fn read_excerpt(&mut self, notices: &Entity<Notices>, view: &Entity<InboxView>, cx: &mut Context<Self>) {
+    pub(crate) fn read_excerpt(
+        &mut self,
+        notices: &Entity<Notices>,
+        view: &Entity<InboxView>,
+        cx: &mut Context<Self>,
+    ) {
         let ns = notices.read(cx);
         let Some(n) = ns.list.get(ns.at) else {
             return;

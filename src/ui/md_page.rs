@@ -2,10 +2,10 @@
 //! its blocks (the composer, the comments of a block opened), the marks on its lines and Split's heads, and answers
 //! its clicks and its switch's (`PageEvent`).
 
-use artoo_review_api::NoteTone;
 use super::{Selection, Workspace, px};
 use crate::markdown;
 use crate::mddiff::Row;
+use artoo_review_api::NoteTone;
 use artoo_review_api::{PageEvent, PageLook};
 use gpui::{AnyElement, App, Context, WeakEntity, div, prelude::*};
 use std::collections::HashMap;
@@ -40,7 +40,9 @@ impl Workspace {
             Some(file) => {
                 let rows = self.rv().page_rows(ix, cx);
                 let path = file.path().to_owned();
-                let data = (ix == self.diff_file(cx)).then(|| self.diff_data(cx)).flatten();
+                let data = (ix == self.diff_file(cx))
+                    .then(|| self.diff_data(cx))
+                    .flatten();
                 let pins = self.pins_of(&path, cx);
                 let notes = (self.rv().pin_marks(&pins, data.as_deref()))
                     .into_iter()
@@ -109,7 +111,8 @@ impl Workspace {
         }
         // The other form fades in: Source's rows as a file just opened, the page as a page
         // (#56, 15).
-        if let Some(ix) = self.shown_diff(cx)
+        if let Some(ix) = self
+            .shown_diff(cx)
             .as_ref()
             .and_then(|d| d.files.iter().position(|f| f.path() == path))
         {
@@ -126,7 +129,8 @@ impl Workspace {
 
     /// M: the active file, when it is a document, turns Rendered or Source.
     pub(super) fn toggle_page_source(&mut self, cx: &mut Context<Self>) {
-        let Some(path) = self.shown_diff(cx)
+        let Some(path) = self
+            .shown_diff(cx)
             .as_ref()
             .and_then(|d| d.files.get(self.diff_file(cx)))
             .map(|f| f.path().to_owned())
@@ -158,7 +162,8 @@ impl Workspace {
 
     /// A block's count: its comments shown under it on the page, or hidden again.
     fn toggle_page_notes(&mut self, ix: usize, old: bool, first: u32, cx: &mut Context<Self>) {
-        let Some(path) = self.shown_diff(cx)
+        let Some(path) = self
+            .shown_diff(cx)
             .as_ref()
             .and_then(|d| d.files.get(ix))
             .map(|f| f.path().to_owned())
@@ -204,7 +209,9 @@ impl Workspace {
             let mut notes: Vec<AnyElement> = Vec::new();
             if self.showing_request(cx) {
                 notes.extend(
-                    self.requests_api().map(|r| r.threads_in(path, cx)).unwrap_or_default()
+                    self.requests_api()
+                        .map(|r| r.threads_in(path, cx))
+                        .unwrap_or_default()
                         .into_iter()
                         .filter(|&(_, o, n)| here(o, n))
                         .map(|(t, _, _)| self.render_request_thread(t, 0., this.clone(), cx)),

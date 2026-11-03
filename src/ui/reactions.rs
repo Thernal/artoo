@@ -44,7 +44,8 @@ impl Workspace {
         else {
             return;
         };
-        let Some(note) = self.request_thread(ix, cx)
+        let Some(note) = self
+            .request_thread(ix, cx)
             .and_then(|t| t.notes.last().map(|n| n.id))
         else {
             return;

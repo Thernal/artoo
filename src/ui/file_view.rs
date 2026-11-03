@@ -28,8 +28,7 @@ impl Workspace {
         if self.nav.space != Space::Code && !self.plain {
             let rev = match self.shown_diff(cx).as_ref().map(|d| &d.header) {
                 Some(Header::WorkingTree { .. }) => Some(None),
-                Some(_) => (self.rv().viewed_rev(cx))
-                    .map(|rev| Some((format::short(rev), rev))),
+                Some(_) => (self.rv().viewed_rev(cx)).map(|rev| Some((format::short(rev), rev))),
                 None => None,
             };
             if let Some(rev) = rev

@@ -143,12 +143,7 @@ impl Workspace {
             return self.notify_system("inbox".to_owned(), title, body, Open::Inbox, cx);
         }
         for n in fresh {
-            let title = format!(
-                "{} {} · {}",
-                n.who,
-                n.verb,
-                super::words::number(n.iid)
-            );
+            let title = format!("{} {} · {}", n.who, n.verb, super::words::number(n.iid));
             let body = format!("{}\n{project}", n.title);
             self.notify_system(n.key.clone(), title, body, Open::Notice(n.key.clone()), cx);
         }
@@ -194,10 +189,12 @@ impl Workspace {
     /// What a click on one opens, its tab on screen.
     fn open_system_note(&mut self, open: Open, cx: &mut Context<Self>) {
         match open {
-            Open::Notice(key) => match self.requests_api().and_then(|r| r.notice_by_key(&key, cx)) {
-                Some(ix) => self.open_notice(ix, cx),
-                None => self.go_space(super::spaces::Space::Inbox, cx),
-            },
+            Open::Notice(key) => {
+                match self.requests_api().and_then(|r| r.notice_by_key(&key, cx)) {
+                    Some(ix) => self.open_notice(ix, cx),
+                    None => self.go_space(super::spaces::Space::Inbox, cx),
+                }
+            }
             Open::Inbox => self.go_space(super::spaces::Space::Inbox, cx),
             Open::Act(act) => self.do_toast_act(act, cx),
             Open::Agents => {

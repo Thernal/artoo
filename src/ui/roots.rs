@@ -89,7 +89,9 @@ impl Workspace {
 
     /// The request picked in the list: its pipeline and approvals, once per update of it.
     pub(super) fn read_preview(&mut self, cx: &mut Context<Self>) {
-        let Some(m) = self.requests_api().and_then(|r| r.picked_row(cx))
+        let Some(m) = self
+            .requests_api()
+            .and_then(|r| r.picked_row(cx))
             .and_then(|iid| self.find_request(iid, cx))
         else {
             return;
@@ -181,7 +183,9 @@ impl Workspace {
     /// The requests the list has a row for, in its order: those of folded groups left out, but
     /// the picked one, which stays under its band.
     pub(super) fn listed_requests(&self, cx: &App) -> Vec<Mr> {
-        let past = self.requests_api().is_some_and(|r| r.view(cx) != MrState::Opened);
+        let past = self
+            .requests_api()
+            .is_some_and(|r| r.view(cx) != MrState::Opened);
         let picked = self.requests_api().and_then(|r| r.picked_row(cx));
         self.shown_requests(cx)
             .into_iter()
@@ -191,7 +195,8 @@ impl Workspace {
 
     /// Whether you have been inside request `iid`: opened here, or files of it marked (#81).
     pub(super) fn opened_before(&self, iid: u64, cx: &App) -> bool {
-        let head = self.find_request(iid, cx)
+        let head = self
+            .find_request(iid, cx)
             .and_then(|m| git2::Oid::from_str(&m.head).ok());
         self.requests_api().is_some_and(|r| r.row_opened(iid, cx))
             || !matches!(self.rv().request_seen(iid, head, cx), Seen::Never)
@@ -223,7 +228,8 @@ impl Workspace {
     /// waiting, at the first of them.
     pub(super) fn open_picked_request(&mut self, iid: u64, cx: &mut Context<Self>) {
         let me = self.request_login(cx).unwrap_or_default();
-        let mine = self.find_request(iid, cx)
+        let mine = self
+            .find_request(iid, cx)
             .is_some_and(|m| !me.is_empty() && m.author_login == me);
         let note = mine
             .then(|| {

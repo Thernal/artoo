@@ -4,13 +4,13 @@
 
 use super::nav::Page;
 use super::tools::ToolView;
-use artoo_requests_api::Change;
 use super::{Header, Selection, Workspace};
 use crate::git::Repo;
 use crate::mr::{self, Mr};
 use artoo_branches_api::RequestOf;
-use artoo_hosts_api::connect::{self, Connect, Here};
 use artoo_core::mr::{Sides, sides};
+use artoo_hosts_api::connect::{self, Connect, Here};
+use artoo_requests_api::Change;
 pub(super) use artoo_requests_api::Scope;
 use artoo_requests_api::{Act, Acts, Listing};
 use gpui::{App, ClickEvent, Context, WeakEntity, div, prelude::*};
@@ -152,7 +152,8 @@ impl Workspace {
                 // Its source branch, or a branch at its head (a merged one's, #114).
                 self.request_of_branch(ix, cx)
                     .is_some_and(|m| m.iid == *iid)
-                    || self.find_request(*iid, cx)
+                    || self
+                        .find_request(*iid, cx)
                         .zip(self.branch_list(cx).get(ix))
                         .is_some_and(|(m, b)| {
                             m.state != mr::MrState::Opened && b.tip.to_string() == m.head
@@ -247,7 +248,8 @@ impl Workspace {
         let Some(root) = self.root.clone() else {
             return;
         };
-        let head = self.find_request(iid, cx)
+        let head = self
+            .find_request(iid, cx)
             .map(|m| m.head.clone())
             .filter(|h| !h.is_empty());
         let news = format!("Fetching {}…", super::words::number(iid));
@@ -486,7 +488,11 @@ impl Workspace {
     /// The discussions on lines of the open file: (index, old side, line).
     pub(super) fn request_threads_here(&self, cx: &App) -> Vec<(usize, bool, u32)> {
         self.current_path(cx)
-            .map(|path| self.requests_api().map(|r| r.threads_in(&path, cx)).unwrap_or_default())
+            .map(|path| {
+                self.requests_api()
+                    .map(|r| r.threads_in(&path, cx))
+                    .unwrap_or_default()
+            })
             .unwrap_or_default()
     }
 
@@ -612,7 +618,8 @@ impl Workspace {
         let Some(diff) = &self.shown_diff(cx) else {
             return Vec::new();
         };
-        let mut order: Vec<(usize, u32, usize)> = self.request_threads(cx)
+        let mut order: Vec<(usize, u32, usize)> = self
+            .request_threads(cx)
             .iter()
             .enumerate()
             .filter_map(|(ix, t)| {
@@ -700,8 +707,7 @@ impl Workspace {
 
     /// Is discussion `ix` shown open? A resolved one starts folded, as in GitLab.
     pub(super) fn mr_open(&self, ix: usize, cx: &App) -> bool {
-        let default = self.request_thread(ix, cx)
-            .is_some_and(|t| !t.resolved);
+        let default = self.request_thread(ix, cx).is_some_and(|t| !t.resolved);
         default != self.toggled_mr.contains(&ix)
     }
 
@@ -799,7 +805,8 @@ impl Workspace {
         if a.mine {
             self.request_action(Change::Unapprove, cx);
         } else if a.can {
-            let head = self.find_request(iid, cx)
+            let head = self
+                .find_request(iid, cx)
                 .map(|m| m.head.clone())
                 .unwrap_or_default();
             self.request_action(Change::Approve { head }, cx);
@@ -1073,7 +1080,8 @@ impl Workspace {
             self.apply_jump(cx);
             return;
         }
-        let ix = self.shown_diff(cx)
+        let ix = self
+            .shown_diff(cx)
             .as_ref()
             .and_then(|d| d.files.iter().position(|f| f.path() == path));
         match ix {

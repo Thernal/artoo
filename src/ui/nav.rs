@@ -413,7 +413,10 @@ impl Workspace {
         self.services.get()
     }
 
-    pub(super) fn shown_diff(&self, cx: &App) -> Option<std::sync::Arc<artoo_review_api::diff::Diff>> {
+    pub(super) fn shown_diff(
+        &self,
+        cx: &App,
+    ) -> Option<std::sync::Arc<artoo_review_api::diff::Diff>> {
         self.review_api()?.shown(cx)
     }
 
@@ -458,7 +461,9 @@ impl Workspace {
 
     /// The review, which every tab has (its parts make it): what the tab asks of the diff.
     pub(super) fn rv(&self) -> std::rc::Rc<dyn artoo_review_api::Review> {
-        self.services.get().expect("a tab's review: artoo_review::install")
+        self.services
+            .get()
+            .expect("a tab's review: artoo_review::install")
     }
 
     /// The requests as a page asks them.
@@ -493,11 +498,15 @@ impl Workspace {
     }
 
     pub(super) fn request_members(&self, cx: &App) -> Vec<(String, String)> {
-        self.requests_api().map(|r| r.members(cx)).unwrap_or_default()
+        self.requests_api()
+            .map(|r| r.members(cx))
+            .unwrap_or_default()
     }
 
     pub(super) fn request_threads(&self, cx: &App) -> Vec<crate::mr::Thread> {
-        self.requests_api().map(|r| r.threads(cx)).unwrap_or_default()
+        self.requests_api()
+            .map(|r| r.threads(cx))
+            .unwrap_or_default()
     }
 
     pub(super) fn request_thread(&self, ix: usize, cx: &App) -> Option<crate::mr::Thread> {
@@ -505,7 +514,9 @@ impl Workspace {
     }
 
     pub(super) fn request_drafts(&self, cx: &App) -> Vec<crate::mr::Draft> {
-        self.requests_api().map(|r| r.drafts(cx)).unwrap_or_default()
+        self.requests_api()
+            .map(|r| r.drafts(cx))
+            .unwrap_or_default()
     }
 
     /// The branches as a page asks them.

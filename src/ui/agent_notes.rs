@@ -146,7 +146,8 @@ impl Workspace {
             return;
         };
         // In one scroll of all the files, its file becomes the one the keyboard works in.
-        if let Some(file) = self.shown_diff(cx)
+        if let Some(file) = self
+            .shown_diff(cx)
             .as_ref()
             .and_then(|d| d.files.iter().position(|f| f.path() == path))
             && self.rv().stacked(cx)
@@ -175,7 +176,8 @@ impl Workspace {
     /// Answer pressed on the first note on the file shown (the snapshot checks).
     #[cfg(feature = "snapshot")]
     pub(super) fn snapshot_answer_note(&mut self, cx: &mut Context<Self>) {
-        let path = self.shown_diff(cx)
+        let path = self
+            .shown_diff(cx)
             .as_ref()
             .and_then(|d| d.files.get(self.diff_file(cx)))
             .map(|f| f.path().to_owned());

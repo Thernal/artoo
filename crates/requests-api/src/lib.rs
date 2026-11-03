@@ -3,18 +3,18 @@
 //! of the requests read (`Requests`, a tab's service).
 
 use artoo_core::git::{BranchRef, DiffLine, Version, WebRemote};
-use artoo_core::mr::{Approvals, Draft, Merge, Mr, MrState, Thread};
 pub use artoo_core::mr::HostSides;
+use artoo_core::mr::{Approvals, Draft, Merge, Mr, MrState, Thread};
 use artoo_core::route::Place;
 use artoo_ui_kit::complete::Choice;
 use artoo_ui_kit::discussion::Card;
 use artoo_ui_kit::markdown::Selecting;
 use artoo_ui_kit::motion::Marks;
-use std::collections::HashMap;
 use gpui::{AnyElement, App, Div, KeyDownEvent, Pixels, Point, Stateful};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
-use serde::{Deserialize, Serialize};
 
 /// Which requests the list shows: All · To review · Mine in Merge requests' bar (#70, #72).
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -82,9 +82,14 @@ pub enum GridKey {
 /// A change sent to a request's host (#139), as data: the requests show it at once, faded, and make the host's call.
 pub enum Change {
     /// A reply in discussion `thread`.
-    Reply { thread: String, body: String },
+    Reply {
+        thread: String,
+        body: String,
+    },
     /// A comment on the request.
-    Comment { body: String },
+    Comment {
+        body: String,
+    },
     /// A comment on a line of the diff at `head` (`range` its first and last line when it spans several), or a
     /// pending one (`draft`).
     OnLine {
@@ -98,11 +103,23 @@ pub enum Change {
         draft: bool,
     },
     /// Note `note` of discussion `thread` written again, or deleted.
-    Edit { thread: String, note: u64, body: String },
-    Delete { thread: String, note: u64 },
-    Resolve { thread: String, resolved: bool },
+    Edit {
+        thread: String,
+        note: u64,
+        body: String,
+    },
+    Delete {
+        thread: String,
+        note: u64,
+    },
+    Resolve {
+        thread: String,
+        resolved: bool,
+    },
     /// One's approval given (on `head`), or taken back.
-    Approve { head: String },
+    Approve {
+        head: String,
+    },
     Unapprove,
     /// A pending comment deleted, or sent alone.
     DropDraft(u64),
@@ -166,7 +183,11 @@ pub enum InboxEvent {
     /// The composer under the notice selected.
     Reply,
     /// Discussion `id` of request `iid` resolved, or opened again.
-    Resolve { iid: u64, id: String, resolved: bool },
+    Resolve {
+        iid: u64,
+        id: String,
+        resolved: bool,
+    },
     /// Request `iid`'s menu, at the pointer.
     Menu { iid: u64, at: Point<Pixels> },
 }
@@ -237,10 +258,7 @@ pub enum Event {
     /// The reactions on the open request's notes were read.
     Awards,
     /// The host merged request `iid`, or set it to merge when the pipeline succeeds (`merge`).
-    Merged {
-        iid: u64,
-        merge: Merge,
-    },
+    Merged { iid: u64, merge: Merge },
     /// The host created request `iid` from branch `source`.
     Created { iid: u64, source: String },
     /// A key on the New merge request form asks the tab: create, or the pair's diff.
@@ -812,7 +830,12 @@ pub trait Requests {
     fn submit_card(&self, look: SubmitLook, cx: &mut App) -> Option<(Stateful<Div>, Div)>;
 
     /// New merge request's form opened on `branch` (from an agent's draft for it): the pair it would merge.
-    fn open_create(&self, branch: &BranchRef, drafted: Option<Drafted>, cx: &mut App) -> Option<Pair>;
+    fn open_create(
+        &self,
+        branch: &BranchRef,
+        drafted: Option<Drafted>,
+        cx: &mut App,
+    ) -> Option<Pair>;
     /// Templates ▾ chose `ix`; a list over the form opened (a snapshot's way in); the quick way, at Into.
     fn use_template(&self, ix: usize, cx: &mut App);
     fn open_create_menu(&self, name: &str, cx: &mut App);
@@ -823,7 +846,12 @@ pub trait Requests {
     fn pick_branch(&self, name: String, source: bool, cx: &mut App) -> Option<Pair>;
     fn step_branch_list(&self, down: bool, cx: &mut App) -> bool;
     /// The quick way over the branch view, `typing` while the form has the keyboard.
-    fn render_create_quick(&self, typing: bool, selecting: Selecting, cx: &mut App) -> Option<AnyElement>;
+    fn render_create_quick(
+        &self,
+        typing: bool,
+        selecting: Selecting,
+        cx: &mut App,
+    ) -> Option<AnyElement>;
 
     /// Compare with the new version for discussion `ix`, `latest` the newest: the stepper set, its last stop; the
     /// stepper as it is; left (the request it was on); the line of discussion `thread` changed since it was written.

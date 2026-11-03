@@ -120,9 +120,7 @@ impl Workspace {
             } else if self.settings_open {
                 self.settings_open = false;
                 cx.notify();
-            } else if self.note_sel.take().is_some()
-                || self.rv().clear_sel(cx)
-            {
+            } else if self.note_sel.take().is_some() || self.rv().clear_sel(cx) {
                 cx.notify();
             } else if self.tool().is_some() && self.zone == super::zones::Zone::Tool {
                 self.set_tool(None, cx);

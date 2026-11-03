@@ -44,7 +44,8 @@ impl Workspace {
     /// Request `iid`'s page: the one the host gave, else made from the remote.
     fn request_link(&self, web: &WebRemote, iid: u64, cx: &App) -> Link {
         Link {
-            url: self.find_request(iid, cx)
+            url: self
+                .find_request(iid, cx)
                 .map_or_else(|| web.request(iid), |m| m.url.clone()),
             what: words::number(iid),
         }

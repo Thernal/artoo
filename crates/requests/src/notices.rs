@@ -10,10 +10,10 @@
 
 use crate::requests::{Event, Requests};
 use crate::waiting::{Me, Waiting};
-use artoo_requests_api::News;
 use artoo_core::links::{self, Target};
 use artoo_core::storage;
 use artoo_hosts_api::{Host, Mr, Thread, Todo};
+use artoo_requests_api::News;
 use gpui::{App, Context, Entity, Task};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -735,8 +735,14 @@ mod tests {
 impl Requests {
     /// Reads the to-dos and the discussions of the user's requests again into `notices`, in the background, and every
     /// `EVERY` after; `me` the name the changes waiting show by. What is new is told (`Event::Noticed`).
-    pub(crate) fn read_notices(&mut self, notices: Entity<Notices>, me: String, cx: &mut Context<Self>) {
-        let (Some(host), Some(base)) = (self.host(cx), self.web.as_ref().map(|w| w.base.clone())) else {
+    pub(crate) fn read_notices(
+        &mut self,
+        notices: Entity<Notices>,
+        me: String,
+        cx: &mut Context<Self>,
+    ) {
+        let (Some(host), Some(base)) = (self.host(cx), self.web.as_ref().map(|w| w.base.clone()))
+        else {
             return;
         };
         if !self.available {
@@ -776,7 +782,10 @@ impl Requests {
                 loop {
                     cx.background_executor().timer(EVERY).await;
                     let (notices, me) = (watched.clone(), again.clone());
-                    if this.update(cx, |rq, cx| rq.read_notices(notices, me, cx)).is_err() {
+                    if this
+                        .update(cx, |rq, cx| rq.read_notices(notices, me, cx))
+                        .is_err()
+                    {
                         return;
                     }
                 }
@@ -796,7 +805,12 @@ impl Requests {
 
     /// `e`: done with notice `ix` of `notices`: gone at once; a to-do is marked done on the host, and a refusal puts it
     /// back where it was and says why (#139).
-    pub(crate) fn dismiss_notice(&mut self, notices: Entity<Notices>, ix: usize, cx: &mut Context<Self>) {
+    pub(crate) fn dismiss_notice(
+        &mut self,
+        notices: Entity<Notices>,
+        ix: usize,
+        cx: &mut Context<Self>,
+    ) {
         let base = self.web.as_ref().map(|w| w.base.clone());
         let Some(n) = notices.update(cx, |ns, _| ns.dismiss(ix, base.as_deref())) else {
             return;

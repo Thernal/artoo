@@ -498,8 +498,14 @@ impl Requests {
             self.base.drafts.clone(),
             self.base.approvals.clone(),
         );
-        self.waiting
-            .apply(iid, self.from, me, &mut threads, &mut drafts, &mut approvals);
+        self.waiting.apply(
+            iid,
+            self.from,
+            me,
+            &mut threads,
+            &mut drafts,
+            &mut approvals,
+        );
         let moved = Moved {
             threads: (self.threads.iter())
                 .map(|t| threads.iter().position(|n| n.id == t.id))

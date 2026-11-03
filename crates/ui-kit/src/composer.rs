@@ -3,12 +3,12 @@
 //! helpers, preview —, the one input component it is drawn in and a new comment's foot (who sees it, the ways to
 //! send it). Who it goes to, where it is drawn, its keys routed and what it writes sent are the tab's.
 
-use artoo_core::markdown::Helper;
-use artoo_core::textedit::TextEdit;
 use crate::complete::Choice;
 use crate::discussion::{self, Kind, Source};
 use crate::input::{self, Edit};
 use crate::{hover, icons, keys, markdown, px, theme};
+use artoo_core::markdown::Helper;
+use artoo_core::textedit::TextEdit;
 use gpui::{AnyElement, App, Div, Keystroke, Pixels, Point, Rgba, SharedString, div, prelude::*};
 use std::rc::Rc;
 

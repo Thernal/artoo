@@ -137,9 +137,12 @@ impl Workspace {
         } else {
             login.to_owned()
         };
-        let m = self.current_request(cx)
+        let m = self
+            .current_request(cx)
             .and_then(|iid| self.find_request(iid, cx));
-        let approved = self.requests_api().and_then(|r| r.approvals(cx))
+        let approved = self
+            .requests_api()
+            .and_then(|r| r.approvals(cx))
             .as_ref()
             .is_some_and(|a| a.by.iter().any(|b| b == name));
         let role = m.as_ref().and_then(|m| {
@@ -243,7 +246,8 @@ impl Workspace {
         let Some(login) = self.mention_hover.as_ref().map(|h| h.login.clone()) else {
             return;
         };
-        let name = self.request_members(cx)
+        let name = self
+            .request_members(cx)
             .iter()
             .find(|(l, _)| *l == login)
             .map_or_else(|| login.clone(), |(_, n)| n.clone());

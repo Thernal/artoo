@@ -6,8 +6,8 @@ use crate::group::Group;
 use artoo_core::git::{BranchRef, RefKind, Version};
 use artoo_hosts_api::{self as mr, Draft, Mr, Pipeline, Thread};
 use artoo_requests_api::{
-    Answered, Change, DiscussionsWindow, DraftLook, Drafted, InboxFilter, InboxRow, Listing,
-    Moved, OnDraft, OnInbox, OnThread, Pair, Since, SubmitLook, ThreadLook,
+    Answered, Change, DiscussionsWindow, DraftLook, Drafted, InboxFilter, InboxRow, Listing, Moved,
+    OnDraft, OnInbox, OnThread, Pair, Since, SubmitLook, ThreadLook,
 };
 use artoo_ui_kit::markdown::Selecting;
 use gpui::KeyDownEvent;
@@ -310,14 +310,21 @@ pub(crate) fn acts(requests: &Entity<Requests>, tab: artoo_requests_api::TabActs
 }
 
 /// Weak: the services hold it.
-struct Handle(WeakEntity<Requests>, std::rc::Weak<artoo_shell_api::Services>);
+struct Handle(
+    WeakEntity<Requests>,
+    std::rc::Weak<artoo_shell_api::Services>,
+);
 
 impl Handle {
     /// Runs `f` on the requests with their host, when they have one.
     fn with_host(
         &self,
         cx: &mut App,
-        f: impl FnOnce(&mut Requests, std::sync::Arc<dyn artoo_hosts_api::Host>, &mut gpui::Context<Requests>),
+        f: impl FnOnce(
+            &mut Requests,
+            std::sync::Arc<dyn artoo_hosts_api::Host>,
+            &mut gpui::Context<Requests>,
+        ),
     ) {
         let Some(requests) = self.0.upgrade() else {
             return;
@@ -329,7 +336,11 @@ impl Handle {
     }
 
     /// Runs `f` on the requests.
-    fn update<R>(&self, cx: &mut App, f: impl FnOnce(&mut Requests, &mut gpui::Context<Requests>) -> R) -> Option<R> {
+    fn update<R>(
+        &self,
+        cx: &mut App,
+        f: impl FnOnce(&mut Requests, &mut gpui::Context<Requests>) -> R,
+    ) -> Option<R> {
         Some(self.0.upgrade()?.update(cx, f))
     }
 
@@ -364,7 +375,11 @@ impl Handle {
     }
 
     /// Reads the notices.
-    fn read_notices_with<R>(&self, cx: &App, f: impl FnOnce(&crate::notices::Notices) -> R) -> Option<R> {
+    fn read_notices_with<R>(
+        &self,
+        cx: &App,
+        f: impl FnOnce(&crate::notices::Notices) -> R,
+    ) -> Option<R> {
         Some(f(self.notices()?.read(cx)))
     }
 
@@ -621,7 +636,10 @@ impl artoo_requests_api::Requests for Handle {
     }
 
     fn scope(&self, cx: &App) -> Scope {
-        self.0.upgrade().map(|r| r.read(cx).scope).unwrap_or_default()
+        self.0
+            .upgrade()
+            .map(|r| r.read(cx).scope)
+            .unwrap_or_default()
     }
 
     fn load_past_page(&self, scope: Scope, cx: &mut App) {
@@ -953,18 +971,29 @@ impl artoo_requests_api::Requests for Handle {
     }
 
     fn inbox_current(&self, answers: artoo_requests_api::Answers, cx: &App) -> Option<InboxRow> {
-        self.inbox()?.read(cx).current(self.notices()?.read(cx), answers)
+        self.inbox()?
+            .read(cx)
+            .current(self.notices()?.read(cx), answers)
     }
 
-    fn inbox_step(&self, answers: artoo_requests_api::Answers, down: bool, cx: &App) -> Option<InboxRow> {
-        self.inbox()?.read(cx).step(self.notices()?.read(cx), answers, down)
+    fn inbox_step(
+        &self,
+        answers: artoo_requests_api::Answers,
+        down: bool,
+        cx: &App,
+    ) -> Option<InboxRow> {
+        self.inbox()?
+            .read(cx)
+            .step(self.notices()?.read(cx), answers, down)
     }
 
     fn inbox_pick(&self, row: Option<InboxRow>, cx: &mut App) {
         let (Some(view), Some(notices)) = (self.inbox(), self.notices()) else {
             return;
         };
-        view.update(cx, |v, cx| notices.update(cx, |n, _| crate::inbox::pick(row, v, n)));
+        view.update(cx, |v, cx| {
+            notices.update(cx, |n, _| crate::inbox::pick(row, v, n))
+        });
     }
 
     fn read_excerpt(&self, cx: &mut App) {
@@ -1184,17 +1213,28 @@ impl artoo_requests_api::Requests for Handle {
             .unwrap_or(false)
     }
 
-    fn submit_card(&self, look: SubmitLook, cx: &mut App) -> Option<(gpui::Stateful<gpui::Div>, gpui::Div)> {
+    fn submit_card(
+        &self,
+        look: SubmitLook,
+        cx: &mut App,
+    ) -> Option<(gpui::Stateful<gpui::Div>, gpui::Div)> {
         let acts = self.acts();
         self.update(cx, |rq, cx| rq.submit_card(look, acts, cx))?
     }
 
-    fn open_create(&self, branch: &BranchRef, drafted: Option<Drafted>, cx: &mut App) -> Option<Pair> {
+    fn open_create(
+        &self,
+        branch: &BranchRef,
+        drafted: Option<Drafted>,
+        cx: &mut App,
+    ) -> Option<Pair> {
         let requests = self.0.upgrade()?;
         let host = requests.read(cx).host(cx)?;
         let branches = self.branch_list(cx);
         let here = requests.read(cx).here()?;
-        requests.update(cx, |rq, cx| rq.open_create(&here.of(&branches), branch, drafted, host, cx))
+        requests.update(cx, |rq, cx| {
+            rq.open_create(&here.of(&branches), branch, drafted, host, cx)
+        })
     }
 
     fn use_template(&self, ix: usize, cx: &mut App) {
@@ -1240,7 +1280,12 @@ impl artoo_requests_api::Requests for Handle {
         .unwrap_or(false)
     }
 
-    fn render_create_quick(&self, typing: bool, selecting: Selecting, cx: &mut App) -> Option<AnyElement> {
+    fn render_create_quick(
+        &self,
+        typing: bool,
+        selecting: Selecting,
+        cx: &mut App,
+    ) -> Option<AnyElement> {
         let requests = self.0.upgrade()?;
         let branches = self.branch_list(cx);
         let shown = self.review().and_then(|r| r.shown(cx));

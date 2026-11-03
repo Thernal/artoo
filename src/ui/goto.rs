@@ -160,7 +160,8 @@ impl Workspace {
             return;
         };
         let place = match &spot {
-            Spot::Note(id) => self.request_threads(cx)
+            Spot::Note(id) => self
+                .request_threads(cx)
                 .iter()
                 .enumerate()
                 .find(|(_, t)| t.notes.iter().any(|n| n.id == *id))

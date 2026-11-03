@@ -43,9 +43,11 @@ impl Workspace {
     /// was written on to the diff shown, in the background (#46).
     pub(super) fn map_agent_comments(&mut self, cx: &mut Context<Self>) {
         self.agent_lines.clear();
-        let (Some(root), Some(head), Some(diff)) =
-            (self.root.clone(), self.rv().shown_head(cx), self.shown_diff(cx))
-        else {
+        let (Some(root), Some(head), Some(diff)) = (
+            self.root.clone(),
+            self.rv().shown_head(cx),
+            self.shown_diff(cx),
+        ) else {
             return;
         };
         let paths: Vec<String> = diff.files.iter().map(|f| f.path().to_owned()).collect();
@@ -499,15 +501,8 @@ impl Workspace {
                 ),
             },
             comment.replies.is_empty(),
-            (self.compose.is_none()).then(|| {
-                edit_button(
-                    ("edit-agent", id),
-                    None,
-                    self.tight(cx),
-                    change,
-                    editing,
-                )
-            }),
+            (self.compose.is_none())
+                .then(|| edit_button(("edit-agent", id), None, self.tight(cx), change, editing)),
             None,
         );
         // The last question is answered under it while the comment is open; an earlier one, or

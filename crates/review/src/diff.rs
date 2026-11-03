@@ -2,8 +2,8 @@
 //! (`artoo_review_api::diff`); and a change to it the reviewer did not ask for (`Notice`).
 
 use artoo_core::git::{DiffSettings, Repo};
-use artoo_review_api::Source;
 pub use artoo_review_api::Notice;
+use artoo_review_api::Source;
 pub use artoo_review_api::diff::{Diff, FileTags, Header};
 use artoo_ui_kit::format;
 use std::path::Path;

@@ -145,6 +145,7 @@ impl Workspace {
     pub(super) fn render_create_quick(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let typing = self.has_keyboard(Input::Part(INPUT), cx);
         let selecting = self.selecting(cx.entity().downgrade());
-        self.requests_api()?.render_create_quick(typing, selecting, cx)
+        self.requests_api()?
+            .render_create_quick(typing, selecting, cx)
     }
 }

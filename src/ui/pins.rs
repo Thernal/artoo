@@ -5,9 +5,9 @@
 
 use super::Workspace;
 use super::composer::Target;
-use artoo_review_api::NoteTone;
 use super::rows::{Pin, Row};
 use crate::comment::Place;
+use artoo_review_api::NoteTone;
 use artoo_review_api::{Anchored, FilePins, Pins};
 use gpui::{App, Context};
 
@@ -20,7 +20,8 @@ impl Workspace {
 
     /// The pins of every file of the diff.
     pub(super) fn all_pins(&self, cx: &App) -> Pins {
-        let paths: Vec<String> = self.shown_diff(cx)
+        let paths: Vec<String> = self
+            .shown_diff(cx)
             .as_ref()
             .map(|d| d.files.iter().map(|f| f.path().to_owned()).collect())
             .unwrap_or_default();
@@ -42,10 +43,7 @@ impl Workspace {
     pub(super) fn toggle_notes_at(&mut self, old: bool, line: u32, cx: &mut Context<Self>) {
         // A line with nothing but a bookmark: the click takes the mark off.
         let only_bookmark = self.rv().line_marks(cx).iter().any(|n| {
-            n.old == old
-                && n.line == line
-                && n.tone == NoteTone::Bookmark
-                && n.count == 1
+            n.old == old && n.line == line && n.tone == NoteTone::Bookmark && n.count == 1
         });
         if only_bookmark {
             return self.toggle_bookmark_at(line, cx);
@@ -122,18 +120,20 @@ impl Workspace {
             .filter(|c| c.path == path && c.file.is_none());
         let showing = self.showing_request(cx);
         let theirs = if showing {
-            self.requests_api().map(|r| r.threads_in(path, cx)).unwrap_or_default()
+            self.requests_api()
+                .map(|r| r.threads_in(path, cx))
+                .unwrap_or_default()
         } else {
             self.since_thread_in(path, cx)
         };
         let drafts = if showing {
-            self.requests_api().map(|r| r.drafts_in(path, cx)).unwrap_or_default()
+            self.requests_api()
+                .map(|r| r.drafts_in(path, cx))
+                .unwrap_or_default()
         } else {
             Vec::new()
         };
-        let reply_of = |ix: usize| {
-            self.requests_api().and_then(|r| r.draft_thread(ix, cx))
-        };
+        let reply_of = |ix: usize| self.requests_api().and_then(|r| r.draft_thread(ix, cx));
         let mut fixed = Vec::new();
         // A reply waiting to be sent comes right under its own discussion (#166).
         for &(t, old, line) in &theirs {

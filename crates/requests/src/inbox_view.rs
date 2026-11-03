@@ -16,8 +16,8 @@ use artoo_ui_kit::keys::{self, On};
 use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::{ROW_RADIUS, format, gap, icons, island, px, theme, words};
 use gpui::{
-    AnyElement, App, ClickEvent, Div, FontWeight, MouseButton, MouseDownEvent,
-    Stateful, div, prelude::*,
+    AnyElement, App, ClickEvent, Div, FontWeight, MouseButton, MouseDownEvent, Stateful, div,
+    prelude::*,
 };
 
 pub use artoo_requests_api::{InboxEvent, OnInbox, RowLook};

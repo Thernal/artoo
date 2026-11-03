@@ -819,10 +819,7 @@ impl Workspace {
             let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
             let diff = self.shown_diff(cx);
 
-            let Some(file) = diff
-                .as_ref()
-                .and_then(|d| d.files.get(self.diff_file(cx)))
-            else {
+            let Some(file) = diff.as_ref().and_then(|d| d.files.get(self.diff_file(cx))) else {
                 return Vec::new();
             };
             let name = file
@@ -1239,7 +1236,8 @@ impl Workspace {
             // In Code a file opens there, as a tab, changed or not (#75).
             Pick::File(ix) if self.nav.space == super::spaces::Space::Code => {
                 self.palette = None;
-                if let Some(path) = self.shown_diff(cx)
+                if let Some(path) = self
+                    .shown_diff(cx)
                     .as_ref()
                     .and_then(|d| d.files.get(ix))
                     .map(|f| f.path().to_owned())
@@ -1396,7 +1394,8 @@ impl Workspace {
                     key,
                     // A file's icon before it (#95).
                     icon: match &item.pick {
-                        Pick::File(f) => self.shown_diff(cx)
+                        Pick::File(f) => self
+                            .shown_diff(cx)
                             .as_ref()
                             .and_then(|d| d.files.get(*f))
                             .map(|f| f.path().to_owned()),

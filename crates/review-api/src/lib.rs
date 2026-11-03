@@ -13,8 +13,8 @@ pub mod diff;
 use artoo_core::git::{CommitInfo, PairCommit, Version};
 use artoo_core::rows::{FileData, Pin, Row};
 use artoo_core::storage::{Settings, ViewOptions};
-use git2::Oid;
 use artoo_ui_kit::markdown::Selecting;
+use git2::Oid;
 use gpui::{AnyElement, App, Rgba};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -191,7 +191,14 @@ pub trait Review {
     fn refresh_annotations(&self, cx: &mut App);
 
     /// The pointer came on line number `line` of file `ix` (`at`), or went off it: true when the tip shown went.
-    fn hover_line_number(&self, ix: usize, old: bool, line: u32, at: Option<gpui::Point<gpui::Pixels>>, cx: &mut App) -> bool;
+    fn hover_line_number(
+        &self,
+        ix: usize,
+        old: bool,
+        line: u32,
+        at: Option<gpui::Point<gpui::Pixels>>,
+        cx: &mut App,
+    ) -> bool;
 
     /// The commit blame says line `ix` (0-based) of the file shown is from.
     fn annotation(&self, ix: usize, cx: &App) -> Option<Oid>;
@@ -272,7 +279,14 @@ pub trait Review {
     fn file_binary(&self, cx: &App) -> Option<Option<u64>>;
 
     /// The file Code reads drawn: its head and its body; `binary` what stands for a binary file's lines.
-    fn render_file_view(&self, host: Rc<dyn Host>, notes: &FileNotes, binary: Option<AnyElement>, selecting: Selecting, cx: &mut App) -> Option<(gpui::Div, AnyElement)>;
+    fn render_file_view(
+        &self,
+        host: Rc<dyn Host>,
+        notes: &FileNotes,
+        binary: Option<AnyElement>,
+        selecting: Selecting,
+        cx: &mut App,
+    ) -> Option<(gpui::Div, AnyElement)>;
 
     /// Find in files opened.
     fn open_find_files(&self, cx: &mut App);
@@ -281,7 +295,12 @@ pub trait Review {
     fn close_find_files(&self, cx: &mut App) -> bool;
 
     /// A key typed in find in files, edited in the tab's `field`.
-    fn find_files_key(&self, key: &gpui::Keystroke, field: &mut artoo_core::textedit::TextEdit, cx: &mut App) -> SearchKeyed;
+    fn find_files_key(
+        &self,
+        key: &gpui::Keystroke,
+        field: &mut artoo_core::textedit::TextEdit,
+        cx: &mut App,
+    ) -> SearchKeyed;
 
     /// Find in files' selection moved down or up: true when it moved.
     fn find_files_step(&self, down: bool, cx: &mut App) -> bool;
