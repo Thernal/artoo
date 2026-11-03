@@ -1943,6 +1943,10 @@ impl Workspace {
                         }
                         this.watch.watch(git_dir, fingerprint);
                         this.start_working_poll(cx);
+                        // The requests' repository is the one being opened: the tab's root is still the last one's.
+                        if let Some(requests) = this.requests_api() {
+                            requests.set_repository(Some(root.clone()), this.web.clone(), cx);
+                        }
                         this.load_requests(cx);
                         // The documents this repository reads as Source (#11).
                         this.rv().load_pages(&crate::comment::key(&root), cx);
@@ -2014,6 +2018,9 @@ impl Workspace {
         // Nothing of git's to watch or fetch; the poll only brings the agents' answers.
         self.fetch = Default::default();
         self.start_working_poll(cx);
+        if let Some(requests) = self.requests_api() {
+            requests.set_repository(Some(root.clone()), None, cx);
+        }
         self.load_requests(cx);
         self.rv().load_pages(&crate::comment::key(&root), cx);
         let key = crate::comment::key(&root);

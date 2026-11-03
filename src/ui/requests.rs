@@ -51,7 +51,6 @@ impl Workspace {
         let Some(requests) = self.requests_api() else {
             return;
         };
-        requests.set_repository(self.root.clone(), self.web.clone(), cx);
         let Some(remote) = self.web.clone() else {
             return requests.reset(cx);
         };
