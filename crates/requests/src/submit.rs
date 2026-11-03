@@ -84,7 +84,7 @@ pub struct SubmitLook {
 pub struct Submission {
     pub iid: u64,
     pub ops: Vec<Op>,
-    pub work: Box<dyn FnOnce(Arc<dyn Host>) -> anyhow::Result<()> + Send>,
+    pub work: crate::waiting::Work,
     pub card: SubmitCard,
 }
 

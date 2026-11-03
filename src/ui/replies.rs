@@ -4,7 +4,7 @@
 use super::Workspace;
 use super::composer::{Compose, Target};
 use super::typing::Input;
-use super::waiting::Op;
+use artoo_requests_api::Change;
 use crate::textedit::TextEdit;
 use gpui::{App, ClipboardItem, Context};
 
@@ -13,7 +13,7 @@ impl Workspace {
     pub(super) fn start_reply(&mut self, ix: usize, cx: &mut Context<Self>) {
         // One still on its way to the host has no id to reply to yet (#139).
         let Some(t) = self.request_thread(ix, cx)
-            .filter(|t| !super::waiting::is_temp_thread(&t.id))
+            .filter(|t| !self.is_temp_thread(&t.id))
         else {
             return;
         };
@@ -102,26 +102,11 @@ impl Workspace {
         if body.is_empty() {
             return;
         }
-        let op = self.requests.update(cx, |rq, _| {
-            let w = &mut rq.waiting;
-            match discussion.clone() {
-                Some(thread) => Op::Reply {
-                    thread,
-                    note: w.temp(),
-                    body: body.clone(),
-                },
-                None => Op::Discussion {
-                    thread: w.temp_thread(),
-                    note: w.temp(),
-                    body: body.clone(),
-                    at: None,
-                },
-            }
-        });
-        self.submit_compose(iid, vec![op], cx, move |host| match discussion {
-            Some(id) => host.reply(iid, &id, &body),
-            None => host.comment(iid, &body),
-        });
+        let change = match discussion {
+            Some(thread) => Change::Reply { thread, body },
+            None => Change::Comment { body },
+        };
+        self.submit_compose(iid, change, cx);
     }
 
     /// One's own last note in discussion `ix`, when the request can take changes.
@@ -176,47 +161,17 @@ impl Workspace {
         });
         let path = new_path.clone().or(old_path.clone()).unwrap_or_default();
         let old_path = old_path.or(new_path).unwrap_or_default();
-        // Shown at once where it was written: a pending comment, or a discussion (#139).
-        let op = self.requests.update(cx, |rq, _| {
-            let w = &mut rq.waiting;
-            if draft {
-                Op::Draft(crate::mr::Draft {
-                    id: w.temp(),
-                    body: body.clone(),
-                    path: Some(path.clone()),
-                    new_line,
-                    old_line,
-                    reply_to: None,
-                })
-            } else {
-                Op::Discussion {
-                    thread: w.temp_thread(),
-                    note: w.temp(),
-                    body: body.clone(),
-                    at: Some(super::waiting::At {
-                        path: path.clone(),
-                        new_line,
-                        old_line,
-                    }),
-                }
-            }
-        });
-        self.submit_compose(iid, vec![op], cx, move |host| {
-            host.post_discussion(
-                iid,
-                &head,
-                &crate::mr::Place {
-                    path: &path,
-                    old_path: &old_path,
-                    new_line,
-                    old_line,
-                    range,
-                },
-                &body,
-                draft,
-            )
-            .map(|_| ())
-        });
+        let change = Change::OnLine {
+            head,
+            path,
+            old_path,
+            new_line,
+            old_line,
+            range,
+            body,
+            draft,
+        };
+        self.submit_compose(iid, change, cx);
     }
 
     /// Writes the reply being composed to the discussion it answers.
@@ -229,29 +184,21 @@ impl Workspace {
             return;
         };
         let (body, id) = (compose.edit.text().trim().to_owned(), thread.id.clone());
-        if body.is_empty() || super::waiting::is_temp_thread(&id) {
+        if body.is_empty() || self.is_temp_thread(&id) {
             return;
         }
-        let op = Op::Reply {
-            thread: id.clone(),
-            note: self.requests.update(cx, |rq, _| rq.waiting.temp()),
-            body: body.clone(),
-        };
-        self.submit_compose(iid, vec![op], cx, move |host| host.reply(iid, &id, &body));
+        self.submit_compose(iid, Change::Reply { thread: id, body }, cx);
     }
 
-    /// Sends what the composer holds, as `ops` on request `iid`, with `work`: the composer closes
+    /// Sends what the composer holds, as `change` on request `iid`: the composer closes
     /// and the comment shows at once, faded (#139). Refused, the composer comes back with its text
     /// and the reason when nothing else is being written and its place still shows; else its text
     /// goes to the clipboard and the error bar says why.
     pub(super) fn submit_compose(
         &mut self,
         iid: u64,
-        ops: Vec<Op>,
+        change: Change,
         cx: &mut Context<Self>,
-        work: impl FnOnce(std::sync::Arc<dyn artoo_hosts_api::Host>) -> anyhow::Result<()>
-        + Send
-        + 'static,
     ) {
         if self.web.is_none() {
             return;
@@ -316,6 +263,6 @@ impl Workspace {
             }
             cx.notify();
         };
-        self.send_change(iid, ops, work, refused, cx);
+        self.send_change(iid, change, refused, cx);
     }
 }

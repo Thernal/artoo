@@ -8,48 +8,47 @@
 //! answered before `t`, so when it arrives those stop applying and the rest go on top of it.
 
 use super::Workspace;
-pub(super) use artoo_requests::waiting::{At, Op, is_temp, is_temp_thread};
+use artoo_requests_api::{Answered, Change};
 use gpui::{App, Context};
 
 impl Workspace {
-    /// Sends `ops` on request `iid` with `work`: they show at once, faded; taken, the request's
-    /// discussions are read again, quietly; refused, they are taken back and `refused` is told why.
-    /// The request is read again either way when it is open, for whatever went through.
+    /// Sends `change` on request `iid` (`Requests::send`): it shows at once, faded; taken, the
+    /// request's discussions are read again, quietly; refused, it is taken back and `refused` is
+    /// told why. The request is read again either way when it is open, for whatever went through.
     pub(super) fn send_change(
         &mut self,
         iid: u64,
-        ops: Vec<Op>,
-        work: impl FnOnce(std::sync::Arc<dyn artoo_hosts_api::Host>) -> anyhow::Result<()>
-        + Send
-        + 'static,
+        change: Change,
         refused: impl FnOnce(&mut Self, String, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
     ) {
-        let Some(remote) = self.web.clone() else {
+        let Some(requests) = self.requests_api() else {
             return;
         };
-        let host = super::host_of(&remote, cx);
-        let key = self
-            .requests
-            .update(cx, |rq, _| rq.waiting.send(iid, ops, super::inbox::now()));
-        self.show_waiting(iid, cx);
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { work(host) })
-                .await;
+        if requests.send(iid, change, self.answered(iid, refused, cx), cx) {
+            self.show_waiting(iid, cx);
+            cx.notify();
+        }
+    }
+
+    /// What follows a change on request `iid` once its host answered: refused, what shows is made
+    /// again and `refused` told why (unless the requests said it); the Inbox, while on screen, and
+    /// the request, while open, read again.
+    pub(super) fn answered(
+        &self,
+        iid: u64,
+        refused: impl FnOnce(&mut Self, String, &mut Context<Self>) + 'static,
+        cx: &Context<Self>,
+    ) -> Answered {
+        let this = cx.weak_entity();
+        Box::new(move |result, cx| {
             this.update(cx, |this, cx| {
-                match result {
-                    Ok(()) => this.requests.update(cx, |rq, _| rq.waiting.took(key)),
-                    Err(e) => {
-                        this.requests.update(cx, |rq, _| rq.waiting.refused(key));
-                        this.show_waiting(iid, cx);
-                        refused(this, format!("{e:#}"), cx);
+                if let Err(why) = result {
+                    this.show_waiting(iid, cx);
+                    if let Some(why) = why {
+                        refused(this, why, cx);
                     }
                 }
-                // The Inbox reads it again on its next look; at once while it is on screen.
-                this.notices.update(cx, |n, _| n.stale(iid));
                 if this.inbox {
                     this.load_notices(cx);
                 }
@@ -60,7 +59,6 @@ impl Workspace {
             })
             .ok();
         })
-        .detach();
     }
 
     /// The error bar says why a change was refused.
@@ -69,54 +67,26 @@ impl Workspace {
         cx.notify();
     }
 
-    /// What shows of request `iid` made again: the host's last answer with the changes still
-    /// waiting on it. The folds, the keyboard's discussion and pending comment, and a reply being
-    /// written follow theirs wherever it moved.
+    /// What shows of request `iid` made again (`Requests::show_waiting`): the host's last answer
+    /// with the changes still waiting on it. The folds, the keyboard's discussion and pending
+    /// comment, and a reply being written follow theirs wherever it moved.
     pub(super) fn show_waiting(&mut self, iid: u64, cx: &mut App) {
-        let me = (
-            self.me.clone(),
-            self.request_login(cx).unwrap_or_default(),
-        );
-        let me = (me.0.as_str(), me.1.as_str());
-        if self.current_request(cx) == Some(iid) {
-            let r = &self.requests.read(cx);
-            let thread_id = |ix: usize| r.threads.get(ix).map(|t| t.id.clone());
-            let toggled: Vec<String> = self
-                .toggled_mr
-                .iter()
-                .filter_map(|&ix| thread_id(ix))
-                .collect();
-            let at = self.thread_at.and_then(thread_id);
-            let draft_at = self.draft_at.and_then(|ix| r.drafts.get(ix)).map(|d| d.id);
-            let composing = self
-                .compose
-                .as_ref()
-                .and_then(|c| c.thread())
-                .and_then(thread_id);
-            let (mut threads, mut drafts, mut approvals) = (
-                r.base.threads.clone(),
-                r.base.drafts.clone(),
-                r.base.approvals.clone(),
-            );
-            r.waiting
-                .apply(iid, r.from, me, &mut threads, &mut drafts, &mut approvals);
-            let ix_of = |id: &str| threads.iter().position(|t| t.id == id);
-            self.toggled_mr = toggled.iter().filter_map(|id| ix_of(id)).collect();
-            self.thread_at = at.and_then(|id| ix_of(&id));
-            self.draft_at = draft_at.and_then(|id| drafts.iter().position(|d| d.id == id));
-            if let (Some(id), Some(c)) = (composing, self.compose.as_mut())
-                && let Some(ix) = ix_of(&id)
-            {
-                c.set_thread(ix);
-            }
-            self.requests.update(cx, |rq, _| rq.threads = threads);
-            self.requests.update(cx, |rq, _| rq.drafts = drafts);
-            self.requests.update(cx, |rq, _| rq.approvals = approvals);
-            self.refresh_rows(cx);
+        let Some(requests) = self.requests_api() else {
+            return;
+        };
+        let Some(moved) = requests.show_waiting(iid, &self.me, cx) else {
+            return;
+        };
+        let thread = |ix: usize| moved.threads.get(ix).copied().flatten();
+        self.toggled_mr = self.toggled_mr.iter().filter_map(|&ix| thread(ix)).collect();
+        self.thread_at = self.thread_at.and_then(thread);
+        self.draft_at = (self.draft_at).and_then(|ix| moved.drafts.get(ix).copied().flatten());
+        if let Some(c) = self.compose.as_mut()
+            && let Some(ix) = c.thread().and_then(thread)
+        {
+            c.set_thread(ix);
         }
-        let requests = self.requests.clone();
-        self.notices
-            .update(cx, |n, cx| n.show(iid, &requests.read(cx).waiting, me));
+        self.refresh_rows(cx);
     }
 
     /// What shows of the open request `iid` is made again on the host's answer just taken, and
@@ -131,14 +101,19 @@ impl Workspace {
 
     /// The changes the request open and the Inbox both hold now are let go.
     pub(super) fn settle_waiting(&mut self, cx: &mut App) {
-        let (current, from) = (self.current_request(cx), self.requests.read(cx).from);
-        let notices = self.notices.clone();
-        self.requests.update(cx, |rq, cx| {
-            let notices = notices.read(cx);
-            rq.waiting.settle(|iid, done| {
-                (current != Some(iid) || from > done) && notices.holds(iid, done)
-            })
-        });
+        if let Some(requests) = self.requests_api() {
+            requests.settle_waiting(cx);
+        }
+    }
+
+    /// An id given to a note or a pending comment not on the host yet (#139).
+    pub(super) fn is_temp(&self, id: u64) -> bool {
+        self.requests_api().is_some_and(|r| r.is_temp(id))
+    }
+
+    /// An id given to a discussion not on the host yet: it has no id to reply to.
+    pub(super) fn is_temp_thread(&self, id: &str) -> bool {
+        self.requests_api().is_some_and(|r| r.is_temp_thread(id))
     }
 }
 

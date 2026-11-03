@@ -4,7 +4,7 @@
 use super::Workspace;
 use super::tools::ToolView;
 use super::typing::{self, Input};
-use artoo_requests::submit::{Submission, SubmitLook};
+use artoo_requests::submit::SubmitLook;
 use gpui::{App, Context, KeyDownEvent, prelude::*};
 
 impl Workspace {
@@ -33,28 +33,15 @@ impl Workspace {
         }
     }
 
-    /// Sends what the card submits (`Requests::submission`). Refused, the card comes back saying
-    /// why.
+    /// Sends what the card submits (`Requests::submit`). Refused, the card comes back saying why.
     pub(super) fn run_submit(&mut self, cx: &mut Context<Self>) {
-        let Some(Submission {
-            iid,
-            ops,
-            work,
-            card,
-        }) = self.requests.update(cx, |rq, cx| rq.submission(cx))
-        else {
+        let (Some(requests), Some(iid)) = (self.requests_api(), self.current_request(cx)) else {
             return;
         };
-        let refused = move |this: &mut Self, why: String, cx: &mut Context<Self>| {
-            let back = this
-                .requests
-                .update(cx, |rq, _| rq.submit_refused(iid, card, why.clone()));
-            if !back {
-                this.error = Some(why.into());
-            }
+        if requests.submit(self.answered(iid, Self::say_refused, cx), cx) {
+            self.show_waiting(iid, cx);
             cx.notify();
-        };
-        self.send_change(iid, ops, work, refused, cx);
+        }
     }
 
     /// Submit review, in the tool window while it is open (`Requests::submit_card`).

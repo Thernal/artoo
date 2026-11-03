@@ -5,6 +5,7 @@
 use crate::group::Group;
 use artoo_core::git::{BranchRef, RefKind, Repo, Version};
 use artoo_hosts_api::{self as mr, Draft, Mr, Pipeline, Thread};
+use artoo_requests_api::{Answered, Change, Moved};
 use gpui::{App, Entity, Task, WeakEntity};
 use std::rc::Rc;
 
@@ -443,6 +444,11 @@ impl Handle {
         Some(self.0.upgrade()?.update(cx, f))
     }
 
+    /// The Inbox's notices, from the tab's services.
+    fn notices(&self) -> Option<Entity<crate::notices::Notices>> {
+        self.1.upgrade()?.get()
+    }
+
     /// How a view's click asks the tab.
     fn acts(&self) -> Acts {
         self.1
@@ -876,5 +882,82 @@ impl artoo_requests_api::Requests for Handle {
         let requests = self.0.upgrade()?;
         let host = requests.read(cx).host(cx)?;
         requests.update(cx, |rq, cx| rq.submit_create(host, cx))
+    }
+
+    fn send(&self, number: u64, change: Change, answered: Answered, cx: &mut App) -> bool {
+        let notices = self.notices();
+        let mut sent = false;
+        self.with_host(cx, |rq, host, cx| {
+            let (ops, work) = rq.ops_of(number, change);
+            rq.send_ops(number, ops, work, host, notices, answered, cx);
+            sent = true;
+        });
+        sent
+    }
+
+    fn submit(&self, answered: Answered, cx: &mut App) -> bool {
+        let notices = self.notices();
+        let mut sent = false;
+        self.with_host(cx, |rq, host, cx| {
+            let Some(crate::submit::Submission {
+                iid,
+                ops,
+                work,
+                card,
+            }) = rq.submission(cx)
+            else {
+                return;
+            };
+            // Refused, the card comes back saying why, unless another is open or another request shows.
+            let this = cx.weak_entity();
+            let answered: Answered = Box::new(move |result, cx| {
+                let result = match result {
+                    Err(Some(why)) => {
+                        let back = this.update(cx, |rq, cx| {
+                            cx.notify();
+                            rq.submit_refused(iid, card, why.clone())
+                        });
+                        Err(Some(why).filter(|_| !back.unwrap_or(false)))
+                    }
+                    other => other,
+                };
+                answered(result, cx);
+            });
+            rq.send_ops(iid, ops, work, host, notices, answered, cx);
+            sent = true;
+        });
+        sent
+    }
+
+    fn show_waiting(&self, number: u64, me: &str, cx: &mut App) -> Option<Moved> {
+        let requests = self.0.upgrade()?;
+        let login = requests.read(cx).login.clone().unwrap_or_default();
+        let me = (me, login.as_str());
+        let moved = requests.update(cx, |rq, _| rq.show_waiting(number, me));
+        if let Some(notices) = self.notices() {
+            notices.update(cx, |n, cx| n.show(number, &requests.read(cx).waiting, me));
+        }
+        moved
+    }
+
+    fn settle_waiting(&self, cx: &mut App) {
+        let (Some(requests), notices) = (self.0.upgrade(), self.notices()) else {
+            return;
+        };
+        requests.update(cx, |rq, cx| {
+            let (current, from) = (rq.current, rq.from);
+            let notices = notices.as_ref().map(|n| n.read(cx));
+            rq.waiting.settle(|iid, done| {
+                (current != Some(iid) || from > done) && notices.is_none_or(|n| n.holds(iid, done))
+            })
+        });
+    }
+
+    fn is_temp(&self, id: u64) -> bool {
+        crate::waiting::is_temp(id)
+    }
+
+    fn is_temp_thread(&self, id: &str) -> bool {
+        crate::waiting::is_temp_thread(id)
     }
 }

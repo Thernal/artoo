@@ -15,7 +15,6 @@ use artoo_agents_api::view::{AnswerEvent, AnswerLook, From, OnAnswer, answer_pre
 use artoo_requests::inbox::excerpt;
 pub(super) use artoo_requests::inbox::{InboxRow, InboxView};
 use artoo_requests::inbox_view::{self, InboxEvent, OnInbox, RowLook};
-pub(super) use artoo_ui_kit::format::now;
 use artoo_ui_kit::markdown::Selecting;
 use gpui::{AnyElement, App, Context, WeakEntity, div, prelude::*};
 use std::rc::Rc;
@@ -242,17 +241,11 @@ impl Workspace {
     /// Resolves (or opens again) discussion `id` of request `iid` from the Inbox: at once, faded
     /// until the host answers (#139).
     fn inbox_resolve(&mut self, iid: u64, id: String, resolved: bool, cx: &mut Context<Self>) {
-        let op = super::waiting::Op::Resolve {
-            thread: id.clone(),
+        let change = artoo_requests_api::Change::Resolve {
+            thread: id,
             resolved,
         };
-        self.send_change(
-            iid,
-            vec![op],
-            move |host| host.resolve(iid, &id, resolved),
-            Self::say_refused,
-            cx,
-        );
+        self.send_change(iid, change, Self::say_refused, cx);
     }
 
     /// A click in the Inbox (`InboxHost::act`).

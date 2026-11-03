@@ -11,7 +11,6 @@ use super::input;
 use super::markdown;
 use super::px;
 use super::typing::{self, Input};
-use super::waiting::Op;
 use super::{Selection, Workspace, format};
 use crate::comment::{Comment, State};
 use crate::markdown::Helper;
@@ -306,7 +305,7 @@ impl Workspace {
                 let Some(n) = t
                     .notes
                     .iter()
-                    .find(|n| n.id == note && !super::waiting::is_temp(n.id))
+                    .find(|n| n.id == note && !self.is_temp(n.id))
                 else {
                     return;
                 };
@@ -391,14 +390,9 @@ impl Workspace {
                 ) else {
                     return;
                 };
-                let id = t.id.clone();
-                let op = Op::Edit {
-                    note,
-                    body: body.clone(),
-                };
-                self.submit_compose(iid, vec![op], cx, move |host| {
-                    host.edit_note(iid, &id, note, &body)
-                });
+                let thread = t.id.clone();
+                let change = artoo_requests_api::Change::Edit { thread, note, body };
+                self.submit_compose(iid, change, cx);
             }
         }
     }

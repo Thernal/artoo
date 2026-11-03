@@ -4,7 +4,7 @@
 
 use super::nav::Page;
 use super::tools::ToolView;
-use super::waiting::Op;
+use artoo_requests_api::Change;
 use super::{Header, Selection, Workspace};
 use crate::git::Repo;
 use crate::mr::{self, Mr};
@@ -788,18 +788,10 @@ impl Workspace {
         thread::render_draft(self.requests.read(cx), ix, look, on, cx)
     }
 
-    /// A change to the open request, `ops` sent with `work`; a refusal says why in the error bar
-    /// (#139).
-    fn request_action(
-        &mut self,
-        ops: Vec<Op>,
-        work: impl FnOnce(std::sync::Arc<dyn artoo_hosts_api::Host>) -> anyhow::Result<()>
-        + Send
-        + 'static,
-        cx: &mut Context<Self>,
-    ) {
+    /// A change to the open request; a refusal says why in the error bar (#139).
+    fn request_action(&mut self, change: Change, cx: &mut Context<Self>) {
         if let Some(iid) = self.current_request(cx) {
-            self.send_change(iid, ops, work, Self::say_refused, cx);
+            self.send_change(iid, change, Self::say_refused, cx);
         }
     }
 
@@ -808,21 +800,14 @@ impl Workspace {
         let Some(t) = self.request_thread(ix, cx) else {
             return;
         };
-        if super::waiting::is_temp_thread(&t.id) {
+        if self.is_temp_thread(&t.id) {
             return;
         }
-        let (id, resolved) = (t.id.clone(), !t.resolved);
-        let Some(iid) = self.current_request(cx) else {
-            return;
-        };
+        let (thread, resolved) = (t.id.clone(), !t.resolved);
         // Shown as its new state shows it.
         self.mark_motion(&format!("thread-{ix}"), cx);
         self.toggled_mr.remove(&ix);
-        let op = Op::Resolve {
-            thread: id.clone(),
-            resolved,
-        };
-        self.request_action(vec![op], move |host| host.resolve(iid, &id, resolved), cx);
+        self.request_action(Change::Resolve { thread, resolved }, cx);
     }
 
     /// `a`: approves the open request, or takes one's approval back.
@@ -836,14 +821,13 @@ impl Workspace {
         if !self.showing_request(cx) {
             return;
         }
-        let op = vec![Op::Approve { mine: !a.mine }];
         if a.mine {
-            self.request_action(op, move |host| host.unapprove(iid), cx);
+            self.request_action(Change::Unapprove, cx);
         } else if a.can {
             let head = self.find_request(iid, cx)
                 .map(|m| m.head.clone())
                 .unwrap_or_default();
-            self.request_action(op, move |host| host.approve(iid, &head), cx);
+            self.request_action(Change::Approve { head }, cx);
         } else {
             self.error = Some("GitLab does not let you approve this merge request.".into());
             cx.notify();
@@ -906,31 +890,17 @@ impl Workspace {
     }
 
     pub(super) fn discard_draft(&mut self, id: u64, cx: &mut Context<Self>) {
-        let Some(iid) = self.current_request(cx)
-            .filter(|_| !super::waiting::is_temp(id))
-        else {
-            return;
-        };
-        self.request_action(
-            vec![Op::DropDraft(id)],
-            move |host| host.delete_draft(iid, id),
-            cx,
-        );
+        if !self.is_temp(id) {
+            self.request_action(Change::DropDraft(id), cx);
+        }
     }
 
     /// Send this now: pending comment `id` is published alone and becomes a discussion on its
     /// line; the others stay pending. A failure leaves it pending and says why (#138).
     pub(super) fn send_draft_now(&mut self, id: u64, cx: &mut Context<Self>) {
-        let Some(iid) = self.current_request(cx)
-            .filter(|_| !super::waiting::is_temp(id))
-        else {
-            return;
-        };
-        let op = self.requests.update(cx, |rq, _| {
-            let w = &mut rq.waiting;
-            Op::Publish(vec![(id, w.temp_thread(), w.temp())])
-        });
-        self.request_action(vec![op], move |host| host.publish_draft(iid, id), cx);
+        if !self.is_temp(id) {
+            self.request_action(Change::PublishDraft(id), cx);
+        }
     }
 
     /// Whether a pending comment can be sent alone: GitLab publishes one draft, GitHub only the
@@ -942,18 +912,10 @@ impl Workspace {
     /// Deletes one's own note `note` of discussion number `thread` on GitLab or GitHub.
     fn delete_own_note(&mut self, thread: usize, note: u64, cx: &mut Context<Self>) {
         self.confirm_note = None;
-        let (Some(iid), Some(discussion)) = (
-            self.current_request(cx),
-            self.request_thread(thread, cx)
-                .map(|t| t.id.clone()),
-        ) else {
+        let Some(thread) = self.request_thread(thread, cx).map(|t| t.id.clone()) else {
             return;
         };
-        self.request_action(
-            vec![Op::Delete { note }],
-            move |host| host.delete_note(iid, &discussion, note),
-            cx,
-        );
+        self.request_action(Change::Delete { thread, note }, cx);
     }
 
     /// The Discussions tool window (`Requests::discussions_window`).

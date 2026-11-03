@@ -2,7 +2,7 @@
 //! its commits, two of its versions compared —, which anyone opens through the `Frame`; and what other features ask
 //! of the requests read (`Requests`, a tab's service).
 
-use artoo_core::git::{BranchRef, Version, WebRemote};
+use artoo_core::git::{BranchRef, DiffLine, Version, WebRemote};
 use artoo_core::mr::{Approvals, Draft, Merge, Mr, MrState, Thread};
 use artoo_core::route::Place;
 use artoo_ui_kit::complete::Choice;
@@ -71,6 +71,48 @@ pub enum GridKey {
     React(Option<String>),
     /// Esc.
     Close,
+}
+
+/// A change sent to a request's host (#139), as data: the requests show it at once, faded, and make the host's call.
+pub enum Change {
+    /// A reply in discussion `thread`.
+    Reply { thread: String, body: String },
+    /// A comment on the request.
+    Comment { body: String },
+    /// A comment on a line of the diff at `head` (`range` its first and last line when it spans several), or a
+    /// pending one (`draft`).
+    OnLine {
+        head: String,
+        path: String,
+        old_path: String,
+        new_line: Option<u32>,
+        old_line: Option<u32>,
+        range: Option<(DiffLine, DiffLine)>,
+        body: String,
+        draft: bool,
+    },
+    /// Note `note` of discussion `thread` written again, or deleted.
+    Edit { thread: String, note: u64, body: String },
+    Delete { thread: String, note: u64 },
+    Resolve { thread: String, resolved: bool },
+    /// One's approval given (on `head`), or taken back.
+    Approve { head: String },
+    Unapprove,
+    /// A pending comment deleted, or sent alone.
+    DropDraft(u64),
+    PublishDraft(u64),
+}
+
+/// What follows a change sent once its host answered: `Ok`, taken; `Err(Some(why))`, refused; `Err(None)`, refused
+/// and said already (Submit review's card back).
+pub type Answered = Box<dyn FnOnce(Result<(), Option<String>>, &mut App)>;
+
+/// Where the open request's discussions and pending comments went when what shows of it was made again: by their
+/// place before, their place now (`None`: gone).
+#[derive(Default)]
+pub struct Moved {
+    pub threads: Vec<Option<usize>>,
+    pub drafts: Vec<Option<usize>>,
 }
 
 /// What other features ask of a tab's merge requests, from its services (`Rc<dyn Requests>`).
@@ -231,6 +273,21 @@ pub trait Requests {
     fn close_grid(&self, cx: &mut App);
     fn grid_note(&self, cx: &App) -> Option<u64>;
     fn reaction_key(&self, event: &KeyDownEvent, github: bool, cx: &mut App) -> Option<GridKey>;
+
+    /// `change` sent on request `number`: it shows at once, faded, the request's notices read again on their next
+    /// look; `answered` follows the host's answer. `false`: there is no host.
+    fn send(&self, number: u64, change: Change, answered: Answered, cx: &mut App) -> bool;
+    /// What Submit review's card submits, sent (`answered` as `send`'s); `false` when nothing went (the card says
+    /// why).
+    fn submit(&self, answered: Answered, cx: &mut App) -> bool;
+    /// What shows of request `number` made again with the changes waiting on it, `me` the name they show by:
+    /// where the discussions and pending comments went, when it is the one open.
+    fn show_waiting(&self, number: u64, me: &str, cx: &mut App) -> Option<Moved>;
+    /// The changes the request open and the Inbox both hold now are let go.
+    fn settle_waiting(&self, cx: &mut App);
+    /// An id given to what is not on the host yet: a note or a pending comment, a discussion.
+    fn is_temp(&self, id: u64) -> bool;
+    fn is_temp_thread(&self, id: &str) -> bool;
 }
 
 /// A merge request, by its number.

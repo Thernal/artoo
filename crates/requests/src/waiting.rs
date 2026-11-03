@@ -7,8 +7,12 @@
 //! The host's answer to a change stamps it with a tick; a read begun at tick `t` holds every change
 //! answered before `t`, so when it arrives those stop applying and the rest go on top of it.
 
+use crate::notices::Notices;
 use crate::requests::Requests;
-use artoo_hosts_api::{Approvals, Draft, Note, Thread};
+use artoo_hosts_api::{Approvals, Draft, Host, Note, Place, Thread};
+use artoo_requests_api::{Answered, Change, Moved};
+use gpui::{Context, Entity};
+use std::sync::Arc;
 
 /// How faded a waiting item is.
 pub const FADED: f32 = 0.5;
@@ -62,7 +66,7 @@ pub struct At {
 }
 
 /// What a change shows, and what it waits for.
-struct Change {
+struct Sent {
     key: u64,
     iid: u64,
     ops: Vec<Op>,
@@ -77,7 +81,7 @@ pub type Me<'a> = (&'a str, &'a str);
 
 #[derive(Default)]
 pub struct Waiting {
-    changes: Vec<Change>,
+    changes: Vec<Sent>,
     tick: u64,
     next: u64,
 }
@@ -117,7 +121,7 @@ impl Waiting {
     pub fn send(&mut self, iid: u64, ops: Vec<Op>, at: i64) -> u64 {
         self.next += 1;
         let key = self.next;
-        self.changes.push(Change {
+        self.changes.push(Sent {
             key,
             iid,
             ops,
@@ -344,7 +348,173 @@ impl Requests {
         self.current
             .is_some_and(|iid| self.waiting.approving(iid, self.from))
     }
+
+    /// What `change` on request `iid` shows until the host answers, and the host's call.
+    pub(crate) fn ops_of(&mut self, iid: u64, change: Change) -> (Vec<Op>, Work) {
+        let w = &mut self.waiting;
+        match change {
+            Change::Reply { thread, body } => (
+                vec![Op::Reply {
+                    thread: thread.clone(),
+                    note: w.temp(),
+                    body: body.clone(),
+                }],
+                Box::new(move |host: Arc<dyn Host>| host.reply(iid, &thread, &body)),
+            ),
+            Change::Comment { body } => (
+                vec![Op::Discussion {
+                    thread: w.temp_thread(),
+                    note: w.temp(),
+                    body: body.clone(),
+                    at: None,
+                }],
+                Box::new(move |host: Arc<dyn Host>| host.comment(iid, &body)),
+            ),
+            Change::OnLine {
+                head,
+                path,
+                old_path,
+                new_line,
+                old_line,
+                range,
+                body,
+                draft,
+            } => {
+                // Shown at once where it was written: a pending comment, or a discussion.
+                let op = if draft {
+                    Op::Draft(Draft {
+                        id: w.temp(),
+                        body: body.clone(),
+                        path: Some(path.clone()),
+                        new_line,
+                        old_line,
+                        reply_to: None,
+                    })
+                } else {
+                    Op::Discussion {
+                        thread: w.temp_thread(),
+                        note: w.temp(),
+                        body: body.clone(),
+                        at: Some(At {
+                            path: path.clone(),
+                            new_line,
+                            old_line,
+                        }),
+                    }
+                };
+                let work = move |host: Arc<dyn Host>| {
+                    let place = Place {
+                        path: &path,
+                        old_path: &old_path,
+                        new_line,
+                        old_line,
+                        range,
+                    };
+                    host.post_discussion(iid, &head, &place, &body, draft)
+                        .map(|_| ())
+                };
+                (vec![op], Box::new(work))
+            }
+            Change::Edit { thread, note, body } => (
+                vec![Op::Edit {
+                    note,
+                    body: body.clone(),
+                }],
+                Box::new(move |host: Arc<dyn Host>| host.edit_note(iid, &thread, note, &body)),
+            ),
+            Change::Delete { thread, note } => (
+                vec![Op::Delete { note }],
+                Box::new(move |host: Arc<dyn Host>| host.delete_note(iid, &thread, note)),
+            ),
+            Change::Resolve { thread, resolved } => (
+                vec![Op::Resolve {
+                    thread: thread.clone(),
+                    resolved,
+                }],
+                Box::new(move |host: Arc<dyn Host>| host.resolve(iid, &thread, resolved)),
+            ),
+            Change::Approve { head } => (
+                vec![Op::Approve { mine: true }],
+                Box::new(move |host: Arc<dyn Host>| host.approve(iid, &head)),
+            ),
+            Change::Unapprove => (
+                vec![Op::Approve { mine: false }],
+                Box::new(move |host: Arc<dyn Host>| host.unapprove(iid)),
+            ),
+            Change::DropDraft(id) => (
+                vec![Op::DropDraft(id)],
+                Box::new(move |host: Arc<dyn Host>| host.delete_draft(iid, id)),
+            ),
+            Change::PublishDraft(id) => (
+                vec![Op::Publish(vec![(id, w.temp_thread(), w.temp())])],
+                Box::new(move |host: Arc<dyn Host>| host.publish_draft(iid, id)),
+            ),
+        }
+    }
+
+    /// Sends `ops` on request `iid` with `work` on `host`: they show at once, faded; taken, they apply until a read
+    /// holds them; refused, they are taken back. The Inbox reads the request again on its next look; `answered`
+    /// follows.
+    pub(crate) fn send_ops(
+        &mut self,
+        iid: u64,
+        ops: Vec<Op>,
+        work: Work,
+        host: Arc<dyn Host>,
+        notices: Option<Entity<Notices>>,
+        answered: Answered,
+        cx: &mut Context<Self>,
+    ) {
+        let key = self.waiting.send(iid, ops, artoo_ui_kit::format::now());
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { work(host) })
+                .await
+                .map_err(|e| Some(format!("{e:#}")));
+            this.update(cx, |rq, _| match result {
+                Ok(()) => rq.waiting.took(key),
+                Err(_) => rq.waiting.refused(key),
+            })
+            .ok();
+            cx.update(|cx| {
+                if let Some(notices) = notices {
+                    notices.update(cx, |n, _| n.stale(iid));
+                }
+                answered(result, cx);
+            });
+        })
+        .detach();
+    }
+
+    /// What shows of the open request `iid` made again: the host's last answer with the changes still waiting on
+    /// it; where its discussions and pending comments went.
+    pub(crate) fn show_waiting(&mut self, iid: u64, me: Me) -> Option<Moved> {
+        if self.current != Some(iid) {
+            return None;
+        }
+        let (mut threads, mut drafts, mut approvals) = (
+            self.base.threads.clone(),
+            self.base.drafts.clone(),
+            self.base.approvals.clone(),
+        );
+        self.waiting
+            .apply(iid, self.from, me, &mut threads, &mut drafts, &mut approvals);
+        let moved = Moved {
+            threads: (self.threads.iter())
+                .map(|t| threads.iter().position(|n| n.id == t.id))
+                .collect(),
+            drafts: (self.drafts.iter())
+                .map(|d| drafts.iter().position(|n| n.id == d.id))
+                .collect(),
+        };
+        (self.threads, self.drafts, self.approvals) = (threads, drafts, approvals);
+        Some(moved)
+    }
 }
+
+/// A change's call to the host.
+pub type Work = Box<dyn FnOnce(Arc<dyn Host>) -> anyhow::Result<()> + Send>;
 
 #[cfg(test)]
 mod tests {
