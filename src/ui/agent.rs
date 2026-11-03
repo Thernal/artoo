@@ -255,11 +255,9 @@ impl Workspace {
         this: WeakEntity<Self>,
         cx: &App,
     ) -> Option<gpui::AnyElement> {
-        let review = self.review.read(cx);
-        let open = review
-            .data
-            .as_ref()
-            .filter(|_| review.current_path().as_deref() == Some(c.path.as_str()));
+        let data = self.diff_data(cx);
+        let open = (data.as_deref())
+            .filter(|_| self.current_path(cx).as_deref() == Some(c.path.as_str()));
         let line = |n: u32| {
             let side = open?.side(false);
             (n >= 1 && n <= side.count()).then(|| side.line(n).0.to_owned())
@@ -294,10 +292,9 @@ impl Workspace {
     /// The asked comment the form keys act on: the first one with a form from the top of the
     /// view (#10 C: 1…9 pick, 0 your call, ⇧N a note).
     pub(super) fn acting_agent_form(&self, cx: &App) -> Option<u64> {
-        let top = self.review.read(cx).local_top();
-        self.review
-            .read(cx)
-            .rows
+        let top = self.rv().local_top(cx);
+        self.rv()
+            .rows(cx)
             .iter()
             .skip(top)
             .find_map(|row| match row {

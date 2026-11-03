@@ -56,10 +56,7 @@ impl Workspace {
         // The comment's file once the comparison is in, at its line: where it is in `b`, or gone
         // there, where it was in `a` on the old side; the whole function around it.
         let at = lb.map(|l| (l, false)).or(la.map(|l| (l, true)));
-        self.review.update(cx, |rv, _| {
-            rv.jump_line = at;
-            rv.jump_whole = at.is_some();
-        });
+        self.rv().set_jump(at, cx);
         if let Some(branches) = self.branches() {
             branches.show_version_files(cx);
         }
@@ -120,7 +117,7 @@ impl Workspace {
             {
                 let first = if old { o } else { n };
                 if first <= end && first + len > start {
-                    grew |= self.review.update(cx, |rv, _| rv.expanded.insert(ix));
+                    grew |= self.rv().expand(ix, cx);
                 }
             }
         }

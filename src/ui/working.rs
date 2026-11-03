@@ -15,7 +15,7 @@ impl Workspace {
 
     /// The working tree changed (`history::Event::Working`): what shows it reads it again.
     pub(super) fn working_changed(&mut self, cx: &mut Context<Self>) {
-        self.review.update(cx, |rv, _| rv.blames.working_changed());
+        self.rv().working_changed(cx);
         if self.nav.space == super::spaces::Space::Branches && self.at_root_list() {
             self.read_tree_files(cx);
         }

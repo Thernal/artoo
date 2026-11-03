@@ -199,10 +199,7 @@ impl Workspace {
                     !matches!(p, Page::File(_) | Page::Folder(_))
                         && self.loaded_page(cx).as_ref() == Some(p)
                 });
-                let ix = self
-                    .review
-                    .read(cx)
-                    .diff
+                let ix = self.shown_diff(cx)
                     .as_ref()
                     .filter(|_| diff_shown)
                     .and_then(|d| d.files.iter().position(|f| f.path() == path));

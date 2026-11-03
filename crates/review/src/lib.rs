@@ -15,6 +15,7 @@ pub mod file_view;
 pub mod find;
 pub mod find_files;
 pub mod goline;
+pub mod handle;
 pub mod image_view;
 pub mod item;
 pub mod lines;

@@ -32,7 +32,7 @@ impl Workspace {
     /// Saves the settings; the review's copy follows them (#165).
     pub(super) fn save_settings(&mut self, cx: &mut App) {
         self.settings.save();
-        self.review.update(cx, |rv, _| rv.settings = self.settings);
+        self.rv().set_settings(self.settings, cx);
     }
 
     fn change_settings(&mut self, change: impl FnOnce(&mut Self), cx: &mut Context<Self>) {
@@ -104,7 +104,7 @@ impl Workspace {
 
         let fold = switch("fold-generated", s.fold_generated).on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {
-                this.review.update(cx, |rv, _| rv.unfolded.clear());
+                this.rv().clear_unfolded(cx);
                 this.change_settings(
                     |this| this.settings.fold_generated = !this.settings.fold_generated,
                     cx,

@@ -63,9 +63,8 @@ impl Workspace {
     /// ⌥⌘2, Changes' header: the review folds or opens it, kept as the user leaves it outside zen.
     /// A folded section gives the keyboard back to the diff as the tab is drawn.
     pub(super) fn fold_changes(&mut self, cx: &mut Context<Self>) {
-        let (open, keep) = (!self.review.read(cx).changes_open, self.zen.is_none());
-        self.review
-            .update(cx, |rv, cx| rv.open_changes(open, keep, true, cx));
+        let (open, keep) = (!self.rv().changes_open(cx), self.zen.is_none());
+        self.rv().open_changes(open, keep, true, cx);
     }
 
     /// What the panel holds on the page on screen (`Branches::panel_shows`).
@@ -101,10 +100,7 @@ impl Workspace {
                 if (shows.commits && self.commit_count(cx) > 0) || shows.compare {
                     icons.push(("commit", "Commits", Some(Zone::Commits)));
                 }
-                if self
-                    .review
-                    .read(cx)
-                    .diff
+                if self.shown_diff(cx)
                     .as_ref()
                     .is_some_and(|d| !d.files.is_empty())
                 {

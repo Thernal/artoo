@@ -198,13 +198,9 @@ impl Workspace {
                 None => plain(),
             },
             Some(Page::File(path)) => {
-                let at = self
-                    .review
-                    .read(cx)
-                    .file_view
-                    .as_ref()
+                let at = (self.rv().file_read(cx))
                     .filter(|v| &v.path == path)
-                    .map(|v| format!(" · as of {} · {} lines", v.at(), v.line_count()))
+                    .map(|v| format!(" · as of {} · {} lines", v.at, v.lines))
                     .unwrap_or_default();
                 title.tip(format!("{path}{at}")).into_any_element()
             }
@@ -356,12 +352,9 @@ impl Workspace {
                 Some(self.request_list(cx).len().to_string())
             }
             (Space::Branches, None) => Some(self.branches_count(cx)),
-            (Space::Code, Some(Page::File(_))) => self
-                .review
-                .read(cx)
-                .file_view
-                .as_ref()
-                .map(|v| format!("as of {}", v.at())),
+            (Space::Code, Some(Page::File(_))) => {
+                self.rv().file_read(cx).map(|v| format!("as of {}", v.at))
+            }
             (Space::Code, Some(Page::Folder(path))) => {
                 let inside = format!("{path}/");
                 let files = self.code().map(|c| c.files(cx)).unwrap_or_default();

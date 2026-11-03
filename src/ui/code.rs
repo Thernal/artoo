@@ -66,7 +66,7 @@ impl Workspace {
 
     /// The Outline tool window: the declarations of the file read in Code; a click goes to one.
     pub(super) fn outline_tool(&self, cx: &mut Context<Self>) -> super::tools::ToolView {
-        let outline = self.review.read(cx).file_outline();
+        let outline = self.rv().file_outline(cx);
         let n = outline.len();
         let rows = outline.into_iter().map(|(line, depth, kind, name)| {
             super::row(SharedString::from(format!("outline-{line}")), false)
@@ -93,7 +93,7 @@ impl Workspace {
                     cx.listener(move |this, _: &ClickEvent, _, cx| this.reveal_file_line(line, cx)),
                 )
         });
-        let empty = match &self.review.read(cx).file_view {
+        let empty = match self.rv().file_read(cx) {
             None => "Open a file to see what it declares.",
             Some(_) => "Nothing declared here that Artoo reads.",
         };

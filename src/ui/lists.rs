@@ -196,18 +196,15 @@ pub enum Field {
 impl Workspace {
     pub(super) fn set_file_view(&mut self, list: bool, cx: &mut Context<Self>) {
         if self.view_options(cx).list_files != list {
-            self.review.update(cx, |rv, _| rv.options.list_files = list);
+            self.rv().set_list_files(list, cx);
             self.view_options(cx).save();
             cx.notify();
         }
     }
 
     pub(super) fn toggle_dir(&mut self, path: &str, cx: &mut Context<Self>) {
-        if self.review.update(cx, |rv, _| rv.collapsed.remove(path)) {
+        if self.rv().flip_dir(path, cx) {
             self.tree_opening(path, cx);
-        } else {
-            self.review
-                .update(cx, |rv, _| rv.collapsed.insert(path.to_owned()));
         }
         cx.notify();
     }

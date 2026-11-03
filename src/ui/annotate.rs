@@ -8,10 +8,7 @@ use gpui::Context;
 
 impl Workspace {
     pub(super) fn toggle_annotate(&mut self, cx: &mut Context<Self>) {
-        self.review.update(cx, |rv, _| {
-            rv.annotate = !rv.annotate;
-            rv.annotations.clear();
-        });
+        self.rv().toggle_annotate(cx);
         self.refresh_annotations(cx);
         cx.notify();
     }
@@ -19,7 +16,7 @@ impl Workspace {
     /// The annotation column of the open file read again, in the review's task
     /// (`Review::refresh_annotations`).
     pub(super) fn refresh_annotations(&mut self, cx: &mut Context<Self>) {
-        self.review.update(cx, |rv, cx| rv.refresh_annotations(cx));
+        self.rv().refresh_annotations(cx);
     }
 
     /// The pointer came on line number `line` of file `ix` (`at`), or went off it
@@ -32,10 +29,7 @@ impl Workspace {
         at: Option<gpui::Point<gpui::Pixels>>,
         cx: &mut Context<Self>,
     ) {
-        if self
-            .review
-            .update(cx, |rv, cx| rv.hover_line_number(ix, old, line, at, cx))
-        {
+        if self.rv().hover_line_number(ix, old, line, at, cx) {
             cx.notify();
         }
     }
@@ -44,8 +38,7 @@ impl Workspace {
     pub(super) fn open_annotated_commit(&mut self, line: u32, cx: &mut Context<Self>) {
         let Some(id) = line
             .checked_sub(1)
-            .and_then(|i| self.review.read(cx).annotations.get(i as usize))
-            .map(|c| c.id)
+            .and_then(|i| self.rv().annotation(i as usize, cx))
         else {
             return;
         };

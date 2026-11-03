@@ -96,8 +96,8 @@ impl Workspace {
         };
         // Pushed since your review: what changed since the push you viewed.
         let head = git2::Oid::from_str(&m.head).ok();
-        let viewed = match self.review.read(cx).request_seen(m.iid, head) {
-            Seen::Earlier => head.zip(self.review.read(cx).reviewed_head(m.iid, head)),
+        let viewed = match self.rv().request_seen(m.iid, head, cx) {
+            Seen::Earlier => head.zip(self.rv().reviewed_head(m.iid, head, cx)),
             _ => None,
         };
         if let Some(requests) = self.requests_api() {
@@ -194,7 +194,7 @@ impl Workspace {
         let head = self.find_request(iid, cx)
             .and_then(|m| git2::Oid::from_str(&m.head).ok());
         self.requests_api().is_some_and(|r| r.row_opened(iid, cx))
-            || !matches!(self.review.read(cx).request_seen(iid, head), Seen::Never)
+            || !matches!(self.rv().request_seen(iid, head, cx), Seen::Never)
     }
 
     // ---- the pages ------------------------------------------------------------------------

@@ -1833,7 +1833,7 @@ impl Workspace {
         };
         // The tab's review as its pages ask it, the tab as Code's host.
         services.set(artoo_review::file_view::file_view(&review));
-        services.set(artoo_review::review::handle(&review));
+        services.set(artoo_review::handle::handle(&review));
         // The review itself, which its parts read and type in.
         services.set(review.clone());
         // Its answers to what the branches' views ask: the branches' parts make their history in a tab that has
@@ -2253,7 +2253,7 @@ impl Workspace {
 
     /// The tab's review as a page asks it (`artoo_review_api::Review`).
     pub(super) fn review_handle(&self) -> Rc<dyn artoo_review_api::Review> {
-        artoo_review::review::handle(&self.review)
+        artoo_review::handle::handle(&self.review)
     }
 
     /// What the review said: the tab follows a diff that came (the agents' lines on it, the pages' counts, its

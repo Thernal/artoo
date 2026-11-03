@@ -44,7 +44,7 @@ impl Workspace {
     pub(super) fn map_agent_comments(&mut self, cx: &mut Context<Self>) {
         self.agent_lines.clear();
         let (Some(root), Some(head), Some(diff)) =
-            (self.root.clone(), self.review.read(cx).shown_head(), self.shown_diff(cx))
+            (self.root.clone(), self.rv().shown_head(cx), self.shown_diff(cx))
         else {
             return;
         };
@@ -256,10 +256,7 @@ impl Workspace {
             .collect::<Vec<_>>()
             .join("\n");
         let code = self
-            .review
-            .read(cx)
-            .data
-            .as_ref()
+            .diff_data(cx)
             .map(|d| d.side(compose.old).line(compose.line).0.to_owned())
             .unwrap_or_default();
         let id = crate::comment::next_id(self.comments(cx));

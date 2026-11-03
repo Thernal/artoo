@@ -12,7 +12,7 @@ pub mod diff;
 
 use artoo_core::git::{CommitInfo, PairCommit, Version};
 use artoo_core::rows::{FileData, Pin, Row};
-use artoo_core::storage::ViewOptions;
+use artoo_core::storage::{Settings, ViewOptions};
 use git2::Oid;
 use artoo_ui_kit::markdown::Selecting;
 use gpui::{AnyElement, App, Rgba};
@@ -123,6 +123,78 @@ pub trait Review {
         host: Rc<dyn Host>,
         cx: &mut App,
     ) -> Option<(AnyElement, bool)>;
+
+    /// The diff's head: the commit its new side is at.
+    fn shown_head(&self, cx: &App) -> Option<Oid>;
+
+    /// The working tree changed: what blame read of it goes.
+    fn working_changed(&self, cx: &mut App);
+
+    /// The file Code reads: its path, the revision it is at in words, its lines.
+    fn file_read(&self, cx: &App) -> Option<FileRead>;
+
+    /// The declarations of the file Code reads: (1-based line, depth, kind, name).
+    fn file_outline(&self, cx: &App) -> Vec<(u32, usize, &'static str, String)>;
+
+    /// The line to go to once the file is built (`None`: none), its whole run of unchanged lines opened.
+    fn set_jump(&self, at: Option<(u32, bool)>, cx: &mut App);
+
+    /// Row `ix`'s run of unchanged lines opened: true when it was not.
+    fn expand(&self, ix: usize, cx: &mut App) -> bool;
+
+    /// The app's settings, a copy the tab keeps equal to its own.
+    fn set_settings(&self, settings: Settings, cx: &mut App);
+
+    /// Generated files unfolded go back to folded.
+    fn clear_unfolded(&self, cx: &mut App);
+
+    /// Find in files is open.
+    fn find_files_open(&self, cx: &App) -> bool;
+
+    /// The active file's row at the top of the view.
+    fn local_top(&self, cx: &App) -> usize;
+
+    /// The rows of the file shown alone.
+    fn rows(&self, cx: &App) -> Vec<Row>;
+
+    /// The Changes list as a flat list (`true`) or a tree.
+    fn set_list_files(&self, list: bool, cx: &mut App);
+
+    /// Folder `path` of the Changes list opened if it was folded (true), else folded.
+    fn flip_dir(&self, path: &str, cx: &mut App) -> bool;
+
+    /// The new line of the change the keyboard is at.
+    fn change_line(&self, cx: &App) -> Option<u32>;
+
+    /// Zen's head: `title` says what is shown; `one` file at a time or all.
+    fn render_zen_head(&self, title: String, one: bool, cx: &App) -> AnyElement;
+
+    /// The marks of the lines of the file shown that have comments.
+    fn line_marks(&self, cx: &App) -> Vec<LineNote>;
+
+    /// All files in one scroll (the stack).
+    fn stacked(&self, cx: &App) -> bool;
+
+    /// The head of request `iid` your review got to, when it is not `head`.
+    fn reviewed_head(&self, iid: u64, head: Option<Oid>, cx: &App) -> Option<Oid>;
+
+    /// The Changes list is open.
+    fn changes_open(&self, cx: &App) -> bool;
+
+    /// The Changes list opened or closed; `keep` the view where it is, `moves` animated.
+    fn open_changes(&self, open: bool, keep: bool, moves: bool, cx: &mut App);
+
+    /// Blame beside the lines turned on or off.
+    fn toggle_annotate(&self, cx: &mut App);
+
+    /// Blame read again for the file shown.
+    fn refresh_annotations(&self, cx: &mut App);
+
+    /// The pointer came on line number `line` of file `ix` (`at`), or went off it: true when the tip shown went.
+    fn hover_line_number(&self, ix: usize, old: bool, line: u32, at: Option<gpui::Point<gpui::Pixels>>, cx: &mut App) -> bool;
+
+    /// The commit blame says line `ix` (0-based) of the file shown is from.
+    fn annotation(&self, ix: usize, cx: &App) -> Option<Oid>;
 }
 
 /// An item page's middle as the review draws it (#165 I5d): what the route on screen is of, the parts' pieces over
@@ -527,4 +599,11 @@ pub enum Event {
 pub enum ItemKey {
     File(usize),
     Dir(String),
+}
+
+/// The file Code reads: its path, the revision it is at in words, how many lines it has.
+pub struct FileRead {
+    pub path: String,
+    pub at: String,
+    pub lines: usize,
 }

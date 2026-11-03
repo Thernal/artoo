@@ -34,10 +34,7 @@ impl Workspace {
     pub(super) fn open_recent(&mut self, key: Key, cx: &mut Context<Self>) {
         match key {
             Key::File(path) => {
-                let ix = self
-                    .review
-                    .read(cx)
-                    .diff
+                let ix = self.shown_diff(cx)
                     .as_ref()
                     .and_then(|d| d.files.iter().position(|f| f.path() == path));
                 match ix {

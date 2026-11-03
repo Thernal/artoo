@@ -40,9 +40,7 @@ impl Workspace {
                 )
             }))
             .children(
-                self.review
-                    .read(cx)
-                    .diff
+                self.shown_diff(cx)
                     .as_ref()
                     .filter(|_| self.zen.is_some() || self.motion.recent("zen"))
                     .map(|_| {
@@ -53,11 +51,11 @@ impl Workspace {
                             div()
                                 .flex()
                                 .flex_col()
-                                .child(
-                                    self.review
-                                        .read(cx)
-                                        .render_zen_head(self.header_title(cx), self.zen_one),
-                                )
+                                .child(self.rv().render_zen_head(
+                                    self.header_title(cx),
+                                    self.zen_one,
+                                    cx,
+                                ))
                                 .child(div().h(px(gap()))),
                             cx,
                         )
@@ -71,10 +69,7 @@ impl Workspace {
     /// head over a diff), while a diff is shown: zen folds it up as it does the bar (the most a
     /// commit's header is tall, its message open or not).
     pub(super) fn render_identity(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let identity = self
-            .review
-            .read(cx)
-            .diff
+        let identity = self.shown_diff(cx)
             .is_some()
             .then_some(())
             .filter(|_| self.zen.is_none() || self.motion.recent("zen"))

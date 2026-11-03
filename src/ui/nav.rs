@@ -456,6 +456,11 @@ impl Workspace {
         self.review_api()?.root(cx)
     }
 
+    /// The review, which every tab has (its parts make it): what the tab asks of the diff.
+    pub(super) fn rv(&self) -> std::rc::Rc<dyn artoo_review_api::Review> {
+        self.services.get().expect("a tab's review: artoo_review::install")
+    }
+
     /// The requests as a page asks them.
     pub(super) fn requests_api(&self) -> Option<std::rc::Rc<dyn artoo_requests_api::Requests>> {
         self.services.get()

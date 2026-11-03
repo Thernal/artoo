@@ -20,10 +20,7 @@ impl Workspace {
 
     /// The pins of every file of the diff.
     pub(super) fn all_pins(&self, cx: &App) -> Pins {
-        let paths: Vec<String> = self
-            .review
-            .read(cx)
-            .diff
+        let paths: Vec<String> = self.shown_diff(cx)
             .as_ref()
             .map(|d| d.files.iter().map(|f| f.path().to_owned()).collect())
             .unwrap_or_default();
@@ -44,7 +41,7 @@ impl Workspace {
     /// A click on a line's comment mark: folds what is open there, or opens what is folded.
     pub(super) fn toggle_notes_at(&mut self, old: bool, line: u32, cx: &mut Context<Self>) {
         // A line with nothing but a bookmark: the click takes the mark off.
-        let only_bookmark = self.review.read(cx).notes.iter().any(|n| {
+        let only_bookmark = self.rv().line_marks(cx).iter().any(|n| {
             n.old == old
                 && n.line == line
                 && n.tone == NoteTone::Bookmark
@@ -215,7 +212,7 @@ impl Workspace {
     pub(super) fn refresh_rows(&mut self, cx: &mut App) {
         // With all files in one scroll the comment may be in any of them; only rows that changed
         // are replaced, so the view stays where it is.
-        if self.review.read(cx).stack.is_some() {
+        if self.rv().stacked(cx) {
             return self.relayout_stack(cx);
         }
         let top = self.diff_list(cx).logical_scroll_top();
