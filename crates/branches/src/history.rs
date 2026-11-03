@@ -87,8 +87,7 @@ pub use artoo_branches_api::Event;
 
 impl EventEmitter<Event> for History {}
 
-/// How a view asks an `Act`: the branches' own answered (`acts`), the rest the tab's.
-pub type Acts = std::rc::Rc<dyn Fn(Act, &mut gpui::App)>;
+pub use artoo_branches_api::Acts;
 
 impl History {
     /// A tab's history: its sections of the panel folded as the user left them.
@@ -409,7 +408,7 @@ impl artoo_branches_api::Branches for Handle {
         }
     }
 
-    fn on_event(&self, hear: std::rc::Rc<dyn Fn(&Event, &mut gpui::App)>, cx: &mut gpui::App) {
+    fn on_event(&self, hear: artoo_branches_api::Hears, cx: &mut gpui::App) {
         if let Some(h) = self.0.upgrade() {
             cx.subscribe(&h, move |_, event: &Event, cx| hear(event, cx))
                 .detach();
@@ -821,7 +820,13 @@ impl artoo_branches_api::Branches for Handle {
         });
     }
 
-    fn pick_compare(&self, ix: usize, span: bool, keep: Option<String>, cx: &mut gpui::App) -> bool {
+    fn pick_compare(
+        &self,
+        ix: usize,
+        span: bool,
+        keep: Option<String>,
+        cx: &mut gpui::App,
+    ) -> bool {
         let Some(h) = self.0.upgrade() else {
             return false;
         };
@@ -890,7 +895,10 @@ impl artoo_branches_api::Branches for Handle {
     fn set_list(&self, branches: Vec<BranchRef>, cx: &mut gpui::App) {
         if let Some(h) = self.0.upgrade() {
             h.update(cx, |h, _| {
-                let open = h.branch.and_then(|ix| h.branches.get(ix)).map(|b| b.refname.clone());
+                let open = h
+                    .branch
+                    .and_then(|ix| h.branches.get(ix))
+                    .map(|b| b.refname.clone());
                 h.branches = Arc::new(branches);
                 h.branch = open.and_then(|r| h.branches.iter().position(|b| b.refname == r));
             });
@@ -935,7 +943,11 @@ impl artoo_branches_api::Branches for Handle {
         }
     }
 
-    fn diff_title(&self, route: Option<&artoo_core::route::Route>, cx: &gpui::App) -> Option<String> {
+    fn diff_title(
+        &self,
+        route: Option<&artoo_core::route::Route>,
+        cx: &gpui::App,
+    ) -> Option<String> {
         let diff = self.review()?.shown(cx)?;
         let compare = route.and_then(|r| self.compare_title(r, cx));
         Some(crate::head::title(&diff, compare))

@@ -6,15 +6,15 @@
 use super::nav::Page;
 use super::zones::Zone;
 use super::{Selection, Workspace};
-use artoo_branches_api::Act;
 use artoo_branches_api::PanelShows;
+use artoo_branches_api::{Act, Acts};
 use gpui::{App, Context};
 use std::rc::Rc;
 
 impl Workspace {
     /// How the history's views ask the tab: what is the history's own it answers first
     /// (`artoo_branches::history::acts`).
-    pub(super) fn history_acts(&self, cx: &Context<Self>) -> Rc<dyn Fn(Act, &mut App)> {
+    pub(super) fn history_acts(&self, cx: &Context<Self>) -> Acts {
         let this = cx.weak_entity();
         Rc::new(move |act, cx| {
             this.update(cx, |this, cx| match act {

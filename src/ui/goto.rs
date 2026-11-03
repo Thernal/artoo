@@ -106,15 +106,15 @@ impl Workspace {
                 }
             }
             Target::Branch(name) => {
-                let ix =
-                    self.branch_list(cx)
-                        .iter()
-                        .position(|b| b.name == name)
-                        .or_else(|| {
-                            self.branch_list(cx).iter().position(|b| {
-                                b.name.split_once('/').is_some_and(|(_, n)| n == name)
-                            })
-                        });
+                let ix = self
+                    .branch_list(cx)
+                    .iter()
+                    .position(|b| b.name == name)
+                    .or_else(|| {
+                        self.branch_list(cx)
+                            .iter()
+                            .position(|b| b.name.split_once('/').is_some_and(|(_, n)| n == name))
+                    });
                 match ix {
                     Some(ix) => self.open_branch(ix, None, cx),
                     None => {
@@ -132,9 +132,7 @@ impl Workspace {
         let repo = Repo::open(self.root.as_ref()?).ok()?;
         let id = repo.resolve(sha).ok()?;
         let mut order: Vec<usize> = (0..self.branch_list(cx).len()).collect();
-        order.sort_by_key(|&ix| {
-            self.branch_list(cx)[ix].kind != crate::git::RefKind::Local
-        });
+        order.sort_by_key(|&ix| self.branch_list(cx)[ix].kind != crate::git::RefKind::Local);
         order
             .into_iter()
             .find(|&ix| repo.contains(self.branch_list(cx)[ix].tip, id))

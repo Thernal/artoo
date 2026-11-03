@@ -164,10 +164,7 @@ impl Workspace {
                 .child(text.clone()),
         );
         let plain = || style(super::hover::cut("bar-title", text.clone())).into_any_element();
-        let commit = |id: &git2::Oid| {
-            self.branches()?
-                .commit_card(*id, self.web.as_ref(), cx)
-        };
+        let commit = |id: &git2::Oid| self.branches()?.commit_card(*id, self.web.as_ref(), cx);
         match page {
             Some(
                 Page::Request(iid) | Page::RequestCommits(iid, ..) | Page::RequestVersions(iid, ..),
@@ -185,7 +182,8 @@ impl Workspace {
                 Page::Branch(refname)
                 | Page::BranchCommits(refname, ..)
                 | Page::Versions(refname, ..),
-            ) => match self.branch_list(cx)
+            ) => match self
+                .branch_list(cx)
                 .iter()
                 .position(|b| &b.refname == refname)
                 .and_then(|ix| {
@@ -232,10 +230,7 @@ impl Workspace {
                 .find(|b| b.refname == refname)
                 .map_or_else(|| refname.to_owned(), |b| b.name.clone())
         };
-        let versions = |a: usize, b: usize| match (
-            self.version_at(a, cx),
-            self.version_at(b, cx),
-        ) {
+        let versions = |a: usize, b: usize| match (self.version_at(a, cx), self.version_at(b, cx)) {
             (Some(a), Some(b)) => format!("v{} → v{}", a.number, b.number),
             _ => "versions".to_owned(),
         };
@@ -430,7 +425,8 @@ impl Workspace {
             // The file or the project's folder in the app it belongs to, named (#78).
             (Space::Code, _) => out.extend(self.open_in_button(cx)),
             (Space::Branches, Some(Page::Branch(refname))) => {
-                let ix = self.branch_list(cx)
+                let ix = self
+                    .branch_list(cx)
                     .iter()
                     .position(|b| &b.refname == refname);
                 match ix.and_then(|ix| self.request_of_branch(ix, cx).map(|m| m.iid)) {

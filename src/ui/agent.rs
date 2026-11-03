@@ -153,7 +153,10 @@ impl Workspace {
             return Some(m.source.clone());
         }
         let list = self.branch_list(cx);
-        let shown = match (self.nav.space, self.branch_ix(cx).and_then(|ix| list.get(ix))) {
+        let shown = match (
+            self.nav.space,
+            self.branch_ix(cx).and_then(|ix| list.get(ix)),
+        ) {
             (super::spaces::Space::Branches, Some(b)) => Some(b),
             _ => list.iter().find(|b| b.is_head),
         }?;

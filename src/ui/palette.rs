@@ -693,13 +693,20 @@ impl Workspace {
                     pick: Pick::Branch(ix),
                 })
                 .collect(),
-            Scope::Commits => self.branches()
-                .map(|b| b.commits_where(&|c| {
-                    words.is_empty()
-                        || matches(&words, &c.summary)
-                        || matches(&words, &c.author)
-                        || c.id.to_string().starts_with(&words[0])
-                }, 60, cx))
+            Scope::Commits => self
+                .branches()
+                .map(|b| {
+                    b.commits_where(
+                        &|c| {
+                            words.is_empty()
+                                || matches(&words, &c.summary)
+                                || matches(&words, &c.author)
+                                || c.id.to_string().starts_with(&words[0])
+                        },
+                        60,
+                        cx,
+                    )
+                })
                 .unwrap_or_default()
                 .into_iter()
                 .map(|c| Item {
@@ -1045,14 +1052,20 @@ impl Workspace {
         if scope.is_none() && !words.is_empty() {
             items.extend(
                 self.branches()
-                .map(|b| b.commits_where(&|c| {
-                        matches(&words, &c.summary)
-                            || matches(&words, &c.author)
-                            || c.id.to_string().starts_with(&words[0])
-                    }, 4, cx))
-                .unwrap_or_default()
-                .into_iter()
-                .map(|c| Item {
+                    .map(|b| {
+                        b.commits_where(
+                            &|c| {
+                                matches(&words, &c.summary)
+                                    || matches(&words, &c.author)
+                                    || c.id.to_string().starts_with(&words[0])
+                            },
+                            4,
+                            cx,
+                        )
+                    })
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|c| Item {
                         group: "Commits",
                         label: c.summary.clone(),
                         detail: format!("{} · {}", format::short(c.id), c.author),
@@ -1223,8 +1236,7 @@ impl Workspace {
             // A result opens in its space (#71): a commit or a file of what is loaded on its page.
             Pick::Commit(id) => {
                 self.palette = None;
-                if let Some(ix) = self.commit_at(id, cx)
-                {
+                if let Some(ix) = self.commit_at(id, cx) {
                     self.open_commit(ix, cx);
                 }
             }

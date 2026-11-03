@@ -13,7 +13,9 @@ use gpui::{App, Context};
 impl Workspace {
     /// The timeline's last version: what an outdated discussion's is compared with.
     pub(super) fn latest_version(&self, cx: &App) -> Option<usize> {
-        self.branches().and_then(|b| b.latest_version(cx)).map(|v| v.number)
+        self.branches()
+            .and_then(|b| b.latest_version(cx))
+            .map(|v| v.number)
     }
 
     /// Follows the line of every discussion written on an earlier version to the latest
@@ -40,7 +42,11 @@ impl Workspace {
         else {
             return;
         };
-        let Some(latest) = self.branches().and_then(|b| b.latest_version(cx)).map(|v| v.number) else {
+        let Some(latest) = self
+            .branches()
+            .and_then(|b| b.latest_version(cx))
+            .map(|v| v.number)
+        else {
             return;
         };
         let stops = h.stops(t.new_line.or(t.old_line), latest);

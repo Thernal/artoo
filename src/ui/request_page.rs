@@ -24,10 +24,7 @@ impl Workspace {
                     .map(|(_, n)| n),
             ),
             // Tabbed only while it is the branch loaded.
-            Item::Branch(_) => (
-                true,
-                self.branches().and_then(|b| b.branch_files(cx)),
-            ),
+            Item::Branch(_) => (true, self.branches().and_then(|b| b.branch_files(cx))),
             Item::Compare(..) | Item::WorkingTree => return None,
         };
         let count = |section: Section| match section {
@@ -79,8 +76,7 @@ impl Workspace {
         else {
             return false;
         };
-        let Some(at) = self.commit_at(id, cx)
-        else {
+        let Some(at) = self.commit_at(id, cx) else {
             return false;
         };
         let to = if forward {

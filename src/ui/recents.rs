@@ -49,8 +49,7 @@ impl Workspace {
                     None => self.open_file_view(path, cx),
                 }
             }
-            Key::Commit(id) => match self.commit_at(id, cx)
-            {
+            Key::Commit(id) => match self.commit_at(id, cx) {
                 Some(ix) => self.open_commit(ix, cx),
                 None => {
                     self.error = Some(

@@ -49,8 +49,7 @@ impl Workspace {
         else {
             return;
         };
-        match self.commit_at(id, cx)
-        {
+        match self.commit_at(id, cx) {
             Some(ix) => {
                 // The list may be filtered; show it as it is without the filter.
                 self.pick(super::Selection::Commit(ix), cx);

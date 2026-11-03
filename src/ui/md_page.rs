@@ -271,10 +271,7 @@ impl Workspace {
     fn page_heads(&self, cx: &App) -> (String, String) {
         match self.selection(cx) {
             Selection::Versions { from, to } => {
-                match (
-                    self.version_at(from, cx),
-                    self.version_at(to, cx),
-                ) {
+                match (self.version_at(from, cx), self.version_at(to, cx)) {
                     (Some(a), Some(b)) => (
                         format!("v{} · before", a.number),
                         format!("v{} · now", b.number),
@@ -291,10 +288,7 @@ impl Workspace {
                 None => ("Before".into(), "After".into()),
             },
             Selection::Commits { newest, oldest } => {
-                match (
-                    self.commit_info(oldest, cx),
-                    self.commit_info(newest, cx),
-                ) {
+                match (self.commit_info(oldest, cx), self.commit_info(newest, cx)) {
                     (Some(a), Some(b)) => (
                         format!("{}^ · before", super::format::short(a.id)),
                         format!("{} · now", super::format::short(b.id)),

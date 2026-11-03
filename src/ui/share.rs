@@ -188,10 +188,7 @@ impl Workspace {
     /// as its force-push events link it.
     fn versions_link(&self, web: &WebRemote, iid: u64, from: usize, to: usize, cx: &App) -> Link {
         let request = self.request_link(web, iid, cx);
-        let (Some(a), Some(b)) = (
-            self.version_at(from, cx),
-            self.version_at(to, cx),
-        ) else {
+        let (Some(a), Some(b)) = (self.version_at(from, cx), self.version_at(to, cx)) else {
             return request;
         };
         let (a, b) = if a.number <= b.number { (a, b) } else { (b, a) };
@@ -374,7 +371,8 @@ impl Workspace {
         let link = match item {
             Item::Request(iid) => return self.request_context(*iid, at, cx),
             Item::Branch(refname) => {
-                if let Some(ix) = self.branch_list(cx)
+                if let Some(ix) = self
+                    .branch_list(cx)
                     .iter()
                     .position(|b| b.refname == *refname)
                 {

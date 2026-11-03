@@ -190,10 +190,7 @@ pub enum Act {
         at: gpui::Point<gpui::Pixels>,
     },
     /// A row of Branches clicked, `clicks` times: picked, or opened.
-    PickRow {
-        row: BranchRow,
-        clicks: usize,
-    },
+    PickRow { row: BranchRow, clicks: usize },
     /// A row of Branches opened: the working tree, or the branch.
     OpenRow(BranchRow),
     /// A branch's request, by its number.
@@ -226,7 +223,13 @@ pub enum Act {
 /// The tab's answer to what the branches' views ask it (`Act`), in its services: the branches answer their own
 /// first.
 #[derive(Clone)]
-pub struct TabActs(pub std::rc::Rc<dyn Fn(Act, &mut App)>);
+pub struct TabActs(pub Acts);
+
+/// How a view asks an `Act`.
+pub type Acts = std::rc::Rc<dyn Fn(Act, &mut App)>;
+
+/// Who hears what the branches' reads come to (`Branches::on_event`).
+pub type Hears = std::rc::Rc<dyn Fn(&Event, &mut App)>;
 
 /// The commits' search, as one of the tab's inputs.
 pub const SEARCH_INPUT: &str = "branches.search";
@@ -351,7 +354,7 @@ pub trait Branches {
     fn search(&self, text: String, cx: &mut App);
 
     /// `hear` hears what the branches' reads come to, for as long as the tab lives.
-    fn on_event(&self, hear: std::rc::Rc<dyn Fn(&Event, &mut App)>, cx: &mut App);
+    fn on_event(&self, hear: Hears, cx: &mut App);
 
     /// The repository changed under the window: the branches and the branch open read again in the background;
     /// what it found is said (`Event::Reloaded`).

@@ -236,7 +236,9 @@ impl Render for Workspace {
         }
         // A folded section has no keyboard: it goes to the diff.
         let folded_zone = match self.zone {
-            zones::Zone::Commits => self.branches().is_some_and(|b| b.commits_folded(cx)) || !self.side_open(),
+            zones::Zone::Commits => {
+                self.branches().is_some_and(|b| b.commits_folded(cx)) || !self.side_open()
+            }
             zones::Zone::Files => !self.files_zone(cx),
             _ => false,
         };
