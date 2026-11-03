@@ -6,7 +6,7 @@
 #   .github/release-notes.sh --check 1.0.1   only fails when CHANGELOG.md has no section for it
 set -eu
 cd "$(dirname "$0")/.."
-repo=${GITHUB_REPOSITORY:-Thernal/artoo-desktop}
+repo=${GITHUB_REPOSITORY:-Thernal/artoo}
 
 check=
 if [ "${1:-}" = --check ]; then

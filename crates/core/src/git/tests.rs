@@ -356,11 +356,11 @@ fn clone_urls_become_web_addresses() {
     let ssh = WebRemote::parse("ssh://git@host.example:2222/group/sub/proj.git").unwrap();
     assert_eq!(ssh.base, "https://host.example/group/sub/proj");
     let https =
-        WebRemote::parse("https://user:token@github.com/Thernal/artoo-desktop.git").unwrap();
+        WebRemote::parse("https://user:token@github.com/Thernal/artoo.git").unwrap();
     assert!(https.github);
     assert_eq!(
         https.commit("abc"),
-        "https://github.com/Thernal/artoo-desktop/commit/abc"
+        "https://github.com/Thernal/artoo/commit/abc"
     );
     assert!(WebRemote::parse("/local/path/repo").is_none());
     assert!(WebRemote::parse("").is_none());

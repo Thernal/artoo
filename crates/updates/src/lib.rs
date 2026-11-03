@@ -53,7 +53,7 @@ pub fn install(cx: &mut App) {
 }
 
 /// The project's releases, newest first.
-const RELEASES: &str = "https://api.github.com/repos/Thernal/artoo-desktop/releases?per_page=30";
+const RELEASES: &str = "https://api.github.com/repos/Thernal/artoo/releases?per_page=30";
 /// How often a running app asks again.
 pub(crate) const EVERY: Duration = Duration::from_secs(6 * 60 * 60);
 /// A release's notes end in its commits under this heading (`.github/release-notes.sh`).
@@ -304,7 +304,7 @@ mod tests {
         serde_json::json!({
             "tag_name": tag,
             "body": body,
-            "html_url": format!("https://github.com/Thernal/artoo-desktop/releases/tag/{tag}"),
+            "html_url": format!("https://github.com/Thernal/artoo/releases/tag/{tag}"),
             "draft": draft,
             "prerelease": pre,
             "published_at": "2026-10-24T09:00:00Z",

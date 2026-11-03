@@ -15,7 +15,7 @@ What it does with a report:
 - answers the app with the report's id (`R-7F3A2C`), and later, for the installation that sent it only, what became
   of it: received, moved to the project (with its address), a duplicate, fixed, closed.
 
-A report is made public by moving its issue to the project: on the issue, **Transfer issue** → `artoo-desktop`.
+A report is made public by moving its issue to the project: on the issue, **Transfer issue** → `artoo`.
 Check the text first; the picture stays in the private intake.
 
 ## API

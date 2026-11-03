@@ -7,17 +7,17 @@
 **Review commits, branches, merge requests and what your coding agent changed — in one desktop app.**<br>
 No IDE to open, no worktrees to create.
 
-[![Latest release](https://img.shields.io/github/v/release/Thernal/artoo-desktop?display_name=release&label=latest&color=4c8bf5)](https://github.com/Thernal/artoo-desktop/releases/latest)
-[![CI](https://github.com/Thernal/artoo-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/Thernal/artoo-desktop/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/Thernal/artoo?display_name=release&label=latest&color=4c8bf5)](https://github.com/Thernal/artoo/releases/latest)
+[![CI](https://github.com/Thernal/artoo/actions/workflows/ci.yml/badge.svg)](https://github.com/Thernal/artoo/actions/workflows/ci.yml)
 ![macOS](https://img.shields.io/badge/macOS-universal-6e7781?logo=apple&logoColor=white)
 ![Windows](https://img.shields.io/badge/Windows-x64-0078d4)
 ![Linux](https://img.shields.io/badge/Linux-x86__64-e9a23b?logo=linux&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-GPUI-b7410e?logo=rust&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2da44e)](LICENSE)
 
-[**Download**](https://github.com/Thernal/artoo-desktop/releases/latest) ·
+[**Download**](https://github.com/Thernal/artoo/releases/latest) ·
 [What's new](CHANGELOG.md) ·
-[Report a problem](https://github.com/Thernal/artoo-desktop/issues/new)
+[Report a problem](https://github.com/Thernal/artoo/issues/new)
 
 </div>
 
@@ -47,7 +47,7 @@ Artoo only reads your repository: it never stages, commits or checks out ([what 
 
 ## Install
 
-Download the file for your system from the [latest release](https://github.com/Thernal/artoo-desktop/releases/latest):
+Download the file for your system from the [latest release](https://github.com/Thernal/artoo/releases/latest):
 
 | System | File | |
 |---|---|---|

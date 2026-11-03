@@ -36,7 +36,7 @@ pub fn install(cx: &mut gpui::App) {
 /// The relay's address (`relay/`); `ARTOO_REPORT_URL` stands in for it.
 const RELAY: &str = "https://artoo-reports.h-humbat0.workers.dev";
 /// Where a report goes when it is posted by hand.
-const NEW_ISSUE: &str = "https://github.com/Thernal/artoo-desktop/issues/new";
+const NEW_ISSUE: &str = "https://github.com/Thernal/artoo/issues/new";
 /// The log lines a report carries.
 pub(crate) const LOG_LINES: usize = 200;
 /// GitHub refuses longer new-issue addresses; the log is cut first to fit.
