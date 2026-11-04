@@ -10,6 +10,12 @@ use artoo_ui_kit::controls::{chip, group};
 use gpui::{App, ClickEvent, Context, WeakEntity, Window, div, prelude::*};
 use std::rc::Rc;
 
+/// The button of the toast saying a host connected: Settings → Merge requests, where the way in
+/// changes (#156).
+#[derive(Clone, PartialEq, Debug, gpui::Action)]
+#[action(namespace = settings, no_json, no_register)]
+pub(super) struct RequestsSettings;
+
 impl Workspace {
     pub(super) fn open_settings(&mut self, cx: &mut Context<Self>) {
         if let Some(branches) = self.branches() {
@@ -27,6 +33,19 @@ impl Workspace {
         self.open_settings(cx);
         self.settings_section = Section::Requests;
         self.look_for_token(cx);
+    }
+
+    /// A toast's button that opens a section of Settings, answered; false for another's.
+    pub(super) fn answer_settings(
+        &mut self,
+        act: &dyn gpui::Action,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let ours = act.as_any().is::<RequestsSettings>();
+        if ours {
+            self.open_requests_settings(cx);
+        }
+        ours
     }
 
     /// Saves the settings; the review's copy follows them (#165).

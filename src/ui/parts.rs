@@ -12,7 +12,7 @@ use super::{Workspace, motion, px};
 use artoo_core::route::Route;
 use artoo_shell_api::{
     Chrome, Drawing, Frame, ItemTab, ListZone, MenuItem, Overlay, Pages, Places, Run, Section,
-    Services, Slot,
+    Services, Slot, Toast,
 };
 use artoo_ui_kit::markdown::Selecting;
 use gpui::{
@@ -39,8 +39,12 @@ impl TabFrame {
 }
 
 impl Frame for TabFrame {
-    fn toast(&self, text: SharedString, cx: &mut App) {
-        self.later(cx, |this, cx| this.toast_info(text, cx));
+    fn toast(&self, toast: Toast, cx: &mut App) {
+        self.later(cx, |this, cx| this.show_toast(toast, cx));
+    }
+
+    fn drop_toasts(&self, over: Box<dyn Fn(&dyn gpui::Action) -> bool>, cx: &mut App) {
+        self.later(cx, move |this, cx| this.drop_toasts(over, cx));
     }
 
     fn error(&self, text: SharedString, cx: &mut App) {

@@ -3,9 +3,10 @@
 **Decided:** 2026-10-29 · **Applies to:** every feature with a view · **In force:** actions, parts and the
 `Frame` since 2026-10-30 (`artoo-shell-api`, updates the first feature on it); routes as data since 2026-10-30
 (`artoo_core::route`: `nav.txt` keeps them, the app's kinds in `src/ui/routes.rs`); the page registry (`Pages`)
-since 2026-10-30, Code's pages the first on it, still drawn in the app until Code is a crate. Until every space is on
-it, `Page` (`src/ui/nav.rs`), `menu::Act` and `toast` are what these replace, and a new page, action or toast is
-added there in the shape below — one variant, one id, one owner.
+since 2026-10-30, Code's pages the first on it, still drawn in the app until Code is a crate; toasts since 2026-11-04
+(`Toast`, the closed `toast::Act` gone, #171). Until every space is on it, `Page` (`src/ui/nav.rs`) and `menu::Act`
+are what these replace, and a new page or action is added there in the shape below — one variant, one id, one
+owner.
 
 **What `artoo-shell-api` holds now:** `add_action` (an id, its words for ⌘K, the keys it ships with, the menu that
 shows it — Artoo's or Help —, its GPUI action) and `add_parts` (a maker each tab calls with its `Frame`: a
@@ -48,8 +49,10 @@ defers what reads it (`cx.defer`); the part's views, listeners and tasks read it
    stable string (`requests.merge`), because a keymap keeps it.
 7. **Settings sections are contributed** the same way — a title, the rows' view, the words search finds — and
    Set up draws the same sections, never a copy.
-8. **A toast is raised through the shell:** `shell::toast(cx, Toast { text, act })`, its button a route to open
-   or an action's id.
+8. **A toast is raised through the shell:** `frame.toast(Toast::new(text).button("Review", act), cx)`, its button
+   an action — its id and its fields, as a route is a kind and its fields — that the tab answers: its own, or a part's
+   in `Parts::actions` (one without fields, as `Run` is not handed the action). A route alone could not say what a button does on the page it opens (an
+   agent's first pending comment, the New merge request card), so the button is an action.
 9. **A rule that spans features belongs to the feature that owns the subject.** What a toast about an agent's
    pending comments says, and when it gives way to one about the requests it gathered, is agents'; the shell
    only shows toasts.

@@ -1062,7 +1062,11 @@ impl Workspace {
     pub(super) fn connected(&mut self, said: Option<String>, cx: &mut Context<Self>) {
         self.load_requests(cx);
         if let Some(text) = said {
-            self.toast_act(super::toast::Act::Connected, 1, move |_| text.clone(), cx);
+            let toast = artoo_shell_api::Toast::new(text);
+            self.show_toast(
+                toast.button("Settings", super::settings::RequestsSettings),
+                cx,
+            );
         }
     }
 

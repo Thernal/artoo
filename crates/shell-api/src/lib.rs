@@ -76,8 +76,11 @@ pub enum Menu {
 /// What a part asks of the tab it was made for. A change is made once the update under way is over; a read is
 /// never made from a hook (see the crate's doc).
 pub trait Frame {
-    /// A short word at the foot of the window.
-    fn toast(&self, text: SharedString, cx: &mut App);
+    /// A toast at the foot of the window: news alone, or with a button (`Toast`).
+    fn toast(&self, toast: Toast, cx: &mut App);
+
+    /// The toasts whose button runs an action `over` picks go now: news another has taken in.
+    fn drop_toasts(&self, over: Box<dyn Fn(&dyn gpui::Action) -> bool>, cx: &mut App);
 
     /// The error line under the title bar.
     fn error(&self, text: SharedString, cx: &mut App);
@@ -220,6 +223,67 @@ impl Services {
             .get(&TypeId::of::<T>())?
             .downcast_ref()
             .cloned()
+    }
+}
+
+/// News at the foot of the window, raised through the `Frame` by the feature it is about, which says what it
+/// reads and when it gives way; the tab only shows it. Its button runs an action — its id and its fields, as a
+/// route is a kind and its fields — that the tab answers: the tab's own, or a part's (`Parts::actions`; one
+/// without fields, as `Run` is not handed the action).
+pub struct Toast {
+    /// What it says of `count` things.
+    pub say: Rc<dyn Fn(usize) -> String>,
+    /// How many things it tells of: a toast whose button runs the same action, still showing, goes, its count
+    /// added to this one's.
+    pub count: usize,
+    /// Its button: its words ("Review") and the action it runs.
+    pub button: Option<(&'static str, Box<dyn gpui::Action>)>,
+    /// With a button, the tag it also goes to the system's notifications under while no window of Artoo's is in
+    /// front, the newer replacing the older; a click there runs the button.
+    pub system: Option<String>,
+}
+
+impl Toast {
+    /// News alone.
+    pub fn new(text: impl Into<String>) -> Self {
+        let text = text.into();
+        Self {
+            say: Rc::new(move |_| text.clone()),
+            count: 1,
+            button: None,
+            system: None,
+        }
+    }
+
+    /// With a button saying `words`, running `act`.
+    pub fn button(mut self, words: &'static str, act: impl gpui::Action) -> Self {
+        self.button = Some((words, Box::new(act)));
+        self
+    }
+
+    /// About `count` things, `say` wording however many it ends up telling of.
+    pub fn counted(mut self, count: usize, say: impl Fn(usize) -> String + 'static) -> Self {
+        self.count = count;
+        self.say = Rc::new(say);
+        self
+    }
+
+    /// To the system's notifications as well, under `tag`.
+    pub fn system(mut self, tag: impl Into<String>) -> Self {
+        self.system = Some(tag.into());
+        self
+    }
+}
+
+impl From<&str> for Toast {
+    fn from(text: &str) -> Self {
+        Self::new(text)
+    }
+}
+
+impl From<String> for Toast {
+    fn from(text: String) -> Self {
+        Self::new(text)
     }
 }
 

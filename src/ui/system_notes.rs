@@ -6,7 +6,7 @@
 
 use super::Workspace;
 use super::shell::Shell;
-use super::toast::Act;
+use super::toast::Press;
 use gpui::{App, Context, Global, SharedString, SystemNotification, WeakEntity};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -25,7 +25,7 @@ pub(super) enum Open {
     /// The Inbox.
     Inbox,
     /// What the toast of the same news does (an agent's).
-    Act(Act),
+    Act(Press),
     /// The Agents window, its answers in it.
     Agents,
 }
@@ -196,7 +196,7 @@ impl Workspace {
                 }
             }
             Open::Inbox => self.go_space(super::spaces::Space::Inbox, cx),
-            Open::Act(act) => self.do_toast_act(act, cx),
+            Open::Act(press) => self.press(&*press.act, cx),
             Open::Agents => {
                 let agents = super::tools::Tool::Part(artoo_agents_api::view::WINDOW);
                 if self.tool() != Some(agents) {

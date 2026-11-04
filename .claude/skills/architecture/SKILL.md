@@ -94,7 +94,7 @@ The target above is reached for every feature: each implementation shows the app
   `branches`), hearing what they say through it too (`on_event`, `on_change`). What its `impl Workspace` blocks
   still do is coordination across them — a branch's commit picked is the history's selection and the review loading
   its diff, a request opened, the composer's targets — and the frame they share: the page on screen and its
-  history, the side panel, zones and the keyboard's rule, ⌘K, `menu::Act`, `toast`. New work on a feature goes into
+  history, the side panel, zones and the keyboard's rule, ⌘K, `menu::Act`, the toasts' stack. New work on a feature goes into
   its crate, asked through its contract; what is the tab's stays coordination.
 - Done: the shell (`artoo-shell`, every piece of the frame through `artoo-shell-api`'s render contracts), Code,
   updates and reports, hosts (the hosts' contract, the connect panel a part of every tab behind
@@ -106,8 +106,9 @@ The target above is reached for every feature: each implementation shows the app
 - `Page` (`src/ui/nav.rs`) is a closed enum the route registry replaces; it is kept as a route already (the
   core's `Route` and `Place`), each kind's type its owner's contract's (Code's, the branches', a merge request's),
   `src/ui/routes.rs` mapping them; it stays the window root's until a place comes from outside the app (a plugin).
-  `menu::Act` and `toast` still know the other features. Meanwhile a new page, action or toast is added there in
-  the shape the registries will take: one variant, one id, one owner.
+  `menu::Act` still knows the other features. Meanwhile a new page or action is added there in the shape the
+  registries will take: one variant, one id, one owner. A toast is `artoo_shell_api::Toast`, raised through the
+  `Frame` by what it is about, its button an action (#171 phase 1).
 - `artoo-review` holds the review: the entity (`review::Review`) with its events, its handle (`handle`), the row
   drawing (`diff_view`), the find, going to a line, the selection, the stack, reviewed marks, documents' pages, find
   in files, Code's file, the Changes list; the diff's rows are the core's (`artoo_core::rows`), a selection's ends

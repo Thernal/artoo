@@ -8,7 +8,6 @@
 use super::Workspace;
 use super::nav::Page;
 use super::rows::FileData;
-use super::toast::Act;
 use crate::bus::{Event, What};
 use crate::comment::Place;
 use crate::notes::{Notes, On, Shown};
@@ -16,6 +15,16 @@ use artoo_agents_api::view::{self, NoteEvent, NoteLook, OnNote};
 use artoo_review_api::diff::{Diff, Header};
 use gpui::{App, Context, WeakEntity, div, prelude::*};
 use std::rc::Rc;
+
+/// Show on a toast of an agent's notes: the changes `agent` left them on, opened under Branches
+/// and shown (#151).
+#[derive(Clone, PartialEq, Debug, gpui::Action)]
+#[action(namespace = agents, no_json, no_register)]
+pub(super) struct ShowNotes {
+    pub(super) page: Page,
+    pub(super) unstaged: Option<bool>,
+    agent: String,
+}
 
 impl Workspace {
     /// An agent's notes on its changes (`What::Notes`) come in: kept, its earlier ones on the
@@ -71,7 +80,7 @@ impl Workspace {
             let notes = super::plural(count, "note");
             self.call_reviewer(item, format!("{agent} left {notes} on it"));
         }
-        let act = Act::Notes {
+        let act = ShowNotes {
             page,
             unstaged,
             agent: agent.clone(),
@@ -80,7 +89,7 @@ impl Workspace {
             let notes = super::plural(count, "note");
             format!("{agent} left {notes} on its changes: {what}")
         };
-        self.toast_act(act, 1, say, cx);
+        self.agent_toast(act, "Show", 1, say, cx);
     }
 
     /// Show on a toast of notes: their changes open under Branches, on screen.

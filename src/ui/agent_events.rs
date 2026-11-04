@@ -7,11 +7,56 @@
 use super::Workspace;
 use super::goto::Spot;
 use super::nav::{Item, Page};
-use super::toast::Act;
 use crate::bus::{Mark, Place, RequestDraft, What};
 use crate::git::RefKind;
-use gpui::{App, Context};
+use artoo_shell_api::Toast;
+use gpui::{Action, App, Context};
 use std::path::Path;
+
+/// Review on an agent's toast: request `iid` at the first pending comment `agent` left on it
+/// (#150).
+#[derive(Clone, PartialEq, Debug, Action)]
+#[action(namespace = agents, no_json, no_register)]
+pub(super) struct ReviewPending {
+    iid: u64,
+    agent: String,
+}
+
+/// Review on a gathering's toast: request `iid`, the first of those `agent` gathered under Merge
+/// requests (#148).
+#[derive(Clone, PartialEq, Debug, Action)]
+#[action(namespace = agents, no_json, no_register)]
+pub(super) struct ReviewGathered {
+    iid: u64,
+    agent: String,
+}
+
+/// Show on an agent's toast: the comparison or the working tree `agent` opened under Branches
+/// (#149).
+#[derive(Clone, PartialEq, Debug, Action)]
+#[action(namespace = agents, no_json, no_register)]
+pub(super) struct ShowChanges {
+    item: Item,
+    unstaged: Option<bool>,
+    agent: String,
+}
+
+/// Open on an agent's toast: the New merge request card for branch `source`, with the request
+/// `agent` drafted (#152).
+#[derive(Clone, PartialEq, Debug, Action)]
+#[action(namespace = agents, no_json, no_register)]
+pub(super) struct OpenDraft {
+    source: String,
+    agent: String,
+}
+
+/// Show on an agent's toast: the place `agent` pointed at (#154).
+#[derive(Clone, PartialEq, Debug, Action)]
+#[action(namespace = agents, no_json, no_register)]
+pub(super) struct ShowPlace {
+    place: Place,
+    agent: String,
+}
 
 impl Workspace {
     /// On the agents' beat (`poll_agents`): the marks read again when they changed, and this
@@ -77,7 +122,7 @@ impl Workspace {
             format!("{agent} left {}", super::plural(count, "pending comment")),
         );
         let number = self.number(iid);
-        let act = Act::Review {
+        let act = ReviewPending {
             iid,
             agent: agent.clone(),
         };
@@ -85,7 +130,7 @@ impl Workspace {
             let comments = super::plural(n, "pending comment");
             format!("{agent} left {comments} on {number}")
         };
-        self.toast_act(act, count, say, cx);
+        self.agent_toast(act, "Review", count, say, cx);
     }
 
     /// `agent` gathered `iids` (#148): each becomes a row under Merge requests, in that order, not
@@ -102,16 +147,22 @@ impl Workspace {
             self.call_reviewer(Item::Request(iid), format!("{agent} gathered it"));
         }
         self.save_nav();
-        self.toast_drop(
-            |act| matches!(act, Act::Review { iid, agent: a } if *a == agent && iids.contains(iid)),
+        let count = iids.len();
+        let (who, gathered) = (agent.clone(), iids);
+        self.drop_toasts(
+            move |act| {
+                act.as_any()
+                    .downcast_ref::<ReviewPending>()
+                    .is_some_and(|r| r.agent == who && gathered.contains(&r.iid))
+            },
             cx,
         );
-        let act = Act::Gathered {
+        let act = ReviewGathered {
             iid: first,
             agent: agent.clone(),
         };
         let say = move |n| format!("{agent} gathered {}", super::plural(n, "merge request"));
-        self.toast_act(act, iids.len(), say, cx);
+        self.agent_toast(act, "Review", count, say, cx);
     }
 
     /// `agent` opened its changes (#149): `page` a row under Branches, quietly, and a toast that
@@ -141,7 +192,7 @@ impl Workspace {
                 ),
             },
         );
-        let act = Act::Show {
+        let act = ShowChanges {
             item,
             unstaged,
             agent: agent.clone(),
@@ -153,7 +204,7 @@ impl Workspace {
                 format!("{agent} opened its changes with {notes}: {what}")
             }
         };
-        self.toast_act(act, 1, say, cx);
+        self.agent_toast(act, "Show", 1, say, cx);
     }
 
     /// `agent` drafted a merge request (#152): kept for its branch, over an earlier draft for it;
@@ -172,22 +223,68 @@ impl Workspace {
             self.open_quietly(page, cx);
             self.save_nav();
         }
-        let act = Act::Drafted {
+        let act = OpenDraft {
             source,
             agent: agent.clone(),
         };
         let say = move |_| format!("{agent} drafted a merge request: {said}");
-        self.toast_act(act, 1, say, cx);
+        self.agent_toast(act, "Open", 1, say, cx);
     }
 
     /// `agent` points at `place` (#154): only a toast says it, its Show going there.
     fn agent_pointed(&mut self, agent: String, place: Place, cx: &mut Context<Self>) {
         let said = place.said(self.web.as_ref().is_some_and(|w| w.github));
-        let act = Act::Point {
+        let act = ShowPlace {
             place,
             agent: agent.clone(),
         };
-        self.toast_act(act, 1, move |_| format!("{agent} points at {said}"), cx);
+        self.agent_toast(
+            act,
+            "Show",
+            1,
+            move |_| format!("{agent} points at {said}"),
+            cx,
+        );
+    }
+
+    /// A toast of an agent's news, its button `words` running `act`, about `count` things: to the
+    /// system's notifications as well, the newer of the same button replacing the older (#26).
+    pub(super) fn agent_toast<A: Action + std::fmt::Debug>(
+        &mut self,
+        act: A,
+        words: &'static str,
+        count: usize,
+        say: impl Fn(usize) -> String + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        let tag = format!("{act:?}");
+        let toast = Toast::new("")
+            .counted(count, say)
+            .button(words, act)
+            .system(tag);
+        self.show_toast(toast, cx);
+    }
+
+    /// An agent's toast's button, answered; false for another's.
+    pub(super) fn answer_agents(&mut self, act: &dyn Action, cx: &mut Context<Self>) -> bool {
+        let act = act.as_any();
+        if let Some(a) = act.downcast_ref::<ReviewPending>() {
+            self.review_agent(a.iid, &a.agent, cx);
+        } else if let Some(a) = act.downcast_ref::<ReviewGathered>() {
+            self.review_gathered(a.iid, cx);
+        } else if let Some(a) = act.downcast_ref::<ShowChanges>() {
+            self.show_changes(&a.item, a.unstaged, cx);
+        } else if let Some(a) = act.downcast_ref::<super::agent_notes::ShowNotes>() {
+            let (page, unstaged) = (a.page.clone(), a.unstaged);
+            self.show_agent_notes(page, unstaged, cx);
+        } else if let Some(a) = act.downcast_ref::<OpenDraft>() {
+            self.open_agent_draft(a.source.clone(), cx);
+        } else if let Some(a) = act.downcast_ref::<ShowPlace>() {
+            self.show_place(a.place.clone(), cx);
+        } else {
+            return false;
+        }
+        true
     }
 
     /// Show on that toast: a file at its line in the diff on screen when the file is in it, else
