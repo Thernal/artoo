@@ -39,13 +39,23 @@ GET  /v1/report/<id>?install → 200 {state, url} · 404
    `npx wrangler kv namespace create REPORTS` — put the printed id in `wrangler.toml`;
    `npx wrangler secret put APP_ID`, `npx wrangler secret put APP_KEY < app-pkcs8.pem`; `npx wrangler deploy`.
    Delete both `.pem` files afterwards.
-5. **The app**: the address `wrangler deploy` printed goes in `RELAY` (`src/report.rs`), or in `ARTOO_REPORT_URL`
-   to try it first.
+5. **The app**: the address `wrangler deploy` printed goes in `RELAY` (`crates/reports/src/lib.rs`), or in
+   `ARTOO_REPORT_URL` to try it first.
 
 Closing the reports: `OPEN = "0"` in `wrangler.toml` and deploy (the app then offers GitHub's page). A key that
 leaked: revoke it in the App's settings and put a new one with `wrangler secret put APP_KEY` — the app needs no update.
 
+## GitLance's address
+
+GitLance 1.3.0 sends its reports to `gitlance-reports.h-humbat0.workers.dev`, the relay's address before the name
+changed. `forward/` keeps that address: a Worker named `gitlance-reports` that hands every request to this one
+(`artoo-reports`) through a service binding, so GitLance's reports land in the same intake and their states are read
+from the same KV. It holds no key. Deploy it after this one: `cd forward && npx wrangler deploy`.
+
+It goes once Artoo 2.0.0 is out (#173): `npx wrangler delete --name gitlance-reports`. GitLance then opens GitHub's
+page instead, as it does whenever the relay can't be reached.
+
 ## Tests
 
-`npm test` (Node 20+): the checks, the scrubbing, the issue's text, the App's JWT, and the Worker against a GitHub
-and a KV in memory.
+`npm test` (Node 20+): the checks, the scrubbing, the issue's text, the App's JWT, the Worker against a GitHub and a
+KV in memory, and GitLance's address handing a request on.
