@@ -147,6 +147,7 @@ pub fn window_picture() -> Option<Vec<u8>> {
 
 /// Where an editor's command-line launcher can be found.
 #[allow(dead_code)] // each OS reads only its own fields
+#[derive(Clone, Copy, Debug)]
 pub struct Launcher {
     /// The app bundle's name starts with this (macOS): "Android Studio" also finds
     /// "Android Studio Preview.app".

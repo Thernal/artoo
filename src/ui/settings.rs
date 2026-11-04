@@ -4,7 +4,7 @@
 
 use super::px;
 use super::{ISLAND_RADIUS, Workspace, theme};
-use crate::editor::{self, Editor};
+use crate::editor::Editor;
 use crate::storage::{DiffMode, MarkStyle};
 use artoo_ui_kit::controls::{chip, group};
 use gpui::{App, ClickEvent, Context, WeakEntity, Window, div, prelude::*};
@@ -51,7 +51,7 @@ impl Workspace {
     /// Saves the settings; the review's copy follows them (#165).
     pub(super) fn save_settings(&mut self, cx: &mut App) {
         self.settings.save();
-        self.rv().set_settings(self.settings, cx);
+        self.rv().set_settings(self.settings.clone(), cx);
     }
 
     fn change_settings(&mut self, change: impl FnOnce(&mut Self), cx: &mut Context<Self>) {
@@ -62,7 +62,7 @@ impl Workspace {
     }
 
     pub(super) fn render_settings(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let s = self.settings;
+        let s = self.settings.clone();
         let marks = group().children(MarkStyle::ALL.map(|style| {
             chip(style_id(style), style.label(), s.mark_style == style).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
@@ -79,12 +79,16 @@ impl Workspace {
                 },
             ))
         }));
-        let installed: Vec<Editor> = Editor::ALL.into_iter().filter(|e| e.installed()).collect();
-        let current = editor::pick(s.editor);
+        let installed: Vec<Editor> = artoo_shell_api::editors(cx)
+            .iter()
+            .copied()
+            .filter(|e| e.installed())
+            .collect();
+        let current = self.editor(cx);
         let editors = group().children(installed.iter().map(|&e| {
-            chip(e.key(), e.label(), current == Some(e)).on_click(cx.listener(
+            chip(e.key, e.label, current == Some(e)).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
-                    this.change_settings(|this| this.settings.editor = Some(e), cx)
+                    this.change_settings(|this| this.settings.editor = Some(e.key.to_owned()), cx)
                 },
             ))
         }));

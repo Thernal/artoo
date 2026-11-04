@@ -134,7 +134,7 @@ impl Workspace {
                 self.toast_info(format!("{said} copied").into(), cx);
             }
             Act::OpenUrl(url) => cx.open_url(&url),
-            Act::OpenEditor { path, line } => self.open_in_editor(&path, line),
+            Act::OpenEditor { path, line } => self.open_in_editor(&path, line, cx),
             Act::Comment { old, line } => self.start_comment(old, line, cx),
             Act::SetMode(mode) => self.set_mode(mode, cx),
             Act::Toggle(opt) => self.toggle(opt, cx),
@@ -203,11 +203,14 @@ impl Workspace {
     }
 
     /// Opens `path` (relative to the repository) at `line` in the chosen editor.
-    pub(super) fn open_in_editor(&mut self, path: &str, line: u32) {
-        let (Some(root), Some(editor)) = (&self.root, editor::pick(self.settings.editor)) else {
+    pub(super) fn open_in_editor(&mut self, path: &str, line: u32, cx: &gpui::App) {
+        let (Some(root), Some(editor)) = (&self.root, self.editor(cx)) else {
             self.error = Some(
-                "No supported editor found. Install Android Studio, Zed or VS Code, or choose one in Settings."
-                    .into(),
+                format!(
+                    "No supported editor found. Install {}, or choose one in Settings.",
+                    editor::names(artoo_shell_api::editors(cx))
+                )
+                .into(),
             );
             return;
         };

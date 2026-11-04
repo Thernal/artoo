@@ -52,7 +52,7 @@ impl Workspace {
     /// Look).
     pub(super) fn font_rows(&self, cx: &mut Context<Self>) -> [AnyElement; 3] {
         let faces = theme::faces();
-        let s = self.settings;
+        let s = self.settings.clone();
         let ui_zoom =
             group()
                 .child(chip("ui-zoom-out", "−", false).on_click(

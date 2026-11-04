@@ -810,7 +810,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         "underlined" => {
                             // Not saved either: only this frame.
                             this.settings.mark_style = crate::storage::MarkStyle::Underlined;
-                            this.rv().set_settings(this.settings, cx);
+                            this.rv().set_settings(this.settings.clone(), cx);
                             continue;
                         }
                         "comments" => {
@@ -1065,19 +1065,19 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         "rail-tabs" => {
                             this.settings.projects = crate::storage::Projects::Tabs;
                             share_settings(&this.settings);
-                            this.rv().set_settings(this.settings, cx);
+                            this.rv().set_settings(this.settings.clone(), cx);
                             continue;
                         }
                         "rail-menu" => {
                             this.settings.projects = crate::storage::Projects::Menu;
                             share_settings(&this.settings);
-                            this.rv().set_settings(this.settings, cx);
+                            this.rv().set_settings(this.settings.clone(), cx);
                             continue;
                         }
                         "flat" => {
                             this.settings.flat = true;
                             share_settings(&this.settings);
-                            this.rv().set_settings(this.settings, cx);
+                            this.rv().set_settings(this.settings.clone(), cx);
                             continue;
                         }
                         "appearance" => {
@@ -1705,7 +1705,7 @@ impl Workspace {
             bookmarks: bookmarks::Store::load(),
             recents: Vec::new(),
             mention_hover: None,
-            open_with: open_in::load(),
+            open_with: open_in::load(artoo_shell_api::editors(cx)),
             open_cache: Default::default(),
             discussions_showing: Default::default(),
             motion: Default::default(),
@@ -1808,7 +1808,7 @@ impl Workspace {
         }
         Self::start_watching(this.on_screen.clone(), cx);
         // The review its parts made, its copy of the settings the tab's; what it says heard, any change drawn.
-        this.rv().set_settings(this.settings, cx);
+        this.rv().set_settings(this.settings.clone(), cx);
         let tab = cx.weak_entity();
         this.rv().on_change(
             Rc::new(move |cx| {
@@ -2394,13 +2394,9 @@ impl Workspace {
             "Comment on this line",
             Act::Comment { old, line },
         )];
-        if let (false, Some(path), Some(editor)) = (
-            old,
-            self.current_path(cx),
-            crate::editor::pick(self.settings.editor),
-        ) {
+        if let (false, Some(path), Some(editor)) = (old, self.current_path(cx), self.editor(cx)) {
             second.push(Entry::new(
-                format!("Open in {} at line {line}", editor.label()),
+                format!("Open in {} at line {line}", editor.label),
                 Act::OpenEditor { path, line },
             ));
         }
@@ -2472,9 +2468,9 @@ impl Workspace {
         if let Some(link) = self.diff_file_link(&path, cx) {
             groups[0].push(Entry::new("Copy link", link.act()).key("↗"));
         }
-        if let Some(editor) = crate::editor::pick(self.settings.editor) {
+        if let Some(editor) = self.editor(cx) {
             groups.push(vec![Entry::new(
-                format!("Open in {}", editor.label()),
+                format!("Open in {}", editor.label),
                 Act::OpenEditor { path, line: 1 },
             )]);
         }

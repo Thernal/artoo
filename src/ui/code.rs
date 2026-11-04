@@ -147,7 +147,7 @@ impl Host for CodeHost {
     }
 
     fn open_in(&self, path: &Path, cx: &App) -> Option<(String, artoo_code_api::Opens)> {
-        let app = self.0.upgrade()?.read(cx).open_app(path)?;
+        let app = self.0.upgrade()?.read(cx).open_app(path, cx)?;
         let (tab, path, label) = (
             self.0.clone(),
             path.to_owned(),

@@ -361,10 +361,11 @@ impl OpenIn {
 }
 
 /// Preferences from the Settings page.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
-    /// The editor files open in; `None` takes the first one installed.
-    pub editor: Option<crate::editor::Editor>,
+    /// The editor files open in, by its key (`crate::editor::Editor::key`); `None`, or a key no editor has, takes
+    /// the first one installed.
+    pub editor: Option<String>,
     /// How changed words are drawn, in Words and Structural modes.
     pub mark_style: MarkStyle,
     /// The mode a diff opens in.
@@ -469,7 +470,7 @@ impl Settings {
                         z.clamp(Settings::ZOOM_MIN, Settings::ZOOM_MAX)
                     })
                 }
-                "editor" => settings.editor = crate::editor::Editor::from_key(value),
+                "editor" => settings.editor = Some(value.to_owned()).filter(|v| !v.is_empty()),
                 _ => {}
             }
         }
@@ -495,8 +496,8 @@ impl std::fmt::Display for Settings {
         writeln!(f, "system_notifications={}", self.system_notifications)?;
         writeln!(f, "zoom={}", self.zoom)?;
         writeln!(f, "ui_zoom={}", self.ui_zoom)?;
-        if let Some(editor) = self.editor {
-            writeln!(f, "editor={}", editor.key())?;
+        if let Some(editor) = &self.editor {
+            writeln!(f, "editor={editor}")?;
         }
         Ok(())
     }
@@ -592,7 +593,7 @@ mod tests {
         assert_eq!(Settings::default().mark_style, MarkStyle::Tinted);
         assert!(Settings::default().rich_comments);
         let settings = Settings {
-            editor: Some(crate::editor::Editor::Zed),
+            editor: Some("zed".to_owned()),
             mark_style: MarkStyle::Underlined,
             default_mode: DiffMode::Structural,
             auto_refresh: false,

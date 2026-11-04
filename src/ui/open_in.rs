@@ -36,7 +36,7 @@ pub enum App {
 impl App {
     pub fn name(&self) -> String {
         match self {
-            App::Editor(e) => e.label().to_owned(),
+            App::Editor(e) => e.label.to_owned(),
             App::Other { name, .. } => name.clone(),
             App::Default => "the default app".to_owned(),
         }
@@ -45,18 +45,19 @@ impl App {
     /// As `open-with.txt` writes it.
     fn key(&self) -> String {
         match self {
-            App::Editor(e) => format!("editor:{}", e.key()),
+            App::Editor(e) => format!("editor:{}", e.key),
             App::Other { name, path } => format!("app:{name}\t{}", path.display()),
             App::Default => "default".to_owned(),
         }
     }
 
-    fn parse(text: &str) -> Option<App> {
+    /// `text` as `open-with.txt` wrote it, its editor one of `editors`.
+    fn parse(text: &str, editors: &[Editor]) -> Option<App> {
         if text == "default" {
             return Some(App::Default);
         }
         if let Some(key) = text.strip_prefix("editor:") {
-            return Editor::from_key(key).map(App::Editor);
+            return editor::find(key, editors).map(App::Editor);
         }
         let (name, path) = text.strip_prefix("app:")?.split_once('\t')?;
         Some(App::Other {
@@ -145,13 +146,13 @@ fn extension(path: &Path) -> Option<String> {
         .filter(|e| !e.is_empty())
 }
 
-/// The kept choices, by extension.
-pub fn load() -> HashMap<String, App> {
+/// The kept choices, by extension; a choice of an editor not among `editors` is dropped.
+pub fn load(editors: &[Editor]) -> HashMap<String, App> {
     crate::storage::read(FILE)
         .lines()
         .filter_map(|l| {
             let (ext, app) = l.split_once('\t')?;
-            Some((ext.to_owned(), App::parse(app)?))
+            Some((ext.to_owned(), App::parse(app, editors)?))
         })
         .collect()
 }
@@ -175,7 +176,7 @@ pub struct Cache {
 }
 
 /// A path, the editor chosen in Settings then, and the app the rule named.
-type Named = (PathBuf, Option<Editor>, Option<App>);
+type Named = (PathBuf, Option<String>, Option<App>);
 
 impl Workspace {
     /// What the page shows, to open, and at which line: Code's file at the top line shown, or its
@@ -199,14 +200,23 @@ impl Workspace {
         }
     }
 
+    /// The editor files open in: the one chosen in Settings while it is installed, else the first
+    /// installed.
+    pub(super) fn editor(&self, cx: &gpui::App) -> Option<Editor> {
+        editor::pick(
+            self.settings.editor.as_deref(),
+            artoo_shell_api::editors(cx),
+        )
+    }
+
     /// The app `path` opens in: the one picked for it in the ▾, else by the rule.
-    pub(super) fn open_app(&self, path: &Path) -> Option<App> {
+    pub(super) fn open_app(&self, path: &Path, cx: &gpui::App) -> Option<App> {
         if let Some((at, app)) = &self.open_cache.picked
             && at == path
         {
             return Some(app.clone());
         }
-        let chosen = self.settings.editor;
+        let chosen = self.settings.editor.clone();
         if let Some((at, editor, app)) = self.open_cache.named.borrow().as_ref()
             && at == path
             && *editor == chosen
@@ -228,13 +238,7 @@ impl Workspace {
                 .next()
                 .map(|(name, path)| App::Other { name, path })
         };
-        let app = rule(
-            kind,
-            kept,
-            editor::pick(chosen),
-            platform::preview(),
-            default,
-        );
+        let app = rule(kind, kept, self.editor(cx), platform::preview(), default);
         *self.open_cache.named.borrow_mut() = Some((path.to_owned(), chosen, app.clone()));
         app
     }
@@ -244,7 +248,7 @@ impl Workspace {
         let Some((path, line)) = self.open_target(cx) else {
             return;
         };
-        match self.open_app(&path) {
+        match self.open_app(&path, cx) {
             Some(app) => self.error = app.open(&path, line).err().map(Into::into),
             None => {
                 self.error =
@@ -267,12 +271,13 @@ impl Workspace {
         let Some((path, _)) = self.open_target(cx) else {
             return;
         };
-        let now = self.open_app(&path);
+        let now = self.open_app(&path, cx);
         let kind = kind_of(&path);
-        let yours = editor::pick(self.settings.editor);
+        let editors = artoo_shell_api::editors(cx);
+        let yours = self.editor(cx);
         let mut apps: Vec<(App, &'static str)> = Vec::new();
         if matches!(kind, Kind::Text | Kind::Folder) {
-            apps.extend(Editor::ALL.into_iter().filter(|e| e.installed()).map(|e| {
+            apps.extend(editors.iter().copied().filter(|e| e.installed()).map(|e| {
                 (
                     App::Editor(e),
                     if Some(e) == yours { "your editor" } else { "" },
@@ -285,7 +290,7 @@ impl Workspace {
             }
             for (n, (name, at)) in platform::apps_for(&path).into_iter().enumerate() {
                 // An editor the system lists is the one above, which opens at the line.
-                let editor = Editor::ALL.into_iter().any(|e| e.bundle() == name);
+                let editor = editors.iter().any(|e| e.bundle() == name);
                 if !editor && !apps.iter().any(|(a, _)| a.name() == name) {
                     let note = if n == 0 { "the default" } else { "" };
                     apps.push((App::Other { name, path: at }, note));
@@ -348,7 +353,7 @@ impl Workspace {
         let Some((path, _)) = self.open_target(cx) else {
             return;
         };
-        match self.open_app(&path) {
+        match self.open_app(&path, cx) {
             Some(app) if self.open_with.get(&ext) != Some(&app) => {
                 self.open_with.insert(ext, app);
             }
@@ -364,7 +369,7 @@ impl Workspace {
     /// nothing opens it, which opens the ▾.
     pub(super) fn open_in_button(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let (path, _) = self.open_target(cx)?;
-        let main = match self.open_app(&path) {
+        let main = match self.open_app(&path, cx) {
             Some(app) => self
                 .bar_action(
                     "bar-open-in",
@@ -420,7 +425,7 @@ impl Workspace {
     pub(super) fn open_in_chips(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let app = self
             .open_target(cx)
-            .and_then(|(path, _)| self.open_app(&path))?;
+            .and_then(|(path, _)| self.open_app(&path, cx))?;
         let label = if self.tight(cx) {
             "↗".to_owned()
         } else {
@@ -451,7 +456,7 @@ impl Workspace {
     pub(super) fn render_binary(&self, size: u64, cx: &mut Context<Self>) -> AnyElement {
         let app = self
             .open_target(cx)
-            .and_then(|(path, _)| self.open_app(&path));
+            .and_then(|(path, _)| self.open_app(&path, cx));
         let label = app.as_ref().map_or_else(
             || "Choose an app…".to_owned(),
             |a| format!("Open in {}", a.name()),
@@ -502,7 +507,7 @@ mod tests {
 
     #[test]
     fn each_kind_names_its_app() {
-        let zed = Some(Editor::Zed);
+        let zed = Some(editor::ZED);
         let preview = Some(PathBuf::from("/System/Applications/Preview.app"));
         let name = |kind, kept, editor, default| {
             rule(kind, kept, editor, preview.clone(), default).map(|a| a.name())
@@ -529,7 +534,7 @@ mod tests {
         );
         assert_eq!(name(Kind::Other, None, zed, None), None);
         // A choice kept for the extension comes first.
-        let kept = Some(App::Editor(Editor::VsCode));
+        let kept = Some(App::Editor(editor::VS_CODE));
         assert_eq!(
             name(Kind::Text, kept, zed, None).as_deref(),
             Some("VS Code")
@@ -539,14 +544,14 @@ mod tests {
     #[test]
     fn a_kept_choice_reads_back() {
         for app in [
-            App::Editor(Editor::Zed),
+            App::Editor(editor::ZED),
             App::Default,
             App::Other {
                 name: "Adobe Photoshop".into(),
                 path: "/Applications/Adobe Photoshop 2026/Adobe Photoshop 2026.app".into(),
             },
         ] {
-            assert_eq!(App::parse(&app.key()), Some(app));
+            assert_eq!(App::parse(&app.key(), &editor::BUILT_IN), Some(app));
         }
     }
 }

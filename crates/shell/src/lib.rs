@@ -17,10 +17,14 @@ mod title;
 mod tools;
 mod welcome;
 
-/// The frame's renderers, for every window (the kits' wiring: `LocalX provides XImpl`).
+/// The frame's renderers, for every window (the kits' wiring: `LocalX provides XImpl`), and the editors Artoo
+/// ships, which Open in opens files in.
 pub fn install(cx: &mut gpui::App) {
     use artoo_shell_api::render::provide;
     use std::rc::Rc;
+    for editor in artoo_core::editor::BUILT_IN {
+        artoo_shell_api::add_editor(cx, editor);
+    }
     provide::<dyn artoo_shell_api::bar::BarRenderer>(Rc::new(bar::Renderer), cx);
     provide::<dyn artoo_shell_api::title::TitleRenderer>(Rc::new(title::Renderer), cx);
     provide::<dyn artoo_shell_api::tabs::TabsRenderer>(Rc::new(rail::Renderer), cx);

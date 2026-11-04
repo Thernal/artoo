@@ -4,12 +4,14 @@
 `Frame` since 2026-10-30 (`artoo-shell-api`, updates the first feature on it); routes as data since 2026-10-30
 (`artoo_core::route`: `nav.txt` keeps them, the app's kinds in `src/ui/routes.rs`); the page registry (`Pages`)
 since 2026-10-30, Code's pages the first on it, still drawn in the app until Code is a crate; toasts since 2026-11-04
-(`Toast`, the closed `toast::Act` gone, #171). Until every space is on it, `Page` (`src/ui/nav.rs`) and `menu::Act`
+(`Toast`, the closed `toast::Act` gone, #171); tool windows and editors since 2026-11-04 (`Tool`, the tab's
+`tools::Tool` gone; `add_editor`, the core's `Editor` enum data, #171). Until every space is on it, `Page` (`src/ui/nav.rs`) and `menu::Act`
 are what these replace, and a new page or action is added there in the shape below — one variant, one id, one
 owner.
 
 **What `artoo-shell-api` holds now:** `add_action` (an id, its words for ⌘K, the keys it ships with, the menu that
-shows it — Artoo's or Help —, its GPUI action) and `add_parts` (a maker each tab calls with its `Frame`: a
+shows it — Artoo's or Help —, its GPUI action), `add_editor` (an editor Open in opens a file in at a line, by its
+key, a key offered twice refused) and `add_parts` (a maker each tab calls with its `Frame`: a
 title-bar item with when it shows, an `Overlay` — a card that is drawn and has the keys while open, closed by
 Escape, polled each frame the tab is not busy —, a `Tool` — a tool window in the spaces it names, on their pages
 only or not, in its `order`, readied as it opens, given typed keys while it has the keyboard and says it is typing;

@@ -7,6 +7,8 @@
 //!   window, a tool window on the right, rows in Settings, the views a snapshot run opens, a space's pages, the
 //!   fields it types in (`Input`), its pieces of the item page on screen (`Piece`) —, made for each tab with its
 //!   `Frame`.
+//! - **Editors** (`add_editor`): an editor Open in opens a file in at a line (`artoo_core::editor::Editor`), by
+//!   its key, which Settings keeps; Artoo's three the frame's.
 //! - **Pages**: the routes of some kinds and a space's own page, drawn by the feature that owns them. The shell
 //!   keeps which is on screen — its history, `nav.txt` — and says so (`Pages::show`); a feature opens one of its
 //!   own through the `Frame` like any other.
@@ -37,6 +39,7 @@ pub mod title;
 pub mod tools;
 pub mod welcome;
 
+use artoo_core::editor::Editor;
 use artoo_core::git::WebRemote;
 use artoo_core::route::Route;
 use artoo_ui_kit::markdown::Selecting;
@@ -591,9 +594,31 @@ type Maker = Rc<dyn Fn(Rc<dyn Frame>, &mut Window, &mut App) -> Parts>;
 struct Registry {
     actions: Vec<Action>,
     makers: Vec<Maker>,
+    editors: Vec<Editor>,
 }
 
 impl Global for Registry {}
+
+/// Offers an editor to open files in (a feature's `install`). A key already offered is refused, and the log
+/// says so: the first to offer it keeps it.
+pub fn add_editor(cx: &mut App, editor: Editor) {
+    let editors = &mut cx.default_global::<Registry>().editors;
+    if editors.iter().any(|e| e.key == editor.key) {
+        artoo_core::applog::line(&format!(
+            "editor {:?} offered twice: the second refused",
+            editor.key
+        ));
+        return;
+    }
+    editors.push(editor);
+}
+
+/// The editors offered, in the order they were.
+pub fn editors(cx: &App) -> &[Editor] {
+    cx.try_global::<Registry>()
+        .map(|r| r.editors.as_slice())
+        .unwrap_or(&[])
+}
 
 /// Offers a command (a feature's `install`).
 pub fn add_action(cx: &mut App, action: Action) {

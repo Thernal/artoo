@@ -354,7 +354,7 @@ impl artoo_review_api::Review for Handle {
     }
 
     fn app_settings(&self, cx: &App) -> Settings {
-        self.read(cx, |rv, _| rv.settings)
+        self.read(cx, |rv, _| rv.settings.clone())
     }
 
     fn body_width(&self, cx: &App) -> f32 {
