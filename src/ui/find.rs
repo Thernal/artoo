@@ -84,7 +84,7 @@ impl Workspace {
         // ⌫ in a tool window that lists: the Agents window deletes the draft picked, Undo in its
         // toast (#76).
         if key.key == "backspace"
-            && let Some(super::tools::Tool::Part(id)) = self.tool()
+            && let Some(id) = self.tool()
             && self.part_list_key(id, artoo_shell_api::ListKey::Delete, cx)
         {
             return;

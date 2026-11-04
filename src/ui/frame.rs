@@ -204,6 +204,8 @@ impl Render for Workspace {
         // The host's words (pull requests on GitHub) for everything drawn from here.
         words::set(self.web.as_ref().is_some_and(|w| w.github));
         markdown::set_me(self.request_login(cx).as_deref());
+        // What the Discussions window's icon and title ask as they are drawn (`DiscussionsHost::showing`).
+        self.discussions_showing.set(self.showing_request(cx));
         self.take_error(cx);
         self.poll_parts(cx);
         // Settings closed (esc, Done, a place) while a theme was edited: its preview ends too.
@@ -415,10 +417,10 @@ impl Render for Workspace {
         .on_action(cx.listener(|this, _: &NextOpenItem, _, cx| this.step_open_item(true, cx)))
         .on_action(cx.listener(|this, _: &PreviousOpenItem, _, cx| this.step_open_item(false, cx)))
         .on_action(cx.listener(|this, _: &ToggleComments, _, cx| {
-            this.toggle_tool(tools::Tool::Discussions, cx)
+            this.toggle_tool(artoo_requests_api::DISCUSSIONS, cx)
         }))
         .on_action(cx.listener(|this, _: &ToggleAgents, _, cx| {
-            this.toggle_tool(tools::Tool::Part(artoo_agents_api::view::WINDOW), cx)
+            this.toggle_tool(artoo_agents_api::view::WINDOW, cx)
         }))
         .on_action(cx.listener(|this, _: &FoldMenu, _, cx| this.toggle_menu(cx)))
         .on_action(

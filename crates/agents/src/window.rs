@@ -83,7 +83,12 @@ pub fn tool(
         tip: "Agents  ⇧⌘A",
         title: "Agents",
         spaces: &["code", "branches", "requests"],
+        on_pages: false,
+        // After what is about the page, before Report a problem.
+        order: 20,
         badge: Some(Rc::new(move |cx| badge(&chats, &comments, cx))),
+        // The badge's words: the drafts waiting.
+        count: None,
         view: window.into(),
         // The chats read again as it opens, once the tab is free to say where.
         opened: Rc::new(move |cx| {

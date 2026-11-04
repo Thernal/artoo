@@ -375,8 +375,8 @@ pub struct Overlay {
     pub poll: Option<Hook>,
 }
 
-/// A tool window on the right, in every space after the shell's own: its icon in the stripe, its window beside
-/// the page once opened. Typed keys go to it while it has the keyboard and says it is typing.
+/// A tool window on the right: its icon in the stripe of the spaces it is in, its window beside the page once
+/// opened. Typed keys go to it while it has the keyboard and says it is typing.
 pub struct Tool {
     /// A stable id (`report`): the layout keeps the window open by it.
     pub id: &'static str,
@@ -388,8 +388,15 @@ pub struct Tool {
     pub title: &'static str,
     /// The spaces it is in, by their names (`code`, `branches`, `requests`, `inbox`); none, every one.
     pub spaces: &'static [&'static str],
-    /// What its icon in the stripe says, asked as the stripe is drawn; its count is said after the title too.
+    /// Only while a page is on screen, not on its space's own page (a request's Discussions).
+    pub on_pages: bool,
+    /// Where its icon stands in the stripe: the lowest first, those of one order as their features were
+    /// installed. What is about the page (Outline, Discussions) comes before what is in every space.
+    pub order: u16,
+    /// What its icon in the stripe says, asked as the stripe is drawn.
     pub badge: Option<OnBadge>,
+    /// What is said after the title, asked as the window is drawn; none, its badge's words while it counts.
+    pub count: Option<OnCount>,
     /// What is under the title: a body that scrolls itself and its foot, if it has one (the kit's
     /// `controls::tool_foot`).
     pub view: AnyView,
@@ -403,8 +410,13 @@ pub struct Tool {
     pub list_key: Option<OnListKey>,
 }
 
-/// What a tool window's icon says, asked as the stripe is drawn.
+/// What a tool window's icon says, asked as the stripe is drawn: while the tab draws, so it reads its own state and
+/// never the tab (through a host or otherwise).
 pub type OnBadge = Rc<dyn Fn(&App) -> Badge>;
+
+/// What a tool window says after its title (`Tool::count`), asked as the window is drawn: while the tab draws, so
+/// it reads its own state and never the tab.
+pub type OnCount = Rc<dyn Fn(&App) -> Option<String>>;
 
 /// What a tool window's icon in the stripe says (`Tool::badge`).
 pub struct Badge {

@@ -198,7 +198,7 @@ impl Workspace {
             Open::Inbox => self.go_space(super::spaces::Space::Inbox, cx),
             Open::Act(press) => self.press(&*press.act, cx),
             Open::Agents => {
-                let agents = super::tools::Tool::Part(artoo_agents_api::view::WINDOW);
+                let agents = artoo_agents_api::view::WINDOW;
                 if self.tool() != Some(agents) {
                     self.toggle_tool(agents, cx);
                 }

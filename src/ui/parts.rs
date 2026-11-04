@@ -6,7 +6,6 @@ use super::menu::{Act, Entry};
 use super::nav::Page;
 use super::recents::Key;
 use super::spaces::Space;
-use super::tools::Tool;
 use super::zones::Zone;
 use super::{Workspace, motion, px};
 use artoo_core::route::Route;
@@ -78,14 +77,13 @@ impl Frame for TabFrame {
     }
 
     fn show_tool(&self, id: Option<&'static str>, cx: &mut App) {
-        self.later(cx, move |this, cx| this.set_tool(id.map(Tool::Part), cx));
+        self.later(cx, move |this, cx| this.set_tool(id, cx));
     }
 
     fn tool_typing(&self, id: &str, cx: &App) -> bool {
         self.0.upgrade().is_some_and(|tab| {
             let this = tab.read(cx);
-            matches!(this.tool(), Some(Tool::Part(open)) if open == id)
-                && this.has_keyboard(super::typing::Input::Tool, cx)
+            this.tool() == Some(id) && this.has_keyboard(super::typing::Input::Tool, cx)
         })
     }
 
@@ -373,7 +371,7 @@ impl Workspace {
 
     /// A part's tool window is open, focused and being written in: typed keys go to it.
     pub(super) fn tool_typing(&self) -> bool {
-        let Some(Tool::Part(id)) = self.tool() else {
+        let Some(id) = self.tool() else {
             return false;
         };
         self.zone == Zone::Tool && self.part_tool(id).is_some_and(|t| t.typing.get())
@@ -447,7 +445,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(Tool::Part(id)) = self.tool() else {
+        let Some(id) = self.tool() else {
             return;
         };
         if let Some(key) = self.part_tool(id).map(|t| t.key.clone()) {

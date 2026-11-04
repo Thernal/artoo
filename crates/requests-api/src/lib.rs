@@ -339,6 +339,8 @@ pub enum Act {
     SinceStep { a: usize, b: usize },
     /// The outdated discussion's comparison left for all the request's changes.
     SinceAll,
+    /// ↓ (`down`) or ↑ in the Discussions window: the next or the previous discussion, shown in the diff.
+    StepThread { down: bool },
 }
 
 /// How the tab answers what the requests' views ask.
@@ -486,7 +488,19 @@ pub enum DraftEvent {
 /// What answers a pending comment's clicks.
 pub type OnDraft = Rc<dyn Fn(DraftEvent, &mut App)>;
 
-/// What the window is drawn with that the tab knows.
+/// The Discussions tool window's id: the layout keeps it open by it, the View menu and ⇧⌘D name it.
+pub const DISCUSSIONS: &str = "discussions";
+
+/// What the Discussions window asks of the tab (`Rc<dyn DiscussionsHost>` in its services).
+pub trait DiscussionsHost {
+    /// Whether the request's diff is on screen, as the tab began to draw: its icon asks while the tab draws, when
+    /// the tab cannot be read.
+    fn showing(&self, cx: &App) -> bool;
+    /// What it is drawn with: whether the request's diff is on screen, and what the tab knows of its comments.
+    fn listing(&self, cx: &App) -> Listing;
+}
+
+/// What the Discussions window is drawn with that the tab knows.
 pub struct Listing {
     /// The request's diff is on screen: its discussions are listed, else none.
     pub showing: bool,
@@ -498,13 +512,6 @@ pub struct Listing {
     pub latest: Option<usize>,
     /// The agent that wrote a pending comment, by its id (#150).
     pub agents: HashMap<u64, String>,
-}
-
-/// The window's count, its body (which scrolls itself) and its foot, Submit review.
-pub struct DiscussionsWindow {
-    pub count: Option<String>,
-    pub body: AnyElement,
-    pub foot: Option<AnyElement>,
 }
 
 /// What the card is drawn with that the tab knows.
@@ -818,9 +825,6 @@ pub trait Requests {
     /// replies to.
     fn drafts_in(&self, path: &str, cx: &App) -> Vec<(usize, bool, u32)>;
     fn draft_thread(&self, ix: usize, cx: &App) -> Option<usize>;
-    /// The Discussions tool window.
-    fn discussions(&self, look: Listing, cx: &App) -> DiscussionsWindow;
-
     /// Submit review's card opened (`false` with no request open), closed; whether it is open; a key on it (`true`:
     /// ⌘↵ submits); its body and foot, for the tool window.
     fn open_submit(&self, cx: &mut App) -> bool;

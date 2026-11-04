@@ -1,22 +1,120 @@
 //! The Discussions tool window (#76): the request's discussions and pending comments — public ones only, the
 //! agent's are the Agents window's —, the outdated ones apart by the version they were written on (#46); a click
-//! shows one in the diff. What a click asks goes to the tab (`Act`), which puts the window in its frame.
+//! shows one in the diff. What a click asks goes to the tab (`Act`); what it is drawn with that the tab knows
+//! comes from the tab's `DiscussionsHost`. It is the requests' tool window, in a request's page.
 
 use crate::requests::{Act, Acts, Requests};
 use crate::waiting::{FADED, is_temp};
 use artoo_hosts_api::{Draft, Thread};
-use artoo_ui_kit::controls::{comment_item, group_heading, skeleton};
-use artoo_ui_kit::format::one_line;
+use artoo_requests_api::{DISCUSSIONS, DiscussionsHost};
+use artoo_shell_api::{Badge, ListKey, Tool};
+use artoo_ui_kit::controls::{comment_item, group_heading, skeleton, tool_foot};
+use artoo_ui_kit::format::{one_line, plural};
 use artoo_ui_kit::hover::{self, Hover, Tip};
 use artoo_ui_kit::{ROW_RADIUS, px, theme};
-use gpui::{AnyElement, ClickEvent, FontWeight, div, prelude::*};
+use gpui::{AnyElement, App, ClickEvent, Context, Entity, FontWeight, Window, div, prelude::*};
+use std::cell::Cell;
+use std::rc::Rc;
 
-pub use artoo_requests_api::{DiscussionsWindow as Window, Listing};
+pub use artoo_requests_api::Listing;
+
+/// The window's body (which scrolls itself) and its foot, Submit review.
+pub struct DiscussionsWindow {
+    pub body: AnyElement,
+    pub foot: Option<AnyElement>,
+}
+
+/// The Discussions tool window in a tab: in Merge requests while a page is on screen, its icon counting the
+/// request's discussions and pending comments; ↑ ↓ walk them in the diff.
+pub(crate) fn tool(
+    requests: Entity<Requests>,
+    host: Rc<dyn DiscussionsHost>,
+    acts: Acts,
+    cx: &mut App,
+) -> Tool {
+    let view = cx.new(|_| DiscussionsView {
+        requests: requests.clone(),
+        host: host.clone(),
+        acts: acts.clone(),
+    });
+    // Asked while the tab draws its stripe and the window's title: the tab is not read.
+    let total = Rc::new(move |cx: &App| {
+        let requests = requests.read(cx);
+        if host.showing(cx) {
+            requests.threads.len() + requests.drafts.len()
+        } else {
+            0
+        }
+    });
+    let counted = total.clone();
+    Tool {
+        id: DISCUSSIONS,
+        icon: "message",
+        tip: "Discussions  ⌘⇧D",
+        title: "Discussions",
+        spaces: &["requests"],
+        on_pages: true,
+        // About the page: before the windows that are in every space.
+        order: 10,
+        badge: Some(Rc::new(move |cx| {
+            let n = total(cx);
+            Badge {
+                count: n,
+                color: theme::accent(),
+                what: plural(n, "comment"),
+                under: None,
+            }
+        })),
+        count: Some(Rc::new(move |cx| {
+            let n = counted(cx);
+            (n > 0).then(|| n.to_string())
+        })),
+        view: view.into(),
+        opened: Rc::new(|_| {}),
+        typing: Rc::new(Cell::new(false)),
+        key: Rc::new(|_, _, _| {}),
+        // The tab walks them once its update is over: it shows each in the diff.
+        list_key: Some(Rc::new(move |key, cx| {
+            let down = match key {
+                ListKey::Down => true,
+                ListKey::Up => false,
+                ListKey::Enter | ListKey::Delete => return false,
+            };
+            let acts = acts.clone();
+            cx.defer(move |cx| acts(Act::StepThread { down }, cx));
+            true
+        })),
+    }
+}
+
+/// What the window draws: the list, and Submit review under it while comments are pending.
+struct DiscussionsView {
+    requests: Entity<Requests>,
+    host: Rc<dyn DiscussionsHost>,
+    acts: Acts,
+}
+
+impl Render for DiscussionsView {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let look = self.host.listing(cx);
+        let window = self
+            .requests
+            .read(cx)
+            .discussions_window(look, self.acts.clone());
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .child(window.body)
+            .children(window.foot.map(|foot| tool_foot().child(foot)))
+    }
+}
 
 impl Requests {
     /// The Discussions tool window: the request's discussions and pending notes — public ones only,
     /// the agent's are the Agents window's (#76); a click shows one in the diff.
-    pub fn discussions_window(&self, look: Listing, acts: Acts) -> Window {
+    pub fn discussions_window(&self, look: Listing, acts: Acts) -> DiscussionsWindow {
         let (threads, drafts): (&[Thread], &[Draft]) = if look.showing {
             (&self.threads, &self.drafts)
         } else {
@@ -133,8 +231,7 @@ impl Requests {
                     move |_: &ClickEvent, _, cx| acts(Act::OpenSubmit, cx)
                 })
         });
-        Window {
-            count: (total > 0).then(|| total.to_string()),
+        DiscussionsWindow {
             body: div()
                 .id("comments-list")
                 .flex_1()

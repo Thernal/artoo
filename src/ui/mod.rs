@@ -1532,11 +1532,14 @@ pub struct Workspace {
     /// When panes last opened or closed, to draw them coming and going (#56).
     motion: motion::Marks,
     /// The tool window last open, drawn on its way out.
-    last_tool: Option<tools::Tool>,
+    last_tool: Option<&'static str>,
     /// The menu just closed, drawn fading out.
     /// Open in's choices kept per extension, and the app its button names (#78).
     open_with: std::collections::HashMap<String, open_in::App>,
     open_cache: open_in::Cache,
+    /// Whether the request's diff is on screen, as the tab began to draw: what the Discussions window's icon asks
+    /// while the tab draws, when the tab cannot be read.
+    discussions_showing: Rc<std::cell::Cell<bool>>,
     /// The search over all files of the diff, while it is open.
     /// The window's width in logical pixels, as of the last frame.
     win_width: f32,
@@ -1704,6 +1707,7 @@ impl Workspace {
             mention_hover: None,
             open_with: open_in::load(),
             open_cache: Default::default(),
+            discussions_showing: Default::default(),
             motion: Default::default(),
             last_tool: None,
             win_width: 1480.,
@@ -1779,6 +1783,9 @@ impl Workspace {
         services.set::<Rc<dyn artoo_requests_api::RootHost>>(Rc::new(roots::RootHost(
             cx.weak_entity(),
         )));
+        services.set::<Rc<dyn artoo_requests_api::DiscussionsHost>>(Rc::new(
+            requests::DiscussionsHost(cx.weak_entity(), this.discussions_showing.clone()),
+        ));
         services.set::<Rc<dyn artoo_code_api::Host>>(Rc::new(code::CodeHost(cx.weak_entity())));
         // The review's host, which its item page draws the column with.
         services.set::<Rc<dyn artoo_review_api::Host>>(Rc::new(TabHost(cx.weak_entity())));
@@ -2348,15 +2355,12 @@ impl Workspace {
                     Entry::new("Fold the menu to icons", Act::FoldPlaces)
                         .key("⌘B")
                         .checked(self.menu_folded()),
-                    Entry::new("Discussions", Act::Tool(tools::Tool::Discussions))
+                    Entry::new("Discussions", Act::Tool(artoo_requests_api::DISCUSSIONS))
                         .key("⌘⇧D")
-                        .checked(tool == Some(tools::Tool::Discussions)),
-                    Entry::new(
-                        "Agents",
-                        Act::Tool(tools::Tool::Part(artoo_agents_api::view::WINDOW)),
-                    )
-                    .key("⇧⌘A")
-                    .checked(tool == Some(tools::Tool::Part(artoo_agents_api::view::WINDOW))),
+                        .checked(tool == Some(artoo_requests_api::DISCUSSIONS)),
+                    Entry::new("Agents", Act::Tool(artoo_agents_api::view::WINDOW))
+                        .key("⇧⌘A")
+                        .checked(tool == Some(artoo_agents_api::view::WINDOW)),
                 ],
             ),
         ]

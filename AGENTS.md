@@ -29,8 +29,9 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   lib shows `install` alone: the app asks it through `artoo-review-api` (`Workspace::rv`) and routes the composer
   (`ui/composer.rs`). `crates/updates` (`artoo-updates`) asks for
   newer releases and draws what it found (its `install` alone is shown). `crates/code` (`artoo-code`): Code — the
-  project's tree beside a folder's page or a file's tabs, read at a revision (`space.rs`; its `install` alone is
-  shown); `src/ui/code.rs` is the tab's side: what the tab asks of it, the Outline tool window, the tab as its host.
+  project's tree beside a folder's page or a file's tabs, read at a revision (`space.rs`), and the Outline tool
+  window over the file read (`outline.rs`, the review's outline; a click the host's `reveal_line`); its `install`
+  alone is shown; `src/ui/code.rs` is the tab's side: what the tab asks of it, the tab as its host.
   `crates/code-api` (`artoo-code-api`): Code's contract — its routes (`code.file`, `code.folder`), `Code` (what the
   tab asks of it, offered in the tab's services) and `Host` (what it asks of the tab). `crates/review-api`
   (`artoo-review-api`): the review's contract — what a diff is of (`Source`: a commit, a run,
@@ -63,7 +64,8 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   (`reading`), each read the entity's own task, the tab hearing what follows through the contract; the notifications
   and the Inbox's state (`notices`, `inbox`). Its views draw
   from it, a click asking the tab a `requests::Act`: the request's bar pieces (`bar`), Overview and the line over
-  Commits and Changes (`page`), the Discussions window (`discussions`), Merge's card (`merging`), Submit review
+  Commits and Changes (`page`), the Discussions window (`discussions`: their own tool window, in a request's page, what
+  it is drawn with the tab's `DiscussionsHost`, ↑ ↓ `Act::StepThread`), Merge's card (`merging`), Submit review
   (`submit`), the New merge request form (`create`), who and which emoji a token completes to (`complete`), the
   list (`list`: its groups and folds, the picked one's preview read, the rows, bands, preview, why none is listed,
   the banner while it cannot be read); a card's text keeps its own caret (`area`). The tab gives each what it

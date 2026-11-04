@@ -133,14 +133,12 @@ impl Workspace {
             Zone::Diff => self
                 .diff_list(cx)
                 .scroll_by(px(if down { LINE } else { -LINE })),
-            Zone::Tool => match self.tool() {
-                Some(super::tools::Tool::Discussions) => return self.step_thread(down, cx),
-                Some(super::tools::Tool::Part(id)) => {
+            Zone::Tool => {
+                if let Some(id) = self.tool() {
                     let key = if down { ListKey::Down } else { ListKey::Up };
                     self.part_list_key(id, key, cx);
                 }
-                _ => {}
-            },
+            }
         }
         cx.notify();
     }
@@ -202,7 +200,7 @@ impl Workspace {
         }
         match self.zone {
             Zone::Tool => {
-                if let Some(super::tools::Tool::Part(id)) = self.tool() {
+                if let Some(id) = self.tool() {
                     self.part_list_key(id, ListKey::Enter, cx);
                 }
             }

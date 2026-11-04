@@ -38,7 +38,11 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
             tip: "Report a problem  ⌥⌘/",
             title: "Report a problem",
             spaces: &[],
+            on_pages: false,
+            // The stripe's last.
+            order: 30,
             badge: None,
+            count: None,
             view: report.into(),
             // The window's picture is taken before the report's window is drawn over it.
             opened: Rc::new(move |cx| {

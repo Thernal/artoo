@@ -11,8 +11,9 @@ owner.
 **What `artoo-shell-api` holds now:** `add_action` (an id, its words for ⌘K, the keys it ships with, the menu that
 shows it — Artoo's or Help —, its GPUI action) and `add_parts` (a maker each tab calls with its `Frame`: a
 title-bar item with when it shows, an `Overlay` — a card that is drawn and has the keys while open, closed by
-Escape, polled each frame the tab is not busy —, a `Tool` — a tool window in every space after the shell's own,
-readied as it opens, given typed keys while it has the keyboard and says it is typing —, Settings rows by section,
+Escape, polled each frame the tab is not busy —, a `Tool` — a tool window in the spaces it names, on their pages
+only or not, in its `order`, readied as it opens, given typed keys while it has the keyboard and says it is typing;
+every tool window is one (#171) —, Settings rows by section,
 the tab's handlers of the feature's actions, the snapshot views it opens, a space's `Pages` — the kinds of route
 they draw, their view, the panel beside them, and `show`, which the shell calls with the route on screen, or none
 for the space's own page, and whether it was just opened or gone back to). What the `Frame` changes (a toast, the

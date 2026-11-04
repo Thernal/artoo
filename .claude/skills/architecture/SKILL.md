@@ -94,7 +94,8 @@ The target above is reached for every feature: each implementation shows the app
   `branches`), hearing what they say through it too (`on_event`, `on_change`). What its `impl Workspace` blocks
   still do is coordination across them — a branch's commit picked is the history's selection and the review loading
   its diff, a request opened, the composer's targets — and the frame they share: the page on screen and its
-  history, the side panel, zones and the keyboard's rule, ⌘K, `menu::Act`, the toasts' stack. New work on a feature goes into
+  history, the side panel, zones and the keyboard's rule, ⌘K, `menu::Act`, the toasts' stack, the stripe of the
+  features' tool windows. New work on a feature goes into
   its crate, asked through its contract; what is the tab's stays coordination.
 - Done: the shell (`artoo-shell`, every piece of the frame through `artoo-shell-api`'s render contracts), Code,
   updates and reports, hosts (the hosts' contract, the connect panel a part of every tab behind

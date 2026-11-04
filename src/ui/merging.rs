@@ -65,7 +65,7 @@ impl Workspace {
     pub(super) fn go_fix(&mut self, fix: Fix, cx: &mut Context<Self>) {
         match fix {
             Fix::Nowhere => {}
-            Fix::Discussions => self.set_tool(Some(super::tools::Tool::Discussions), cx),
+            Fix::Discussions => self.set_tool(Some(artoo_requests_api::DISCUSSIONS), cx),
             Fix::Page(url) => cx.open_url(&url),
         }
     }

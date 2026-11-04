@@ -3,7 +3,6 @@
 //! only (see `crate::mr`).
 
 use super::nav::Page;
-use super::tools::ToolView;
 use super::{Header, Selection, Workspace};
 use crate::git::Repo;
 use crate::mr::{self, Mr};
@@ -897,43 +896,6 @@ impl Workspace {
         self.request_action(Change::Delete { thread, note }, cx);
     }
 
-    /// The Discussions tool window (`Requests::discussions_window`).
-    pub(super) fn discussions_tool(&self, cx: &mut Context<Self>) -> ToolView {
-        let look = Listing {
-            showing: self.showing_request(cx),
-            rich: self.settings.rich_comments,
-            github: self.on_github(),
-            latest: self.latest_version(cx),
-            agents: self.draft_agents(cx),
-        };
-        let Some(window) = self.requests_api().map(|r| r.discussions(look, cx)) else {
-            return ToolView {
-                title: "Discussions".into(),
-                count: None,
-                actions: Vec::new(),
-                body: div().into_any_element(),
-                foot: None,
-            };
-        };
-        ToolView {
-            title: "Discussions".into(),
-            count: window.count,
-            actions: Vec::new(),
-            body: window.body,
-            foot: window.foot,
-        }
-    }
-
-    /// Every comment of the open diff: the request's discussions and pending ones, and the agent's.
-    /// The Discussions window's count: the request's own discussions and pending notes (#76).
-    pub(super) fn comments_total(&self, cx: &App) -> usize {
-        if self.showing_request(cx) {
-            self.request_threads(cx).len() + self.request_drafts(cx).len()
-        } else {
-            0
-        }
-    }
-
     /// The requests the scope and filter let through, in the order the list shows them
     /// (`Requests::shown`).
     pub(super) fn shown_requests(&self, cx: &App) -> Vec<Mr> {
@@ -1095,6 +1057,36 @@ impl Workspace {
 }
 
 /// How the tab `this` answers what the requests' views ask (`requests::Act`).
+/// What the requests' Discussions window asks of the tab (`artoo_requests_api::DiscussionsHost`), and whether the
+/// request's diff was on screen as the tab began to draw (`Workspace::discussions_showing`).
+pub(super) struct DiscussionsHost(pub WeakEntity<Workspace>, pub Rc<std::cell::Cell<bool>>);
+
+impl artoo_requests_api::DiscussionsHost for DiscussionsHost {
+    fn showing(&self, _: &App) -> bool {
+        self.1.get()
+    }
+
+    fn listing(&self, cx: &App) -> Listing {
+        let Some(tab) = self.0.upgrade() else {
+            return Listing {
+                showing: false,
+                rich: false,
+                github: false,
+                latest: None,
+                agents: Default::default(),
+            };
+        };
+        let this = tab.read(cx);
+        Listing {
+            showing: self.1.get(),
+            rich: this.settings.rich_comments,
+            github: this.on_github(),
+            latest: this.latest_version(cx),
+            agents: this.draft_agents(cx),
+        }
+    }
+}
+
 pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
     Rc::new(move |act, cx| {
         this.update(cx, |this, cx| match act {
@@ -1114,6 +1106,7 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
             Act::ReplyMentioning { thread, login } => this.reply_mentioning(thread, &login, cx),
             Act::CompareSince(ix) => this.compare_since(ix, cx),
             Act::JumpToLine { path, line, old } => this.jump_to_line(&path, line, old, cx),
+            Act::StepThread { down } => this.step_thread(down, cx),
             Act::OpenSubmit => this.open_submit(cx),
             Act::RequestContext { iid, at } => this.request_context(iid, at, cx),
             Act::RunSubmit => this.run_submit(cx),

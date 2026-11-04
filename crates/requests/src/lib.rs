@@ -51,9 +51,15 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     services.set(cx.new(|_| notices::Notices::default()));
     services.set(cx.new(|_| inbox::InboxView::default()));
     services.set(requests::handle(&requests, &services));
-    services.set(requests::acts(&requests, tab));
+    let acts = requests::acts(&requests, tab);
+    services.set(acts.clone());
     services.set(tabs::view(requests.clone(), &frame, cx));
+    // The Discussions window, in a tab that says what it is drawn with.
+    let tool = services
+        .get::<Rc<dyn artoo_requests_api::DiscussionsHost>>()
+        .map(|host| discussions::tool(requests.clone(), host, acts, cx));
     Parts {
+        tool,
         inputs: vec![create::input(requests.clone(), services.clone())],
         // The request being written first: it is over whatever page it was opened on.
         pieces: vec![

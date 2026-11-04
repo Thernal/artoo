@@ -35,7 +35,7 @@ pub enum Act {
     /// The menu of spaces folds to icons, or opens.
     FoldPlaces,
     /// A tool window on the right opens or closes.
-    Tool(super::tools::Tool),
+    Tool(&'static str),
     /// The project rail's menu (#49): move a project, show its folder, a window of its own, close.
     MoveProject {
         from: usize,

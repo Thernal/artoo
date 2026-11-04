@@ -6,27 +6,30 @@
 //! through `artoo_code_api::Code`, which it offers in the tab's services; it asks the tab through the
 //! `artoo_code_api::Host` it finds there, and reads its file through the review's `FileView`.
 
+mod outline;
 mod space;
 
 use artoo_shell_api::{Frame, Parts};
 use gpui::{App, AppContext, Window};
 use std::rc::Rc;
 
-/// Code in every tab: its pages, and the handle the tab asks it through.
+/// Code in every tab: its pages, the Outline window, and the handle the tab asks it through.
 pub fn install(cx: &mut App) {
     artoo_shell_api::add_parts(cx, parts);
 }
 
-/// Code's parts in a tab that offers it a host; none in one that does not.
+/// Code's parts in a tab that offers it a host: its pages and the Outline window; none in one that does not.
 fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     let services = frame.services();
     let Some(host) = services.get::<Rc<dyn artoo_code_api::Host>>() else {
         return Parts::default();
     };
+    let tool = outline::tool(frame.clone(), host.clone(), cx);
     let code = cx.new(|_| space::CodeSpace::new(host, frame));
     services.set::<Rc<dyn artoo_code_api::Code>>(Rc::new(space::Handle(code.downgrade())));
     Parts {
         pages: Some(space::CodeSpace::pages(&code)),
+        tool: Some(tool),
         ..Default::default()
     }
 }

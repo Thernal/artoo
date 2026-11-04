@@ -1,12 +1,12 @@
 //! The tab's side of Code (#75, `artoo-code`): what the tab asks of it (`artoo_code_api::Code`, read from the
-//! tab's services), the Outline tool window over the file it reads, and the tab as Code's host.
+//! tab's services), and the tab as Code's host.
 
+use super::Workspace;
 use super::nav::Page;
 use super::spaces::Space;
-use super::{Workspace, px, theme};
 use crate::git::BranchRef;
 use artoo_code_api::{FilePage, Host};
-use gpui::{AnyElement, App, ClickEvent, Context, SharedString, WeakEntity, div, prelude::*};
+use gpui::{AnyElement, App, Context, WeakEntity};
 use std::path::Path;
 use std::rc::Rc;
 
@@ -61,63 +61,6 @@ impl Workspace {
     pub(super) fn step_code_tab(&mut self, forward: bool, cx: &mut Context<Self>) {
         if let Some(code) = self.code() {
             code.step_tab(forward, cx);
-        }
-    }
-
-    /// The Outline tool window: the declarations of the file read in Code; a click goes to one.
-    pub(super) fn outline_tool(&self, cx: &mut Context<Self>) -> super::tools::ToolView {
-        let outline = self.rv().file_outline(cx);
-        let n = outline.len();
-        let rows = outline.into_iter().map(|(line, depth, kind, name)| {
-            super::row(SharedString::from(format!("outline-{line}")), false)
-                .h(px(26.))
-                .pl(px(10. + depth as f32 * 14.))
-                .gap(px(8.))
-                .text_size(px(12.))
-                .child(
-                    div()
-                        .flex_none()
-                        .font_family(theme::code_font())
-                        .text_color(theme::faint())
-                        .child(kind),
-                )
-                .child(super::hover::cut("name", name).flex_1())
-                .child(
-                    div()
-                        .flex_none()
-                        .text_size(px(11.))
-                        .text_color(theme::faint())
-                        .child(line.to_string()),
-                )
-                .on_click(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| this.reveal_file_line(line, cx)),
-                )
-        });
-        let empty = match self.rv().file_read(cx) {
-            None => "Open a file to see what it declares.",
-            Some(_) => "Nothing declared here that Artoo reads.",
-        };
-        super::tools::ToolView {
-            title: "Outline".into(),
-            count: (n > 0).then(|| n.to_string()),
-            actions: Vec::new(),
-            body: div()
-                .id("outline-list")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scroll()
-                .p(px(6.))
-                .children(rows)
-                .children((n == 0).then(|| {
-                    div()
-                        .px(px(8.))
-                        .py(px(6.))
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child(empty)
-                }))
-                .into_any_element(),
-            foot: None,
         }
     }
 }
@@ -227,5 +170,9 @@ impl Host for CodeHost {
 
     fn tree_opening(&self, folder: String, cx: &mut App) {
         self.later(cx, move |tab, cx| tab.tree_opening(&folder, cx));
+    }
+
+    fn reveal_line(&self, line: u32, cx: &mut App) {
+        self.later(cx, move |tab, cx| tab.reveal_file_line(line, cx));
     }
 }

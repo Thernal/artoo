@@ -108,4 +108,6 @@ pub trait Host {
     fn go_to_file(&self, cx: &mut App);
     /// Folder `folder` of the tree opened: its rows fade in.
     fn tree_opening(&self, folder: String, cx: &mut App);
+    /// Line `line` of the file read brought into view, among the notes the tab pins on its lines (Outline's click).
+    fn reveal_line(&self, line: u32, cx: &mut App);
 }

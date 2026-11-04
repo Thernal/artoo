@@ -6,8 +6,8 @@ use crate::group::Group;
 use artoo_core::git::{BranchRef, RefKind, Version};
 use artoo_hosts_api::{self as mr, Draft, Mr, Pipeline, Thread};
 use artoo_requests_api::{
-    Answered, Change, DiscussionsWindow, DraftLook, Drafted, InboxFilter, InboxRow, Listing, Moved,
-    OnDraft, OnInbox, OnThread, Pair, Since, SubmitLook, ThreadLook,
+    Answered, Change, DraftLook, Drafted, InboxFilter, InboxRow, Moved, OnDraft, OnInbox, OnThread,
+    Pair, Since, SubmitLook, ThreadLook,
 };
 use artoo_ui_kit::markdown::Selecting;
 use gpui::KeyDownEvent;
@@ -1180,17 +1180,6 @@ impl artoo_requests_api::Requests for Handle {
         let requests = self.0.upgrade()?;
         let rq = requests.read(cx);
         rq.draft_thread(rq.drafts.get(ix)?)
-    }
-
-    fn discussions(&self, look: Listing, cx: &App) -> DiscussionsWindow {
-        match self.0.upgrade() {
-            Some(requests) => requests.read(cx).discussions_window(look, self.acts()),
-            None => DiscussionsWindow {
-                count: None,
-                body: gpui::div().into_any_element(),
-                foot: None,
-            },
-        }
     }
 
     fn open_submit(&self, cx: &mut App) -> bool {

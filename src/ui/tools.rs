@@ -1,89 +1,44 @@
 //! The right edge of the redesign (Design `design/shell/`, #49): an icon stripe that opens one tool
-//! window at a time beside the page — only what is about it (#76): Code Outline, Merge requests
-//! Discussions — and Submit review in the same place (the bell's Notifications window retired into
-//! the Inbox, #72). The same icon or esc closes it; which one is open and its width are kept in
-//! `layout.txt`. No stripe until a repository is open, none in zen. A feature's tool window
-//! (`artoo_shell_api::Tool`: the Agents window, Report a problem) is in the spaces it names, after
-//! these.
+//! window at a time beside the page — only what is about it (#76) — and Submit review in the same place
+//! (the bell's Notifications window retired into the Inbox, #72). Every tool window is a feature's
+//! (`artoo_shell_api::Tool`: Code's Outline, the requests' Discussions, the Agents window, Report a
+//! problem), in the spaces it names, in its order. The same icon or esc closes it; which one is open
+//! and its width are kept in `layout.txt`, by its id. No stripe until a repository is open, none in zen.
 
 use super::zones::Zone;
-use super::{Split, Workspace, px, theme};
+use super::{Split, Workspace, px};
 use artoo_shell_api::tools;
 use gpui::{Context, Rgba, div, prelude::*};
 use std::rc::Rc;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Tool {
-    /// The declarations of the file read in Code (#76).
-    Outline,
-    Discussions,
-    /// A feature's, by its id (`agents`: the Agents window; `report`: Report a problem, #118).
-    Part(&'static str),
-}
-
-impl Tool {
-    pub(super) fn name(self) -> &'static str {
-        match self {
-            Tool::Outline => "outline",
-            Tool::Discussions => "discussions",
-            Tool::Part(id) => id,
-        }
-    }
-}
-
 pub use artoo_shell_api::tools::ToolView;
 
 impl Workspace {
-    /// The tool windows of the space on screen (#76): Code Outline, a request's page Discussions;
-    /// then the features' in the spaces they name (the Agents window in all but the Inbox).
-    fn space_tools(&self) -> Vec<Tool> {
-        use super::spaces::Space;
-        let own: &[Tool] = match self.nav.space {
-            Space::Code => &[Tool::Outline],
-            Space::Requests if self.nav_page().is_some() => &[Tool::Discussions],
-            _ => &[],
-        };
+    /// The tool windows of the space on screen, by their ids, in their order (#76): those about the
+    /// page first (Code's Outline, a request's Discussions), then those in every space.
+    fn space_tools(&self) -> Vec<&'static str> {
         let space = self.nav.space.name();
-        own.iter()
-            .copied()
-            .chain(
-                self.part_tools()
-                    .filter(|t| t.spaces.is_empty() || t.spaces.contains(&space))
-                    .map(|t| Tool::Part(t.id)),
-            )
-            .collect()
+        let page = self.nav_page().is_some();
+        let mut tools: Vec<&artoo_shell_api::Tool> = self
+            .part_tools()
+            .filter(|t| t.spaces.is_empty() || t.spaces.contains(&space))
+            .filter(|t| page || !t.on_pages)
+            .collect();
+        tools.sort_by_key(|t| t.order);
+        tools.into_iter().map(|t| t.id).collect()
     }
 
     /// The tool window named `name` (`layout.txt`'s word for it), whichever spaces have it.
-    pub(super) fn tool_named(&self, name: &str) -> Option<Tool> {
-        [Tool::Outline, Tool::Discussions]
-            .into_iter()
-            .chain(self.part_tools().map(|t| Tool::Part(t.id)))
-            .find(|t| t.name() == name)
+    pub(super) fn tool_named(&self, name: &str) -> Option<&'static str> {
+        self.part_tool(name).map(|t| t.id)
     }
 
     /// The tool window open now, when its space has it; a request's details are its Overview
     /// (#73).
-    pub(super) fn tool(&self) -> Option<Tool> {
+    pub(super) fn tool(&self) -> Option<&'static str> {
         self.root.as_ref()?;
         let tool = self.tool_named(&self.layout.tool)?;
         self.space_tools().contains(&tool).then_some(tool)
-    }
-
-    fn tool_icon(&self, tool: Tool) -> &'static str {
-        match tool {
-            Tool::Outline => "list",
-            Tool::Discussions => "message",
-            Tool::Part(id) => self.part_tool(id).map_or("", |t| t.icon),
-        }
-    }
-
-    fn tool_tip(&self, tool: Tool) -> &'static str {
-        match tool {
-            Tool::Outline => "Outline",
-            Tool::Discussions => "Discussions  ⌘⇧D",
-            Tool::Part(id) => self.part_tool(id).map_or("", |t| t.tip),
-        }
     }
 
     /// The window on the right is drawn: a tool, or Submit review.
@@ -92,8 +47,8 @@ impl Workspace {
     }
 
     /// Opens `tool` (and gives it the keyboard), or closes the one open.
-    pub(super) fn set_tool(&mut self, tool: Option<Tool>, cx: &mut Context<Self>) {
-        let name = tool.map_or("", Tool::name);
+    pub(super) fn set_tool(&mut self, tool: Option<&'static str>, cx: &mut Context<Self>) {
+        let name = tool.unwrap_or("");
         // Floating, it and the drawer are never open together (#80).
         if tool.is_some() && self.tool_floats() {
             self.close_drawer(cx);
@@ -108,8 +63,8 @@ impl Workspace {
             self.layout.tool = name.to_owned();
             self.save_layout();
         }
-        // A feature's window gets ready before it is drawn (the report takes the window's picture).
-        if let Some(Tool::Part(id)) = tool
+        // A window gets ready before it is drawn (the report takes the window's picture).
+        if let Some(id) = tool
             && was != tool
         {
             self.tool_opened(id, cx);
@@ -129,18 +84,22 @@ impl Workspace {
         cx.notify();
     }
 
-    /// A feature's tool window: its title and its badge's count, and its view under it (the body
-    /// and its foot).
+    /// Tool window `id`: its title and what is said after it, and its view under it (the body and
+    /// its foot).
     fn part_tool_view(&self, id: &str, cx: &gpui::App) -> Option<ToolView> {
         let tool = self.part_tool(id)?;
-        Some(ToolView {
-            title: tool.title.into(),
-            count: tool
+        let count = match &tool.count {
+            Some(count) => count(cx),
+            None => tool
                 .badge
                 .as_ref()
                 .map(|badge| badge(cx))
                 .filter(|b| b.count > 0)
                 .map(|b| b.what),
+        };
+        Some(ToolView {
+            title: tool.title.into(),
+            count,
             actions: Vec::new(),
             body: tool.view.clone().into_any_element(),
             foot: None,
@@ -152,7 +111,7 @@ impl Workspace {
         self.design_width() < super::narrow::FLOAT
     }
 
-    pub(super) fn toggle_tool(&mut self, tool: Tool, cx: &mut Context<Self>) {
+    pub(super) fn toggle_tool(&mut self, tool: &'static str, cx: &mut Context<Self>) {
         let open = self.tool() == Some(tool);
         self.set_tool((!open).then_some(tool), cx);
     }
@@ -168,33 +127,26 @@ impl Workspace {
         let buttons = self
             .space_tools()
             .into_iter()
-            .map(|tool| {
-                let button = |badge, what, under| tools::Button {
-                    id: tool.name(),
-                    icon: self.tool_icon(tool),
-                    tip: self.tool_tip(tool),
-                    on: open == Some(tool),
+            .filter_map(|id| {
+                let tool = self.part_tool(id)?;
+                // What its badge says, and what is under it: the Agents window's dot per chat
+                // that listens, on its own hue (#77).
+                let (badge, what, under) = match &tool.badge {
+                    None => (None, String::new(), None),
+                    Some(badge) => {
+                        let badge = badge(cx);
+                        (count(badge.count, badge.color), badge.what, badge.under)
+                    }
+                };
+                Some(tools::Button {
+                    id,
+                    icon: tool.icon,
+                    tip: tool.tip,
+                    on: open == Some(id),
                     badge,
                     what,
                     under,
-                };
-                match tool {
-                    Tool::Outline => button(None, String::new(), None),
-                    // What its badge says, and what is under it: the Agents window's dot
-                    // per chat that listens, on its own hue (#77).
-                    Tool::Part(id) => match self.part_tool(id).and_then(|t| t.badge.clone()) {
-                        None => button(None, String::new(), None),
-                        Some(badge) => {
-                            let badge = badge(cx);
-                            button(count(badge.count, badge.color), badge.what, badge.under)
-                        }
-                    },
-                    Tool::Discussions => button(
-                        count(self.comments_total(cx), theme::accent()),
-                        super::plural(self.comments_total(cx), "comment"),
-                        None,
-                    ),
-                }
+                })
             })
             .collect();
         let tab = cx.weak_entity();
@@ -221,11 +173,10 @@ impl Workspace {
         }
         let view = match self.submit_tool(cx) {
             Some(view) => view,
-            None => match self.tool().or(self.last_tool.filter(|_| leaving))? {
-                Tool::Outline => self.outline_tool(cx),
-                Tool::Discussions => self.discussions_tool(cx),
-                Tool::Part(id) => self.part_tool_view(id, cx)?,
-            },
+            None => {
+                let id = self.tool().or(self.last_tool.filter(|_| leaving))?;
+                self.part_tool_view(id, cx)?
+            }
         };
         let submitting = self.submitting(cx);
         let tab = cx.weak_entity();
