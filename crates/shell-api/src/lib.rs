@@ -80,7 +80,7 @@ pub trait Frame {
     fn toast(&self, toast: Toast, cx: &mut App);
 
     /// The toasts whose button runs an action `over` picks go now: news another has taken in.
-    fn drop_toasts(&self, over: Box<dyn Fn(&dyn gpui::Action) -> bool>, cx: &mut App);
+    fn drop_toasts(&self, over: Pick, cx: &mut App);
 
     /// The error line under the title bar.
     fn error(&self, text: SharedString, cx: &mut App);
@@ -242,6 +242,9 @@ pub struct Toast {
     /// front, the newer replacing the older; a click there runs the button.
     pub system: Option<String>,
 }
+
+/// Which toasts go (`Frame::drop_toasts`): those whose button runs an action it picks.
+pub type Pick = Box<dyn Fn(&dyn gpui::Action) -> bool>;
 
 impl Toast {
     /// News alone.

@@ -11,8 +11,8 @@ use super::zones::Zone;
 use super::{Workspace, motion, px};
 use artoo_core::route::Route;
 use artoo_shell_api::{
-    Chrome, Drawing, Frame, ItemTab, ListZone, MenuItem, Overlay, Pages, Places, Run, Section,
-    Services, Slot, Toast,
+    Chrome, Drawing, Frame, ItemTab, ListZone, MenuItem, Overlay, Pages, Pick, Places, Run,
+    Section, Services, Slot, Toast,
 };
 use artoo_ui_kit::markdown::Selecting;
 use gpui::{
@@ -43,7 +43,7 @@ impl Frame for TabFrame {
         self.later(cx, |this, cx| this.show_toast(toast, cx));
     }
 
-    fn drop_toasts(&self, over: Box<dyn Fn(&dyn gpui::Action) -> bool>, cx: &mut App) {
+    fn drop_toasts(&self, over: Pick, cx: &mut App) {
         self.later(cx, move |this, cx| this.drop_toasts(over, cx));
     }
 
