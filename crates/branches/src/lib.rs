@@ -25,6 +25,7 @@ mod pairs;
 mod panel;
 mod place;
 mod reading;
+mod refs;
 mod roots;
 mod search;
 mod shown;
@@ -101,6 +102,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
             search::scope(Rc::downgrade(&frame.services())),
             search::commits(Rc::downgrade(&frame.services())),
         ],
+        lists: refs::lists(history.downgrade(), frame.clone()),
         pages: Some(page::pages(history, panel, frame, cx)),
         actions: vec![(
             Box::new(GoToBranches),

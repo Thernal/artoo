@@ -51,12 +51,10 @@ fn find(ask: Ask, services: &Services, cx: &App) -> Vec<Find> {
             }
         })
         .take(60)
-        .map(|m| Find {
-            group: "Merge requests",
-            label: format!("{} {}", words::number(m.iid), m.title),
-            detail: m.author.clone(),
-            file: None,
-            open: Opens::Route(RequestRoute { number: m.iid }.route()),
+        .map(|m| {
+            let open = Opens::Route(RequestRoute { number: m.iid }.route());
+            let label = format!("{} {}", words::number(m.iid), m.title);
+            Find::new("Merge requests", label, m.author.clone(), open)
         })
         .collect()
 }

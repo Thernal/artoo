@@ -240,6 +240,12 @@ pub const SEARCH: &str = "branches";
 /// The commits' scope of search everywhere (the branch open's, or the request's): ⌘⇧C opens ⌘K on it.
 pub const SEARCH_COMMITS: &str = "commits";
 
+/// A comparison's first list (`artoo_shell_api::search::List`), the base picked: ⌥⌘C opens it.
+pub const COMPARE: &str = "compare";
+
+/// A comparison's second list, what to compare with the base: the first's pick opens it.
+pub const COMPARE_WITH: &str = "compare-with";
+
 /// The commits' search, as one of the tab's inputs.
 pub const SEARCH_INPUT: &str = "branches.search";
 

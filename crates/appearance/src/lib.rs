@@ -5,6 +5,7 @@
 
 mod appearance;
 mod cards;
+mod themes;
 
 use appearance::{Appearance, Drawn, INPUT};
 use artoo_shell_api::settings::{Rows, Section};
@@ -12,7 +13,7 @@ use artoo_shell_api::{Action, Frame, Input, Parts, Typed, when};
 use gpui::{App, AppContext, Entity, Window};
 use std::rc::Rc;
 
-gpui::actions!(artoo, [SaveTheme]);
+gpui::actions!(artoo, [SaveTheme, PickTheme]);
 
 /// The section's id, which the window root puts its rows under.
 const SECTION: &str = "appearance";
@@ -30,6 +31,12 @@ pub fn install(cx: &mut App) {
     artoo_shell_api::add_action(
         cx,
         Action::new("appearance.save-theme", SaveTheme).key("cmd-s", when::TAB),
+    );
+    artoo_shell_api::add_action(
+        cx,
+        Action::new("appearance.theme", PickTheme)
+            .words("Theme — try each on the whole window")
+            .order(380),
     );
     artoo_shell_api::add_parts(cx, parts);
 }
@@ -50,6 +57,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
         app.downgrade(),
         app.downgrade(),
     );
+    let (tries, palette) = (frame.clone(), frame.clone());
     Parts {
         settings: vec![
             Rows::new(SECTION, 10, themes)
@@ -67,14 +75,28 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
                 }),
             Rows::new(SECTION, 80, yours),
         ],
-        actions: vec![(
-            Box::new(SaveTheme),
-            Rc::new(move |_, cx| {
-                save.update(cx, |a, cx| a.save(cx)).ok();
-            }),
-        )],
+        actions: vec![
+            (
+                Box::new(SaveTheme),
+                Rc::new(move |_, cx| {
+                    save.update(cx, |a, cx| a.save(cx)).ok();
+                }),
+            ),
+            (
+                Box::new(PickTheme),
+                Rc::new(move |_, cx| tries.search(themes::THEMES, cx)),
+            ),
+        ],
         inputs: vec![input(&app)],
-        snapshots: snapshots(&app),
+        lists: vec![themes::list()],
+        snapshots: {
+            let mut snapshots = snapshots(&app);
+            // The themes to try, on the one in force.
+            let open: artoo_shell_api::Snap =
+                Rc::new(move |_, cx| palette.search(themes::THEMES, cx));
+            snapshots.push(("theme-palette", open));
+            snapshots
+        },
         ..Default::default()
     }
 }

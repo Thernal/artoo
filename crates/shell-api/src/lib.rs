@@ -23,7 +23,8 @@
 //! - **Searches** (`Parts::searches`, `search`): a scope of search everywhere a feature offers in a tab — ⌘K's tab,
 //!   its words, the action that opens it, what it finds for a text and the route each find opens (or, for what is
 //!   no place, the owner's doing, run once ⌘K has closed); the All tab takes a few of each, or its own alone after
-//!   its character (`#`, `@`).
+//!   its character (`#`, `@`). A list the same window shows alone (`Parts::lists`), opened by its own action
+//!   (`Frame::search`): the themes to try, a comparison's refs.
 //! - **`Frame`**: what a part asks of its tab: a toast, the error line, a redraw, the text selection, the places
 //!   it has open, its tool window opened or closed, a menu at the pointer, the narrow tab's drawer closed, a
 //!   route opened (or a space's own page), a route kept among the places opened lately, the tab's services.
@@ -287,6 +288,10 @@ pub trait Frame {
     /// Space `space` gone to, as its row in the menu goes: the page it was left on, its own page when it is on
     /// screen already; what the project lacks for it said instead, when it lacks something.
     fn go_space(&self, space: &'static str, cx: &mut App);
+
+    /// Search everywhere opened on scope `id` (`Search`), or the window on list `id` alone (`List`), as their
+    /// actions open them.
+    fn search(&self, id: &'static str, cx: &mut App);
 
     /// Route `route` kept first among the places opened lately (⌘K lists them).
     fn remember(&self, route: Route, cx: &mut App);
@@ -841,6 +846,8 @@ pub struct Parts {
     pub links: Vec<links::Pattern>,
     /// Its scopes of search everywhere (`search`): ⌘K's tabs it offers.
     pub searches: Vec<search::Search>,
+    /// Its lists the same window shows alone (`search::List`), each opened by its own action.
+    pub lists: Vec<search::List>,
 }
 
 type Maker = Rc<dyn Fn(Rc<dyn Frame>, &mut Window, &mut App) -> Parts>;

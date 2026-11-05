@@ -1,12 +1,12 @@
 //! Search everywhere (#52, Design `docs/specs/command-palette.md`): one window with a tab per
 //! scope — All ⌘K, Files ⌘P, Commits ⌘⇧C, Branches ⌘⇧B, Requests ⌘⇧R, Actions ⌘⇧P —, each
 //! named with what it found; ⇥ ⇧⇥ move between them keeping the text, `>` typed moves to Actions.
-//! The same overlay picks the refs of a comparison (⌥⌘C), a theme, a recent place, a bookmark. What it lists and
-//! does is here; the window is drawn by the shell (`artoo_shell_api::palette`).
+//! The same overlay shows a list alone: the tab's own (a recent place, a bookmark, a face…) and those a feature
+//! offers (`Parts::lists`: the refs of a comparison, ⌥⌘C, the branches'; the themes to try, the appearance's). What it
+//! lists and does is here; the window is drawn by the shell (`artoo_shell_api::palette`).
 
 use super::input::{self, Edit};
 use super::{Workspace, format, theme};
-use crate::git::{NamedRef, Repo};
 use artoo_shell_api::palette;
 use artoo_shell_api::search::Opens;
 use git2::Oid;
@@ -50,12 +50,8 @@ pub enum Kind {
     Bookmarks,
     /// Switching to a branch or a merge request (⌘B), with how far each one's review got.
     Switch,
-    /// Picking the first side of a comparison.
-    Base,
-    /// Picking the second side, the first being `.0`.
-    Head((String, Oid)),
-    /// The themes (#12 B): ↑↓ tries each on the whole window, ↵ keeps, esc goes back.
-    Theme,
+    /// A list a feature offers (`Parts::lists`), by its id: a comparison's refs, the themes to try.
+    List(&'static str),
     /// Open a repository (⌘T, the rail's +): the ones opened before, filtered as you type, a path
     /// typed, and Browse for the system's picker (the developer, 2026-10-23: not a new tab's
     /// welcome page, which had no way back).
@@ -105,15 +101,17 @@ enum Pick {
     Link(crate::links::Link),
     /// A command offered (`Workspace::contributed`), by its place there.
     Command(usize),
-    /// A find of a scope offered: where it goes, the file it is.
+    /// A find of a scope or a list offered: where it goes, the file it is, the face its row is drawn in, what it
+    /// tries as the selection comes to it, whether it is the one in force.
     Found {
         open: artoo_shell_api::search::Opens,
         file: Option<String>,
+        face: Option<gpui::SharedString>,
+        tried: Option<artoo_shell_api::search::Doing>,
+        current: bool,
     },
     /// Browse… for a folder: Open's.
     Browse,
-    Ref(String, Oid),
-    Theme(String),
     /// A repository to open in a tab of its own, or go to when one has it.
     Project(std::path::PathBuf),
     /// A face (`Kind::Face`), None its default.
@@ -126,6 +124,7 @@ fn face_of(kind: &Kind, pick: &Pick) -> Option<gpui::SharedString> {
         (Kind::Face { code }, Pick::Face(face)) => {
             Some(super::fonts::face_family(*code, face.as_deref()))
         }
+        (_, Pick::Found { face, .. }) => face.clone(),
         _ => None,
     }
 }
@@ -152,7 +151,6 @@ pub struct Palette {
     /// ⌘B: only what is not reviewed yet (⇥ switches).
     open_only: bool,
     items: Vec<Item>,
-    refs: Vec<NamedRef>,
 }
 
 /// Open a repository's list: a folder typed as a path, the ones opened before ranked by the
@@ -218,6 +216,26 @@ fn project_items(
     items
 }
 
+/// An offered scope's or list's finds as rows.
+fn found_items(finds: Vec<artoo_shell_api::search::Find>) -> Vec<Item> {
+    finds
+        .into_iter()
+        .map(|f| Item {
+            group: f.group,
+            label: f.label,
+            detail: f.detail,
+            key: "",
+            pick: Pick::Found {
+                open: f.open,
+                file: f.file,
+                face: f.face,
+                tried: f.tried,
+                current: f.current,
+            },
+        })
+        .collect()
+}
+
 /// A scope's shipped key as the foot writes it, the command key first and the letter in capitals (`⌘⇧R`), as the
 /// app's written keys are; a key the user changed shows as the keymap writes it (`⇧⌘r`).
 fn foot_key(keys: &str) -> String {
@@ -240,6 +258,22 @@ impl Workspace {
 
     fn offered_search(&self, id: &str) -> Option<&artoo_shell_api::search::Search> {
         self.offered_searches().find(|s| s.id == id)
+    }
+
+    fn offered_list(&self, id: &str) -> Option<&artoo_shell_api::search::List> {
+        self.parts
+            .iter()
+            .flat_map(|p| &p.lists)
+            .find(|l| l.id == id)
+    }
+
+    /// ⌘K opened on scope `id`, or the window on list `id` (`Frame::search`).
+    pub(super) fn search_offered(&mut self, id: &'static str, cx: &mut Context<Self>) {
+        if self.offered_list(id).is_some() {
+            self.open_palette(Kind::List(id), cx);
+        } else if self.offered_search(id).is_some() {
+            self.search(Scope::Offered(id), cx);
+        }
     }
 
     /// Search everywhere's tabs, in their order: the tab's own, the offered ones among them.
@@ -288,19 +322,7 @@ impl Workspace {
         ask: artoo_shell_api::search::Ask,
         cx: &App,
     ) -> Vec<Item> {
-        (search.find)(ask, cx)
-            .into_iter()
-            .map(|f| Item {
-                group: f.group,
-                label: f.label,
-                detail: f.detail,
-                key: "",
-                pick: Pick::Found {
-                    open: f.open,
-                    file: f.file,
-                },
-            })
-            .collect()
+        found_items((search.find)(ask, cx))
     }
 
     /// ⌘B's list: the merge requests (when the project has them), then the local branches; each
@@ -359,23 +381,6 @@ impl Workspace {
     }
 
     pub(super) fn open_palette(&mut self, kind: Kind, cx: &mut Context<Self>) {
-        let refs = match (&kind, &self.root) {
-            (
-                Kind::Search(_)
-                | Kind::Recent
-                | Kind::Structure
-                | Kind::Bookmarks
-                | Kind::Switch
-                | Kind::Theme
-                | Kind::Projects
-                | Kind::Face { .. },
-                _,
-            )
-            | (_, None) => Vec::new(),
-            (_, Some(root)) => Repo::open(root)
-                .and_then(|r| r.compare_refs())
-                .unwrap_or_default(),
-        };
         self.field = None;
         self.rv().clear_find(cx);
         if let Some(branches) = self.branches() {
@@ -383,7 +388,6 @@ impl Workspace {
         }
         self.ctx_menu.update(cx, |m, cx| m.shut(cx));
         self.reset_field_edit();
-        let theme = matches!(kind, Kind::Theme);
         let face = match kind {
             Kind::Face { code } => Some(code),
             _ => None,
@@ -392,14 +396,18 @@ impl Workspace {
             Some(_) => super::fonts::installed(cx),
             None => Vec::new(),
         };
-        // What the offered scopes read once for their finds (Code's: the project's files).
-        if matches!(kind, Kind::Search(_)) {
-            let opened: Vec<_> = (self.offered_searches())
+        // What the offered scopes read once for their finds (Code's: the project's files), or the list its own.
+        let opened: Vec<_> = match kind {
+            Kind::Search(_) => (self.offered_searches())
                 .filter_map(|s| s.opened.clone())
-                .collect();
-            for opened in opened {
-                opened(cx);
-            }
+                .collect(),
+            Kind::List(id) => (self.offered_list(id).and_then(|l| l.opened.clone()))
+                .into_iter()
+                .collect(),
+            _ => Vec::new(),
+        };
+        for opened in opened {
+            opened(cx);
         }
         self.palette = Some(Palette {
             kind,
@@ -410,16 +418,14 @@ impl Workspace {
             at: 0,
             open_only: false,
             items: Vec::new(),
-            refs,
         });
         self.refresh_palette(cx);
-        // The themes open on the one in use.
-        if theme && let Some(p) = &mut self.palette {
-            let current = theme::choice().window;
-            p.at = p
-                .items
-                .iter()
-                .position(|i| matches!(&i.pick, Pick::Theme(id) if *id == current))
+        // A list opens on the one in force (the theme on the window).
+        if let Some(p) = &mut self.palette
+            && matches!(p.kind, Kind::List(_))
+        {
+            p.at = (p.items.iter())
+                .position(|i| matches!(i.pick, Pick::Found { current: true, .. }))
                 .unwrap_or(0);
         }
         // A face's list opens on the one in use.
@@ -439,25 +445,24 @@ impl Workspace {
 
     pub(super) fn close_palette(&mut self, cx: &mut Context<Self>) {
         if let Some(p) = self.palette.take() {
-            // A theme being tried goes back to the chosen one.
-            if matches!(p.kind, Kind::Theme) {
-                theme::restore();
-                cx.refresh_windows();
+            // What a list tried is put back (a theme, the chosen one).
+            if let Kind::List(id) = p.kind
+                && let Some(closed) = self.offered_list(id).and_then(|l| l.closed.clone())
+            {
+                closed(cx);
             }
             cx.notify();
         }
     }
 
-    /// The theme under the selection, drawn on the whole window for now.
-    fn try_theme(&mut self, cx: &mut Context<Self>) {
-        let Some(p) = &self.palette else {
-            return;
-        };
-        if let Some(Pick::Theme(id)) = p.items.get(p.at).map(|i| &i.pick) {
-            let mut choice = theme::choice();
-            choice.window = id.clone();
-            theme::preview(&choice);
-            cx.refresh_windows();
+    /// What the find under the selection tries (a theme on the whole window).
+    fn try_found(&mut self, cx: &mut Context<Self>) {
+        let tried = (self.palette.as_ref()).and_then(|p| match &p.items.get(p.at)?.pick {
+            Pick::Found { tried, .. } => tried.clone(),
+            _ => None,
+        });
+        if let Some(tried) = tried {
+            tried(cx);
         }
     }
 
@@ -587,29 +592,6 @@ impl Workspace {
         if matches!(p.kind, Kind::Projects) {
             return project_items(query, &crate::storage::recent(), self.root.as_deref());
         }
-        if matches!(p.kind, Kind::Theme) {
-            let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-            let current = theme::choice().window;
-            return theme::all()
-                .into_iter()
-                .filter(|t| t.window && matches(&words, &t.label))
-                .map(|t| Item {
-                    group: if t.built_in { "Themes" } else { "Your themes" },
-                    detail: if t.id == current {
-                        "current".to_owned()
-                    } else if !t.problems.is_empty() {
-                        super::plural(t.problems.len(), "problem")
-                    } else if t.light() {
-                        "light".to_owned()
-                    } else {
-                        String::new()
-                    },
-                    label: t.label,
-                    key: "",
-                    pick: Pick::Theme(t.id),
-                })
-                .collect();
-        }
         if let Kind::Face { code } = p.kind {
             let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
             let faces = theme::faces();
@@ -706,65 +688,15 @@ impl Workspace {
         if let Kind::Search(scope) = p.kind {
             return self.scope_items(scope, p, cx);
         }
-        let group = if matches!(p.kind, Kind::Base) {
-            "Base"
-        } else {
-            "Compare with"
-        };
-        {
-            let mut ranked = crate::rank::rank(&p.refs, query, |r| &r.name);
-            // A stale local branch comes after its upstream: that is the one meant.
-            for i in 0..ranked.len() {
-                if let Some(st) = &ranked[i].stale
-                    && let Some(j) = ranked[i..].iter().position(|r| r.name == st.upstream)
-                {
-                    let upstream = ranked.remove(i + j);
-                    ranked.insert(i, upstream);
-                }
-            }
-            let mut items: Vec<Item> = ranked
-                .into_iter()
-                .take(14)
-                .map(|r| Item {
-                    group,
-                    label: r.name.clone(),
-                    detail: match &r.stale {
-                        Some(st) => format!(
-                            "branch {} · ↓{} behind {}",
-                            format::short(r.tip),
-                            st.behind,
-                            st.upstream
-                        ),
-                        None => format!(
-                            "{} {}",
-                            if r.tag { "tag" } else { "branch" },
-                            format::short(r.tip)
-                        ),
-                    },
-                    key: "",
-                    pick: Pick::Ref(r.name.clone(), r.tip),
-                })
-                .collect();
-            // Anything git can name: a commit id, HEAD~3, a ref the list does not show.
-            if !query.is_empty()
-                && !p.refs.iter().any(|r| r.name == query.trim())
-                && let Some(id) = self
-                    .root
-                    .as_ref()
-                    .and_then(|root| Repo::open(root).ok()?.resolve(query).ok())
-            {
-                items.insert(
-                    0,
-                    Item {
-                        group,
-                        label: query.trim().to_owned(),
-                        detail: format!("commit {}", format::short(id)),
-                        key: "",
-                        pick: Pick::Ref(query.trim().to_owned(), id),
-                    },
-                );
-            }
-            items
+        match p.kind {
+            Kind::List(id) => self.offered_list(id).map_or_else(Vec::new, |list| {
+                let ask = artoo_shell_api::search::Ask {
+                    text: query,
+                    all: false,
+                };
+                found_items((list.find)(ask, cx))
+            }),
+            _ => Vec::new(),
         }
     }
 
@@ -872,9 +804,7 @@ impl Workspace {
                     self.reset_field_edit();
                 }
                 self.refresh_palette(cx);
-                if matches!(self.palette.as_ref().map(|p| &p.kind), Some(Kind::Theme)) {
-                    self.try_theme(cx);
-                }
+                self.try_found(cx);
             }
             Edit::Enter { .. } => {
                 let at = palette.at;
@@ -883,12 +813,17 @@ impl Workspace {
             }
             Edit::Escape => {
                 // A second pick goes back to the first.
-                if matches!(palette.kind, Kind::Head(_)) {
-                    palette.kind = Kind::Base;
-                    palette.query.clear();
-                    self.refresh_palette(cx);
-                } else {
-                    return self.close_palette(cx);
+                let back = match palette.kind {
+                    Kind::List(id) => self.offered_list(id).and_then(|l| l.back),
+                    _ => None,
+                };
+                match (back, &mut self.palette) {
+                    (Some(back), Some(palette)) => {
+                        palette.kind = Kind::List(back);
+                        palette.query.clear();
+                        self.refresh_palette(cx);
+                    }
+                    _ => return self.close_palette(cx),
                 }
             }
             Edit::Selected | Edit::Ignored => {}
@@ -915,9 +850,7 @@ impl Workspace {
             } else {
                 (p.at + n - 1) % n
             };
-            if matches!(p.kind, Kind::Theme) {
-                self.try_theme(cx);
-            }
+            self.try_found(cx);
             cx.notify();
         }
     }
@@ -932,27 +865,6 @@ impl Workspace {
             return;
         };
         match item.pick {
-            Pick::Ref(name, id) => {
-                let kind = self.palette.as_ref().map(|p| p.kind.clone());
-                match kind {
-                    Some(Kind::Base) => {
-                        if let Some(p) = &mut self.palette {
-                            p.kind = Kind::Head((name, id));
-                            p.query.clear();
-                            p.at = 0;
-                        }
-                        self.refresh_palette(cx);
-                    }
-                    Some(Kind::Head(base)) => {
-                        self.palette = None;
-                        self.go_page(
-                            super::nav::Page::Compare(base, (name, id), true).route(),
-                            cx,
-                        );
-                    }
-                    _ => self.palette = None,
-                }
-            }
             Pick::Recent(key) => {
                 self.palette = None;
                 self.open_recent(key, cx);
@@ -1011,14 +923,6 @@ impl Workspace {
                 self.palette = None;
                 cx.notify();
                 window.dispatch_action(Box::new(super::Open), cx);
-            }
-            Pick::Theme(id) => {
-                self.palette = None;
-                let mut choice = theme::choice();
-                choice.window = id;
-                theme::choose(choice);
-                cx.refresh_windows();
-                cx.notify();
             }
             Pick::Face(face) => {
                 let code = matches!(
@@ -1080,6 +984,11 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
         let p = self.palette.as_ref()?;
+        // What a list offered says as it stands.
+        let said = match p.kind {
+            Kind::List(id) => self.offered_list(id).map(|l| (l.says)(cx)),
+            _ => None,
+        };
         let placeholder = match &p.kind {
             Kind::Search(scope) => self.scope_placeholder(*scope),
             Kind::Recent => "Recent places — files, commits, merge requests",
@@ -1087,9 +996,7 @@ impl Workspace {
             Kind::Bookmarks => "Bookmarks — lines marked with F3",
             Kind::Switch if p.open_only => "Switch to — only what is not reviewed yet   ⇥ all",
             Kind::Switch => "Switch to a branch or a merge request   ⇥ only not reviewed",
-            Kind::Base => "Compare — pick the base: a branch, a tag or a commit",
-            Kind::Head(_) => "Compare — pick what to compare with it",
-            Kind::Theme => "Theme — ↑↓ tries it on the whole window, ↵ keeps, esc goes back",
+            Kind::List(_) => said.as_ref().map_or("", |s| s.placeholder),
             Kind::Projects => "Open a repository — type to filter, or a path",
             Kind::Face { code: false } => "The interface's face — each in its own type",
             Kind::Face { code: true } => "The code's face — each in its own type",
@@ -1100,11 +1007,9 @@ impl Workspace {
             | Kind::Structure
             | Kind::Bookmarks
             | Kind::Switch
-            | Kind::Theme
             | Kind::Face { .. } => None,
             Kind::Projects => Some("Open a repository".to_owned()),
-            Kind::Base => Some("Compare · step 1 of 2".to_owned()),
-            Kind::Head((name, _)) => Some(format!("Compare · {name} … ?")),
+            Kind::List(_) => said.as_ref().and_then(|s| s.title.clone()),
         };
         let keymap = cx.global::<super::keymap::Keymap>();
         let rows = p
@@ -1153,7 +1058,7 @@ impl Workspace {
             Kind::Switch if p.open_only => "Nothing left to review here.",
             Kind::Switch => "No branch or merge request by that name.",
             Kind::Face { .. } => "No face installed by that name.",
-            _ => "No branch, tag or commit by that name.",
+            Kind::List(_) => said.as_ref().map_or("", |s| s.empty),
         };
         // Search everywhere: its tabs, what each found, and the one on with its key.
         let (tabs, foot) = match p.kind {

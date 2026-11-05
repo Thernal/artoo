@@ -306,9 +306,6 @@ impl Render for Workspace {
         .on_action(cx.listener(Self::toggle_unified))
         .on_action(cx.listener(Self::cycle_mode))
         .on_action(cx.listener(|this, _: &ToggleRendered, _, cx| this.toggle_page_source(cx)))
-        .on_action(
-            cx.listener(|this, _: &PickTheme, _, cx| this.open_palette(palette::Kind::Theme, cx)),
-        )
         .on_action(cx.listener(Self::set_lines))
         .on_action(cx.listener(Self::set_words))
         .on_action(cx.listener(Self::set_structural))

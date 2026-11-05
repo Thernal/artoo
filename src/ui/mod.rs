@@ -155,7 +155,6 @@ actions!(
         ToggleExpandAll,
         ToggleRichComments,
         ToggleRendered,
-        PickTheme,
         LeaveRequest,
         ToggleAllReviewed,
         NextRequest,
@@ -436,10 +435,6 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         this.settings_open = true;
                         this.settings_section = settings::APPEARANCE;
                         this.open_part_snapshot(name.trim(), cx);
-                        continue;
-                    }
-                    if name.trim() == "theme-palette" {
-                        this.open_palette(palette::Kind::Theme, cx);
                         continue;
                     }
                     let opt = match name.trim() {
@@ -903,7 +898,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             ws.update(cx, |this, cx| {
                 // `faces:` the interface's faces (#24).
                 let kind = if query.starts_with("compare:") {
-                    palette::Kind::Base
+                    palette::Kind::List(artoo_branches_api::COMPARE)
                 } else if query.starts_with("faces:") {
                     palette::Kind::Face { code: false }
                 } else {
@@ -2508,7 +2503,7 @@ impl Workspace {
 
     fn compare_action(&mut self, _: &Compare, _: &mut Window, cx: &mut Context<Self>) {
         if self.root.is_some() {
-            self.open_palette(palette::Kind::Base, cx);
+            self.open_palette(palette::Kind::List(artoo_branches_api::COMPARE), cx);
         }
     }
 

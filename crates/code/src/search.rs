@@ -96,11 +96,5 @@ fn found(path: &str, group: &'static str, open: Opens) -> Find {
         Some((folder, name)) => (name.to_owned(), folder.to_owned()),
         None => (path.to_owned(), String::new()),
     };
-    Find {
-        group,
-        label,
-        detail,
-        file: Some(path.to_owned()),
-        open,
-    }
+    Find::new(group, label, detail, open).file(path.to_owned())
 }

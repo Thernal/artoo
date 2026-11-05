@@ -66,12 +66,9 @@ fn find(ask: Ask, branches: &dyn Branches, cx: &App) -> Vec<Find> {
     rank(branches.listed(cx), ask.text, |(_, b)| &b.name)
         .into_iter()
         .take(60)
-        .map(|(_, b)| Find {
-            group: "Branches",
-            label: b.name.clone(),
-            detail: format::short(b.tip),
-            file: None,
-            open: Opens::Route(BranchRoute { refname: b.refname }.route()),
+        .map(|(_, b)| {
+            let open = Opens::Route(BranchRoute { refname: b.refname }.route());
+            Find::new("Branches", b.name.clone(), format::short(b.tip), open)
         })
         .collect()
 }
@@ -93,13 +90,9 @@ fn find_commits(ask: Ask, branches: &dyn Branches, cx: &App) -> Vec<Find> {
         .filter_map(|c| {
             // Its page, as a click on it in the list opens.
             let at = branches.commit_of(c.id, cx)?;
-            Some(Find {
-                group: "Commits",
-                label: c.summary.clone(),
-                detail: format!("{} · {}", format::short(c.id), c.author),
-                file: None,
-                open: Opens::Route(branches.route_of(Selection::Commit(at), cx)?),
-            })
+            let open = Opens::Route(branches.route_of(Selection::Commit(at), cx)?);
+            let detail = format!("{} · {}", format::short(c.id), c.author);
+            Some(Find::new("Commits", c.summary.clone(), detail, open))
         })
         .collect()
 }

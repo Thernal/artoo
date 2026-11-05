@@ -488,9 +488,6 @@ pub(super) fn own() -> Vec<Action> {
         Action::new("shell.name-project", NameProject)
             .words("Name and colour this project…")
             .order(at(32)),
-        Action::new("shell.theme", PickTheme)
-            .words("Theme — try each on the whole window")
-            .order(at(38)),
         Action::new("shell.set-up", SetUp)
             .words("Set up Artoo")
             .order(at(54))

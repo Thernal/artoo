@@ -167,6 +167,10 @@ impl Frame for TabFrame {
         self.later(cx, move |this, cx| this.go_space(Space(space), cx));
     }
 
+    fn search(&self, id: &'static str, cx: &mut App) {
+        self.later(cx, move |this, cx| this.search_offered(id, cx));
+    }
+
     fn services(&self) -> Rc<Services> {
         self.1.clone()
     }
