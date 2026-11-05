@@ -103,7 +103,13 @@ impl Workspace {
     pub(super) fn selecting(&self, this: gpui::WeakEntity<Self>) -> super::markdown::Selecting {
         let link = this.clone();
         let mention = this.clone();
+        // The kinds of link the tab's features find in its texts, in their order (#171, D11).
+        let mut patterns: Vec<_> = self.parts.iter().flat_map(|p| p.links.clone()).collect();
+        patterns.sort_by_key(|p| p.order);
         super::markdown::Selecting {
+            find: std::rc::Rc::new(move |text, cx| {
+                artoo_shell_api::links::find(&patterns, text, cx)
+            }),
             current: self.note_sel.clone(),
             on: std::rc::Rc::new(move |press, cx| {
                 this.update(cx, |this, cx| this.note_press(press, cx)).ok();

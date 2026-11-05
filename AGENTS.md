@@ -60,7 +60,8 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   and a request's line, `pieces`; its state made by its parts): merge requests — the lists and their groups (`group`),
   the request open (`requests`), the changes sent to its host and not read back (`waiting`), what became of an
   outdated discussion's line (`outdated`, its history drawn), the reactions on its notes (`reactions`: the pills,
-  the hover bar, ☺+'s grid), where merging it stands (`merge`) — and what they read from their host
+  the hover bar, ☺+'s grid), where merging it stands (`merge`), a request's number in the tab's texts a link to it
+  (`numbers`: `!398`, GitHub's `#12` its pull request when read here, else its issue) — and what they read from their host
   (`reading`), each read the entity's own task, the tab hearing what follows through the contract; the notifications
   and the Inbox's state (`notices`, `inbox`). Its views draw
   from it, a click asking the tab a `requests::Act`: the request's bar pieces (`bar`), Overview and the line over
@@ -87,7 +88,8 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   `crates/shell-api` (`artoo-shell-api`): the
   shell's contract — actions (the app menu and ⌘K list them), parts each tab draws (title-bar items, cards over the
   window, Settings rows, snapshot views, a space's pages, fields that take the keyboard: `Input`, pieces of the item page in its slots:
-  `Piece`, `Slot`, handed a `Drawing`), the `Frame` a part asks and the tab's `Services`;
+  `Piece`, `Slot`, handed a `Drawing`, the kinds of link found in the tab's texts: `links::Pattern`, #171 D11 — the
+  requests' `!398` / `#12` the first), the `Frame` a part asks and the tab's `Services`;
   `src/ui/parts.rs` is the tab's side. `crates/hosts-api` (`artoo-hosts-api`): the hosts' contract — the models GitLab and GitHub answer
   in, the traits (`Account`, `Requests`, `Discussions`, `Reviews`, `Merging`; `Host` the five; `Hosts::of(remote)` and
   `Hosts::link(url)`), the kinds of host (`Kind`: which remotes it owns, the host for one, the links it reads; `Kinds`
@@ -138,7 +140,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   `progress_badge`, `pill`, `primary_button`, `outline_button`, `empty_state`), tooltips and the
   cut (`hover`: `Hover`, `Tip`, `TipOwned`, `cut`, `mid`), a page's side panel and its sections' headers (`panel`: `head`, `panel`, `rule`, `open_share`, `count`), the text field and its editing (`input`; `Area`, a field its owner keeps), the token completed in one (`@`, `:`) and its list
   (`complete`), file and folder icons (`file_icons`), comments drawn as markdown
-  (`markdown`), the port for the web pictures it draws (`pictures`: `Pictures`, provided by hosts' `install`), a
+  (`markdown`; the links a text has unwritten found with `Selecting::find`, drawn and followed as the written ones), the port for the web pictures it draws (`pictures`: `Pictures`, provided by hosts' `install`), a
   discussion's pieces (`discussion`: its frame, an avatar, a note, the buttons) and the port for the people an avatar
   shows (`people`: `People`, provided by hosts' `install`) — on the core and
   GPUI alone (`format::short` takes any `Display`, so the kit knows no git); `ui/mod.rs` imports its modules by

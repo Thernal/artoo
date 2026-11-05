@@ -1,6 +1,6 @@
 //! Merge requests (#165 stage 4): what the tab keeps of them — the lists and their groups, the request open, the
 //! changes sent to its host and not yet read back (`waiting`), what became of an outdated discussion's line
-//! (`outdated`), the reactions on its notes, where merging it stands (`merge`), the notifications (`notices`) and the Inbox's (`inbox`) — and what they read from their host
+//! (`outdated`), a request's number in the tab's texts a link (`numbers`), the reactions on its notes, where merging it stands (`merge`), the notifications (`notices`) and the Inbox's (`inbox`) — and what they read from their host
 //! (`reading`). The space's own page is theirs (`root`); the app's other views read and draw them for now.
 
 mod bar;
@@ -15,6 +15,7 @@ mod list;
 mod merge;
 mod merging;
 mod notices;
+mod numbers;
 mod outdated;
 mod page;
 mod pieces;
@@ -91,6 +92,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
             outdated::since_piece(requests.clone(), services.clone()),
             pieces::done(requests.clone(), services),
         ],
+        links: vec![numbers::pattern(&requests, cx)],
         pages: Some(root::pages(requests, frame, cx)),
         ..Default::default()
     }

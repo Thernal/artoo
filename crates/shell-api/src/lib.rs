@@ -31,6 +31,7 @@
 
 pub mod bar;
 pub mod frame;
+pub mod links;
 pub mod palette;
 pub mod render;
 pub mod settings;
@@ -731,6 +732,8 @@ pub struct Parts {
     pub inputs: Vec<Input>,
     /// Its pieces of the item page on screen.
     pub pieces: Vec<Piece>,
+    /// The kinds of link it finds in the tab's texts (`links`).
+    pub links: Vec<links::Pattern>,
 }
 
 type Maker = Rc<dyn Fn(Rc<dyn Frame>, &mut Window, &mut App) -> Parts>;

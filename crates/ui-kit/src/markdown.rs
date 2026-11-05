@@ -91,6 +91,10 @@ pub type OnLink = Rc<dyn Fn(&str, &mut App) -> bool>;
 /// workspace shows the person's card when the pointer rests there (#51, X62).
 pub type OnMention = Rc<dyn Fn(Option<(String, gpui::Bounds<gpui::Pixels>)>, &mut App)>;
 
+/// The links a text has without being written as links (a request's `!398`): each one's bytes and its address,
+/// in order and apart. The tab gives its features' (`artoo_shell_api::links`, #171).
+pub type FindLinks = Rc<dyn Fn(&str, &App) -> Vec<(Range<usize>, String)>>;
+
 /// Selecting in comments: the selection now, and where presses go.
 #[derive(Clone)]
 pub struct Selecting {
@@ -99,6 +103,8 @@ pub struct Selecting {
     /// GitLab links into the open project open in the app (⌘-click: the browser).
     pub link: OnLink,
     pub mention: OnMention,
+    /// The links found in its text, drawn and followed as the written ones are.
+    pub find: FindLinks,
 }
 
 /// Where relative links of a comment point: GitLab writes uploads as `/uploads/…`, relative to the
@@ -130,6 +136,7 @@ pub fn body(
     cx: &App,
 ) -> AnyElement {
     let mut ctx = Ctx {
+        app: cx,
         key: key.into(),
         next: 0,
         base: base.map(str::to_owned),
@@ -142,6 +149,14 @@ pub fn body(
     let blocks = rich.then(|| markdown::parse(text));
     match blocks.filter(|b| markdown::is_rich(b)) {
         Some(blocks) => blocks_of(&blocks, &mut ctx).into_any_element(),
+        // As written, its found links alone drawn as links (a commit's message with a `!398`).
+        None if !found(text, &[], &ctx).is_empty() => {
+            let plain = Inline {
+                text: text.to_owned(),
+                ..Default::default()
+            };
+            inline_drawn(&plain, false, &mut ctx)
+        }
         None => {
             let styled = StyledText::new(text.to_owned());
             let layout = styled.layout().clone();
@@ -160,6 +175,7 @@ pub fn doc_block(
     cx: &App,
 ) -> AnyElement {
     let mut ctx = Ctx {
+        app: cx,
         key: key.into(),
         next: 0,
         base: None,
@@ -177,7 +193,9 @@ pub fn has_markdown(text: &str) -> bool {
     markdown::is_rich(&markdown::parse(text))
 }
 
-struct Ctx {
+struct Ctx<'a> {
+    /// What its links are found with (`Selecting::find`).
+    app: &'a App,
     key: SharedString,
     next: usize,
     base: Option<String>,
@@ -669,7 +687,30 @@ pub fn set_me(login: Option<&str>) {
 }
 
 /// A paragraph's text with its styles; links open in the browser.
+/// The links found in `text` (`Selecting::find`) where no span is (`taken`: a written link, code, bold…) and no
+/// mention is: what is written wins.
+fn found(text: &str, taken: &[Range<usize>], ctx: &Ctx) -> Vec<(Range<usize>, String)> {
+    let Some(sel) = ctx.sel.as_ref() else {
+        return Vec::new();
+    };
+    let mentions = markdown::mentions(text);
+    (sel.find)(text, ctx.app)
+        .into_iter()
+        .filter(|(r, _)| {
+            !taken
+                .iter()
+                .chain(&mentions)
+                .any(|t| t.start < r.end && r.start < t.end)
+        })
+        .collect()
+}
+
 fn inline(i: &Inline, ctx: &mut Ctx) -> AnyElement {
+    inline_drawn(i, true, ctx)
+}
+
+/// Inline `i`, its mentions on their tint when `mentions` (a text as written has none).
+fn inline_drawn(i: &Inline, mentions: bool, ctx: &mut Ctx) -> AnyElement {
     let code_bg: gpui::Hsla = theme::hover().into();
     let accent: gpui::Hsla = theme::accent().into();
     let highlights: Vec<_> = i
@@ -698,10 +739,37 @@ fn inline(i: &Inline, ctx: &mut Ctx) -> AnyElement {
             )
         })
         .collect();
+    // The links found in the text, where nothing is written over it (not in a changed document's marked words).
+    let taken: Vec<_> = i
+        .spans
+        .iter()
+        .map(|s| s.range.clone())
+        .chain(i.marks.iter().map(|(r, _)| r.clone()))
+        .collect();
+    let found = found(&i.text, &taken, ctx);
+    let mut highlights = highlights;
+    for (r, _) in &found {
+        highlights.push((
+            r.clone(),
+            HighlightStyle {
+                color: Some(accent),
+                underline: Some(UnderlineStyle {
+                    thickness: px(1.),
+                    color: Some(accent),
+                    wavy: false,
+                }),
+                ..Default::default()
+            },
+        ));
+    }
     // Mentions on their tint, where no other style already covers the text.
     let me = ME.lock().map(|m| m.clone()).unwrap_or_default();
-    let mut highlights = highlights;
-    for r in markdown::mentions(&i.text) {
+    let mentioned = if mentions {
+        markdown::mentions(&i.text)
+    } else {
+        Vec::new()
+    };
+    for r in mentioned {
         if i.spans
             .iter()
             .any(|s| s.range.start < r.end && r.start < s.range.end)
@@ -771,22 +839,24 @@ fn inline(i: &Inline, ctx: &mut Ctx) -> AnyElement {
     let styled = StyledText::new(i.text.clone())
         .with_highlights(highlights)
         .with_font_family_overrides(fonts);
-    let links: Vec<_> = i
+    let mut links: Vec<_> = i
         .spans
         .iter()
         .filter_map(|s| {
             let url = s.link.as_deref()?;
             Some((s.range.clone(), resolve(url, ctx.base.as_deref())))
         })
+        .chain(found)
         .collect();
+    links.sort_by_key(|(r, _)| r.start);
     let layout = styled.layout().clone();
     // The mentions a card can be shown for: (range, login).
     let tagged: Vec<(Range<usize>, String)> = match ctx.sel.as_ref() {
-        Some(_) => markdown::mentions(&i.text)
+        Some(_) if mentions => markdown::mentions(&i.text)
             .into_iter()
             .map(|r| (r.clone(), i.text[r.start + 1..r.end].to_owned()))
             .collect(),
-        None => Vec::new(),
+        _ => Vec::new(),
     };
     if links.is_empty() && tagged.is_empty() {
         return text_block(styled.into_any_element(), layout, &i.text, ctx);

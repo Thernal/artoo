@@ -11,7 +11,8 @@ and the hand-written lists gone; a context menu's entry a closure where the menu
 #171); Settings' sections since 2026-11-05 (`add_settings_section`: an id, a title, a place in the left column; the
 window root's five drawn by the tab, the agents' and Appearance (`artoo-appearance`) their parts' rows — any owner's
 rows in a section placed by their order, the window root's faces and panes inside Appearance; the closed
-`settings::Section` gone, #171 phase 4). Until every space is on it, `Page` (`src/ui/nav.rs`) is what these replace, and a new page is added there in
+`settings::Section` gone, #171 phase 4); the kinds of link a text has unwritten since 2026-11-05 (`Parts::links`, the
+requests' `!398` / `#12` the first, #171 D11). Until every space is on it, `Page` (`src/ui/nav.rs`) is what these replace, and a new page is added there in
 the shape below — one variant, one id, one owner. A new command is offered: the window root's in `commands.rs` while the tab runs it, a feature's in its
 `install`.
 
@@ -26,6 +27,9 @@ Escape, polled each frame the tab is not busy —, a `Tool` — a tool window in
 only or not, in its `order`, readied as it opens, given typed keys while it has the keyboard and says it is typing;
 every tool window is one (#171) —, Settings rows (`settings::Rows`: a section's by its id, their order among its
 rows, what Set up draws of them, and whether they fill the section now, take esc, end as Settings shuts),
+the kinds of link it finds in the tab's texts (`links::Pattern`: an id, an order, its finds — bytes and an address;
+every text the kit's markdown draws with the tab's `Selecting` shows them, an earlier pattern's kept where two meet,
+what is written as a link or code winning; the requests' numbers the first, #171 D11),
 the tab's handlers of the feature's actions, the snapshot views it opens (a name ending in `:` given what follows), a space's `Pages` — the kinds of route
 they draw, their view, the panel beside them, and `show`, which the shell calls with the route on screen, or none
 for the space's own page, and whether it was just opened or gone back to). What the `Frame` changes (a toast, the

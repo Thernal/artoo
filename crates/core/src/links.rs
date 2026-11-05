@@ -1,6 +1,7 @@
 //! GitLab and GitHub links read as places in the app: a merge or pull request (its discussion, or a
 //! line of its diff), a commit, a branch. Pure parsing, each host's apart (`gitlab`, `github`): the host kinds
 //! read their links with them (`artoo_hosts_api::Kind::link`), and ⌘K and comment links act on what they find.
+//! A request's number written in a text (`!398`, `#12`) is found with `numbers` (#171, D11).
 
 /// What a link points at inside its project.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -176,9 +177,55 @@ pub fn path_hash(path: &str) -> String {
     sha1_smol::Sha1::from(path).digest().to_string()
 }
 
+/// The numbers written `<sign><digits>` in `text` (`!398` for GitLab's merge requests, `#12` for GitHub's), each
+/// with its bytes. The sign starts a word: after the start, a space or a bracket, not a letter (`group/app!12` is
+/// another project's, `C#7` no number); the digits end it.
+pub fn numbers(text: &str, sign: char) -> Vec<(std::ops::Range<usize>, u64)> {
+    let bytes = text.as_bytes();
+    let mut found = Vec::new();
+    for (at, _) in text.match_indices(sign) {
+        let before = text[..at].chars().next_back();
+        if before.is_some_and(|c| c.is_alphanumeric() || "_/&#!@.:-".contains(c)) {
+            continue;
+        }
+        let start = at + sign.len_utf8();
+        let end = start
+            + bytes[start..]
+                .iter()
+                .take_while(|b| b.is_ascii_digit())
+                .count();
+        if end == start
+            || text[end..]
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_alphanumeric() || c == '_')
+        {
+            continue;
+        }
+        if let Ok(number) = text[start..end].parse() {
+            found.push((at..end, number));
+        }
+    }
+    found
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn numbers_start_a_word() {
+        let text = "Fixes !12 and (!398), not group/app!7, x!9, !12a or !; see #4 too";
+        let found: Vec<_> = numbers(text, '!')
+            .into_iter()
+            .map(|(r, n)| (&text[r], n))
+            .collect();
+        assert_eq!(found, [("!12", 12), ("!398", 398)]);
+        assert_eq!(numbers("C#7 and #42.", '#').len(), 1);
+        assert_eq!(numbers("#42.", '#'), [(0..3, 42)]);
+        // Multibyte text around them.
+        assert_eq!(numbers("é !5 é", '!'), [(3..5, 5)]);
+    }
 
     #[test]
     fn github_links() {

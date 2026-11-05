@@ -2872,6 +2872,37 @@ mod tests {
         assert!(refused.is_empty(), "{refused:?}");
     }
 
+    /// The links found in a text (#171, D11): every pattern's in their order, one where an earlier one found none,
+    /// sorted by where they start.
+    #[test]
+    fn found_links_keep_the_first_patterns_and_their_place() {
+        use artoo_shell_api::links::{Pattern, find};
+        use std::rc::Rc;
+        let pattern = |id, order, found: Vec<(std::ops::Range<usize>, &'static str)>| Pattern {
+            id,
+            order,
+            find: Rc::new(move |_, _| {
+                found
+                    .iter()
+                    .map(|(r, url)| (r.clone(), url.to_string()))
+                    .collect()
+            }),
+        };
+        let patterns = [
+            pattern("a", 10, vec![(10..14, "a1"), (0..3, "a0")]),
+            pattern("b", 20, vec![(2..5, "b0"), (20..22, "b1")]),
+        ];
+        let found = gpui::TestAppContext::single().update(|cx| find(&patterns, "any text", cx));
+        assert_eq!(
+            found,
+            [
+                (0..3, "a0".to_owned()),
+                (10..14, "a1".to_owned()),
+                (20..22, "b1".to_owned())
+            ]
+        );
+    }
+
     /// The kinds the hosts and the agents offer (#171 phase 5), with every feature installed: each host's links read
     /// by its own kind; Claude Code, then Codex.
     #[test]
