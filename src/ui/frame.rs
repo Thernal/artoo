@@ -176,7 +176,7 @@ impl title::TitleHost for TitleGlue {
 
     fn projects(&self, _: &mut Window, cx: &mut App) {
         self.tab(cx, |this, cx| {
-            this.open_palette(palette::Kind::Projects, cx)
+            this.open_palette(palette::Kind::List(palette_lists::PROJECTS), cx)
         });
     }
 
@@ -333,7 +333,7 @@ impl Render for Workspace {
         .on_action(cx.listener(|this, _: &ApproveRequest, _, cx| this.toggle_approval(cx)))
         .on_action(cx.listener(|this, _: &SwitchTo, _, cx| {
             if this.root.is_some() {
-                this.open_palette(palette::Kind::Switch, cx)
+                this.open_palette(palette::Kind::List(palette_lists::SWITCH), cx)
             }
         }))
         .on_action(cx.listener(|this, _: &NextDraft, _, cx| this.step_draft(true, cx)))
@@ -382,7 +382,7 @@ impl Render for Workspace {
             if this.palette.is_some() {
                 this.close_palette(cx);
             } else if this.shown_diff(cx).is_some() {
-                this.open_palette(palette::Kind::Bookmarks, cx);
+                this.open_palette(palette::Kind::List(palette_lists::BOOKMARKS), cx);
             }
         }))
         .on_action(cx.listener(|this, _: &ZoomIn, window, cx| this.ui_zoom_by(1, window, cx)))
@@ -392,14 +392,14 @@ impl Render for Workspace {
             if this.palette.is_some() {
                 this.close_palette(cx);
             } else if this.shown_diff(cx).is_some() {
-                this.open_palette(palette::Kind::Structure, cx);
+                this.open_palette(palette::Kind::List(palette_lists::STRUCTURE), cx);
             }
         }))
         .on_action(cx.listener(|this, _: &OpenRecent, _, cx| {
             if this.palette.is_some() {
                 this.close_palette(cx);
             } else {
-                this.open_palette(palette::Kind::Recent, cx);
+                this.open_palette(palette::Kind::List(palette_lists::RECENT), cx);
             }
         }))
         .on_action(cx.listener(|this, _: &ToggleAnnotate, _, cx| this.toggle_annotate(cx)))
@@ -436,9 +436,9 @@ impl Render for Workspace {
         .on_action(
             cx.listener(|this, _: &FocusDiffZone, _, cx| this.set_zone(zones::Zone::Diff, cx)),
         )
-        .on_action(
-            cx.listener(|this, _: &NewTab, _, cx| this.open_palette(palette::Kind::Projects, cx)),
-        )
+        .on_action(cx.listener(|this, _: &NewTab, _, cx| {
+            this.open_palette(palette::Kind::List(palette_lists::PROJECTS), cx)
+        }))
         .on_action(cx.listener(|this, _: &CloseItem, _, cx| this.close_shown(cx)))
         .on_action(cx.listener(|this, _: &CloseTab, window, cx| {
             this.with_shell(window, cx, |s, window, cx| {

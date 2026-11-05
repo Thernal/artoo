@@ -63,6 +63,7 @@ pub fn lists(history: WeakEntity<History>, frame: Rc<dyn Frame>) -> Vec<List> {
         })),
         closed: None,
         back: None,
+        tab: None,
     };
     let with = List {
         id: COMPARE_WITH,
@@ -94,6 +95,7 @@ pub fn lists(history: WeakEntity<History>, frame: Rc<dyn Frame>) -> Vec<List> {
         opened: None,
         closed: None,
         back: Some(COMPARE),
+        tab: None,
     };
     vec![base, with]
 }

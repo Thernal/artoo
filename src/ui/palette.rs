@@ -1,16 +1,17 @@
 //! Search everywhere (#52, Design `docs/specs/command-palette.md`): one window with a tab per
 //! scope — All ⌘K, Files ⌘P, Commits ⌘⇧C, Branches ⌘⇧B, Requests ⌘⇧R, Actions ⌘⇧P —, each
 //! named with what it found; ⇥ ⇧⇥ move between them keeping the text, `>` typed moves to Actions.
-//! The same overlay shows a list alone: the tab's own (a recent place, a bookmark, a face…) and those a feature
-//! offers (`Parts::lists`: the refs of a comparison, ⌥⌘C, the branches'; the themes to try, the appearance's). What it
-//! lists and does is here; the window is drawn by the shell (`artoo_shell_api::palette`).
+//! The same overlay shows a list alone, every one offered (`Parts::lists`): the tab's own (`palette_lists`: a recent
+//! place, a bookmark, a face…) and the features' (the refs of a comparison, ⌥⌘C, the branches'; the themes to try, the
+//! appearance's). What a scope or a list finds and does runs once the tab is no longer being changed, since it may
+//! read the tab. What it lists and does is here; the window is drawn by the shell (`artoo_shell_api::palette`).
 
+use super::Workspace;
 use super::input::{self, Edit};
-use super::{Workspace, format, theme};
 use artoo_shell_api::palette;
-use artoo_shell_api::search::Opens;
+use artoo_shell_api::search::{Doing, Opens};
 use git2::Oid;
-use gpui::{Action, App, Context, KeyDownEvent, WeakEntity, Window, prelude::*};
+use gpui::{Action, App, Context, KeyDownEvent, SharedString, WeakEntity, Window, prelude::*};
 use std::rc::Rc;
 
 /// A tab of search everywhere: the tab's own, or one a feature offers (`Parts::searches`), by its id.
@@ -38,27 +39,13 @@ enum Section<'a> {
     Offered(&'a artoo_shell_api::search::Search),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub enum Kind {
     /// Search everywhere, on one tab.
     Search(Scope),
-    /// The places opened lately, newest first (⌘E).
-    Recent,
-    /// The functions and types the open file changes (⌘⇧O).
-    Structure,
-    /// The lines marked with F3 in the open diff (⌘F3).
-    Bookmarks,
-    /// Switching to a branch or a merge request (⌘B), with how far each one's review got.
-    Switch,
-    /// A list a feature offers (`Parts::lists`), by its id: a comparison's refs, the themes to try.
+    /// A list offered (`Parts::lists`), by its id: the tab's places opened lately (`palette_lists`), a comparison's
+    /// refs, the themes to try.
     List(&'static str),
-    /// Open a repository (⌘T, the rail's +): the ones opened before, filtered as you type, a path
-    /// typed, and Browse for the system's picker (the developer, 2026-10-23: not a new tab's
-    /// welcome page, which had no way back).
-    Projects,
-    /// A face for the interface or (`code`) the code (#24, a face's Other…): every one installed,
-    /// each drawn in itself; ↵ keeps it.
-    Face { code: bool },
 }
 
 /// A command in ⌘K: one offered with words (`artoo_shell_api::Action::words`), in ⌘K's order.
@@ -87,54 +74,30 @@ pub(super) fn offered(cx: &App) -> Vec<Offered> {
 
 #[derive(Clone)]
 enum Pick {
-    Mark {
-        path: String,
-        line: u32,
-    },
-    Symbol {
-        old: bool,
-        line: u32,
-    },
-    Recent(super::recents::Key),
-    Branch(usize),
-    Request(u64),
     Link(crate::links::Link),
     /// A command offered (`Workspace::contributed`), by its place there.
     Command(usize),
-    /// A find of a scope or a list offered: where it goes, the file it is, the face its row is drawn in, what it
-    /// tries as the selection comes to it, whether it is the one in force.
+    /// A find of a scope or a list offered: where it goes, what it tries as the selection comes to it, whether it is
+    /// the one in force.
     Found {
-        open: artoo_shell_api::search::Opens,
-        file: Option<String>,
-        face: Option<gpui::SharedString>,
-        tried: Option<artoo_shell_api::search::Doing>,
+        open: Opens,
+        tried: Option<Doing>,
         current: bool,
     },
-    /// Browse… for a folder: Open's.
-    Browse,
-    /// A repository to open in a tab of its own, or go to when one has it.
-    Project(std::path::PathBuf),
-    /// A face (`Kind::Face`), None its default.
-    Face(Option<String>),
-}
-
-/// The family a face's row is drawn in.
-fn face_of(kind: &Kind, pick: &Pick) -> Option<gpui::SharedString> {
-    match (kind, pick) {
-        (Kind::Face { code }, Pick::Face(face)) => {
-            Some(super::fonts::face_family(*code, face.as_deref()))
-        }
-        (_, Pick::Found { face, .. }) => face.clone(),
-        _ => None,
-    }
 }
 
 #[derive(Clone)]
 struct Item {
-    group: &'static str,
+    group: SharedString,
     label: String,
     detail: String,
-    key: &'static str,
+    key: String,
+    /// A file's path: its icon before it (#95).
+    icon: Option<String>,
+    /// Its words a name and its folder (a file, a repository).
+    in_folder: bool,
+    /// The face its row is drawn in (#24).
+    face: Option<SharedString>,
     pick: Pick,
 }
 
@@ -144,76 +107,9 @@ pub struct Palette {
     from: Option<Scope>,
     /// What each tab found for the text, in the tabs' order (with text typed).
     counts: Option<Vec<usize>>,
-    /// The faces installed, read when a face's list opened.
-    faces: Vec<String>,
     query: String,
     at: usize,
-    /// ⌘B: only what is not reviewed yet (⇥ switches).
-    open_only: bool,
     items: Vec<Item>,
-}
-
-/// Open a repository's list: a folder typed as a path, the ones opened before ranked by the
-/// typed words (the one on screen marked), and Browse.
-fn project_items(
-    query: &str,
-    recent: &[std::path::PathBuf],
-    here: Option<&std::path::Path>,
-) -> Vec<Item> {
-    let mut items = Vec::new();
-    let typed = query.trim();
-    let expanded = match typed.strip_prefix('~') {
-        Some(rest) => std::env::home_dir().map(|h| h.join(rest.trim_start_matches('/'))),
-        None => Some(std::path::PathBuf::from(typed)),
-    };
-    if typed.starts_with(['/', '~'])
-        && let Some(path) = expanded.filter(|p| p.is_dir())
-    {
-        items.push(Item {
-            group: "Folder",
-            label: path.display().to_string(),
-            detail: String::new(),
-            key: "↵",
-            pick: Pick::Project(path),
-        });
-    }
-    let named: Vec<(String, &std::path::PathBuf)> = recent
-        .iter()
-        .map(|p| (crate::labels::project_name(p), p))
-        .collect();
-    // By the name first, then by the whole path as Go to file does: `work ibam` finds
-    // ~/Desktop/Work/ABB/ibam, `abb` every project under ABB (the developer, 2026-10-23).
-    let ranked: Vec<&(String, &std::path::PathBuf)> = if typed.is_empty() {
-        named.iter().collect()
-    } else {
-        let words: Vec<String> = typed.split_whitespace().map(str::to_lowercase).collect();
-        crate::rank::rank(named.iter(), typed, |(name, _)| name.as_str())
-            .into_iter()
-            .chain(named.iter().filter(|(name, path)| {
-                crate::rank::score(typed, name).is_none()
-                    && matches(&words, &super::format::home_relative(path))
-            }))
-            .collect()
-    };
-    items.extend(ranked.into_iter().map(|(name, path)| Item {
-        group: "Opened before",
-        label: name.clone(),
-        detail: if here == Some(path.as_path()) {
-            "on screen".to_owned()
-        } else {
-            super::format::home_relative(path)
-        },
-        key: "",
-        pick: Pick::Project((*path).clone()),
-    }));
-    items.push(Item {
-        group: "On disk",
-        label: "Browse…".to_owned(),
-        detail: String::new(),
-        key: "⌘O",
-        pick: Pick::Browse,
-    });
-    items
 }
 
 /// An offered scope's or list's finds as rows.
@@ -224,11 +120,12 @@ fn found_items(finds: Vec<artoo_shell_api::search::Find>) -> Vec<Item> {
             group: f.group,
             label: f.label,
             detail: f.detail,
-            key: "",
+            key: f.key,
+            in_folder: f.in_folder || f.file.is_some(),
+            icon: f.file,
+            face: f.face,
             pick: Pick::Found {
                 open: f.open,
-                file: f.file,
-                face: f.face,
                 tried: f.tried,
                 current: f.current,
             },
@@ -325,61 +222,6 @@ impl Workspace {
         found_items((search.find)(ask, cx))
     }
 
-    /// ⌘B's list: the merge requests (when the project has them), then the local branches; each
-    /// says how far its review got.
-    fn switch_items(&self, query: &str, open_only: bool, cx: &App) -> Vec<Item> {
-        let state = |head: Option<Oid>| match head {
-            Some(h) if self.rv().head_reviewed(h, cx) => (true, "✓ reviewed".to_owned()),
-            Some(h) => match self.rv().head_part(h, cx) {
-                Some((done, total)) => (false, format!("{done}/{total} reviewed")),
-                None => (false, "not reviewed".to_owned()),
-            },
-            None => (false, String::new()),
-        };
-        let list = self.request_list(cx);
-        let requests = crate::rank::rank(list.iter(), query, |m| &m.title)
-            .into_iter()
-            .chain(
-                // `!12` or a branch name finds a request too.
-                list.iter().filter(|m| {
-                    let q = query.trim().trim_start_matches('!');
-                    !q.is_empty()
-                        && (m.iid.to_string() == q || crate::rank::word_matches(q, &m.source))
-                        && crate::rank::score(query, &m.title).is_none()
-                }),
-            )
-            .filter_map(|m| {
-                let (done, said) = state(Oid::from_str(&m.head).ok());
-                (!(open_only && done)).then(|| Item {
-                    group: "Merge requests",
-                    label: format!("{} {}", super::words::number(m.iid), m.title),
-                    detail: format!("{} · {said}", m.source),
-                    key: "",
-                    pick: Pick::Request(m.iid),
-                })
-            });
-        let list = self.branch_list(cx);
-        let branches = crate::rank::rank(
-            list.iter()
-                .enumerate()
-                .filter(|(_, b)| b.kind == crate::git::RefKind::Local),
-            query,
-            |(_, b)| &b.name,
-        )
-        .into_iter()
-        .filter_map(|(ix, b)| {
-            let (done, said) = state(Some(b.tip));
-            (!(open_only && done)).then(|| Item {
-                group: "Branches",
-                label: b.name.clone(),
-                detail: format!("{} · {said}", format::short(b.tip)),
-                key: "",
-                pick: Pick::Branch(ix),
-            })
-        });
-        requests.take(10).chain(branches.take(10)).collect()
-    }
-
     pub(super) fn open_palette(&mut self, kind: Kind, cx: &mut Context<Self>) {
         self.field = None;
         self.rv().clear_find(cx);
@@ -388,58 +230,35 @@ impl Workspace {
         }
         self.ctx_menu.update(cx, |m, cx| m.shut(cx));
         self.reset_field_edit();
-        let face = match kind {
-            Kind::Face { code } => Some(code),
-            _ => None,
-        };
-        let faces = match face {
-            Some(_) => super::fonts::installed(cx),
-            None => Vec::new(),
-        };
-        // What the offered scopes read once for their finds (Code's: the project's files), or the list its own.
-        let opened: Vec<_> = match kind {
+        // What the offered scopes read once for their finds (Code's: the project's files), or the list its own (the
+        // faces installed), before the first finds.
+        let opened: Vec<Doing> = match kind {
             Kind::Search(_) => (self.offered_searches())
                 .filter_map(|s| s.opened.clone())
                 .collect(),
             Kind::List(id) => (self.offered_list(id).and_then(|l| l.opened.clone()))
                 .into_iter()
                 .collect(),
-            _ => Vec::new(),
         };
-        for opened in opened {
-            opened(cx);
-        }
+        cx.defer(move |cx| opened.iter().for_each(|opened| opened(cx)));
         self.palette = Some(Palette {
             kind,
             from: None,
             counts: None,
-            faces,
             query: String::new(),
             at: 0,
-            open_only: false,
             items: Vec::new(),
         });
-        self.refresh_palette(cx);
-        // A list opens on the one in force (the theme on the window).
-        if let Some(p) = &mut self.palette
-            && matches!(p.kind, Kind::List(_))
-        {
-            p.at = (p.items.iter())
-                .position(|i| matches!(i.pick, Pick::Found { current: true, .. }))
-                .unwrap_or(0);
-        }
-        // A face's list opens on the one in use.
-        if let Some(code) = face
-            && let Some(p) = &mut self.palette
-        {
-            let faces = theme::faces();
-            let current = if code { faces.code } else { faces.ui };
-            p.at = p
-                .items
-                .iter()
-                .position(|i| matches!(&i.pick, Pick::Face(f) if *f == current))
-                .unwrap_or(0);
-        }
+        // A list opens on the one in force (the theme on the window, the face in use).
+        self.refresh_then(cx, |this, _| {
+            if let Some(p) = &mut this.palette
+                && matches!(p.kind, Kind::List(_))
+            {
+                p.at = (p.items.iter())
+                    .position(|i| matches!(i.pick, Pick::Found { current: true, .. }))
+                    .unwrap_or(0);
+            }
+        });
         cx.notify();
     }
 
@@ -449,7 +268,7 @@ impl Workspace {
             if let Kind::List(id) = p.kind
                 && let Some(closed) = self.offered_list(id).and_then(|l| l.closed.clone())
             {
-                closed(cx);
+                cx.defer(move |cx| closed(cx));
             }
             cx.notify();
         }
@@ -462,14 +281,45 @@ impl Workspace {
             _ => None,
         });
         if let Some(tried) = tried {
-            tried(cx);
+            cx.defer(move |cx| tried(cx));
         }
     }
 
-    fn refresh_palette(&mut self, cx: &App) {
-        let Some(palette) = &self.palette else {
-            return;
-        };
+    /// Finds again what the window lists for its text.
+    fn refresh_palette(&mut self, cx: &mut Context<Self>) {
+        self.refresh_then(cx, |_, _| {});
+    }
+
+    /// Finds again what the window lists for its text, then `then` (the list starting on the one in force, what the
+    /// selection tries) — once the tab is no longer being changed, since a find may read the tab (its own lists read
+    /// its places).
+    fn refresh_then(
+        &mut self,
+        cx: &mut Context<Self>,
+        then: impl FnOnce(&mut Self, &mut Context<Self>) + 'static,
+    ) {
+        let tab = cx.weak_entity();
+        cx.defer(move |cx| {
+            let Some((items, counts)) = (tab.upgrade()).and_then(|t| t.read(cx).palette_found(cx))
+            else {
+                return;
+            };
+            tab.update(cx, |this, cx| {
+                if let Some(p) = &mut this.palette {
+                    p.at = p.at.min(items.len().saturating_sub(1));
+                    p.items = items;
+                    p.counts = counts;
+                }
+                then(this, cx);
+                cx.notify();
+            })
+            .ok();
+        });
+    }
+
+    /// What the window lists for its text, with every tab's count while something is typed; None while it is closed.
+    fn palette_found(&self, cx: &App) -> Option<(Vec<Item>, Option<Vec<usize>>)> {
+        let palette = self.palette.as_ref()?;
         let items = self.palette_items(palette, cx);
         // Every tab's count, while something is typed; All's is what the others found (X56).
         let counts = match palette.kind {
@@ -487,11 +337,7 @@ impl Workspace {
             }
             _ => None,
         };
-        if let Some(p) = &mut self.palette {
-            p.at = p.at.min(items.len().saturating_sub(1));
-            p.items = items;
-            p.counts = counts;
-        }
+        Some((items, counts))
     }
 
     /// A file Code's search found, picked (`artoo_code_api::Host::pick_file`): one of the diff on screen picked there,
@@ -561,10 +407,13 @@ impl Workspace {
             .enumerate()
             .filter(|(_, o)| matches(words, o.words))
             .map(|(ix, o)| Item {
-                group,
+                group: group.into(),
                 label: self.command_label(o, cx),
                 detail: String::new(),
-                key: "",
+                key: String::new(),
+                icon: None,
+                in_folder: false,
+                face: None,
                 pick: Pick::Command(ix),
             })
             .collect()
@@ -588,115 +437,15 @@ impl Workspace {
     }
 
     fn palette_items(&self, p: &Palette, cx: &App) -> Vec<Item> {
-        let query = p.query.trim_start();
-        if matches!(p.kind, Kind::Projects) {
-            return project_items(query, &crate::storage::recent(), self.root.as_deref());
-        }
-        if let Kind::Face { code } = p.kind {
-            let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-            let faces = theme::faces();
-            let current = if code { faces.code } else { faces.ui };
-            let item = |group, face: Option<String>| Item {
-                group,
-                label: super::fonts::face_label(code, face.as_deref()),
-                detail: if face == current { "current" } else { "" }.to_owned(),
-                key: "",
-                pick: Pick::Face(face),
-            };
-            let default = super::fonts::face_label(code, None);
-            return matches(&words, &default)
-                .then(|| item("Default", None))
-                .into_iter()
-                .chain(
-                    p.faces
-                        .iter()
-                        .filter(|f| matches(&words, f))
-                        .map(|f| item("Installed", Some(f.clone()))),
-                )
-                .collect();
-        }
-        if matches!(p.kind, Kind::Bookmarks) {
-            let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-            return self
-                .bookmark_list(cx)
-                .into_iter()
-                .filter(|m| matches(&words, &format!("{} {}", m.path, m.text)))
-                .map(|m| Item {
-                    group: "Bookmarks",
-                    label: format!(
-                        "{}:{}",
-                        m.path.rsplit('/').next().unwrap_or(&m.path),
-                        m.line
-                    ),
-                    detail: m.text.clone(),
-                    key: "",
-                    pick: Pick::Mark {
-                        path: m.path,
-                        line: m.line,
-                    },
-                })
-                .collect();
-        }
-        if matches!(p.kind, Kind::Structure) {
-            let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-            let diff = self.shown_diff(cx);
-
-            let Some(file) = diff.as_ref().and_then(|d| d.files.get(self.diff_file(cx))) else {
-                return Vec::new();
-            };
-            let name = file
-                .path()
-                .rsplit('/')
-                .next()
-                .unwrap_or_default()
-                .to_owned();
-            let group: &'static str = Box::leak(format!("Changes in {name}").into_boxed_str());
-            return crate::symbols::changed(file)
-                .into_iter()
-                .filter(|s| matches(&words, &s.name))
-                .map(|s| Item {
-                    group,
-                    label: format!("{}  {} {}", s.mark, s.kind, s.name),
-                    detail: format!("{}line {}", if s.old { "old " } else { "" }, s.line),
-                    key: "",
-                    pick: Pick::Symbol {
-                        old: s.old,
-                        line: s.line,
-                    },
-                })
-                .collect();
-        }
-        if matches!(p.kind, Kind::Switch) {
-            return self.switch_items(query, p.open_only, cx);
-        }
-        if matches!(p.kind, Kind::Recent) {
-            let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-            return self
-                .recents
-                .iter()
-                .filter(|r| matches(&words, &format!("{} {}", r.label, r.detail)))
-                .take(14)
-                .map(|r| Item {
-                    group: "Recent",
-                    label: r.label.clone(),
-                    detail: r.detail.clone(),
-                    key: "",
-                    pick: Pick::Recent(r.key.clone()),
-                })
-                .collect();
-        }
-        if let Kind::Search(scope) = p.kind {
-            return self.scope_items(scope, p, cx);
-        }
         match p.kind {
+            Kind::Search(scope) => self.scope_items(scope, p, cx),
             Kind::List(id) => self.offered_list(id).map_or_else(Vec::new, |list| {
                 let ask = artoo_shell_api::search::Ask {
-                    text: query,
+                    text: p.query.trim_start(),
                     all: false,
                 };
                 found_items((list.find)(ask, cx))
             }),
-            _ => Vec::new(),
         }
     }
 
@@ -705,10 +454,13 @@ impl Workspace {
         // A pasted link of a host's is one place to go.
         if let Some(link) = artoo_hosts_api::get(cx).link(query) {
             return vec![Item {
-                group: "Link",
+                group: "Link".into(),
                 label: format!("Open {}", link.describe()),
                 detail: link.project().to_owned(),
-                key: "↵",
+                key: "↵".to_owned(),
+                icon: None,
+                in_folder: false,
+                face: None,
                 pick: Pick::Link(link),
             }];
         }
@@ -753,7 +505,7 @@ impl Workspace {
         }
         // Jumping to what was typed beats the commands when something real matched.
         if scope.is_none() && !words.is_empty() {
-            items.sort_by_key(|i| (i.group == "Commands") as u8);
+            items.sort_by_key(|i| (i.group.as_ref() == "Commands") as u8);
         }
         items
     }
@@ -764,24 +516,34 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let Some(kind) = self.palette.as_ref().map(|p| p.kind) else {
+            return;
+        };
+        if event.keystroke.key == "tab" {
+            match kind {
+                Kind::Search(_) => return self.step_scope(event.keystroke.modifiers.shift, cx),
+                // What ⇥ does in a list (Switch to: only what is not reviewed), found again from the first.
+                Kind::List(id) => {
+                    if let Some(tab) = self.offered_list(id).and_then(|l| l.tab.clone()) {
+                        if let Some(p) = &mut self.palette {
+                            p.at = 0;
+                        }
+                        cx.defer(move |cx| tab(cx));
+                        self.refresh_palette(cx);
+                        return cx.notify();
+                    }
+                }
+            }
+        }
         let Some(palette) = &mut self.palette else {
             return;
         };
-        if event.keystroke.key == "tab" && matches!(palette.kind, Kind::Search(_)) {
-            return self.step_scope(event.keystroke.modifiers.shift, cx);
-        }
         // ⌫ in the empty field goes back from Actions to the tab ">" left.
         if event.keystroke.key == "backspace"
             && palette.query.is_empty()
             && let Some(from) = palette.from.take()
         {
             palette.kind = Kind::Search(from);
-            self.refresh_palette(cx);
-            return cx.notify();
-        }
-        if event.keystroke.key == "tab" && matches!(palette.kind, Kind::Switch) {
-            palette.open_only = !palette.open_only;
-            palette.at = 0;
             self.refresh_palette(cx);
             return cx.notify();
         }
@@ -803,8 +565,7 @@ impl Workspace {
                     palette.from = Some(scope);
                     self.reset_field_edit();
                 }
-                self.refresh_palette(cx);
-                self.try_found(cx);
+                self.refresh_then(cx, |this, cx| this.try_found(cx));
             }
             Edit::Enter { .. } => {
                 let at = palette.at;
@@ -833,7 +594,7 @@ impl Workspace {
 
     /// Sets the field's text, as typing it would (UI checks).
     #[cfg(feature = "snapshot")]
-    pub(super) fn type_in_palette(&mut self, text: &str, cx: &App) {
+    pub(super) fn type_in_palette(&mut self, text: &str, cx: &mut Context<Self>) {
         if let Some(p) = &mut self.palette {
             p.query = text.to_owned();
         }
@@ -865,28 +626,6 @@ impl Workspace {
             return;
         };
         match item.pick {
-            Pick::Recent(key) => {
-                self.palette = None;
-                self.open_recent(key, cx);
-            }
-            Pick::Mark { path, line } => {
-                self.palette = None;
-                self.jump_to_line(&path, line, false, cx);
-            }
-            Pick::Symbol { old, line } => {
-                self.palette = None;
-                if let Some(path) = self.current_path(cx) {
-                    self.jump_to_line(&path, line, old, cx);
-                }
-            }
-            Pick::Branch(ix) => {
-                self.palette = None;
-                self.open_branch(ix, None, cx);
-            }
-            Pick::Request(iid) => {
-                self.palette = None;
-                self.open_request(iid, cx);
-            }
             // Opened as a part's route is (`Frame::open`).
             Pick::Found {
                 open: Opens::Route(route),
@@ -917,27 +656,6 @@ impl Workspace {
                 cx.notify();
                 if let Some(offered) = self.contributed.get(ix) {
                     window.dispatch_action(offered.act.boxed_clone(), cx);
-                }
-            }
-            Pick::Browse => {
-                self.palette = None;
-                cx.notify();
-                window.dispatch_action(Box::new(super::Open), cx);
-            }
-            Pick::Face(face) => {
-                let code = matches!(
-                    self.palette.as_ref().map(|p| &p.kind),
-                    Some(Kind::Face { code: true })
-                );
-                self.palette = None;
-                self.choose_face(code, face, cx);
-            }
-            // A tab of its own, as + means; one that has it already comes on screen.
-            Pick::Project(path) => {
-                self.palette = None;
-                match self.root {
-                    None => self.request_open(path, None, cx),
-                    Some(_) => self.open_in_new_tab(path, None, cx),
                 }
             }
         }
@@ -989,28 +707,11 @@ impl Workspace {
             Kind::List(id) => self.offered_list(id).map(|l| (l.says)(cx)),
             _ => None,
         };
-        let placeholder = match &p.kind {
-            Kind::Search(scope) => self.scope_placeholder(*scope),
-            Kind::Recent => "Recent places — files, commits, merge requests",
-            Kind::Structure => "Functions and types this file changes",
-            Kind::Bookmarks => "Bookmarks — lines marked with F3",
-            Kind::Switch if p.open_only => "Switch to — only what is not reviewed yet   ⇥ all",
-            Kind::Switch => "Switch to a branch or a merge request   ⇥ only not reviewed",
+        let placeholder = match p.kind {
+            Kind::Search(scope) => self.scope_placeholder(scope),
             Kind::List(_) => said.as_ref().map_or("", |s| s.placeholder),
-            Kind::Projects => "Open a repository — type to filter, or a path",
-            Kind::Face { code: false } => "The interface's face — each in its own type",
-            Kind::Face { code: true } => "The code's face — each in its own type",
         };
-        let title = match &p.kind {
-            Kind::Search(_)
-            | Kind::Recent
-            | Kind::Structure
-            | Kind::Bookmarks
-            | Kind::Switch
-            | Kind::Face { .. } => None,
-            Kind::Projects => Some("Open a repository".to_owned()),
-            Kind::List(_) => said.as_ref().and_then(|s| s.title.clone()),
-        };
+        let title = said.as_ref().and_then(|s| s.title.clone());
         let keymap = cx.global::<super::keymap::Keymap>();
         let rows = p
             .items
@@ -1023,41 +724,22 @@ impl Workspace {
                         .get(ix)
                         .map(|o| keymap.key_now(o.act.as_ref()))
                         .unwrap_or_default(),
-                    Pick::Browse => keymap
-                        .shown(&super::Open)
-                        .unwrap_or_else(|| item.key.to_owned()),
-                    _ => item.key.to_owned(),
+                    _ => item.key.clone(),
                 };
                 palette::Row {
-                    group: item.group,
+                    group: item.group.clone(),
                     label: item.label.clone(),
                     detail: item.detail.clone(),
                     key,
-                    // A file's icon before it (#95).
-                    icon: match &item.pick {
-                        Pick::Found { file, .. } => file.clone(),
-                        _ => None,
-                    },
-                    file: matches!(
-                        item.pick,
-                        Pick::Found { file: Some(_), .. } | Pick::Project(_)
-                    ),
-                    face: face_of(&p.kind, &item.pick),
+                    icon: item.icon.clone(),
+                    file: item.in_folder,
+                    face: item.face.clone(),
                 }
             })
             .collect();
-        let empty = match &p.kind {
-            Kind::Recent => "Nothing opened yet.",
-            Kind::Projects => "None by that name. Browse… finds it on disk.",
-            Kind::Bookmarks => "No bookmarks yet: click a line and press F3.",
-            Kind::Structure => {
-                "No function or type of this file is changed (or the language is not known)."
-            }
+        let empty = match p.kind {
             Kind::Search(_) if p.query.is_empty() => "Type to search.",
             Kind::Search(_) => "Nothing matches.",
-            Kind::Switch if p.open_only => "Nothing left to review here.",
-            Kind::Switch => "No branch or merge request by that name.",
-            Kind::Face { .. } => "No face installed by that name.",
             Kind::List(_) => said.as_ref().map_or("", |s| s.empty),
         };
         // Search everywhere: its tabs, what each found, and the one on with its key.
@@ -1140,27 +822,5 @@ mod tests {
     fn the_foot_writes_a_shipped_key_the_command_key_first() {
         assert_eq!(foot_key("cmd-k"), "⌘K");
         assert_eq!(foot_key("cmd-shift-r"), "⌘⇧R");
-    }
-
-    #[test]
-    fn a_project_is_found_by_its_name_then_by_its_path() {
-        let recent = [
-            std::path::PathBuf::from("/w/ABB/ibam-android-app"),
-            std::path::PathBuf::from("/w/Thernal/artoo"),
-            std::path::PathBuf::from("/w/ABB/notes"),
-        ];
-        let labels = |q: &str| {
-            project_items(q, &recent, None)
-                .into_iter()
-                .filter(|i| i.group == "Opened before")
-                .map(|i| i.label)
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(labels("ibam"), ["ibam-android-app"]);
-        // The folder above them: every project under it.
-        assert_eq!(labels("abb"), ["ibam-android-app", "notes"]);
-        // A name match comes before a path match.
-        assert_eq!(labels("notes"), ["notes"]);
-        assert_eq!(labels("abb notes"), ["notes"]);
     }
 }

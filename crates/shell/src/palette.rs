@@ -6,7 +6,7 @@ use artoo_shell_api::palette::{PaletteHost, PaletteRenderer, PaletteView, Tab};
 use artoo_ui_kit::{
     ISLAND_RADIUS, ROW_RADIUS, hover, icons, island_label, keys, motion, px, row, theme, words,
 };
-use gpui::{AnyElement, MouseButton, div, prelude::*};
+use gpui::{AnyElement, MouseButton, SharedString, div, prelude::*};
 use std::rc::Rc;
 
 /// The renderer, installed by `install`.
@@ -20,11 +20,11 @@ impl PaletteRenderer for Renderer {
 
 /// The window, over everything.
 fn palette(view: PaletteView, host: Rc<dyn PaletteHost>) -> AnyElement {
-    let mut last = "";
+    let mut last = SharedString::default();
     let mut rows = Vec::new();
     for (ix, item) in view.rows.into_iter().enumerate() {
         if item.group != last {
-            last = item.group;
+            last = item.group.clone();
             rows.push(
                 div()
                     .px(px(10.))
@@ -32,7 +32,7 @@ fn palette(view: PaletteView, host: Rc<dyn PaletteHost>) -> AnyElement {
                     .pb(px(2.))
                     .text_size(px(11.))
                     .text_color(theme::faint())
-                    .child(words::say(item.group).to_uppercase())
+                    .child(words::say(&item.group).to_uppercase())
                     .into_any_element(),
             );
         }

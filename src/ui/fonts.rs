@@ -181,7 +181,7 @@ impl Workspace {
 
     /// Every face installed, in ⌘K's window.
     pub(super) fn open_all_faces(&mut self, code: bool, cx: &mut Context<Self>) {
-        self.open_palette(Kind::Face { code }, cx);
+        self.open_palette(Kind::List(super::palette_lists::faces_of(code)), cx);
     }
 
     /// Draws the interface or the code in `face` (None: the default) and keeps it.

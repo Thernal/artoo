@@ -9,7 +9,7 @@ use std::rc::Rc;
 /// A row of the list.
 pub struct Row {
     /// The group it is listed under: a heading where it changes.
-    pub group: &'static str,
+    pub group: SharedString,
     pub label: String,
     pub detail: String,
     /// Its key as it is now, none empty.

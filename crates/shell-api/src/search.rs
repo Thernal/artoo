@@ -3,8 +3,12 @@
 //! (`Frame::open`), or for what is no place the owner's own doing. The tab keeps the window, its field and the
 //! scopes that are its own (All, Actions), and puts each offered one among them by its `order`.
 //!
-//! The same window shows a list of its own alone (`Parts::lists`, `List`): the themes to try, a comparison's refs —
-//! what it says as it stands, its finds, what it does as it opens, as the selection comes to a find, as it closes.
+//! The same window shows a list of its own alone (`Parts::lists`, `List`): the themes to try, a comparison's refs, the
+//! tab's places opened lately — what it says as it stands, its finds, what it does as it opens, as the selection
+//! comes to a find, as ⇥ is pressed, as it closes.
+//!
+//! What a scope or a list finds and does runs outside the tab's update, so it may read the tab (the tab's own lists
+//! read its places); what it says is read as the window draws, and reads its owner's state alone.
 
 use artoo_core::route::Route;
 use gpui::{App, SharedString};
@@ -26,8 +30,7 @@ pub struct Search {
     pub all: AllOf,
     /// What it finds for the text, the best first; for the All tab (`Ask::all`) as All matches.
     pub find: Finds,
-    /// What it reads once as ⌘K opens, for the finds that follow (the project's files); None when nothing. Run at
-    /// once, in the tab's update: it reads its owner's state, never the tab.
+    /// What it reads once as ⌘K opens, for the finds that follow (the project's files); None when nothing.
     pub opened: Option<Doing>,
 }
 
@@ -35,16 +38,17 @@ pub struct Search {
 pub struct List {
     /// Its id (`branches.compare`).
     pub id: &'static str,
-    /// What it says as it stands: its title, the field's placeholder, its line when it finds nothing.
+    /// What it says as it stands: its title, the field's placeholder, its line when it finds nothing. Read as the
+    /// window draws: it reads its owner's state, never the tab.
     pub says: Says,
     /// What it finds for the text (`Ask::all` false), the best first.
     pub find: Finds,
-    /// What it reads once as it opens, for the finds that follow (a repository's refs). Run at once, in the tab's
-    /// update: it reads its owner's state, never the tab.
+    /// What it reads once as it opens, for the finds that follow (a repository's refs, the faces installed).
     pub opened: Option<Doing>,
-    /// Closed without a pick (esc, a click outside, its key again): what was tried put back. Run at once, as
-    /// `opened` is.
+    /// Closed without a pick (esc, a click outside, its key again): what was tried put back.
     pub closed: Option<Doing>,
+    /// What ⇥ does in it (Switch to: only what is not reviewed yet, or all); it is found again from the first.
+    pub tab: Option<Doing>,
     /// The list esc goes back to, the text cleared, instead of closing (a comparison's second pick, to its first).
     pub back: Option<&'static str>,
 }
@@ -75,35 +79,40 @@ pub struct Ask<'a> {
     pub all: bool,
 }
 
-/// What a scope finds for a text. Called while the tab draws and as it types: it reads the feature's own state,
-/// never the tab.
+/// What a scope finds for a text, as the window opens and as it is typed in.
 pub type Finds = Rc<dyn Fn(Ask, &App) -> Vec<Find>>;
 
 /// A find: the group it is listed under, its words, and where a pick goes; what else its row is (`Find::new`, then
 /// what applies).
 pub struct Find {
-    pub group: &'static str,
+    pub group: SharedString,
     pub label: String,
     pub detail: String,
+    /// The key that picks it, as the row says it at its end (`↵`, Browse…'s `⌘O`); empty for none.
+    pub key: String,
     /// The file it is, by its path: its row has the file's icon, and its words are a file's name and folder.
     pub file: Option<String>,
+    /// Its words a name and the folder it is in, as a file's are, without a file's icon (a repository).
+    pub in_folder: bool,
     /// A face, its row drawn in it (#24).
     pub face: Option<SharedString>,
     /// The one in force (the theme on the window): its list opens on it.
     pub current: bool,
     /// What it tries as the selection comes to it (a theme on the whole window), its list's `closed` putting it
-    /// back. Run at once, in the tab's update: it changes its owner's state, never the tab's.
+    /// back.
     pub tried: Option<Doing>,
     pub open: Opens,
 }
 
 impl Find {
-    pub fn new(group: &'static str, label: String, detail: String, open: Opens) -> Self {
+    pub fn new(group: impl Into<SharedString>, label: String, detail: String, open: Opens) -> Self {
         Self {
-            group,
+            group: group.into(),
             label,
             detail,
+            key: String::new(),
             file: None,
+            in_folder: false,
             face: None,
             current: false,
             tried: None,
@@ -111,8 +120,18 @@ impl Find {
         }
     }
 
+    pub fn key(mut self, key: String) -> Self {
+        self.key = key;
+        self
+    }
+
     pub fn file(mut self, path: String) -> Self {
         self.file = Some(path);
+        self
+    }
+
+    pub fn in_folder(mut self) -> Self {
+        self.in_folder = true;
         self
     }
 
@@ -138,8 +157,7 @@ pub enum Opens {
     /// A place, opened as the tab opens one (`Frame::open`).
     Route(Route),
     /// What is no place, or more than going to one — a file of the diff on screen picked there, a file read at the
-    /// revision the diff shows, a comparison's second list —, the owner's doing: run once ⌘K has closed, outside
-    /// the tab's update.
+    /// revision the diff shows, a comparison's second list —, the owner's doing, run once ⌘K has closed.
     Run(Doing),
 }
 

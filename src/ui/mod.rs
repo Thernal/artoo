@@ -49,6 +49,7 @@ mod opening;
 mod outdated;
 mod pages;
 mod palette;
+mod palette_lists;
 mod parts;
 mod pins;
 mod rail;
@@ -617,7 +618,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             continue;
                         }
                         "menu" => {
-                            this.open_palette(palette::Kind::Projects, cx);
+                            this.open_palette(palette::Kind::List(palette_lists::PROJECTS), cx);
                             continue;
                         }
                         // The right clicks that copy a link (#162): the branch checked out, the
@@ -900,7 +901,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                 let kind = if query.starts_with("compare:") {
                     palette::Kind::List(artoo_branches_api::COMPARE)
                 } else if query.starts_with("faces:") {
-                    palette::Kind::Face { code: false }
+                    palette::Kind::List(palette_lists::faces_of(false))
                 } else {
                     palette::Kind::Search(palette::Scope::All)
                 };
@@ -1438,6 +1439,11 @@ impl Workspace {
         // The review's host, which its item page draws the column with.
         services.set::<Rc<dyn artoo_review_api::Host>>(Rc::new(TabHost(cx.weak_entity())));
         this.parts = artoo_shell_api::make_parts(frame, window, cx);
+        // The lists the tab shows alone in ⌘K's window, offered as the features offer theirs.
+        this.parts.push(artoo_shell_api::Parts {
+            lists: palette_lists::lists(cx.weak_entity()),
+            ..Default::default()
+        });
         // A way in connected the host (hosts' connect panel): the requests read again, a toast saying with what.
         if let Some(connecting) = this.connecting() {
             let tab = cx.weak_entity();
@@ -2274,6 +2280,11 @@ impl Workspace {
     // ---- actions -------------------------------------------------------------------------
 
     fn open(&mut self, _: &Open, _: &mut Window, cx: &mut Context<Self>) {
+        self.browse(cx);
+    }
+
+    /// The system's picker for a folder, opened as a repository (Open, Browse…).
+    pub(super) fn browse(&mut self, cx: &mut Context<Self>) {
         let picked = cx.prompt_for_paths(PathPromptOptions {
             files: false,
             directories: true,

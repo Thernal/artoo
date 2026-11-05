@@ -50,6 +50,7 @@ pub fn list() -> List {
             cx.refresh_windows();
         })),
         back: None,
+        tab: None,
     }
 }
 

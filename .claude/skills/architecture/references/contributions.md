@@ -17,7 +17,9 @@ features' among them (`Parts::searches`, `artoo_shell_api::search`: a scope's id
 All tab takes of it and its character there, its finds for a text, each a route opened as the tab opens one, or for what is no place the owner's
 doing (`Opens::Run`, run once ⌘K has closed: Code's files, picked through its `Host`) — the requests', the branches', the
 commits' and Code's files first, #171 7b), and the lists the same window shows alone (`Parts::lists`, `search::List`,
-opened by `Frame::search`: a comparison's refs the branches', the themes to try the appearance's); the spaces of the menu since 2026-11-05 (`spaces::add`: an id, a label,
+opened by `Frame::search`: a comparison's refs the branches', the themes to try the appearance's, the tab's places opened
+lately, bookmarks, Switch to, Open a repository and faces its own — every find and doing run outside the tab's update,
+so they may read it); the spaces of the menu since 2026-11-05 (`spaces::add`: an id, a label,
 an icon, a place in the menu, the action that goes there — the requests' Inbox and Merge requests, Code's, the
 branches'; the closed `Space` enum gone, a `Space` its id, #171 phase 6); the tab's places as routes since 2026-11-05
 (the page on screen, its history, esc's way up, the items open under a space and `nav.txt` all routes, the page one up
