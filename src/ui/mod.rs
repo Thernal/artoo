@@ -774,15 +774,6 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             this.open_create_menu(menu, cx);
                             continue;
                         }
-                        // The welcome's cards (#54).
-                        "welcome-connect" => {
-                            this.open_welcome_card(welcome::Card::Connect, cx);
-                            continue;
-                        }
-                        "welcome-clone" => {
-                            this.open_welcome_card(welcome::Card::Clone, cx);
-                            continue;
-                        }
                         "all-requests" => {
                             if let Some(requests) = this.requests_api() {
                                 requests.set_scope(requests::Scope::All, cx);
@@ -1129,8 +1120,6 @@ pub struct Workspace {
     zen: Option<(bool, bool)>,
     /// Zen shows one file at a time, at a reading width (⌥⌘., #55).
     zen_one: bool,
-    /// The window with no repository: the card one of its ways in opened (#54).
-    welcome: welcome::Welcome,
     /// The pending comment ⌥N / ⌥P is on.
     draft_at: Option<usize>,
     title: String,
@@ -1202,8 +1191,6 @@ pub struct Workspace {
     toggled_agent: HashSet<u64>,
     /// The discussion `r`, `x` and ⇧n / ⇧p act on (an index into the request's threads).
     thread_at: Option<usize>,
-    /// The token being entered in the welcome's connect card; shown as dots.
-    token_input: String,
     /// A notification opened on a comment: once its line's history is in, an outdated one opens
     /// on the diff since it (request, note).
     since_on_open: Option<(u64, u64)>,
@@ -1267,10 +1254,9 @@ pub struct Workspace {
     label_name: String,
     /// What features draw in this tab (#165): title-bar items, cards over it, Settings rows.
     parts: Vec<artoo_shell_api::Parts>,
-    /// The commands offered with words, in ⌘K's order.
-    /// The tab's frame, as its parts see it, held for them: ⌘K's window holds it weakly (its handle is in the
-    /// frame's services), so it lives as long as the tab.
-    _frame: Rc<dyn artoo_shell_api::Frame>,
+    /// The tab's frame, as its parts see it, held for them — ⌘K's window holds it weakly (its handle is in the
+    /// frame's services), so it lives as long as the tab — and handed to the welcome's cards.
+    frame: Rc<dyn artoo_shell_api::Frame>,
     /// The tree folder opened last, and a count of openings: its rows fade in (`tree_row`).
     tree_opened: Option<(String, usize)>,
     /// What a narrow window folded, for the session (#80).
@@ -1324,7 +1310,6 @@ impl Workspace {
             draft_at: None,
             zen: None,
             zen_one: false,
-            welcome: Default::default(),
             recording: None,
             note_sel: None,
             settings_section: settings::DIFF,
@@ -1366,7 +1351,6 @@ impl Workspace {
             toggled_mr: HashSet::new(),
             toggled_agent: HashSet::new(),
             thread_at: None,
-            token_input: String::new(),
             since_on_open: None,
             agent_lines: Default::default(),
             agent_task: None,
@@ -1400,7 +1384,7 @@ impl Workspace {
             label_edit: None,
             label_name: String::new(),
             parts: Vec::new(),
-            _frame: frame.clone(),
+            frame: frame.clone(),
             tree_opened: None,
             narrowed: Default::default(),
             keyboard: Default::default(),

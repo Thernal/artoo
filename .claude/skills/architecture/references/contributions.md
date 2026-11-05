@@ -26,7 +26,10 @@ branches'; the closed `Space` enum gone, a `Space` its id, #171 phase 6); the ta
 (the page on screen, its history, esc's way up, the items open under a space and `nav.txt` all routes, the page one up
 and the item a route belongs to its pages' — `Pages::parent`, `Pages::item` —, the page bar's path and name too
 (`Pages::path`), what the tab frames it as and so its keyboard zones (`Pages::screen`: a page of its own, a list, an item's
-screen), and its row in the menu while it is open (`Pages::row`); a route of any kind its pages draw opens, one no page draws dropped where `nav.txt` is read; the closed `nav::Item` gone, #171 phase 7). A new page is a
+screen), and its row in the menu while it is open (`Pages::row`); a route of any kind its pages draw opens, one no page draws dropped where `nav.txt` is read; the closed `nav::Item` gone, #171 phase 7); the welcome's ways in since 2026-11-06 (`Parts::ways`,
+`welcome::Way`: an id, an icon, its words, a place under Open a repository, what a click does, its card while open — the
+card's fields one input each, its frame the shell's —: Connect GitLab or GitHub the hosts', Clone from a URL the
+shell's; a way's entity held by its card's hook, #171 phase 8). A new page is a
 route kind its owner's `Pages` draw, no variant anywhere else; `Page` (`src/ui/nav.rs`) is only the tab's reading of
 the kinds it still coordinates — the item screen's bar, sections and links — and shrinks as their owners take those.
 A new command is offered: the window root's in `commands.rs` while the tab runs it, a feature's in its
@@ -47,7 +50,8 @@ every tool window is one (#171) —, Settings rows (`settings::Rows`: a section'
 rows, what Set up draws of them, and whether they fill the section now, take esc, end as Settings shuts),
 the kinds of link it finds in the tab's texts (`links::Pattern`: an id, an order, its finds — bytes and an address;
 every text the kit's markdown draws with the tab's `Selecting` shows them, an earlier pattern's kept where two meet,
-what is written as a link or code winning; the requests' numbers the first, #171 D11),
+what is written as a link or code winning; the requests' numbers the first, #171 D11), its ways into the welcome
+(`welcome::Way`, each with its card),
 the tab's handlers of the feature's actions, the snapshot views it opens (a name ending in `:` given what follows), a space's `Pages` — the kinds of route
 they draw, the page one up from each and what stays open of it (`parent`, `item`), what the page bar says of each — the path above it, each part a
 route up or the space's own page, its name, the name's long hover (a tip or a card) and the faint count after it (`path`, a `PagePath`) —, what the tab frames each as (`screen`, a `Screen`: a page of its own with the tool window the only
@@ -59,7 +63,7 @@ for the space's own page, and whether it was just opened or gone back to). What 
 error line, a redraw, a tool window shown, a menu at the pointer — `MenuItem`s, each running its own closure, its groups titled or not —, the
 narrow tab's drawer closed, a route opened — a kind no pages draw says so in a toast —, a space's own page opened, a space gone to as its row
 goes (`go_space`: the page it was left on, or what the project lacks said),
-a route kept among the places opened lately) waits until the update under way is over, so a part may ask it from
+a folder opened in the tab (`open_project`), a route kept among the places opened lately) waits until the update under way is over, so a part may ask it from
 its own update and from a hook. Its `Services` — what the tab's features offer one another, a contract's handle by
 its type — are set and read at once. What it reads (the selection, the `Places` the tab has open, whether a tool window types) needs the tab
 free: the shell calls a part's key, close, poll, opened and snapshot hooks from inside its own update, so a hook

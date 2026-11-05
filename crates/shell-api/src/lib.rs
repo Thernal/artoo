@@ -6,8 +6,8 @@
 //!   else; the tab that has the keys runs one, or a feature through its parts (`Parts::actions`).
 //! - **Parts** (`add_parts`): what a feature draws in every tab — an item in the title bar, a card over the
 //!   window, a tool window on the right, rows in Settings, the views a snapshot run opens, a space's pages, the
-//!   fields it types in (`Input`), its pieces of the item page on screen (`Piece`) —, made for each tab with its
-//!   `Frame`.
+//!   fields it types in (`Input`), its pieces of the item page on screen (`Piece`), its ways into the welcome with
+//!   their cards (`welcome::Way`) —, made for each tab with its `Frame`.
 //! - **Settings' sections** (`add_settings_section`): a section's id, title and place in the left column; the window
 //!   root draws its own, a feature's holds its parts' rows (`Parts::settings`), any owner's in their places.
 //! - **Spaces** (`spaces::add`): a space's id, its row in the menu, its place there and the action that goes to it;
@@ -28,8 +28,8 @@
 //!   (`search::SearchWindow`), handed what the parts offer; the keys it writes are the app's keymap's (`keys`).
 //! - **`Frame`**: what a part asks of its tab: a toast, the error line, a redraw, the text selection, the places
 //!   it has open, its tool window opened or closed, a menu at the pointer, the narrow tab's drawer closed, a
-//!   route opened (or a space's own page), a route kept among the places opened lately, a command's words as the
-//!   tab says them, the tab's services.
+//!   route opened (or a space's own page, or a folder: `open_project`), a route kept among the places opened
+//!   lately, a command's words as the tab says them, the tab's services.
 //! - **`Services`**: what the features of a tab offer one another — a contract's handle (`Rc<dyn Code>`), by its
 //!   type —, set by the feature that makes it as its parts are made, read by the others when they use it.
 //!
@@ -284,6 +284,10 @@ pub trait Frame {
     /// opens one itself (the item's place in it put back, the request on a branch read). One no pages draw says so in
     /// a toast.
     fn open(&self, route: Route, cx: &mut App);
+
+    /// Folder `path` opened in this tab (a repository, or a folder Code reads), or the tab that has it already
+    /// brought on screen: a clone that landed, the welcome's.
+    fn open_project(&self, path: std::path::PathBuf, cx: &mut App);
 
     /// Space `space`'s own page opened (`code`: the project's).
     fn open_space(&self, space: &'static str, cx: &mut App);
@@ -855,6 +859,8 @@ pub struct Parts {
     pub searches: Vec<search::Search>,
     /// Its lists the same window shows alone (`search::List`), each opened by its own action.
     pub lists: Vec<search::List>,
+    /// Its ways into the welcome (`welcome::Way`), each with its card.
+    pub ways: Vec<welcome::Way>,
 }
 
 type Maker = Rc<dyn Fn(Rc<dyn Frame>, &mut Window, &mut App) -> Parts>;

@@ -140,6 +140,10 @@ impl Frame for TabFrame {
         self.later(cx, |this, cx| this.close_drawer(cx));
     }
 
+    fn open_project(&self, path: std::path::PathBuf, cx: &mut App) {
+        self.later(cx, move |this, cx| this.request_open(path, None, cx));
+    }
+
     fn open(&self, route: Route, cx: &mut App) {
         self.later(cx, move |this, cx| {
             // Opened as the tab opens one: the item's place put back, what the branches showed coordinated.

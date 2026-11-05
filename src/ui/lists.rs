@@ -35,16 +35,7 @@ impl Workspace {
         let active = self.field == Some(field);
         let (text, look) = match field {
             Field::Branches => (&self.bfilter, input::Look::default()),
-            Field::Token => (
-                &self.token_input,
-                input::Look {
-                    mask: true,
-                    ..Default::default()
-                },
-            ),
             Field::Keys => (&self.keys_filter, input::Look::default()),
-            Field::Host => (&self.welcome.host, input::Look::default()),
-            Field::CloneUrl => (&self.welcome.url, input::Look::default()),
             Field::Label => (&self.label_name, input::Look::default()),
         };
         let el = div()
@@ -117,35 +108,13 @@ impl Workspace {
         }
         let text = match field {
             Field::Branches => &mut self.bfilter,
-            Field::Token => &mut self.token_input,
             Field::Keys => &mut self.keys_filter,
-            Field::Host => &mut self.welcome.host,
-            Field::CloneUrl => &mut self.welcome.url,
             Field::Label => &mut self.label_name,
         };
-        let welcome = self.root.is_none() && self.welcome.card.is_some();
         let edit = input::edit(text, &mut self.field_edit, &event.keystroke, cx);
         match edit {
-            // In the welcome's card, esc goes back to its choices, what was typed kept.
-            Edit::Escape if welcome => {
-                self.welcome.card = None;
-                self.welcome.said = None;
-                self.field = None;
-            }
             // What was typed stays and still filters; esc again clears it (`clear_filter`).
             Edit::Escape => self.leave_input(cx),
-            Edit::Enter { .. } if field == Field::Host => {
-                self.start_field(Field::Token, cx);
-                return true;
-            }
-            Edit::Enter { .. } if field == Field::Token && welcome => {
-                self.welcome_connect(cx);
-                return true;
-            }
-            Edit::Enter { .. } if field == Field::CloneUrl => {
-                self.welcome_clone(cx);
-                return true;
-            }
             Edit::Enter { .. } if field == Field::Branches && self.at_root_list() => {
                 self.open_pick(cx);
                 return true;
@@ -161,14 +130,8 @@ impl Workspace {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Field {
     Branches,
-    /// The GitLab token being typed or pasted in the connect panel.
-    Token,
     /// The filter of Settings → Keyboard.
     Keys,
-    /// The welcome's connect card: the host (#54).
-    Host,
-    /// The welcome's clone card: the repository's URL (#54).
-    CloneUrl,
     /// The name of a project or a chat being given (`labeling.rs`).
     Label,
 }

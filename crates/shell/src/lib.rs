@@ -1,11 +1,12 @@
 //! The window's frame (#165 stage 4): what surrounds the pages features draw — the keyboard card, the
 //! repository tabs and the rail, the title bar, the stripe and its tool windows, the page bar and
 //! the spaces' menu, the body's row and its splitters, search everywhere's window and what it lists and does
-//! (`search_window.rs`), Settings' frame, Set up's, the welcome, so far.
+//! (`search_window.rs`), Settings' frame, Set up's, the welcome and its way of cloning from a URL (`clone.rs`), so far.
 //! The tab (the app's) composes: it makes the features' entities and their hosts, and hands the frame what it draws
 //! and what a click on it does.
 
 mod bar;
+mod clone;
 mod frame;
 mod palette;
 mod rail;
@@ -39,4 +40,6 @@ pub fn install(cx: &mut gpui::App) {
     provide::<dyn artoo_shell_api::shortcuts::ShortcutsRenderer>(Rc::new(shortcuts::Renderer), cx);
     // ⌘K's window in every tab, its handle in the tab's services.
     artoo_shell_api::add_parts(cx, search_window::parts);
+    // Clone from a URL, a way into the welcome in every tab.
+    artoo_shell_api::add_parts(cx, clone::parts);
 }

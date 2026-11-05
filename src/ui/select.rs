@@ -67,7 +67,7 @@ impl Workspace {
                     .selected_text()
                     .map(str::to_owned);
             }
-            Input::Field => self.field != Some(super::lists::Field::Token),
+            Input::Field => true,
             Input::Part(id) => return self.part_input(id).and_then(|i| (i.selected)(cx)),
             Input::Palette => return self.palette_selected(cx),
             Input::FindFiles | Input::Submit => true,

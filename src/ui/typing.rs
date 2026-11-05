@@ -30,7 +30,7 @@ pub enum Input {
     Beside,
     /// The card before a merge goes, its message (`merging.rs`, #164).
     Merge,
-    /// A one-line field: a list's filter, the token, the host, a name being given … —
+    /// A one-line field: a list's filter, Settings → Keyboard's, a name being given —
     /// `Workspace::field` says which, and is set only while it has the keyboard.
     Field,
     /// A comment, a reply or a note being written.

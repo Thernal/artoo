@@ -1,9 +1,11 @@
-//! The window with no repository open drawn (#54): the ways in — open one (⌘O), connect GitLab or GitHub, clone
-//! one, drop a folder —, a way's card in their place, and the repositories opened lately under them. What a way does
-//! and its card are the tab's.
+//! The window with no repository open drawn (#54): the ways in — open one (⌘O), the parts' ways (connect GitLab or
+//! GitHub, clone one), drop a folder —, a way's card in their place, and the repositories opened lately under them.
+//! Opening a folder is the tab's; a way and its card's fields are its owner's, the card's frame drawn here.
 
-use artoo_shell_api::welcome::{Page, WelcomeHost, WelcomeRenderer};
-use artoo_ui_kit::{GAP, ISLAND_RADIUS, hover, icons, keys, px, section_label, theme};
+use artoo_shell_api::Frame;
+use artoo_shell_api::welcome::{Card, Page, Tone, WelcomeHost, WelcomeRenderer};
+use artoo_ui_kit::controls::bar_button;
+use artoo_ui_kit::{GAP, ISLAND_RADIUS, ROW_RADIUS, hover, icons, keys, px, section_label, theme};
 use gpui::{AnyElement, ClickEvent, Div, FontWeight, div, prelude::*};
 use std::rc::Rc;
 
@@ -11,17 +13,17 @@ use std::rc::Rc;
 pub(crate) struct Renderer;
 
 impl WelcomeRenderer for Renderer {
-    fn page(&self, page: Page, host: Rc<dyn WelcomeHost>) -> AnyElement {
-        self::page(page, host)
+    fn page(&self, page: Page, host: Rc<dyn WelcomeHost>, frame: Rc<dyn Frame>) -> AnyElement {
+        self::page(page, host, frame)
     }
 }
 
 /// The page.
-fn page(page: Page, host: Rc<dyn WelcomeHost>) -> AnyElement {
-    let (open, connect, clone) = (host.clone(), host.clone(), host.clone());
+fn page(page: Page, host: Rc<dyn WelcomeHost>, frame: Rc<dyn Frame>) -> AnyElement {
+    let open = host.clone();
     let shows = page.card.is_none();
     let body = match page.card {
-        Some(card) => card,
+        Some(card) => self::card(card, &frame),
         None => div()
             .flex()
             .flex_col()
@@ -36,24 +38,11 @@ fn page(page: Page, host: Rc<dyn WelcomeHost>) -> AnyElement {
                 .child(keys::caps("⌘O", keys::On::Plain))
                 .on_click(move |_: &ClickEvent, window, cx| open.open(window, cx)),
             )
-            .child(
-                choice(
-                    "welcome-connect",
-                    "pull-request",
-                    "Connect GitLab or GitHub",
-                    "your review requests and inbox, from a token",
-                )
-                .on_click(move |_: &ClickEvent, window, cx| connect.card(true, window, cx)),
-            )
-            .child(
-                choice(
-                    "welcome-clone",
-                    "files",
-                    "Clone from a URL",
-                    "git clone, then open it",
-                )
-                .on_click(move |_: &ClickEvent, window, cx| clone.card(false, window, cx)),
-            )
+            .children(page.ways.into_iter().map(|way| {
+                let go = way.go.clone();
+                choice(way.id, way.icon, way.title, way.text)
+                    .on_click(move |_: &ClickEvent, window, cx| go(window, cx))
+            }))
             .child(
                 div()
                     .h(px(44.))
@@ -126,6 +115,109 @@ fn page(page: Page, host: Rc<dyn WelcomeHost>) -> AnyElement {
                 })),
         )
     .into_any_element()
+}
+
+/// A way's card: its title and word, each field under its label (a link beside it), what it said, Back and its
+/// button.
+fn card(card: Card, frame: &Rc<dyn Frame>) -> AnyElement {
+    let label = |text: &'static str| {
+        div()
+            .text_size(px(12.))
+            .text_color(theme::muted())
+            .child(text)
+    };
+    let mut fields = div().flex().flex_col().gap(px(6.));
+    for (ix, field) in card.fields.into_iter().enumerate() {
+        fields = if ix == 0 && field.link.is_none() {
+            fields.child(label(field.label))
+        } else {
+            fields.child(
+                div()
+                    .when(ix > 0, |d| d.pt(px(4.)))
+                    .flex()
+                    .items_center()
+                    .child(div().flex_1().child(label(field.label)))
+                    .children(field.link.map(|(id, words, press)| {
+                        div()
+                            .id(id)
+                            .text_size(px(12.))
+                            .text_color(theme::accent())
+                            .cursor_pointer()
+                            .child(words)
+                            .on_click(move |_: &ClickEvent, window, cx| press(window, cx))
+                    })),
+            )
+        };
+        let el = div()
+            .id(field.id)
+            .h(px(32.))
+            .px(px(10.))
+            .flex()
+            .items_center()
+            .rounded(px(ROW_RADIUS))
+            .border_2()
+            .border_color(if field.active {
+                theme::focus()
+            } else {
+                theme::island_border()
+            })
+            .bg(theme::base())
+            .cursor_text()
+            .child(field.inside);
+        fields = fields.child(artoo_shell_api::input_box(el, field.input, frame));
+    }
+    let (back, (go_id, go_label, go)) = (card.back, card.go);
+    div()
+        .p(px(20.))
+        .flex()
+        .flex_col()
+        .gap(px(12.))
+        .rounded(px(ISLAND_RADIUS))
+        .border_1()
+        .border_color(theme::island_border())
+        .bg(theme::panel())
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .child(
+                    div()
+                        .text_size(px(16.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(card.title),
+                )
+                .children((!card.text.is_empty()).then(|| {
+                    div()
+                        .text_size(px(12.))
+                        .text_color(theme::muted())
+                        .child(card.text)
+                })),
+        )
+        .child(fields)
+        .children(card.said.map(|(text, tone)| {
+            let color = match tone {
+                Tone::Muted => theme::muted(),
+                Tone::Good => theme::added(),
+                Tone::Bad => theme::removed(),
+            };
+            div().text_size(px(12.)).text_color(color).child(text)
+        }))
+        .child(
+            div()
+                .flex()
+                .justify_end()
+                .gap_2()
+                .child(
+                    bar_button("welcome-back", "Back", "esc", false)
+                        .on_click(move |_: &ClickEvent, window, cx| back(window, cx)),
+                )
+                .child(
+                    bar_button(go_id, go_label, "↵", true)
+                        .on_click(move |_: &ClickEvent, window, cx| go(window, cx)),
+                ),
+        )
+        .into_any_element()
 }
 
 /// One of the welcome's ways in: its icon, what it does and a word on it.

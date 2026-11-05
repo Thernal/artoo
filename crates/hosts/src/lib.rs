@@ -1,5 +1,5 @@
-//! GitLab and GitHub (#165): merge requests and pull requests, the ways to connect a host and its panel, people's and
-//! comments' pictures. GitLab's side (`gitlab`) and GitHub's (`github`) implement the hosts' contract
+//! GitLab and GitHub (#165): merge requests and pull requests, the ways to connect a host and its panel, the
+//! welcome's way of connecting one (`welcome`), people's and comments' pictures. GitLab's side (`gitlab`) and GitHub's (`github`) implement the hosts' contract
 //! (`hosts`), neither reaching into the other; what both use has its own module (`tokens`, `fixture`, `json`).
 
 pub(crate) mod avatars;
@@ -13,6 +13,7 @@ mod json;
 mod panel;
 mod pictures;
 mod tokens;
+mod welcome;
 
 use artoo_core::{emoji, git, links, platform, search, storage};
 
@@ -20,7 +21,7 @@ use artoo_hosts_api::Hosts;
 use std::sync::Arc;
 
 /// Offers GitHub's and GitLab's kinds of host, the pictures the kit's markdown draws and the people its avatars show; each
-/// tab's connect panel (`artoo_hosts_api::connect`).
+/// tab's connect panel (`artoo_hosts_api::connect`) and the welcome's Connect GitLab or GitHub.
 pub fn install(cx: &mut gpui::App) {
     for (order, kind) in hosts::kinds() {
         artoo_hosts_api::add_kind(cx, order, kind);
@@ -28,6 +29,7 @@ pub fn install(cx: &mut gpui::App) {
     artoo_ui_kit::pictures::provide(cx, Arc::new(pictures::WebPictures));
     artoo_ui_kit::people::provide(Arc::new(avatars::Avatars));
     artoo_shell_api::add_parts(cx, |frame, _, cx| panel::parts(frame, cx));
+    artoo_shell_api::add_parts(cx, |frame, _, cx| welcome::parts(frame, cx));
 }
 
 /// GitLab and GitHub, for a mode without a window.
