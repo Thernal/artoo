@@ -618,7 +618,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             continue;
                         }
                         "menu" => {
-                            this.open_palette(palette::Kind::List(palette_lists::PROJECTS), cx);
+                            this.search(palette_lists::PROJECTS, cx);
                             continue;
                         }
                         // The right clicks that copy a link (#162): the branch checked out, the
@@ -898,14 +898,14 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         if let Ok(query) = std::env::var("ARTOO_SNAPSHOT_PALETTE") {
             ws.update(cx, |this, cx| {
                 // `faces:` the interface's faces (#24).
-                let kind = if query.starts_with("compare:") {
-                    palette::Kind::List(artoo_branches_api::COMPARE)
+                let id = if query.starts_with("compare:") {
+                    artoo_branches_api::COMPARE
                 } else if query.starts_with("faces:") {
-                    palette::Kind::List(palette_lists::faces_of(false))
+                    palette_lists::faces_of(false)
                 } else {
-                    palette::Kind::Search(palette::Scope::All)
+                    artoo_shell_api::search::ALL
                 };
-                this.open_palette(kind, cx);
+                this.search(id, cx);
                 this.type_in_palette(
                     query
                         .trim_start_matches("compare:")
@@ -1142,7 +1142,6 @@ pub struct Workspace {
     /// The project's main working tree: where its notes for the agents are kept, whatever
     /// worktree is open (#77).
     project: Option<PathBuf>,
-    palette: Option<palette::Palette>,
     zone: zones::Zone,
     fetch: fetch::Fetch,
     shell: Option<gpui::WeakEntity<shell::Shell>>,
@@ -1269,7 +1268,9 @@ pub struct Workspace {
     /// What features draw in this tab (#165): title-bar items, cards over it, Settings rows.
     parts: Vec<artoo_shell_api::Parts>,
     /// The commands offered with words, in ⌘K's order.
-    contributed: Vec<palette::Offered>,
+    /// The tab's frame, as its parts see it, held for them: ⌘K's window holds it weakly (its handle is in the
+    /// frame's services), so it lives as long as the tab.
+    _frame: Rc<dyn artoo_shell_api::Frame>,
     /// The tree folder opened last, and a count of openings: its rows fade in (`tree_row`).
     tree_opened: Option<(String, usize)>,
     /// What a narrow window folded, for the session (#80).
@@ -1347,7 +1348,6 @@ impl Workspace {
             services: services.clone(),
             plain: false,
             project: None,
-            palette: None,
             zone: zones::Zone::default(),
             fetch: fetch::Fetch::default(),
             shell: None,
@@ -1400,7 +1400,7 @@ impl Workspace {
             label_edit: None,
             label_name: String::new(),
             parts: Vec::new(),
-            contributed: palette::offered(cx),
+            _frame: frame.clone(),
             tree_opened: None,
             narrowed: Default::default(),
             keyboard: Default::default(),
@@ -1441,9 +1441,11 @@ impl Workspace {
         this.parts = artoo_shell_api::make_parts(frame, window, cx);
         // The lists the tab shows alone in ⌘K's window, offered as the features offer theirs.
         this.parts.push(artoo_shell_api::Parts {
+            searches: palette_lists::searches(cx.weak_entity()),
             lists: palette_lists::lists(cx.weak_entity()),
             ..Default::default()
         });
+        this.offer_searches(cx);
         // A way in connected the host (hosts' connect panel): the requests read again, a toast saying with what.
         if let Some(connecting) = this.connecting() {
             let tab = cx.weak_entity();
@@ -2498,7 +2500,7 @@ impl Workspace {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.search(palette::Scope::All, cx);
+        self.search(artoo_shell_api::search::ALL, cx);
     }
 
     /// ⌘K's Pin tab: Code's tab on screen pinned or unpinned (#20).
@@ -2514,7 +2516,7 @@ impl Workspace {
 
     fn compare_action(&mut self, _: &Compare, _: &mut Window, cx: &mut Context<Self>) {
         if self.root.is_some() {
-            self.open_palette(palette::Kind::List(artoo_branches_api::COMPARE), cx);
+            self.search(artoo_branches_api::COMPARE, cx);
         }
     }
 

@@ -52,10 +52,7 @@ impl TabsHost for Host {
     fn add(&self, _: &mut Window, cx: &mut App) {
         self.0
             .update(cx, |this, cx| {
-                this.open_palette(
-                    super::palette::Kind::List(super::palette_lists::PROJECTS),
-                    cx,
-                )
+                this.search(super::palette_lists::PROJECTS, cx)
             })
             .ok();
     }

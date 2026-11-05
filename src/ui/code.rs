@@ -11,6 +11,20 @@ use std::path::Path;
 use std::rc::Rc;
 
 impl Workspace {
+    /// A file Code's search found, picked (`artoo_code_api::Host::pick_file`): one of the diff on screen picked there,
+    /// its page coming on screen (#71) — but in Code, where it opens as a tab, changed or not (#75) —; else, not changed
+    /// here, read in Code (D18, #71).
+    pub(super) fn pick_file(&mut self, path: String, in_diff: bool, cx: &mut Context<Self>) {
+        if !in_diff || self.nav.space == CODE {
+            return self.open_file_view(path, cx);
+        }
+        let shown = self.shown_diff(cx);
+        if let Some(ix) = shown.and_then(|d| d.files.iter().position(|f| f.path() == path)) {
+            self.select_file(ix, cx);
+            self.follow_loaded(cx);
+        }
+    }
+
     /// Code, as the tab asks it (`artoo_code_api`); none in a build without it.
     pub(super) fn code(&self) -> Option<Rc<dyn artoo_code_api::Code>> {
         self.services.get()
@@ -165,8 +179,7 @@ impl Host for CodeHost {
     }
 
     fn go_to_file(&self, cx: &mut App) {
-        let files = super::palette::Scope::Offered(artoo_code_api::SEARCH);
-        self.later(cx, move |tab, cx| tab.search(files, cx));
+        self.later(cx, |tab, cx| tab.search(artoo_code_api::SEARCH, cx));
     }
 
     fn pick_file(&self, path: String, in_diff: bool, cx: &mut App) {

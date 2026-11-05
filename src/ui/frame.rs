@@ -175,13 +175,11 @@ impl title::TitleHost for TitleGlue {
     }
 
     fn projects(&self, _: &mut Window, cx: &mut App) {
-        self.tab(cx, |this, cx| {
-            this.open_palette(palette::Kind::List(palette_lists::PROJECTS), cx)
-        });
+        self.tab(cx, |this, cx| this.search(palette_lists::PROJECTS, cx));
     }
 
     fn search(&self, _: &mut Window, cx: &mut App) {
-        self.tab(cx, |this, cx| this.search(palette::Scope::All, cx));
+        self.tab(cx, |this, cx| this.search(artoo_shell_api::search::ALL, cx));
     }
 
     fn settings(&self, _: &mut Window, cx: &mut App) {
@@ -333,7 +331,7 @@ impl Render for Workspace {
         .on_action(cx.listener(|this, _: &ApproveRequest, _, cx| this.toggle_approval(cx)))
         .on_action(cx.listener(|this, _: &SwitchTo, _, cx| {
             if this.root.is_some() {
-                this.open_palette(palette::Kind::List(palette_lists::SWITCH), cx)
+                this.search(palette_lists::SWITCH, cx)
             }
         }))
         .on_action(cx.listener(|this, _: &NextDraft, _, cx| this.step_draft(true, cx)))
@@ -379,27 +377,27 @@ impl Render for Workspace {
         .on_action(cx.listener(|this, _: &MarkReviewed, _, cx| this.mark_and_advance(cx)))
         .on_action(cx.listener(|this, _: &ToggleBookmark, _, cx| this.toggle_bookmark(cx)))
         .on_action(cx.listener(|this, _: &ShowBookmarks, _, cx| {
-            if this.palette.is_some() {
+            if this.palette_open(cx) {
                 this.close_palette(cx);
             } else if this.shown_diff(cx).is_some() {
-                this.open_palette(palette::Kind::List(palette_lists::BOOKMARKS), cx);
+                this.search(palette_lists::BOOKMARKS, cx);
             }
         }))
         .on_action(cx.listener(|this, _: &ZoomIn, window, cx| this.ui_zoom_by(1, window, cx)))
         .on_action(cx.listener(|this, _: &ZoomOut, window, cx| this.ui_zoom_by(-1, window, cx)))
         .on_action(cx.listener(|this, _: &ZoomReset, window, cx| this.set_ui_zoom(100, window, cx)))
         .on_action(cx.listener(|this, _: &ShowStructure, _, cx| {
-            if this.palette.is_some() {
+            if this.palette_open(cx) {
                 this.close_palette(cx);
             } else if this.shown_diff(cx).is_some() {
-                this.open_palette(palette::Kind::List(palette_lists::STRUCTURE), cx);
+                this.search(palette_lists::STRUCTURE, cx);
             }
         }))
         .on_action(cx.listener(|this, _: &OpenRecent, _, cx| {
-            if this.palette.is_some() {
+            if this.palette_open(cx) {
                 this.close_palette(cx);
             } else {
-                this.open_palette(palette::Kind::List(palette_lists::RECENT), cx);
+                this.search(palette_lists::RECENT, cx);
             }
         }))
         .on_action(cx.listener(|this, _: &ToggleAnnotate, _, cx| this.toggle_annotate(cx)))
@@ -423,7 +421,7 @@ impl Render for Workspace {
         // ⌃1, the branch quick switch: search everywhere on its Branches (#72).
         .on_action(cx.listener(|this, _: &SwitchBranch, _, cx| {
             if this.root.is_some() {
-                this.search(palette::Scope::Offered(artoo_branches_api::SEARCH), cx)
+                this.search(artoo_branches_api::SEARCH, cx)
             }
         }))
         // ⌃2 ⌃3: a section of the side panel; narrow, its drawer opens there (#80).
@@ -436,9 +434,7 @@ impl Render for Workspace {
         .on_action(
             cx.listener(|this, _: &FocusDiffZone, _, cx| this.set_zone(zones::Zone::Diff, cx)),
         )
-        .on_action(cx.listener(|this, _: &NewTab, _, cx| {
-            this.open_palette(palette::Kind::List(palette_lists::PROJECTS), cx)
-        }))
+        .on_action(cx.listener(|this, _: &NewTab, _, cx| this.search(palette_lists::PROJECTS, cx)))
         .on_action(cx.listener(|this, _: &CloseItem, _, cx| this.close_shown(cx)))
         .on_action(cx.listener(|this, _: &CloseTab, window, cx| {
             this.with_shell(window, cx, |s, window, cx| {
@@ -483,24 +479,21 @@ impl Render for Workspace {
             this.with_shell(window, cx, |s, window, cx| s.select(8, window, cx))
         }))
         .on_action(cx.listener(Self::open_palette_action))
-        .on_action(cx.listener(|this, _: &SearchFiles, _, cx| {
-            this.search(palette::Scope::Offered(artoo_code_api::SEARCH), cx)
-        }))
+        .on_action(
+            cx.listener(|this, _: &SearchFiles, _, cx| this.search(artoo_code_api::SEARCH, cx)),
+        )
         .on_action(cx.listener(|this, _: &SearchCommits, _, cx| {
-            this.search(
-                palette::Scope::Offered(artoo_branches_api::SEARCH_COMMITS),
-                cx,
-            )
+            this.search(artoo_branches_api::SEARCH_COMMITS, cx)
         }))
         .on_action(cx.listener(|this, _: &SearchBranches, _, cx| {
-            this.search(palette::Scope::Offered(artoo_branches_api::SEARCH), cx)
+            this.search(artoo_branches_api::SEARCH, cx)
         }))
         .on_action(cx.listener(|this, _: &SearchRequests, _, cx| {
-            this.search(palette::Scope::Offered(artoo_requests_api::SEARCH), cx)
+            this.search(artoo_requests_api::SEARCH, cx)
         }))
-        .on_action(
-            cx.listener(|this, _: &SearchActions, _, cx| this.search(palette::Scope::Actions, cx)),
-        )
+        .on_action(cx.listener(|this, _: &SearchActions, _, cx| {
+            this.search(artoo_shell_api::search::ACTIONS, cx)
+        }))
         .on_action(cx.listener(Self::compare_action))
         .on_action(cx.listener(Self::copy_link_action))
         .on_action(cx.listener(Self::pin_tab_action))

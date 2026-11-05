@@ -7,9 +7,45 @@
 
 use super::Workspace;
 use super::nav::Page;
+use git2::Oid;
 use gpui::{App, Context};
 
 impl Workspace {
+    /// Shows what `head` changed against `base`; `since_merge_base` for `base...head`.
+    pub(super) fn run_compare(
+        &mut self,
+        base: (String, Oid),
+        head: (String, Oid),
+        since_merge_base: bool,
+        request: Option<u64>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.root.is_none() {
+            return;
+        }
+        if let Some(branches) = self.branches() {
+            branches.compare(base.clone(), head.clone(), since_merge_base, request, cx);
+        }
+        // The whole request is its page; a commit or versions of it were (#71).
+        if request.is_some() {
+            self.record(cx);
+        }
+        // A comparison on screen is what it shows: Swap, Direct and Use <upstream> write it, so
+        // coming back to it, ⌘[ ⌘] and nav.txt have it as it was left (#147).
+        let page = Page::Compare(base.clone(), head.clone(), since_merge_base);
+        let route = page.route();
+        if request.is_none()
+            && matches!(self.shown_page(), Some(Page::Compare(..)))
+            && self.nav_page() != Some(&route)
+        {
+            self.arrive(route.clone(), cx);
+        }
+        // A comparison's own page lists its commits (#21); a request's or a branch's has its own.
+        let own = request.is_none() && self.nav_page() == Some(&route);
+        self.read_compare_commits(own.then_some(page), cx);
+        cx.notify();
+    }
+
     /// The comparison's page is on screen, its commits read.
     pub(super) fn shown_compare(&self, cx: &App) -> bool {
         self.branches()

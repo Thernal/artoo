@@ -19,7 +19,8 @@ doing (`Opens::Run`, run once ⌘K has closed: Code's files, picked through its 
 commits' and Code's files first, #171 7b), and the lists the same window shows alone (`Parts::lists`, `search::List`,
 opened by `Frame::search`: a comparison's refs the branches', the themes to try the appearance's, the tab's places opened
 lately, bookmarks, Switch to, Open a repository and faces its own — every find and doing run outside the tab's update,
-so they may read it); the spaces of the menu since 2026-11-05 (`spaces::add`: an id, a label,
+so they may read it; the window itself the shell's since 2026-11-06, `search::SearchWindow` in the tab's services,
+handed what the parts offer, its keys the app's keymap's through `artoo_shell_api::keys`); the spaces of the menu since 2026-11-05 (`spaces::add`: an id, a label,
 an icon, a place in the menu, the action that goes there — the requests' Inbox and Merge requests, Code's, the
 branches'; the closed `Space` enum gone, a `Space` its id, #171 phase 6); the tab's places as routes since 2026-11-05
 (the page on screen, its history, esc's way up, the items open under a space and `nav.txt` all routes, the page one up

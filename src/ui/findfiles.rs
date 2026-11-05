@@ -11,7 +11,7 @@ impl Workspace {
         if self.shown_diff(cx).is_none() || self.settings_open {
             return;
         }
-        self.palette = None;
+        self.close_palette(cx);
         self.field = None;
         self.reset_field_edit();
         self.rv().open_find_files(cx);

@@ -1,7 +1,8 @@
 //! Search everywhere's scopes (⌘K's tabs, #52) a feature offers in a tab (`Parts::searches`): its words, the action
 //! that opens it, what it finds for a text and where each find goes — a route opened as the tab opens one
-//! (`Frame::open`), or for what is no place the owner's own doing. The tab keeps the window, its field and the
-//! scopes that are its own (All, Actions), and puts each offered one among them by its `order`.
+//! (`Frame::open`), or for what is no place the owner's own doing. The window is the shell's, one in each tab
+//! (`SearchWindow`, in the tab's services): it has the scopes that are its own (All, Actions) and puts each offered one
+//! among them by its `order`; the tab hands it what its parts offer, gives it the keyboard while it is open, draws it.
 //!
 //! The same window shows a list of its own alone (`Parts::lists`, `List`): the themes to try, a comparison's refs, the
 //! tab's places opened lately — what it says as it stands, its finds, what it does as it opens, as the selection
@@ -11,10 +12,39 @@
 //! read its places); what it says is read as the window draws, and reads its owner's state alone.
 
 use artoo_core::route::Route;
-use gpui::{App, SharedString};
+use gpui::{AnyView, App, KeyDownEvent, SharedString, Window};
 use std::rc::Rc;
 
+/// The All tab's id, the window's own (`SearchWindow::search`).
+pub const ALL: &str = "shell.all";
+/// The Actions tab's id, the window's own: every command offered with words.
+pub const ACTIONS: &str = "shell.actions";
+
+/// ⌘K's window in a tab, the shell's (`Services`). It never asks the tab while it is changed: what a scope or a list
+/// finds and does runs once no entity is.
+pub trait SearchWindow {
+    /// The scopes and the lists the tab's parts offer, the tab's own among them: handed once the parts are made.
+    fn offer(&self, searches: Vec<Search>, lists: Vec<List>, cx: &mut App);
+    /// Opened on scope `id` (`ALL`, `ACTIONS`, an offered one's), or moved to its tab while open, or closed when it is
+    /// the tab open — its key again; or opened on list `id` alone. What it opening clears in the tab, the tab clears.
+    fn search(&self, id: &'static str, cx: &mut App);
+    /// Closed without a pick, what a list tried put back.
+    fn close(&self, cx: &mut App);
+    fn is_open(&self, cx: &App) -> bool;
+    /// A key while it has the keyboard: the tab's first input while it is open.
+    fn key(&self, event: &KeyDownEvent, window: &mut Window, cx: &mut App);
+    /// ↑ ↓: the selection to the find before or after.
+    fn step(&self, down: bool, cx: &mut App);
+    /// The text selected in its field, for Copy.
+    fn selected(&self, cx: &App) -> Option<String>;
+    /// What the tab draws over itself while it is open.
+    fn view(&self, cx: &App) -> Option<AnyView>;
+    /// Its field's text set, as typing it would (UI checks).
+    fn type_text(&self, text: &str, cx: &mut App);
+}
+
 /// A scope of search everywhere as its owner offers it in a tab.
+#[derive(Clone)]
 pub struct Search {
     /// Its id (`requests`), by which the action that opens it names it.
     pub id: &'static str,
@@ -35,6 +65,7 @@ pub struct Search {
 }
 
 /// A list the window shows alone, opened by its own action (`Frame::search` by its id).
+#[derive(Clone)]
 pub struct List {
     /// Its id (`branches.compare`).
     pub id: &'static str,
@@ -64,12 +95,14 @@ pub struct Said {
 }
 
 /// What the All tab shows of a scope: once something is typed, its first `few` finds, after the scopes of a lower
-/// `order` here; or, the text starting with `prefix` (`#`), only its own — 14 of them, before more is typed too.
+/// `order` here; or, the text starting with `prefix` (`#`), only its own — 14 of them, before more is typed too. One
+/// `alone` is All's only, with no tab of its own: what it finds, All shows alone (a pasted link, one place to go).
 #[derive(Clone, Copy, Debug)]
 pub struct AllOf {
     pub few: usize,
     pub order: u16,
     pub prefix: Option<char>,
+    pub alone: bool,
 }
 
 /// What a scope is asked: the text typed (without All's prefix), and whether for the All tab.

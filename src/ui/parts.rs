@@ -168,7 +168,11 @@ impl Frame for TabFrame {
     }
 
     fn search(&self, id: &'static str, cx: &mut App) {
-        self.later(cx, move |this, cx| this.search_offered(id, cx));
+        self.later(cx, move |this, cx| this.search(id, cx));
+    }
+
+    fn command_words(&self, id: &'static str, cx: &App) -> Option<String> {
+        self.0.upgrade()?.read(cx).command_words(id, cx)
     }
 
     fn services(&self) -> Rc<Services> {

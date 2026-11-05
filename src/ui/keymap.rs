@@ -156,7 +156,32 @@ pub fn install(defaults: Vec<KeyBinding>, cx: &mut App) {
         platform::MAC,
         &storage::read("keymap.txt"),
     ));
+    artoo_shell_api::keys::provide(std::rc::Rc::new(Names), cx);
     apply(cx);
+}
+
+/// The keymap as the shell reads it (`artoo_shell_api::keys`): ⌘K's commands and foot.
+struct Names;
+
+impl artoo_shell_api::keys::Keys for Names {
+    fn now(&self, act: &dyn gpui::Action, cx: &App) -> String {
+        cx.global::<Keymap>().key_now(act)
+    }
+
+    fn foot(&self, act: &dyn gpui::Action, cx: &App) -> String {
+        let keymap = cx.global::<Keymap>();
+        let shipped = || keymap.shipped_key(act).map(|k| foot_key(&k));
+        keymap.shown(act).or_else(shipped).unwrap_or_default()
+    }
+}
+
+/// A shipped key as a foot writes it, the command key first and the letter in capitals (`⌘⇧R`), as the app's written
+/// keys are; a key the user changed shows as the keymap writes it (`⇧⌘r`).
+fn foot_key(keys: &str) -> String {
+    let written = symbols(keys);
+    let rest: String = written.chars().filter(|&c| c != '⌘').collect();
+    let cmd = if written.contains('⌘') { "⌘" } else { "" };
+    format!("{cmd}{}", rest.to_uppercase())
 }
 
 /// The preset and the changes in `keymap.txt`.
@@ -500,6 +525,12 @@ fn render(overrides: &BTreeMap<String, Vec<String>>) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_foot_writes_a_shipped_key_the_command_key_first() {
+        assert_eq!(super::foot_key("cmd-k"), "⌘K");
+        assert_eq!(super::foot_key("cmd-shift-r"), "⌘⇧R");
+    }
+
     use super::*;
 
     gpui::actions!(test, [NextFile, PreviousFile, Comment]);

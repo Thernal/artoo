@@ -6,7 +6,6 @@
 use super::faces::{CODE_FACES, UI_FACES, fold_line, short_list};
 pub(super) use super::faces::{face_family, face_label, installed};
 use super::menu::{Act, Entry};
-use super::palette::Kind;
 use super::settings::item;
 use super::{ROW_RADIUS, Workspace, icons, px, theme};
 use artoo_ui_kit::controls::{chip, group};
@@ -181,7 +180,7 @@ impl Workspace {
 
     /// Every face installed, in ⌘K's window.
     pub(super) fn open_all_faces(&mut self, code: bool, cx: &mut Context<Self>) {
-        self.open_palette(Kind::List(super::palette_lists::faces_of(code)), cx);
+        self.search(super::palette_lists::faces_of(code), cx);
     }
 
     /// Draws the interface or the code in `face` (None: the default) and keeps it.

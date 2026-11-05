@@ -125,7 +125,7 @@ impl Keys for Workspace {
 
     fn input_open(&self, input: Input, cx: &App) -> bool {
         match input {
-            Input::Palette => self.palette.is_some(),
+            Input::Palette => self.palette_open(cx),
             Input::FindFiles => self.rv().find_files_open(cx),
             Input::OpenAsk => self.open_ask.is_some(),
             Input::Reactions => self.requests_api().is_some_and(|r| r.grid_open(cx)),

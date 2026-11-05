@@ -22,6 +22,7 @@ pub fn scope(services: Weak<Services>) -> Search {
             few: 3,
             order: 40,
             prefix: None,
+            alone: false,
         },
         find: Rc::new(move |ask, cx| {
             let Some(services) = services.upgrade() else {

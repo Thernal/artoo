@@ -48,7 +48,7 @@ impl Workspace {
         if let Some(branches) = self.branches() {
             branches.drop_find(cx);
         }
-        self.palette = None;
+        self.close_palette(cx);
         self.ctx_menu.update(cx, |m, cx| m.shut(cx));
         self.bfilter.clear();
         let pair = self

@@ -1,7 +1,7 @@
 //! The window's frame (#165 stage 4): what surrounds the pages features draw — the keyboard card, the
 //! repository tabs and the rail, the title bar, the stripe and its tool windows, the page bar and
-//! the spaces' menu, the body's row and its splitters, search everywhere's window,
-//! Settings' frame, Set up's, the welcome, so far.
+//! the spaces' menu, the body's row and its splitters, search everywhere's window and what it lists and does
+//! (`search_window.rs`), Settings' frame, Set up's, the welcome, so far.
 //! The tab (the app's) composes: it makes the features' entities and their hosts, and hands the frame what it draws
 //! and what a click on it does.
 
@@ -9,6 +9,7 @@ mod bar;
 mod frame;
 mod palette;
 mod rail;
+mod search_window;
 mod settings;
 mod setup;
 mod shortcuts;
@@ -36,4 +37,6 @@ pub fn install(cx: &mut gpui::App) {
     provide::<dyn artoo_shell_api::welcome::WelcomeRenderer>(Rc::new(welcome::Renderer), cx);
     provide::<dyn artoo_shell_api::frame::FrameRenderer>(Rc::new(frame::Renderer), cx);
     provide::<dyn artoo_shell_api::shortcuts::ShortcutsRenderer>(Rc::new(shortcuts::Renderer), cx);
+    // ⌘K's window in every tab, its handle in the tab's services.
+    artoo_shell_api::add_parts(cx, search_window::parts);
 }

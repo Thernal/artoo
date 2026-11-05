@@ -24,10 +24,12 @@
 //!   its words, the action that opens it, what it finds for a text and the route each find opens (or, for what is
 //!   no place, the owner's doing, run once ⌘K has closed); the All tab takes a few of each, or its own alone after
 //!   its character (`#`, `@`). A list the same window shows alone (`Parts::lists`), opened by its own action
-//!   (`Frame::search`): the themes to try, a comparison's refs.
+//!   (`Frame::search`): the themes to try, a comparison's refs. The window is the shell's in each tab
+//!   (`search::SearchWindow`), handed what the parts offer; the keys it writes are the app's keymap's (`keys`).
 //! - **`Frame`**: what a part asks of its tab: a toast, the error line, a redraw, the text selection, the places
 //!   it has open, its tool window opened or closed, a menu at the pointer, the narrow tab's drawer closed, a
-//!   route opened (or a space's own page), a route kept among the places opened lately, the tab's services.
+//!   route opened (or a space's own page), a route kept among the places opened lately, a command's words as the
+//!   tab says them, the tab's services.
 //! - **`Services`**: what the features of a tab offer one another — a contract's handle (`Rc<dyn Code>`), by its
 //!   type —, set by the feature that makes it as its parts are made, read by the others when they use it.
 //!
@@ -41,6 +43,7 @@
 
 pub mod bar;
 pub mod frame;
+pub mod keys;
 pub mod links;
 pub mod palette;
 pub mod render;
@@ -292,6 +295,10 @@ pub trait Frame {
     /// Search everywhere opened on scope `id` (`Search`), or the window on list `id` alone (`List`), as their
     /// actions open them.
     fn search(&self, id: &'static str, cx: &mut App);
+
+    /// The words command `id` (an `Action`'s) says in ⌘K as the tab stands, when they are not its own: Copy link
+    /// naming what is on screen, Pin tab saying Unpin on a pinned one.
+    fn command_words(&self, id: &'static str, cx: &App) -> Option<String>;
 
     /// Route `route` kept first among the places opened lately (⌘K lists them).
     fn remember(&self, route: Route, cx: &mut App);

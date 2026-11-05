@@ -1,12 +1,12 @@
 //! The lists the tab shows alone in ⌘K's window, offered as a feature offers its own (`artoo_shell_api::search::List`,
 //! D18): the places opened lately (⌘E), the lines marked with F3 (⌘F3), the functions and types the open file changes
 //! (⌘⇧O), switching to a branch or a merge request (⌘B), opening a repository (⌘T, the rail's +), a face for the
-//! interface or the code (#24, a face's Other…). Their finds read the tab, which the window lets them: it finds them
-//! outside the tab's update.
+//! interface or the code (#24, a face's Other…); and a link of a host's pasted in All, one place to go. Their finds
+//! read the tab, which the window lets them: it finds them outside the tab's update.
 
 use super::keymap::Keymap;
 use super::{Workspace, fonts, format, theme};
-use artoo_shell_api::search::{Ask, Find, Finds, List, Opens, Said, Says};
+use artoo_shell_api::search::{AllOf, Ask, Find, Finds, List, Opens, Said, Says, Search};
 use git2::Oid;
 use gpui::{App, Context, SharedString, WeakEntity};
 use std::cell::{Cell, RefCell};
@@ -24,6 +24,37 @@ const FACES_CODE: &str = "code-faces";
 /// The list of the faces for the code, or the interface's.
 pub(super) fn faces_of(code: bool) -> &'static str {
     if code { FACES_CODE } else { FACES_UI }
+}
+
+/// The tab's scope All shows alone: a link of a host's pasted, opened as the tab opens a link (`open_link`).
+pub(super) fn searches(tab: WeakEntity<Workspace>) -> Vec<Search> {
+    let picks = tab.clone();
+    vec![Search {
+        id: "link",
+        label: "Link",
+        placeholder: "",
+        go: "",
+        order: u16::MAX,
+        all: AllOf {
+            few: 1,
+            order: 0,
+            prefix: None,
+            alone: true,
+        },
+        find: Rc::new(move |ask, cx| {
+            let Some(link) = (ask.all)
+                .then(|| artoo_hosts_api::get(cx).link(ask.text))
+                .flatten()
+            else {
+                return Vec::new();
+            };
+            let label = format!("Open {}", link.describe());
+            let detail = link.project().to_owned();
+            let open = doing(&picks, move |this, cx| this.open_link(link.clone(), cx));
+            vec![Find::new("Link", label, detail, open).key("↵".to_owned())]
+        }),
+        opened: None,
+    }]
 }
 
 /// The tab's lists, reading it through `tab`.

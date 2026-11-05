@@ -28,6 +28,7 @@ pub fn scope(code: WeakEntity<CodeSpace>, services: Weak<Services>, host: Rc<dyn
             few: 3,
             order: 20,
             prefix: Some('@'),
+            alone: false,
         },
         find: Rc::new(move |ask, cx| {
             let diff = (services.upgrade())

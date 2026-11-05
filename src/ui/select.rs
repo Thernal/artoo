@@ -69,7 +69,8 @@ impl Workspace {
             }
             Input::Field => self.field != Some(super::lists::Field::Token),
             Input::Part(id) => return self.part_input(id).and_then(|i| (i.selected)(cx)),
-            Input::Palette | Input::FindFiles | Input::Submit => true,
+            Input::Palette => return self.palette_selected(cx),
+            Input::FindFiles | Input::Submit => true,
             _ => false,
         };
         shared
