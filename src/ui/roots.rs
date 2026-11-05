@@ -10,7 +10,6 @@
 use super::lists::Field;
 use super::nav::BranchRow;
 use super::{Workspace, island, keys, px, theme};
-use crate::git::BranchRef;
 use crate::mr::{Mr, MrState, Thread};
 pub(super) use artoo_requests_api::Group;
 use artoo_review_api::Seen;
@@ -121,11 +120,6 @@ impl Workspace {
         self.requests_api()
             .map(|r| r.waiting_threads(iid, cx))
             .unwrap_or_default()
-    }
-
-    /// The branches a search lists, by index (`History::listed`).
-    pub(super) fn listed_branches(&self, cx: &App) -> Vec<(usize, BranchRef)> {
-        self.branches().map_or_else(Vec::new, |b| b.listed(cx))
     }
 
     /// Branches' rows in the order the list shows them, its filter typed (`History::rows`).

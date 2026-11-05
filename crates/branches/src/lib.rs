@@ -26,6 +26,7 @@ mod panel;
 mod place;
 mod reading;
 mod roots;
+mod search;
 mod shown;
 mod side;
 mod waiting;
@@ -96,6 +97,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
             done::piece(history.clone(), services.clone()),
             pairs::piece(history.clone(), services),
         ],
+        searches: vec![search::scope(Rc::downgrade(&frame.services()))],
         pages: Some(page::pages(history, panel, frame, cx)),
         actions: vec![(
             Box::new(GoToBranches),

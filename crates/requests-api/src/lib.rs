@@ -494,6 +494,9 @@ pub const SPACE: &str = "requests";
 /// The Inbox space, by its id: the requests offer it with their notifications, its page is theirs.
 pub const INBOX: &str = "inbox";
 
+/// Merge requests' scope of search everywhere, by its id (`artoo_shell_api::search`): ⌘⇧R opens ⌘K on it.
+pub const SEARCH: &str = "requests";
+
 /// The Discussions tool window's id: the layout keeps it open by it, the View menu and ⇧⌘D name it.
 pub const DISCUSSIONS: &str = "discussions";
 

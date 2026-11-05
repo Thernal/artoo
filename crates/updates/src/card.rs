@@ -84,6 +84,7 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
         inputs: Vec::new(),
         pieces: Vec::new(),
         links: Vec::new(),
+        searches: Vec::new(),
     }
 }
 

@@ -23,6 +23,7 @@ mod reactions;
 mod reading;
 mod requests;
 mod root;
+mod search;
 mod submit;
 mod tabs;
 mod thread;
@@ -145,6 +146,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
             pieces::done(requests.clone(), services),
         ],
         links: vec![numbers::pattern(&requests, cx)],
+        searches: vec![search::scope(Rc::downgrade(&frame.services()))],
         pages: Some(root::pages(requests, frame, cx)),
         ..Default::default()
     }

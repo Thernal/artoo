@@ -234,6 +234,9 @@ pub type Hears = std::rc::Rc<dyn Fn(&Event, &mut App)>;
 /// The Branches space, by its id (`artoo_shell_api::spaces`): the branches offer it, their pages are in it.
 pub const SPACE: &str = "branches";
 
+/// The branches' scope of search everywhere, by its id (`artoo_shell_api::search`): ⌘⇧B opens ⌘K on it.
+pub const SEARCH: &str = "branches";
+
 /// The commits' search, as one of the tab's inputs.
 pub const SEARCH_INPUT: &str = "branches.search";
 

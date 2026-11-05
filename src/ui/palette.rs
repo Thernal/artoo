@@ -13,73 +13,35 @@ use gpui::{Action, App, Context, KeyDownEvent, WeakEntity, Window, prelude::*};
 use std::rc::Rc;
 use std::sync::Arc;
 
-/// What the palette is for.
-/// A tab of search everywhere.
+/// A tab of search everywhere: the tab's own, or one a feature offers (`Parts::searches`), by its id.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope {
     All,
     Files,
     Commits,
-    Branches,
-    Requests,
     Actions,
+    Offered(&'static str),
 }
 
 impl Scope {
-    pub const ALL: [Scope; 6] = [
-        Scope::All,
-        Scope::Files,
-        Scope::Commits,
-        Scope::Branches,
-        Scope::Requests,
-        Scope::Actions,
-    ];
-
-    fn label(self) -> &'static str {
+    /// An own tab's place among the tabs, the offered ones between them by theirs (`Search::order`).
+    fn order(self) -> u16 {
         match self {
-            Scope::All => "All",
-            Scope::Files => "Files",
-            Scope::Commits => "Commits",
-            Scope::Branches => "Branches",
-            Scope::Requests => "Requests",
-            Scope::Actions => "Actions",
+            Scope::All => 0,
+            Scope::Files => 10,
+            Scope::Commits => 20,
+            Scope::Actions => 90,
+            Scope::Offered(_) => u16::MAX,
         }
     }
+}
 
-    fn action(self) -> Box<dyn Action> {
-        use super::*;
-        match self {
-            Scope::All => Box::new(SearchEverywhere),
-            Scope::Files => Box::new(SearchFiles),
-            Scope::Commits => Box::new(SearchCommits),
-            Scope::Branches => Box::new(SearchBranches),
-            Scope::Requests => Box::new(SearchRequests),
-            Scope::Actions => Box::new(SearchActions),
-        }
-    }
-
-    /// Its key as shipped, for the footer when the keymap does not say another.
-    fn key(self) -> &'static str {
-        match self {
-            Scope::All => "⌘K",
-            Scope::Files => "⌘P",
-            Scope::Commits => "⌘⇧C",
-            Scope::Branches => "⌘⇧B",
-            Scope::Requests => "⌘⇧R",
-            Scope::Actions => "⌘⇧P",
-        }
-    }
-
-    fn placeholder(self) -> &'static str {
-        match self {
-            Scope::All => "Search everywhere — files, commits, branches, requests, actions",
-            Scope::Files => "Files — this diff's first, then the repository's",
-            Scope::Commits => "Commits — by words of the message, the author or the id",
-            Scope::Branches => "Branches",
-            Scope::Requests => "Merge requests — by title or number",
-            Scope::Actions => "Actions — everything the app does, with its key",
-        }
-    }
+/// A section of the All tab: the tab's own, or an offered scope's few.
+enum Section<'a> {
+    Commands,
+    Files,
+    Commits,
+    Offered(&'a artoo_shell_api::search::Search),
 }
 
 #[derive(Clone)]
@@ -153,6 +115,8 @@ enum Pick {
     Link(crate::links::Link),
     /// A command offered (`Workspace::contributed`), by its place there.
     Command(usize),
+    /// A find of a scope offered: where it goes.
+    Open(artoo_core::route::Route),
     /// Browse… for a folder: Open's.
     Browse,
     Ref(String, Oid),
@@ -186,8 +150,8 @@ pub struct Palette {
     kind: Kind,
     /// The tab `>` moved away from: ⌫ in the empty field goes back to it.
     from: Option<Scope>,
-    /// What each tab found for the text, in `Scope::ALL`'s order (with text typed).
-    counts: Option<[usize; 6]>,
+    /// What each tab found for the text, in the tabs' order (with text typed).
+    counts: Option<Vec<usize>>,
     /// The repository's files, read when search everywhere opened.
     files: Arc<Vec<String>>,
     /// The faces installed, read when a face's list opened.
@@ -264,6 +228,15 @@ fn project_items(
 }
 
 /// A file's name, which leads, and its folder, which follows it fainter — as IDEs list files.
+/// A scope's shipped key as the foot writes it, the command key first and the letter in capitals (`⌘⇧R`), as the
+/// app's written keys are; a key the user changed shows as the keymap writes it (`⇧⌘r`).
+fn foot_key(keys: &str) -> String {
+    let written = super::keymap::symbols(keys);
+    let rest: String = written.chars().filter(|&c| c != '⌘').collect();
+    let cmd = if written.contains('⌘') { "⌘" } else { "" };
+    format!("{cmd}{}", rest.to_uppercase())
+}
+
 fn name_and_folder(path: &str) -> (String, String) {
     match path.rsplit_once('/') {
         Some((folder, name)) => (name.to_owned(), folder.to_owned()),
@@ -277,6 +250,80 @@ fn matches(words: &[String], hay: &str) -> bool {
 }
 
 impl Workspace {
+    /// The scopes the tab's features offer (`Parts::searches`).
+    fn offered_searches(&self) -> impl Iterator<Item = &artoo_shell_api::search::Search> {
+        self.parts.iter().flat_map(|p| &p.searches)
+    }
+
+    fn offered_search(&self, id: &str) -> Option<&artoo_shell_api::search::Search> {
+        self.offered_searches().find(|s| s.id == id)
+    }
+
+    /// Search everywhere's tabs, in their order: the tab's own, the offered ones among them.
+    pub(super) fn scopes(&self) -> Vec<Scope> {
+        let mut scopes: Vec<(u16, Scope)> =
+            [Scope::All, Scope::Files, Scope::Commits, Scope::Actions]
+                .into_iter()
+                .map(|s| (s.order(), s))
+                .chain(
+                    self.offered_searches()
+                        .map(|s| (s.order, Scope::Offered(s.id))),
+                )
+                .collect();
+        scopes.sort_by_key(|(order, _)| *order);
+        scopes.into_iter().map(|(_, s)| s).collect()
+    }
+
+    fn scope_label(&self, scope: Scope) -> &'static str {
+        match scope {
+            Scope::All => "All",
+            Scope::Files => "Files",
+            Scope::Commits => "Commits",
+            Scope::Actions => "Actions",
+            Scope::Offered(id) => self.offered_search(id).map_or(id, |s| s.label),
+        }
+    }
+
+    /// The action that opens ⌘K on `scope`, by its id: the foot says its key in force.
+    fn scope_go(&self, scope: Scope) -> &'static str {
+        match scope {
+            Scope::All => "shell.search",
+            Scope::Files => "shell.search-files",
+            Scope::Commits => "shell.search-commits",
+            Scope::Actions => "shell.search-actions",
+            Scope::Offered(id) => self.offered_search(id).map_or("", |s| s.go),
+        }
+    }
+
+    fn scope_placeholder(&self, scope: Scope) -> &'static str {
+        match scope {
+            Scope::All => "Search everywhere — files, commits, branches, requests, actions",
+            Scope::Files => "Files — this diff's first, then the repository's",
+            Scope::Commits => "Commits — by words of the message, the author or the id",
+            Scope::Actions => "Actions — everything the app does, with its key",
+            Scope::Offered(id) => self.offered_search(id).map_or("", |s| s.placeholder),
+        }
+    }
+
+    /// What offered scope `search` finds for `ask`, as rows under its groups.
+    fn offered_items(
+        &self,
+        search: &artoo_shell_api::search::Search,
+        ask: artoo_shell_api::search::Ask,
+        cx: &App,
+    ) -> Vec<Item> {
+        (search.find)(ask, cx)
+            .into_iter()
+            .map(|f| Item {
+                group: f.group,
+                label: f.label,
+                detail: f.detail,
+                key: "",
+                pick: Pick::Open(f.open),
+            })
+            .collect()
+    }
+
     /// ⌘B's list: the merge requests (when the project has them), then the local branches; each
     /// says how far its review got.
     fn switch_items(&self, query: &str, open_only: bool, cx: &App) -> Vec<Item> {
@@ -449,16 +496,14 @@ impl Workspace {
         // Every tab's count, while something is typed; All's is what the others found (X56).
         let counts = match palette.kind {
             Kind::Search(_) if !palette.query.trim().is_empty() => {
-                let mut counts = [0; 6];
-                for (i, scope) in Scope::ALL.into_iter().enumerate() {
-                    if scope != Scope::All {
-                        counts[i] = self.scope_items(scope, palette, cx).len();
-                    }
-                }
-                let all = Scope::ALL
-                    .iter()
-                    .position(|&s| s == Scope::All)
-                    .unwrap_or(0);
+                let scopes = self.scopes();
+                let mut counts: Vec<usize> = (scopes.iter())
+                    .map(|&scope| match scope {
+                        Scope::All => 0,
+                        _ => self.scope_items(scope, palette, cx).len(),
+                    })
+                    .collect();
+                let all = scopes.iter().position(|&s| s == Scope::All).unwrap_or(0);
                 counts[all] = counts.iter().sum();
                 Some(counts)
             }
@@ -495,9 +540,13 @@ impl Workspace {
         let Kind::Search(scope) = p.kind else {
             return;
         };
-        let at = Scope::ALL.iter().position(|s| *s == scope).unwrap_or(0);
-        let n = Scope::ALL.len();
-        p.kind = Kind::Search(Scope::ALL[if back { (at + n - 1) % n } else { (at + 1) % n }]);
+        let scopes = self.scopes();
+        let Some(p) = &mut self.palette else {
+            return;
+        };
+        let at = scopes.iter().position(|s| *s == scope).unwrap_or(0);
+        let n = scopes.len();
+        p.kind = Kind::Search(scopes[if back { (at + n - 1) % n } else { (at + 1) % n }]);
         p.from = None;
         p.at = 0;
         self.refresh_palette(cx);
@@ -536,17 +585,13 @@ impl Workspace {
         match scope {
             Scope::All => self.all_items(query, &p.files, cx),
             Scope::Actions => self.command_items("Actions", &words, cx),
-            Scope::Branches => crate::rank::rank(self.listed_branches(cx), query, |(_, b)| &b.name)
-                .into_iter()
-                .take(60)
-                .map(|(ix, b)| Item {
-                    group: "Branches",
-                    label: b.name.clone(),
-                    detail: format::short(b.tip),
-                    key: "",
-                    pick: Pick::Branch(ix),
-                })
-                .collect(),
+            Scope::Offered(id) => self.offered_search(id).map_or_else(Vec::new, |search| {
+                let ask = artoo_shell_api::search::Ask {
+                    text: query,
+                    all: false,
+                };
+                self.offered_items(search, ask, cx)
+            }),
             Scope::Commits => self
                 .branches()
                 .map(|b| {
@@ -571,26 +616,6 @@ impl Workspace {
                     pick: Pick::Commit(c.id),
                 })
                 .collect(),
-            Scope::Requests => {
-                let number = query.trim_start_matches(['!', '#']);
-                self.request_list(cx)
-                    .iter()
-                    .filter(|m| {
-                        words.is_empty()
-                            || matches(&words, &m.title)
-                            || matches(&words, &m.author)
-                            || m.iid.to_string() == number
-                    })
-                    .take(60)
-                    .map(|m| Item {
-                        group: "Merge requests",
-                        label: format!("{} {}", super::words::number(m.iid), m.title),
-                        detail: m.author.clone(),
-                        key: "",
-                        pick: Pick::Request(m.iid),
-                    })
-                    .collect()
-            }
             Scope::Files => self.file_items(query, &p.files, cx),
         }
     }
@@ -848,85 +873,85 @@ impl Workspace {
                 pick: Pick::Link(link),
             }];
         }
+        // `>` narrows it to the commands, `@` to the files, an offered scope's own character to it (`#`).
+        let narrows = |c: char| {
+            matches!(c, '>' | '@') || self.offered_searches().any(|s| s.all.prefix == Some(c))
+        };
         let (scope, rest) = match query.chars().next() {
-            Some(c @ ('>' | '#' | '@')) => (Some(c), &query[1..]),
+            Some(c) if narrows(c) => (Some(c), &query[c.len_utf8()..]),
             _ => (None, query),
         };
         let words: Vec<String> = rest.split_whitespace().map(str::to_lowercase).collect();
         let cap = |small: usize| if scope.is_some() { 14 } else { small };
+        // A section with a character of its own: it alone when that is typed, else a few once words are.
+        let shows = |own: Option<char>| match scope {
+            Some(c) => own == Some(c),
+            None => !words.is_empty(),
+        };
+        let mut sections: Vec<(u16, Section)> = vec![
+            (0, Section::Commands),
+            (20, Section::Files),
+            (30, Section::Commits),
+        ];
+        sections.extend(
+            self.offered_searches()
+                .map(|s| (s.all.order, Section::Offered(s))),
+        );
+        sections.sort_by_key(|(order, _)| *order);
         let mut items = Vec::new();
-        if scope.is_none_or(|s| s == '>') {
-            items.extend(
-                self.command_items("Commands", &words, cx)
-                    .into_iter()
-                    .take(cap(5)),
-            );
+        for (_, section) in sections {
+            match section {
+                Section::Commands if scope.is_none_or(|s| s == '>') => items.extend(
+                    self.command_items("Commands", &words, cx)
+                        .into_iter()
+                        .take(cap(5)),
+                ),
+                // The Files tab's first finds: this diff's, then the repository's (X56).
+                Section::Files if shows(Some('@')) => items.extend(
+                    self.file_items(rest, files, cx)
+                        .into_iter()
+                        .take(cap(3))
+                        .map(|i| Item {
+                            group: "Files",
+                            ..i
+                        }),
+                ),
+                Section::Commits if shows(None) => items.extend(
+                    self.branches()
+                        .map(|b| {
+                            b.commits_where(
+                                &|c| {
+                                    matches(&words, &c.summary)
+                                        || matches(&words, &c.author)
+                                        || c.id.to_string().starts_with(&words[0])
+                                },
+                                4,
+                                cx,
+                            )
+                        })
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|c| Item {
+                            group: "Commits",
+                            label: c.summary.clone(),
+                            detail: format!("{} · {}", format::short(c.id), c.author),
+                            key: "",
+                            pick: Pick::Commit(c.id),
+                        }),
+                ),
+                Section::Offered(search) if shows(search.all.prefix) => {
+                    let ask = artoo_shell_api::search::Ask {
+                        text: rest,
+                        all: true,
+                    };
+                    let few = cap(search.all.few);
+                    items.extend(self.offered_items(search, ask, cx).into_iter().take(few));
+                }
+                _ => {}
+            }
         }
-        if scope.is_none_or(|s| s == '#') && !words.is_empty() | scope.is_some() {
-            items.extend(
-                crate::rank::rank(self.listed_branches(cx), rest, |(_, b)| &b.name)
-                    .into_iter()
-                    .take(cap(3))
-                    .map(|(ix, b)| Item {
-                        group: "Branches",
-                        label: b.name.clone(),
-                        detail: format::short(b.tip),
-                        key: "",
-                        pick: Pick::Branch(ix),
-                    }),
-            );
-        }
-        // The Files tab's first finds: this diff's, then the repository's (X56).
-        if scope.is_none_or(|s| s == '@') && !words.is_empty() | scope.is_some() {
-            items.extend(
-                self.file_items(rest, files, cx)
-                    .into_iter()
-                    .take(cap(3))
-                    .map(|i| Item {
-                        group: "Files",
-                        ..i
-                    }),
-            );
-        }
+        // Jumping to what was typed beats the commands when something real matched.
         if scope.is_none() && !words.is_empty() {
-            items.extend(
-                self.branches()
-                    .map(|b| {
-                        b.commits_where(
-                            &|c| {
-                                matches(&words, &c.summary)
-                                    || matches(&words, &c.author)
-                                    || c.id.to_string().starts_with(&words[0])
-                            },
-                            4,
-                            cx,
-                        )
-                    })
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|c| Item {
-                        group: "Commits",
-                        label: c.summary.clone(),
-                        detail: format!("{} · {}", format::short(c.id), c.author),
-                        key: "",
-                        pick: Pick::Commit(c.id),
-                    }),
-            );
-            let number = rest.trim_start_matches(['!', '#']);
-            items.extend(
-                self.request_list(cx)
-                    .iter()
-                    .filter(|m| matches(&words, &m.title) || m.iid.to_string() == number)
-                    .take(3)
-                    .map(|m| Item {
-                        group: "Merge requests",
-                        label: format!("{} {}", super::words::number(m.iid), m.title),
-                        detail: m.author.clone(),
-                        key: "",
-                        pick: Pick::Request(m.iid),
-                    }),
-            );
-            // Jumping to what was typed beats the commands when something real matched.
             items.sort_by_key(|i| (i.group == "Commands") as u8);
         }
         items
@@ -1105,6 +1130,15 @@ impl Workspace {
                 self.palette = None;
                 self.open_request(iid, cx);
             }
+            // Opened as a part's route is (`Frame::open`).
+            Pick::Open(route) => {
+                self.palette = None;
+                if self.drawn().has(&route) {
+                    self.go_page(route, cx);
+                } else {
+                    self.toast_info(format!("Nothing here opens {}", route.kind).into(), cx);
+                }
+            }
             Pick::RepoFile(path) => {
                 self.palette = None;
                 // Not changed here: read in Code (D18, #71).
@@ -1195,7 +1229,7 @@ impl Workspace {
     ) -> Option<impl IntoElement + use<>> {
         let p = self.palette.as_ref()?;
         let placeholder = match &p.kind {
-            Kind::Search(scope) => scope.placeholder(),
+            Kind::Search(scope) => self.scope_placeholder(*scope),
             Kind::Recent => "Recent places — files, commits, merge requests",
             Kind::Structure => "Functions and types this file changes",
             Kind::Bookmarks => "Bookmarks — lines marked with F3",
@@ -1277,21 +1311,25 @@ impl Workspace {
         // Search everywhere: its tabs, what each found, and the one on with its key.
         let (tabs, foot) = match p.kind {
             Kind::Search(on) => {
-                let tabs = Scope::ALL
-                    .into_iter()
-                    .enumerate()
+                let tabs = (self.scopes().into_iter().enumerate())
                     .map(|(i, scope)| palette::Tab {
-                        label: scope.label(),
-                        count: p.counts.map(|c| c[i]),
+                        label: self.scope_label(scope),
+                        count: p.counts.as_ref().and_then(|c| c.get(i).copied()),
                         lit: scope == on,
                     })
                     .collect();
-                let key = keymap
-                    .shown(on.action().as_ref())
-                    .unwrap_or_else(|| on.key().to_owned());
+                let go = self.scope_go(on);
+                let key = (artoo_shell_api::actions(cx).iter())
+                    .find(|a| a.id == go)
+                    .map(|a| {
+                        let act = a.act.as_ref();
+                        let shipped = || keymap.shipped_key(act).map(|k| foot_key(&k));
+                        keymap.shown(act).or_else(shipped).unwrap_or_default()
+                    })
+                    .unwrap_or_default();
                 let foot = format!(
                     "{} · {}",
-                    super::words::say(on.label()),
+                    super::words::say(self.scope_label(on)),
                     super::keys::text(&key)
                 );
                 (Some(tabs), Some(foot))
@@ -1332,15 +1370,25 @@ impl palette::PaletteHost for Glue {
     }
 
     fn scope(&self, ix: usize, _: &mut Window, cx: &mut App) {
-        if let Some(scope) = Scope::ALL.get(ix).copied() {
-            self.0.update(cx, |this, cx| this.search(scope, cx)).ok();
-        }
+        self.0
+            .update(cx, |this, cx| {
+                if let Some(scope) = this.scopes().get(ix).copied() {
+                    this.search(scope, cx)
+                }
+            })
+            .ok();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_foot_writes_a_shipped_key_the_command_key_first() {
+        assert_eq!(foot_key("cmd-k"), "⌘K");
+        assert_eq!(foot_key("cmd-shift-r"), "⌘⇧R");
+    }
 
     #[test]
     fn a_project_is_found_by_its_name_then_by_its_path() {

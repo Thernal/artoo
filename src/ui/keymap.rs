@@ -371,11 +371,15 @@ impl Keymap {
     /// ships with; `""` when it has none.
     pub fn key_now(&self, action: &dyn gpui::Action) -> String {
         self.shown(action).unwrap_or_else(|| {
-            self.shipped(short(action.name()))
-                .first()
-                .map(|k| symbols(k))
+            self.shipped_key(action)
+                .map(|k| symbols(&k))
                 .unwrap_or_default()
         })
+    }
+
+    /// The first key `action` ships with, as bindings write it (`cmd-shift-r`); `None` when it ships with none.
+    pub fn shipped_key(&self, action: &dyn gpui::Action) -> Option<String> {
+        self.shipped(short(action.name())).into_iter().next()
     }
 
     /// The keys the user changed: (label, keys).

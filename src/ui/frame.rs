@@ -426,7 +426,7 @@ impl Render for Workspace {
         // ⌃1, the branch quick switch: search everywhere on its Branches (#72).
         .on_action(cx.listener(|this, _: &SwitchBranch, _, cx| {
             if this.root.is_some() {
-                this.search(palette::Scope::Branches, cx)
+                this.search(palette::Scope::Offered(artoo_branches_api::SEARCH), cx)
             }
         }))
         // ⌃2 ⌃3: a section of the side panel; narrow, its drawer opens there (#80).
@@ -492,16 +492,12 @@ impl Render for Workspace {
         .on_action(
             cx.listener(|this, _: &SearchCommits, _, cx| this.search(palette::Scope::Commits, cx)),
         )
-        .on_action(
-            cx.listener(|this, _: &SearchBranches, _, cx| {
-                this.search(palette::Scope::Branches, cx)
-            }),
-        )
-        .on_action(
-            cx.listener(|this, _: &SearchRequests, _, cx| {
-                this.search(palette::Scope::Requests, cx)
-            }),
-        )
+        .on_action(cx.listener(|this, _: &SearchBranches, _, cx| {
+            this.search(palette::Scope::Offered(artoo_branches_api::SEARCH), cx)
+        }))
+        .on_action(cx.listener(|this, _: &SearchRequests, _, cx| {
+            this.search(palette::Scope::Offered(artoo_requests_api::SEARCH), cx)
+        }))
         .on_action(
             cx.listener(|this, _: &SearchActions, _, cx| this.search(palette::Scope::Actions, cx)),
         )

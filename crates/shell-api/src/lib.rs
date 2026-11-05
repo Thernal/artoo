@@ -20,6 +20,9 @@
 //!   what the page bar says of it (`path`), and what the tab frames it as — a page of its own, a list, an item's
 //!   screen, its islands with the keyboard (`screen`) —, and its row in the menu while it is open (`row`). A
 //!   feature opens one of its own through the `Frame` like any other.
+//! - **Searches** (`Parts::searches`, `search`): a scope of search everywhere a feature offers in a tab — ⌘K's tab,
+//!   its words, the action that opens it, what it finds for a text and the route each find opens; the All tab
+//!   takes a few of each, or its own alone after its character (`#`).
 //! - **`Frame`**: what a part asks of its tab: a toast, the error line, a redraw, the text selection, the places
 //!   it has open, its tool window opened or closed, a menu at the pointer, the narrow tab's drawer closed, a
 //!   route opened (or a space's own page), a route kept among the places opened lately, the tab's services.
@@ -39,6 +42,7 @@ pub mod frame;
 pub mod links;
 pub mod palette;
 pub mod render;
+pub mod search;
 pub mod settings;
 pub mod setup;
 pub mod shortcuts;
@@ -834,6 +838,8 @@ pub struct Parts {
     pub pieces: Vec<Piece>,
     /// The kinds of link it finds in the tab's texts (`links`).
     pub links: Vec<links::Pattern>,
+    /// Its scopes of search everywhere (`search`): ⌘K's tabs it offers.
+    pub searches: Vec<search::Search>,
 }
 
 type Maker = Rc<dyn Fn(Rc<dyn Frame>, &mut Window, &mut App) -> Parts>;
