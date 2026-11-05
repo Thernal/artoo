@@ -46,9 +46,12 @@ impl Workspace {
                     Fix::Page(url) if Some(url) == pipeline.as_ref() => "Pipeline →",
                     Fix::Page(_) => host,
                 };
-                Entry::new(b.what, Act::MergeFix(b.fix))
-                    .detail(b.detail)
-                    .key(key)
+                Entry::new(b.what, {
+                    let fix = b.fix;
+                    Act::new(move |this, _, cx| this.go_fix(fix.clone(), cx))
+                })
+                .detail(b.detail)
+                .key(key)
             })
             .collect();
         let title = if github {

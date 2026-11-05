@@ -97,22 +97,10 @@ impl Workspace {
     ) {
         let mut moves = Vec::new();
         if ix > 0 {
-            moves.push(Entry::new(
-                "Move up",
-                Act::MoveProject {
-                    from: ix,
-                    to: ix - 1,
-                },
-            ));
+            moves.push(Entry::new("Move up", move_project(ix, ix - 1)));
         }
         if ix + 1 < n {
-            moves.push(Entry::new(
-                "Move down",
-                Act::MoveProject {
-                    from: ix,
-                    to: ix + 1,
-                },
-            ));
+            moves.push(Entry::new("Move down", move_project(ix, ix + 1)));
         }
         let mut open = Vec::new();
         if let Some(root) = tab.root.clone() {
@@ -122,15 +110,31 @@ impl Workspace {
                 } else {
                     "Show the folder"
                 },
-                Act::Reveal(root.clone()),
+                Act::reveal(root.clone()),
             ));
-            open.push(Entry::new(
-                "Open in a new window",
-                Act::NewWindow(root.clone()),
-            ));
-            moves.insert(0, Entry::new("Name and colour…", Act::NameProject(root)));
+            open.push(Entry::new("Open in a new window", {
+                let root = root.clone();
+                Act::new(move |_, _, cx| {
+                    let root = root.clone();
+                    cx.defer(move |cx| super::open_new_window(root, cx))
+                })
+            }));
+            moves.insert(
+                0,
+                Entry::new(
+                    "Name and colour…",
+                    Act::new(move |this, _, cx| {
+                        this.open_label(super::labeling::Target::Project(root.clone()), cx)
+                    }),
+                ),
+            );
         }
-        let close = vec![Entry::new("Close", Act::CloseProject(ix))];
+        let close = vec![Entry::new(
+            "Close",
+            Act::new(move |this, window, cx| {
+                this.with_shell(window, cx, move |s, window, cx| s.close(ix, window, cx))
+            }),
+        )];
         self.open_menu(at, vec![moves, open, close], cx);
     }
 
@@ -141,4 +145,11 @@ impl Workspace {
         }
         self.tabs.borrow().iter().cloned().enumerate().collect()
     }
+}
+
+/// The rail's Move up and Move down (#49): project `from` to place `to`.
+fn move_project(from: usize, to: usize) -> Act {
+    Act::new(move |this, window, cx| {
+        this.with_shell(window, cx, move |s, _, cx| s.move_tab(from, to, cx))
+    })
 }

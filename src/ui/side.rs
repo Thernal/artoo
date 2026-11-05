@@ -53,8 +53,8 @@ impl Workspace {
                 } => this.run_compare(base, head, since, request, cx),
                 Act::Versions { from, to } => this.pick(Selection::Versions { from, to }, cx),
                 Act::ShowNew => this.apply_pending(cx),
-                Act::Copy(text) => this.run_act(super::menu::Act::Copy(text), cx),
-                Act::OpenUrl(url) => this.run_act(super::menu::Act::OpenUrl(url), cx),
+                Act::Copy(text) => cx.write_to_clipboard(gpui::ClipboardItem::new_string(text)),
+                Act::OpenUrl(url) => cx.open_url(&url),
             })
             .ok();
         })

@@ -941,7 +941,13 @@ impl Workspace {
                         mr::MrState::Closed,
                     ]
                     .into_iter()
-                    .map(|s| Entry::new(s.word(), Act::RequestView(s)).checked(s == view))
+                    .map(|s| {
+                        Entry::new(
+                            s.word(),
+                            Act::new(move |this, _, cx| this.set_request_view(s, cx)),
+                        )
+                        .checked(s == view)
+                    })
                     .collect();
                     this.open_menu(e.position(), vec![entries], cx);
                 }));

@@ -152,13 +152,10 @@ impl Workspace {
         let entries = short_list(common, &installed(cx), chosen.as_deref())
             .into_iter()
             .map(|face| {
-                Entry::new(
-                    face_label(code, face.as_deref()),
-                    Act::Face {
-                        code,
-                        face: face.clone(),
-                    },
-                )
+                Entry::new(face_label(code, face.as_deref()), {
+                    let face = face.clone();
+                    Act::new(move |this, _, cx| this.choose_face(code, face.clone(), cx))
+                })
                 .checked(face == chosen)
                 .face(face_family(code, face.as_deref()))
             })
@@ -169,7 +166,13 @@ impl Workspace {
                 (Some("Each in its own type"), entries),
                 (
                     None,
-                    vec![Entry::new("Other…", Act::OtherFaces(code)).key("any installed face")],
+                    vec![
+                        Entry::new(
+                            "Other…",
+                            Act::new(move |this, _, cx| this.open_all_faces(code, cx)),
+                        )
+                        .key("any installed face"),
+                    ],
                 ),
             ],
             cx,

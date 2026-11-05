@@ -306,14 +306,17 @@ impl Workspace {
             .into_iter()
             .map(|(app, note)| {
                 let on = now.as_ref() == Some(&app);
-                Entry::new(app.name(), Act::OpenWith(app))
-                    .key(note)
-                    .checked(on)
+                Entry::new(app.name(), {
+                    let app = app.clone();
+                    Act::new(move |this, _, cx| this.open_with_app(app.clone(), cx))
+                })
+                .key(note)
+                .checked(on)
             })
             .collect();
         let places = vec![
-            Entry::new(REVEAL, Act::Reveal(path.clone())).key("⌥⌘R"),
-            Entry::new("Copy path", Act::Copy(path.display().to_string())),
+            Entry::new(REVEAL, Act::reveal(path.clone())).key("⌥⌘R"),
+            Entry::new("Copy path", Act::copy(path.display().to_string())),
         ];
         let mut keep = Vec::new();
         if let (Some(ext), Some(app)) = (extension(&path).filter(|_| kind != Kind::Folder), &now) {
@@ -321,12 +324,15 @@ impl Workspace {
             keep.push(
                 Entry::new(
                     format!("Always open .{ext} in {}", app.name()),
-                    Act::AlwaysOpen(ext),
+                    Act::new(move |this, _, cx| this.always_open(ext.clone(), cx)),
                 )
                 .checked(kept),
             );
         }
-        keep.push(Entry::new("Editor settings…", Act::EditorSettings));
+        keep.push(Entry::new(
+            "Editor settings…",
+            Act::new(|this, _, cx| this.open_settings(cx)),
+        ));
         self.open_titled(
             at,
             vec![(Some("Open with"), open), (None, places), (None, keep)],

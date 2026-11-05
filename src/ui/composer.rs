@@ -808,10 +808,20 @@ impl Workspace {
                 at,
                 vec![
                     vec![
-                        Entry::new("Send this only", Act::AgentSendOnly).key("⌥⌘↵"),
-                        Entry::new("Choose the chat…", Act::AgentChooseChat),
+                        Entry::new(
+                            "Send this only",
+                            Act::new(|this, _, cx| this.add_and_send(true, cx)),
+                        )
+                        .key("⌥⌘↵"),
+                        Entry::new(
+                            "Choose the chat…",
+                            Act::new(|this, _, cx| this.add_and_pick_chat(cx)),
+                        ),
                     ],
-                    vec![Entry::new("Copy as markdown", Act::AgentCopy)],
+                    vec![Entry::new(
+                        "Copy as markdown",
+                        Act::new(|this, _, cx| this.add_and_copy(cx)),
+                    )],
                 ],
                 cx,
             ),
@@ -820,14 +830,32 @@ impl Workspace {
                 let more = match self.compose.as_ref().map(|c| c.target) {
                     Some(Target::Agent) => vec![
                         vec![
-                            Entry::new(send_label, Act::AgentSendAll).key("⇧⌘↵"),
-                            Entry::new("Send this only", Act::AgentSendOnly).key("⌥⌘↵"),
-                            Entry::new("Choose the chat…", Act::AgentChooseChat),
+                            Entry::new(
+                                send_label,
+                                Act::new(|this, _, cx| this.add_and_send(false, cx)),
+                            )
+                            .key("⇧⌘↵"),
+                            Entry::new(
+                                "Send this only",
+                                Act::new(|this, _, cx| this.add_and_send(true, cx)),
+                            )
+                            .key("⌥⌘↵"),
+                            Entry::new(
+                                "Choose the chat…",
+                                Act::new(|this, _, cx| this.add_and_pick_chat(cx)),
+                            ),
                         ],
-                        vec![Entry::new("Copy as markdown", Act::AgentCopy)],
+                        vec![Entry::new(
+                            "Copy as markdown",
+                            Act::new(|this, _, cx| this.add_and_copy(cx)),
+                        )],
                     ],
                     Some(Target::Request(iid)) => vec![vec![
-                        Entry::new("Add to review", Act::AddToReview(iid)).key("⇧⌘↵"),
+                        Entry::new(
+                            "Add to review",
+                            Act::new(move |this, _, cx| this.post_comment(iid, true, cx)),
+                        )
+                        .key("⇧⌘↵"),
                     ]],
                     _ => Vec::new(),
                 };
@@ -935,13 +963,13 @@ fn format_menu(tools: &[Helper], preview: bool) -> Vec<Vec<super::menu::Entry>> 
             let (_, tip) = markdown::helper_look(h);
             let (name, key) = tip.split_once("  ").unwrap_or((tip, ""));
             let name = name.split(" — ").next().unwrap_or(name);
-            Entry::new(name, Act::ComposeHelper(h)).key(key)
+            Entry::new(name, Act::new(move |this, _, cx| this.apply_helper(h, cx))).key(key)
         })
         .collect();
     vec![
         helpers,
         vec![
-            Entry::new("Preview", Act::ComposePreview)
+            Entry::new("Preview", Act::new(|this, _, cx| this.toggle_preview(cx)))
                 .key("⌘⇧P")
                 .checked(preview),
         ],

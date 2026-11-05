@@ -506,14 +506,21 @@ impl Workspace {
     /// Code colours' menu: Follow the window, then every code theme, the one in use checked.
     fn open_code_themes(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
         let current = theme::choice().code;
-        let follow =
-            Entry::new("Follow the window", Act::CodeTheme(None)).checked(current.is_none());
+        let follow = Entry::new(
+            "Follow the window",
+            Act::new(|this, _, cx| this.choose_code_theme(None, cx)),
+        )
+        .checked(current.is_none());
         let themes = theme::all()
             .into_iter()
             .filter(|t| t.code)
             .map(|t| {
                 let on = current.as_deref() == Some(t.id.as_str());
-                Entry::new(t.label, Act::CodeTheme(Some(t.id))).checked(on)
+                Entry::new(t.label, {
+                    let id = t.id;
+                    Act::new(move |this, _, cx| this.choose_code_theme(Some(id.clone()), cx))
+                })
+                .checked(on)
             })
             .collect();
         self.open_titled(at, vec![(None, vec![follow]), (Some("Code"), themes)], cx);

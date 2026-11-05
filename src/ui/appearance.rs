@@ -453,8 +453,11 @@ impl Workspace {
             themes
                 .into_iter()
                 .map(|t| {
-                    Entry::new(t.label.clone(), Act::ThemeBase(t.id.clone()))
-                        .checked(t.id == current)
+                    Entry::new(t.label.clone(), {
+                        let id = t.id.clone();
+                        Act::new(move |this, _, cx| this.set_theme_base(&id, cx))
+                    })
+                    .checked(t.id == current)
                 })
                 .collect::<Vec<_>>()
         };

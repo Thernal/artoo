@@ -177,8 +177,11 @@ pub struct InMenu {
     /// Where it stands in its group, the lowest first; those of one order as they were offered.
     pub order: u16,
     /// A choice: whether it is on, asked as the menus are set.
-    pub checked: Option<Rc<dyn Fn(&App) -> bool>>,
+    pub checked: Option<Checked>,
 }
+
+/// Whether a menu item that is a choice is on (`InMenu::checked`).
+pub type Checked = Rc<dyn Fn(&App) -> bool>;
 
 /// A menu of the menu bar, in its order there. A feature adds items to them; the menus themselves are the
 /// frame's.

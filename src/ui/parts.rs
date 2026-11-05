@@ -114,7 +114,7 @@ impl Frame for TabFrame {
                     .into_iter()
                     .map(|item| {
                         let entry = match item.run {
-                            Some(run) => Entry::new(item.label, Act::Part(run)),
+                            Some(run) => Entry::new(item.label, Act::part(run)),
                             None => Entry::off(item.label),
                         };
                         let entry = entry.key(item.key);

@@ -1985,51 +1985,92 @@ impl Workspace {
                 DiffMode::ALL
                     .iter()
                     .map(|&mode| {
-                        Entry::new(mode.label(), Act::SetMode(mode)).checked(o.mode == mode)
+                        Entry::new(
+                            mode.label(),
+                            Act::new(move |this, _, cx| this.set_mode(mode, cx)),
+                        )
+                        .checked(o.mode == mode)
                     })
                     .collect(),
             ),
             (
                 Some("Show"),
                 vec![
-                    Entry::new("Every line of the file", Act::Toggle(Opt::FullContext))
-                        .key("⌥E")
-                        .checked(o.full_context),
-                    Entry::new("Hide whitespace changes", Act::Toggle(Opt::Whitespace))
-                        .key("⌥W")
-                        .checked(o.ignore_whitespace),
-                    Entry::new("Wrap long lines", Act::Toggle(Opt::Wrap))
-                        .key("⌥Z")
-                        .checked(o.wrap),
-                    Entry::new("Annotate (blame)", Act::Annotate)
-                        .key("⌥⌘B")
-                        .checked(self.rv().annotating(cx)),
+                    Entry::new(
+                        "Every line of the file",
+                        Act::new(|this, _, cx| this.toggle(Opt::FullContext, cx)),
+                    )
+                    .key("⌥E")
+                    .checked(o.full_context),
+                    Entry::new(
+                        "Hide whitespace changes",
+                        Act::new(|this, _, cx| this.toggle(Opt::Whitespace, cx)),
+                    )
+                    .key("⌥W")
+                    .checked(o.ignore_whitespace),
+                    Entry::new(
+                        "Wrap long lines",
+                        Act::new(|this, _, cx| this.toggle(Opt::Wrap, cx)),
+                    )
+                    .key("⌥Z")
+                    .checked(o.wrap),
+                    Entry::new(
+                        "Annotate (blame)",
+                        Act::new(|this, _, cx| this.toggle_annotate(cx)),
+                    )
+                    .key("⌥⌘B")
+                    .checked(self.rv().annotating(cx)),
                 ],
             ),
             (
                 Some("Files"),
                 vec![
-                    Entry::new("One file at a time", Act::Toggle(Opt::OneFile))
-                        .key("⌥A")
-                        .checked(o.one_file),
-                    Entry::new("Fold reviewed files", Act::Toggle(Opt::FoldReviewed))
-                        .checked(o.fold_reviewed),
-                    Entry::new("Mark reviewed as I scroll past", Act::AutoReviewed)
-                        .checked(self.settings.auto_reviewed),
+                    Entry::new(
+                        "One file at a time",
+                        Act::new(|this, _, cx| this.toggle(Opt::OneFile, cx)),
+                    )
+                    .key("⌥A")
+                    .checked(o.one_file),
+                    Entry::new(
+                        "Fold reviewed files",
+                        Act::new(|this, _, cx| this.toggle(Opt::FoldReviewed, cx)),
+                    )
+                    .checked(o.fold_reviewed),
+                    Entry::new(
+                        "Mark reviewed as I scroll past",
+                        Act::new(|this, _, cx| {
+                            this.settings.auto_reviewed = !this.settings.auto_reviewed;
+                            this.save_settings(cx);
+                        }),
+                    )
+                    .checked(self.settings.auto_reviewed),
                 ],
             ),
             (
                 Some("Panels"),
                 vec![
-                    Entry::new("Fold the menu to icons", Act::FoldPlaces)
-                        .key("⌘B")
-                        .checked(self.menu_folded()),
-                    Entry::new("Discussions", Act::Tool(artoo_requests_api::DISCUSSIONS))
-                        .key("⌘⇧D")
-                        .checked(tool == Some(artoo_requests_api::DISCUSSIONS)),
-                    Entry::new("Agents", Act::Tool(artoo_agents_api::view::WINDOW))
-                        .key("⇧⌘A")
-                        .checked(tool == Some(artoo_agents_api::view::WINDOW)),
+                    Entry::new(
+                        "Fold the menu to icons",
+                        Act::new(|this, _, cx| this.toggle_menu(cx)),
+                    )
+                    .key("⌘B")
+                    .checked(self.menu_folded()),
+                    Entry::new(
+                        "Discussions",
+                        Act::new(|this, _, cx| {
+                            this.toggle_tool(artoo_requests_api::DISCUSSIONS, cx)
+                        }),
+                    )
+                    .key("⌘⇧D")
+                    .checked(tool == Some(artoo_requests_api::DISCUSSIONS)),
+                    Entry::new(
+                        "Agents",
+                        Act::new(|this, _, cx| {
+                            this.toggle_tool(artoo_agents_api::view::WINDOW, cx)
+                        }),
+                    )
+                    .key("⇧⌘A")
+                    .checked(tool == Some(artoo_agents_api::view::WINDOW)),
                 ],
             ),
         ]
@@ -2053,20 +2094,20 @@ impl Workspace {
             !s.is_empty() && s.old == old && (start.line..=end.line).contains(&line)
         });
         let copy = match self.rv().selected_text(cx) {
-            Some(text) if in_selection => Entry::new("Copy selection", Act::Copy(text)).key("⌘C"),
+            Some(text) if in_selection => Entry::new("Copy selection", Act::copy(text)).key("⌘C"),
             _ => Entry::new(
                 "Copy line",
-                Act::Copy(data.side(old).line(line).0.to_owned()),
+                Act::copy(data.side(old).line(line).0.to_owned()),
             ),
         };
         let mut second = vec![Entry::new(
             "Comment on this line",
-            Act::Comment { old, line },
+            Act::new(move |this, _, cx| this.start_comment(old, line, cx)),
         )];
         if let (false, Some(path), Some(editor)) = (old, self.current_path(cx), self.editor(cx)) {
             second.push(Entry::new(
                 format!("Open in {} at line {line}", editor.label),
-                Act::OpenEditor { path, line },
+                Act::new(move |this, _, cx| this.open_in_editor(&path, line, cx)),
             ));
         }
         // What a reviewer pastes into a chat: a link to the line, its place, the command.
@@ -2076,14 +2117,14 @@ impl Workspace {
                 share.push(
                     Entry::new(
                         format!("Copy link to line · {}", web.name()),
-                        Act::Copy(web.blob(&rev.to_string(), &path, line)),
+                        Act::copy(web.blob(&rev.to_string(), &path, line)),
                     )
                     .key("↗"),
                 );
             }
             share.push(Entry::new(
                 "Copy path:line",
-                Act::Copy(format!("{path}:{line}")),
+                Act::copy(format!("{path}:{line}")),
             ));
             if matches!(
                 self.branches().map(|b| b.selection(cx)),
@@ -2091,7 +2132,7 @@ impl Workspace {
             ) {
                 share.push(Entry::new(
                     format!("Copy git show {}", format::short(rev)),
-                    Act::Copy(format!("git show {}", format::short(rev))),
+                    Act::copy(format!("git show {}", format::short(rev))),
                 ));
             }
         }
@@ -2103,8 +2144,8 @@ impl Workspace {
             return;
         };
         let mut groups = vec![vec![
-            Entry::new("Copy SHA", Act::Copy(commit.id.to_string())),
-            Entry::new("Copy message", Act::Copy(commit.message.clone())),
+            Entry::new("Copy SHA", Act::copy(commit.id.to_string())),
+            Entry::new("Copy message", Act::copy(commit.message.clone())),
         ]];
         // Its page on the host; one only on this Mac says so instead (#162).
         let link = self.commit_link_entry(commit.id, cx);
@@ -2113,7 +2154,7 @@ impl Workspace {
         if let Some(web) = self.web.as_ref().filter(|_| on_host) {
             groups.push(vec![Entry::new(
                 format!("Open in {} ↗", web.name()),
-                Act::OpenUrl(web.commit(&commit.id.to_string())),
+                Act::open_url(web.commit(&commit.id.to_string())),
             )]);
         }
         self.open_menu(at, groups, cx);
@@ -2130,8 +2171,8 @@ impl Workspace {
         };
         let name = path.rsplit('/').next().unwrap_or(&path).to_owned();
         let mut groups = vec![vec![
-            Entry::new("Copy path", Act::Copy(path.clone())),
-            Entry::new("Copy file name", Act::Copy(name)),
+            Entry::new("Copy path", Act::copy(path.clone())),
+            Entry::new("Copy file name", Act::copy(name)),
         ]];
         // Where the host anchors the diff's files: this one in it (#162).
         if let Some(link) = self.diff_file_link(&path, cx) {
@@ -2140,7 +2181,7 @@ impl Workspace {
         if let Some(editor) = self.editor(cx) {
             groups.push(vec![Entry::new(
                 format!("Open in {}", editor.label),
-                Act::OpenEditor { path, line: 1 },
+                Act::new(move |this, _, cx| this.open_in_editor(&path, 1, cx)),
             )]);
         }
         self.open_menu(at, groups, cx);
@@ -2157,20 +2198,24 @@ impl Workspace {
         };
         let mut groups = vec![vec![Entry::new(
             "Copy branch name",
-            Act::Copy(branch.name.clone()),
+            Act::copy(branch.name.clone()),
         )]];
         // Its page on the host; one only on this Mac says so instead (#162).
         let link = self.branch_link(&branch.name, cx).ok();
         groups[0].extend(self.branch_link_entry(&branch.name, cx));
         if self.requests_available(cx) && branch.name != "main" && branch.name != "master" {
             groups.push(vec![
-                Entry::new("Create merge request…", Act::CreateRequest(ix)).key("⌥⌘M"),
+                Entry::new(
+                    "Create merge request…",
+                    Act::new(move |this, _, cx| this.open_create(Some(ix), cx)),
+                )
+                .key("⌥⌘M"),
             ]);
         }
         if let (Some(web), Some(link)) = (&self.web, link) {
             groups.push(vec![Entry::new(
                 format!("Open in {} ↗", web.name()),
-                Act::OpenUrl(link.url),
+                Act::open_url(link.url),
             )]);
         }
         self.open_menu(at, groups, cx);

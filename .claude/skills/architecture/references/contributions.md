@@ -7,9 +7,9 @@ since 2026-10-30, Code's pages the first on it, still drawn in the app until Cod
 (`Toast`, the closed `toast::Act` gone, #171); tool windows and editors since 2026-11-04 (`Tool`, the tab's
 `tools::Tool` gone; `add_editor`, the core's `Editor` enum data, #171); commands since 2026-11-05 (every one offered, the
 window root's as data in `src/ui/commands.rs`; ⌘K, the menu bar and the keys made from the registry alone, `palette::Cmd`
-and the hand-written lists gone, #171). Until every space is on it, `Page` (`src/ui/nav.rs`) and `menu::Act`
-are what these replace, and a new page or a context menu's act is added there in the shape below — one variant, one
-id, one owner. A new command is offered: the window root's in `commands.rs` while the tab runs it, a feature's in its
+and the hand-written lists gone; a context menu's entry a closure where the menu is made, the closed `menu::Act` gone,
+#171). Until every space is on it, `Page` (`src/ui/nav.rs`) is what these replace, and a new page is added there in
+the shape below — one variant, one id, one owner. A new command is offered: the window root's in `commands.rs` while the tab runs it, a feature's in its
 `install`.
 
 **What `artoo-shell-api` holds now:** `add_action` (an `Action`: its id, its GPUI action, its words for ⌘K and its
@@ -67,7 +67,7 @@ defers what reads it (`cx.defer`); the part's views, listeners and tasks read it
 
 ## Why
 
-- `menu::Act`'s variants and the toasts are the edges that tie the UI together today: one enum holding every
+- `menu::Act`'s variants and the toasts were the edges that tied the UI together: one enum holding every
   feature's actions makes every feature depend on the crate that holds it, and that crate on every feature's
   code to run them. A registry turns both edges around: features know the shell's contract, the shell knows
   no feature.

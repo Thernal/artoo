@@ -125,11 +125,11 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         use super::menu::{Act, Entry};
-        let mut place = vec![Entry::new("Copy path", Act::Copy(folder.clone()))];
+        let mut place = vec![Entry::new("Copy path", Act::copy(folder.clone()))];
         if let Some(root) = &self.root {
             place.push(Entry::new(
                 artoo_ui_kit::controls::REVEAL,
-                Act::Reveal(root.join(&folder)),
+                Act::reveal(root.join(&folder)),
             ));
         }
         self.open_menu(
@@ -137,7 +137,10 @@ impl Workspace {
             vec![
                 vec![Entry::new(
                     "A note for your agent on this folder",
-                    Act::FolderNote(folder),
+                    Act::new(move |this, _, cx| {
+                        this.open_folder_page(folder.clone(), cx);
+                        this.start_folder_comment(&folder, cx);
+                    }),
                 )],
                 place,
             ],

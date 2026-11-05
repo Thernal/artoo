@@ -94,7 +94,7 @@ The target above is reached for every feature: each implementation shows the app
   `branches`), hearing what they say through it too (`on_event`, `on_change`). What its `impl Workspace` blocks
   still do is coordination across them — a branch's commit picked is the history's selection and the review loading
   its diff, a request opened, the composer's targets — and the frame they share: the page on screen and its
-  history, the side panel, zones and the keyboard's rule, ⌘K, `menu::Act`, the toasts' stack, the stripe of the
+  history, the side panel, zones and the keyboard's rule, ⌘K, the context menus, the toasts' stack, the stripe of the
   features' tool windows. New work on a feature goes into
   its crate, asked through its contract; what is the tab's stays coordination.
 - Done: the shell (`artoo-shell`, every piece of the frame through `artoo-shell-api`'s render contracts), Code,
@@ -107,10 +107,11 @@ The target above is reached for every feature: each implementation shows the app
 - `Page` (`src/ui/nav.rs`) is a closed enum the route registry replaces; it is kept as a route already (the
   core's `Route` and `Place`), each kind's type its owner's contract's (Code's, the branches', a merge request's),
   `src/ui/routes.rs` mapping them; it stays the window root's until a place comes from outside the app (a plugin).
-  `menu::Act` still knows the other features. Meanwhile a new page or a context menu's act is added there in the
-  shape the registries will take: one variant, one id, one owner. Every command is offered (`add_action`), the window
-  root's as data in `src/ui/commands.rs`, and ⌘K, the menu bar and the keys are made from the registry alone (#171
-  phase 3). A toast is `artoo_shell_api::Toast`, raised through the
+  Meanwhile a new page is added there in the shape the registries will take: one variant, one id, one owner. Every
+  command is offered (`add_action`), the window root's as data in `src/ui/commands.rs`, a feature's in its `install`
+  (⇧⌘D the requests', ⇧⌘A the agents'), and ⌘K, the menu bar and the keys are made from the registry alone; a
+  context menu's entry does what a closure says where the menu is made (`menu::Act::new`), the closed `menu::Act`
+  gone (#171 phase 3). A toast is `artoo_shell_api::Toast`, raised through the
   `Frame` by what it is about, its button an action (#171 phase 1). Every tool window is a feature's
   `artoo_shell_api::Tool` (Code's Outline, the requests' Discussions), and an editor Open in names is offered with
   `add_editor`, Artoo's three by the shell (#171 phase 2).

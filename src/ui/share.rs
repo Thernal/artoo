@@ -21,10 +21,7 @@ pub(super) struct Link {
 
 impl Link {
     pub(super) fn act(self) -> Act {
-        Act::CopySaid {
-            said: format!("Link to {}", self.what),
-            text: self.url,
-        }
+        Act::copy_said(self.url, format!("Link to {}", self.what))
     }
 
     /// The same page at `anchor`, a file of its diff.
@@ -319,7 +316,7 @@ impl Workspace {
     /// ⌘K's and ⌥⇧⌘C's: the page on screen's link copied, or why it has none.
     pub(super) fn copy_page_link(&mut self, cx: &mut Context<Self>) {
         match self.page_link(cx) {
-            Ok(link) => self.run_act(link.act(), cx),
+            Ok(link) => self.copy_said(link.url, &format!("Link to {}", link.what), cx),
             Err(why) => self.toast_info(why.into(), cx),
         }
     }
@@ -345,15 +342,12 @@ impl Workspace {
                 Entry::new("Copy link", link.act()).key("↗"),
                 Entry::new(
                     format!("Copy {number}"),
-                    Act::CopySaid {
-                        text: number.clone(),
-                        said: number,
-                    },
+                    Act::copy_said(number.clone(), number),
                 ),
             ],
             vec![Entry::new(
                 format!("Open in {} ↗", web.name()),
-                Act::OpenUrl(url),
+                Act::open_url(url),
             )],
         ];
         self.open_menu(at, groups, cx);
@@ -385,7 +379,7 @@ impl Workspace {
             (Ok(link), Some(web)) => {
                 let open = Entry::new(
                     format!("Open in {} ↗", web.name()),
-                    Act::OpenUrl(link.url.clone()),
+                    Act::open_url(link.url.clone()),
                 );
                 vec![
                     vec![Entry::new("Copy link", link.act()).key("↗")],
