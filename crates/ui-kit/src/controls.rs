@@ -106,6 +106,27 @@ pub fn setting(
         .child(div().flex_none().child(control))
 }
 
+/// A part's title over its rows, with a line under it if there is one (Settings → Appearance's Window, Fonts and
+/// size).
+pub fn subhead(title: &'static str, sub: &'static str) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(2.))
+        .child(
+            div()
+                .text_size(px(14.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(title),
+        )
+        .children((!sub.is_empty()).then(|| {
+            div()
+                .text_size(px(12.))
+                .text_color(theme::muted())
+                .child(sub)
+        }))
+}
+
 /// The foot of a tool window, under its body that scrolls: where its buttons are.
 pub fn tool_foot() -> Div {
     div()

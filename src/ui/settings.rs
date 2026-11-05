@@ -190,7 +190,7 @@ impl Workspace {
         let section = self.settings_section;
         // Rows that fill the section take the page's height: the theme editor's tokens scroll beside a preview that
         // stays.
-        let mut editing = section == APPEARANCE && self.theme_edit.is_some();
+        let mut editing = false;
         let column = || div().flex().flex_col().gap_5();
         let content: gpui::AnyElement = match section {
             DIFF => column()
@@ -229,27 +229,6 @@ impl Workspace {
                     rich,
                 ))
                 .into_any_element(),
-            APPEARANCE => self.render_appearance(
-                item(
-                    "Several projects",
-                    "",
-                    projects,
-                )
-                .into_any_element(),
-                item(
-                    "Panes",
-                    "",
-                    panes,
-                )
-                .into_any_element(),
-                item(
-                    "Animations",
-                    "",
-                    animations,
-                )
-                .into_any_element(),
-                cx,
-            ),
             GENERAL => column()
                 .child(item(
                     "Open files in",
@@ -310,7 +289,8 @@ impl Workspace {
                     .into_any_element()
             }),
             KEYBOARD => self.render_keyboard_settings(cx).into_any_element(),
-            // A feature's section: the parts' rows in their places (Settings → Agents), or the rows that fill it now.
+            // A feature's section: the parts' rows and the window root's in their places (Settings → Agents,
+            // Appearance), or the rows that fill it now (the theme editor).
             other => {
                 let rows = self.settings_rows(other);
                 match rows.iter().find(|r| r.fills.as_ref().is_some_and(|now| now(cx))) {
@@ -318,9 +298,25 @@ impl Workspace {
                         editing = true;
                         filling.view.clone().into_any_element()
                     }
-                    None => column()
-                        .children(rows.into_iter().map(|r| r.view))
-                        .into_any_element(),
+                    None => {
+                        // Appearance holds the faces and sizes, the projects, the panes and motion between the
+                        // themes' cards (10) and your themes (80).
+                        let mut placed: Vec<(u16, gpui::AnyElement)> = if other == APPEARANCE {
+                            vec![
+                                (40, self.render_fonts(cx)),
+                                (50, item("Several projects", "", projects).into_any_element()),
+                                (60, item("Panes", "", panes).into_any_element()),
+                                (70, item("Animations", "", animations).into_any_element()),
+                            ]
+                        } else {
+                            Vec::new()
+                        };
+                        placed.extend(rows.into_iter().map(|r| (r.order, r.view.into_any_element())));
+                        placed.sort_by_key(|(order, _)| *order);
+                        column()
+                            .children(placed.into_iter().map(|(_, row)| row))
+                            .into_any_element()
+                    }
                 }
             }
         };
@@ -365,10 +361,12 @@ impl settings::SettingsHost for Glue {
 
 use artoo_shell_api::settings::{self, Section};
 
+/// Appearance's section (`artoo-appearance`'s, order 20): the window root's rows go into it.
+pub(super) const APPEARANCE: &str = "appearance";
+
 /// The window root's sections of Settings, by id: the tab draws them (`render_settings`). A feature's section holds
 /// its parts' rows; the agents' is between Merge requests and Keyboard (order 60).
 pub(super) const DIFF: &str = "diff";
-pub(super) const APPEARANCE: &str = "appearance";
 pub(super) const GENERAL: &str = "general";
 pub(super) const REPOSITORY: &str = "repository";
 pub(super) const REQUESTS: &str = "requests";
@@ -378,7 +376,6 @@ pub(super) const KEYBOARD: &str = "keyboard";
 pub(super) fn install(cx: &mut App) {
     for (id, title, order) in [
         (DIFF, "Diff", 10),
-        (APPEARANCE, "Appearance", 20),
         (GENERAL, "General", 30),
         (REPOSITORY, "Repository", 40),
         (REQUESTS, "Merge requests", 50),

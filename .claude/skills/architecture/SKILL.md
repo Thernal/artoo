@@ -101,7 +101,9 @@ The target above is reached for every feature: each implementation shows the app
   updates and reports, hosts (the hosts' contract, the connect panel a part of every tab behind
   `artoo_hosts_api::connect::Connect`, markdown's pictures through the kit's `Pictures` port) and agents (their
   models, a tab's agents `artoo_agents_api::tab::Agents`, the folder the windows read `bus::Folder`, what the tab
-  draws of them a render contract `view`). `artoo-shell-api` holds actions, parts (a title-bar item, a card over the
+  draws of them a render contract `view`), and Appearance (`artoo-appearance`, #171 phase 4: Settings → Appearance's
+themes, the theme editor and the file icons, the window root's faces and panes rows placed in its section by their
+order; Set up's Look its rows' short form). `artoo-shell-api` holds actions, parts (a title-bar item, a card over the
   window, a tool window, Settings rows, snapshot views, a space's pages, inputs, pieces) and `Frame`; the tab draws
   them (`src/ui/parts.rs`).
 - `Page` (`src/ui/nav.rs`) is a closed enum the route registry replaces; it is kept as a route already (the

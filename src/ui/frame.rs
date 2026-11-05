@@ -208,12 +208,8 @@ impl Render for Workspace {
         self.discussions_showing.set(self.showing_request(cx));
         self.take_error(cx);
         self.poll_parts(cx);
-        // Settings closed (esc, Done, a place) while a theme was edited: its preview ends too, and what a part's rows
-        // began.
+        // Settings closed (esc, Done, a place): what a part's rows began ends (a theme edited: its preview).
         if !self.settings_open {
-            if self.theme_edit.is_some() {
-                self.close_theme_edit(cx);
-            }
             self.settings_closed(cx);
         }
         // Before anything is drawn: which input has the keyboard now (#168).
@@ -323,7 +319,6 @@ impl Render for Workspace {
         .on_action(cx.listener(Self::go_back_action))
         .on_action(cx.listener(Self::go_forward_action))
         .on_action(cx.listener(Self::toggle_sidebar))
-        .on_action(cx.listener(Self::save_theme_key))
         .on_action(cx.listener(Self::toggle_files))
         .on_action(cx.listener(Self::toggle_requests))
         .on_action(cx.listener(Self::focus_diff))

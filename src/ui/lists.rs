@@ -43,7 +43,6 @@ impl Workspace {
                 },
             ),
             Field::Keys => (&self.keys_filter, input::Look::default()),
-            Field::ThemeValue => (&self.theme_value, input::Look::default()),
             Field::Host => (&self.welcome.host, input::Look::default()),
             Field::CloneUrl => (&self.welcome.url, input::Look::default()),
             Field::Label => (&self.label_name, input::Look::default()),
@@ -104,20 +103,6 @@ impl Workspace {
             cx.notify();
             return true;
         }
-        if field == Field::ThemeValue {
-            match input::edit(
-                &mut self.theme_value,
-                &mut self.field_edit,
-                &event.keystroke,
-                cx,
-            ) {
-                Edit::Changed => self.theme_value_changed(cx),
-                Edit::Enter { .. } | Edit::Escape => self.field = None,
-                Edit::Selected | Edit::Ignored => {}
-            }
-            cx.notify();
-            return true;
-        }
         // A root list's filter keeps ↑ ↓ for the list it filters (#72).
         if field == Field::Branches
             && self.at_root_list()
@@ -134,7 +119,6 @@ impl Workspace {
             Field::Branches => &mut self.bfilter,
             Field::Token => &mut self.token_input,
             Field::Keys => &mut self.keys_filter,
-            Field::ThemeValue => &mut self.theme_value,
             Field::Host => &mut self.welcome.host,
             Field::CloneUrl => &mut self.welcome.url,
             Field::Label => &mut self.label_name,
@@ -181,8 +165,6 @@ pub enum Field {
     Token,
     /// The filter of Settings → Keyboard.
     Keys,
-    /// The value of a token in the theme editor (Settings → Appearance).
-    ThemeValue,
     /// The welcome's connect card: the host (#54).
     Host,
     /// The welcome's clone card: the repository's URL (#54).

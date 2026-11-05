@@ -608,25 +608,6 @@ pub fn rows_of(per: usize, cards: Vec<AnyElement>) -> Div {
     div().flex().flex_col().gap(px(8.)).children(rows)
 }
 
-pub fn section(title: &'static str, sub: &'static str) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(2.))
-        .child(
-            div()
-                .text_size(px(14.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(title),
-        )
-        .children((!sub.is_empty()).then(|| {
-            div()
-                .text_size(px(12.))
-                .text_color(theme::muted())
-                .child(sub)
-        }))
-}
-
 pub fn small_button(
     id: impl Into<gpui::ElementId>,
     label: impl Into<gpui::SharedString>,

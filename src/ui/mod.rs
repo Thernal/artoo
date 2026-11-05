@@ -13,7 +13,6 @@ mod agent_comments;
 mod agent_events;
 mod agent_notes;
 mod annotate;
-mod appearance;
 mod bar;
 mod beside;
 mod bookmarks;
@@ -73,7 +72,6 @@ mod stack;
 mod submit;
 mod system_notes;
 mod tabs;
-mod theme_cards;
 mod toast;
 mod tools;
 mod typing;
@@ -118,7 +116,6 @@ actions!(
     artoo,
     [
         Open,
-        SaveTheme,
         FoldMenu,
         GoToInbox,
         GoToCode,
@@ -437,26 +434,12 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         theme::preview(&tried);
                         continue;
                     }
-                    if let Some(id) = name.trim().strip_prefix("theme-edit:") {
+                    // A theme in Appearance's editor (`theme-edit:night`; then `theme-token:3`, `theme-bases`,
+                    // `theme-raise`, the editor's own): on Settings → Appearance.
+                    if name.trim().starts_with("theme-edit:") {
                         this.settings_open = true;
                         this.settings_section = settings::APPEARANCE;
-                        this.start_theme_edit(id, cx);
-                        continue;
-                    }
-                    // A token of the editor open, by its row: `theme-token:3`.
-                    if let Some(row) = name.trim().strip_prefix("theme-token:")
-                        && let Ok(row) = row.parse()
-                    {
-                        this.pick_token(row, cx);
-                        continue;
-                    }
-                    // The editor's extends ▾ open.
-                    if name.trim() == "theme-bases" {
-                        this.open_theme_bases(Point::new(px(560.), px(118.)), cx);
-                        continue;
-                    }
-                    if name.trim() == "theme-raise" {
-                        this.raise_all(cx);
+                        this.open_part_snapshot(name.trim(), cx);
                         continue;
                     }
                     if name.trim() == "theme-palette" {
@@ -1134,10 +1117,6 @@ pub struct Workspace {
     pending_link: Option<crate::links::Target>,
     /// The comment or line a link pointed at, waiting for the request's diff and discussions.
     spot: Option<goto::Spot>,
-    /// The theme open in Settings → Appearance's editor (`appearance.rs`).
-    theme_edit: Option<appearance::ThemeEdit>,
-    /// The value of its selected token, as typed.
-    theme_value: String,
     /// What Settings → Keyboard is filtered by.
     keys_filter: String,
     /// The filter is a key pressed (By keys): rows with exactly that key.
@@ -1355,8 +1334,6 @@ impl Workspace {
             keys_filter: String::new(),
             keys_exact: false,
             keys_changed_only: false,
-            theme_edit: None,
-            theme_value: String::new(),
             pending_link: None,
             spot: None,
             window: window.window_handle(),
@@ -2388,15 +2365,6 @@ impl Workspace {
 
     fn go_forward_action(&mut self, _: &GoForward, _: &mut Window, cx: &mut Context<Self>) {
         self.go_forward(cx);
-    }
-
-    /// ⌘S: Save in the theme editor (X48); elsewhere it does nothing.
-    fn save_theme_key(&mut self, _: &SaveTheme, _: &mut Window, cx: &mut Context<Self>) {
-        if self.settings_open && self.theme_edit.is_some() {
-            self.save_theme(cx);
-        } else {
-            cx.propagate();
-        }
     }
 
     fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {

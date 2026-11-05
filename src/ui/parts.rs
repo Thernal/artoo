@@ -106,11 +106,16 @@ impl Frame for TabFrame {
         });
     }
 
-    fn menu(&self, at: Point<Pixels>, groups: Vec<Vec<MenuItem>>, cx: &mut App) {
+    fn titled_menu(
+        &self,
+        at: Point<Pixels>,
+        groups: Vec<(Option<&'static str>, Vec<MenuItem>)>,
+        cx: &mut App,
+    ) {
         let groups = groups
             .into_iter()
-            .map(|group| {
-                group
+            .map(|(title, group)| {
+                let group = group
                     .into_iter()
                     .map(|item| {
                         let entry = match item.run {
@@ -123,10 +128,11 @@ impl Frame for TabFrame {
                             None => entry,
                         }
                     })
-                    .collect()
+                    .collect();
+                (title, group)
             })
             .collect();
-        self.later(cx, move |this, cx| this.open_menu(at, groups, cx));
+        self.later(cx, move |this, cx| this.open_titled(at, groups, cx));
     }
 
     fn close_drawer(&self, cx: &mut App) {
@@ -594,14 +600,21 @@ impl Workspace {
     /// A snapshot view a part opens (`ARTOO_SNAPSHOT_VIEW`); false when no part has it.
     #[cfg(feature = "snapshot")]
     pub(super) fn open_part_snapshot(&mut self, name: &str, cx: &mut Context<Self>) -> bool {
+        // `theme-edit:night` is `theme-edit:`'s, given `night`.
         let open = self
             .parts
             .iter()
             .flat_map(|p| &p.snapshots)
-            .find(|(n, _)| *n == name)
-            .map(|(_, open)| open.clone());
-        if let Some(open) = &open {
-            open(cx);
+            .find_map(|(n, open)| {
+                let arg = if n.ends_with(':') {
+                    name.strip_prefix(n)?
+                } else {
+                    (*n == name).then_some("")?
+                };
+                Some((open.clone(), arg.to_owned()))
+            });
+        if let Some((open, arg)) = &open {
+            open(arg, cx);
             cx.notify();
         }
         open.is_some()

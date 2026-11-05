@@ -72,6 +72,7 @@ publish = false
 
 [dependencies]
 artoo-core = { path = "crates/core" }
+artoo-appearance = { path = "crates/appearance" }
 artoo-updates = { path = "crates/updates" }
 artoo-hosts = { path = "crates/hosts" }
 artoo-hosts-api = { path = "crates/hosts-api" }

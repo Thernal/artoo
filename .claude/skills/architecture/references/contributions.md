@@ -9,7 +9,9 @@ since 2026-10-30, Code's pages the first on it, still drawn in the app until Cod
 window root's as data in `src/ui/commands.rs`; ⌘K, the menu bar and the keys made from the registry alone, `palette::Cmd`
 and the hand-written lists gone; a context menu's entry a closure where the menu is made, the closed `menu::Act` gone,
 #171); Settings' sections since 2026-11-05 (`add_settings_section`: an id, a title, a place in the left column; the
-window root's six drawn by the tab, the agents' its parts' rows; the closed `settings::Section` gone, #171 phase 4). Until every space is on it, `Page` (`src/ui/nav.rs`) is what these replace, and a new page is added there in
+window root's five drawn by the tab, the agents' and Appearance (`artoo-appearance`) their parts' rows — any owner's
+rows in a section placed by their order, the window root's faces and panes inside Appearance; the closed
+`settings::Section` gone, #171 phase 4). Until every space is on it, `Page` (`src/ui/nav.rs`) is what these replace, and a new page is added there in
 the shape below — one variant, one id, one owner. A new command is offered: the window root's in `commands.rs` while the tab runs it, a feature's in its
 `install`.
 
@@ -22,11 +24,12 @@ key, a key offered twice refused) and `add_parts` (a maker each tab calls with i
 title-bar item with when it shows, an `Overlay` — a card that is drawn and has the keys while open, closed by
 Escape, polled each frame the tab is not busy —, a `Tool` — a tool window in the spaces it names, on their pages
 only or not, in its `order`, readied as it opens, given typed keys while it has the keyboard and says it is typing;
-every tool window is one (#171) —, Settings rows under a section by its id,
-the tab's handlers of the feature's actions, the snapshot views it opens, a space's `Pages` — the kinds of route
+every tool window is one (#171) —, Settings rows (`settings::Rows`: a section's by its id, their order among its
+rows, what Set up draws of them, and whether they fill the section now, take esc, end as Settings shuts),
+the tab's handlers of the feature's actions, the snapshot views it opens (a name ending in `:` given what follows), a space's `Pages` — the kinds of route
 they draw, their view, the panel beside them, and `show`, which the shell calls with the route on screen, or none
 for the space's own page, and whether it was just opened or gone back to). What the `Frame` changes (a toast, the
-error line, a redraw, a tool window shown, a menu at the pointer — `MenuItem`s, each running its own closure —, the
+error line, a redraw, a tool window shown, a menu at the pointer — `MenuItem`s, each running its own closure, its groups titled or not —, the
 narrow tab's drawer closed, a route opened — a kind no pages draw says so in a toast —, a space's own page opened,
 a route kept among the places opened lately) waits until the update under way is over, so a part may ask it from
 its own update and from a hook. Its `Services` — what the tab's features offer one another, a contract's handle by

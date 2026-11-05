@@ -9,7 +9,7 @@ mod ui;
 use artoo_agents_api::{bus, comment, notes};
 use artoo_core::{
     applog, editor, files, git, labels, links, markdown, mddiff, platform, rank, rows, storage,
-    symbols, textedit, themes,
+    symbols, textedit,
 };
 /// The hosts' models (a request, a thread, a draft…), by the name the views knew them by before #165.
 use artoo_hosts_api as mr;
@@ -42,6 +42,7 @@ fn install(cx: &mut gpui::App) {
     artoo_agents::install(cx);
     artoo_updates::install(cx);
     artoo_reports::install(cx);
+    artoo_appearance::install(cx);
     artoo_code::install(cx);
     artoo_review::install(cx);
     // The requests' pieces of the item page before the branches': a request's identity over a branch's.

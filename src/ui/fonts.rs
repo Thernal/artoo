@@ -30,7 +30,7 @@ impl Workspace {
             .flex()
             .flex_col()
             .gap(px(10.))
-            .child(super::appearance::section(
+            .child(artoo_ui_kit::controls::subhead(
                 "Fonts and size",
                 "The interface and the code each have their own face. Every face installed can be chosen.",
             ))

@@ -129,7 +129,6 @@ pub(super) fn own() -> Vec<Action> {
             .key("cmd-f", TAB)
             .menu(Bar::File, "Find in Diff…")
             .at(2, 0),
-        Action::new("shell.save-theme", SaveTheme).key("cmd-s", TAB),
         Action::new("branches.find-commits", FindCommits)
             .words("Search commits")
             .order(at(28))

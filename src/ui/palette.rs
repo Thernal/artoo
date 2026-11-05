@@ -1127,7 +1127,9 @@ impl Workspace {
                 self.palette = None;
                 let mut choice = theme::choice();
                 choice.window = id;
-                self.choose_theme(choice, cx);
+                theme::choose(choice);
+                cx.refresh_windows();
+                cx.notify();
             }
             Pick::Face(face) => {
                 let code = matches!(

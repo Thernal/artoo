@@ -71,13 +71,13 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
         snapshots: vec![
             (
                 "fold-versions",
-                Rc::new(move |cx| {
+                Rc::new(move |_, cx| {
                     versions.update(cx, |h, _| h.sections.versions = true).ok();
                 }),
             ),
             (
                 "fold-commits",
-                Rc::new(move |cx| {
+                Rc::new(move |_, cx| {
                     commits.update(cx, |h, _| h.sections.commits = true).ok();
                 }),
             ),

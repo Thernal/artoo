@@ -62,14 +62,14 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
         snapshots: vec![
             (
                 "update",
-                Rc::new(move |cx| {
+                Rc::new(move |_, cx| {
                     crate::check();
                     shot.update(cx, |card, cx| card.show(cx));
                 }),
             ),
             (
                 "update-commits",
-                Rc::new(move |cx| {
+                Rc::new(move |_, cx| {
                     crate::check();
                     shot_commits.update(cx, |card, cx| {
                         card.show(cx);

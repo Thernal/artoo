@@ -250,7 +250,17 @@ pub trait Frame {
     fn leave_keyboard(&self, id: &'static str, cx: &mut App);
 
     /// A menu at `at`, a rule between its groups; an item picked runs once the menu has closed.
-    fn menu(&self, at: Point<Pixels>, groups: Vec<Vec<MenuItem>>, cx: &mut App);
+    fn menu(&self, at: Point<Pixels>, groups: Vec<Vec<MenuItem>>, cx: &mut App) {
+        self.titled_menu(at, groups.into_iter().map(|g| (None, g)).collect(), cx);
+    }
+
+    /// `menu` whose groups may have headings (a theme's Extends ▾: Extends, Your themes).
+    fn titled_menu(
+        &self,
+        at: Point<Pixels>,
+        groups: Vec<(Option<&'static str>, Vec<MenuItem>)>,
+        cx: &mut App,
+    );
 
     /// The side panel's drawer closed, when the tab is narrow and it is open.
     fn close_drawer(&self, cx: &mut App);
@@ -613,6 +623,9 @@ pub fn input_box<E: InteractiveElement>(el: E, id: &'static str, frame: &Rc<dyn 
     .on_mouse_down_out(move |_, _, cx| leave.leave_keyboard(id, cx))
 }
 
+/// A snapshot view a part opens (`Parts::snapshots`), given what followed its name's `:` (`""` for none).
+pub type Snap = Rc<dyn Fn(&str, &mut App)>;
+
 /// A key typed in a part's input (`Input::key`).
 pub type OnType = Rc<dyn Fn(&KeyDownEvent, &mut Window, &mut App) -> Typed>;
 
@@ -709,8 +722,9 @@ pub struct Parts {
     pub settings: Vec<settings::Rows>,
     /// The feature's actions as this tab runs them.
     pub actions: Vec<(Box<dyn gpui::Action>, Run)>,
-    /// What `ARTOO_SNAPSHOT_VIEW=<name>` opens in this tab.
-    pub snapshots: Vec<(&'static str, Hook)>,
+    /// What `ARTOO_SNAPSHOT_VIEW=<name>` opens in this tab; a name ending in `:` takes what follows it
+    /// (`theme-edit:night`).
+    pub snapshots: Vec<(&'static str, Snap)>,
     /// A space's pages.
     pub pages: Option<Pages>,
     /// The fields it types in.

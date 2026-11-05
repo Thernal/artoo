@@ -1,7 +1,8 @@
 //! Set up Artoo (#143 B): on the first start, a page of tabs — Agents, Keys, Look — whose title,
 //! tabs and foot stay put while only the column between them scrolls. Each part is its Settings
-//! section at its shortest, drawn by the same code (`key_presets`, `window_cards`, `panes_chips`,
-//! `font_rows`, the kit's `choice_row`): what is set here is set there. Later and Done bring
+//! section at its shortest, drawn by the same code (`key_presets`, `panes_chips`, `font_rows`, the kit's
+//! `choice_row`; Look's themes are Appearance's rows' short form, `settings::Rows::short`): what is set here is
+//! set there. Later and Done bring
 //! back what was under it — the welcome, with no repository open. A part is offered once
 //! (`setup.txt`); a release that adds one offers that part alone; Help → Set Up Artoo… opens
 //! every part again. The frame is drawn by the shell (`artoo_shell_api::setup`).
@@ -9,15 +10,11 @@
 use super::discussion::{self, Kind};
 use super::keymap::Keymap;
 use super::keys::{self, On};
-use super::menu::{Act, Entry};
 use super::settings::item;
-use super::{ROW_RADIUS, Workspace, icons, px, theme};
+use super::{ROW_RADIUS, Workspace, px, theme};
 use crate::storage;
 use artoo_shell_api::setup;
-use gpui::{
-    AnyElement, App, ClickEvent, Context, FontWeight, Pixels, Point, WeakEntity, Window, div,
-    prelude::*,
-};
+use gpui::{AnyElement, App, ClickEvent, Context, FontWeight, WeakEntity, Window, div, prelude::*};
 use std::rc::Rc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -448,89 +445,24 @@ impl Workspace {
             .into_any_element()
     }
 
-    /// Look: the Window themes as Settings draws them, then Code colours, Panes, the faces and
-    /// the sizes.
+    /// Look: what Appearance's owner draws of it (the Window themes as Settings draws them, then Code colours), then
+    /// Panes, the faces and the sizes.
     fn render_setup_look(&self, cx: &mut Context<Self>) -> AnyElement {
-        let choice = theme::choice();
-        let code = choice
-            .code
-            .as_deref()
-            .and_then(theme::find)
-            .map_or("Follow the window".to_owned(), |t| t.label);
-        let code_picker =
-            div()
-                .id("setup-code-theme")
-                .min_w(px(190.))
-                .h(px(28.))
-                .px(px(10.))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .rounded(px(ROW_RADIUS))
-                .bg(theme::hover())
-                .cursor_pointer()
-                .hover(|s| s.bg(theme::selected()))
-                .child(div().flex_1().text_size(px(13.)).child(code))
-                .child(
-                    icons::icon("chevron")
-                        .size(px(12.))
-                        .text_color(theme::muted()),
-                )
-                .on_click(cx.listener(|this, ev: &ClickEvent, _, cx| {
-                    this.open_code_themes(ev.position(), cx)
-                }));
         div()
             .flex()
             .flex_col()
-            .gap(px(12.))
-            .child(super::appearance::rows_of(5, self.window_cards(cx)))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .child(item(
-                        "Code colours",
-                        "Syntax and the diff's tints.",
-                        code_picker,
-                    ))
-                    .child(item(
-                        "Panes",
-                        "Islands float with gaps; flat ones touch.",
-                        self.panes_chips(cx),
-                    ))
-                    .children(self.font_rows(cx)),
+            .children(
+                self.settings_rows(super::settings::APPEARANCE)
+                    .into_iter()
+                    .filter_map(|r| r.short),
             )
+            .child(item(
+                "Panes",
+                "Islands float with gaps; flat ones touch.",
+                self.panes_chips(cx),
+            ))
+            .children(self.font_rows(cx))
             .into_any_element()
-    }
-
-    /// Code colours' menu: Follow the window, then every code theme, the one in use checked.
-    fn open_code_themes(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
-        let current = theme::choice().code;
-        let follow = Entry::new(
-            "Follow the window",
-            Act::new(|this, _, cx| this.choose_code_theme(None, cx)),
-        )
-        .checked(current.is_none());
-        let themes = theme::all()
-            .into_iter()
-            .filter(|t| t.code)
-            .map(|t| {
-                let on = current.as_deref() == Some(t.id.as_str());
-                Entry::new(t.label, {
-                    let id = t.id;
-                    Act::new(move |this, _, cx| this.choose_code_theme(Some(id.clone()), cx))
-                })
-                .checked(on)
-            })
-            .collect();
-        self.open_titled(at, vec![(None, vec![follow]), (Some("Code"), themes)], cx);
-    }
-
-    /// The code drawn in theme `id`, or the window's.
-    pub(super) fn choose_code_theme(&mut self, id: Option<String>, cx: &mut Context<Self>) {
-        let mut choice = theme::choice();
-        choice.code = id;
-        self.choose_theme(choice, cx);
     }
 }
 

@@ -9,10 +9,14 @@ fn file(name: &str) -> Option<PathBuf> {
     Some(crate::platform::data_dir()?.join(name))
 }
 
+/// A snapshot run: it draws a state, which must not become the user's remembered state or files.
+pub fn snapshot_run() -> bool {
+    cfg!(feature = "snapshot") && std::env::var_os("ARTOO_SNAPSHOT").is_some()
+}
+
 /// Writes `body` to `name`; failures only cost what would have been remembered.
 pub fn save(name: &str, body: String) {
-    // A snapshot run draws a state; it must not become the user's remembered state.
-    if cfg!(feature = "snapshot") && std::env::var_os("ARTOO_SNAPSHOT").is_some() {
+    if snapshot_run() {
         return;
     }
     // Nor may a test.

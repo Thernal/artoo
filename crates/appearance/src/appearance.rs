@@ -1,20 +1,31 @@
 //! Settings → Appearance (Design #12 A + C, `docs/specs/themes.md`, flow 09): the Window themes as
 //! cards three to a row — tabs down the left, the code as bars in the theme's syntax colours and
-//! diff tints —, the Code themes as syntax samples with "Follow the window" first, several projects,
-//! panes, and your themes (the folder, Copy One Dark as JSON, each file's problems). A theme opens in
-//! the editor: its tokens by group, contrast per text token with a fix, and beside them a preview —
-//! a request's header, a piece of diff and a discussion in the theme being edited, while the window
-//! keeps the chosen themes; editing a built-in theme makes a new one that extends it.
+//! diff tints —, the Code themes as syntax samples with "Follow the window" first, and under the
+//! window root's rows your themes (the folder, Copy One Dark as JSON, each file's problems) and the
+//! file icons. A theme opens in the editor: its tokens by group, contrast per text token with a fix,
+//! and beside them a preview — a request's header, a piece of diff and a discussion in the theme
+//! being edited, while the window keeps the chosen themes; editing a built-in theme makes a new one
+//! that extends it.
 
-use super::lists::Field;
-use super::theme_cards::{
-    ROWS, card, code_face, is_text, own, row_name, rows_of_three, sample_diff, small_button,
-    tag_of, theme_preview, value, window_face,
+use crate::cards::{
+    ROWS, card, code_face, is_text, own, row_name, rows_of, rows_of_three, sample_diff,
+    small_button, tag_of, theme_preview, value, window_face,
 };
-pub(super) use super::theme_cards::{rows_of, section};
-use super::{ROW_RADIUS, Workspace, icons, px, theme};
-use crate::themes::{self, TOKENS, Theme};
-use gpui::{AnyElement, ClickEvent, Context, Div, FontWeight, div, prelude::*, rgba};
+use artoo_core::themes::{self, TOKENS, Theme};
+use artoo_shell_api::{Frame, MenuItem, Typed};
+use artoo_ui_kit::controls::{setting, subhead};
+use artoo_ui_kit::input::{self, Area, Edit};
+use artoo_ui_kit::motion::{self, Folds, Marks};
+use artoo_ui_kit::room::Heights;
+use artoo_ui_kit::{ROW_RADIUS, file_icons, format, hover, icons, keys, px, theme};
+use gpui::{
+    AnyElement, ClickEvent, Context, Div, Entity, FontWeight, Keystroke, Pixels, Point, Render,
+    Window, div, prelude::*, rgba,
+};
+use std::rc::Rc;
+
+/// The hex field's id as the tab's input.
+pub(crate) const INPUT: &str = "appearance.value";
 
 /// A theme being edited.
 pub struct ThemeEdit {
@@ -34,10 +45,135 @@ pub struct ThemeEdit {
     said: Option<Result<String, String>>,
 }
 
-impl Workspace {
+/// A tab's Appearance: the theme being edited, the hex field of its token open, how they move.
+pub(crate) struct Appearance {
+    frame: Rc<dyn Frame>,
+    edit: Option<ThemeEdit>,
+    /// The hex field's text, and the field as typed in.
+    value: String,
+    area: Area,
+    /// Whether the hex field is open (a token picked, not left).
+    typing: bool,
+    motion: Marks,
+    folds: Folds,
+    heights: Heights,
+}
+
+/// One of Appearance's views, drawn from its state: its rows in Settings, Set up's Look.
+pub(crate) struct Drawn {
+    app: Entity<Appearance>,
+    draw: fn(&mut Appearance, &mut Context<Appearance>) -> AnyElement,
+}
+
+impl Drawn {
+    pub(crate) fn new(
+        app: &Entity<Appearance>,
+        draw: fn(&mut Appearance, &mut Context<Appearance>) -> AnyElement,
+        cx: &mut gpui::App,
+    ) -> Entity<Self> {
+        let app = app.clone();
+        cx.new(|cx| {
+            cx.observe(&app, |_, _, cx| cx.notify()).detach();
+            Drawn { app, draw }
+        })
+    }
+}
+
+impl Render for Drawn {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.app.update(cx, self.draw)
+    }
+}
+
+impl Appearance {
+    pub(crate) fn new(frame: Rc<dyn Frame>) -> Self {
+        Self {
+            frame,
+            edit: None,
+            value: String::new(),
+            area: Area::default(),
+            typing: false,
+            motion: Marks::default(),
+            folds: Folds::default(),
+            heights: Heights::default(),
+        }
+    }
+
+    pub(crate) fn editing(&self) -> bool {
+        self.edit.is_some()
+    }
+
+    pub(crate) fn typing(&self) -> bool {
+        self.typing
+    }
+
+    /// The hex field's selected text, for Copy.
+    pub(crate) fn selected(&self) -> Option<String> {
+        self.area.edit.selected_text().map(str::to_owned)
+    }
+
+    /// A key while the hex field has the keyboard: a whole colour typed is applied; ↵ and esc let it go.
+    pub(crate) fn key(&mut self, key: &Keystroke, cx: &mut Context<Self>) -> Typed {
+        let typed = match input::edit(&mut self.value, &mut self.area.edit, key, cx) {
+            Edit::Changed => {
+                self.value_changed(cx);
+                Typed::Kept
+            }
+            Edit::Enter { .. } | Edit::Escape => {
+                self.typing = false;
+                Typed::Leave
+            }
+            Edit::Selected | Edit::Ignored => Typed::Kept,
+        };
+        cx.notify();
+        typed
+    }
+
+    /// The hex field let the keyboard go (a press outside it, another page): it closes, its token still open.
+    pub(crate) fn leave_field(&mut self, cx: &mut Context<Self>) {
+        if self.typing {
+            self.typing = false;
+            cx.notify();
+        }
+    }
+
+    /// The hex field takes the keyboard; a field new to it starts with its caret at the end.
+    fn start_field(&mut self, cx: &mut Context<Self>) {
+        if !self.typing {
+            self.area = Area::default();
+        }
+        self.typing = true;
+        self.frame.take_keyboard(INPUT, cx);
+        cx.notify();
+    }
+
+    /// Motion `key` marked now: drawn again once it is over, so it is drawn still.
+    fn mark_motion(&mut self, key: &str, cx: &mut Context<Self>) {
+        self.motion.mark(key);
+        motion::redraw_after(cx);
+    }
+
+    /// `content` folding open or shut under `key`, while motion `moving` is fresh.
+    fn folding(
+        &self,
+        key: impl Into<String>,
+        moving: &str,
+        open: bool,
+        content: impl IntoElement + 'static,
+    ) -> Option<AnyElement> {
+        motion::folding(
+            &self.folds,
+            &self.heights,
+            self.motion.recent(moving),
+            key,
+            open,
+            content,
+        )
+    }
+
     /// The Window themes as cards, the chosen one framed; a card's Edit opens the editor
     /// (Settings → Appearance, and Set up's Look).
-    pub(super) fn window_cards(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    pub(crate) fn window_cards(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let choice = theme::choice();
         theme::all()
             .iter()
@@ -57,7 +193,7 @@ impl Workspace {
                     .child("Edit")
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         cx.stop_propagation();
-                        this.start_theme_edit(&edit, cx);
+                        this.start_edit(&edit, cx);
                     }))
                     .into_any_element();
                 card(
@@ -71,24 +207,17 @@ impl Workspace {
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     let mut c = theme::choice();
                     c.window = id.clone();
-                    this.choose_theme(c, cx);
+                    this.choose(c, cx);
                 }))
                 .into_any_element()
             })
             .collect()
     }
 
-    /// The page: Window, Code, fonts and size, several projects, panes, your themes — or the
-    /// editor.
-    pub(super) fn render_appearance(
-        &self,
-        projects: AnyElement,
-        panes: AnyElement,
-        fold: AnyElement,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        if self.theme_edit.is_some() {
-            return self.render_theme_editor(cx);
+    /// Its rows over the window root's: Window, Code and the sample — or the editor, filling the section.
+    pub(crate) fn render_themes(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        if self.edit.is_some() {
+            return self.render_editor(cx);
         }
         let all = theme::all();
         let choice = theme::choice();
@@ -122,7 +251,7 @@ impl Workspace {
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 let mut c = theme::choice();
                 c.code = None;
-                this.choose_theme(c, cx);
+                this.choose(c, cx);
             }))
             .into_any_element(),
         ];
@@ -150,24 +279,17 @@ impl Workspace {
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 let mut c = theme::choice();
                 c.code = Some(id.clone());
-                this.choose_theme(c, cx);
+                this.choose(c, cx);
             }))
             .into_any_element()
         }));
-        let folder = themes::folder()
-            .map(|f| super::format::home_relative(&f))
-            .unwrap_or_default();
-        let troubled: Vec<&Theme> = all
-            .iter()
-            .filter(|t| !t.built_in && !t.problems.is_empty())
-            .collect();
         div()
             .flex()
             .flex_col()
             .gap_5()
-            .child(section("Window", ""))
+            .child(subhead("Window", ""))
             .child(rows_of_three(windows))
-            .child(section("Code", ""))
+            .child(subhead("Code", ""))
             .child(rows_of_three(codes))
             .child(
                 div()
@@ -177,11 +299,24 @@ impl Workspace {
                     .border_color(theme::island_border())
                     .child(sample_diff(window, code.unwrap_or(window))),
             )
-            .child(self.render_fonts(cx))
-            .child(projects)
-            .child(panes)
-            .child(fold)
-            .child(section("Your themes", "JSON files in the themes folder."))
+            .into_any_element()
+    }
+
+    /// Its rows under the window root's: your themes, then the file icons.
+    pub(crate) fn render_yours(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let all = theme::all();
+        let folder = themes::folder()
+            .map(|f| format::home_relative(&f))
+            .unwrap_or_default();
+        let troubled: Vec<&Theme> = all
+            .iter()
+            .filter(|t| !t.built_in && !t.problems.is_empty())
+            .collect();
+        div()
+            .flex()
+            .flex_col()
+            .gap_5()
+            .child(subhead("Your themes", "JSON files in the themes folder."))
             .child(
                 div()
                     .flex()
@@ -206,7 +341,7 @@ impl Workspace {
                         )),
                     )
                     .child(
-                        super::hover::cut("themes-folder", folder)
+                        hover::cut("themes-folder", folder)
                             .font_family(theme::code_font())
                             .text_size(px(11.))
                             .text_color(theme::faint()),
@@ -233,12 +368,82 @@ impl Workspace {
             .into_any_element()
     }
 
+    /// What Set up's Look draws of it: the Window themes as Settings draws them, five to a row, then Code colours.
+    pub(crate) fn render_short(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let code = theme::choice()
+            .code
+            .as_deref()
+            .and_then(theme::find)
+            .map_or("Follow the window".to_owned(), |t| t.label);
+        let code_picker =
+            div()
+                .id("setup-code-theme")
+                .min_w(px(190.))
+                .h(px(28.))
+                .px(px(10.))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .rounded(px(ROW_RADIUS))
+                .bg(theme::hover())
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::selected()))
+                .child(div().flex_1().text_size(px(13.)).child(code))
+                .child(
+                    icons::icon("chevron")
+                        .size(px(12.))
+                        .text_color(theme::muted()),
+                )
+                .on_click(cx.listener(|this, ev: &ClickEvent, _, cx| {
+                    this.open_code_themes(ev.position(), cx)
+                }));
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(12.))
+            .child(rows_of(5, self.window_cards(cx)))
+            .child(setting(
+                "Code colours",
+                "Syntax and the diff's tints.",
+                code_picker,
+            ))
+            .into_any_element()
+    }
+
+    /// Code colours' menu: Follow the window, then every code theme, the one in use checked.
+    fn open_code_themes(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
+        let current = theme::choice().code;
+        let me = cx.weak_entity();
+        let choose = move |id: Option<String>| {
+            let me = me.clone();
+            move |_: &mut Window, cx: &mut gpui::App| {
+                me.update(cx, |this, cx| {
+                    let mut choice = theme::choice();
+                    choice.code = id.clone();
+                    this.choose(choice, cx);
+                })
+                .ok();
+            }
+        };
+        let follow = MenuItem::new("Follow the window", choose(None)).checked(current.is_none());
+        let themes = theme::all()
+            .into_iter()
+            .filter(|t| t.code)
+            .map(|t| {
+                let on = current.as_deref() == Some(t.id.as_str());
+                MenuItem::new(t.label, choose(Some(t.id))).checked(on)
+            })
+            .collect();
+        self.frame
+            .titled_menu(at, vec![(None, vec![follow]), (Some("Code"), themes)], cx);
+    }
+
     /// File icons (#95): what they are, a few of them, the user's folder and what it gives.
     fn render_file_icons(&self, cx: &mut Context<Self>) -> AnyElement {
-        let (svgs, rules) = crate::file_icons::counts();
-        let problems = crate::file_icons::problems();
-        let folder = crate::file_icons::folder()
-            .map(|d| super::format::home_relative(&d))
+        let (svgs, rules) = file_icons::counts();
+        let problems = file_icons::problems();
+        let folder = file_icons::folder()
+            .map(|d| format::home_relative(&d))
             .unwrap_or_default();
         let samples = [
             ("LoginViewModel.kt", false),
@@ -254,7 +459,7 @@ impl Workspace {
             .flex()
             .flex_col()
             .gap(px(10.))
-            .child(section(
+            .child(subhead(
                 "File icons",
                 "Yours in the icons folder: Dockerfile.svg, kt.svg or folder.svg, _dark for dark themes; folders.txt and files.txt: a path's regular expression, then the icon — (^|/)src/test$ testRoot.",
             ))
@@ -287,8 +492,8 @@ impl Workspace {
                     .child(
                         small_button("icons-folder", "Open icons folder").on_click(cx.listener(
                             |_, _: &ClickEvent, _, cx| {
-                                if let Some(dir) = crate::file_icons::folder() {
-                                    crate::file_icons::start_folder(&dir);
+                                if let Some(dir) = file_icons::folder() {
+                                    file_icons::start_folder(&dir);
                                     cx.reveal_path(&dir);
                                 }
                             },
@@ -301,12 +506,12 @@ impl Workspace {
                             .text_color(theme::muted())
                             .child(format!(
                                 "{} · {}",
-                                super::plural(svgs, "icon"),
-                                super::plural(rules, "rule")
+                                format::plural(svgs, "icon"),
+                                format::plural(rules, "rule")
                             )),
                     )
                     .child(
-                        super::hover::cut("icons-folder", folder)
+                        hover::cut("icons-folder", folder)
                             .font_family(theme::code_font())
                             .text_size(px(11.))
                             .text_color(theme::faint()),
@@ -329,14 +534,14 @@ impl Workspace {
     }
 
     /// Draws with `choice` in every window and keeps it.
-    pub(super) fn choose_theme(&mut self, choice: theme::Choice, cx: &mut Context<Self>) {
+    pub(crate) fn choose(&mut self, choice: theme::Choice, cx: &mut Context<Self>) {
         theme::choose(choice);
         cx.refresh_windows();
         cx.notify();
     }
 
     /// Opens theme `id` in the editor; a built-in theme is copied first.
-    pub(super) fn start_theme_edit(&mut self, id: &str, cx: &mut Context<Self>) {
+    pub(crate) fn start_edit(&mut self, id: &str, cx: &mut Context<Self>) {
         let all = theme::all();
         let Some(t) = all.iter().find(|t| t.id == id).cloned() else {
             return;
@@ -369,7 +574,7 @@ impl Workspace {
             .and_then(|e| all.iter().find(|o| o.id == e))
             .unwrap_or(&all[0])
             .clone();
-        self.theme_edit = Some(ThemeEdit {
+        self.edit = Some(ThemeEdit {
             start: theme.clone(),
             theme,
             base,
@@ -384,33 +589,29 @@ impl Workspace {
     /// Leaves the editor.
     /// Esc in the theme editor: the token being edited lets go, then the editor closes — Settings
     /// stays (the developer, 2026-10-23). Whether it was in the editor.
-    pub(super) fn theme_edit_escape(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(edit) = &mut self.theme_edit else {
+    pub(crate) fn escape(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(edit) = &mut self.edit else {
             return false;
         };
         if edit.selected.take().is_some() {
             self.mark_motion("token-open", cx);
-            if self.field == Some(Field::ThemeValue) {
-                self.field = None;
-            }
+            self.typing = false;
             cx.notify();
         } else {
-            self.close_theme_edit(cx);
+            self.close_edit(cx);
         }
         true
     }
 
-    pub(super) fn close_theme_edit(&mut self, cx: &mut Context<Self>) {
-        self.theme_edit = None;
-        if self.field == Some(Field::ThemeValue) {
-            self.field = None;
-        }
+    pub(crate) fn close_edit(&mut self, cx: &mut Context<Self>) {
+        self.edit = None;
+        self.typing = false;
         cx.notify();
     }
 
     /// The themes the one being edited may extend: any but itself and those built on it.
-    fn theme_bases(&self) -> Vec<Theme> {
-        let Some(edit) = &self.theme_edit else {
+    fn bases(&self) -> Vec<Theme> {
+        let Some(edit) = &self.edit else {
             return Vec::new();
         };
         let all = theme::all();
@@ -436,32 +637,28 @@ impl Workspace {
     }
 
     /// The extends ▾ menu: the themes it may be built on, the current one checked.
-    pub(super) fn open_theme_bases(
-        &mut self,
-        at: gpui::Point<gpui::Pixels>,
-        cx: &mut Context<Self>,
-    ) {
-        use super::menu::{Act, Entry};
+    pub(crate) fn open_bases(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
+        let me = cx.weak_entity();
         let current = self
-            .theme_edit
+            .edit
             .as_ref()
             .map(|e| e.base.id.clone())
             .unwrap_or_default();
         let (built_in, yours): (Vec<Theme>, Vec<Theme>) =
-            self.theme_bases().into_iter().partition(|t| t.built_in);
+            self.bases().into_iter().partition(|t| t.built_in);
         let entries = |themes: Vec<Theme>| {
             themes
                 .into_iter()
                 .map(|t| {
-                    Entry::new(t.label.clone(), {
-                        let id = t.id.clone();
-                        Act::new(move |this, _, cx| this.set_theme_base(&id, cx))
+                    let (id, me) = (t.id.clone(), me.clone());
+                    MenuItem::new(t.label.clone(), move |_, cx| {
+                        me.update(cx, |this, cx| this.set_base(&id, cx)).ok();
                     })
                     .checked(t.id == current)
                 })
                 .collect::<Vec<_>>()
         };
-        self.open_titled(
+        self.frame.titled_menu(
             at,
             vec![
                 (Some("Extends"), entries(built_in)),
@@ -472,11 +669,11 @@ impl Workspace {
     }
 
     /// The theme being edited is built on `id` now: what it does not set comes from there.
-    pub(super) fn set_theme_base(&mut self, id: &str, cx: &mut Context<Self>) {
+    pub(crate) fn set_base(&mut self, id: &str, cx: &mut Context<Self>) {
         let Some(base) = theme::find(id) else {
             return;
         };
-        let Some(edit) = &mut self.theme_edit else {
+        let Some(edit) = &mut self.edit else {
             return;
         };
         for i in 0..TOKENS.len() {
@@ -496,36 +693,36 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn pick_token(&mut self, i: usize, cx: &mut Context<Self>) {
+    pub(crate) fn pick_token(&mut self, i: usize, cx: &mut Context<Self>) {
         self.mark_motion("token-open", cx);
-        let Some(edit) = &mut self.theme_edit else {
+        let Some(edit) = &mut self.edit else {
             return;
         };
         if edit.selected == Some(i) {
             edit.selected = None;
-            self.field = None;
+            self.typing = false;
             return cx.notify();
         }
         edit.selected = Some(i);
         self.show_value();
-        self.start_field(Field::ThemeValue, cx);
+        self.start_field(cx);
     }
 
     /// The selected token's value into the hex field and the picker, after it changed elsewhere.
     fn show_value(&mut self) {
-        let Some(edit) = &mut self.theme_edit else {
+        let Some(edit) = &mut self.edit else {
             return;
         };
         if let Some(i) = edit.selected {
             let c = value(&edit.theme, i);
-            self.theme_value = themes::hex(c);
+            self.value = themes::hex(c);
             edit.hsva = themes::to_hsva(c);
         }
     }
 
     /// The picker moved: the token takes its colour, the hex field follows.
     fn pick_color(&mut self, hsva: [f32; 4], cx: &mut Context<Self>) {
-        let Some(edit) = &mut self.theme_edit else {
+        let Some(edit) = &mut self.edit else {
             return;
         };
         let Some(i) = edit.selected else {
@@ -533,13 +730,13 @@ impl Workspace {
         };
         edit.hsva = hsva;
         let c = themes::from_hsva(hsva);
-        self.theme_value = themes::hex(c);
+        self.value = themes::hex(c);
         self.set_token(i, c, cx);
     }
 
     /// Token `i` of the theme being edited becomes `color`, drawn at once.
     fn set_token(&mut self, i: usize, color: u32, cx: &mut Context<Self>) {
-        let Some(edit) = &mut self.theme_edit else {
+        let Some(edit) = &mut self.edit else {
             return;
         };
         match i.checked_sub(TOKENS.len()) {
@@ -562,7 +759,7 @@ impl Workspace {
 
     /// Row `i` back to what the theme it extends has.
     fn reset_token(&mut self, i: usize, cx: &mut Context<Self>) {
-        let Some(edit) = &mut self.theme_edit else {
+        let Some(edit) = &mut self.edit else {
             return;
         };
         match i.checked_sub(TOKENS.len()) {
@@ -581,12 +778,12 @@ impl Workspace {
     }
 
     /// The hex field changed: a whole colour is applied.
-    pub(super) fn theme_value_changed(&mut self, cx: &mut Context<Self>) {
-        let Some(i) = self.theme_edit.as_ref().and_then(|e| e.selected) else {
+    pub(crate) fn value_changed(&mut self, cx: &mut Context<Self>) {
+        let Some(i) = self.edit.as_ref().and_then(|e| e.selected) else {
             return;
         };
-        if let Some(color) = themes::parse_hex(&self.theme_value) {
-            if let Some(edit) = &mut self.theme_edit {
+        if let Some(color) = themes::parse_hex(&self.value) {
+            if let Some(edit) = &mut self.edit {
                 edit.hsva = themes::to_hsva(color);
             }
             self.set_token(i, color, cx);
@@ -594,8 +791,8 @@ impl Workspace {
     }
 
     /// Every text token under 4.5:1 raised to it.
-    pub(super) fn raise_all(&mut self, cx: &mut Context<Self>) {
-        let Some(edit) = &self.theme_edit else {
+    pub(crate) fn raise_all(&mut self, cx: &mut Context<Self>) {
+        let Some(edit) = &self.edit else {
             return;
         };
         let low: Vec<(usize, u32)> = edit
@@ -611,8 +808,8 @@ impl Workspace {
     }
 
     /// Writes the theme to its file in the themes folder and draws with it (Save, ⌘S).
-    pub(super) fn save_theme(&mut self, cx: &mut Context<Self>) {
-        let Some(edit) = &mut self.theme_edit else {
+    pub(crate) fn save(&mut self, cx: &mut Context<Self>) {
+        let Some(edit) = &mut self.edit else {
             return;
         };
         let Some(dir) = themes::folder() else {
@@ -625,7 +822,7 @@ impl Workspace {
             .unwrap_or_else(|| dir.join(format!("{}.json", edit.theme.id)));
         let json = edit.theme.to_json(false);
         // A snapshot run draws a state; it never writes the user's files.
-        let snapshot = cfg!(feature = "snapshot") && std::env::var_os("ARTOO_SNAPSHOT").is_some();
+        let snapshot = artoo_core::storage::snapshot_run();
         let result = if snapshot {
             Ok(())
         } else {
@@ -636,7 +833,7 @@ impl Workspace {
                 edit.theme.file = Some(file.clone());
                 edit.start = edit.theme.clone();
                 edit.from = None;
-                edit.said = Some(Ok(format!("Saved {}", super::format::home_relative(&file))));
+                edit.said = Some(Ok(format!("Saved {}", format::home_relative(&file))));
                 let id = edit.theme.id.clone();
                 theme::reload();
                 // Drawn with where it is offered: a theme of code only is the Code choice.
@@ -654,8 +851,8 @@ impl Workspace {
         cx.notify();
     }
 
-    fn revert_theme(&mut self, cx: &mut Context<Self>) {
-        let Some(edit) = &mut self.theme_edit else {
+    fn revert(&mut self, cx: &mut Context<Self>) {
+        let Some(edit) = &mut self.edit else {
             return;
         };
         edit.theme = edit.start.clone();
@@ -664,8 +861,8 @@ impl Workspace {
         cx.notify();
     }
 
-    fn render_theme_editor(&self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(edit) = &self.theme_edit else {
+    fn render_editor(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(edit) = &self.edit else {
             return div().into_any_element();
         };
         let t = &edit.theme;
@@ -743,7 +940,7 @@ impl Workspace {
                             .child(themes::hex(value(t, i))),
                     )
                     .child(
-                        super::hover::cut(("token-what", i), what)
+                        hover::cut(("token-what", i), what)
                             .flex_1()
                             .text_color(theme::muted()),
                     )
@@ -782,7 +979,7 @@ impl Workspace {
             .file
             .clone()
             .or_else(|| themes::folder().map(|d| d.join(format!("{}.json", t.id))))
-            .map(|f| super::format::home_relative(&f))
+            .map(|f| format::home_relative(&f))
             .unwrap_or_default();
         let open_json = t.file.clone();
         // The tokens scroll on their own, the preview stays beside them (Design: sticky).
@@ -824,7 +1021,7 @@ impl Workspace {
                                     .text_color(theme::muted()),
                             )
                             .on_click(cx.listener(|this, ev: &ClickEvent, _, cx| {
-                                this.open_theme_bases(ev.position(), cx)
+                                this.open_bases(ev.position(), cx)
                             })),
                     )
                     .child(div().flex_1())
@@ -833,9 +1030,8 @@ impl Workspace {
                             .on_click(move |_: &ClickEvent, _, cx| cx.reveal_path(&f))
                     }))
                     .child(
-                        small_button("theme-revert", "Revert").on_click(
-                            cx.listener(|this, _: &ClickEvent, _, cx| this.revert_theme(cx)),
-                        ),
+                        small_button("theme-revert", "Revert")
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.revert(cx))),
                     )
                     .child(
                         div()
@@ -855,15 +1051,15 @@ impl Workspace {
                             .child(
                                 div()
                                     .font_weight(FontWeight::NORMAL)
-                                    .child(super::keys::text("⌘S").into_owned()),
+                                    .child(keys::text("⌘S").into_owned()),
                             )
-                            .on_click(
-                                cx.listener(|this, _: &ClickEvent, _, cx| this.save_theme(cx)),
-                            ),
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.save(cx))),
                     )
-                    .child(small_button("theme-done", "Done").on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| this.close_theme_edit(cx)),
-                    )),
+                    .child(
+                        small_button("theme-done", "Done").on_click(
+                            cx.listener(|this, _: &ClickEvent, _, cx| this.close_edit(cx)),
+                        ),
+                    ),
             )
             .children(edit.from.as_ref().map(|from| {
                 div()
@@ -904,7 +1100,7 @@ impl Workspace {
                     })
                     .text_size(px(12.))
                     .child(
-                        super::hover::cut(
+                        hover::cut(
                             "contrast-line",
                             match bad {
                                 Some((tok, ratio, on)) => format!(
@@ -976,12 +1172,12 @@ impl Workspace {
 
     /// Under the selected token: its value to type, its contrast on each surface, the fixes.
     fn render_token_open(&self, i: usize, cx: &mut Context<Self>) -> AnyElement {
-        let Some(edit) = &self.theme_edit else {
+        let Some(edit) = &self.edit else {
             return div().into_any_element();
         };
         let t = &edit.theme;
         let text = is_text(i);
-        let active = self.field == Some(Field::ThemeValue);
+        let active = self.typing;
         let low = text
             && themes::SURFACES
                 .iter()
@@ -1016,7 +1212,7 @@ impl Workspace {
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .child(super::typing::field_box_out(
+                    .child(artoo_shell_api::input_box(
                         div()
                             .id("theme-value")
                             .w(px(130.))
@@ -1033,18 +1229,19 @@ impl Workspace {
                             })
                             .font_family(theme::code_font())
                             .cursor_text()
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.start_field(Field::ThemeValue, cx)
-                            }))
-                            .child(self.field_look(
-                                &self.theme_value,
+                            .on_click(
+                                cx.listener(|this, _: &ClickEvent, _, cx| this.start_field(cx)),
+                            )
+                            .child(self.area.field_look_of(
+                                &self.value,
                                 active,
                                 "#rrggbb",
                                 Default::default(),
+                                |a: &mut Appearance| Some(&mut a.area),
                                 cx.entity().downgrade(),
                             )),
-                        Field::ThemeValue,
-                        cx,
+                        INPUT,
+                        &self.frame,
                     ))
                     .child(
                         div()
@@ -1083,7 +1280,7 @@ impl Workspace {
                     .children(low.then(|| {
                         small_button("theme-raise", "Raise to 4.5:1").on_click(cx.listener(
                             move |this, _: &ClickEvent, _, cx| {
-                                let Some(edit) = &this.theme_edit else {
+                                let Some(edit) = &this.edit else {
                                     return;
                                 };
                                 let c = themes::raise(&edit.theme, value(&edit.theme, i));
@@ -1236,9 +1433,7 @@ impl Workspace {
                     }
                 }),
             )
-            .on_drag(PickDrag(which), |_, _, _, cx| {
-                cx.new(|_| super::hover::NoTip)
-            })
+            .on_drag(PickDrag(which), |_, _, _, cx| cx.new(|_| hover::NoTip))
             .on_drag_move(
                 cx.listener(move |this, e: &DragMoveEvent<PickDrag>, _, cx| {
                     if e.drag(cx).0 == which {
@@ -1250,7 +1445,7 @@ impl Workspace {
 
     /// The pointer at `(x, y)` (0–1 across and down) in area `which`.
     fn pick_at(&mut self, which: Pick, (x, y): (f32, f32), cx: &mut Context<Self>) {
-        let Some(edit) = &self.theme_edit else {
+        let Some(edit) = &self.edit else {
             return;
         };
         let [h, s, v, a] = edit.hsva;

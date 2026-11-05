@@ -1610,13 +1610,13 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, cx: &mut App) -> artoo_shell_api::Part
         snapshots: vec![
             (
                 "ssh-make",
-                Rc::new(move |cx| {
+                Rc::new(move |_, cx| {
                     make.update(cx, |p, _| p.make = Some("api")).ok();
                 }),
             ),
             (
                 "ways-settings",
-                Rc::new(move |cx| {
+                Rc::new(move |_, cx| {
                     pick.update(cx, |p, _| p.connecting.pick = Some("ssh".to_owned()))
                         .ok();
                 }),
