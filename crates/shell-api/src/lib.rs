@@ -9,7 +9,7 @@
 //!   fields it types in (`Input`), its pieces of the item page on screen (`Piece`) —, made for each tab with its
 //!   `Frame`.
 //! - **Settings' sections** (`add_settings_section`): a section's id, title and place in the left column; the window
-//!   root draws its own, a feature's holds its parts' rows (`Parts::settings`).
+//!   root draws its own, a feature's holds its parts' rows (`Parts::settings`), any owner's in their places.
 //! - **Editors** (`add_editor`): an editor Open in opens a file in at a line (`artoo_core::editor::Editor`), by
 //!   its key, which Settings keeps; Artoo's three the frame's.
 //! - **Pages**: the routes of some kinds and a space's own page, drawn by the feature that owns them. The shell
@@ -705,8 +705,8 @@ pub struct Parts {
     pub title: Option<TitleItem>,
     pub overlay: Option<Overlay>,
     pub tool: Option<Tool>,
-    /// Rows under a section of Settings, by its id (`settings::Section::id`), in the order given.
-    pub settings: Vec<(&'static str, AnyView)>,
+    /// Its rows under sections of Settings, each in its place.
+    pub settings: Vec<settings::Rows>,
     /// The feature's actions as this tab runs them.
     pub actions: Vec<(Box<dyn gpui::Action>, Run)>,
     /// What `ARTOO_SNAPSHOT_VIEW=<name>` opens in this tab.

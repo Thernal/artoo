@@ -3,11 +3,11 @@
 //! Codex's.
 
 use crate::{agents, codex};
+use artoo_shell_api::settings::Rows;
 use artoo_ui_kit::controls::setting;
 use artoo_ui_kit::{ROW_RADIUS, hover, px, theme};
 use gpui::{
-    AnyView, App, ClickEvent, ClipboardItem, Context, Entity, FontWeight, Render, Window, div,
-    prelude::*,
+    App, ClickEvent, ClipboardItem, Context, Entity, FontWeight, Render, Window, div, prelude::*,
 };
 
 /// Claude Code being connected from one tab, and what came of it.
@@ -49,12 +49,12 @@ impl Connect {
 }
 
 /// Settings → Agents, as a part's rows.
-pub fn settings(connect: Entity<Connect>, cx: &mut App) -> (&'static str, AnyView) {
+pub fn settings(connect: Entity<Connect>, cx: &mut App) -> Rows {
     let view = cx.new(|cx| {
         cx.observe(&connect, |_, _, cx| cx.notify()).detach();
         AgentsSettings { connect }
     });
-    (artoo_agents_api::view::SETTINGS, view.into())
+    Rows::new(artoo_agents_api::view::SETTINGS, 10, view)
 }
 
 /// Settings → Agents: connect Claude Code (every profile), the commands for others.

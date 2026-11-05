@@ -188,8 +188,9 @@ impl Workspace {
             .connecting()
             .and_then(|connecting| connecting.settings(self.here(cx), cx));
         let section = self.settings_section;
-        // The theme editor takes the page's height: its tokens scroll beside a preview that stays.
-        let editing = section == APPEARANCE && self.theme_edit.is_some();
+        // Rows that fill the section take the page's height: the theme editor's tokens scroll beside a preview that
+        // stays.
+        let mut editing = section == APPEARANCE && self.theme_edit.is_some();
         let column = || div().flex().flex_col().gap_5();
         let content: gpui::AnyElement = match section {
             DIFF => column()
@@ -282,7 +283,11 @@ impl Workspace {
                             "At start and every 6 hours.",
                             updates,
                         ))
-                        .children(update_rows.into_iter().map(|row| div().pt(px(6.)).child(row))),
+                        .children(
+                            update_rows
+                                .into_iter()
+                                .map(|row| div().pt(px(6.)).child(row.view)),
+                        ),
                 )
                 .into_any_element(),
             REPOSITORY => column()
@@ -305,12 +310,19 @@ impl Workspace {
                     .into_any_element()
             }),
             KEYBOARD => self.render_keyboard_settings(cx).into_any_element(),
-            // A feature's section: its parts' rows (Settings → Agents).
-            other => div()
-                .flex()
-                .flex_col()
-                .children(self.settings_rows(other))
-                .into_any_element(),
+            // A feature's section: the parts' rows in their places (Settings → Agents), or the rows that fill it now.
+            other => {
+                let rows = self.settings_rows(other);
+                match rows.iter().find(|r| r.fills.as_ref().is_some_and(|now| now(cx))) {
+                    Some(filling) => {
+                        editing = true;
+                        filling.view.clone().into_any_element()
+                    }
+                    None => column()
+                        .children(rows.into_iter().map(|r| r.view))
+                        .into_any_element(),
+                }
+            }
         };
         settings::page(
             settings::Page {

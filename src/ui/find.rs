@@ -116,7 +116,11 @@ impl Workspace {
             } else if !self.nav.picked.is_empty() {
                 self.nav.picked.clear();
                 cx.notify();
-            } else if self.close_setup(cx) || (self.settings_open && self.theme_edit_escape(cx)) {
+            } else if self.close_setup(cx)
+                || (self.settings_open
+                    && (self.theme_edit_escape(cx)
+                        || self.settings_escape(self.settings_section, cx)))
+            {
             } else if self.settings_open {
                 self.settings_open = false;
                 cx.notify();

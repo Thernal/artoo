@@ -546,14 +546,40 @@ impl Workspace {
             .collect()
     }
 
-    /// The parts' rows under a section of Settings.
-    pub(super) fn settings_rows(&self, section: &str) -> Vec<AnyView> {
-        self.parts
+    /// The parts' rows under a section of Settings, in their places (the sort keeps the install order of one place).
+    pub(super) fn settings_rows(&self, section: &str) -> Vec<artoo_shell_api::settings::Rows> {
+        let mut rows: Vec<_> = self
+            .parts
             .iter()
             .flat_map(|p| &p.settings)
-            .filter(|(s, _)| *s == section)
-            .map(|(_, view)| view.clone())
-            .collect()
+            .filter(|r| r.section == section)
+            .cloned()
+            .collect();
+        rows.sort_by_key(|r| r.order);
+        rows
+    }
+
+    /// Esc on Settings' section `section`: whether a part's rows took it (the theme editor's token, then the editor).
+    pub(super) fn settings_escape(&mut self, section: &str, cx: &mut Context<Self>) -> bool {
+        let hooks: Vec<_> = self
+            .settings_rows(section)
+            .into_iter()
+            .filter_map(|r| r.escape)
+            .collect();
+        hooks.into_iter().any(|took| took(cx))
+    }
+
+    /// Settings is shut: what was begun in a part's rows ends (the theme being edited).
+    pub(super) fn settings_closed(&mut self, cx: &mut Context<Self>) {
+        let hooks: Vec<_> = self
+            .parts
+            .iter()
+            .flat_map(|p| &p.settings)
+            .filter_map(|r| r.closed.clone())
+            .collect();
+        for end in hooks {
+            end(cx);
+        }
     }
 
     /// The parts' actions, as this tab runs them.
