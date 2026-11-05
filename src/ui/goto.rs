@@ -44,9 +44,9 @@ impl Workspace {
         cx.notify();
     }
 
-    /// A link clicked in a comment: opened here when it is a GitLab link this app can follow.
+    /// A link clicked in a comment: opened here when it is a host's link this app can follow.
     pub(super) fn open_url_here(&mut self, url: &str, cx: &mut Context<Self>) -> bool {
-        let Some(link) = links::parse(url) else {
+        let Some(link) = artoo_hosts_api::get(cx).link(url) else {
             return false;
         };
         let known = self.web.as_ref().is_some_and(|w| w.base == link.base);

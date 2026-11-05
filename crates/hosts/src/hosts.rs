@@ -1,30 +1,60 @@
-//! The hosts' contract implemented (#165 stage 3): GitLab for any remote but GitHub's. GitLab answers from
-//! `gitlab.rs`, GitHub from `github.rs`; neither asks which host it is.
+//! The hosts' contract implemented (#165 stage 3): two kinds of host (#171 phase 5), GitHub's and GitLab's for any
+//! other remote. GitLab answers from `gitlab.rs`, GitHub from `github.rs`; neither asks which host it is.
 
 use crate::git::WebRemote;
-use crate::{github, gitlab, tokens};
+use crate::{github, gitlab, links, tokens};
 use anyhow::Result;
 use anyhow::bail;
 use artoo_hosts_api::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub(crate) struct HostsImpl;
+/// GitHub's kind: github.com's remotes (any host with `github` in its name) and their links.
+pub(crate) struct GitHubKind;
+
+/// GitLab's kind: any remote another kind does not own, and `/-/` links.
+pub(crate) struct GitLabKind;
+
+impl Kind for GitHubKind {
+    fn owns(&self, remote: &WebRemote) -> bool {
+        remote.github
+    }
+
+    fn host(&self, remote: &WebRemote) -> Arc<dyn Host> {
+        Arc::new(GitHub {
+            remote: remote.clone(),
+        })
+    }
+
+    fn link(&self, url: &str) -> Option<links::Link> {
+        links::github(url)
+    }
+}
+
+impl Kind for GitLabKind {
+    fn owns(&self, _: &WebRemote) -> bool {
+        true
+    }
+
+    fn host(&self, remote: &WebRemote) -> Arc<dyn Host> {
+        Arc::new(GitLab {
+            remote: remote.clone(),
+        })
+    }
+
+    fn link(&self, url: &str) -> Option<links::Link> {
+        links::gitlab(url)
+    }
+}
+
+/// The two, in their order: GitHub's, then GitLab's for any other remote.
+pub(crate) fn kinds() -> Vec<(u16, Arc<dyn Kind>)> {
+    vec![(10, Arc::new(GitHubKind)), (u16::MAX, Arc::new(GitLabKind))]
+}
 
 /// The host `remote` is on, for hosts' own modules (connect's checks).
 pub(crate) fn of(remote: &WebRemote) -> Arc<dyn Host> {
-    HostsImpl.of(remote)
-}
-
-impl Hosts for HostsImpl {
-    fn of(&self, remote: &WebRemote) -> Arc<dyn Host> {
-        let remote = remote.clone();
-        if remote.github {
-            Arc::new(GitHub { remote })
-        } else {
-            Arc::new(GitLab { remote })
-        }
-    }
+    Kinds::new(kinds().into_iter().map(|(_, k)| k).collect()).of(remote)
 }
 
 struct GitLab {
@@ -541,7 +571,7 @@ mod tests {
             base: "https://github.com/o/r".into(),
             github: true,
         };
-        let hosts = HostsImpl;
+        let hosts = Kinds::new(kinds().into_iter().map(|(_, k)| k).collect());
         assert_eq!(hosts.of(&github).remote(), &github);
         // Each host answers from its own side: GitHub's pull requests, GitLab's merge requests.
         let pulls = hosts.of(&github).list().unwrap();
@@ -559,5 +589,26 @@ mod tests {
         assert!(discussions.publish_draft(412, 9001).is_ok());
         assert!(hosts.of(&github).publish_draft(412, 9001).is_err());
         crate::fixture::TEST_FIXTURE.with(|f| *f.borrow_mut() = None);
+    }
+
+    #[test]
+    fn each_kind_reads_its_own_links() {
+        let hosts = Kinds::new(kinds().into_iter().map(|(_, k)| k).collect());
+        let pull = hosts.link("https://github.com/o/r/pull/7").unwrap();
+        assert!(pull.github);
+        assert_eq!(pull.base, "https://github.com/o/r");
+        let request = hosts
+            .link("https://git.example.com/g/p/-/merge_requests/412")
+            .unwrap();
+        assert!(!request.github);
+        assert_eq!(request.base, "https://git.example.com/g/p");
+        assert!(hosts.link("not a link").is_none());
+        // GitHub's kind leaves a `/-/` link to GitLab's, and GitLab's reads no GitHub link.
+        assert!(
+            GitHubKind
+                .link("https://git.example.com/g/p/-/merge_requests/412")
+                .is_none()
+        );
+        assert!(GitLabKind.link("https://github.com/o/r/pull/7").is_none());
     }
 }

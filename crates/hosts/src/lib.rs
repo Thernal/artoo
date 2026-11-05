@@ -19,10 +19,12 @@ use artoo_core::{emoji, git, links, platform, search, storage};
 use artoo_hosts_api::Hosts;
 use std::sync::Arc;
 
-/// Provides the hosts every window reads, the pictures the kit's markdown draws and the people its avatars show; each
+/// Offers GitHub's and GitLab's kinds of host, the pictures the kit's markdown draws and the people its avatars show; each
 /// tab's connect panel (`artoo_hosts_api::connect`).
 pub fn install(cx: &mut gpui::App) {
-    artoo_hosts_api::provide(cx, hosts());
+    for (order, kind) in hosts::kinds() {
+        artoo_hosts_api::add_kind(cx, order, kind);
+    }
     artoo_ui_kit::pictures::provide(cx, Arc::new(pictures::WebPictures));
     artoo_ui_kit::people::provide(Arc::new(avatars::Avatars));
     artoo_shell_api::add_parts(cx, |frame, _, cx| panel::parts(frame, cx));
@@ -30,7 +32,9 @@ pub fn install(cx: &mut gpui::App) {
 
 /// GitLab and GitHub, for a mode without a window.
 pub fn hosts() -> Arc<dyn Hosts> {
-    Arc::new(hosts::HostsImpl)
+    Arc::new(artoo_hosts_api::Kinds::new(
+        hosts::kinds().into_iter().map(|(_, k)| k).collect(),
+    ))
 }
 
 /// A test's fixture standing in for both hosts, on its thread (`fixture::TEST_FIXTURE`); `None` takes it back.

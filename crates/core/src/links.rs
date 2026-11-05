@@ -1,6 +1,6 @@
 //! GitLab and GitHub links read as places in the app: a merge or pull request (its discussion, or a
-//! line of its diff), a commit, a branch. Pure parsing; `ui::palette` and comment links act on what
-//! this finds.
+//! line of its diff), a commit, a branch. Pure parsing, each host's apart (`gitlab`, `github`): the host kinds
+//! read their links with them (`artoo_hosts_api::Kind::link`), and ⌘K and comment links act on what they find.
 
 /// What a link points at inside its project.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,9 +61,14 @@ impl Link {
     }
 }
 
-/// Reads a GitLab link (`…/-/merge_requests/12`, `…/-/commit/<sha>`, `…/-/tree/<branch>`); `None`
-/// for anything else.
+/// A GitLab or a GitHub link (`gitlab`, `github`); `None` for anything else. The app asks the host kinds
+/// installed (`artoo_hosts_api::Hosts::link`); this is what GitLab's and GitHub's say together.
 pub fn parse(url: &str) -> Option<Link> {
+    gitlab(url).or_else(|| github(url))
+}
+
+/// `url` without its query, and its fragment; `None` unless it is on the web.
+fn split(url: &str) -> Option<(&str, Option<&str>)> {
     let url = url.trim();
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return None;
@@ -72,10 +77,14 @@ pub fn parse(url: &str) -> Option<Link> {
         Some((u, f)) => (u, Some(f)),
         None => (url, None),
     };
-    let url = url.split('?').next().unwrap_or(url);
-    let Some((base, rest)) = url.split_once("/-/") else {
-        return github(url, fragment);
-    };
+    Some((url.split('?').next().unwrap_or(url), fragment))
+}
+
+/// Reads a GitLab link (`…/-/merge_requests/12`, `…/-/commit/<sha>`, `…/-/tree/<branch>`); `None`
+/// for anything else.
+pub fn gitlab(url: &str) -> Option<Link> {
+    let (url, fragment) = split(url)?;
+    let (base, rest) = url.split_once("/-/")?;
     let mut parts = rest.trim_end_matches('/').split('/');
     let target = match parts.next()? {
         "merge_requests" => {
@@ -105,8 +114,12 @@ pub fn parse(url: &str) -> Option<Link> {
 }
 
 /// A GitHub link: `https://host/owner/repo/pull/12[/files][#discussion_r<id>|#issuecomment-<id>]`,
-/// `…/commit/<sha>`, `…/tree/<branch>`.
-fn github(url: &str, fragment: Option<&str>) -> Option<Link> {
+/// `…/commit/<sha>`, `…/tree/<branch>`; one with GitLab's `/-/` is GitLab's.
+pub fn github(url: &str) -> Option<Link> {
+    let (url, fragment) = split(url)?;
+    if url.contains("/-/") {
+        return None;
+    }
     let (scheme, rest) = url.split_once("://")?;
     let mut parts = rest.trim_end_matches('/').split('/');
     let (host, owner, repo) = (parts.next()?, parts.next()?, parts.next()?);

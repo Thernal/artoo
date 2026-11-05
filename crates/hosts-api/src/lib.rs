@@ -4,6 +4,8 @@
 //!
 //! - `hosts::get(cx).of(&remote)` is the host a repository's remote is on; a worker takes a clone of the
 //!   `Arc` before it leaves the window's thread, a windowless mode is handed `Arc<dyn Hosts>`.
+//! - The hosts are the kinds installed (`add_kind`: GitHub, then GitLab for any other remote; a plugin's before
+//!   GitLab), each saying which remotes are its own and how its links read (`Kind`), asked in their order (`Kinds`).
 //! - A function that needs one side of a host takes it alone (`&dyn Discussions`): `Host` is the five, and a
 //!   `&dyn Host` gives each.
 //! - Every call blocks (curl): off the window's thread.
@@ -12,6 +14,7 @@ pub mod connect;
 
 use anyhow::Result;
 use artoo_core::git::WebRemote;
+use artoo_core::links::Link;
 use gpui::{App, Global};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,6 +25,46 @@ pub use artoo_core::mr::*;
 pub trait Hosts: Send + Sync {
     /// The host `remote` is on: GitHub's for github.com, GitLab's for any other.
     fn of(&self, remote: &WebRemote) -> Arc<dyn Host>;
+
+    /// A link into a project on one of them, as a place in the app (a request, a commit, a branch).
+    fn link(&self, url: &str) -> Option<Link>;
+}
+
+/// A kind of host (GitLab, GitHub; a plugin's), offered with `add_kind`.
+pub trait Kind: Send + Sync {
+    /// Whether `remote` is on it; the kind asked last takes any.
+    fn owns(&self, remote: &WebRemote) -> bool;
+
+    /// Its host for `remote`.
+    fn host(&self, remote: &WebRemote) -> Arc<dyn Host>;
+
+    /// One of its links as a place in the app (`…/-/merge_requests/12`, `…/pull/12#discussion_r5`).
+    fn link(&self, url: &str) -> Option<Link>;
+}
+
+/// The kinds, asked in their order: the first that owns a remote is its host, the last is any remote's.
+pub struct Kinds(Vec<Arc<dyn Kind>>);
+
+impl Kinds {
+    pub fn new(kinds: Vec<Arc<dyn Kind>>) -> Self {
+        Self(kinds)
+    }
+}
+
+impl Hosts for Kinds {
+    fn of(&self, remote: &WebRemote) -> Arc<dyn Host> {
+        let kind = self
+            .0
+            .iter()
+            .find(|k| k.owns(remote))
+            .or(self.0.last())
+            .expect("no host kind installed");
+        kind.host(remote)
+    }
+
+    fn link(&self, url: &str) -> Option<Link> {
+        self.0.iter().find_map(|k| k.link(url))
+    }
 }
 
 /// One remote's host, every side of it.
@@ -236,16 +279,35 @@ pub trait Merging: Send + Sync {
     fn rebase(&self, iid: u64) -> Result<()>;
 }
 
-struct Installed(Arc<dyn Hosts>);
+#[derive(Default)]
+struct Installed {
+    /// By their order; those of one order as they were offered.
+    kinds: Vec<(u16, Arc<dyn Kind>)>,
+    /// A test's own hosts, over the kinds.
+    provided: Option<Arc<dyn Hosts>>,
+}
 
 impl Global for Installed {}
 
-/// Sets the hosts every window reads (the implementation's `install`; a test's own).
-pub fn provide(cx: &mut App, hosts: Arc<dyn Hosts>) {
-    cx.set_global(Installed(hosts));
+/// Offers a kind of host, asked in `order` (a feature's `install`): GitHub 10, GitLab — any remote — last.
+pub fn add_kind(cx: &mut App, order: u16, kind: Arc<dyn Kind>) {
+    let installed = cx.default_global::<Installed>();
+    installed.kinds.push((order, kind));
+    installed.kinds.sort_by_key(|(order, _)| *order);
 }
 
-/// The hosts, as provided.
+/// Sets the hosts every window reads in place of the kinds (a test's own).
+pub fn provide(cx: &mut App, hosts: Arc<dyn Hosts>) {
+    cx.default_global::<Installed>().provided = Some(hosts);
+}
+
+/// The hosts: the kinds offered, in their order, or a test's own.
 pub fn get(cx: &App) -> Arc<dyn Hosts> {
-    cx.global::<Installed>().0.clone()
+    let installed = cx.global::<Installed>();
+    match &installed.provided {
+        Some(hosts) => hosts.clone(),
+        None => Arc::new(Kinds::new(
+            installed.kinds.iter().map(|(_, k)| k.clone()).collect(),
+        )),
+    }
 }

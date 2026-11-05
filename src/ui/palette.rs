@@ -838,8 +838,8 @@ impl Workspace {
     }
 
     fn all_items(&self, query: &str, files: &[String], cx: &App) -> Vec<Item> {
-        // A pasted GitLab link is one place to go.
-        if let Some(link) = crate::links::parse(query) {
+        // A pasted link of a host's is one place to go.
+        if let Some(link) = artoo_hosts_api::get(cx).link(query) {
             return vec![Item {
                 group: "Link",
                 label: format!("Open {}", link.describe()),

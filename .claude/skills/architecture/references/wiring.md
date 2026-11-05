@@ -56,18 +56,21 @@ fn main() {
 // crates/hosts/src/lib.rs
 mod github;
 mod gitlab;
+mod hosts;
 mod pictures;
 
 use artoo_hosts_api::Hosts;
 use std::sync::Arc;
 
 pub fn install(cx: &mut gpui::App) {
-    artoo_hosts_api::provide(cx, hosts());
+    for (order, kind) in hosts::kinds() {
+        artoo_hosts_api::add_kind(cx, order, kind);
+    }
     artoo_ui_kit::pictures::provide(cx, Arc::new(pictures::PicturesImpl::new()));
 }
 
 pub fn hosts() -> Arc<dyn Hosts> {
-    Arc::new(HostsImpl::new())
+    Arc::new(artoo_hosts_api::Kinds::new(hosts::kinds().into_iter().map(|(_, k)| k).collect()))
 }
 ```
 

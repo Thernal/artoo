@@ -98,7 +98,8 @@ The target above is reached for every feature: each implementation shows the app
   features' tool windows. New work on a feature goes into
   its crate, asked through its contract; what is the tab's stays coordination.
 - Done: the shell (`artoo-shell`, every piece of the frame through `artoo-shell-api`'s render contracts), Code,
-  updates and reports, hosts (the hosts' contract, the connect panel a part of every tab behind
+  updates and reports, hosts (the hosts' contract — a host a kind's, offered with `add_kind`, GitHub's and GitLab's each reading its own links
+  (#171 phase 5) —, the connect panel a part of every tab behind
   `artoo_hosts_api::connect::Connect`, markdown's pictures through the kit's `Pictures` port) and agents (their
   models, a tab's agents `artoo_agents_api::tab::Agents`, the folder the windows read `bus::Folder`, what the tab
   draws of them a render contract `view`), and Appearance (`artoo-appearance`, #171 phase 4: Settings → Appearance's

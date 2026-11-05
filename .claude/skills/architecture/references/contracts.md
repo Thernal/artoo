@@ -21,7 +21,10 @@
    `install`, and `get(cx)`, read by anyone. Six lines, repeated in each contract rather than shared — a shared
    helper would be a contract every contract depends on. A tab's contract has one handle per tab and no global:
    the feature offers it in the tab's `Services` as its parts are made (`Frame::services`), and the others read
-   it there when they use it.
+   it there when they use it. A contract several crates may offer to keeps a list instead, in the shell's shape:
+   `add_kind(cx, order, kind)` for each, `get(cx)` asking them in their order (the hosts' kinds: GitHub's, then
+   GitLab's for any other remote, #171 phase 5) — the few lines that pick one are the contract's, and `provide`
+   stays only as a test's override.
 7. **A shared crate that needs a service declares the port itself.** The kit's markdown draws pictures by their
    address, so the kit holds `Pictures` and its handle and hosts implements it; the kit stays on the core
    alone and nothing it draws knows a host.
@@ -48,7 +51,7 @@ use gpui::{App, Global};
 use std::sync::Arc;
 
 pub trait Hosts: Send + Sync {
-    /// The host `remote` is on: GitHub's for github.com, GitLab's for any other.
+    /// The host `remote` is on: the first kind's that owns it (GitHub's for github.com, GitLab's for any other).
     fn of(&self, remote: &WebRemote) -> Arc<dyn Host>;
 }
 
