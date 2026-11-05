@@ -236,6 +236,23 @@ impl CodeSpace {
         }
     }
 
+    /// The project's files for search everywhere, read as it opens: the tree Code shows once it is read, else a
+    /// plain folder's files on disk or the repository's.
+    pub fn search_files(&self) -> Arc<Vec<String>> {
+        let Some(root) = &self.root else {
+            return Arc::default();
+        };
+        if !self.code.files.is_empty() {
+            return self.code.files.clone();
+        }
+        Arc::new(match self.plain {
+            true => files::on_disk(root, 200_000),
+            false => Repo::open(root)
+                .map(|r| r.all_files(200_000))
+                .unwrap_or_default(),
+        })
+    }
+
     /// Its pages as the shell draws them: a file, a folder, the project's own; the tree beside them.
     pub fn pages(this: &Entity<Self>) -> Pages {
         let (side, show, named) = (this.clone(), this.clone(), this.downgrade());

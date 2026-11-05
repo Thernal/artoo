@@ -165,7 +165,12 @@ impl Host for CodeHost {
     }
 
     fn go_to_file(&self, cx: &mut App) {
-        self.later(cx, |tab, cx| tab.search(super::palette::Scope::Files, cx));
+        let files = super::palette::Scope::Offered(artoo_code_api::SEARCH);
+        self.later(cx, move |tab, cx| tab.search(files, cx));
+    }
+
+    fn pick_file(&self, path: String, in_diff: bool, cx: &mut App) {
+        self.later(cx, move |tab, cx| tab.pick_file(path, in_diff, cx));
     }
 
     fn tree_opening(&self, folder: String, cx: &mut App) {

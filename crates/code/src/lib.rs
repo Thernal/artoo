@@ -7,6 +7,7 @@
 //! `artoo_code_api::Host` it finds there, and reads its file through the review's `FileView`.
 
 mod outline;
+mod search;
 mod space;
 
 use artoo_shell_api::spaces::{self, Space, SpaceInfo};
@@ -55,9 +56,14 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     };
     let tool = outline::tool(frame.clone(), host.clone(), cx);
     let goes = frame.clone();
-    let code = cx.new(|_| space::CodeSpace::new(host, frame));
+    let code = cx.new(|_| space::CodeSpace::new(host.clone(), frame));
     services.set::<Rc<dyn artoo_code_api::Code>>(Rc::new(space::Handle(code.downgrade())));
     Parts {
+        searches: vec![search::scope(
+            code.downgrade(),
+            Rc::downgrade(&services),
+            host,
+        )],
         actions: vec![(
             Box::new(GoToCode),
             Rc::new(move |_, cx| goes.go_space(artoo_code_api::SPACE, cx)),

@@ -5,7 +5,7 @@ use artoo_core::rank::word_matches;
 use artoo_core::route::Place;
 use artoo_requests_api::{RequestRoute, Requests};
 use artoo_shell_api::Services;
-use artoo_shell_api::search::{AllOf, Ask, Find, Search};
+use artoo_shell_api::search::{AllOf, Ask, Find, Opens, Search};
 use artoo_ui_kit::words;
 use gpui::App;
 use std::rc::{Rc, Weak};
@@ -29,6 +29,7 @@ pub fn scope(services: Weak<Services>) -> Search {
             };
             find(ask, &services, cx)
         }),
+        opened: None,
     }
 }
 
@@ -54,7 +55,8 @@ fn find(ask: Ask, services: &Services, cx: &App) -> Vec<Find> {
             group: "Merge requests",
             label: format!("{} {}", words::number(m.iid), m.title),
             detail: m.author.clone(),
-            open: RequestRoute { number: m.iid }.route(),
+            file: None,
+            open: Opens::Route(RequestRoute { number: m.iid }.route()),
         })
         .collect()
 }

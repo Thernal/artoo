@@ -6,7 +6,7 @@ use artoo_branches_api::{BranchRoute, Branches, Selection};
 use artoo_core::rank::{rank, word_matches};
 use artoo_core::route::Place;
 use artoo_shell_api::Services;
-use artoo_shell_api::search::{AllOf, Ask, Find, Search};
+use artoo_shell_api::search::{AllOf, Ask, Find, Opens, Search};
 use artoo_ui_kit::format;
 use gpui::App;
 use std::rc::{Rc, Weak};
@@ -25,6 +25,7 @@ pub fn scope(services: Weak<Services>) -> Search {
             prefix: Some('#'),
         },
         find: finds(services, find),
+        opened: None,
     }
 }
 
@@ -42,6 +43,7 @@ pub fn commits(services: Weak<Services>) -> Search {
             prefix: None,
         },
         find: finds(services, find_commits),
+        opened: None,
     }
 }
 
@@ -68,7 +70,8 @@ fn find(ask: Ask, branches: &dyn Branches, cx: &App) -> Vec<Find> {
             group: "Branches",
             label: b.name.clone(),
             detail: format::short(b.tip),
-            open: BranchRoute { refname: b.refname }.route(),
+            file: None,
+            open: Opens::Route(BranchRoute { refname: b.refname }.route()),
         })
         .collect()
 }
@@ -94,7 +97,8 @@ fn find_commits(ask: Ask, branches: &dyn Branches, cx: &App) -> Vec<Find> {
                 group: "Commits",
                 label: c.summary.clone(),
                 detail: format!("{} · {}", format::short(c.id), c.author),
-                open: branches.route_of(Selection::Commit(at), cx)?,
+                file: None,
+                open: Opens::Route(branches.route_of(Selection::Commit(at), cx)?),
             })
         })
         .collect()

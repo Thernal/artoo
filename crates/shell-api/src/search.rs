@@ -1,7 +1,7 @@
 //! Search everywhere's scopes (⌘K's tabs, #52) a feature offers in a tab (`Parts::searches`): its words, the action
-//! that opens it, what it finds for a text and where each find goes, a route opened as the tab opens one
-//! (`Frame::open`). The tab keeps the window, its field and the scopes that are its own (All, Actions; Files and
-//! Commits until their owners take them, #171 7b), and puts each offered one among them by its `order`.
+//! that opens it, what it finds for a text and where each find goes — a route opened as the tab opens one
+//! (`Frame::open`), or for what is no place the owner's own doing. The tab keeps the window, its field and the
+//! scopes that are its own (All, Actions), and puts each offered one among them by its `order`.
 
 use artoo_core::route::Route;
 use gpui::App;
@@ -23,6 +23,8 @@ pub struct Search {
     pub all: AllOf,
     /// What it finds for the text, the best first; for the All tab (`Ask::all`) as All matches.
     pub find: Finds,
+    /// What it reads once as ⌘K opens, for the finds that follow (the project's files); None when nothing.
+    pub opened: Option<Doing>,
 }
 
 /// What the All tab shows of a scope: once something is typed, its first `few` finds, after the scopes of a lower
@@ -45,10 +47,25 @@ pub struct Ask<'a> {
 /// never the tab.
 pub type Finds = Rc<dyn Fn(Ask, &App) -> Vec<Find>>;
 
-/// A find: the group it is listed under, its words, and where a pick goes.
+/// A find: the group it is listed under, its words, the file it is, and where a pick goes.
 pub struct Find {
     pub group: &'static str,
     pub label: String,
     pub detail: String,
-    pub open: Route,
+    /// The file it is, by its path: its row has the file's icon, and its words are a file's name and folder.
+    pub file: Option<String>,
+    pub open: Opens,
 }
+
+/// Where a pick goes.
+#[derive(Clone)]
+pub enum Opens {
+    /// A place, opened as the tab opens one (`Frame::open`).
+    Route(Route),
+    /// What is no place, or more than going to one — a file of the diff on screen picked there, a file read at the
+    /// revision the diff shows —, the owner's doing: run once ⌘K has closed, outside the tab's update.
+    Run(Doing),
+}
+
+/// Something a scope's owner does, outside the tab's update.
+pub type Doing = Rc<dyn Fn(&mut App)>;

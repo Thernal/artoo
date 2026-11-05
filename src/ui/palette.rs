@@ -8,16 +8,15 @@ use super::input::{self, Edit};
 use super::{Workspace, format, theme};
 use crate::git::{NamedRef, Repo};
 use artoo_shell_api::palette;
+use artoo_shell_api::search::Opens;
 use git2::Oid;
 use gpui::{Action, App, Context, KeyDownEvent, WeakEntity, Window, prelude::*};
 use std::rc::Rc;
-use std::sync::Arc;
 
 /// A tab of search everywhere: the tab's own, or one a feature offers (`Parts::searches`), by its id.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope {
     All,
-    Files,
     Actions,
     Offered(&'static str),
 }
@@ -27,7 +26,6 @@ impl Scope {
     fn order(self) -> u16 {
         match self {
             Scope::All => 0,
-            Scope::Files => 10,
             Scope::Actions => 90,
             Scope::Offered(_) => u16::MAX,
         }
@@ -37,7 +35,6 @@ impl Scope {
 /// A section of the All tab: the tab's own, or an offered scope's few.
 enum Section<'a> {
     Commands,
-    Files,
     Offered(&'a artoo_shell_api::search::Search),
 }
 
@@ -103,16 +100,16 @@ enum Pick {
         line: u32,
     },
     Recent(super::recents::Key),
-    File(usize),
     Branch(usize),
     Request(u64),
-    /// A file of the repository the diff does not change.
-    RepoFile(String),
     Link(crate::links::Link),
     /// A command offered (`Workspace::contributed`), by its place there.
     Command(usize),
-    /// A find of a scope offered: where it goes.
-    Open(artoo_core::route::Route),
+    /// A find of a scope offered: where it goes, the file it is.
+    Found {
+        open: artoo_shell_api::search::Opens,
+        file: Option<String>,
+    },
     /// Browse… for a folder: Open's.
     Browse,
     Ref(String, Oid),
@@ -148,8 +145,6 @@ pub struct Palette {
     from: Option<Scope>,
     /// What each tab found for the text, in the tabs' order (with text typed).
     counts: Option<Vec<usize>>,
-    /// The repository's files, read when search everywhere opened.
-    files: Arc<Vec<String>>,
     /// The faces installed, read when a face's list opened.
     faces: Vec<String>,
     query: String,
@@ -223,7 +218,6 @@ fn project_items(
     items
 }
 
-/// A file's name, which leads, and its folder, which follows it fainter — as IDEs list files.
 /// A scope's shipped key as the foot writes it, the command key first and the letter in capitals (`⌘⇧R`), as the
 /// app's written keys are; a key the user changed shows as the keymap writes it (`⇧⌘r`).
 fn foot_key(keys: &str) -> String {
@@ -231,13 +225,6 @@ fn foot_key(keys: &str) -> String {
     let rest: String = written.chars().filter(|&c| c != '⌘').collect();
     let cmd = if written.contains('⌘') { "⌘" } else { "" };
     format!("{cmd}{}", rest.to_uppercase())
-}
-
-fn name_and_folder(path: &str) -> (String, String) {
-    match path.rsplit_once('/') {
-        Some((folder, name)) => (name.to_owned(), folder.to_owned()),
-        None => (path.to_owned(), String::new()),
-    }
 }
 
 /// The words of `query` all occur in `hay`, ignoring case — or as the starts of its words.
@@ -257,7 +244,7 @@ impl Workspace {
 
     /// Search everywhere's tabs, in their order: the tab's own, the offered ones among them.
     pub(super) fn scopes(&self) -> Vec<Scope> {
-        let mut scopes: Vec<(u16, Scope)> = [Scope::All, Scope::Files, Scope::Actions]
+        let mut scopes: Vec<(u16, Scope)> = [Scope::All, Scope::Actions]
             .into_iter()
             .map(|s| (s.order(), s))
             .chain(
@@ -272,7 +259,6 @@ impl Workspace {
     fn scope_label(&self, scope: Scope) -> &'static str {
         match scope {
             Scope::All => "All",
-            Scope::Files => "Files",
             Scope::Actions => "Actions",
             Scope::Offered(id) => self.offered_search(id).map_or(id, |s| s.label),
         }
@@ -282,7 +268,6 @@ impl Workspace {
     fn scope_go(&self, scope: Scope) -> &'static str {
         match scope {
             Scope::All => "shell.search",
-            Scope::Files => "shell.search-files",
             Scope::Actions => "shell.search-actions",
             Scope::Offered(id) => self.offered_search(id).map_or("", |s| s.go),
         }
@@ -291,7 +276,6 @@ impl Workspace {
     fn scope_placeholder(&self, scope: Scope) -> &'static str {
         match scope {
             Scope::All => "Search everywhere — files, commits, branches, requests, actions",
-            Scope::Files => "Files — this diff's first, then the repository's",
             Scope::Actions => "Actions — everything the app does, with its key",
             Scope::Offered(id) => self.offered_search(id).map_or("", |s| s.placeholder),
         }
@@ -311,7 +295,10 @@ impl Workspace {
                 label: f.label,
                 detail: f.detail,
                 key: "",
-                pick: Pick::Open(f.open),
+                pick: Pick::Found {
+                    open: f.open,
+                    file: f.file,
+                },
             })
             .collect()
     }
@@ -405,25 +392,19 @@ impl Workspace {
             Some(_) => super::fonts::installed(cx),
             None => Vec::new(),
         };
-        let code_files = self.code().map(|c| c.files(cx)).unwrap_or_default();
-        let files = match (&kind, &self.root) {
-            // Code's own: the tree it shows, a plain folder's files on disk (#75).
-            (Kind::Search(_), Some(_)) if !code_files.is_empty() => code_files,
-            (Kind::Search(_), Some(root)) if self.plain => {
-                Arc::new(crate::files::on_disk(root, 200_000))
+        // What the offered scopes read once for their finds (Code's: the project's files).
+        if matches!(kind, Kind::Search(_)) {
+            let opened: Vec<_> = (self.offered_searches())
+                .filter_map(|s| s.opened.clone())
+                .collect();
+            for opened in opened {
+                opened(cx);
             }
-            (Kind::Search(_), Some(root)) => Arc::new(
-                Repo::open(root)
-                    .map(|r| r.all_files(200_000))
-                    .unwrap_or_default(),
-            ),
-            _ => Arc::default(),
-        };
+        }
         self.palette = Some(Palette {
             kind,
             from: None,
             counts: None,
-            files,
             faces,
             query: String::new(),
             at: 0,
@@ -508,6 +489,20 @@ impl Workspace {
         }
     }
 
+    /// A file Code's search found, picked (`artoo_code_api::Host::pick_file`): one of the diff on screen picked there,
+    /// its page coming on screen (#71) — but in Code, where it opens as a tab, changed or not (#75) —; else, not changed
+    /// here, read in Code (D18, #71).
+    pub(super) fn pick_file(&mut self, path: String, in_diff: bool, cx: &mut Context<Self>) {
+        if !in_diff || self.nav.space == super::spaces::CODE {
+            return self.open_file_view(path, cx);
+        }
+        let shown = self.shown_diff(cx);
+        if let Some(ix) = shown.and_then(|d| d.files.iter().position(|f| f.path() == path)) {
+            self.select_file(ix, cx);
+            self.follow_loaded(cx);
+        }
+    }
+
     /// Opens search everywhere on `scope`, or moves to that tab when it is open (the text stays);
     /// the same key again closes it.
     pub(super) fn search(&mut self, scope: Scope, cx: &mut Context<Self>) {
@@ -575,7 +570,7 @@ impl Workspace {
         let query = p.query.trim();
         let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
         match scope {
-            Scope::All => self.all_items(query, &p.files, cx),
+            Scope::All => self.all_items(query, cx),
             Scope::Actions => self.command_items("Actions", &words, cx),
             Scope::Offered(id) => self.offered_search(id).map_or_else(Vec::new, |search| {
                 let ask = artoo_shell_api::search::Ask {
@@ -584,7 +579,6 @@ impl Workspace {
                 };
                 self.offered_items(search, ask, cx)
             }),
-            Scope::Files => self.file_items(query, &p.files, cx),
         }
     }
 
@@ -775,62 +769,7 @@ impl Workspace {
     }
 
     /// The All tab: a few of every kind, a pasted link as one place, `#` `@` narrowing.
-    /// The Files tab's finds: this diff's files first, then the repository's.
-    fn file_items(&self, query: &str, files: &[String], cx: &App) -> Vec<Item> {
-        let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-        let name = |path: &str| path.rsplit('/').next().unwrap_or_default().to_owned();
-        let mut items: Vec<Item> = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        if let Some(diff) = &self.shown_diff(cx) {
-            for (ix, f) in crate::rank::rank(diff.files.iter().enumerate(), query, |(_, f)| {
-                f.path().rsplit('/').next().unwrap_or_default()
-            })
-            .into_iter()
-            .chain(diff.files.iter().enumerate().filter(|(_, f)| {
-                !words.is_empty()
-                    && matches(&words, f.path())
-                    && crate::rank::score(query, &name(f.path())).is_none()
-            })) {
-                if seen.insert(f.path().to_owned()) {
-                    let (label, detail) = name_and_folder(f.path());
-                    items.push(Item {
-                        group: "In this diff",
-                        label,
-                        detail,
-                        key: "",
-                        pick: Pick::File(ix),
-                    });
-                }
-            }
-        }
-        if !words.is_empty() {
-            let ranked = crate::rank::rank(files.iter(), query, |f| {
-                f.rsplit('/').next().unwrap_or_default()
-            });
-            items.extend(
-                ranked
-                    .into_iter()
-                    .chain(files.iter().filter(|f| {
-                        matches(&words, f) && crate::rank::score(query, &name(f)).is_none()
-                    }))
-                    .filter(|f| seen.insert((*f).clone()))
-                    .take(60)
-                    .map(|f| {
-                        let (label, detail) = name_and_folder(f);
-                        Item {
-                            group: "In the repository",
-                            label,
-                            detail,
-                            key: "",
-                            pick: Pick::RepoFile(f.clone()),
-                        }
-                    }),
-            );
-        }
-        items
-    }
-
-    fn all_items(&self, query: &str, files: &[String], cx: &App) -> Vec<Item> {
+    fn all_items(&self, query: &str, cx: &App) -> Vec<Item> {
         // A pasted link of a host's is one place to go.
         if let Some(link) = artoo_hosts_api::get(cx).link(query) {
             return vec![Item {
@@ -841,10 +780,9 @@ impl Workspace {
                 pick: Pick::Link(link),
             }];
         }
-        // `>` narrows it to the commands, `@` to the files, an offered scope's own character to it (`#`).
-        let narrows = |c: char| {
-            matches!(c, '>' | '@') || self.offered_searches().any(|s| s.all.prefix == Some(c))
-        };
+        // `>` narrows it to the commands, an offered scope's own character to it (`@` the files, `#` the branches).
+        let narrows =
+            |c: char| c == '>' || self.offered_searches().any(|s| s.all.prefix == Some(c));
         let (scope, rest) = match query.chars().next() {
             Some(c) if narrows(c) => (Some(c), &query[c.len_utf8()..]),
             _ => (None, query),
@@ -856,7 +794,7 @@ impl Workspace {
             Some(c) => own == Some(c),
             None => !words.is_empty(),
         };
-        let mut sections: Vec<(u16, Section)> = vec![(0, Section::Commands), (20, Section::Files)];
+        let mut sections: Vec<(u16, Section)> = vec![(0, Section::Commands)];
         sections.extend(
             self.offered_searches()
                 .map(|s| (s.all.order, Section::Offered(s))),
@@ -869,16 +807,6 @@ impl Workspace {
                     self.command_items("Commands", &words, cx)
                         .into_iter()
                         .take(cap(5)),
-                ),
-                // The Files tab's first finds: this diff's, then the repository's (X56).
-                Section::Files if shows(Some('@')) => items.extend(
-                    self.file_items(rest, files, cx)
-                        .into_iter()
-                        .take(cap(3))
-                        .map(|i| Item {
-                            group: "Files",
-                            ..i
-                        }),
                 ),
                 Section::Offered(search) if shows(search.all.prefix) => {
                     let ask = artoo_shell_api::search::Ask {
@@ -1039,24 +967,6 @@ impl Workspace {
                     self.jump_to_line(&path, line, old, cx);
                 }
             }
-            // A result opens in its space (#71): a file of what is loaded on its page.
-            // In Code a file opens there, as a tab, changed or not (#75).
-            Pick::File(ix) if self.nav.space == super::spaces::CODE => {
-                self.palette = None;
-                if let Some(path) = self
-                    .shown_diff(cx)
-                    .as_ref()
-                    .and_then(|d| d.files.get(ix))
-                    .map(|f| f.path().to_owned())
-                {
-                    self.open_file_view(path, cx);
-                }
-            }
-            Pick::File(ix) => {
-                self.palette = None;
-                self.select_file(ix, cx);
-                self.follow_loaded(cx);
-            }
             Pick::Branch(ix) => {
                 self.palette = None;
                 self.open_branch(ix, None, cx);
@@ -1066,7 +976,10 @@ impl Workspace {
                 self.open_request(iid, cx);
             }
             // Opened as a part's route is (`Frame::open`).
-            Pick::Open(route) => {
+            Pick::Found {
+                open: Opens::Route(route),
+                ..
+            } => {
                 self.palette = None;
                 if self.drawn().has(&route) {
                     self.go_page(route, cx);
@@ -1074,10 +987,14 @@ impl Workspace {
                     self.toast_info(format!("Nothing here opens {}", route.kind).into(), cx);
                 }
             }
-            Pick::RepoFile(path) => {
+            // The owner's doing, once the tab is no longer being changed: it may ask the tab.
+            Pick::Found {
+                open: Opens::Run(run),
+                ..
+            } => {
                 self.palette = None;
-                // Not changed here: read in Code (D18, #71).
-                self.open_file_view(path, cx);
+                cx.notify();
+                cx.defer(move |cx| run(cx));
             }
             Pick::Link(link) => {
                 self.palette = None;
@@ -1213,17 +1130,12 @@ impl Workspace {
                     key,
                     // A file's icon before it (#95).
                     icon: match &item.pick {
-                        Pick::File(f) => self
-                            .shown_diff(cx)
-                            .as_ref()
-                            .and_then(|d| d.files.get(*f))
-                            .map(|f| f.path().to_owned()),
-                        Pick::RepoFile(path) => Some(path.clone()),
+                        Pick::Found { file, .. } => file.clone(),
                         _ => None,
                     },
                     file: matches!(
                         item.pick,
-                        Pick::File(_) | Pick::RepoFile(_) | Pick::Project(_)
+                        Pick::Found { file: Some(_), .. } | Pick::Project(_)
                     ),
                     face: face_of(&p.kind, &item.pick),
                 }

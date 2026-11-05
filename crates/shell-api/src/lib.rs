@@ -21,8 +21,9 @@
 //!   screen, its islands with the keyboard (`screen`) —, and its row in the menu while it is open (`row`). A
 //!   feature opens one of its own through the `Frame` like any other.
 //! - **Searches** (`Parts::searches`, `search`): a scope of search everywhere a feature offers in a tab — ⌘K's tab,
-//!   its words, the action that opens it, what it finds for a text and the route each find opens; the All tab
-//!   takes a few of each, or its own alone after its character (`#`).
+//!   its words, the action that opens it, what it finds for a text and the route each find opens (or, for what is
+//!   no place, the owner's doing, run once ⌘K has closed); the All tab takes a few of each, or its own alone after
+//!   its character (`#`, `@`).
 //! - **`Frame`**: what a part asks of its tab: a toast, the error line, a redraw, the text selection, the places
 //!   it has open, its tool window opened or closed, a menu at the pointer, the narrow tab's drawer closed, a
 //!   route opened (or a space's own page), a route kept among the places opened lately, the tab's services.

@@ -19,6 +19,10 @@ use std::sync::Arc;
 /// The Code space, by its id (`artoo_shell_api::spaces`): Code offers it, its pages are in it.
 pub const SPACE: &str = "code";
 
+/// Code's scope of search everywhere, by its id (`artoo_shell_api::search`): ⌘P opens ⌘K on it, `@` narrows All to
+/// it — the files of the diff on screen first, then the project's.
+pub const SEARCH: &str = "files";
+
 /// A file read in Code.
 #[derive(Serialize, Deserialize)]
 pub struct FileRoute {
@@ -109,6 +113,9 @@ pub trait Host {
     fn note_folder(&self, folder: String, cx: &mut App);
     /// Go to file (⌘P).
     fn go_to_file(&self, cx: &mut App);
+    /// File `path` picked in search everywhere: one of the diff on screen (`in_diff`) is picked there, its page on
+    /// screen, unless Code is; else it is read in Code, as of the revision the diff shows.
+    fn pick_file(&self, path: String, in_diff: bool, cx: &mut App);
     /// Folder `folder` of the tree opened: its rows fade in.
     fn tree_opening(&self, folder: String, cx: &mut App);
     /// Line `line` of the file read brought into view, among the notes the tab pins on its lines (Outline's click).

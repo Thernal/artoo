@@ -12,10 +12,11 @@ and the hand-written lists gone; a context menu's entry a closure where the menu
 window root's five drawn by the tab, the agents' and Appearance (`artoo-appearance`) their parts' rows — any owner's
 rows in a section placed by their order, the window root's faces and panes inside Appearance; the closed
 `settings::Section` gone, #171 phase 4); the kinds of link a text has unwritten since 2026-11-05 (`Parts::links`, the
-requests' `!398` / `#12` the first, #171 D11); ⌘K's tabs since 2026-11-05, the window root's All, Files and Actions with the
+requests' `!398` / `#12` the first, #171 D11); ⌘K's tabs since 2026-11-05, the window root's All and Actions with the
 features' among them (`Parts::searches`, `artoo_shell_api::search`: a scope's id, label, placeholder, the action that opens it, its place, what the
-All tab takes of it and its character there, its finds for a text, each a route opened as the tab opens one — the requests', the branches' and
-the commits' first, #171 7b); the spaces of the menu since 2026-11-05 (`spaces::add`: an id, a label,
+All tab takes of it and its character there, its finds for a text, each a route opened as the tab opens one, or for what is no place the owner's
+doing (`Opens::Run`, run once ⌘K has closed: Code's files, picked through its `Host`) — the requests', the branches', the
+commits' and Code's files first, #171 7b); the spaces of the menu since 2026-11-05 (`spaces::add`: an id, a label,
 an icon, a place in the menu, the action that goes there — the requests' Inbox and Merge requests, Code's, the
 branches'; the closed `Space` enum gone, a `Space` its id, #171 phase 6); the tab's places as routes since 2026-11-05
 (the page on screen, its history, esc's way up, the items open under a space and `nav.txt` all routes, the page one up
