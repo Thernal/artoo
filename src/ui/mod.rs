@@ -264,13 +264,19 @@ fn share_settings(settings: &Settings) {
     PROJECTS.store(n as u8, Relaxed);
 }
 
+/// The window root's own commands and Settings' sections, offered before the features': theirs come after them in
+/// the keys and in their places, as they always did.
+fn offer_own(cx: &mut App) {
+    commands::install(cx);
+    settings::install(cx);
+}
+
 /// The window, once `install` has wired the crates in (`main.rs`).
 pub fn run(path: Option<PathBuf>, install: impl FnOnce(&mut App) + 'static) {
     gpui_platform::application()
         .with_assets(icons::Icons)
         .run(move |cx: &mut App| {
-            // The window root's commands first: the features' come after them in the keys, as they always did.
-            commands::install(cx);
+            offer_own(cx);
             install(cx);
             let bindings = commands::bindings(artoo_shell_api::actions(cx), crate::platform::keys);
             keymap::install(bindings, cx);
@@ -433,7 +439,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                     }
                     if let Some(id) = name.trim().strip_prefix("theme-edit:") {
                         this.settings_open = true;
-                        this.settings_section = settings::Section::Appearance;
+                        this.settings_section = settings::APPEARANCE;
                         this.start_theme_edit(id, cx);
                         continue;
                     }
@@ -670,7 +676,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         }
                         "settings-general" => {
                             this.open_settings(cx);
-                            this.settings_section = settings::Section::General;
+                            this.settings_section = settings::GENERAL;
                             continue;
                         }
                         // The token's source, and one made with the SSH key (#142).
@@ -681,7 +687,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         // Fetch in the background's switch (#141).
                         "settings-repository" => {
                             this.open_settings(cx);
-                            this.settings_section = settings::Section::Repository;
+                            this.settings_section = settings::REPOSITORY;
                             continue;
                         }
                         "swipe" | "onion" => {
@@ -695,7 +701,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         }
                         "agents" => {
                             this.open_settings(cx);
-                            this.settings_section = settings::Section::Agents;
+                            this.settings_section = artoo_agents_api::view::SETTINGS;
                             continue;
                         }
                         "send" => {
@@ -754,7 +760,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         }
                         "appearance" => {
                             this.open_settings(cx);
-                            this.settings_section = settings::Section::Appearance;
+                            this.settings_section = settings::APPEARANCE;
                             continue;
                         }
                         // Set up on a part (#143).
@@ -835,14 +841,14 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         }
                         "keyboard" => {
                             this.open_settings(cx);
-                            this.settings_section = settings::Section::Keyboard;
+                            this.settings_section = settings::KEYBOARD;
                             this.start_field(Field::Keys, cx);
                             continue;
                         }
                         // Settings → Keyboard waiting for keys to filter by (X55).
                         "keys-by" => {
                             this.open_settings(cx);
-                            this.settings_section = settings::Section::Keyboard;
+                            this.settings_section = settings::KEYBOARD;
                             this.recording = Some(settings::BY_KEYS);
                             continue;
                         }
@@ -1139,7 +1145,8 @@ pub struct Workspace {
     /// Settings → Keyboard lists only the keys the user changed.
     keys_changed_only: bool,
     /// The part of Settings shown.
-    settings_section: settings::Section,
+    /// The section of Settings on, by its id.
+    settings_section: &'static str,
     /// A selection in the text of a comment (`markdown::TextSel`).
     note_sel: Option<markdown::TextSel>,
     /// The action whose new key Settings → Keyboard is waiting for.
@@ -1344,7 +1351,7 @@ impl Workspace {
             welcome: Default::default(),
             recording: None,
             note_sel: None,
-            settings_section: Default::default(),
+            settings_section: settings::DIFF,
             keys_filter: String::new(),
             keys_exact: false,
             keys_changed_only: false,
@@ -2875,25 +2882,49 @@ mod tests {
         assert_eq!(window_size(), (1480., 920.));
     }
 
-    /// The keys shipped, put in an OS's terms by `k`: those of every command offered once the window root and every
-    /// feature are installed, as `run` offers them.
-    fn shipped(k: fn(&str) -> String) -> Vec<KeyBinding> {
+    /// `read` of a test app with the window root's own and every feature offered, as `run` offers them.
+    fn installed<R>(read: impl FnOnce(&mut App) -> R) -> R {
         gpui::TestAppContext::single().update(|cx| {
-            commands::install(cx);
+            offer_own(cx);
             crate::install(cx);
-            commands::bindings(artoo_shell_api::actions(cx), k)
+            read(cx)
         })
+    }
+
+    /// The keys shipped, put in an OS's terms by `k`: those of every command offered.
+    fn shipped(k: fn(&str) -> String) -> Vec<KeyBinding> {
+        installed(|cx| commands::bindings(artoo_shell_api::actions(cx), k))
     }
 
     /// The contributions check (#171): with every feature installed, nothing was offered twice.
     #[test]
     fn every_feature_installed_offers_each_thing_once() {
-        let refused = gpui::TestAppContext::single().update(|cx| {
-            commands::install(cx);
-            crate::install(cx);
-            artoo_shell_api::refused(cx)
-        });
+        let refused = installed(|cx| artoo_shell_api::refused(cx));
         assert!(refused.is_empty(), "{refused:?}");
+    }
+
+    /// Settings' left column as it always was: the window root's sections, the agents' between Merge requests and
+    /// Keyboard.
+    #[test]
+    fn settings_lists_its_sections_in_their_places() {
+        let titles = installed(|cx| {
+            artoo_shell_api::settings_sections(cx)
+                .into_iter()
+                .map(|s| s.title)
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(
+            titles,
+            [
+                "Diff",
+                "Appearance",
+                "General",
+                "Repository",
+                "Merge requests",
+                "Agents",
+                "Keyboard"
+            ]
+        );
     }
 
     /// The keys of `map` taken twice, as Settings → Keyboard shows them: (label, (key, the other action)).

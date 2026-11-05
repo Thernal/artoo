@@ -8,11 +8,13 @@ since 2026-10-30, Code's pages the first on it, still drawn in the app until Cod
 `tools::Tool` gone; `add_editor`, the core's `Editor` enum data, #171); commands since 2026-11-05 (every one offered, the
 window root's as data in `src/ui/commands.rs`; ⌘K, the menu bar and the keys made from the registry alone, `palette::Cmd`
 and the hand-written lists gone; a context menu's entry a closure where the menu is made, the closed `menu::Act` gone,
-#171). Until every space is on it, `Page` (`src/ui/nav.rs`) is what these replace, and a new page is added there in
+#171); Settings' sections since 2026-11-05 (`add_settings_section`: an id, a title, a place in the left column; the
+window root's six drawn by the tab, the agents' its parts' rows; the closed `settings::Section` gone, #171 phase 4). Until every space is on it, `Page` (`src/ui/nav.rs`) is what these replace, and a new page is added there in
 the shape below — one variant, one id, one owner. A new command is offered: the window root's in `commands.rs` while the tab runs it, a feature's in its
 `install`.
 
-**What `artoo-shell-api` holds now:** `add_action` (an `Action`: its id, its GPUI action, its words for ⌘K and its
+**What `artoo-shell-api` holds now:** `add_settings_section` (a section of Settings: its id, its title, its place in
+the left column; a second id refused), `add_action` (an `Action`: its id, its GPUI action, its words for ⌘K and its
 place there, the keys it ships with each with the key context it applies in (`when::TAB`, `when::NOT_TYPING`, …), its
 item in the menu bar — `Menu`'s App, File, Go, View or Help, a group and an order in it, a check asked as the menus are
 set —; a second id, or a second GPUI name's last part as `keymap.txt` keeps it, refused), `add_editor` (an editor Open in opens a file in at a line, by its
@@ -20,7 +22,7 @@ key, a key offered twice refused) and `add_parts` (a maker each tab calls with i
 title-bar item with when it shows, an `Overlay` — a card that is drawn and has the keys while open, closed by
 Escape, polled each frame the tab is not busy —, a `Tool` — a tool window in the spaces it names, on their pages
 only or not, in its `order`, readied as it opens, given typed keys while it has the keyboard and says it is typing;
-every tool window is one (#171) —, Settings rows by section,
+every tool window is one (#171) —, Settings rows under a section by its id,
 the tab's handlers of the feature's actions, the snapshot views it opens, a space's `Pages` — the kinds of route
 they draw, their view, the panel beside them, and `show`, which the shell calls with the route on screen, or none
 for the space's own page, and whether it was just opened or gone back to). What the `Frame` changes (a toast, the

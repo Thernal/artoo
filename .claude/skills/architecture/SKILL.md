@@ -111,7 +111,8 @@ The target above is reached for every feature: each implementation shows the app
   command is offered (`add_action`), the window root's as data in `src/ui/commands.rs`, a feature's in its `install`
   (⇧⌘D the requests', ⇧⌘A the agents'), and ⌘K, the menu bar and the keys are made from the registry alone; a
   context menu's entry does what a closure says where the menu is made (`menu::Act::new`), the closed `menu::Act`
-  gone (#171 phase 3). A toast is `artoo_shell_api::Toast`, raised through the
+  gone (#171 phase 3). Settings' sections are offered (`add_settings_section`), the window root's six drawn by the
+  tab, a feature's holding its parts' rows (#171 phase 4). A toast is `artoo_shell_api::Toast`, raised through the
   `Frame` by what it is about, its button an action (#171 phase 1). Every tool window is a feature's
   `artoo_shell_api::Tool` (Code's Outline, the requests' Discussions), and an editor Open in names is offered with
   `add_editor`, Artoo's three by the shell (#171 phase 2).

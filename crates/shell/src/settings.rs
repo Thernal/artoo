@@ -1,7 +1,8 @@
 //! The Settings page's frame: its sections in the left column, the one on with its heading and Done, its rows fading
-//! in (#56, 14). What each section holds is the tab's, and the features' rows (`artoo_shell_api::Section`).
+//! in (#56, 14). The sections are those offered (`artoo_shell_api::add_settings_section`); what each holds its owner
+//! draws.
 
-use artoo_shell_api::settings::{Page, Section, SettingsHost, SettingsRenderer};
+use artoo_shell_api::settings::{Page, SettingsHost, SettingsRenderer};
 use artoo_ui_kit::{GAP, ROW_RADIUS, island, keys, motion, px, theme, words};
 use gpui::{AnyElement, ClickEvent, FontWeight, SharedString, div, prelude::*};
 use std::rc::Rc;
@@ -17,8 +18,15 @@ impl SettingsRenderer for Renderer {
 
 /// The page.
 fn page(page: Page, host: Rc<dyn SettingsHost>) -> AnyElement {
-    let section = page.on;
+    let on = page.on;
     let editing = page.editing;
+    // The section on: its title over its rows, its place what the fade is keyed by.
+    let (at, title) = page
+        .sections
+        .iter()
+        .enumerate()
+        .find(|(_, s)| s.id == on)
+        .map_or((0, ""), |(at, s)| (at, s.title));
     let (pick, done) = (host.clone(), host);
     let nav = div()
         .w(px(200.))
@@ -38,24 +46,23 @@ fn page(page: Page, host: Rc<dyn SettingsHost>) -> AnyElement {
                 .font_weight(FontWeight::SEMIBOLD)
                 .child("Settings"),
         )
-        .children(Section::ALL.map(|sec| {
+        .children(page.sections.iter().map(|sec| {
+            let (id, here) = (sec.id, sec.id == on);
             div()
-                .id(sec.label())
+                .id(id)
                 .h(px(30.))
                 .px(px(10.))
                 .flex()
                 .items_center()
                 .rounded(px(ROW_RADIUS))
                 .cursor_pointer()
-                .when(sec == section, |s| {
-                    s.bg(theme::selected()).text_color(theme::text())
-                })
-                .when(sec != section, |s| s.text_color(theme::muted()))
+                .when(here, |s| s.bg(theme::selected()).text_color(theme::text()))
+                .when(!here, |s| s.text_color(theme::muted()))
                 .hover(|s| s.bg(theme::hover()))
-                .child(words::say(sec.label()).into_owned())
+                .child(words::say(sec.title).into_owned())
                 .on_click({
                     let pick = pick.clone();
-                    move |_: &ClickEvent, window, cx| pick.section(sec, window, cx)
+                    move |_: &ClickEvent, window, cx| pick.section(id, window, cx)
                 })
         }));
     div()
@@ -92,9 +99,11 @@ fn page(page: Page, host: Rc<dyn SettingsHost>) -> AnyElement {
                                     div()
                                         .flex()
                                         .items_center()
-                                        .child(div().flex_1().child(heading(
-                                            words::say(section.label()).into_owned(),
-                                        )))
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .child(heading(words::say(title).into_owned())),
+                                        )
                                         .child(button("settings-done", "Done", "esc").on_click(
                                             move |_: &ClickEvent, window, cx| done.done(window, cx),
                                         )),
@@ -106,7 +115,7 @@ fn page(page: Page, host: Rc<dyn SettingsHost>) -> AnyElement {
                                         .flex_col()
                                         .when(editing, |s| s.flex_1().min_h_0())
                                         .child(page.content),
-                                    ("settings-section", section as usize),
+                                    ("settings-section", at),
                                     motion::FAST,
                                     |content, v| content.opacity(v),
                                 )),

@@ -1152,7 +1152,7 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
                 cx.notify();
             }
             Act::RenewToken => {
-                this.settings_section = super::settings::Section::Requests;
+                this.settings_section = super::settings::REQUESTS;
                 this.open_settings(cx);
             }
         })

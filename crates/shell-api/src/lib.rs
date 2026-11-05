@@ -8,6 +8,8 @@
 //!   window, a tool window on the right, rows in Settings, the views a snapshot run opens, a space's pages, the
 //!   fields it types in (`Input`), its pieces of the item page on screen (`Piece`) —, made for each tab with its
 //!   `Frame`.
+//! - **Settings' sections** (`add_settings_section`): a section's id, title and place in the left column; the window
+//!   root draws its own, a feature's holds its parts' rows (`Parts::settings`).
 //! - **Editors** (`add_editor`): an editor Open in opens a file in at a line (`artoo_core::editor::Editor`), by
 //!   its key, which Settings keeps; Artoo's three the frame's.
 //! - **Pages**: the routes of some kinds and a space's own page, drawn by the feature that owns them. The shell
@@ -668,14 +670,6 @@ pub struct Drawing {
     pub typing: Option<&'static str>,
 }
 
-/// A section of Settings a part can add rows to.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Section {
-    General,
-    /// Connecting the agents.
-    Agents,
-}
-
 /// What runs an action in a tab.
 pub type Run = Rc<dyn Fn(&mut Window, &mut App)>;
 
@@ -711,8 +705,8 @@ pub struct Parts {
     pub title: Option<TitleItem>,
     pub overlay: Option<Overlay>,
     pub tool: Option<Tool>,
-    /// Rows under a section of Settings, in the order given.
-    pub settings: Vec<(Section, AnyView)>,
+    /// Rows under a section of Settings, by its id (`settings::Section::id`), in the order given.
+    pub settings: Vec<(&'static str, AnyView)>,
     /// The feature's actions as this tab runs them.
     pub actions: Vec<(Box<dyn gpui::Action>, Run)>,
     /// What `ARTOO_SNAPSHOT_VIEW=<name>` opens in this tab.
@@ -732,6 +726,7 @@ struct Registry {
     actions: Vec<Action>,
     makers: Vec<Maker>,
     editors: Vec<Editor>,
+    sections: Vec<settings::Section>,
     /// What was offered a second time and refused: `action review.wrap (its id)`.
     refused: Vec<String>,
 }
@@ -754,6 +749,26 @@ pub fn editors(cx: &App) -> &[Editor] {
     cx.try_global::<Registry>()
         .map(|r| r.editors.as_slice())
         .unwrap_or(&[])
+}
+
+/// Offers a section of Settings (a feature's `install`). An id offered already is refused, and the log says so.
+pub fn add_settings_section(cx: &mut App, section: settings::Section) {
+    let registry = cx.default_global::<Registry>();
+    if registry.sections.iter().any(|s| s.id == section.id) {
+        refuse(registry, format!("settings section {}", section.id));
+        return;
+    }
+    registry.sections.push(section);
+}
+
+/// The sections of Settings offered, in their order.
+pub fn settings_sections(cx: &App) -> Vec<settings::Section> {
+    let mut sections = cx
+        .try_global::<Registry>()
+        .map(|r| r.sections.clone())
+        .unwrap_or_default();
+    sections.sort_by_key(|s| s.order);
+    sections
 }
 
 /// Offers a command (a feature's `install`). One whose id, or whose GPUI name's last part (what `keymap.txt` keeps),

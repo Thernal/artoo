@@ -3,7 +3,6 @@
 //! Codex's.
 
 use crate::{agents, codex};
-use artoo_shell_api::Section;
 use artoo_ui_kit::controls::setting;
 use artoo_ui_kit::{ROW_RADIUS, hover, px, theme};
 use gpui::{
@@ -50,12 +49,12 @@ impl Connect {
 }
 
 /// Settings → Agents, as a part's rows.
-pub fn settings(connect: Entity<Connect>, cx: &mut App) -> (Section, AnyView) {
+pub fn settings(connect: Entity<Connect>, cx: &mut App) -> (&'static str, AnyView) {
     let view = cx.new(|cx| {
         cx.observe(&connect, |_, _, cx| cx.notify()).detach();
         AgentsSettings { connect }
     });
-    (Section::Agents, view.into())
+    (artoo_agents_api::view::SETTINGS, view.into())
 }
 
 /// Settings → Agents: connect Claude Code (every profile), the commands for others.

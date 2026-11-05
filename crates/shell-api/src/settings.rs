@@ -1,52 +1,29 @@
 //! Settings' contract: its sections in the left column, the one on with its heading and Done, its rows fading in
-//! (#56, 14). What each section holds is the tab's, and the features' rows (`Section` at the crate's root); the frame
-//! draws the page around them.
+//! (#56, 14). The sections are offered (`add_settings_section`), each drawn by its owner in each tab: the window
+//! root's own, or the rows a feature's parts put under it (`Parts::settings`); the frame draws the page around them.
 
 use crate::render;
 use gpui::{AnyElement, App, Window, div, prelude::*};
 use std::rc::Rc;
 
-/// The parts of Settings, in its left column.
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
-pub enum Section {
-    #[default]
-    Diff,
-    Appearance,
-    General,
-    Repository,
-    Requests,
-    Agents,
-    Keyboard,
-}
-
-impl Section {
-    pub const ALL: [Section; 7] = [
-        Section::Diff,
-        Section::Appearance,
-        Section::General,
-        Section::Repository,
-        Section::Requests,
-        Section::Agents,
-        Section::Keyboard,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Section::Diff => "Diff",
-            Section::Appearance => "Appearance",
-            Section::General => "General",
-            Section::Repository => "Repository",
-            Section::Requests => "Merge requests",
-            Section::Agents => "Agents",
-            Section::Keyboard => "Keyboard",
-        }
-    }
+/// A section of Settings (`add_settings_section`): its place in the left column and its title. What it holds its
+/// owner draws in each tab: the window root's own, a feature's as its parts' rows (`Parts::settings`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Section {
+    /// A stable id (`agents`): what parts put rows under, what a toast's button opens.
+    pub id: &'static str,
+    /// Its words in the left column and over its rows.
+    pub title: &'static str,
+    /// Its place in the left column, the lowest first; those of one order as they were offered.
+    pub order: u16,
 }
 
 /// The page as the tab sees it.
 pub struct Page {
-    /// The section on.
-    pub on: Section,
+    /// The sections offered, in their order.
+    pub sections: Vec<Section>,
+    /// The section on, by its id.
+    pub on: &'static str,
     /// Its rows.
     pub content: AnyElement,
     /// The theme editor takes the page's height: its tokens scroll beside a preview that stays.
@@ -55,8 +32,8 @@ pub struct Page {
 
 /// What a click on the frame does.
 pub trait SettingsHost {
-    /// A section in the left column.
-    fn section(&self, section: Section, window: &mut Window, cx: &mut App);
+    /// A section in the left column, by its id.
+    fn section(&self, id: &'static str, window: &mut Window, cx: &mut App);
     /// Done: Settings closes.
     fn done(&self, window: &mut Window, cx: &mut App);
 }

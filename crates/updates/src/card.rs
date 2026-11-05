@@ -6,7 +6,7 @@
 //! installed. Each tab has its own card, mark and Settings line (`parts`), drawn by the shell (#165).
 
 use crate::{CheckForUpdates, Release};
-use artoo_shell_api::{Frame, Overlay, Parts, Section, TitleItem};
+use artoo_shell_api::{Frame, Overlay, Parts, TitleItem};
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, format, hover, icons, keys, markdown, px, theme};
 use gpui::{
     App, ClickEvent, Context, Entity, FontWeight, KeyDownEvent, MouseButton, ScrollHandle,
@@ -52,7 +52,8 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
             })),
         }),
         tool: None,
-        settings: vec![(Section::General, status.into())],
+        // Under the window root's General.
+        settings: vec![("general", status.into())],
         actions: vec![(
             Box::new(CheckForUpdates),
             Rc::new(move |_, cx| check.update(cx, |card, cx| card.check_now(cx))),

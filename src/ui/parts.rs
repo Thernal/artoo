@@ -11,7 +11,7 @@ use super::{Workspace, motion, px};
 use artoo_core::route::Route;
 use artoo_shell_api::{
     Chrome, Drawing, Frame, ItemTab, ListZone, MenuItem, Overlay, Pages, Pick, Places, Run,
-    Section, Services, Slot, Toast,
+    Services, Slot, Toast,
 };
 use artoo_ui_kit::markdown::Selecting;
 use gpui::{
@@ -547,7 +547,7 @@ impl Workspace {
     }
 
     /// The parts' rows under a section of Settings.
-    pub(super) fn settings_rows(&self, section: Section) -> Vec<AnyView> {
+    pub(super) fn settings_rows(&self, section: &str) -> Vec<AnyView> {
         self.parts
             .iter()
             .flat_map(|p| &p.settings)

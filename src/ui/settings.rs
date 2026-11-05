@@ -31,7 +31,7 @@ impl Workspace {
     /// Settings → Merge requests, its ways looked for (#156): where the connected toast leads.
     pub(super) fn open_requests_settings(&mut self, cx: &mut Context<Self>) {
         self.open_settings(cx);
-        self.settings_section = Section::Requests;
+        self.settings_section = REQUESTS;
         self.look_for_token(cx);
     }
 
@@ -163,7 +163,7 @@ impl Workspace {
                 );
             },
         ));
-        let update_rows = self.settings_rows(artoo_shell_api::Section::General);
+        let update_rows = self.settings_rows(GENERAL);
         let system = switch("system-notifications", s.system_notifications).on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {
                 let on = !this.settings.system_notifications;
@@ -189,10 +189,10 @@ impl Workspace {
             .and_then(|connecting| connecting.settings(self.here(cx), cx));
         let section = self.settings_section;
         // The theme editor takes the page's height: its tokens scroll beside a preview that stays.
-        let editing = section == Section::Appearance && self.theme_edit.is_some();
+        let editing = section == APPEARANCE && self.theme_edit.is_some();
         let column = || div().flex().flex_col().gap_5();
         let content: gpui::AnyElement = match section {
-            Section::Diff => column()
+            DIFF => column()
                 .child(item(
                     "Changed words",
                     "In Words and Structural modes.",
@@ -228,7 +228,7 @@ impl Workspace {
                     rich,
                 ))
                 .into_any_element(),
-            Section::Appearance => self.render_appearance(
+            APPEARANCE => self.render_appearance(
                 item(
                     "Several projects",
                     "",
@@ -249,7 +249,7 @@ impl Workspace {
                 .into_any_element(),
                 cx,
             ),
-            Section::General => column()
+            GENERAL => column()
                 .child(item(
                     "Open files in",
                     "",
@@ -285,7 +285,7 @@ impl Workspace {
                         .children(update_rows.into_iter().map(|row| div().pt(px(6.)).child(row))),
                 )
                 .into_any_element(),
-            Section::Repository => column()
+            REPOSITORY => column()
                 .child(item(
                     "Refresh when the repository changes",
                     "",
@@ -297,23 +297,24 @@ impl Workspace {
                     fetch,
                 ))
                 .into_any_element(),
-            Section::Requests => gitlab.unwrap_or_else(|| {
+            REQUESTS => gitlab.unwrap_or_else(|| {
                 div()
                     .text_size(px(12.))
                     .text_color(theme::muted())
                     .child("This repository has no GitLab or GitHub remote, so there are no merge requests to set up.")
                     .into_any_element()
             }),
-            // The agents' own rows (a part's, Settings → Agents).
-            Section::Agents => div()
+            KEYBOARD => self.render_keyboard_settings(cx).into_any_element(),
+            // A feature's section: its parts' rows (Settings → Agents).
+            other => div()
                 .flex()
                 .flex_col()
-                .children(self.settings_rows(artoo_shell_api::Section::Agents))
+                .children(self.settings_rows(other))
                 .into_any_element(),
-            Section::Keyboard => self.render_keyboard_settings(cx).into_any_element(),
         };
         settings::page(
             settings::Page {
+                sections: artoo_shell_api::settings_sections(cx),
                 on: section,
                 content,
                 editing,
@@ -328,11 +329,11 @@ impl Workspace {
 struct Glue(WeakEntity<Workspace>);
 
 impl settings::SettingsHost for Glue {
-    fn section(&self, section: Section, _: &mut Window, cx: &mut App) {
+    fn section(&self, section: &'static str, _: &mut Window, cx: &mut App) {
         self.0
             .update(cx, |this, cx| {
                 this.settings_section = section;
-                if section == Section::Requests {
+                if section == REQUESTS {
                     this.look_for_token(cx);
                 }
                 cx.notify();
@@ -350,8 +351,30 @@ impl settings::SettingsHost for Glue {
     }
 }
 
-use artoo_shell_api::settings;
-pub use artoo_shell_api::settings::Section;
+use artoo_shell_api::settings::{self, Section};
+
+/// The window root's sections of Settings, by id: the tab draws them (`render_settings`). A feature's section holds
+/// its parts' rows; the agents' is between Merge requests and Keyboard (order 60).
+pub(super) const DIFF: &str = "diff";
+pub(super) const APPEARANCE: &str = "appearance";
+pub(super) const GENERAL: &str = "general";
+pub(super) const REPOSITORY: &str = "repository";
+pub(super) const REQUESTS: &str = "requests";
+pub(super) const KEYBOARD: &str = "keyboard";
+
+/// Offers the window root's sections, in their places in the left column (`run`).
+pub(super) fn install(cx: &mut App) {
+    for (id, title, order) in [
+        (DIFF, "Diff", 10),
+        (APPEARANCE, "Appearance", 20),
+        (GENERAL, "General", 30),
+        (REPOSITORY, "Repository", 40),
+        (REQUESTS, "Merge requests", 50),
+        (KEYBOARD, "Keyboard", 70),
+    ] {
+        artoo_shell_api::add_settings_section(cx, Section { id, title, order });
+    }
+}
 use artoo_ui_kit::controls::switch;
 
 fn style_id(style: MarkStyle) -> &'static str {

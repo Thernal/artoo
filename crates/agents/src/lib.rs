@@ -58,6 +58,15 @@ pub fn install(cx: &mut gpui::App) {
             .menu(Menu::View, "Agents")
             .at(0, 4),
     );
+    // Between Merge requests and Keyboard, where it always was.
+    artoo_shell_api::add_settings_section(
+        cx,
+        artoo_shell_api::settings::Section {
+            id: artoo_agents_api::view::SETTINGS,
+            title: "Agents",
+            order: 60,
+        },
+    );
     artoo_shell_api::add_parts(cx, parts);
 }
 

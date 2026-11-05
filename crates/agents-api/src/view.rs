@@ -13,6 +13,9 @@ use std::rc::Rc;
 /// The Agents window's id: the layout keeps it open by it.
 pub const WINDOW: &str = "agents";
 
+/// Settings' section of the agents, by its id: connecting Claude Code and the others.
+pub const SETTINGS: &str = "agents";
+
 /// What the Agents window asks of the tab (`Rc<dyn AgentsHost>` in its services).
 pub trait AgentsHost {
     /// The branch the page is of, where a note written now goes (#77).
