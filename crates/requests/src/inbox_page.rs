@@ -55,6 +55,7 @@ pub fn pages(
         kinds: &[],
         parent: |_| None,
         item: |_| None,
+        path: Rc::new(|_, _, _| None),
         view: page.into(),
         side: None,
         show: Rc::new(|_, _, _| {}),

@@ -18,10 +18,10 @@ use artoo_requests_api::{
 };
 use artoo_review_api::ItemView;
 use artoo_review_api::{Review, Seen};
-use artoo_shell_api::{Frame, ItemTab, Pages};
+use artoo_shell_api::{Drawing, Frame, ItemTab, NameHover, PagePath, Pages, PathUp, Services};
 use artoo_ui_kit::controls::skeleton;
 use artoo_ui_kit::room::Widths;
-use artoo_ui_kit::{gap, island, px, theme};
+use artoo_ui_kit::{format, gap, island, px, theme, words};
 use gpui::{AnyElement, App, Context, Entity, Render, Window, div, prelude::*};
 use std::rc::Rc;
 
@@ -38,6 +38,7 @@ pub struct RootPage {
 /// Merge requests' pages in a tab: their own page, the list.
 pub fn pages(requests: Entity<Requests>, frame: Rc<dyn Frame>, cx: &mut App) -> Pages {
     let services = Rc::downgrade(&frame.services());
+    let named = requests.downgrade();
     let view = cx.new(|cx| {
         cx.observe(&requests, |_, _, cx| cx.notify()).detach();
         RootPage {
@@ -56,6 +57,13 @@ pub fn pages(requests: Entity<Requests>, frame: Rc<dyn Frame>, cx: &mut App) -> 
         ],
         parent,
         item,
+        path: Rc::new({
+            let services = services.clone();
+            move |route, drawing, cx| {
+                let (requests, services) = (named.upgrade()?, services.upgrade()?);
+                path(route, drawing, requests.read(cx), &services, cx)
+            }
+        }),
         view: view.into(),
         side: Some(Rc::new({
             let services = services.clone();
@@ -232,6 +240,73 @@ impl RootPage {
             .child(body)
             .into_any_element()
     }
+}
+
+/// The bar's path to a request's page: Merge requests, then the request a commit, a run or two versions are of (its
+/// page), Commits over a commit or a run (the request's page, where they are picked); the request's identity in the
+/// name's long hover, a commit's card over a commit.
+fn path(
+    route: &Route,
+    drawing: &Drawing,
+    requests: &Requests,
+    services: &Services,
+    cx: &App,
+) -> Option<PagePath> {
+    let branches = || services.get::<Rc<dyn Branches>>();
+    let tip = |number: u64| requests.request_tip(number).map(NameHover::Tip);
+    let up = |number: u64, commits: bool| {
+        let page = Some(RequestRoute { number }.route());
+        let mut up = vec![
+            PathUp::new("Merge requests", None),
+            PathUp::new(words::number(number), page.clone()),
+        ];
+        if commits {
+            up.push(PathUp::new("Commits", page));
+        }
+        up
+    };
+    let (up, name, mono, hover) = match route.kind.as_str() {
+        RequestRoute::KIND => {
+            let r = RequestRoute::from_route(route)?;
+            let up = vec![PathUp::new("Merge requests", None)];
+            (up, words::number(r.number), false, tip(r.number))
+        }
+        // A commit is a level under the request's Commits (#73).
+        RequestCommitRoute::KIND => {
+            let r = RequestCommitRoute::from_route(route)?;
+            let id = git2::Oid::from_str(&r.commit).ok()?;
+            let card = branches().and_then(|b| b.commit_card(id, drawing.web.as_ref(), cx));
+            (
+                up(r.number, true),
+                format::short(id),
+                true,
+                card.map(NameHover::Card),
+            )
+        }
+        RequestCommitsRoute::KIND => {
+            let r = RequestCommitsRoute::from_route(route)?;
+            let oid = |hex: &str| git2::Oid::from_str(hex).ok().map(format::short);
+            let name = format!("{}..{}", oid(&r.oldest)?, oid(&r.newest)?);
+            (up(r.number, true), name, true, tip(r.number))
+        }
+        RequestVersionsRoute::KIND => {
+            let r = RequestVersionsRoute::from_route(route)?;
+            let version = |ix| branches()?.version(ix, cx);
+            let name = match (version(r.from), version(r.to)) {
+                (Some(a), Some(b)) => format!("v{} → v{}", a.number, b.number),
+                _ => "versions".to_owned(),
+            };
+            (up(r.number, false), name, false, tip(r.number))
+        }
+        _ => return None,
+    };
+    Some(PagePath {
+        up,
+        name,
+        mono,
+        hover,
+        count: None,
+    })
 }
 
 /// The request a commit, a run or two versions of it are under; a request is under Merge requests' own page.

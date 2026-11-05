@@ -421,7 +421,7 @@ impl Workspace {
     }
 
     /// What a piece is handed as it is drawn.
-    fn drawing(&self, cx: &Context<Self>) -> Drawing {
+    pub(super) fn drawing(&self, cx: &Context<Self>) -> Drawing {
         Drawing {
             selecting: self.selecting(cx.weak_entity()),
             web: self.web.clone(),

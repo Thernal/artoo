@@ -5,46 +5,20 @@
 
 use super::nav::Page;
 use super::spaces::{BRANCHES, CODE, INBOX, REQUESTS, Space};
-use super::{Workspace, format, px, theme, words};
-use artoo_shell_api::bar;
+use super::{Workspace, px, theme, words};
+use artoo_core::route::Route;
+use artoo_shell_api::{NameHover, PagePath, PathUp, bar};
 use gpui::{
     AnyElement, App, ClickEvent, Context, FontWeight, Pixels, Point, WeakEntity, Window, div,
     prelude::*,
 };
 use std::rc::Rc;
 
-/// A part of the path: its words, and the page it goes up to.
-struct Crumb {
-    label: String,
-    mono: bool,
-    to: Option<Option<Page>>,
-}
-
-impl Crumb {
-    fn up(label: impl Into<String>, to: Option<Page>) -> Self {
-        Self {
-            label: label.into(),
-            mono: false,
-            to: Some(to),
-        }
-    }
-
-    /// A folder above a file or folder in Code: its name lists what is beside it, the first row
-    /// its page (#132, B).
-    fn folder(label: &str, path: String) -> Self {
-        Self {
-            label: label.to_owned(),
-            mono: false,
-            to: Some(Some(Page::Folder(path))),
-        }
-    }
-
-    /// The folder of Code this part goes up to, for its right click and its note's dot.
-    fn code_folder(&self) -> Option<&str> {
-        match &self.to {
-            Some(Some(Page::Folder(path))) => Some(path),
-            _ => None,
-        }
+/// The folder of Code a part of the path goes up to, for its right click and its note's dot.
+fn code_folder(up: &PathUp) -> Option<String> {
+    match up.to.as_ref().and_then(Page::from_route) {
+        Some(Page::Folder(path)) => Some(path),
+        _ => None,
     }
 }
 
@@ -57,28 +31,30 @@ impl Workspace {
         }
         let space = self.nav.space;
         let page = self.shown_page();
-        let (path, id, mono) = self.path_of(space, page.as_ref(), cx);
+        let PagePath {
+            up: path,
+            name,
+            mono,
+            hover,
+            count,
+        } = self.path_of(space, cx);
         // Narrow, the path is ‹ — one level up — and the id (#80).
-        let up = self
-            .compact()
-            .then(|| path.iter().rev().find_map(|c| c.to.clone()))
+        let up = (self.compact())
+            .then(|| path.last().map(|c| c.to.clone()))
             .flatten();
         let path = if self.compact() { Vec::new() } else { path };
-        let count = self.count_of(space, page.as_ref(), cx);
+        let count = count.or_else(|| self.count_of(space, cx));
         let public = space == REQUESTS && page.is_some();
         // Narrow, ‹ is one level up; ⌘[ and the title bar still go back (#80).
         let from = self.nav.from.filter(|_| page.is_some() && !self.compact());
-        let links: Vec<Option<Option<Page>>> = path.iter().map(|c| c.to.clone()).collect();
-        let folders: Vec<Option<String>> = path
-            .iter()
-            .map(|c| c.code_folder().map(str::to_owned))
-            .collect();
+        let links: Vec<Option<Route>> = path.iter().map(|c| c.to.clone()).collect();
+        let folders: Vec<Option<String>> = path.iter().map(code_folder).collect();
         let crumbs = path
             .into_iter()
             .map(|crumb| {
                 // A folder of Code: its right click writes a note for your agent on it, and a note
                 // waiting there is its dot, as in the tree (A, 2026-10-23).
-                let folder = crumb.code_folder().map(str::to_owned);
+                let folder = code_folder(&crumb);
                 bar::Crumb {
                     noted: folder
                         .as_deref()
@@ -87,7 +63,7 @@ impl Workspace {
                         .as_deref()
                         .is_some_and(|f| self.beside.as_ref().is_some_and(|b| b.folder == f)),
                     list: folder.as_deref().and_then(|f| self.render_beside(f, cx)),
-                    link: crumb.to.is_some(),
+                    link: true,
                     folder: folder.is_some(),
                     label: crumb.label,
                     mono: crumb.mono,
@@ -106,7 +82,7 @@ impl Workspace {
                 from: from.map(|s| super::spaces::label(s, cx)),
                 up: up.is_some(),
                 crumbs,
-                title: self.title_hover(page.as_ref(), words::say(&id).into_owned(), mono, cx),
+                title: title(words::say(&name).into_owned(), mono, hover),
                 count,
                 view: self.view_of(space, page.as_ref(), cx),
                 actions: self.actions_of(space, page.as_ref(), cx),
@@ -148,220 +124,45 @@ impl Workspace {
         )
     }
 
-    /// The page's title with what a long hover on it says (the developer, 2026-10-23: the header
-    /// names no author): a request's identity, a commit's or a branch's card, a file's or a
-    /// folder's whole path. Without one, its own long hover gives the whole title when it is cut.
-    fn title_hover(&self, page: Option<&Page>, text: String, mono: bool, cx: &App) -> AnyElement {
-        use super::hover::{CutInTip, Hover};
-        let style = |title: gpui::Stateful<gpui::Div>| {
-            title
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::text())
-                .when(mono, |s| s.font_family(theme::code_font()))
-        };
-        let title = style(
-            div()
-                .id("bar-title")
-                .min_w_0()
-                .cut_in_tip()
-                .child(text.clone()),
-        );
-        let plain = || style(super::hover::cut("bar-title", text.clone())).into_any_element();
-        let commit = |id: &git2::Oid| self.branches()?.commit_card(*id, self.web.as_ref(), cx);
-        match page {
-            Some(
-                Page::Request(iid) | Page::RequestCommits(iid, ..) | Page::RequestVersions(iid, ..),
-            ) => match self.request_tip(*iid, cx) {
-                Some(tip) => title.tip(tip).into_any_element(),
-                None => plain(),
-            },
-            Some(Page::RequestCommit(_, id) | Page::BranchCommit(_, id)) => match commit(id) {
-                Some(card) => title
-                    .card(move |window, cx| card(window, cx))
-                    .into_any_element(),
-                None => plain(),
-            },
-            Some(
-                Page::Branch(refname)
-                | Page::BranchCommits(refname, ..)
-                | Page::Versions(refname, ..),
-            ) => match self
-                .branch_list(cx)
-                .iter()
-                .position(|b| &b.refname == refname)
-                .and_then(|ix| {
-                    let request = self.request_of_branch(ix, cx).map(|m| (m.iid, m.title));
-                    self.branches()?.branch_card(ix, request, cx)
-                }) {
-                Some(build) => title
-                    .card(move |window, cx| build(window, cx))
-                    .into_any_element(),
-                None => plain(),
-            },
-            Some(Page::File(path)) => {
-                let at = (self.rv().file_read(cx))
-                    .filter(|v| &v.path == path)
-                    .map(|v| format!(" · as of {} · {} lines", v.at, v.lines))
-                    .unwrap_or_default();
-                title.tip(format!("{path}{at}")).into_any_element()
+    /// The path above the page on screen, and its name: what its owner's pages say of it (`Pages::path`); a root's
+    /// own name, or a page whose owner says nothing.
+    fn path_of(&self, space: Space, cx: &mut Context<Self>) -> PagePath {
+        let said = self.nav_page().and_then(|route| {
+            let pages = self.pages_drawing(space, Some(route))?;
+            (pages.path)(route, &self.drawing(cx), cx)
+        });
+        said.unwrap_or_else(|| {
+            let project = (self.root.as_deref())
+                .map(crate::labels::project_name)
+                .unwrap_or_default();
+            PagePath {
+                up: Vec::new(),
+                name: space_root(space, &project, cx),
+                mono: false,
+                hover: None,
+                count: None,
             }
-            Some(Page::Folder(path)) => title.tip(format!("{path}/")).into_any_element(),
-            _ => plain(),
-        }
-    }
-
-    pub(super) fn request_tip(&self, iid: u64, cx: &App) -> Option<String> {
-        self.requests_api()?.request_tip(iid, cx)
-    }
-
-    /// The path above the page, and its own id.
-    fn path_of(&self, space: Space, page: Option<&Page>, cx: &App) -> (Vec<Crumb>, String, bool) {
-        let project = self
-            .root
-            .as_deref()
-            .map(crate::labels::project_name)
-            .unwrap_or_default();
-        let branch = |refname: &str| {
-            self.branch_list(cx)
-                .iter()
-                .find(|b| b.refname == refname)
-                .map_or_else(|| refname.to_owned(), |b| b.name.clone())
-        };
-        let versions = |a: usize, b: usize| match (self.version_at(a, cx), self.version_at(b, cx)) {
-            (Some(a), Some(b)) => format!("v{} → v{}", a.number, b.number),
-            _ => "versions".to_owned(),
-        };
-        let requests = || Crumb::up("Merge requests", None);
-        match page {
-            None => (Vec::new(), space_root(space, &project, cx), false),
-            Some(Page::File(path) | Page::Folder(path)) => {
-                let mut parts: Vec<&str> = path.split('/').collect();
-                let name = parts.pop().unwrap_or_default().to_owned();
-                let mut crumbs = vec![Crumb::up("Code", None), Crumb::up(project, None)];
-                let mut above = String::new();
-                for part in parts {
-                    if !above.is_empty() {
-                        above.push('/');
-                    }
-                    above.push_str(part);
-                    crumbs.push(Crumb::folder(part, above.clone()));
-                }
-                (crumbs, name, false)
-            }
-            Some(Page::Branch(refname)) => {
-                (vec![Crumb::up("Branches", None)], branch(refname), true)
-            }
-            // A commit is a level under the branch's Commits (#74).
-            Some(Page::BranchCommit(refname, id)) => {
-                let up = |label: String, mono: bool| Crumb {
-                    label,
-                    mono,
-                    to: Some(Some(Page::Branch(refname.clone()))),
-                };
-                (
-                    vec![
-                        Crumb::up("Branches", None),
-                        up(branch(refname), true),
-                        up("Commits".to_owned(), false),
-                    ],
-                    format::short(*id),
-                    true,
-                )
-            }
-            Some(Page::Versions(refname, a, b)) => {
-                let up = Crumb {
-                    label: branch(refname),
-                    mono: true,
-                    to: Some(Some(Page::Branch(refname.clone()))),
-                };
-                (
-                    vec![Crumb::up("Branches", None), up],
-                    versions(*a, *b),
-                    false,
-                )
-            }
-            Some(Page::WorkingTree) => (
-                vec![Crumb::up("Branches", None)],
-                "Working tree".to_owned(),
-                false,
-            ),
-            Some(Page::Compare(base, head, _)) => (
-                vec![Crumb::up("Branches", None)],
-                format!("{} … {}", base.0, head.0),
-                true,
-            ),
-            Some(Page::Request(iid)) => (vec![requests()], words::number(*iid), false),
-            // A commit is a level under the request's Commits (#73).
-            Some(Page::RequestCommit(iid, id)) => (
-                vec![
-                    requests(),
-                    Crumb::up(words::number(*iid), Some(Page::Request(*iid))),
-                    Crumb::up("Commits", Some(Page::Request(*iid))),
-                ],
-                format::short(*id),
-                true,
-            ),
-            Some(Page::RequestCommits(iid, newest, oldest)) => (
-                vec![
-                    requests(),
-                    Crumb::up(words::number(*iid), Some(Page::Request(*iid))),
-                    Crumb::up("Commits", Some(Page::Request(*iid))),
-                ],
-                format!("{}..{}", format::short(*oldest), format::short(*newest)),
-                true,
-            ),
-            Some(Page::BranchCommits(refname, newest, oldest)) => {
-                let up = |label: String, mono: bool| Crumb {
-                    label,
-                    mono,
-                    to: Some(Some(Page::Branch(refname.clone()))),
-                };
-                (
-                    vec![
-                        Crumb::up("Branches", None),
-                        up(branch(refname), true),
-                        up("Commits".to_owned(), false),
-                    ],
-                    format!("{}..{}", format::short(*oldest), format::short(*newest)),
-                    true,
-                )
-            }
-            Some(Page::RequestVersions(iid, a, b)) => (
-                vec![
-                    requests(),
-                    Crumb::up(words::number(*iid), Some(Page::Request(*iid))),
-                ],
-                versions(*a, *b),
-                false,
-            ),
-        }
+        })
     }
 
     /// The faint count after a root's name.
-    fn count_of(&self, space: Space, page: Option<&Page>, cx: &App) -> Option<String> {
-        match (space, page) {
-            (INBOX, _) => Some(match self.inbox_unread(cx) {
+    fn count_of(&self, space: Space, cx: &App) -> Option<String> {
+        let root = self.nav_page().is_none();
+        match space {
+            INBOX => Some(match self.inbox_unread(cx) {
                 0 => "Nothing new".to_owned(),
                 n => format!("{n} new"),
             }),
             // Once the filters say it with their counts, the name has none.
-            (REQUESTS, None)
-                if self.requests_available(cx)
+            REQUESTS
+                if root
+                    && self.requests_available(cx)
                     && self.request_login(cx).is_none()
                     && !self.request_list(cx).is_empty() =>
             {
                 Some(self.request_list(cx).len().to_string())
             }
-            (BRANCHES, None) => Some(self.branches_count(cx)),
-            (CODE, Some(Page::File(_))) => {
-                self.rv().file_read(cx).map(|v| format!("as of {}", v.at))
-            }
-            (CODE, Some(Page::Folder(path))) => {
-                let inside = format!("{path}/");
-                let files = self.code().map(|c| c.files(cx)).unwrap_or_default();
-                let n = files.iter().filter(|f| f.starts_with(&inside)).count();
-                Some(super::plural(n, "file"))
-            }
+            BRANCHES if root => Some(self.branches_count(cx)),
             _ => None,
         }
     }
@@ -520,20 +321,20 @@ impl Workspace {
 struct BarGlue {
     tab: WeakEntity<Workspace>,
     space: Space,
-    /// Where ‹ goes, narrow.
-    up: Option<Option<Page>>,
+    /// Where ‹ goes, narrow: a page, or the space's own (`None`).
+    up: Option<Option<Route>>,
     /// Where each crumb goes, and the folder of Code it is.
-    links: Vec<Option<Option<Page>>>,
+    links: Vec<Option<Route>>,
     folders: Vec<Option<String>>,
 }
 
 impl BarGlue {
-    fn show(&self, to: Option<Page>, cx: &mut App) {
+    fn show(&self, to: Option<Route>, cx: &mut App) {
         let space = self.space;
         self.tab
             .update(cx, |this, cx| {
                 this.nav.from = None;
-                this.show(space, to.map(|p| p.route()), cx)
+                this.show(space, to, cx)
             })
             .ok();
     }
@@ -551,7 +352,7 @@ impl bar::BarHost for BarGlue {
     }
 
     fn up_to(&self, n: usize, _: &mut Window, cx: &mut App) {
-        if let Some(Some(to)) = self.links.get(n).cloned() {
+        if let Some(to) = self.links.get(n).cloned() {
             self.show(to, cx);
         }
     }
@@ -570,6 +371,35 @@ impl bar::BarHost for BarGlue {
                 .update(cx, |this, cx| this.crumb_menu(folder, at, cx))
                 .ok();
         }
+    }
+}
+
+/// The page's title with what a long hover on it says (the developer, 2026-10-23: the header names no author), its
+/// owner's (`NameHover`): a request's identity, a commit's or a branch's card, a file's or a folder's whole path.
+/// Without one, its own long hover gives the whole title when it is cut.
+fn title(text: String, mono: bool, hover: Option<NameHover>) -> AnyElement {
+    use super::hover::{CutInTip, Hover};
+    let style = |title: gpui::Stateful<gpui::Div>| {
+        title
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(theme::text())
+            .when(mono, |s| s.font_family(theme::code_font()))
+    };
+    let title = || {
+        style(
+            div()
+                .id("bar-title")
+                .min_w_0()
+                .cut_in_tip()
+                .child(text.clone()),
+        )
+    };
+    match hover {
+        Some(NameHover::Tip(tip)) => title().tip(tip).into_any_element(),
+        Some(NameHover::Card(card)) => title()
+            .card(move |window, cx| card(window, cx))
+            .into_any_element(),
+        None => style(super::hover::cut("bar-title", text.clone())).into_any_element(),
     }
 }
 

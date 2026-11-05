@@ -17,7 +17,7 @@ use artoo_branches_api::{
 use artoo_core::route::{Place, Route};
 use artoo_requests_api::Requests;
 use artoo_review_api::{ItemView, Review};
-use artoo_shell_api::{Frame, Pages, Services};
+use artoo_shell_api::{Drawing, Frame, NameHover, PagePath, Pages, PathUp, Services};
 use artoo_ui_kit::px;
 use artoo_ui_kit::room::Widths;
 use gpui::{AnyElement, App, Context, Entity, Render, Window, div, prelude::*};
@@ -62,6 +62,13 @@ pub fn pages(
         ],
         parent,
         item,
+        path: Rc::new({
+            let services = services.clone();
+            move |route, drawing, cx| {
+                let services = services.upgrade()?;
+                path(route, drawing, &services, cx)
+            }
+        }),
         view: view.into(),
         side: Some(Rc::new(move |route, width, cx| {
             route?;
@@ -209,6 +216,93 @@ fn beside(h: &History, ix: usize, services: &Services, cx: &App) -> Beside {
         card: branch_card(h, ix, request.clone()).map(|card| Box::new(card) as Card),
         request,
     }
+}
+
+/// The bar's path to a page of Branches: Branches, then the branch a commit, a run or two versions are of (its
+/// page), Commits over a commit or a run (the branch's page, where they are picked); a commit's card or the branch's
+/// in the name's long hover.
+fn path(route: &Route, drawing: &Drawing, services: &Services, cx: &App) -> Option<PagePath> {
+    let branches = services.get::<Rc<dyn Branches>>()?;
+    let list = branches.list(cx);
+    let at = |refname: &str| list.iter().position(|b| b.refname == refname);
+    let named =
+        |refname: &str| at(refname).map_or_else(|| refname.to_owned(), |ix| list[ix].name.clone());
+    let versions = |a: usize, b: usize| match (branches.version(a, cx), branches.version(b, cx)) {
+        (Some(a), Some(b)) => format!("v{} → v{}", a.number, b.number),
+        _ => "versions".to_owned(),
+    };
+    // The branch's card names the request riding on it.
+    let card = |refname: &str| {
+        let ix = at(refname)?;
+        let requests = services.get::<Rc<dyn Requests>>();
+        let request = requests.as_ref().and_then(|r| {
+            let (number, _) = r.of_branch(&list[ix], cx)?;
+            r.find(number, cx).map(|m| (m.iid, m.title))
+        });
+        branches.branch_card(ix, request, cx).map(NameHover::Card)
+    };
+    let commit = |id: git2::Oid| {
+        branches
+            .commit_card(id, drawing.web.as_ref(), cx)
+            .map(NameHover::Card)
+    };
+    let oid = |hex: &str| git2::Oid::from_str(hex).ok();
+    let root = || PathUp::new("Branches", None);
+    let branch = |refname: &str| {
+        let page = BranchRoute {
+            refname: refname.to_owned(),
+        }
+        .route();
+        let mut name = PathUp::new(named(refname), Some(page.clone()));
+        name.mono = true;
+        (name, PathUp::new("Commits", Some(page)))
+    };
+    let short = artoo_ui_kit::format::short;
+    let run = |newest: &str, oldest: &str| {
+        Some(format!("{}..{}", short(oid(oldest)?), short(oid(newest)?)))
+    };
+    let (up, name, mono, hover) = match route.kind.as_str() {
+        BranchRoute::KIND => {
+            let r = BranchRoute::from_route(route)?;
+            (vec![root()], named(&r.refname), true, card(&r.refname))
+        }
+        // A commit is a level under the branch's Commits (#74).
+        BranchCommitRoute::KIND => {
+            let r = BranchCommitRoute::from_route(route)?;
+            let (name, commits) = branch(&r.refname);
+            let id = oid(&r.commit)?;
+            (vec![root(), name, commits], short(id), true, commit(id))
+        }
+        BranchCommitsRoute::KIND => {
+            let r = BranchCommitsRoute::from_route(route)?;
+            let (name, commits) = branch(&r.refname);
+            let id = run(&r.newest, &r.oldest)?;
+            (vec![root(), name, commits], id, true, card(&r.refname))
+        }
+        VersionsRoute::KIND => {
+            let r = VersionsRoute::from_route(route)?;
+            let (name, _) = branch(&r.refname);
+            (
+                vec![root(), name],
+                versions(r.from, r.to),
+                false,
+                card(&r.refname),
+            )
+        }
+        WorkingTreeRoute::KIND => (vec![root()], "Working tree".to_owned(), false, None),
+        CompareRoute::KIND => {
+            let r = CompareRoute::from_route(route)?;
+            (vec![root()], format!("{} … {}", r.base, r.head), true, None)
+        }
+        _ => return None,
+    };
+    Some(PagePath {
+        up,
+        name,
+        mono,
+        hover,
+        count: None,
+    })
 }
 
 /// Two refs compared as what stays open under Branches (#149): by their names, whichever is the base, so Swap and

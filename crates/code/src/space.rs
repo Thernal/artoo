@@ -5,8 +5,8 @@ use artoo_code_api::{FilePage, FileRoute, FolderRoute, Host};
 use artoo_core::files;
 use artoo_core::git::Repo;
 use artoo_core::route::{Place, Route};
-use artoo_review_api::FileView;
-use artoo_shell_api::{Frame, MenuItem, Pages};
+use artoo_review_api::{FileView, Review};
+use artoo_shell_api::{Frame, MenuItem, NameHover, PagePath, Pages, PathUp};
 use artoo_ui_kit::hover::{CutInTip, Tip, TipOwned};
 use artoo_ui_kit::{icons, island, keys, markdown, px, theme};
 use git2::Oid;
@@ -238,13 +238,14 @@ impl CodeSpace {
 
     /// Its pages as the shell draws them: a file, a folder, the project's own; the tree beside them.
     pub fn pages(this: &Entity<Self>) -> Pages {
-        let (side, show) = (this.clone(), this.clone());
+        let (side, show, named) = (this.clone(), this.clone(), this.downgrade());
         Pages {
             space: artoo_code_api::SPACE,
             kinds: &[FileRoute::KIND, FolderRoute::KIND],
             parent: |route| Page::from_route(route)?.parent().map(|p| p.route()),
             // A file read stays open as Code's own tab, not under the space in the menu.
             item: |_| None,
+            path: Rc::new(move |route, _, cx| named.upgrade()?.read(cx).path_of(route, cx)),
             view: this.clone().into(),
             side: Some(Rc::new(move |_, width, cx| {
                 Some(side.update(cx, |c, cx| c.render_tree(width, cx).into_any_element()))
@@ -258,6 +259,70 @@ impl CodeSpace {
     /// The tab's review, which reads and draws the file shown.
     fn file_view(&self) -> Option<Rc<dyn FileView>> {
         self.frame.services().get()
+    }
+
+    /// The bar's path to a file or a folder: Code, the project, each folder above it a way up (its page); the
+    /// whole path in its long hover, the file's revision and length with it; a file's revision, a folder's files
+    /// counted after it.
+    fn path_of(&self, route: &Route, cx: &App) -> Option<PagePath> {
+        let page = Page::from_route(route)?;
+        let (Page::File(path) | Page::Folder(path)) = &page;
+        let project = self
+            .root
+            .as_deref()
+            .map(artoo_core::labels::project_name)
+            .unwrap_or_default();
+        let mut parts: Vec<&str> = path.split('/').collect();
+        let name = parts.pop().unwrap_or_default().to_owned();
+        let mut up = vec![PathUp::new("Code", None), PathUp::new(project, None)];
+        let mut above = String::new();
+        for part in parts {
+            if !above.is_empty() {
+                above.push('/');
+            }
+            above.push_str(part);
+            let folder = FolderRoute {
+                path: above.clone(),
+            };
+            up.push(PathUp::new(part, Some(folder.route())));
+        }
+        let read = self
+            .frame
+            .services()
+            .get::<Rc<dyn Review>>()
+            .and_then(|r| r.file_read(cx));
+        let (tip, count) = match &page {
+            Page::File(_) => {
+                let at = (read.as_ref())
+                    .filter(|v| &v.path == path)
+                    .map(|v| format!(" · as of {} · {} lines", v.at, v.lines))
+                    .unwrap_or_default();
+                (
+                    format!("{path}{at}"),
+                    read.map(|v| format!("as of {}", v.at)),
+                )
+            }
+            Page::Folder(_) => {
+                let inside = format!("{path}/");
+                let n = self
+                    .code
+                    .files
+                    .iter()
+                    .filter(|f| f.starts_with(&inside))
+                    .count();
+                (
+                    format!("{path}/"),
+                    Some(artoo_ui_kit::format::plural(n, "file")),
+                )
+            }
+        };
+        Some(PagePath {
+            up,
+            name,
+            mono: false,
+            hover: Some(NameHover::Tip(tip)),
+            count,
+        })
     }
 
     /// What is on screen (`Pages::show`): a file read at Code's revision — anew when `opened`, else unless it

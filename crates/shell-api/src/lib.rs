@@ -16,7 +16,8 @@
 //!   its key, which Settings keeps; Artoo's three the frame's.
 //! - **Pages**: the routes of some kinds and a space's own page, drawn by the feature that owns them. The shell
 //!   keeps which is on screen — its history, esc's way up, the items open under a space, `nav.txt` — and says so
-//!   (`Pages::show`); what a route's page one up is and what it belongs to the pages say (`parent`, `item`). A
+//!   (`Pages::show`); what a route's page one up is and what it belongs to the pages say (`parent`, `item`), and
+//!   what the page bar says of it (`path`). A
 //!   feature opens one of its own through the `Frame` like any other.
 //! - **`Frame`**: what a part asks of its tab: a toast, the error line, a redraw, the text selection, the places
 //!   it has open, its tool window opened or closed, a menu at the pointer, the narrow tab's drawer closed, a
@@ -708,6 +709,8 @@ pub struct Pages {
     /// request, a branch. A route as well — the item's own page, or a key no page draws (two refs compared, either
     /// way round), whose page is the one it was left on. None: nothing stays open (a file read in Code).
     pub item: fn(&Route) -> Option<Route>,
+    /// What the page bar says of a route of theirs: the path above it, its name and its long hover (`PagePath`).
+    pub path: PathOf,
     /// The page on screen.
     pub view: AnyView,
     /// The panel beside it (Code's tree, an item's side panel) for the route on screen, at the width given; the
@@ -719,6 +722,49 @@ pub struct Pages {
     /// The shell says it from inside its own update (see the crate's doc).
     pub show: Show,
 }
+
+/// What the page bar says of a route a space's pages draw, as the tab draws its bar (`Pages::path`); none when they
+/// name nothing of it. Called while the tab draws: it reads the feature's own state and what `Drawing` hands it,
+/// never the tab.
+pub type PathOf = Rc<dyn Fn(&Route, &Drawing, &App) -> Option<PagePath>>;
+
+/// The page bar's words for a route (#71): the parts of the path above it, each a way up; its own name, the last;
+/// what a long hover on the name shows; the faint count after it.
+pub struct PagePath {
+    pub up: Vec<PathUp>,
+    pub name: String,
+    pub mono: bool,
+    pub hover: Option<NameHover>,
+    pub count: Option<String>,
+}
+
+/// A part of the path above a page: its words, and where a click on it goes up to — a page (`Some`), or the space's
+/// own page.
+pub struct PathUp {
+    pub label: String,
+    pub mono: bool,
+    pub to: Option<Route>,
+}
+
+impl PathUp {
+    pub fn new(label: impl Into<String>, to: Option<Route>) -> Self {
+        Self {
+            label: label.into(),
+            mono: false,
+            to,
+        }
+    }
+}
+
+/// What a long hover on a page's name shows: its whole words (a file's path, a request's identity), or a card (a
+/// commit's, a branch's).
+pub enum NameHover {
+    Tip(String),
+    Card(HoverCard),
+}
+
+/// A card a long hover builds, each time it shows.
+pub type HoverCard = Rc<dyn Fn(&mut Window, &mut App) -> AnyView>;
 
 /// A panel beside a space's pages for the route on screen (`None`: the space's own page), drawn at a width; none
 /// where the space has none there.
