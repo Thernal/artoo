@@ -416,12 +416,6 @@ impl Render for Workspace {
         .on_action(cx.listener(|this, _: &PreviousSection, _, cx| this.step_section(false, cx)))
         .on_action(cx.listener(|this, _: &NextOpenItem, _, cx| this.step_open_item(true, cx)))
         .on_action(cx.listener(|this, _: &PreviousOpenItem, _, cx| this.step_open_item(false, cx)))
-        .on_action(cx.listener(|this, _: &ToggleComments, _, cx| {
-            this.toggle_tool(artoo_requests_api::DISCUSSIONS, cx)
-        }))
-        .on_action(cx.listener(|this, _: &ToggleAgents, _, cx| {
-            this.toggle_tool(artoo_agents_api::view::WINDOW, cx)
-        }))
         .on_action(cx.listener(|this, _: &FoldMenu, _, cx| this.toggle_menu(cx)))
         .on_action(
             cx.listener(|this, _: &GoToInbox, _, cx| this.go_space(spaces::Space::Inbox, cx)),

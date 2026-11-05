@@ -119,7 +119,6 @@ actions!(
     [
         Open,
         SaveTheme,
-        ToggleAgents,
         FoldMenu,
         GoToInbox,
         GoToCode,
@@ -184,7 +183,6 @@ actions!(
         ShowShortcuts,
         NameProject,
         ToggleThread,
-        ToggleComments,
         ShowOverview,
         NextSection,
         PreviousSection,

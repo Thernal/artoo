@@ -27,14 +27,30 @@ mod tabs;
 mod thread;
 mod waiting;
 
-use artoo_shell_api::{Frame, Parts};
+use artoo_shell_api::{Action, Frame, Parts, when};
 use gpui::{App, AppContext, Entity, Window};
 use std::rc::Rc;
+
+gpui::actions!(
+    artoo,
+    [
+        /// ⇧⌘D: the Discussions window shown or hidden.
+        ToggleComments
+    ]
+);
 
 /// The requests' parts in every tab: a request being written's header and a request's line on the item page,
 /// the space's own page, a request's Overview and Commits among the tab's services (`tabs`); and the Inbox's
 /// (`inbox_parts`).
 pub fn install(cx: &mut App) {
+    artoo_shell_api::add_action(
+        cx,
+        Action::new("requests.discussions", ToggleComments)
+            .words("Show or hide the Discussions window")
+            // Its place in ⌘K among Artoo's own, as it always had.
+            .order(150)
+            .key("cmd-shift-d", when::NOT_TYPING),
+    );
     artoo_shell_api::add_parts(cx, parts);
     artoo_shell_api::add_parts(cx, inbox_parts);
 }
@@ -58,8 +74,13 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     let tool = services
         .get::<Rc<dyn artoo_requests_api::DiscussionsHost>>()
         .map(|host| discussions::tool(requests.clone(), host, acts, cx));
+    let shows = frame.clone();
     Parts {
         tool,
+        actions: vec![(
+            Box::new(ToggleComments),
+            Rc::new(move |_, cx| shows.toggle_tool(artoo_requests_api::DISCUSSIONS, cx)),
+        )],
         inputs: vec![create::input(requests.clone(), services.clone())],
         // The request being written first: it is over whatever page it was opened on.
         pieces: vec![

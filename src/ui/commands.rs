@@ -92,7 +92,8 @@ fn menus(cx: &App) -> Vec<gpui::Menu> {
         .collect()
 }
 
-/// ⌘K's place for the `n`th of Artoo's own commands there.
+/// ⌘K's place for the `n`th of Artoo's own commands there. A feature's command that was one keeps its place: the
+/// Agents window's 100 (`at(10)`), the Discussions window's 150.
 const fn at(n: u16) -> u16 {
     n * 10
 }
@@ -190,12 +191,6 @@ pub(super) fn own() -> Vec<Action> {
             .words("Reveal in Finder")
             .order(at(12))
             .key("cmd-alt-r", NOT_TYPING),
-        Action::new("agents.window", ToggleAgents)
-            .words("Show or hide the Agents window")
-            .order(at(10))
-            .key("cmd-shift-a", NOT_TYPING)
-            .menu(Bar::View, "Agents")
-            .at(0, 4),
         // The menu folds with ⌘B (D2; ⌘0 stays zoom reset, the switch picker has no key); in a field ⌘B is
         // bold. ⌃⌘1…4 the spaces, Ctrl+Shift+1…4 on Windows and Linux.
         Action::new("shell.fold-menu", FoldMenu)
@@ -247,10 +242,6 @@ pub(super) fn own() -> Vec<Action> {
         Action::new("requests.edit", EditComment).key("e", NOT_TYPING),
         Action::new("requests.react", ReactNote).key("shift-e", NOT_TYPING),
         Action::new("requests.fold-thread", ToggleThread).key("o", NOT_TYPING),
-        Action::new("requests.discussions", ToggleComments)
-            .words("Show or hide the Discussions window")
-            .order(at(15))
-            .key("cmd-shift-d", NOT_TYPING),
         Action::new("requests.overview", ShowOverview)
             .words("Show the request's overview")
             .order(at(16))

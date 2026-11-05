@@ -30,6 +30,14 @@ use artoo_hosts_api::Hosts;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+gpui::actions!(
+    artoo,
+    [
+        /// ⇧⌘A: the Agents window shown or hidden.
+        ToggleAgents
+    ]
+);
+
 /// Wires the agents in: the contract other features read them through (`artoo_agents_api`) — the reports chats
 /// drafted, the folder the windows read, how a tab's agents are made and drawn — and their parts in every tab: the notes'
 /// summary over the diff, the Agents window, the card asking which chat, Settings → Agents.
@@ -38,6 +46,18 @@ pub fn install(cx: &mut gpui::App) {
     artoo_agents_api::bus::provide(cx, Arc::new(contract::FolderImpl));
     artoo_agents_api::tab::provide(cx, std::rc::Rc::new(tab::make));
     artoo_agents_api::view::provide(cx, std::rc::Rc::new(contract::RendererImpl));
+    use artoo_shell_api::{Action, Menu, when};
+    artoo_shell_api::add_action(
+        cx,
+        Action::new("agents.window", ToggleAgents)
+            .words("Show or hide the Agents window")
+            // Its places in ⌘K and the View menu among Artoo's own, as it always had.
+            .order(100)
+            // ⇧⌘A as Design gives it; ⌥⌘A sends to an agent (D12, X3).
+            .key("cmd-shift-a", when::NOT_TYPING)
+            .menu(Menu::View, "Agents")
+            .at(0, 4),
+    );
     artoo_shell_api::add_parts(cx, parts);
 }
 
@@ -106,7 +126,11 @@ fn parts(
             frame.clone(),
             cx,
         )),
-        pieces: vec![summary::piece(tab.notes.clone(), frame, cx)],
+        pieces: vec![summary::piece(tab.notes.clone(), frame.clone(), cx)],
+        actions: vec![(
+            Box::new(ToggleAgents),
+            std::rc::Rc::new(move |_, cx| frame.toggle_tool(artoo_agents_api::view::WINDOW, cx)),
+        )],
         ..Default::default()
     }
 }

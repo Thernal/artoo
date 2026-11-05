@@ -80,6 +80,10 @@ impl Frame for TabFrame {
         self.later(cx, move |this, cx| this.set_tool(id, cx));
     }
 
+    fn toggle_tool(&self, id: &'static str, cx: &mut App) {
+        self.later(cx, move |this, cx| this.toggle_tool(id, cx));
+    }
+
     fn tool_typing(&self, id: &str, cx: &App) -> bool {
         self.0.upgrade().is_some_and(|tab| {
             let this = tab.read(cx);

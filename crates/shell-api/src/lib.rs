@@ -232,6 +232,9 @@ pub trait Frame {
     /// Opens a part's tool window by its id, or gives the open one the keyboard; `None` closes the one open.
     fn show_tool(&self, id: Option<&'static str>, cx: &mut App);
 
+    /// Opens a part's tool window by its id, or closes it when it is the one open: the key that shows or hides it.
+    fn toggle_tool(&self, id: &'static str, cx: &mut App);
+
     /// Whether tool window `id` has the keyboard: open, its zone the focused one, nothing over it, typing.
     fn tool_typing(&self, id: &str, cx: &App) -> bool;
 
