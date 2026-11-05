@@ -1,7 +1,9 @@
-//! Keyboard focus zones: the branches, the commits, the files, the diff and the tool window on the
+//! Keyboard focus zones: a list of the tab's, the commits, the files, the diff and the tool window on the
 //! right. One of them has the
 //! keyboard at a time (its island has an outline), Tab and ⇧Tab move between them, ↑ ↓ ← → work in
-//! the one that has it, and ↵ goes one step in.
+//! the one that has it, and ↵ goes one step in. Which there are the page's pages say (`Pages::screen`): a list
+//! (the branches', the requests'), an item's screen, or a page of its own with the tool window alone; what the keys
+//! do in each is the tab's, as the lists' clicks and the item's screen are (#171 D15).
 
 use super::px;
 use super::{Workspace, theme};
@@ -11,7 +13,8 @@ use gpui::{App, Context, Rgba};
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum Zone {
-    Branches,
+    /// The list a space's own page is (`Screen::List`).
+    List,
     #[default]
     Commits,
     Files,
@@ -40,7 +43,7 @@ impl Workspace {
             return "".into();
         }
         super::keys::text(match zone {
-            Zone::Branches => " · ⌃1",
+            Zone::List => " · ⌃1",
             Zone::Commits => " · ⌃2",
             Zone::Files => " · ⌃3",
             Zone::Diff => " · ⌃4",
@@ -59,10 +62,7 @@ impl Workspace {
     fn zones(&self, cx: &App) -> Vec<Zone> {
         let mut out = Vec::new();
         // A page with no side panel and no diff: a space's list, the Inbox, Code (#71).
-        let item = matches!(
-            self.nav.space,
-            super::spaces::BRANCHES | super::spaces::REQUESTS
-        ) && !self.at_root_list();
+        let item = self.screen() == artoo_shell_api::Screen::Item;
         // A request's Overview and Commits: no side panel and no diff (#73).
         let tab_page = matches!(
             self.page_tab(cx),
@@ -70,7 +70,7 @@ impl Workspace {
         );
         if !item || tab_page {
             if self.at_root_list() {
-                out.push(Zone::Branches);
+                out.push(Zone::List);
             }
             if self.tool_shown(cx) && !self.settings_open {
                 out.push(Zone::Tool);
@@ -128,7 +128,7 @@ impl Workspace {
                 return self.step_compare_pick(down, cx);
             }
             Zone::Commits => self.step_commit_row(down, cx),
-            Zone::Branches => self.step_pick(down, cx),
+            Zone::List => self.step_pick(down, cx),
             Zone::Files => self.step_file_item(down, cx),
             Zone::Diff => self
                 .diff_list(cx)
@@ -152,7 +152,7 @@ impl Workspace {
             {
                 self.tree_horizontal(forward, cx)
             }
-            Zone::Branches if forward => self.set_zone(Zone::Commits, cx),
+            Zone::List if forward => self.set_zone(Zone::Commits, cx),
             Zone::Tool if !forward => self.set_zone(Zone::Diff, cx),
             Zone::Tool => {}
             Zone::Diff if !forward => self.set_zone(
@@ -192,7 +192,7 @@ impl Workspace {
             return self.inbox_open(cx);
         }
         // A space's list: what is selected in it opens (#71).
-        if self.at_root_list() && self.zone == Zone::Branches {
+        if self.at_root_list() && self.zone == Zone::List {
             return self.open_pick(cx);
         }
         if self.page_tab(cx) == Some(super::nav::Section::Commits) && self.zone != Zone::Tool {
@@ -204,7 +204,7 @@ impl Workspace {
                     self.part_list_key(id, ListKey::Enter, cx);
                 }
             }
-            Zone::Branches => {}
+            Zone::List => {}
             Zone::Commits => {
                 if self.shown_diff(cx).is_some() {
                     self.set_zone(
@@ -290,7 +290,7 @@ impl Workspace {
             if let Some(iid) = step(at, shown.len()).map(|i| shown[i]) {
                 self.pick_request(iid, cx);
             }
-        } else {
+        } else if self.nav.space == super::spaces::BRANCHES {
             let rows = self.branch_rows(cx);
             let at = self
                 .picked_branch_row(cx)
@@ -314,7 +314,7 @@ impl Workspace {
             if let Some(iid) = pick.or(shown.first().copied()) {
                 self.open_picked_request(iid, cx);
             }
-        } else {
+        } else if self.nav.space == super::spaces::BRANCHES {
             let rows = self.branch_rows(cx);
             let pick = self.picked_branch_row(cx).filter(|r| rows.contains(r));
             if let Some(row) = pick.or(rows.first().copied()) {

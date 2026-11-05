@@ -120,6 +120,7 @@ struct Drawer {
     kinds: &'static [&'static str],
     parent: fn(&Route) -> Option<Route>,
     item: fn(&Route) -> Option<Route>,
+    screen: fn(Option<&Route>) -> artoo_shell_api::Screen,
 }
 
 impl Drawn {
@@ -132,6 +133,7 @@ impl Drawn {
                     kinds: p.kinds,
                     parent: p.parent,
                     item: p.item,
+                    screen: p.screen,
                 })
                 .collect(),
         )
@@ -161,6 +163,12 @@ impl Drawn {
     /// What stays open under its space once `route` was seen.
     pub(super) fn item(&self, route: &Route) -> Option<Route> {
         (self.drawer(route)?.item)(route)
+    }
+
+    /// What the tab frames `route` as (`Pages::screen`); a page of its own when no page draws it.
+    pub(super) fn screen(&self, route: &Route) -> artoo_shell_api::Screen {
+        self.drawer(route)
+            .map_or(artoo_shell_api::Screen::Own, |d| (d.screen)(Some(route)))
     }
 
     /// The page item `item` opens on when nothing kept another: itself when it is a page (a request, a branch),
@@ -417,9 +425,17 @@ impl Workspace {
         self.drawn().item(route)
     }
 
-    /// At the root of Branches or Merge requests: their list is the page.
+    /// What the page on screen is framed as, as its pages say (`Pages::screen`); a page of its own when none draws
+    /// it.
+    pub(super) fn screen(&self) -> artoo_shell_api::Screen {
+        let route = self.nav_page();
+        self.pages_drawing(self.nav.space, route)
+            .map_or(artoo_shell_api::Screen::Own, |p| (p.screen)(route))
+    }
+
+    /// At a list of the tab's: the space's own page is its list (the branches', the requests').
     pub(super) fn at_root_list(&self) -> bool {
-        matches!(self.nav.space, BRANCHES | REQUESTS) && self.nav_page().is_none()
+        self.screen() == artoo_shell_api::Screen::List
     }
 
     /// What is loaded, as a page of Branches or Merge requests (`History::loaded_route`).
@@ -878,13 +894,13 @@ impl Workspace {
                 self.refresh_notices(cx);
             }
             BRANCHES => {
-                self.zone = zones::Zone::Branches;
+                self.zone = zones::Zone::List;
                 self.show_pages(space, None, false, cx);
             }
             REQUESTS => {
                 self.pick_first_request(cx);
                 self.read_preview(cx);
-                self.zone = zones::Zone::Branches;
+                self.zone = zones::Zone::List;
                 // A project without a token: the connect panel takes the keyboard.
                 if self.requests_api().is_some_and(|r| r.connectable(cx))
                     && let Some(connecting) = self.connecting()
@@ -1184,9 +1200,8 @@ impl Workspace {
         // Underneath a page that loads nothing of its own, the checked-out branch, as before:
         // ⌘K's commits and the files' revision come from it.
         let page_space = page.as_ref().and_then(|p| drawn.space(p));
-        if !matches!(page_space, Some(BRANCHES | REQUESTS))
-            && let Some(ix) = head
-        {
+        let item = page.as_ref().map(|p| drawn.screen(p)) == Some(artoo_shell_api::Screen::Item);
+        if !item && let Some(ix) = head {
             self.nav.restoring = true;
             self.select_branch(ix, None, cx);
             self.nav.restoring = false;
@@ -1397,6 +1412,7 @@ mod tests {
                 kinds: &["code.file", "code.folder"],
                 parent,
                 item,
+                screen: |_| artoo_shell_api::Screen::Own,
             },
             Drawer {
                 space: BRANCHES,
@@ -1410,6 +1426,7 @@ mod tests {
                 ],
                 parent,
                 item,
+                screen: |_| artoo_shell_api::Screen::Item,
             },
             Drawer {
                 space: REQUESTS,
@@ -1421,12 +1438,14 @@ mod tests {
                 ],
                 parent,
                 item,
+                screen: |_| artoo_shell_api::Screen::Item,
             },
             Drawer {
                 space: Space("jira"),
                 kinds: &["jira.issue"],
                 parent: |_| None,
                 item: jira,
+                screen: |_| artoo_shell_api::Screen::Own,
             },
         ])
     }
@@ -1458,6 +1477,23 @@ mod tests {
         let request = Page::Request(398).route();
         assert_eq!(drawn.item_page(&request), Some(request));
         assert_eq!(drawn.item_page(&comparison("main", "x")), None);
+    }
+
+    #[test]
+    fn a_page_is_framed_as_its_pages_say() {
+        use artoo_shell_api::Screen;
+        let drawn = drawn();
+        assert_eq!(drawn.screen(&Page::Request(398).route()), Screen::Item);
+        assert_eq!(drawn.screen(&Page::WorkingTree.route()), Screen::Item);
+        assert_eq!(
+            drawn.screen(&Page::File("a/b.kt".into()).route()),
+            Screen::Own
+        );
+        // A plugin's page has its own; one nobody draws has no islands but the tool window.
+        let issue = Route::parse(r#"jira.issue{"key":"PAY-1"}"#).unwrap();
+        assert_eq!(drawn.screen(&issue), Screen::Own);
+        let gone = Route::parse(r#"plugin.page{"x":1}"#).unwrap();
+        assert_eq!(drawn.screen(&gone), Screen::Own);
     }
 
     #[test]

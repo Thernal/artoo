@@ -18,7 +18,9 @@ use artoo_requests_api::{
 };
 use artoo_review_api::ItemView;
 use artoo_review_api::{Review, Seen};
-use artoo_shell_api::{Drawing, Frame, ItemTab, NameHover, PagePath, Pages, PathUp, Services};
+use artoo_shell_api::{
+    Drawing, Frame, ItemTab, NameHover, PagePath, Pages, PathUp, Screen, Services,
+};
 use artoo_ui_kit::controls::skeleton;
 use artoo_ui_kit::room::Widths;
 use artoo_ui_kit::{format, gap, island, px, theme, words};
@@ -64,6 +66,7 @@ pub fn pages(requests: Entity<Requests>, frame: Rc<dyn Frame>, cx: &mut App) -> 
                 path(route, drawing, requests.read(cx), &services, cx)
             }
         }),
+        screen,
         view: view.into(),
         side: Some(Rc::new({
             let services = services.clone();
@@ -239,6 +242,15 @@ impl RootPage {
             .children(banner)
             .child(body)
             .into_any_element()
+    }
+}
+
+/// The space's own page is its list; a route of theirs, an item's screen.
+fn screen(route: Option<&Route>) -> Screen {
+    if route.is_some() {
+        Screen::Item
+    } else {
+        Screen::List
     }
 }
 

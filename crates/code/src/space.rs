@@ -6,7 +6,7 @@ use artoo_core::files;
 use artoo_core::git::Repo;
 use artoo_core::route::{Place, Route};
 use artoo_review_api::{FileView, Review};
-use artoo_shell_api::{Frame, MenuItem, NameHover, PagePath, Pages, PathUp};
+use artoo_shell_api::{Frame, MenuItem, NameHover, PagePath, Pages, PathUp, Screen};
 use artoo_ui_kit::hover::{CutInTip, Tip, TipOwned};
 use artoo_ui_kit::{icons, island, keys, markdown, px, theme};
 use git2::Oid;
@@ -246,6 +246,7 @@ impl CodeSpace {
             // A file read stays open as Code's own tab, not under the space in the menu.
             item: |_| None,
             path: Rc::new(move |route, _, cx| named.upgrade()?.read(cx).path_of(route, cx)),
+            screen: |_| Screen::Own,
             view: this.clone().into(),
             side: Some(Rc::new(move |_, width, cx| {
                 Some(side.update(cx, |c, cx| c.render_tree(width, cx).into_any_element()))

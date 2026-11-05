@@ -42,7 +42,7 @@ impl Workspace {
             .flex()
             .child(
                 self.root_list()
-                    .border_color(self.zone_border(super::zones::Zone::Branches))
+                    .border_color(self.zone_border(super::zones::Zone::List))
                     .child(list),
             )
             .children((!self.compact()).then(|| self.handle(super::Split::List, cx)))
@@ -256,7 +256,7 @@ impl Workspace {
         if open || self.compact() {
             return self.open_branch_row(row, cx);
         }
-        self.zone = super::zones::Zone::Branches;
+        self.zone = super::zones::Zone::List;
         branches.pick_row(Some(row), cx);
         cx.notify();
     }

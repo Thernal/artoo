@@ -180,7 +180,7 @@ impl Workspace {
             (REQUESTS, None) if self.requests_available(cx) => {
                 self.request_filters(cx).map(IntoElement::into_any_element)
             }
-            (REQUESTS | BRANCHES, Some(_)) => {
+            _ if self.screen() == artoo_shell_api::Screen::Item => {
                 self.section_tabs(cx).map(IntoElement::into_any_element)
             }
             _ => None,

@@ -17,7 +17,7 @@ use artoo_branches_api::{
 use artoo_core::route::{Place, Route};
 use artoo_requests_api::Requests;
 use artoo_review_api::{ItemView, Review};
-use artoo_shell_api::{Drawing, Frame, NameHover, PagePath, Pages, PathUp, Services};
+use artoo_shell_api::{Drawing, Frame, NameHover, PagePath, Pages, PathUp, Screen, Services};
 use artoo_ui_kit::px;
 use artoo_ui_kit::room::Widths;
 use gpui::{AnyElement, App, Context, Entity, Render, Window, div, prelude::*};
@@ -69,6 +69,7 @@ pub fn pages(
                 path(route, drawing, &services, cx)
             }
         }),
+        screen,
         view: view.into(),
         side: Some(Rc::new(move |route, width, cx| {
             route?;
@@ -215,6 +216,15 @@ fn beside(h: &History, ix: usize, services: &Services, cx: &App) -> Beside {
         reviewed: review.is_some_and(|r| r.head_reviewed(b.tip, cx)),
         card: branch_card(h, ix, request.clone()).map(|card| Box::new(card) as Card),
         request,
+    }
+}
+
+/// The space's own page is its list; a route of theirs, an item's screen.
+fn screen(route: Option<&Route>) -> Screen {
+    if route.is_some() {
+        Screen::Item
+    } else {
+        Screen::List
     }
 }
 

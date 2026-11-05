@@ -11,7 +11,7 @@ use crate::inbox_view::{
 use crate::list;
 use crate::notices::{Kind, Notices};
 use crate::requests::{Acts, Requests};
-use artoo_shell_api::{Frame, Pages};
+use artoo_shell_api::{Frame, Pages, Screen};
 use artoo_ui_kit::format::{self, now};
 use artoo_ui_kit::room::Widths;
 use artoo_ui_kit::{gap, island, px, theme};
@@ -56,6 +56,7 @@ pub fn pages(
         parent: |_| None,
         item: |_| None,
         path: Rc::new(|_, _, _| None),
+        screen: |_| Screen::Own,
         view: page.into(),
         side: None,
         show: Rc::new(|_, _, _| {}),

@@ -1124,7 +1124,7 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
             Act::RunMerge => this.run_merge(cx),
             Act::ShowNewVersion => this.show_new_version(cx),
             Act::PickRequest(iid) => {
-                this.zone = super::zones::Zone::Branches;
+                this.zone = super::zones::Zone::List;
                 this.pick_request(iid, cx);
             }
             Act::OpenRequest { iid, note } => this.open_at_note(iid, note, cx),

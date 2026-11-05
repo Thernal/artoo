@@ -17,7 +17,8 @@
 //! - **Pages**: the routes of some kinds and a space's own page, drawn by the feature that owns them. The shell
 //!   keeps which is on screen — its history, esc's way up, the items open under a space, `nav.txt` — and says so
 //!   (`Pages::show`); what a route's page one up is and what it belongs to the pages say (`parent`, `item`), and
-//!   what the page bar says of it (`path`). A
+//!   what the page bar says of it (`path`), and what the tab frames it as — a page of its own, a list, an item's
+//!   screen, its islands with the keyboard (`screen`). A
 //!   feature opens one of its own through the `Frame` like any other.
 //! - **`Frame`**: what a part asks of its tab: a toast, the error line, a redraw, the text selection, the places
 //!   it has open, its tool window opened or closed, a menu at the pointer, the narrow tab's drawer closed, a
@@ -711,6 +712,9 @@ pub struct Pages {
     pub item: fn(&Route) -> Option<Route>,
     /// What the page bar says of a route of theirs: the path above it, its name and its long hover (`PagePath`).
     pub path: PathOf,
+    /// What the tab frames a route of theirs as, or the space's own page (`None`): its islands with the keyboard,
+    /// what goes beside it and over it (`Screen`).
+    pub screen: fn(Option<&Route>) -> Screen,
     /// The page on screen.
     pub view: AnyView,
     /// The panel beside it (Code's tree, an item's side panel) for the route on screen, at the width given; the
@@ -721,6 +725,22 @@ pub struct Pages {
     /// (a click, a link), so what it shows is read anew, `false` when it was gone back to or kept from before.
     /// The shell says it from inside its own update (see the crate's doc).
     pub show: Show,
+}
+
+/// What the tab frames a page as (`Pages::screen`): which of its islands take the keyboard (Tab and ⇧Tab between
+/// them, ↑ ↓ ← → ↵ in the one that has it, ⌃1…4 to each), and what goes beside the page and in its bar.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Screen {
+    /// A page of its own (a file in Code, the Inbox): the tool window the only island beside it.
+    #[default]
+    Own,
+    /// A list of the tab's (the branches', the requests'): ↑ ↓ pick a row, ↵ opens it, ⌃1 gives it the keyboard,
+    /// its filter in the bar.
+    List,
+    /// An item's screen (a branch, a request, a commit of either): the side panel's versions and commits, the
+    /// review's files and diff, the item's sections in the bar (Overview · Commits · Changes), zen's keys under its
+    /// changes.
+    Item,
 }
 
 /// What the page bar says of a route a space's pages draw, as the tab draws its bar (`Pages::path`); none when they

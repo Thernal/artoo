@@ -4,7 +4,7 @@
 
 use super::menu::{Act, Entry};
 use super::recents::Key;
-use super::spaces::{BRANCHES, REQUESTS, Space};
+use super::spaces::Space;
 use super::zones::Zone;
 use super::{Workspace, motion, px};
 use artoo_code_api::FileRoute;
@@ -330,7 +330,7 @@ impl Workspace {
         let tab_page = self.item_tab(cx).is_some();
         let side = pages.side.as_ref().filter(|_| !tab_page);
         // Zen's keys go under an item's changes.
-        let item = matches!(self.nav.space, BRANCHES | REQUESTS) && route.is_some();
+        let item = (pages.screen)(route.as_ref()) == artoo_shell_api::Screen::Item;
         let view = match self.render_zen_keys(cx).filter(|_| item && !tab_page) {
             Some(keys) => div()
                 .flex_1()

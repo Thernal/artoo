@@ -84,12 +84,11 @@ impl Workspace {
             super::spaces::CODE if self.root.is_some() => {
                 vec![("folder", "Files", None)]
             }
-            super::spaces::BRANCHES | super::spaces::REQUESTS
-                if self.nav_page().is_some()
-                    && !matches!(
-                        self.page_tab(cx),
-                        Some(super::nav::Section::Overview | super::nav::Section::Commits)
-                    ) =>
+            _ if self.screen() == artoo_shell_api::Screen::Item
+                && !matches!(
+                    self.page_tab(cx),
+                    Some(super::nav::Section::Overview | super::nav::Section::Commits)
+                ) =>
             {
                 let mut icons = Vec::new();
                 let shows = self.panel_shows(cx);
