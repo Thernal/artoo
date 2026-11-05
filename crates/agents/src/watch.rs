@@ -4,17 +4,7 @@
 //! It also exits, and the chat is forgotten, when the agent's process is gone.
 
 use crate::agents::{self, Answer, Bus, Chat, Kind};
-use std::path::PathBuf;
 use std::time::Duration;
-
-/// The chat's transcript, to name it by its first message.
-fn transcript(config: &std::path::Path, session: &str) -> Option<PathBuf> {
-    std::fs::read_dir(config.join("projects"))
-        .ok()?
-        .flatten()
-        .map(|dir| dir.path().join(format!("{session}.jsonl")))
-        .find(|f| f.is_file())
-}
 
 fn alive(pid: u32) -> bool {
     if pid == 0 {
@@ -28,7 +18,7 @@ pub fn run() {
         eprintln!("artoo agent-watch: no home folder");
         std::process::exit(1);
     };
-    let Some((agent, session, pid, config)) = agents::whoami() else {
+    let Some((agent, me)) = agents::whoami() else {
         eprintln!(
             "artoo agent-watch: run it from an agent's chat (Claude Code); its session id is not in the environment"
         );
@@ -44,14 +34,11 @@ pub fn run() {
         std::process::exit(1);
     };
     let (root, project) = (repo.root(), repo.main_root());
-    let title = config
-        .as_deref()
-        .and_then(|c| transcript(c, &session))
-        .map(|t| agents::title(&t))
-        .unwrap_or_default();
+    let title = agent.title(&me);
+    let (session, pid) = (me.session, me.pid);
     let mut chat = Chat {
         session: session.clone(),
-        agent,
+        agent: agent.name().to_owned(),
         repo: root.clone(),
         project: project.clone(),
         branch: repo.head_branch().unwrap_or_default(),

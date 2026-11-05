@@ -1,6 +1,6 @@
 //! Coding agents and Artoo (#165): the chats it knows (a tab's: `chats`, and the reviewer's comments to them:
 //! `comments`), the MCP server an agent runs (`mcp`), `agent-watch`, the
-//! comments sent to a chat and their answers, notes, Codex; how a chat's badge and the notes are drawn (`view`), an
+//! comments sent to a chat and their answers, notes, the kinds of agent (Claude Code's `claude`, Codex's `codex`); how a chat's badge and the notes are drawn (`view`), an
 //! agent's form under its question (`form`),
 //! the notes' summary over the diff a piece of the item page (`summary`), the Agents window a tool window
 //! (`window`), the card asking which chat a card over the window (`pick`). It reads requests through the hosts' contract (`artoo_hosts_api`), the hosts it is handed.
@@ -9,6 +9,7 @@
 
 mod agents;
 mod chats;
+mod claude;
 mod codex;
 mod comments;
 mod connect;
@@ -38,10 +39,14 @@ gpui::actions!(
     ]
 );
 
-/// Wires the agents in: the contract other features read them through (`artoo_agents_api`) — the reports chats
-/// drafted, the folder the windows read, how a tab's agents are made and drawn — and their parts in every tab: the notes'
+/// Wires the agents in: the contract other features read them through (`artoo_agents_api`) — the kinds of agent,
+/// Claude Code and Codex, the reports chats drafted, the folder the windows read, how a tab's agents are made and
+/// drawn — and their parts in every tab: the notes'
 /// summary over the diff, the Agents window, the card asking which chat, Settings → Agents.
 pub fn install(cx: &mut gpui::App) {
+    for (order, provider) in agents::providers() {
+        artoo_agents_api::provider::add(cx, order, provider);
+    }
     artoo_agents_api::provide(cx, Arc::new(contract::ReportDraftsImpl));
     artoo_agents_api::bus::provide(cx, Arc::new(contract::FolderImpl));
     artoo_agents_api::tab::provide(cx, std::rc::Rc::new(tab::make));
@@ -83,12 +88,12 @@ pub fn watch() {
 
 /// Claude Code's profiles on this Mac.
 pub fn claude_profiles() -> Vec<PathBuf> {
-    agents::claude_profiles()
+    claude::profiles()
 }
 
 /// Whether Claude Code profile `profile` has Artoo's MCP server.
 pub fn claude_connected(profile: &Path) -> bool {
-    agents::claude_connected(profile)
+    claude::connected(profile)
 }
 
 /// Whether Codex has Artoo's MCP server.
@@ -108,7 +113,8 @@ pub fn server_command() -> String {
 
 /// The command that adds `server` to Codex by hand.
 pub fn codex_command(server: &str) -> String {
-    codex::add_command(server)
+    use artoo_agents_api::provider::Provider;
+    codex::Codex.add_command(server)
 }
 
 /// The parts of a tab that offers its agents' notes, its chats and its comments to them; none in one that does not.

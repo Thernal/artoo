@@ -10,6 +10,7 @@
 //! answered with the MCP tools Codex already has.
 
 use crate::agents::{self, Answer, Bus, Chat, Kind};
+use artoo_agents_api::provider::{Me, Provider};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::io::BufRead;
@@ -25,7 +26,44 @@ const AGENT: &str = "Codex";
 
 /// What a Codex chat cannot do yet, where it is picked (the developer, 2026-10-23: say its
 /// problems rather than hide it).
-pub const LIMITS: &str = "Codex is limited here: Artoo sees a Codex running in a terminal and the session it has written to since it started; sending starts a turn in that session (codex queue). Not seen: Codex in VS Code or the Codex app, nor a session before its first message. A turn sent as its terminal closes may run on unseen.";
+const LIMITS: &str = "Codex is limited here: Artoo sees a Codex running in a terminal and the session it has written to since it started; sending starts a turn in that session (codex queue). Not seen: Codex in VS Code or the Codex app, nor a session before its first message. A turn sent as its terminal closes may run on unseen.";
+
+/// Codex, as the agents offer it: the app is its sessions' watcher (`beat`).
+pub(crate) struct Codex;
+
+impl Provider for Codex {
+    fn name(&self) -> &'static str {
+        AGENT
+    }
+
+    fn me(&self) -> Option<Me> {
+        let var = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
+        let session = var("CODEX_SESSION_ID").or_else(|| var("CODEX_THREAD_ID"))?;
+        Some(Me {
+            session,
+            pid: 0,
+            config: None,
+        })
+    }
+
+    fn add_command(&self, server: &str) -> String {
+        add_command(server)
+    }
+
+    fn limits(&self) -> Option<&'static str> {
+        Some(LIMITS)
+    }
+
+    fn connected_as_gitlance(&self) -> bool {
+        connected_as_gitlance()
+    }
+
+    fn beat(&self, project: &Path) {
+        if let Some(bus) = Bus::new() {
+            beat(&bus, project);
+        }
+    }
+}
 
 /// `codex`'s commands that are not a session in a terminal (`codex --help`); `resume` and `fork`
 /// are one, and so is a prompt.
@@ -74,7 +112,7 @@ pub fn connected() -> bool {
 }
 
 /// Whether Codex has GitLance's server, the name Artoo had, and not Artoo's.
-pub fn connected_as_gitlance() -> bool {
+fn connected_as_gitlance() -> bool {
     !connected() && has_server(crate::agents::OLD_NAME)
 }
 
@@ -86,7 +124,7 @@ fn has_server(name: &str) -> bool {
 
 /// What connects Codex to `server` (`agents::server_command`), GitLance's entry removed first when
 /// Codex has it.
-pub fn add_command(server: &str) -> String {
+fn add_command(server: &str) -> String {
     let add = format!("codex mcp add artoo -- {server}");
     if has_server(crate::agents::OLD_NAME) {
         format!("codex mcp remove {} && {add}", crate::agents::OLD_NAME)
@@ -352,7 +390,7 @@ pub fn chats(project: &Path) -> Vec<Chat> {
 
 /// One beat for project `project`: its open Codex sessions listen, the closed ones go, and what
 /// was sent to one is handed to it.
-pub fn beat(bus: &Bus, project: &Path) {
+fn beat(bus: &Bus, project: &Path) {
     let live = chats(project);
     for chat in &live {
         let _ = bus.listen(chat);

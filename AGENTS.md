@@ -97,9 +97,13 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   other remote), connecting a host and its panel (`panel.rs`, a part of every tab), merging, pictures — one crate while
   they share helpers (#165 stage 3); `install` offers the two kinds, `hosts()` gives them to a mode without a window; a test's fixture reaches another crate's tests through
   `test_fixture` (its `sandbox`). `crates/agents` (`artoo-agents`): the MCP
-  server, `agent-watch`, comments sent to a chat and their answers, notes, Codex, the Agents window (`window.rs`, a
-  tool window part: the tab its `AgentsHost`), the card asking which chat (`pick.rs`, a card over the window), an agent's form under its question (`form.rs`, its clicks the tab's), Settings → Agents (`connect.rs`: connecting
-  Claude Code, its state shared with Set up's Agents) — requests through the hosts' contract (`serve_mcp(hosts)`);
+  server, `agent-watch`, comments sent to a chat and their answers, notes, the kinds of agent it offers (#171 phase 5:
+  `agents::providers()`, Claude Code's `claude.rs` — its profiles, Connect, its transcripts — and Codex's `codex.rs`,
+  the app its sessions' watcher), the Agents window (`window.rs`, a
+  tool window part: the tab its `AgentsHost`), the card asking which chat (`pick.rs`, a card over the window: every
+  provider's recent chats, a new chat of the first that starts one), an agent's form under its question (`form.rs`, its clicks the tab's), Settings → Agents (`connect.rs`: each
+  provider in its order — Connect for one Artoo connects itself, its state shared with Set up's Agents, else its
+  command by hand) — requests through the hosts' contract (`serve_mcp(hosts)`);
   it shows the app functions alone (`install`, `serve_mcp`, `watch`, Set up's looks). `crates/reports` (`artoo-reports`): Report a problem,
   its tool window included (`tool.rs`; its `install` alone is shown). `crates/appearance` (`artoo-appearance`, #12,
   #171: Settings → Appearance, its section and ⌘S its own — Window cards and Code cards (following the window by
@@ -125,7 +129,10 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   the cards and the editor's preview; its `install` alone is shown). `crates/agents-api` (`artoo-agents-api`): the
   agents' contract — the reports chats drafted, which Report a problem opens; the models the tab speaks with them
   (`comment`, `notes`, `bus`); a tab's agents (`tab::Agents`, made with `tab::tab`), the folder the windows read
-  (`bus::Folder`), and what the tab draws of them (`view`, a render contract with its hosts). `crates/ui-kit` (`artoo-ui-kit`): the design system —
+  (`bus::Folder`), what the tab draws of them (`view`, a render contract with its hosts), and the kinds of agent
+  (`provider::Provider`: its name, the session a program runs in, connecting it, its limits, its recent chats, the
+  program a new chat opens, a beat for sessions without a watcher; offered with `provider::add` and an order, read with
+  `all` / `named`; a chat with no watcher is `limited`, whichever agent's). `crates/ui-kit` (`artoo-ui-kit`): the design system —
   theme, the interface size (`px`, `ui_zoom`), panes and rows (`island`, `row`), icons, keycaps, motion, row room,
   formats, words, the composer (`composer`: a comment being written, its editing, its input and foot), the dragged label, Reveal's words and the toggle chips on their track (`controls`: `chip`, `group`), a list's row pieces and a page's empty state (`unread_dot`,
   `progress_badge`, `pill`, `primary_button`, `outline_button`, `empty_state`), tooltips and the

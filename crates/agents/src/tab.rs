@@ -148,11 +148,17 @@ impl Agents for TabAgents {
 
     fn connecting(&self, cx: &App) -> (bool, Option<String>) {
         let connect = self.connect.read(cx);
-        (connect.busy, connect.said.clone())
+        (connect.busy, connect.said.clone().map(|(_, text)| text))
     }
 
     fn connect(&self, cx: &mut App) {
-        self.connect.update(cx, |c, cx| c.connect(cx));
+        // Set up's Connect: the first agent Artoo connects itself (Claude Code).
+        let first = artoo_agents_api::provider::all(cx)
+            .into_iter()
+            .find(|p| p.connects().is_some());
+        if let Some(provider) = first {
+            self.connect.update(cx, |c, cx| c.connect(provider, cx));
+        }
     }
 
     fn on_connecting(&self, changed: OnChange, cx: &mut App) {

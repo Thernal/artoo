@@ -62,12 +62,6 @@ impl Folder for FolderImpl {
     fn marks_stamp(&self, project: &Path) -> Option<SystemTime> {
         Bus::new()?.marks_stamp(project)
     }
-
-    fn codex_beat(&self, project: &Path) {
-        if let Some(bus) = Bus::new() {
-            crate::codex::beat(&bus, project);
-        }
-    }
 }
 
 /// The agents' pieces as the agents draw them.

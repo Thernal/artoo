@@ -127,8 +127,8 @@ impl Workspace {
         }
         if !by_chat.is_empty() {
             self.save_comments(cx);
-            // A Codex session is handed them now, not on the next beat (#18).
-            self.codex_beat(cx);
+            // A session the app watches for (Codex's) is handed them now, not on the next beat (#18).
+            self.watch_beat(cx);
             self.refresh_rows(cx);
             cx.notify();
         }
@@ -345,10 +345,16 @@ impl Workspace {
             crate::comment::send(list, &ids, &session, &title)
         });
         self.save_comments(cx);
-        self.codex_beat(cx);
-        if session.is_empty() {
+        self.watch_beat(cx);
+        // A new chat: the first agent that starts one (Claude Code's `claude`).
+        let program = artoo_agents_api::provider::all(cx)
+            .iter()
+            .find_map(|p| p.program());
+        if session.is_empty()
+            && let Some(program) = program
+        {
             let prompt = "Artoo sent review comments to this chat. Call the artoo list_comments tool, change the code for each comment and answer each with address_comment.";
-            if let Err(e) = crate::platform::open_terminal(&root, "claude", prompt) {
+            if let Err(e) = crate::platform::open_terminal(&root, program, prompt) {
                 self.error =
                     Some(format!("Could not open a terminal for the new chat: {e}").into());
             }
@@ -357,23 +363,27 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Codex has no watcher of its own: its open sessions here listen through the app, and what
-    /// was sent to one is handed over (`crate::codex`, #18) — off the window's thread, one beat
-    /// at a time; a snapshot leaves Codex alone.
-    fn codex_beat(&mut self, cx: &mut Context<Self>) {
+    /// A session that runs no watcher of its own (Codex's) listens through the app, and what was
+    /// sent to one is handed over (each provider's `beat`, #18) — off the window's thread, one beat
+    /// at a time; a snapshot leaves the agents alone.
+    fn watch_beat(&mut self, cx: &mut Context<Self>) {
         let snapshot = cfg!(feature = "snapshot") && std::env::var_os("ARTOO_SNAPSHOT").is_some();
-        if snapshot || self.codex_beat.is_some() {
+        if snapshot || self.watch_beat.is_some() {
             return;
         }
         let Some(project) = self.project.clone().or(self.root.clone()) else {
             return;
         };
-        let folder = crate::bus::folder(cx);
-        self.codex_beat = Some(cx.spawn(async move |this, cx| {
+        let providers = artoo_agents_api::provider::all(cx);
+        self.watch_beat = Some(cx.spawn(async move |this, cx| {
             cx.background_executor()
-                .spawn(async move { folder.codex_beat(&project) })
+                .spawn(async move {
+                    for provider in &providers {
+                        provider.beat(&project);
+                    }
+                })
                 .await;
-            this.update(cx, |this, _| this.codex_beat = None).ok();
+            this.update(cx, |this, _| this.watch_beat = None).ok();
         }));
     }
 
@@ -397,7 +407,7 @@ impl Workspace {
         if changed {
             cx.notify();
         }
-        self.codex_beat(cx);
+        self.watch_beat(cx);
         let Some(root) = self.project.clone().or(self.root.clone()) else {
             return;
         };

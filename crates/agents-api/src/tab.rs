@@ -90,10 +90,11 @@ pub trait Agents {
     /// The card asking which chat `branch`'s notes go to; `now` the one they go to.
     fn pick_route(&self, branch: String, now: Option<String>, cx: &mut App);
 
-    /// Claude Code being connected (Set up's Agents): whether it is under way, and what the last one said.
+    /// An agent being connected (Set up's Agents): whether it is under way, and what the last one said.
     fn connecting(&self, cx: &App) -> (bool, Option<String>);
 
-    /// Artoo's MCP server added to every Claude Code profile, in the background.
+    /// Artoo's MCP server added to the first agent Artoo connects itself (every Claude Code profile), in the
+    /// background.
     fn connect(&self, cx: &mut App);
 
     /// What the tab is told when a connect began or ended.

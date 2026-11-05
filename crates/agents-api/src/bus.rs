@@ -11,10 +11,10 @@ use std::time::SystemTime;
 /// How long a watcher may go quiet and still count as listening.
 const FRESH: i64 = 12;
 
-/// The same for a Codex session the app watches for (the agents' `codex`): the app writes it on its
+/// The same for a session the app watches for (a provider's `beat`: Codex's): the app writes it on its
 /// own beat, which slows to 8 s when nothing changes and more in the background, and takes it off
 /// when the session closes — at 12 s it came and went (the developer, 2026-10-23).
-const CODEX_FRESH: i64 = 90;
+const WATCHED_FRESH: i64 = 90;
 
 /// A chat whose watcher runs (or ran).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -186,13 +186,14 @@ pub struct Mark {
 
 impl Chat {
     pub fn listening(&self) -> bool {
-        let fresh = if self.limited() { CODEX_FRESH } else { FRESH };
+        let fresh = if self.limited() { WATCHED_FRESH } else { FRESH };
         now() - self.beat <= fresh
     }
 
-    /// A Codex session the app watches for (the agents' `codex`), limited: said so wherever it is picked.
+    /// A session the app watches for, running no watcher of its own (a provider's `beat`: Codex's), limited: said so
+    /// wherever it is picked, with what its provider cannot do (`Provider::limits`).
     pub fn limited(&self) -> bool {
-        self.watcher == 0 && self.agent == "Codex"
+        self.watcher == 0
     }
 }
 
@@ -219,10 +220,6 @@ pub trait Folder: Send + Sync {
 
     /// When `project`'s marks last changed.
     fn marks_stamp(&self, project: &Path) -> Option<SystemTime>;
-
-    /// Codex's open sessions in `project` listen through the app, and what was sent to one is handed over (#18):
-    /// one beat of it, off the window's thread.
-    fn codex_beat(&self, project: &Path);
 }
 
 struct Installed(Arc<dyn Folder>);

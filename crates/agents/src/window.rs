@@ -8,7 +8,7 @@ use crate::agents::Chat;
 use crate::chats::Chats;
 use crate::comments::AgentComments;
 use crate::review::{self, Comment, Kind, State, kind_of};
-use crate::view::{chat_badge, limited};
+use crate::view::{chat_badge, limited, limits_of};
 use artoo_agents_api::view::WINDOW;
 /// What the window asks of the tab, the contract's.
 pub use artoo_agents_api::view::{Act, AgentsHost};
@@ -701,10 +701,13 @@ impl Render for AgentsWindow {
                                     .text_color(theme::faint())
                                     .child(c.agent.clone())
                                     .when(c.limited(), |s| {
-                                        s.child(limited(gpui::SharedString::from(format!(
-                                            "chat-limited-{}",
-                                            c.session
-                                        ))))
+                                        s.child(limited(
+                                            gpui::SharedString::from(format!(
+                                                "chat-limited-{}",
+                                                c.session
+                                            )),
+                                            limits_of(&c.agent, cx),
+                                        ))
                                     })
                                     .children((!c.branch.is_empty()).then(|| {
                                         div()

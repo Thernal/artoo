@@ -23,8 +23,9 @@
    the feature offers it in the tab's `Services` as its parts are made (`Frame::services`), and the others read
    it there when they use it. A contract several crates may offer to keeps a list instead, in the shell's shape:
    `add_kind(cx, order, kind)` for each, `get(cx)` asking them in their order (the hosts' kinds: GitHub's, then
-   GitLab's for any other remote, #171 phase 5) — the few lines that pick one are the contract's, and `provide`
-   stays only as a test's override.
+   GitLab's for any other remote; the agents' `provider::add` and `all`, Claude Code's and Codex's, #171 phase 5) —
+   the few lines that pick one are the contract's, and `provide` stays only as a test's override. A windowless mode
+   reads no global: the implementation hands it the same list (`artoo_hosts::hosts()`, the agents' `providers()`).
 7. **A shared crate that needs a service declares the port itself.** The kit's markdown draws pictures by their
    address, so the kit holds `Pictures` and its handle and hosts implements it; the kit stays on the core
    alone and nothing it draws knows a host.

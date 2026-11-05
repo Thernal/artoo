@@ -13,9 +13,11 @@
 use crate::review::{self, Comment, Reply, State};
 /// What goes over the folder, the contract's model.
 pub use artoo_agents_api::bus::{Chat, Event, Mark, Place, Presence, RequestDraft, What, now};
+use artoo_agents_api::provider::{Me, Provider};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// What an agent did with a comment.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,7 +76,7 @@ pub fn event(project: PathBuf, what: What) -> Event {
 
 /// The agent running this, by name, for what it leaves: "Claude Code", else "An agent".
 pub fn agent_name() -> String {
-    whoami().map_or_else(|| "An agent".to_owned(), |(name, ..)| name)
+    whoami().map_or_else(|| "An agent".to_owned(), |(p, _)| p.name().to_owned())
 }
 
 /// The folder all of this lives in.
@@ -422,21 +424,21 @@ pub fn route<'a>(
         .or_else(|| listening().next())
 }
 
-/// Who is running this: the agent, its session and its process, from what it puts in a command's
-/// environment (the chat's watcher and the MCP server, #77).
-pub fn whoami() -> Option<(String, String, u32, Option<PathBuf>)> {
-    let var = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
-    if let Some(session) = var("CLAUDE_CODE_SESSION_ID") {
-        let pid = var("CLAUDE_PID").and_then(|p| p.parse().ok()).unwrap_or(0);
-        let config = var("CLAUDE_CONFIG_DIR")
-            .map(PathBuf::from)
-            .or_else(|| Some(std::env::home_dir()?.join(".claude")));
-        return Some(("Claude Code".into(), session, pid, config));
-    }
-    if let Some(session) = var("CODEX_SESSION_ID").or_else(|| var("CODEX_THREAD_ID")) {
-        return Some(("Codex".into(), session, 0, None));
-    }
-    None
+/// The agents' own kinds, in their order: Claude Code, then Codex. `install` offers them; a mode without a window
+/// (the MCP server, a chat's watcher) asks them here.
+pub fn providers() -> Vec<(u16, Arc<dyn Provider>)> {
+    vec![
+        (10, Arc::new(crate::claude::ClaudeCode)),
+        (20, Arc::new(crate::codex::Codex)),
+    ]
+}
+
+/// Who is running this: the agent and its session, from what it puts in a command's environment (the chat's watcher
+/// and the MCP server, #77) — the first of the agents' own kinds whose session it is.
+pub fn whoami() -> Option<(Arc<dyn Provider>, Me)> {
+    providers()
+        .into_iter()
+        .find_map(|(_, p)| p.me().map(|me| (p, me)))
 }
 
 /// The comments waiting for `session`: sent to it and not handed over yet.
@@ -452,96 +454,6 @@ pub fn waiting<'a>(comments: &'a [Comment], session: &str) -> Vec<&'a Comment> {
         .collect()
 }
 
-/// Claude Code's chats in `root` that are not listening: from its transcripts, touched in the last
-/// day, newest first, as (session, title). Each config folder (`~/.claude`, `~/.claude-*`) counts.
-pub fn claude_chats(root: &Path) -> Vec<(String, String)> {
-    let Some(home) = std::env::home_dir() else {
-        return Vec::new();
-    };
-    let folder = claude_folder(root);
-    let mut found: Vec<(std::time::SystemTime, String, PathBuf)> = Vec::new();
-    for config in std::fs::read_dir(&home).into_iter().flatten().flatten() {
-        let name = config.file_name().to_string_lossy().into_owned();
-        if name != ".claude" && !name.starts_with(".claude-") {
-            continue;
-        }
-        let dir = config.path().join("projects").join(&folder);
-        for file in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-            let path = file.path();
-            if path.extension().is_none_or(|x| x != "jsonl") {
-                continue;
-            }
-            let Ok(modified) = file.metadata().and_then(|m| m.modified()) else {
-                continue;
-            };
-            let day = std::time::Duration::from_secs(24 * 3600);
-            if modified.elapsed().is_ok_and(|age| age > day) {
-                continue;
-            }
-            let session = path
-                .file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            found.push((modified, session, path));
-        }
-    }
-    found.sort_by_key(|f| std::cmp::Reverse(f.0));
-    found
-        .into_iter()
-        .take(8)
-        .map(|(_, session, path)| (session, title(&path)))
-        .collect()
-}
-
-/// Where Claude Code keeps the transcripts of chats started in `dir`: the path with every
-/// character but letters and digits made `-`.
-pub fn claude_folder(dir: &Path) -> String {
-    dir.display()
-        .to_string()
-        .chars()
-        .map(|c| if c.is_alphanumeric() { c } else { '-' })
-        .collect()
-}
-
-/// A chat's first message, shortened: what the person asked it first.
-pub fn title(transcript: &Path) -> String {
-    let text = std::fs::read_to_string(transcript).unwrap_or_default();
-    for line in text.lines().take(400) {
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
-            continue;
-        };
-        if value["type"] != "user" {
-            continue;
-        }
-        let content = &value["message"]["content"];
-        let said = match content {
-            serde_json::Value::String(s) => s.clone(),
-            serde_json::Value::Array(parts) => parts
-                .iter()
-                .filter(|p| p["type"] == "text")
-                .filter_map(|p| p["text"].as_str())
-                .collect::<Vec<_>>()
-                .join(" "),
-            _ => String::new(),
-        };
-        let said = said.split_whitespace().collect::<Vec<_>>().join(" ");
-        // Commands, hooks and reminders are written in tags; the person's words are not.
-        if said.is_empty() || said.starts_with('<') || said.starts_with("Caveat:") {
-            continue;
-        }
-        return shorten(&said, 60);
-    }
-    "A chat without messages yet".to_owned()
-}
-
-fn shorten(text: &str, max: usize) -> String {
-    if text.chars().count() <= max {
-        return text.to_owned();
-    }
-    let cut: String = text.chars().take(max - 1).collect();
-    format!("{}…", cut.trim_end())
-}
-
 /// The command an agent runs for Artoo's MCP server: this program with `mcp`.
 pub fn server_command() -> String {
     let exe = std::env::current_exe()
@@ -550,124 +462,13 @@ pub fn server_command() -> String {
     format!("\"{exe}\" mcp")
 }
 
-/// Claude Code's config folders on this machine: `~/.claude` and every `~/.claude-*` profile
-/// (`CLAUDE_CONFIG_DIR`), each with its own MCP servers.
-pub fn claude_profiles() -> Vec<PathBuf> {
-    let Some(home) = std::env::home_dir() else {
-        return Vec::new();
-    };
-    let mut found: Vec<PathBuf> = std::fs::read_dir(&home)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|e| {
-            let name = e.file_name().to_string_lossy().into_owned();
-            (name == ".claude" || name.starts_with(".claude-"))
-                && e.path().join("projects").is_dir()
-        })
-        .map(|e| e.path())
-        .collect();
-    found.sort();
-    found
-}
-
-/// The `claude` program: on the PATH, or where its installers put it (an app opened from the
-/// Finder does not get the shell's PATH).
-fn claude_program() -> Option<PathBuf> {
-    let home = std::env::home_dir()?;
-    let known = [
-        home.join(".local/bin/claude"),
-        home.join(".claude/local/claude"),
-        PathBuf::from("/opt/homebrew/bin/claude"),
-        PathBuf::from("/usr/local/bin/claude"),
-    ];
-    let on_path = std::env::var_os("PATH")
-        .map(|p| {
-            std::env::split_paths(&p)
-                .map(|d| d.join("claude"))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    on_path.into_iter().chain(known).find(|p| p.is_file())
-}
-
-/// The skill written beside the server in each Claude Code profile (#158): when to open the changes for the
-/// reviewer, kept in the agent's context apart from the server's instructions, which come once.
-pub const SKILL: &str = include_str!("../../../assets/skills/artoo/SKILL.md");
-
-/// Writes the skill into a Claude Code profile, replacing an older one: `<profile>/skills/artoo/SKILL.md`.
-pub fn write_skill(profile: &Path) -> std::io::Result<()> {
-    let dir = profile.join("skills").join("artoo");
-    std::fs::create_dir_all(&dir)?;
-    std::fs::write(dir.join("SKILL.md"), SKILL)
-}
-
-/// Whether Artoo connected Claude Code profile `profile`: its skill is there.
-pub fn claude_connected(profile: &Path) -> bool {
-    profile.join("skills/artoo/SKILL.md").is_file()
-}
-
 /// The name Artoo had before, GitLance: what an older connection is registered under.
 pub const OLD_NAME: &str = "gitlance";
 
 /// Whether an agent is still connected under GitLance's name only: a Claude Code profile with its
 /// skill and not Artoo's, or Codex with its server and not Artoo's. Connecting again moves it over.
 pub fn connected_as_gitlance() -> bool {
-    claude_profiles()
-        .iter()
-        .any(|p| !claude_connected(p) && p.join("skills").join(OLD_NAME).join("SKILL.md").is_file())
-        || crate::codex::connected_as_gitlance()
-}
-
-/// Adds Artoo's MCP server to every Claude Code profile, for every project (user scope),
-/// replacing an older entry, and the skill beside it. Returns what happened, per profile.
-pub fn connect_claude() -> Result<String, String> {
-    let claude = claude_program().ok_or("Claude Code's `claude` was not found.")?;
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let profiles = claude_profiles();
-    let mut done = Vec::new();
-    for profile in &profiles {
-        let env = |c: &mut std::process::Command| {
-            // `~/.claude` is the default profile: no variable names it.
-            if profile.file_name().is_some_and(|n| n != ".claude") {
-                c.env("CLAUDE_CONFIG_DIR", profile);
-            }
-        };
-        // GitLance's entry too, the name Artoo had: its program may be gone.
-        for name in ["artoo", OLD_NAME] {
-            let mut remove = std::process::Command::new(&claude);
-            remove.args(["mcp", "remove", "-s", "user", name]);
-            env(&mut remove);
-            let _ = remove.output();
-        }
-        let mut add = std::process::Command::new(&claude);
-        add.args(["mcp", "add", "-s", "user", "artoo", "--"])
-            .arg(&exe)
-            .arg("mcp");
-        env(&mut add);
-        let out = add.output().map_err(|e| e.to_string())?;
-        let name = profile
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        if out.status.success() {
-            write_skill(profile).map_err(|e| format!("{name}: {e}"))?;
-            let _ = std::fs::remove_dir_all(profile.join("skills").join(OLD_NAME));
-            done.push(name);
-        } else {
-            return Err(format!(
-                "{name}: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
-            ));
-        }
-    }
-    if done.is_empty() {
-        return Err("No Claude Code profile found (~/.claude).".into());
-    }
-    Ok(format!(
-        "Connected: {}. New chats start the watcher; open chats need a restart or “listen to Artoo”.",
-        done.join(", ")
-    ))
+    providers().iter().any(|(_, p)| p.connected_as_gitlance())
 }
 
 /// The comments of `root` the agent should work on, as markdown with their ids: what it was sent,
@@ -945,6 +746,8 @@ mod tests {
             session: "s1".into(),
             agent: "Claude Code".into(),
             repo: root.clone(),
+            // Its own watcher's process.
+            watcher: 4242,
             beat: now(),
             ..Default::default()
         };
@@ -952,17 +755,18 @@ mod tests {
         let chats = bus.chats(&root);
         assert_eq!(chats.len(), 1);
         assert!(chats[0].listening());
-        // Half a minute quiet: a watcher has stopped, a Codex session the app writes has not.
+        // Half a minute quiet: a watcher has stopped, a session the app writes (Codex's, no watcher) has not.
         let quiet = Chat {
             beat: now() - 30,
             ..chat.clone()
         };
-        assert!(!quiet.listening());
+        assert!(!quiet.listening() && !quiet.limited());
         let codex = Chat {
             agent: "Codex".into(),
+            watcher: 0,
             ..quiet
         };
-        assert!(codex.listening());
+        assert!(codex.listening() && codex.limited());
         assert!(bus.chats(Path::new("/other")).is_empty());
         bus.stop("s1");
         assert!(bus.chats(&root).is_empty());
@@ -1075,42 +879,5 @@ mod tests {
         };
         bus.answer(&root, &answer).unwrap();
         assert_eq!(bus.comments(&root)[0].state, State::Addressed);
-    }
-
-    #[test]
-    fn a_transcript_is_named_by_the_first_thing_said() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("s.jsonl");
-        std::fs::write(
-            &file,
-            [
-                r#"{"type":"summary","summary":"x"}"#,
-                r#"{"type":"user","message":{"role":"user","content":"<command-name>/clear</command-name>"}}"#,
-                r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Fix the   login flow on mobile"}]}}"#,
-            ]
-            .join("\n"),
-        )
-        .unwrap();
-        assert_eq!(title(&file), "Fix the login flow on mobile");
-        assert_eq!(
-            claude_folder(Path::new("/Users/a/My.Repo")),
-            "-Users-a-My-Repo"
-        );
-    }
-
-    #[test]
-    fn the_skill_is_written_into_a_profile_and_names_the_moments() {
-        let profile = tempfile::tempdir().unwrap();
-        write_skill(profile.path()).unwrap();
-        // Again, over an older one.
-        write_skill(profile.path()).unwrap();
-        let file = profile.path().join("skills/artoo/SKILL.md");
-        let text = std::fs::read_to_string(file).unwrap();
-        let (_, front) = text.split_once("---\n").unwrap();
-        let (front, _) = front.split_once("\n---").unwrap();
-        assert!(front.contains("name: artoo"));
-        for moment in ["after a commit", "rewritten", "addressed", "to approve"] {
-            assert!(front.contains(moment), "{moment}");
-        }
     }
 }

@@ -30,8 +30,17 @@ pub fn chat_badge(letter: char, hue: Rgba, gone: bool) -> gpui::Div {
         .child(letter.to_string())
 }
 
-/// "limited" beside a Codex chat (#18; the developer, 2026-10-23: not "beta"), what it cannot do yet in its tooltip.
-pub fn limited(id: impl Into<gpui::ElementId>) -> gpui::Stateful<gpui::Div> {
+/// What agent `agent` (a chat's) cannot do here, when it says (`Provider::limits`).
+pub fn limits_of(agent: &str, cx: &App) -> Option<&'static str> {
+    artoo_agents_api::provider::named(cx, agent).and_then(|p| p.limits())
+}
+
+/// "limited" beside a chat the app watches for (#18, Codex's; the developer, 2026-10-23: not "beta"), what its agent
+/// cannot do yet (`tip`) in its tooltip.
+pub fn limited(
+    id: impl Into<gpui::ElementId>,
+    tip: Option<&'static str>,
+) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .flex_none()
@@ -43,8 +52,10 @@ pub fn limited(id: impl Into<gpui::ElementId>) -> gpui::Stateful<gpui::Div> {
         .text_size(px(10.))
         .text_color(theme::faint())
         .child("limited")
-        .tooltip_show_delay(hover::LONG)
-        .tooltip(|_, cx| cx.new(|_| hover::Tip(crate::codex::LIMITS)).into())
+        .when_some(tip, |d, tip| {
+            d.tooltip_show_delay(hover::LONG)
+                .tooltip(move |_, cx| cx.new(|_| hover::Tip(tip)).into())
+        })
 }
 
 /// Note `note` of `notes` under its line, `indent` from the left.

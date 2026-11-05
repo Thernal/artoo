@@ -2,7 +2,7 @@
 //! chat drafted of a problem it hit (`report_problem`, #118), which Report a problem opens to be checked — and the
 //! models the tab speaks with them: the comments for an agent (`comment`), an agent's notes on its changes
 //! (`notes`), what goes over the agents' folder (`bus`); a tab's agents (`tab`), and how they
-//! are drawn there (`view`).
+//! are drawn there (`view`); the kinds of agent, Claude Code's, Codex's and any other offered (`provider`).
 //!
 //! - `agents::get(cx).take()` is the drafts not opened yet; a worker takes a clone of the `Arc` first.
 //! - Each call reads the agents' folder: off the window's thread when it is called often.
@@ -10,6 +10,7 @@
 pub mod bus;
 pub mod comment;
 pub mod notes;
+pub mod provider;
 pub mod tab;
 pub mod view;
 

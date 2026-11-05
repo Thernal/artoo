@@ -288,7 +288,7 @@ fn call(
     }
     let comments = bus.comments(&root);
     // A chat's own notes, and those sent to no chat in particular (#77).
-    let me = agents::whoami().map(|(_, session, ..)| session);
+    let me = agents::whoami().map(|(_, me)| me.session);
     let open: Vec<_> = comments
         .iter()
         .filter(|c| c.state == crate::review::State::Sent)

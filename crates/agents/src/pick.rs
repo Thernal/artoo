@@ -1,11 +1,12 @@
 //! The card that asks which chat (#77), a card over the window: where comments go — this repository's chats, those
-//! listening first, then Claude Code's recent ones, which get the comments when they listen, and a new chat —, or
+//! listening first, then each agent's recent ones (Claude Code's), which get the comments when they listen, and a new
+//! chat of the first agent that starts one —, or
 //! with a branch, which chat its notes go to (Change… in the Agents window). The tab opens it (`send`, `route`);
 //! what sending does to the comments is the tab's (`AgentsHost`), a route picked is the chats'.
 
-use crate::agents::{self, Bus};
+use crate::agents::Bus;
 use crate::chats::{self, Chats};
-use crate::view::limited;
+use crate::view::{limited, limits_of};
 use crate::window::{Act, AgentsHost};
 use artoo_core::labels;
 use artoo_shell_api::{Frame, Overlay};
@@ -27,7 +28,7 @@ struct PickChat {
     title: String,
     agent: String,
     listening: bool,
-    /// A Codex session the app watches for (#18): limited.
+    /// A session the app watches for (#18, Codex's): limited.
     limited: bool,
 }
 
@@ -64,7 +65,7 @@ impl SendCard {
         cx.notify();
     }
 
-    /// Where to send `ids`: the chats of `project`, Claude Code's recent ones in `root`, a new chat.
+    /// Where to send `ids`: the chats of `project`, each agent's recent ones in `root`, a new chat.
     pub fn send(&mut self, ids: Vec<u64>, root: &Path, project: &Path, cx: &mut Context<Self>) {
         let mut chats: Vec<PickChat> = Bus::new()
             .map(|bus| chats::named(bus.chats(project)))
@@ -79,24 +80,29 @@ impl SendCard {
             })
             .collect();
         chats.sort_by_key(|c| !c.listening);
-        for (session, title) in agents::claude_chats(root) {
-            if !chats.iter().any(|c| c.session == session) {
-                chats.push(PickChat {
-                    title: labels::chat(&session).unwrap_or(title),
-                    session,
-                    agent: "Claude Code".into(),
-                    listening: false,
-                    limited: false,
-                });
+        let providers = artoo_agents_api::provider::all(cx);
+        for provider in &providers {
+            for (session, title) in provider.chats(root) {
+                if !chats.iter().any(|c| c.session == session) {
+                    chats.push(PickChat {
+                        title: labels::chat(&session).unwrap_or(title),
+                        session,
+                        agent: provider.name().into(),
+                        listening: false,
+                        limited: false,
+                    });
+                }
             }
         }
-        chats.push(PickChat {
-            session: String::new(),
-            title: "New chat".into(),
-            agent: "Claude Code".into(),
-            listening: true,
-            limited: false,
-        });
+        if let Some(provider) = providers.iter().find(|p| p.program().is_some()) {
+            chats.push(PickChat {
+                session: String::new(),
+                title: "New chat".into(),
+                agent: provider.name().into(),
+                listening: true,
+                limited: false,
+            });
+        }
         self.set(
             Some(Pick {
                 chats,
@@ -287,7 +293,10 @@ impl Render for CardView {
                                 .text_color(theme::muted())
                                 .child(format!("{} · {state}", chat.agent))
                                 .when(chat.limited, |s| {
-                                    s.child(limited(("pick-chat-limited", ix)))
+                                    s.child(limited(
+                                        ("pick-chat-limited", ix),
+                                        limits_of(&chat.agent, cx),
+                                    ))
                                 }),
                         ),
                 )

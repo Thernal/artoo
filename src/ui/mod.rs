@@ -1168,8 +1168,9 @@ pub struct Workspace {
     /// Requests an agent gathered under Merge requests not opened since: the first open goes to
     /// its comments (#148).
     agent_fresh: HashSet<u64>,
-    /// Codex's sessions looked at and handed their comments, in the background (#18).
-    codex_beat: Option<Task<()>>,
+    /// The sessions without a watcher of their own (Codex's) looked at and handed their comments, in the
+    /// background (#18).
+    watch_beat: Option<Task<()>>,
     /// One's own public note asked about before it is deleted (#76).
     confirm_note: Option<u64>,
     /// The Inbox place is shown, and which of its notifications it lists.
@@ -1343,7 +1344,7 @@ impl Workspace {
             agent_marks: Vec::new(),
             marks_stamp: None,
             agent_fresh: HashSet::new(),
-            codex_beat: None,
+            watch_beat: None,
             confirm_note: None,
             inbox: false,
             hover_note: None,
@@ -2869,6 +2870,26 @@ mod tests {
     fn every_feature_installed_offers_each_thing_once() {
         let refused = installed(|cx| artoo_shell_api::refused(cx));
         assert!(refused.is_empty(), "{refused:?}");
+    }
+
+    /// The kinds the hosts and the agents offer (#171 phase 5), with every feature installed: each host's links read
+    /// by its own kind; Claude Code, then Codex.
+    #[test]
+    fn the_hosts_and_the_agents_offer_their_kinds() {
+        let (github, gitlab, agents) = installed(|cx| {
+            let hosts = artoo_hosts_api::get(cx);
+            (
+                hosts.link("https://github.com/o/r/pull/7"),
+                hosts.link("https://git.example.com/g/p/-/merge_requests/412"),
+                artoo_agents_api::provider::all(cx)
+                    .iter()
+                    .map(|p| p.name())
+                    .collect::<Vec<_>>(),
+            )
+        });
+        assert!(github.is_some_and(|l| l.github));
+        assert!(gitlab.is_some_and(|l| !l.github && l.base == "https://git.example.com/g/p"));
+        assert_eq!(agents, ["Claude Code", "Codex"]);
     }
 
     /// Settings' left column as it always was: the window root's sections, the agents' between Merge requests and
