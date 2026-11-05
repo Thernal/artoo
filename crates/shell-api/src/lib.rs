@@ -271,8 +271,9 @@ pub trait Frame {
     /// The side panel's drawer closed, when the tab is narrow and it is open.
     fn close_drawer(&self, cx: &mut App);
 
-    /// Route `route` opened: on screen in its space, kept in the history, shown by the pages of its kind. One no
-    /// pages draw says so in a toast.
+    /// Route `route` opened: on screen in its space, kept in the history, shown by the pages of its kind, as the tab
+    /// opens one itself (the item's place in it put back, the request on a branch read). One no pages draw says so in
+    /// a toast.
     fn open(&self, route: Route, cx: &mut App);
 
     /// Space `space`'s own page opened (`code`: the project's).

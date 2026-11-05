@@ -142,8 +142,9 @@ impl Frame for TabFrame {
 
     fn open(&self, route: Route, cx: &mut App) {
         self.later(cx, move |this, cx| {
+            // Opened as the tab opens one: the item's place put back, what the branches showed coordinated.
             if this.drawn().has(&route) {
-                this.open_page(route, cx);
+                this.go_page(route, cx);
             } else {
                 this.toast_info(format!("Nothing here opens {}", route.kind).into(), cx);
             }
@@ -306,16 +307,6 @@ impl Workspace {
         if let Some(show) = self.space_pages(space).map(|p| p.show.clone()) {
             show(page, opened, cx);
         }
-    }
-
-    /// Page `page` opened: on screen in its space, kept in the history, its pages told so.
-    pub(super) fn open_page(&mut self, page: Route, cx: &mut Context<Self>) {
-        let Some(space) = self.drawn().space(&page) else {
-            return;
-        };
-        self.arrive(page.clone(), cx);
-        self.show_pages(space, Some(&page), true, cx);
-        cx.notify();
     }
 
     /// A space's pages a feature draws, zen's keys under an item's changes: its panel beside them —

@@ -750,7 +750,7 @@ impl Workspace {
         self.save_nav();
     }
 
-    /// Page `page` of the item on screen opened from where the tab is (a pick, a step): it comes
+    /// Page `page` opened from where the tab is (a pick, a step, a part's `Frame::open`): it comes
     /// on screen, kept in the history, and what it shows is loaded (`load_page`).
     pub(super) fn go_page(&mut self, page: Route, cx: &mut Context<Self>) {
         self.arrive(page.clone(), cx);

@@ -28,7 +28,7 @@ impl Workspace {
         if self.code().is_some_and(|c| c.reveal_folder(&path, cx)) {
             self.tree_opening(&path, cx);
         }
-        self.open_page(Page::Folder(path).route(), cx);
+        self.go_page(Page::Folder(path).route(), cx);
     }
 
     /// File `path` opens in Code: as the preview tab (`preview`) the next click replaces, or kept.
