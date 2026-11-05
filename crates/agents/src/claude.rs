@@ -134,9 +134,12 @@ pub(crate) fn chats(root: &Path) -> Vec<(String, String)> {
 }
 
 /// Where Claude Code keeps the transcripts of chats started in `dir`: the path with every
-/// character but letters and digits made `-`.
+/// character but letters and digits made `-`. A repository's root ends in `/` (libgit2's workdir),
+/// a chat's folder does not, so the path is taken by its parts.
 pub(crate) fn folder(dir: &Path) -> String {
-    dir.display()
+    dir.components()
+        .collect::<PathBuf>()
+        .display()
         .to_string()
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '-' })
@@ -310,6 +313,8 @@ mod tests {
         .unwrap();
         assert_eq!(title(&file), "Fix the login flow on mobile");
         assert_eq!(folder(Path::new("/Users/a/My.Repo")), "-Users-a-My-Repo");
+        // A repository's root as the app has it, with its `/`.
+        assert_eq!(folder(Path::new("/Users/a/My.Repo/")), "-Users-a-My-Repo");
     }
 
     #[test]
