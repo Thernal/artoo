@@ -142,6 +142,8 @@ snapshot = ["gpui/test-support", "gpui_platform/test-support", "artoo-core/snaps
 
 [dev-dependencies]
 tempfile.workspace = true
+# A test app the features are installed in, with no window (the contributions check, `ui::tests`).
+gpui = { workspace = true, features = ["test-support"] }
 # The core's tests guard for the app's tests too (`platform::sandboxed`).
 artoo-core = { path = "crates/core", features = ["sandbox"] }
 artoo-hosts = { path = "crates/hosts", features = ["sandbox"] }

@@ -2874,6 +2874,28 @@ mod tests {
     fn the_window_has_a_default_size() {
         assert_eq!(window_size(), (1480., 920.));
     }
+
+    /// The keys shipped, put in an OS's terms by `k`: those of every command offered once the window root and every
+    /// feature are installed, as `run` offers them.
+    fn shipped(k: fn(&str) -> String) -> Vec<KeyBinding> {
+        gpui::TestAppContext::single().update(|cx| {
+            commands::install(cx);
+            crate::install(cx);
+            commands::bindings(artoo_shell_api::actions(cx), k)
+        })
+    }
+
+    /// The contributions check (#171): with every feature installed, nothing was offered twice.
+    #[test]
+    fn every_feature_installed_offers_each_thing_once() {
+        let refused = gpui::TestAppContext::single().update(|cx| {
+            commands::install(cx);
+            crate::install(cx);
+            artoo_shell_api::refused(cx)
+        });
+        assert!(refused.is_empty(), "{refused:?}");
+    }
+
     /// The keys of `map` taken twice, as Settings → Keyboard shows them: (label, (key, the other action)).
     fn clashes(map: keymap::Keymap) -> Vec<(String, (String, String))> {
         map.entries()
@@ -2885,7 +2907,7 @@ mod tests {
     #[test]
     fn the_shipped_keys_do_not_clash() {
         let shipped = keymap::Keymap::with_preset(
-            commands::bindings(&commands::own(), crate::platform::keys),
+            shipped(crate::platform::keys),
             crate::platform::MAC,
             keymap::Preset::Artoo,
         );
@@ -2896,7 +2918,7 @@ mod tests {
     #[test]
     fn the_shipped_keys_do_not_clash_on_windows_and_linux() {
         let shipped = keymap::Keymap::with_preset(
-            commands::bindings(&commands::own(), crate::platform::pc_keys),
+            shipped(crate::platform::pc_keys),
             false,
             keymap::Preset::Artoo,
         );
@@ -2914,11 +2936,7 @@ mod tests {
                 crate::platform::pc_keys
             };
             for preset in keymap::Preset::ALL {
-                let map = keymap::Keymap::with_preset(
-                    commands::bindings(&commands::own(), keys),
-                    mac,
-                    preset,
-                );
+                let map = keymap::Keymap::with_preset(shipped(keys), mac, preset);
                 let entries = map.entries();
                 for name in preset.actions() {
                     assert!(
@@ -2936,7 +2954,7 @@ mod tests {
     fn a_change_says_what_the_preset_had() {
         // alt, not cmd: cmd is written super- on Linux and win- on Windows.
         let map = keymap::Keymap::from_text(
-            commands::bindings(&commands::own(), crate::platform::keys),
+            shipped(crate::platform::keys),
             crate::platform::MAC,
             "Preset = android-studio\nSearchFiles = alt-p\n",
         );

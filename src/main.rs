@@ -31,19 +31,22 @@ fn main() {
         .nth(1)
         .map(PathBuf::from)
         .filter(|p| p.is_dir() || git::Repo::open(p).is_ok());
-    ui::run(path, |cx| {
-        // The frame's renderers first: what the tabs draw around the features' pieces.
-        artoo_shell::install(cx);
-        artoo_hosts::install(cx);
-        artoo_agents::install(cx);
-        artoo_updates::install(cx);
-        artoo_reports::install(cx);
-        artoo_code::install(cx);
-        artoo_review::install(cx);
-        // The requests' pieces of the item page before the branches': a request's identity over a branch's.
-        artoo_requests::install(cx);
-        artoo_branches::install(cx);
-    });
+    ui::run(path, install);
+}
+
+/// Every feature wired in, before any window.
+fn install(cx: &mut gpui::App) {
+    // The frame's renderers first: what the tabs draw around the features' pieces.
+    artoo_shell::install(cx);
+    artoo_hosts::install(cx);
+    artoo_agents::install(cx);
+    artoo_updates::install(cx);
+    artoo_reports::install(cx);
+    artoo_code::install(cx);
+    artoo_review::install(cx);
+    // The requests' pieces of the item page before the branches': a request's identity over a branch's.
+    artoo_requests::install(cx);
+    artoo_branches::install(cx);
 }
 
 #[cfg(test)]

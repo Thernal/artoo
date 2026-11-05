@@ -732,6 +732,8 @@ struct Registry {
     actions: Vec<Action>,
     makers: Vec<Maker>,
     editors: Vec<Editor>,
+    /// What was offered a second time and refused: `action review.wrap (its id)`.
+    refused: Vec<String>,
 }
 
 impl Global for Registry {}
@@ -739,15 +741,12 @@ impl Global for Registry {}
 /// Offers an editor to open files in (a feature's `install`). A key already offered is refused, and the log
 /// says so: the first to offer it keeps it.
 pub fn add_editor(cx: &mut App, editor: Editor) {
-    let editors = &mut cx.default_global::<Registry>().editors;
-    if editors.iter().any(|e| e.key == editor.key) {
-        artoo_core::applog::line(&format!(
-            "editor {:?} offered twice: the second refused",
-            editor.key
-        ));
+    let registry = cx.default_global::<Registry>();
+    if registry.editors.iter().any(|e| e.key == editor.key) {
+        refuse(registry, format!("editor {}", editor.key));
         return;
     }
-    editors.push(editor);
+    registry.editors.push(editor);
 }
 
 /// The editors offered, in the order they were.
@@ -760,15 +759,25 @@ pub fn editors(cx: &App) -> &[Editor] {
 /// Offers a command (a feature's `install`). One whose id, or whose GPUI name's last part (what `keymap.txt` keeps),
 /// was offered already is refused, and the log says so: the first to offer it keeps it.
 pub fn add_action(cx: &mut App, action: Action) {
-    let actions = &mut cx.default_global::<Registry>().actions;
-    if let Some(taken) = taken(actions, &action) {
-        artoo_core::applog::line(&format!(
-            "action {:?} ({}) offered twice: the second refused",
-            action.id, taken
-        ));
+    let registry = cx.default_global::<Registry>();
+    if let Some(taken) = taken(&registry.actions, &action) {
+        refuse(registry, format!("action {} ({taken})", action.id));
         return;
     }
-    actions.push(action);
+    registry.actions.push(action);
+}
+
+/// `what` refused, kept and logged.
+fn refuse(registry: &mut Registry, what: String) {
+    artoo_core::applog::line(&format!("{what} offered twice: the second refused"));
+    registry.refused.push(what);
+}
+
+/// What was offered a second time and refused (the contributions check: none).
+pub fn refused(cx: &App) -> Vec<String> {
+    cx.try_global::<Registry>()
+        .map(|r| r.refused.clone())
+        .unwrap_or_default()
 }
 
 /// What of `action`'s a command offered before has: its id or its GPUI name's last part.
