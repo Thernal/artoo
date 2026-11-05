@@ -146,9 +146,7 @@ impl Workspace {
     fn clear_filter(&mut self, cx: &mut App) -> bool {
         if !self.rv().path_filter(cx).is_empty()
             && self.shown_diff(cx).is_some()
-            && self
-                .space()
-                .is_some_and(|s| s != super::spaces::Space::Code)
+            && self.space().is_some_and(|s| s != super::spaces::CODE)
         {
             self.rv().clear_path_filter(cx);
             return true;

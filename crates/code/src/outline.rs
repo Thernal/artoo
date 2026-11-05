@@ -23,7 +23,7 @@ pub(crate) fn tool(frame: Rc<dyn Frame>, host: Rc<dyn Host>, cx: &mut App) -> To
         icon: "list",
         tip: "Outline",
         title: "Outline",
-        spaces: &["code"],
+        spaces: &[artoo_code_api::SPACE],
         on_pages: false,
         // About the page: before the windows that are in every space.
         order: 10,

@@ -28,7 +28,8 @@ mod tabs;
 mod thread;
 mod waiting;
 
-use artoo_shell_api::{Action, Frame, Parts, when};
+use artoo_shell_api::spaces::{self, Space, SpaceInfo};
+use artoo_shell_api::{Action, Frame, Menu, Parts, when};
 use gpui::{App, AppContext, Entity, Window};
 use std::rc::Rc;
 
@@ -36,14 +37,59 @@ gpui::actions!(
     artoo,
     [
         /// ⇧⌘D: the Discussions window shown or hidden.
-        ToggleComments
+        ToggleComments,
+        /// ⌃⌘1: the Inbox.
+        GoToInbox,
+        /// ⌃⌘4: Merge requests.
+        GoToMergeRequests,
     ]
 );
 
-/// The requests' parts in every tab: a request being written's header and a request's line on the item page,
-/// the space's own page, a request's Overview and Commits among the tab's services (`tabs`); and the Inbox's
-/// (`inbox_parts`).
+/// The requests' spaces, the Inbox first in the menu and Merge requests last, and the keys that go to them; their
+/// parts in every tab: a request being written's header and a request's line on the item page, the space's own
+/// page, a request's Overview and Commits among the tab's services (`tabs`); and the Inbox's (`inbox_parts`).
 pub fn install(cx: &mut App) {
+    spaces::add(
+        cx,
+        SpaceInfo {
+            space: Space(artoo_requests_api::INBOX),
+            label: "Inbox",
+            icon: "inbox",
+            order: 10,
+            go: "requests.inbox",
+        },
+    );
+    spaces::add(
+        cx,
+        SpaceInfo {
+            space: Space(artoo_requests_api::SPACE),
+            label: "Merge requests",
+            icon: "pull-request",
+            order: 40,
+            go: "requests.space",
+        },
+    );
+    // First in ⌘K and in the Go menu, as the spaces always were.
+    artoo_shell_api::add_action(
+        cx,
+        Action::new("requests.inbox", GoToInbox)
+            .words("Inbox")
+            .order(0)
+            .key("ctrl-cmd-1", when::TAB)
+            // The Inbox's older key, from when the bell opened a window (#72).
+            .key("cmd-shift-n", when::TAB)
+            .menu(Menu::Go, "Inbox")
+            .at(0, 0),
+    );
+    artoo_shell_api::add_action(
+        cx,
+        Action::new("requests.space", GoToMergeRequests)
+            .words("Merge requests")
+            .order(30)
+            .key("ctrl-cmd-4", when::TAB)
+            .menu(Menu::Go, "Merge Requests")
+            .at(0, 3),
+    );
     artoo_shell_api::add_action(
         cx,
         Action::new("requests.discussions", ToggleComments)
@@ -75,13 +121,19 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     let tool = services
         .get::<Rc<dyn artoo_requests_api::DiscussionsHost>>()
         .map(|host| discussions::tool(requests.clone(), host, acts, cx));
-    let shows = frame.clone();
+    let (shows, goes) = (frame.clone(), frame.clone());
     Parts {
         tool,
-        actions: vec![(
-            Box::new(ToggleComments),
-            Rc::new(move |_, cx| shows.toggle_tool(artoo_requests_api::DISCUSSIONS, cx)),
-        )],
+        actions: vec![
+            (
+                Box::new(ToggleComments),
+                Rc::new(move |_, cx| shows.toggle_tool(artoo_requests_api::DISCUSSIONS, cx)),
+            ),
+            (
+                Box::new(GoToMergeRequests),
+                Rc::new(move |_, cx| goes.go_space(artoo_requests_api::SPACE, cx)),
+            ),
+        ],
         inputs: vec![create::input(requests.clone(), services.clone())],
         // The request being written first: it is over whatever page it was opened on.
         pieces: vec![
@@ -98,7 +150,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     }
 }
 
-/// The Inbox's part in a tab that keeps its notifications: its page.
+/// The Inbox's part in a tab that keeps its notifications: its page, and the key that goes to it.
 fn inbox_parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     let services = frame.services();
     let (Some(notices), Some(view), Some(requests)) = (
@@ -108,7 +160,12 @@ fn inbox_parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     ) else {
         return Parts::default();
     };
+    let goes = frame.clone();
     Parts {
+        actions: vec![(
+            Box::new(GoToInbox),
+            Rc::new(move |_, cx| goes.go_space(artoo_requests_api::INBOX, cx)),
+        )],
         pages: Some(inbox_page::pages(notices, view, requests, frame, cx)),
         ..Default::default()
     }

@@ -12,7 +12,9 @@ and the hand-written lists gone; a context menu's entry a closure where the menu
 window root's five drawn by the tab, the agents' and Appearance (`artoo-appearance`) their parts' rows — any owner's
 rows in a section placed by their order, the window root's faces and panes inside Appearance; the closed
 `settings::Section` gone, #171 phase 4); the kinds of link a text has unwritten since 2026-11-05 (`Parts::links`, the
-requests' `!398` / `#12` the first, #171 D11). Until every space is on it, `Page` (`src/ui/nav.rs`) is what these replace, and a new page is added there in
+requests' `!398` / `#12` the first, #171 D11); the spaces of the menu since 2026-11-05 (`spaces::add`: an id, a label,
+an icon, a place in the menu, the action that goes there — the requests' Inbox and Merge requests, Code's, the
+branches'; the closed `Space` enum gone, a `Space` its id, #171 phase 6). Until every space is on it, `Page` (`src/ui/nav.rs`) is what these replace, and a new page is added there in
 the shape below — one variant, one id, one owner. A new command is offered: the window root's in `commands.rs` while the tab runs it, a feature's in its
 `install`.
 
@@ -21,7 +23,9 @@ the left column; a second id refused), `add_action` (an `Action`: its id, its GP
 place there, the keys it ships with each with the key context it applies in (`when::TAB`, `when::NOT_TYPING`, …), its
 item in the menu bar — `Menu`'s App, File, Go, View or Help, a group and an order in it, a check asked as the menus are
 set —; a second id, or a second GPUI name's last part as `keymap.txt` keeps it, refused), `add_editor` (an editor Open in opens a file in at a line, by its
-key, a key offered twice refused) and `add_parts` (a maker each tab calls with its `Frame`: a
+key, a key offered twice refused), `spaces::add` (a space of the menu: its id, its label and icon, its order there
+until dragged, the id of the action that goes to it, whose key the row's hover shows; a second id refused; `layout.txt`
+keeps the order by id, one nobody offers passed over) and `add_parts` (a maker each tab calls with its `Frame`: a
 title-bar item with when it shows, an `Overlay` — a card that is drawn and has the keys while open, closed by
 Escape, polled each frame the tab is not busy —, a `Tool` — a tool window in the spaces it names, on their pages
 only or not, in its `order`, readied as it opens, given typed keys while it has the keyboard and says it is typing;
@@ -34,7 +38,8 @@ the tab's handlers of the feature's actions, the snapshot views it opens (a name
 they draw, their view, the panel beside them, and `show`, which the shell calls with the route on screen, or none
 for the space's own page, and whether it was just opened or gone back to). What the `Frame` changes (a toast, the
 error line, a redraw, a tool window shown, a menu at the pointer — `MenuItem`s, each running its own closure, its groups titled or not —, the
-narrow tab's drawer closed, a route opened — a kind no pages draw says so in a toast —, a space's own page opened,
+narrow tab's drawer closed, a route opened — a kind no pages draw says so in a toast —, a space's own page opened, a space gone to as its row
+goes (`go_space`: the page it was left on, or what the project lacks said),
 a route kept among the places opened lately) waits until the update under way is over, so a part may ask it from
 its own update and from a hook. Its `Services` — what the tab's features offer one another, a contract's handle by
 its type — are set and read at once. What it reads (the selection, the `Places` the tab has open, whether a tool window types) needs the tab

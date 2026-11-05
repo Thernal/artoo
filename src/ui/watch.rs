@@ -163,7 +163,7 @@ impl Workspace {
     /// What the re-read found (`Event::Reloaded`): the status says it; a branch gone falls back to the current one,
     /// a comparison follows its latest version.
     pub(super) fn apply_reload(&mut self, reloaded: Reloaded, cx: &mut Context<Self>) {
-        if self.nav.space == super::spaces::Space::Branches && self.at_root_list() {
+        if self.nav.space == super::spaces::BRANCHES && self.at_root_list() {
             self.read_branch_facts(cx);
         }
         match reloaded {

@@ -82,10 +82,10 @@ impl Workspace {
             return Vec::new();
         }
         match self.nav.space {
-            super::spaces::Space::Code if self.root.is_some() => {
+            super::spaces::CODE if self.root.is_some() => {
                 vec![("folder", "Files", None)]
             }
-            super::spaces::Space::Branches | super::spaces::Space::Requests
+            super::spaces::BRANCHES | super::spaces::REQUESTS
                 if self.nav_page().is_some()
                     && !matches!(
                         self.page_tab(cx),

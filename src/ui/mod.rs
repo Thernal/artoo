@@ -117,10 +117,6 @@ actions!(
     [
         Open,
         FoldMenu,
-        GoToInbox,
-        GoToCode,
-        GoToBranches,
-        GoToMergeRequests,
         Refresh,
         PreviousCommit,
         NextCommit,
@@ -448,7 +444,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                     }
                     let opt = match name.trim() {
                         "requests" => {
-                            this.show(spaces::Space::Requests, None, cx);
+                            this.show(spaces::REQUESTS, None, cx);
                             continue;
                         }
                         "unified" => Opt::Unified,
@@ -712,7 +708,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             if let Some(requests) = this.requests_api() {
                                 requests.set_scope(requests::Scope::Mine, cx);
                             }
-                            this.go_space(spaces::Space::Requests, cx);
+                            this.go_space(spaces::REQUESTS, cx);
                             continue;
                         }
                         // Merge requests' root narrowed to the ones that ask for a review.
@@ -720,7 +716,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             if let Some(requests) = this.requests_api() {
                                 requests.set_scope(requests::Scope::ReviewMe, cx);
                             }
-                            this.go_space(spaces::Space::Requests, cx);
+                            this.go_space(spaces::REQUESTS, cx);
                             continue;
                         }
                         "rail-tabs" => {
@@ -761,12 +757,12 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         // Applied last, once the request's discussions are in (below).
                         "hover-note" | "reaction-grid" => continue,
                         "inbox" => {
-                            this.go_space(spaces::Space::Inbox, cx);
+                            this.go_space(spaces::INBOX, cx);
                             continue;
                         }
                         // Every space's open rows shown, folded at first or not (#160).
                         "opens" => {
-                            this.nav.folded = [false; 4];
+                            this.nav.folded.clear();
                             continue;
                         }
                         // The new request for the open branch, and one of its lists open.
@@ -795,7 +791,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             if let Some(requests) = this.requests_api() {
                                 requests.set_scope(requests::Scope::All, cx);
                             }
-                            this.go_space(spaces::Space::Requests, cx);
+                            this.go_space(spaces::REQUESTS, cx);
                             continue;
                         }
                         // The merged or the closed listed (#114).
@@ -808,7 +804,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                                 },
                                 cx,
                             );
-                            this.go_space(spaces::Space::Requests, cx);
+                            this.go_space(spaces::REQUESTS, cx);
                             continue;
                         }
                         "fold-changes" => {
@@ -1644,11 +1640,11 @@ impl Workspace {
                             | nav::Page::RequestCommit(..)
                             | nav::Page::RequestCommits(..)
                             | nav::Page::RequestVersions(..)),
-                        ) = this.page_of(spaces::Space::Requests).cloned()
-                            && this.nav.space == spaces::Space::Requests
+                        ) = this.page_of(spaces::REQUESTS).cloned()
+                            && this.nav.space == spaces::REQUESTS
                         {
                             // A request's page loads again as the request it is.
-                            this.show(spaces::Space::Requests, Some(page), cx);
+                            this.show(spaces::REQUESTS, Some(page), cx);
                         } else if let Some(ix) = ix {
                             this.select_branch(ix, commit.flatten(), cx);
                         }
@@ -1702,7 +1698,7 @@ impl Workspace {
         if let Some(branches) = self.branches() {
             branches.stop_waiting(cx);
         }
-        self.show(spaces::Space::Code, None, cx);
+        self.show(spaces::CODE, None, cx);
     }
 
     fn clear_branch(&mut self, cx: &mut App) {
@@ -2350,7 +2346,7 @@ impl Workspace {
 
     fn filter_files_action(&mut self, _: &FilterFiles, _: &mut Window, cx: &mut Context<Self>) {
         // ⌥⌘P in Code pins the tab on screen (#20): Code has no changed files to filter.
-        if self.nav.space == spaces::Space::Code && self.pin_shown_tab(cx) {
+        if self.nav.space == spaces::CODE && self.pin_shown_tab(cx) {
             return;
         }
         self.zone = zones::Zone::Files;
@@ -2399,7 +2395,7 @@ impl Workspace {
 
     /// ⌥⌘3: the Merge requests space, as ⌃⌘4 (#71).
     fn toggle_requests(&mut self, _: &ToggleRequests, _: &mut Window, cx: &mut Context<Self>) {
-        self.go_space(spaces::Space::Requests, cx);
+        self.go_space(spaces::REQUESTS, cx);
     }
 
     /// Keeps the panels in `layout.txt` as they are outside zen: zen hides the side panel (and
@@ -2921,6 +2917,36 @@ mod tests {
         assert!(github.is_some_and(|l| l.github));
         assert!(gitlab.is_some_and(|l| !l.github && l.base == "https://git.example.com/g/p"));
         assert_eq!(agents, ["Claude Code", "Codex"]);
+    }
+
+    /// The spaces their owners offer (#171 phase 6), in the menu's order and first in ⌘K as they always were, each
+    /// with the action that goes to it.
+    #[test]
+    fn the_spaces_are_their_owners_in_their_places() {
+        let (spaces, orders, switch) = installed(|cx| {
+            let actions = artoo_shell_api::actions(cx);
+            let order = |id: &str| actions.iter().find(|a| a.id == id).map(|a| a.order);
+            let spaces = artoo_shell_api::spaces::all(cx);
+            (
+                spaces
+                    .iter()
+                    .map(|s| (s.space.name(), s.label))
+                    .collect::<Vec<_>>(),
+                spaces.iter().map(|s| order(s.go)).collect::<Vec<_>>(),
+                order("shell.switch"),
+            )
+        });
+        assert_eq!(
+            spaces,
+            [
+                ("inbox", "Inbox"),
+                ("code", "Code"),
+                ("branches", "Branches"),
+                ("requests", "Merge requests")
+            ]
+        );
+        assert_eq!(orders, [Some(0), Some(10), Some(20), Some(30)]);
+        assert!(switch.is_some_and(|s| s > 30));
     }
 
     /// Settings' left column as it always was: the window root's sections, the agents' between Merge requests and

@@ -119,7 +119,9 @@ order; Set up's Look its rows' short form). `artoo-shell-api` holds actions, par
   tab, a feature's holding its parts' rows (#171 phase 4). A toast is `artoo_shell_api::Toast`, raised through the
   `Frame` by what it is about, its button an action (#171 phase 1). Every tool window is a feature's
   `artoo_shell_api::Tool` (Code's Outline, the requests' Discussions), and an editor Open in names is offered with
-  `add_editor`, Artoo's three by the shell (#171 phase 2).
+  `add_editor`, Artoo's three by the shell (#171 phase 2). The menu's spaces are offered (`spaces::add`) by their
+  owners with the action that goes to each (⌃⌘1…4); a `Space` is its id, the tab still keeping what each lacks and
+  its root (#171 phase 6).
 - `artoo-review` holds the review: the entity (`review::Review`) with its events, its handle (`handle`), the row
   drawing (`diff_view`), the find, going to a line, the selection, the stack, reviewed marks, documents' pages, find
   in files, Code's file, the Changes list; the diff's rows are the core's (`artoo_core::rows`), a selection's ends

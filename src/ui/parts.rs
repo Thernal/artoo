@@ -5,7 +5,7 @@
 use super::menu::{Act, Entry};
 use super::nav::Page;
 use super::recents::Key;
-use super::spaces::Space;
+use super::spaces::{BRANCHES, REQUESTS, Space};
 use super::zones::Zone;
 use super::{Workspace, motion, px};
 use artoo_core::route::Route;
@@ -153,10 +153,18 @@ impl Frame for TabFrame {
 
     fn open_space(&self, space: &'static str, cx: &mut App) {
         self.later(cx, move |this, cx| {
-            if let Some(space) = Space::named(space) {
+            let space = Space(space);
+            if artoo_shell_api::spaces::all(cx)
+                .iter()
+                .any(|s| s.space == space)
+            {
                 this.show(space, None, cx);
             }
         });
+    }
+
+    fn go_space(&self, space: &'static str, cx: &mut App) {
+        self.later(cx, move |this, cx| this.go_space(Space(space), cx));
     }
 
     fn services(&self) -> Rc<Services> {
@@ -323,7 +331,7 @@ impl Workspace {
         let tab_page = self.item_tab(cx).is_some();
         let side = pages.side.as_ref().filter(|_| !tab_page);
         // Zen's keys go under an item's changes.
-        let item = matches!(self.nav.space, Space::Branches | Space::Requests) && route.is_some();
+        let item = matches!(self.nav.space, BRANCHES | REQUESTS) && route.is_some();
         let view = match self.render_zen_keys(cx).filter(|_| item && !tab_page) {
             Some(keys) => div()
                 .flex_1()

@@ -16,12 +16,12 @@ impl Workspace {
     /// The working tree changed (`history::Event::Working`): what shows it reads it again.
     pub(super) fn working_changed(&mut self, cx: &mut Context<Self>) {
         self.rv().working_changed(cx);
-        if self.nav.space == super::spaces::Space::Branches && self.at_root_list() {
+        if self.nav.space == super::spaces::BRANCHES && self.at_root_list() {
             self.read_tree_files(cx);
         }
         // Code's tree of the working tree follows it (#75).
         let working = self.code().is_some_and(|c| c.revision(cx).is_none());
-        if self.nav.space == super::spaces::Space::Code && working {
+        if self.nav.space == super::spaces::CODE && working {
             self.read_code_files(true, cx);
         }
         if self.branches().map(|b| b.selection(cx)) == Some(Selection::WorkingTree) {

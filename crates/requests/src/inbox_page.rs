@@ -51,7 +51,7 @@ pub fn pages(
         }
     });
     Pages {
-        space: "inbox",
+        space: artoo_requests_api::INBOX,
         kinds: &[],
         view: page.into(),
         side: None,

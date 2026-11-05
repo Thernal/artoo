@@ -19,7 +19,7 @@ impl Workspace {
         }
         // On a folder's page in Code: a note for the agent on the folder (#97).
         if let Some(super::nav::Page::Folder(path)) = self.nav_page().cloned()
-            && self.nav.space == super::spaces::Space::Code
+            && self.nav.space == super::spaces::CODE
             && !self.settings_open
             && self.compose.is_none()
         {
@@ -150,7 +150,7 @@ impl Workspace {
             None if !old && self.root.is_some() => {
                 self.jump = None;
                 self.file_jump = Some((path.clone(), line));
-                self.nav.space = super::spaces::Space::Code;
+                self.nav.space = super::spaces::CODE;
                 self.open_code_file(path, false, cx);
             }
             None => self.jump = None,

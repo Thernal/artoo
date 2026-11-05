@@ -5,7 +5,7 @@
 
 use super::menu::{Act, Entry};
 use super::nav::{Item, Page};
-use super::spaces::Space;
+use super::spaces::{BRANCHES, CODE, INBOX, REQUESTS};
 use super::{Workspace, format, words};
 use crate::git::{RefKind, WebRemote};
 use gpui::{App, Context, Pixels, Point};
@@ -223,11 +223,11 @@ impl Workspace {
     pub(super) fn page_link(&self, cx: &gpui::App) -> Result<Link, String> {
         let web = self.web_or_why()?;
         match self.nav.space {
-            Space::Inbox => match self.inbox_request(cx) {
+            INBOX => match self.inbox_request(cx) {
                 Some(iid) => Ok(self.request_link(web, iid, cx)),
                 None => Err("Nothing here has a link: pick a notice of a merge request".into()),
             },
-            Space::Code => {
+            CODE => {
                 let rev = match self.code().and_then(|c| c.revision(cx)) {
                     Some((name, sha)) => {
                         self.on_host(&name, cx).unwrap_or_else(|_| sha.to_string())
@@ -256,10 +256,11 @@ impl Workspace {
                     },
                 })
             }
-            Space::Branches | Space::Requests => match self.nav_page() {
+            BRANCHES | REQUESTS => match self.nav_page() {
                 Some(page) => self.link_of(web, page, cx),
                 None => Err("Nothing here has a link: open a branch or a merge request".into()),
             },
+            _ => Err("Nothing here has a link".into()),
         }
     }
 
@@ -299,10 +300,10 @@ impl Workspace {
     /// What the page on screen is, for ⌘K's "Copy link to this …".
     pub(super) fn page_kind(&self) -> &'static str {
         match (self.nav.space, self.nav_page()) {
-            (Space::Inbox, _) => "this merge request",
-            (Space::Code, Some(Page::File(_))) => "this file",
-            (Space::Code, Some(Page::Folder(_))) => "this folder",
-            (Space::Code, _) => "this project",
+            (INBOX, _) => "this merge request",
+            (CODE, Some(Page::File(_))) => "this file",
+            (CODE, Some(Page::Folder(_))) => "this folder",
+            (CODE, _) => "this project",
             (_, Some(Page::Request(_))) => "this merge request",
             (_, Some(Page::RequestCommit(..) | Page::BranchCommit(..))) => "this commit",
             (_, Some(Page::RequestCommits(..) | Page::BranchCommits(..))) => "these commits",

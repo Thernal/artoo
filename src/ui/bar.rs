@@ -4,7 +4,7 @@
 //! first block of its content. A request's bar carries the public orange along its top.
 
 use super::nav::Page;
-use super::spaces::Space;
+use super::spaces::{BRANCHES, CODE, INBOX, REQUESTS, Space};
 use super::{Workspace, format, px, theme, words};
 use artoo_shell_api::bar;
 use gpui::{
@@ -65,7 +65,7 @@ impl Workspace {
             .flatten();
         let path = if self.compact() { Vec::new() } else { path };
         let count = self.count_of(space, page.as_ref(), cx);
-        let public = space == Space::Requests && page.is_some();
+        let public = space == REQUESTS && page.is_some();
         // Narrow, ‹ is one level up; ⌘[ and the title bar still go back (#80).
         let from = self.nav.from.filter(|_| page.is_some() && !self.compact());
         let links: Vec<Option<Option<Page>>> = path.iter().map(|c| c.to.clone()).collect();
@@ -103,7 +103,7 @@ impl Workspace {
         });
         Some(bar::page_bar(
             bar::PageBar {
-                from: from.map(space_name),
+                from: from.map(|s| super::spaces::label(s, cx)),
                 up: up.is_some(),
                 crumbs,
                 title: self.title_hover(page.as_ref(), words::say(&id).into_owned(), mono, cx),
@@ -233,7 +233,7 @@ impl Workspace {
         };
         let requests = || Crumb::up("Merge requests", None);
         match page {
-            None => (Vec::new(), space_root(space, &project), false),
+            None => (Vec::new(), space_root(space, &project, cx), false),
             Some(Page::File(path) | Page::Folder(path)) => {
                 let mut parts: Vec<&str> = path.split('/').collect();
                 let name = parts.pop().unwrap_or_default().to_owned();
@@ -340,23 +340,23 @@ impl Workspace {
     /// The faint count after a root's name.
     fn count_of(&self, space: Space, page: Option<&Page>, cx: &App) -> Option<String> {
         match (space, page) {
-            (Space::Inbox, _) => Some(match self.inbox_unread(cx) {
+            (INBOX, _) => Some(match self.inbox_unread(cx) {
                 0 => "Nothing new".to_owned(),
                 n => format!("{n} new"),
             }),
             // Once the filters say it with their counts, the name has none.
-            (Space::Requests, None)
+            (REQUESTS, None)
                 if self.requests_available(cx)
                     && self.request_login(cx).is_none()
                     && !self.request_list(cx).is_empty() =>
             {
                 Some(self.request_list(cx).len().to_string())
             }
-            (Space::Branches, None) => Some(self.branches_count(cx)),
-            (Space::Code, Some(Page::File(_))) => {
+            (BRANCHES, None) => Some(self.branches_count(cx)),
+            (CODE, Some(Page::File(_))) => {
                 self.rv().file_read(cx).map(|v| format!("as of {}", v.at))
             }
-            (Space::Code, Some(Page::Folder(path))) => {
+            (CODE, Some(Page::Folder(path))) => {
                 let inside = format!("{path}/");
                 let files = self.code().map(|c| c.files(cx)).unwrap_or_default();
                 let n = files.iter().filter(|f| f.starts_with(&inside)).count();
@@ -375,11 +375,11 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         match (space, page) {
-            (Space::Inbox, _) => Some(self.inbox_filters(cx).into_any_element()),
-            (Space::Requests, None) if self.requests_available(cx) => {
+            (INBOX, _) => Some(self.inbox_filters(cx).into_any_element()),
+            (REQUESTS, None) if self.requests_available(cx) => {
                 self.request_filters(cx).map(IntoElement::into_any_element)
             }
-            (Space::Requests | Space::Branches, Some(_)) => {
+            (REQUESTS | BRANCHES, Some(_)) => {
                 self.section_tabs(cx).map(IntoElement::into_any_element)
             }
             _ => None,
@@ -395,17 +395,17 @@ impl Workspace {
     ) -> Vec<AnyElement> {
         let mut out = Vec::new();
         match (space, page) {
-            (Space::Requests, None) if self.requests_available(cx) => {
+            (REQUESTS, None) if self.requests_available(cx) => {
                 out.push(self.bar_filter("Filter", cx))
             }
-            (Space::Branches, None) => out.push(self.bar_filter("Filter branches", cx)),
-            (Space::Inbox, _) if self.inbox_unread(cx) > 0 => out.push(
+            (BRANCHES, None) => out.push(self.bar_filter("Filter branches", cx)),
+            (INBOX, _) if self.inbox_unread(cx) > 0 => out.push(
                 self.bar_action("bar-read-all", "check", "Mark all read", "")
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.read_all_notices(cx)))
                     .into_any_element(),
             ),
             // A folder's page: a note for your agent on it (#97), then Open in.
-            (Space::Code, Some(Page::Folder(path))) => {
+            (CODE, Some(Page::Folder(path))) => {
                 let folder = path.clone();
                 out.push(
                     self.bar_action("bar-folder-note", "bot", "Note for your agent", "C")
@@ -417,8 +417,8 @@ impl Workspace {
                 out.extend(self.open_in_button(cx));
             }
             // The file or the project's folder in the app it belongs to, named (#78).
-            (Space::Code, _) => out.extend(self.open_in_button(cx)),
-            (Space::Branches, Some(Page::Branch(refname))) => {
+            (CODE, _) => out.extend(self.open_in_button(cx)),
+            (BRANCHES, Some(Page::Branch(refname))) => {
                 let ix = self
                     .branch_list(cx)
                     .iter()
@@ -448,8 +448,8 @@ impl Workspace {
                     None => {}
                 }
             }
-            (Space::Requests, Some(Page::RequestCommit(..)))
-            | (Space::Branches, Some(Page::BranchCommit(..))) => {
+            (REQUESTS, Some(Page::RequestCommit(..)))
+            | (BRANCHES, Some(Page::BranchCommit(..))) => {
                 out.push(
                     self.bar_action("bar-previous-commit", "back", "Previous", "[")
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -465,7 +465,7 @@ impl Workspace {
                         .into_any_element(),
                 );
             }
-            (Space::Requests, Some(Page::Request(_))) if self.showing_request(cx) => {
+            (REQUESTS, Some(Page::Request(_))) if self.showing_request(cx) => {
                 let pending = self.request_drafts(cx).len();
                 let label = match pending {
                     0 => "Submit review".to_owned(),
@@ -574,19 +574,10 @@ impl bar::BarHost for BarGlue {
 }
 
 /// A root's name: the space's, Code's the project's.
-fn space_root(space: Space, project: &str) -> String {
+fn space_root(space: Space, project: &str, cx: &App) -> String {
     match space {
-        Space::Code => project.to_owned(),
-        _ => space_name(space).to_owned(),
-    }
-}
-
-fn space_name(space: Space) -> &'static str {
-    match space {
-        Space::Inbox => "Inbox",
-        Space::Code => "Code",
-        Space::Branches => "Branches",
-        Space::Requests => "Merge requests",
+        CODE => project.to_owned(),
+        _ => super::spaces::label(space, cx).to_owned(),
     }
 }
 

@@ -198,32 +198,6 @@ pub(super) fn own() -> Vec<Action> {
             .key("cmd-b", NOT_TYPING)
             .menu(Bar::View, "Fold the Menu to Icons")
             .at(0, 3),
-        Action::new("shell.space-inbox", GoToInbox)
-            .words("Inbox")
-            .order(at(0))
-            .key("ctrl-cmd-1", TAB)
-            // The Inbox's older key, from when the bell opened a window (#72).
-            .key("cmd-shift-n", TAB)
-            .menu(Bar::Go, "Inbox")
-            .at(0, 0),
-        Action::new("shell.space-code", GoToCode)
-            .words("Code")
-            .order(at(1))
-            .key("ctrl-cmd-2", TAB)
-            .menu(Bar::Go, "Code")
-            .at(0, 1),
-        Action::new("shell.space-branches", GoToBranches)
-            .words("Branches")
-            .order(at(2))
-            .key("ctrl-cmd-3", TAB)
-            .menu(Bar::Go, "Branches")
-            .at(0, 2),
-        Action::new("shell.space-requests", GoToMergeRequests)
-            .words("Merge requests")
-            .order(at(3))
-            .key("ctrl-cmd-4", TAB)
-            .menu(Bar::Go, "Merge Requests")
-            .at(0, 3),
         Action::new("requests.approve", ApproveRequest).key("a", NOT_TYPING),
         Action::new("requests.next-draft", NextDraft).key("alt-n", NOT_TYPING),
         Action::new("requests.previous-draft", PreviousDraft).key("alt-p", NOT_TYPING),
@@ -556,8 +530,8 @@ mod tests {
     fn a_command_keeps_its_place_in_palette() {
         let own = own();
         let order = |id: &str| own.iter().find(|a| a.id == id).unwrap().order;
-        // The spaces first, Settings last, as the closed list had them.
-        assert!(order("shell.space-inbox") < order("shell.switch"));
+        // Settings last, as the closed list had it; the spaces, the features' now, first
+        // (`the_spaces_are_their_owners_in_their_places`).
         assert!(order("requests.merge") < order("shell.settings"));
         // Before what the features offer.
         assert!(

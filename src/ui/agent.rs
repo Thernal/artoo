@@ -148,7 +148,7 @@ impl Workspace {
     pub(super) fn page_branch(&self, cx: &App) -> Option<String> {
         if let Some(iid) = self.current_request(cx)
             && let Some(m) = self.find_request(iid, cx)
-            && self.nav.space == super::spaces::Space::Requests
+            && self.nav.space == super::spaces::REQUESTS
         {
             return Some(m.source.clone());
         }
@@ -157,7 +157,7 @@ impl Workspace {
             self.nav.space,
             self.branch_ix(cx).and_then(|ix| list.get(ix)),
         ) {
-            (super::spaces::Space::Branches, Some(b)) => Some(b),
+            (super::spaces::BRANCHES, Some(b)) => Some(b),
             _ => list.iter().find(|b| b.is_head),
         }?;
         // A remote branch is the branch it tracks there.

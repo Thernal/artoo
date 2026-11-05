@@ -416,16 +416,6 @@ impl Render for Workspace {
         .on_action(cx.listener(|this, _: &NextOpenItem, _, cx| this.step_open_item(true, cx)))
         .on_action(cx.listener(|this, _: &PreviousOpenItem, _, cx| this.step_open_item(false, cx)))
         .on_action(cx.listener(|this, _: &FoldMenu, _, cx| this.toggle_menu(cx)))
-        .on_action(
-            cx.listener(|this, _: &GoToInbox, _, cx| this.go_space(spaces::Space::Inbox, cx)),
-        )
-        .on_action(cx.listener(|this, _: &GoToCode, _, cx| this.go_space(spaces::Space::Code, cx)))
-        .on_action(
-            cx.listener(|this, _: &GoToBranches, _, cx| this.go_space(spaces::Space::Branches, cx)),
-        )
-        .on_action(cx.listener(|this, _: &GoToMergeRequests, _, cx| {
-            this.go_space(spaces::Space::Requests, cx)
-        }))
         .on_action(cx.listener(|this, _: &NextZone, _, cx| this.step_zone(true, cx)))
         .on_action(cx.listener(|this, _: &PreviousZone, _, cx| this.step_zone(false, cx)))
         .on_action(cx.listener(|this, _: &Activate, _, cx| this.activate(cx)))

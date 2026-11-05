@@ -469,7 +469,7 @@ impl Workspace {
     pub(super) fn showing_request(&self, cx: &App) -> bool {
         self.current_request(cx).is_some_and(|iid| {
             self.request_loaded(iid, cx)
-                && self.nav.space == super::spaces::Space::Requests
+                && self.nav.space == super::spaces::REQUESTS
                 && self.nav_page() == Some(&super::nav::Page::Request(iid))
         })
     }

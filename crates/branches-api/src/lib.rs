@@ -231,6 +231,9 @@ pub type Acts = std::rc::Rc<dyn Fn(Act, &mut App)>;
 /// Who hears what the branches' reads come to (`Branches::on_event`).
 pub type Hears = std::rc::Rc<dyn Fn(&Event, &mut App)>;
 
+/// The Branches space, by its id (`artoo_shell_api::spaces`): the branches offer it, their pages are in it.
+pub const SPACE: &str = "branches";
+
 /// The commits' search, as one of the tab's inputs.
 pub const SEARCH_INPUT: &str = "branches.search";
 

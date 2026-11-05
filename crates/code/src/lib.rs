@@ -9,12 +9,41 @@
 mod outline;
 mod space;
 
-use artoo_shell_api::{Frame, Parts};
+use artoo_shell_api::spaces::{self, Space, SpaceInfo};
+use artoo_shell_api::{Action, Frame, Menu, Parts, when};
 use gpui::{App, AppContext, Window};
 use std::rc::Rc;
 
-/// Code in every tab: its pages, the Outline window, and the handle the tab asks it through.
+gpui::actions!(
+    artoo,
+    [
+        /// ⌃⌘2: Code.
+        GoToCode
+    ]
+);
+
+/// Code's space, second in the menu, and the key that goes to it; in every tab its pages, the Outline window, and
+/// the handle the tab asks it through.
 pub fn install(cx: &mut App) {
+    spaces::add(
+        cx,
+        SpaceInfo {
+            space: Space(artoo_code_api::SPACE),
+            label: "Code",
+            icon: "folder",
+            order: 20,
+            go: "code.space",
+        },
+    );
+    artoo_shell_api::add_action(
+        cx,
+        Action::new("code.space", GoToCode)
+            .words("Code")
+            .order(10)
+            .key("ctrl-cmd-2", when::TAB)
+            .menu(Menu::Go, "Code")
+            .at(0, 1),
+    );
     artoo_shell_api::add_parts(cx, parts);
 }
 
@@ -25,9 +54,14 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
         return Parts::default();
     };
     let tool = outline::tool(frame.clone(), host.clone(), cx);
+    let goes = frame.clone();
     let code = cx.new(|_| space::CodeSpace::new(host, frame));
     services.set::<Rc<dyn artoo_code_api::Code>>(Rc::new(space::Handle(code.downgrade())));
     Parts {
+        actions: vec![(
+            Box::new(GoToCode),
+            Rc::new(move |_, cx| goes.go_space(artoo_code_api::SPACE, cx)),
+        )],
         pages: Some(space::CodeSpace::pages(&code)),
         tool: Some(tool),
         ..Default::default()

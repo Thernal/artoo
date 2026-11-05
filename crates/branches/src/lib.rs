@@ -31,14 +31,43 @@ mod side;
 mod waiting;
 mod working;
 
-use artoo_shell_api::{Frame, Parts};
+use artoo_shell_api::spaces::{self, Space, SpaceInfo};
+use artoo_shell_api::{Action, Frame, Menu, Parts, when};
 use gpui::{App, AppContext, Window};
 use std::rc::Rc;
 
-/// Branches' parts in every tab: the commits' search as one of its inputs, a branch's line, the head over a diff,
-/// two versions' commits paired and the card of what next on the item page, the space's own page; its side panel
-/// and a branch's Commits among the tab's services (`panel`, `commits_page`).
+gpui::actions!(
+    artoo,
+    [
+        /// ⌃⌘3: Branches.
+        GoToBranches
+    ]
+);
+
+/// The Branches space, third in the menu, and the key that goes to it; Branches' parts in every tab: the commits'
+/// search as one of its inputs, a branch's line, the head over a diff, two versions' commits paired and the card of
+/// what next on the item page, the space's own page; its side panel and a branch's Commits among the tab's services
+/// (`panel`, `commits_page`).
 pub fn install(cx: &mut App) {
+    spaces::add(
+        cx,
+        SpaceInfo {
+            space: Space(artoo_branches_api::SPACE),
+            label: "Branches",
+            icon: "branch",
+            order: 30,
+            go: "branches.space",
+        },
+    );
+    artoo_shell_api::add_action(
+        cx,
+        Action::new("branches.space", GoToBranches)
+            .words("Branches")
+            .order(20)
+            .key("ctrl-cmd-3", when::TAB)
+            .menu(Menu::Go, "Branches")
+            .at(0, 2),
+    );
     artoo_shell_api::add_parts(cx, parts);
 }
 
@@ -53,6 +82,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     services.set(history::handle(&history, &services));
     services.set(history::acts(&history, tab));
     let (versions, commits) = (history.downgrade(), history.downgrade());
+    let goes = frame.clone();
     let panel = panel::view(history.clone(), &frame, cx);
     services.set(panel.clone());
     services.set(commits_page::view(history.clone(), &frame, cx));
@@ -67,6 +97,10 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
             pairs::piece(history.clone(), services),
         ],
         pages: Some(page::pages(history, panel, frame, cx)),
+        actions: vec![(
+            Box::new(GoToBranches),
+            Rc::new(move |_, cx| goes.go_space(artoo_branches_api::SPACE, cx)),
+        )],
         // A side panel section folded (a snapshot run never saves it).
         snapshots: vec![
             (

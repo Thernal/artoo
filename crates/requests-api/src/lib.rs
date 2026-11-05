@@ -488,6 +488,12 @@ pub enum DraftEvent {
 /// What answers a pending comment's clicks.
 pub type OnDraft = Rc<dyn Fn(DraftEvent, &mut App)>;
 
+/// The Merge requests space, by its id (`artoo_shell_api::spaces`): the requests offer it, their pages are in it.
+pub const SPACE: &str = "requests";
+
+/// The Inbox space, by its id: the requests offer it with their notifications, its page is theirs.
+pub const INBOX: &str = "inbox";
+
 /// The Discussions tool window's id: the layout keeps it open by it, the View menu and ⇧⌘D name it.
 pub const DISCUSSIONS: &str = "discussions";
 

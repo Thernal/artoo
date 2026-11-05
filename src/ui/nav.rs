@@ -10,13 +10,14 @@
 //! differ from it, and the places that open something (a list's row, ⌘K, a notification, a link)
 //! say where they went through `arrive`.
 
-use super::spaces::Space;
+use super::spaces::{BRANCHES, CODE, INBOX, KEPT, REQUESTS, Space};
 use super::{Selection, Workspace, recents, zones};
 use artoo_branches_api::Shows;
 use artoo_core::route::Route;
 use artoo_ui_kit::format;
 use git2::Oid;
 use gpui::{App, Context, ListOffset};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Page {
@@ -52,17 +53,17 @@ pub enum Page {
 impl Page {
     pub fn space(&self) -> Space {
         match self {
-            Page::File(_) | Page::Folder(_) => Space::Code,
+            Page::File(_) | Page::Folder(_) => CODE,
             Page::Branch(_)
             | Page::BranchCommit(..)
             | Page::BranchCommits(..)
             | Page::Versions(..)
             | Page::WorkingTree
-            | Page::Compare(..) => Space::Branches,
+            | Page::Compare(..) => BRANCHES,
             Page::Request(_)
             | Page::RequestCommit(..)
             | Page::RequestCommits(..)
-            | Page::RequestVersions(..) => Space::Requests,
+            | Page::RequestVersions(..) => REQUESTS,
         }
     }
 
@@ -162,8 +163,8 @@ pub enum Item {
 impl Item {
     pub fn space(&self) -> Space {
         match self {
-            Item::Request(_) => Space::Requests,
-            Item::Branch(_) | Item::Compare(..) | Item::WorkingTree => Space::Branches,
+            Item::Request(_) => REQUESTS,
+            Item::Branch(_) | Item::Compare(..) | Item::WorkingTree => BRANCHES,
         }
     }
 
@@ -234,7 +235,7 @@ pub struct Opened {
 struct Saved {
     repo: String,
     space: Space,
-    pages: [Option<Page>; 4],
+    pages: HashMap<Space, Page>,
     /// Each with its page when the item alone cannot say it: a comparison's.
     open: Vec<(Item, Option<Page>)>,
 }
@@ -248,15 +249,15 @@ struct Moment {
 
 pub struct Nav {
     pub space: Space,
-    /// Each space's page; None at its root.
-    pages: [Option<Page>; 4],
+    /// Each space's page; none at its root.
+    pages: HashMap<Space, Page>,
     time: Vec<Moment>,
     at: usize,
     /// The space a link came from, while its page is on screen (‹ Inbox).
     pub from: Option<Space>,
     pub open: Vec<Opened>,
     /// The spaces whose open items the menu folds away (Branches at first).
-    pub folded: [bool; 4],
+    pub folded: HashSet<Space>,
     /// A space and page to show once the request list is in (a project reopened on one).
     pending_show: Option<(Space, Option<Page>)>,
     /// The menu's open items picked with shift, the first the one it began from: ⌘W closes them.
@@ -268,13 +269,13 @@ pub struct Nav {
 impl Default for Nav {
     fn default() -> Self {
         Self {
-            space: Space::Branches,
+            space: BRANCHES,
             pages: Default::default(),
             time: Vec::new(),
             at: 0,
             from: None,
             open: Vec::new(),
-            folded: [false, false, true, false],
+            folded: HashSet::from([BRANCHES]),
             pending_show: None,
             picked: Vec::new(),
             restoring: false,
@@ -314,16 +315,21 @@ impl Nav {
         self.open.iter_mut().find(|o| &o.item == item)
     }
 
-    /// `nav.txt`'s line for project `repo`: the space, each space's page, the open items.
+    /// `nav.txt`'s line for project `repo`: the space, each space's page, the open items. The spaces it keeps are
+    /// `KEPT`, the one on screen by its place there; another is kept by its id.
     fn line(&self, repo: &str) -> String {
-        let pages: Vec<String> = self
-            .pages
+        let pages: Vec<String> = KEPT
             .iter()
-            .map(|p| {
-                p.as_ref()
+            .map(|space| {
+                self.pages
+                    .get(space)
                     .map_or_else(|| "-".to_owned(), |p| p.route().text())
             })
             .collect();
+        let space = KEPT
+            .iter()
+            .position(|s| *s == self.space)
+            .map_or_else(|| self.space.name().to_owned(), |ix| ix.to_string());
         // An item as its own page; a comparison as the page it was left on: its sides' commits come
         // back with it (#149).
         let open: Vec<String> = self
@@ -337,30 +343,29 @@ impl Nav {
                     .text()
             })
             .collect();
-        format!(
-            "{repo}\t{}\t{}\t{}",
-            self.space.ix(),
-            pages.join("\t"),
-            open.join(" ")
-        )
+        format!("{repo}\t{space}\t{}\t{}", pages.join("\t"), open.join(" "))
     }
 
-    /// What `line` kept: the space, the pages and the open items.
-    fn read(line: &str) -> Option<Saved> {
+    /// What `line` kept: the space, the pages and the open items. A space kept by its id is one of `known`.
+    fn read(line: &str, known: &[Space]) -> Option<Saved> {
         let mut cols = line.split('\t');
         let repo = cols.next()?.to_owned();
-        let space = Space::ALL
-            .get(cols.next()?.parse::<usize>().ok()?)
-            .copied()?;
+        let space = cols.next()?;
+        let space = match space.parse::<usize>() {
+            Ok(ix) => *KEPT.get(ix)?,
+            Err(_) => *known.iter().find(|s| s.name() == space)?,
+        };
         // Each kept as a route; a line written before routes as the keys it had then.
         let page_of = |text: &str| {
             Route::parse(text)
                 .and_then(|route| Page::from_route(&route))
                 .or_else(|| Page::parse_key(text))
         };
-        let mut pages: [Option<Page>; 4] = Default::default();
-        for page in pages.iter_mut() {
-            *page = page_of(cols.next()?);
+        let mut pages = HashMap::new();
+        for space in KEPT {
+            if let Some(page) = page_of(cols.next()?) {
+                pages.insert(space, page);
+            }
         }
         let open = cols
             .next()
@@ -387,17 +392,17 @@ const FILE: &str = "nav.txt";
 impl Workspace {
     /// The page of the space on screen; None at its root.
     pub(super) fn nav_page(&self) -> Option<&Page> {
-        self.nav.pages[self.nav.space.ix()].as_ref()
+        self.nav.pages.get(&self.nav.space)
     }
 
     /// The page space `space` keeps.
     pub(super) fn page_of(&self, space: Space) -> Option<&Page> {
-        self.nav.pages[space.ix()].as_ref()
+        self.nav.pages.get(&space)
     }
 
     /// At the root of Branches or Merge requests: their list is the page.
     pub(super) fn at_root_list(&self) -> bool {
-        matches!(self.nav.space, Space::Branches | Space::Requests) && self.nav_page().is_none()
+        matches!(self.nav.space, BRANCHES | REQUESTS) && self.nav_page().is_none()
     }
 
     /// What is loaded, as a page of Branches or Merge requests (`History::loaded_route`).
@@ -561,7 +566,7 @@ impl Workspace {
         if !self.nav.restoring && space != self.nav.space {
             self.nav.from = Some(self.nav.space);
         }
-        self.inbox = space == Space::Inbox;
+        self.inbox = space == INBOX;
         self.settings_open = false;
         self.set_page(page, cx);
     }
@@ -641,7 +646,7 @@ impl Workspace {
     /// ⌃⇥ and ⌃⇧⇥: the next or the previous section tab, going round.
     pub(super) fn step_section(&mut self, forward: bool, cx: &mut Context<Self>) {
         // In Code they walk the files open as tabs (#75).
-        if self.nav.space == Space::Code {
+        if self.nav.space == CODE {
             return self.step_code_tab(forward, cx);
         }
         let (sections, Some(at)) = (self.item_sections(cx), self.page_section(cx)) else {
@@ -658,7 +663,7 @@ impl Workspace {
         let space = page.space();
         self.keep_place(cx);
         self.nav.space = space;
-        self.nav.pages[space.ix()] = Some(page.clone());
+        self.nav.pages.insert(space, page.clone());
         if let Some(item) = page.item() {
             match self.nav.opened_mut(&item) {
                 Some(open) => open.page = page.clone(),
@@ -811,11 +816,14 @@ impl Workspace {
     pub(super) fn show(&mut self, space: Space, page: Option<Page>, cx: &mut Context<Self>) {
         self.keep_place(cx);
         self.nav.space = space;
-        self.nav.pages[space.ix()] = page.clone();
+        match &page {
+            Some(page) => self.nav.pages.insert(space, page.clone()),
+            None => self.nav.pages.remove(&space),
+        };
         if let Some(branches) = self.branches() {
             branches.stop_waiting(cx);
         }
-        self.inbox = space == Space::Inbox;
+        self.inbox = space == INBOX;
         self.settings_open = false;
         self.nav.restoring = true;
         match page {
@@ -828,10 +836,11 @@ impl Workspace {
         cx.notify();
     }
 
-    /// A space's root: the Inbox's list, Code's project, the list of branches or requests.
+    /// A space's root: the Inbox's list, the list of branches or requests; Code's project, and any other space's
+    /// own page as its pages draw it.
     fn enter_root(&mut self, space: Space, cx: &mut Context<Self>) {
         match space {
-            Space::Inbox => {
+            INBOX => {
                 // The newest row: a notice, or an agent's answer (#116).
                 let first = self.inbox_rows(cx).first().copied();
                 if let Some(requests) = self.requests_api() {
@@ -839,12 +848,11 @@ impl Workspace {
                 }
                 self.refresh_notices(cx);
             }
-            Space::Code => self.show_pages(space, None, false, cx),
-            Space::Branches => {
+            BRANCHES => {
                 self.zone = zones::Zone::Branches;
                 self.show_pages(space, None, false, cx);
             }
-            Space::Requests => {
+            REQUESTS => {
                 self.pick_first_request(cx);
                 self.read_preview(cx);
                 self.zone = zones::Zone::Branches;
@@ -855,6 +863,7 @@ impl Workspace {
                     connecting.take_keyboard(cx);
                 }
             }
+            _ => self.show_pages(space, None, false, cx),
         }
     }
 
@@ -1019,7 +1028,7 @@ impl Workspace {
         let space = item.space();
         let shown = self.page_of(space).and_then(Page::item).as_ref() == Some(item);
         if shown {
-            self.nav.pages[space.ix()] = None;
+            self.nav.pages.remove(&space);
             if let Item::Request(iid) = item
                 && self.requests_api().and_then(|r| r.current(cx)) == Some(*iid)
             {
@@ -1071,7 +1080,7 @@ impl Workspace {
             self.show(space, page, cx);
         }
         // The list came in under its root: the first request is picked and previewed (#72).
-        if self.nav.space == Space::Requests && self.at_root_list() {
+        if self.nav.space == REQUESTS && self.at_root_list() {
             self.pick_first_request(cx);
             self.read_preview(cx);
         }
@@ -1080,9 +1089,13 @@ impl Workspace {
     /// The project just opened: the space and pages it was left on, else its checked-out branch.
     pub(super) fn restore_nav(&mut self, head: Option<usize>, cx: &mut Context<Self>) {
         let repo = self.nav_repo();
+        let known: Vec<Space> = artoo_shell_api::spaces::all(cx)
+            .iter()
+            .map(|s| s.space)
+            .collect();
         let saved = crate::storage::read(FILE)
             .lines()
-            .filter_map(Nav::read)
+            .filter_map(|line| Nav::read(line, &known))
             .find(|saved| Some(&saved.repo) == repo.as_ref());
         self.nav = Nav::default();
         if let Some(branches) = self.branches() {
@@ -1102,8 +1115,7 @@ impl Workspace {
             let Some(page) = self
                 .nav
                 .pages
-                .iter()
-                .flatten()
+                .values()
                 .find(|p| p.item().as_ref() == Some(&item))
                 .cloned()
                 .or(kept)
@@ -1119,22 +1131,20 @@ impl Workspace {
                 section: Section::Changes,
             });
         }
-        let page = self.nav.pages[space.ix()].clone();
+        let page = self.nav.pages.get(&space).cloned();
         // Underneath a page that loads nothing of its own, the checked-out branch, as before:
         // ⌘K's commits and the files' revision come from it.
-        if !matches!(
-            page.as_ref().map(Page::space),
-            Some(Space::Branches | Space::Requests)
-        ) && let Some(ix) = head
+        if !matches!(page.as_ref().map(Page::space), Some(BRANCHES | REQUESTS))
+            && let Some(ix) = head
         {
             self.nav.restoring = true;
             self.select_branch(ix, None, cx);
             self.nav.restoring = false;
         }
-        let needs_list = matches!(page.as_ref().map(Page::space), Some(Space::Requests));
+        let needs_list = matches!(page.as_ref().map(Page::space), Some(REQUESTS));
         if needs_list && self.requests_api().is_some_and(|r| r.listing(cx)) {
             self.nav.space = space;
-            self.nav.pages[space.ix()] = None;
+            self.nav.pages.remove(&space);
             self.nav.pending_show = Some((space, page));
         } else {
             self.show(space, page, cx);
@@ -1162,7 +1172,7 @@ impl Workspace {
     /// the space — its requests or branches, Code's tabs —, going round.
     pub(super) fn step_open_item(&mut self, forward: bool, cx: &mut Context<Self>) {
         let space = self.nav.space;
-        if space == Space::Code {
+        if space == CODE {
             return self.step_code_tab(forward, cx);
         }
         let items: Vec<Item> = self
@@ -1237,7 +1247,9 @@ impl Workspace {
     /// The menu's open items of a space shown or folded away.
     pub(super) fn toggle_open_items(&mut self, space: Space, cx: &mut Context<Self>) {
         self.mark_motion(&format!("opens-{}", space.id()), cx);
-        self.nav.folded[space.ix()] = !self.nav.folded[space.ix()];
+        if !self.nav.folded.remove(&space) {
+            self.nav.folded.insert(space);
+        }
         cx.notify();
     }
 
@@ -1286,7 +1298,7 @@ mod tests {
     #[test]
     fn a_page_knows_its_space_and_the_page_above_it() {
         let id = Oid::from_str("0123456789012345678901234567890123456789").unwrap();
-        assert_eq!(Page::RequestCommit(398, id).space(), Space::Requests);
+        assert_eq!(Page::RequestCommit(398, id).space(), REQUESTS);
         assert_eq!(
             Page::RequestCommit(398, id).parent(),
             Some(Page::Request(398))
@@ -1300,7 +1312,7 @@ mod tests {
             Page::BranchCommit("refs/heads/x".into(), id).parent(),
             Some(Page::Branch("refs/heads/x".into()))
         );
-        assert_eq!(Page::File("a/b.kt".into()).space(), Space::Code);
+        assert_eq!(Page::File("a/b.kt".into()).space(), CODE);
         // A file or a folder goes up to its folder, the top ones to the project.
         assert_eq!(
             Page::File("a/b/c.kt".into()).parent(),
@@ -1370,11 +1382,11 @@ mod tests {
             ))
         );
         let mut nav = Nav {
-            space: Space::Requests,
+            space: REQUESTS,
             ..Nav::default()
         };
-        nav.pages[Space::Code.ix()] = Some(Page::File("README.md".into()));
-        nav.pages[Space::Requests.ix()] = Some(Page::RequestCommit(398, id));
+        nav.pages.insert(CODE, Page::File("README.md".into()));
+        nav.pages.insert(REQUESTS, Page::RequestCommit(398, id));
         let compare = Page::Compare(("main".into(), id), ("origin/x".into(), id), false);
         for (item, page) in [
             (Item::Request(398), Page::Request(398)),
@@ -1395,16 +1407,16 @@ mod tests {
             space,
             pages,
             open,
-        } = Nav::read(&nav.line("_Users_me_repo")).unwrap();
+        } = Nav::read(&nav.line("_Users_me_repo"), &[]).unwrap();
         assert_eq!(repo, "_Users_me_repo");
-        assert_eq!(space, Space::Requests);
+        assert_eq!(space, REQUESTS);
         assert_eq!(
-            pages[Space::Code.ix()],
+            pages.get(&CODE).cloned(),
             Some(Page::File("README.md".into()))
         );
-        assert_eq!(pages[Space::Branches.ix()], None);
+        assert_eq!(pages.get(&BRANCHES), None);
         assert_eq!(
-            pages[Space::Requests.ix()],
+            pages.get(&REQUESTS).cloned(),
             Some(Page::RequestCommit(398, id))
         );
         // A comparison comes back with its page, its sides' commits in it.
@@ -1419,6 +1431,20 @@ mod tests {
         );
     }
 
+    /// A space `nav.txt` has no column for is kept by its id, and read back while its owner offers it.
+    #[test]
+    fn a_space_of_its_own_is_kept_by_its_id() {
+        let jira = Space("jira");
+        let nav = Nav {
+            space: jira,
+            ..Nav::default()
+        };
+        let line = nav.line("r");
+        assert!(line.starts_with("r\tjira\t"), "{line}");
+        assert_eq!(Nav::read(&line, &[jira]).map(|s| s.space), Some(jira));
+        assert!(Nav::read(&line, &[]).is_none());
+    }
+
     #[test]
     fn a_line_written_before_routes_still_reads() {
         let id = "0123456789012345678901234567890123456789";
@@ -1427,15 +1453,15 @@ mod tests {
         );
         let Saved {
             space, pages, open, ..
-        } = Nav::read(&line).unwrap();
+        } = Nav::read(&line, &[]).unwrap();
         let id = Oid::from_str(id).unwrap();
-        assert_eq!(space, Space::Requests);
+        assert_eq!(space, REQUESTS);
         assert_eq!(
-            pages[Space::Code.ix()],
+            pages.get(&CODE).cloned(),
             Some(Page::File("README.md".into()))
         );
         assert_eq!(
-            pages[Space::Requests.ix()],
+            pages.get(&REQUESTS).cloned(),
             Some(Page::RequestCommit(398, id))
         );
         let compare = Page::Compare(("main".into(), id), ("origin/x".into(), id), false);
@@ -1454,21 +1480,21 @@ mod tests {
     fn time_drops_what_was_ahead_and_keeps_one_of_a_kind() {
         let mut nav = Nav::default();
         let at = |space, page: Option<Page>| Moment { space, page };
-        nav.remember(at(Space::Inbox, None));
-        nav.remember(at(Space::Requests, Some(Page::Request(1))));
-        nav.remember(at(Space::Requests, Some(Page::Request(1))));
-        nav.remember(at(Space::Branches, None));
+        nav.remember(at(INBOX, None));
+        nav.remember(at(REQUESTS, Some(Page::Request(1))));
+        nav.remember(at(REQUESTS, Some(Page::Request(1))));
+        nav.remember(at(BRANCHES, None));
         assert_eq!(nav.time.len(), 3);
         // A commit of the main line is a page of its own: a moment after its branch's.
         let id = Oid::from_str("0123456789012345678901234567890123456789").unwrap();
         let main = "refs/heads/main".to_owned();
-        nav.remember(at(Space::Branches, Some(Page::Branch(main.clone()))));
-        nav.remember(at(Space::Branches, Some(Page::BranchCommit(main, id))));
+        nav.remember(at(BRANCHES, Some(Page::Branch(main.clone()))));
+        nav.remember(at(BRANCHES, Some(Page::BranchCommit(main, id))));
         assert_eq!(nav.time.len(), 5);
         nav.time.truncate(3);
         nav.at = 0;
         assert!(nav.can_forward() && !nav.can_back());
-        nav.remember(at(Space::Code, None));
+        nav.remember(at(CODE, None));
         assert_eq!(nav.time.len(), 2);
         assert!(!nav.can_forward());
     }

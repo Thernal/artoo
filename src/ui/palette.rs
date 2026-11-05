@@ -1078,7 +1078,7 @@ impl Workspace {
                 }
             }
             // In Code a file opens there, as a tab, changed or not (#75).
-            Pick::File(ix) if self.nav.space == super::spaces::Space::Code => {
+            Pick::File(ix) if self.nav.space == super::spaces::CODE => {
                 self.palette = None;
                 if let Some(path) = self
                     .shown_diff(cx)

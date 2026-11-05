@@ -6,7 +6,7 @@
 //! read as that page shows the project. A binary file says so, with Open in (#78); ⌘W closes its
 //! tab, esc goes up to Code.
 
-use super::spaces::Space;
+use super::spaces::CODE;
 use super::{Header, Workspace, format};
 use artoo_code_api::FilePage;
 use artoo_review_api::FileNotes;
@@ -16,7 +16,7 @@ use std::rc::Rc;
 impl Workspace {
     /// A file's lines are on screen in Code: `c` writes a note on one of them.
     pub(super) fn code_file_shown(&self, cx: &App) -> bool {
-        self.nav.space == Space::Code && self.rv().file_lines_shown(cx)
+        self.nav.space == CODE && self.rv().file_lines_shown(cx)
     }
 
     /// Shows `path` in Code at its revision, as a tab; from another space, read as that page
@@ -25,7 +25,7 @@ impl Workspace {
         if self.root.is_none() {
             return;
         }
-        if self.nav.space != Space::Code && !self.plain {
+        if self.nav.space != CODE && !self.plain {
             let rev = match self.shown_diff(cx).as_ref().map(|d| &d.header) {
                 Some(Header::WorkingTree { .. }) => Some(None),
                 Some(_) => (self.rv().viewed_rev(cx)).map(|rev| Some((format::short(rev), rev))),

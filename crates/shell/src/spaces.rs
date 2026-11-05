@@ -85,7 +85,7 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
     let draw = |row: SpaceRow| {
         let space = row.space;
         let id = space.id();
-        let label = space.label();
+        let label = row.label;
         let (missing, opens, shut) = (row.missing, row.opens, row.shut);
         let any = !opens.is_empty();
         let (toggle, go, moved) = (host.clone(), host.clone(), host.clone());
@@ -100,12 +100,13 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
         let n = Some(row.waiting).filter(|&n| n > 0 && missing.is_none());
         let tip: gpui::SharedString = match missing {
             Some(line) => format!("{label} — {line}"),
-            None => format!("{label}  {}", space.key()),
+            None if row.key.is_empty() => label.to_owned(),
+            None => format!("{label}  {}", row.key),
         }
         .into();
         let disclose = (!folded && !opens.is_empty()).then(|| {
             div()
-                .id((id, 5usize))
+                .id((id.clone(), 5usize))
                 .flex_none()
                 .size(px(18.))
                 .mr(px(-4.))
@@ -119,7 +120,7 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                     icons::icon("chevron")
                         .size(px(13.))
                         .text_color(theme::faint()),
-                    (id, 6usize),
+                    (id.clone(), 6usize),
                     !shut,
                     false,
                     motion::FAST,
@@ -139,7 +140,7 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                 })
         });
         let line = div()
-            .id(id)
+            .id(id.clone())
             .relative()
             .h(px(32.))
             .flex()
@@ -155,16 +156,16 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
             })
             .when(on, |s| {
                 s.bg(theme::selected())
-                    .child(reveal(menu.places, id.to_owned()))
+                    .child(reveal(menu.places, id.to_string()))
             })
             .when(missing.is_some(), |s| s.opacity(0.5))
             .when(!row.inert, |s| {
                 s.cursor_pointer()
                     .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
             })
-            .group(id)
+            .group(id.clone())
             .child(
-                icons::icon(space.icon())
+                icons::icon(row.icon)
                     .size(px(17.))
                     .text_color(if within {
                         theme::text()
@@ -172,7 +173,7 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                         theme::muted()
                     })
                     .when(!row.inert, |s| {
-                        s.group_hover(id, |s| s.text_color(theme::text()))
+                        s.group_hover(id.clone(), |s| s.text_color(theme::text()))
                     }),
             )
             .when(named, |s| {
@@ -183,7 +184,7 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                         .min_w_0()
                         .cut_in_tip()
                         .child(words::say(label).into_owned()),
-                    (id, 1usize),
+                    (id.clone(), 1usize),
                     !folded,
                     moving,
                     motion::FAST,
@@ -192,7 +193,7 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                 // What an agent put under it, folded away: the dot on the space (#160).
                 .children(call.filter(|_| !folded).map(|what| {
                     div()
-                        .id((id, 7usize))
+                        .id((id.clone(), 7usize))
                         .flex_none()
                         .size(px(7.))
                         .rounded_full()
@@ -231,7 +232,7 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                         .child(n.min(99).to_string());
                     motion::toward(
                         badge,
-                        (id, 8usize),
+                        (id.clone(), 8usize),
                         true,
                         moving,
                         motion::FAST,
@@ -261,7 +262,7 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
         // with the menu's own motion.
         let line = motion::toward(
             line,
-            (id, 7usize),
+            (id.clone(), 7usize),
             !folded,
             moving,
             motion::BASE,

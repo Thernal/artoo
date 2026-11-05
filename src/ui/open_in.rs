@@ -6,7 +6,7 @@
 
 use super::menu::{Act, Entry};
 use super::nav::Page;
-use super::spaces::Space;
+use super::spaces::CODE;
 use super::{Workspace, icons, px, theme};
 use crate::editor::{self, Editor};
 use crate::files::binary;
@@ -184,11 +184,9 @@ impl Workspace {
     pub(super) fn open_target(&self, cx: &gpui::App) -> Option<(PathBuf, u32)> {
         let root = self.root.clone()?;
         match (self.nav.space, self.nav_page()) {
-            (Space::Code, Some(Page::File(path))) => {
-                Some((root.join(path), self.file_top_line(path, cx)))
-            }
-            (Space::Code, Some(Page::Folder(path))) => Some((root.join(path), 1)),
-            (Space::Code, _) => Some((root, 1)),
+            (CODE, Some(Page::File(path))) => Some((root.join(path), self.file_top_line(path, cx))),
+            (CODE, Some(Page::Folder(path))) => Some((root.join(path), 1)),
+            (CODE, _) => Some((root, 1)),
             // A page showing a diff: not a request's Overview or Commits.
             (_, Some(_))
                 if matches!(self.page_tab(cx), None | Some(super::nav::Section::Changes)) =>

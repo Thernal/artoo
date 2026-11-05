@@ -3,7 +3,7 @@
 
 use super::Workspace;
 use super::nav::Page;
-use super::spaces::Space;
+use super::spaces::CODE;
 use crate::git::BranchRef;
 use artoo_code_api::{FilePage, Host};
 use gpui::{AnyElement, App, Context, WeakEntity};
@@ -42,12 +42,12 @@ impl Workspace {
     /// ⌥⌘P and ⌘K's Pin tab: the tab on screen in Code pinned or unpinned; false when there is
     /// none.
     pub(super) fn pin_shown_tab(&mut self, cx: &mut Context<Self>) -> bool {
-        self.nav.space == Space::Code && self.code().is_some_and(|c| c.pin_shown(cx))
+        self.nav.space == CODE && self.code().is_some_and(|c| c.pin_shown(cx))
     }
 
     /// Whether Code's tab on screen is pinned: ⌘K says Unpin.
     pub(super) fn shown_tab_pinned(&self, cx: &App) -> bool {
-        self.nav.space == Space::Code && self.code().is_some_and(|c| c.shown_pinned(cx))
+        self.nav.space == CODE && self.code().is_some_and(|c| c.shown_pinned(cx))
     }
 
     /// ⌘W in Code: the tab on screen closes.

@@ -3,7 +3,6 @@
 //! request's page — each its feature's pages (`render_pages`).
 //! Code is the project's tree beside its folder page or a file's tabs (`code.rs`, #75).
 
-use super::spaces::Space;
 use super::{Workspace, gap, px};
 use artoo_shell_api::Slot;
 use gpui::{AnyElement, Context, div, prelude::*};
@@ -16,12 +15,8 @@ impl Workspace {
             (space, page) if let Some(pages) = self.pages_drawing(space, page) => {
                 self.render_pages(pages, cx)
             }
-            // The Inbox is the requests'.
-            (Space::Inbox, _) => div().flex_1(),
-            // Their pages are the features'.
-            (Space::Branches | Space::Requests, _) => div().flex_1(),
-            // Code without the pages the tab gives it: nothing to draw.
-            (Space::Code, _) => div().flex_1(),
+            // A space whose pages nobody draws in this tab (Code without the host it needs): nothing.
+            _ => div().flex_1(),
         };
         div()
             .flex_1()

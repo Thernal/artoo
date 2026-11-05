@@ -192,10 +192,10 @@ impl Workspace {
             Open::Notice(key) => {
                 match self.requests_api().and_then(|r| r.notice_by_key(&key, cx)) {
                     Some(ix) => self.open_notice(ix, cx),
-                    None => self.go_space(super::spaces::Space::Inbox, cx),
+                    None => self.go_space(super::spaces::INBOX, cx),
                 }
             }
-            Open::Inbox => self.go_space(super::spaces::Space::Inbox, cx),
+            Open::Inbox => self.go_space(super::spaces::INBOX, cx),
             Open::Act(press) => self.press(&*press.act, cx),
             Open::Agents => {
                 let agents = artoo_agents_api::view::WINDOW;

@@ -307,7 +307,7 @@ impl Workspace {
                     // The working tree's, as the agent read it, whatever version Code was at.
                     (None, _) => {
                         self.file_jump = line.map(|line| (path.clone(), line));
-                        self.nav.space = super::spaces::Space::Code;
+                        self.nav.space = super::spaces::CODE;
                         if let Some(code) = self.code()
                             && code.revision(cx).is_some()
                         {

@@ -7,91 +7,74 @@ use crate::render;
 use crate::tabs::{TabInfo, TabsHost};
 use artoo_ui_kit::motion::Folds;
 use artoo_ui_kit::room::Heights;
-use gpui::{AnyElement, App, Pixels, Point, Window, div, prelude::*};
+use gpui::{AnyElement, App, Pixels, Point, SharedString, Window, div, prelude::*};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Space {
-    Inbox,
-    Code,
-    Branches,
-    Requests,
-}
+/// A space, by its id (`code`): its owner offers it (`add`), `layout.txt` keeps the menu's order by it and a
+/// feature's pages name the space they are in by it (`Pages::space`).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct Space(pub &'static str);
 
 impl Space {
-    pub const ALL: [Space; 4] = [Space::Inbox, Space::Code, Space::Branches, Space::Requests];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Space::Inbox => "Inbox",
-            Space::Code => "Code",
-            Space::Branches => "Branches",
-            Space::Requests => "Merge requests",
-        }
-    }
-
-    pub fn icon(self) -> &'static str {
-        match self {
-            Space::Inbox => "inbox",
-            Space::Code => "folder",
-            Space::Branches => "branch",
-            Space::Requests => "pull-request",
-        }
-    }
-
-    /// Its key as the app writes keys (Ctrl+Shift+1…4 on Windows and Linux).
-    pub fn key(self) -> &'static str {
-        match self {
-            Space::Inbox => "⌃⌘1",
-            Space::Code => "⌃⌘2",
-            Space::Branches => "⌃⌘3",
-            Space::Requests => "⌃⌘4",
-        }
-    }
-
-    /// Its element's id in the menu.
-    pub fn id(self) -> &'static str {
-        match self {
-            Space::Inbox => "space-inbox",
-            Space::Code => "space-code",
-            Space::Branches => "space-branches",
-            Space::Requests => "space-requests",
-        }
-    }
-
-    /// As `layout.txt` keeps the menu's order, and features name it (`Pages::space`).
+    /// Its id.
     pub fn name(self) -> &'static str {
-        self.id().trim_start_matches("space-")
+        self.0
     }
 
-    /// Its place in `Space::ALL`.
-    pub fn ix(self) -> usize {
-        match self {
-            Space::Inbox => 0,
-            Space::Code => 1,
-            Space::Branches => 2,
-            Space::Requests => 3,
-        }
-    }
-
-    /// The space named `name`.
-    pub fn named(name: &str) -> Option<Space> {
-        Space::ALL.into_iter().find(|s| s.name() == name)
+    /// Its element's id in the menu (`space-code`).
+    pub fn id(self) -> SharedString {
+        format!("space-{}", self.0).into()
     }
 }
 
-/// The menu's spaces in the order `kept` names them (dragged there), any it leaves out after
-/// them in their first order.
-pub fn ordered(kept: &str) -> Vec<Space> {
-    let mut out: Vec<Space> = kept
-        .split(',')
-        .filter_map(|n| Space::named(n.trim()))
-        .collect();
-    out.dedup();
-    for s in Space::ALL {
-        if !out.contains(&s) {
-            out.push(s);
+/// A space as its owner offers it: its row in the menu, its place there until the developer drags it, and the
+/// action that goes to it, whose key the row's hover says.
+#[derive(Clone, Copy, Debug)]
+pub struct SpaceInfo {
+    pub space: Space,
+    pub label: &'static str,
+    pub icon: &'static str,
+    /// Its place in the menu, the lowest first, until the developer drags it elsewhere.
+    pub order: u16,
+    /// The action that goes to it, by its id (`code.space`).
+    pub go: &'static str,
+}
+
+/// Offers a space (its owner's `install`). An id offered already is refused, and the log says so.
+pub fn add(cx: &mut App, info: SpaceInfo) {
+    let registry = cx.default_global::<crate::Registry>();
+    if registry.spaces.iter().any(|s| s.space == info.space) {
+        crate::refuse(registry, format!("space {}", info.space.name()));
+        return;
+    }
+    registry.spaces.push(info);
+}
+
+/// The spaces offered, in their order; those of one order as they were offered.
+pub fn all(cx: &App) -> Vec<SpaceInfo> {
+    let mut spaces = cx
+        .try_global::<crate::Registry>()
+        .map(|r| r.spaces.clone())
+        .unwrap_or_default();
+    spaces.sort_by_key(|s| s.order);
+    spaces
+}
+
+/// The spaces `offered` in the order `kept` names them (dragged there), those it leaves out after them in their
+/// own order. A name nobody offered is passed over.
+pub fn ordered(kept: &str, offered: &[SpaceInfo]) -> Vec<SpaceInfo> {
+    let mut out: Vec<SpaceInfo> = Vec::new();
+    for name in kept.split(',').map(str::trim) {
+        if let Some(info) = offered.iter().find(|s| s.space.name() == name)
+            && !out.iter().any(|s| s.space == info.space)
+        {
+            out.push(*info);
+        }
+    }
+    for info in offered {
+        if !out.iter().any(|s| s.space == info.space) {
+            out.push(*info);
         }
     }
     out
@@ -134,6 +117,10 @@ pub struct Open {
 /// A space's row, with what is open under it.
 pub struct SpaceRow {
     pub space: Space,
+    pub label: &'static str,
+    pub icon: &'static str,
+    /// The key of the action that goes to it, as the app writes keys (`⌃⌘2`); empty without one.
+    pub key: String,
     /// What the project lacks for it, as its line: greyed.
     pub missing: Option<&'static str>,
     /// It cannot be opened at all (no remote): no hover.
@@ -210,13 +197,42 @@ pub fn menu(menu: SpacesMenu<'_>, host: Rc<dyn SpacesHost>, cx: &App) -> AnyElem
 mod tests {
     use super::*;
 
+    fn info(name: &'static str, order: u16) -> SpaceInfo {
+        SpaceInfo {
+            space: Space(name),
+            label: name,
+            icon: name,
+            order,
+            go: name,
+        }
+    }
+
     #[test]
     fn the_menus_order_is_kept_by_name_and_fills_in() {
-        assert_eq!(ordered(""), Space::ALL.to_vec());
+        let offered = [
+            info("inbox", 10),
+            info("code", 20),
+            info("branches", 30),
+            info("requests", 40),
+        ];
+        let names = |kept: &str| -> Vec<&str> {
+            ordered(kept, &offered)
+                .iter()
+                .map(|s| s.space.name())
+                .collect()
+        };
+        assert_eq!(names(""), ["inbox", "code", "branches", "requests"]);
         assert_eq!(
-            ordered("requests,inbox"),
-            [Space::Requests, Space::Inbox, Space::Code, Space::Branches]
+            names("requests,inbox"),
+            ["requests", "inbox", "code", "branches"]
         );
-        assert_eq!(ordered("nonsense,code,code").first(), Some(&Space::Code));
+        assert_eq!(names("nonsense,code,code").first(), Some(&"code"));
+        // A space offered later, one the order was never kept with, comes after.
+        let more = [offered.as_slice(), &[info("jira", 25)]].concat();
+        let kept: Vec<&str> = ordered("requests,inbox,code,branches", &more)
+            .iter()
+            .map(|s| s.space.name())
+            .collect();
+        assert_eq!(kept, ["requests", "inbox", "code", "branches", "jira"]);
     }
 }

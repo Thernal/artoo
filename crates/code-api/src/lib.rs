@@ -16,6 +16,9 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
+/// The Code space, by its id (`artoo_shell_api::spaces`): Code offers it, its pages are in it.
+pub const SPACE: &str = "code";
+
 /// A file read in Code.
 #[derive(Serialize, Deserialize)]
 pub struct FileRoute {

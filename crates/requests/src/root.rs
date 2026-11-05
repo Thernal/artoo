@@ -47,7 +47,7 @@ pub fn pages(requests: Entity<Requests>, frame: Rc<dyn Frame>, cx: &mut App) -> 
         }
     });
     Pages {
-        space: "requests",
+        space: artoo_requests_api::SPACE,
         kinds: &[
             RequestRoute::KIND,
             RequestCommitRoute::KIND,

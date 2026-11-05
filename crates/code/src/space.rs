@@ -233,7 +233,7 @@ impl CodeSpace {
     pub fn pages(this: &Entity<Self>) -> Pages {
         let (side, show) = (this.clone(), this.clone());
         Pages {
-            space: "code",
+            space: artoo_code_api::SPACE,
             kinds: &[FileRoute::KIND, FolderRoute::KIND],
             view: this.clone().into(),
             side: Some(Rc::new(move |_, width, cx| {
@@ -381,7 +381,7 @@ impl CodeSpace {
         if let Some(file) = self.file_view() {
             file.close(cx);
         }
-        self.frame.open_space("code", cx);
+        self.frame.open_space(artoo_code_api::SPACE, cx);
     }
 
     /// Every tab closes but `keep`'s (Close others), or every one (Close all) — the pinned ones

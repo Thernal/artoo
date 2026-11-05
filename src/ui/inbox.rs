@@ -171,7 +171,7 @@ impl Workspace {
             return self.jump_to(id, cx);
         }
         self.file_jump = Some((path.clone(), line));
-        self.nav.space = super::spaces::Space::Code;
+        self.nav.space = super::spaces::CODE;
         self.open_code_file(path, false, cx);
     }
 

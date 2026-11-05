@@ -1,5 +1,5 @@
-//! The menu on the left, the tab's side: the four spaces of the shell (#70) — Inbox, Code, Branches and
-//! Merge requests — with what waits in each and what the project lacks for one. What is on screen sits under its
+//! The menu on the left, the tab's side: the spaces the features offer (#70, #171 phase 6) — Inbox, Code, Branches
+//! and Merge requests — with what waits in each and what the project lacks for one. What is on screen sits under its
 //! space: the request, else the branch, and the file read in Code. Drawn by the shell (`artoo_shell_api::spaces`); a
 //! click comes back here. The menu folds to icons only when the user folds it — the title bar's first button or ⌘B
 //! (D2); Settings is the title bar's gear. Until the spaces get pages of their own (#72, #75), Code opens search
@@ -10,6 +10,24 @@ use super::requests::Scope;
 use super::{Workspace, icons, px, theme};
 use artoo_shell_api::spaces::{self, Open, SpaceRow, SpacesHost, SpacesMenu, ordered};
 pub use artoo_shell_api::spaces::{Places, Space};
+
+/// The spaces the tab coordinates, by their owners' ids: what each lacks, what waits in it, its root and its pages
+/// are still the tab's (#171 phase 7 moves the pages).
+pub(super) const INBOX: Space = Space(artoo_requests_api::INBOX);
+pub(super) const CODE: Space = Space(artoo_code_api::SPACE);
+pub(super) const BRANCHES: Space = Space(artoo_branches_api::SPACE);
+pub(super) const REQUESTS: Space = Space(artoo_requests_api::SPACE);
+
+/// The spaces `nav.txt` keeps a page of, in its columns' order; the space on screen by its place here.
+pub(super) const KEPT: [Space; 4] = [INBOX, CODE, BRANCHES, REQUESTS];
+
+/// A space's name as its owner offered it (`Merge requests`); its id when nobody did.
+pub(super) fn label(space: Space, cx: &App) -> &'static str {
+    spaces::all(cx)
+        .into_iter()
+        .find(|s| s.space == space)
+        .map_or(space.name(), |s| s.label)
+}
 use gpui::{App, Context, Pixels, Point, WeakEntity, Window, prelude::*};
 use std::rc::Rc;
 
@@ -62,37 +80,35 @@ impl Workspace {
 
     fn missing(&self, space: Space, cx: &App) -> Option<Missing> {
         match space {
-            Space::Branches if self.plain => Some(Missing::Git),
-            Space::Code | Space::Branches => None,
-            Space::Inbox | Space::Requests if self.requests_available(cx) => None,
-            Space::Inbox | Space::Requests
-                if self.requests_api().is_some_and(|r| r.connectable(cx)) =>
-            {
+            BRANCHES if self.plain => Some(Missing::Git),
+            INBOX | REQUESTS if self.requests_available(cx) => None,
+            INBOX | REQUESTS if self.requests_api().is_some_and(|r| r.connectable(cx)) => {
                 Some(Missing::Token)
             }
-            Space::Inbox | Space::Requests => Some(Missing::Remote),
+            INBOX | REQUESTS => Some(Missing::Remote),
+            _ => None,
         }
     }
 
     /// What waits in a space: the Inbox's unread, the requests that ask for your review.
     fn waiting(&self, space: Space, cx: &App) -> usize {
         match space {
-            Space::Inbox => self.inbox_unread(cx),
-            Space::Requests => self
+            INBOX => self.inbox_unread(cx),
+            REQUESTS => self
                 .requests_api()
                 .map_or(0, |r| r.count_in(Scope::ReviewMe, cx)),
-            Space::Code | Space::Branches => 0,
+            _ => 0,
         }
     }
 
     /// The rows open under `space`: its requests or branches, Code's file.
     fn open_rows(&self, space: Space, cx: &App) -> Vec<OpenRow> {
         let here = self.space() == Some(space);
-        if space == Space::Code {
-            return match self.page_of(Space::Code) {
+        if space == CODE {
+            return match self.page_of(CODE) {
                 Some(Page::File(path) | Page::Folder(path)) => vec![OpenRow {
                     item: None,
-                    icon: if matches!(self.page_of(Space::Code), Some(Page::Folder(_))) {
+                    icon: if matches!(self.page_of(CODE), Some(Page::Folder(_))) {
                         "folder"
                     } else {
                         "file"
@@ -221,7 +237,10 @@ impl Workspace {
 
     /// `from` dragged onto `to` in the menu: it takes `to`'s place, kept in `layout.txt`.
     fn move_space(&mut self, from: Space, to: Space, cx: &mut Context<Self>) {
-        let mut order = ordered(&self.layout.spaces);
+        let mut order: Vec<Space> = ordered(&self.layout.spaces, &spaces::all(cx))
+            .into_iter()
+            .map(|s| s.space)
+            .collect();
         let (Some(a), Some(b)) = (
             order.iter().position(|s| *s == from),
             order.iter().position(|s| *s == to),
@@ -239,10 +258,11 @@ impl Workspace {
     /// One the project lacks a token for opens the connect panel; one it lacks a remote or git
     /// for does nothing.
     pub(super) fn go_space(&mut self, space: Space, cx: &mut Context<Self>) {
+        let offered = spaces::all(cx).iter().any(|s| s.space == space);
         match self.missing(space, cx) {
-            _ if self.root.is_none() => {}
+            _ if self.root.is_none() || !offered => {}
             Some(Missing::Remote | Missing::Git) => {}
-            Some(Missing::Token) => self.show(Space::Requests, None, cx),
+            Some(Missing::Token) => self.show(REQUESTS, None, cx),
             None => self.enter_space(space, cx),
         }
     }
@@ -254,7 +274,17 @@ impl Workspace {
             return None;
         }
         let (mut rows, mut items) = (Vec::new(), Vec::new());
-        for space in ordered(&self.layout.spaces) {
+        let keymap = cx.try_global::<super::keymap::Keymap>();
+        let actions = artoo_shell_api::actions(cx);
+        for info in ordered(&self.layout.spaces, &spaces::all(cx)) {
+            let space = info.space;
+            // The key that goes there in force: one changed in Settings → Keyboard shows the new one.
+            let key = actions
+                .iter()
+                .find(|a| a.id == info.go)
+                .zip(keymap)
+                .map(|(a, keymap)| keymap.key_now(a.act.as_ref()))
+                .unwrap_or_default();
             let missing = self.missing(space, cx);
             let opens = self.open_rows(space, cx);
             items.push((space, opens.iter().map(|o| o.item.clone()).collect()));
@@ -291,10 +321,13 @@ impl Workspace {
                 .collect();
             rows.push(SpaceRow {
                 space,
+                label: info.label,
+                icon: info.icon,
+                key,
                 missing: missing.map(Missing::line),
                 inert: missing == Some(Missing::Remote),
                 waiting: self.waiting(space, cx),
-                shut: self.nav.folded[space.ix()],
+                shut: self.nav.folded.contains(&space),
                 opens,
                 opens_moving: self.motion.recent(&format!("opens-{}", space.id())),
             });

@@ -10,6 +10,8 @@
 //!   `Frame`.
 //! - **Settings' sections** (`add_settings_section`): a section's id, title and place in the left column; the window
 //!   root draws its own, a feature's holds its parts' rows (`Parts::settings`), any owner's in their places.
+//! - **Spaces** (`spaces::add`): a space's id, its row in the menu, its place there and the action that goes to it;
+//!   the menu, its order in `layout.txt` and the keys that go to a space read what was offered.
 //! - **Editors** (`add_editor`): an editor Open in opens a file in at a line (`artoo_core::editor::Editor`), by
 //!   its key, which Settings keeps; Artoo's three the frame's.
 //! - **Pages**: the routes of some kinds and a space's own page, drawn by the feature that owns them. The shell
@@ -272,6 +274,10 @@ pub trait Frame {
 
     /// Space `space`'s own page opened (`code`: the project's).
     fn open_space(&self, space: &'static str, cx: &mut App);
+
+    /// Space `space` gone to, as its row in the menu goes: the page it was left on, its own page when it is on
+    /// screen already; what the project lacks for it said instead, when it lacks something.
+    fn go_space(&self, space: &'static str, cx: &mut App);
 
     /// Route `route` kept first among the places opened lately (⌘K lists them).
     fn remember(&self, route: Route, cx: &mut App);
@@ -744,6 +750,7 @@ struct Registry {
     makers: Vec<Maker>,
     editors: Vec<Editor>,
     sections: Vec<settings::Section>,
+    spaces: Vec<spaces::SpaceInfo>,
     /// What was offered a second time and refused: `action review.wrap (its id)`.
     refused: Vec<String>,
 }

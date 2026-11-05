@@ -61,7 +61,7 @@ impl Workspace {
         // A page with no side panel and no diff: a space's list, the Inbox, Code (#71).
         let item = matches!(
             self.nav.space,
-            super::spaces::Space::Branches | super::spaces::Space::Requests
+            super::spaces::BRANCHES | super::spaces::REQUESTS
         ) && !self.at_root_list();
         // A request's Overview and Commits: no side panel and no diff (#73).
         let tab_page = matches!(
@@ -281,7 +281,7 @@ impl Workspace {
             (Some(i), false) => Some(i.saturating_sub(1)),
             (None, _) => (n > 0).then_some(0),
         };
-        if self.nav.space == super::spaces::Space::Requests {
+        if self.nav.space == super::spaces::REQUESTS {
             let shown: Vec<u64> = self.listed_requests(cx).iter().map(|m| m.iid).collect();
             let at = self
                 .requests_api()
@@ -305,7 +305,7 @@ impl Workspace {
 
     /// ↵ in a space's list: the row selected opens.
     pub(super) fn open_pick(&mut self, cx: &mut Context<Self>) {
-        if self.nav.space == super::spaces::Space::Requests {
+        if self.nav.space == super::spaces::REQUESTS {
             let shown: Vec<u64> = self.listed_requests(cx).iter().map(|m| m.iid).collect();
             let pick = self
                 .requests_api()

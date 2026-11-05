@@ -50,7 +50,7 @@ pub fn pages(
         }
     });
     Pages {
-        space: "branches",
+        space: artoo_branches_api::SPACE,
         kinds: &[
             BranchRoute::KIND,
             BranchCommitRoute::KIND,

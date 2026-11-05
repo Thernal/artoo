@@ -52,7 +52,7 @@ pub(crate) fn tool(
         icon: "message",
         tip: "Discussions  ⌘⇧D",
         title: "Discussions",
-        spaces: &["requests"],
+        spaces: &[artoo_requests_api::SPACE],
         on_pages: true,
         // About the page: before the windows that are in every space.
         order: 10,
