@@ -20,15 +20,13 @@ gpui::actions!(artoo, [ReportProblem]);
 
 /// Wires Report a problem in: its action (Help, ⌘K, ⌥⌘/) and the tool window of every tab.
 pub fn install(cx: &mut gpui::App) {
+    use artoo_shell_api::{Action, Menu, when};
     artoo_shell_api::add_action(
         cx,
-        artoo_shell_api::Action {
-            id: "reports.problem",
-            words: "Report a problem",
-            key: Some("cmd-alt-/"),
-            menu: Some((artoo_shell_api::Menu::Help, "Report a Problem…")),
-            act: Box::new(ReportProblem),
-        },
+        Action::new("reports.problem", ReportProblem)
+            .words("Report a problem")
+            .key("cmd-alt-/", when::TAB)
+            .menu(Menu::Help, "Report a Problem…"),
     );
     artoo_shell_api::add_parts(cx, tool::parts);
 }

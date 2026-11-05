@@ -1,8 +1,9 @@
 //! The shell's contract (#165 stage 4): what a feature adds to the window and asks of it, so a feature knows
 //! this contract and never the shell, and the shell knows no feature.
 //!
-//! - **Actions** (`add_action`): a command's words, the menu that shows it, its GPUI action. The app menu and ⌘K
-//!   list them; the tab that has the keys runs one through its parts (`Parts::actions`).
+//! - **Actions** (`add_action`): a command's GPUI action, its words for ⌘K, the keys it ships with and where they
+//!   apply, its item in the menu bar. ⌘K, the menu bar and Settings → Keyboard list what was offered, nothing
+//!   else; the tab that has the keys runs one, or a feature through its parts (`Parts::actions`).
 //! - **Parts** (`add_parts`): what a feature draws in every tab — an item in the title bar, a card over the
 //!   window, a tool window on the right, rows in Settings, the views a snapshot run opens, a space's pages, the
 //!   fields it types in (`Input`), its pieces of the item page on screen (`Piece`) —, made for each tab with its
@@ -53,27 +54,157 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-/// A command a feature offers: in ⌘K by its words, in a menu when it says which.
+/// A command: the GPUI action that runs it, and where the developer finds it — in ⌘K by its words, on the keys it
+/// ships with, in a menu of the menu bar. ⌘K, the menu bar and Settings → Keyboard list only what was offered.
+/// Made with `Action::new` and its builders.
 pub struct Action {
-    /// A stable id (`updates.check`): a keymap or a setting may keep it.
+    /// A stable id (`updates.check`), its subject's (`review.wrap`): a setting may keep it. A second action of the
+    /// same id is refused.
     pub id: &'static str,
-    /// What ⌘K lists ("Check for updates").
-    pub words: &'static str,
-    /// The keys it ships with in a tab (`cmd-alt-/`, macOS's way); Settings → Keyboard changes them.
-    pub key: Option<&'static str>,
-    /// The menu that shows it, with its words there ("Check for Updates…").
-    pub menu: Option<(Menu, &'static str)>,
-    /// What runs it: the feature answers it in each tab (`Parts::actions`).
+    /// What runs it: the tab answers it, or the feature in each tab (`Parts::actions`). `keymap.txt` keeps it by
+    /// its GPUI name's last part (`CheckForUpdates`), so a second action of that name is refused too.
     pub act: Box<dyn gpui::Action>,
+    /// What ⌘K lists ("Check for updates"); none, it is not there.
+    pub words: Option<&'static str>,
+    /// Where ⌘K lists it, the lowest first; those of one order as they were offered.
+    pub order: u16,
+    /// The keys it ships with, each where it applies; Settings → Keyboard changes them.
+    pub keys: Vec<Key>,
+    /// Its item in the menu bar.
+    pub menu: Option<InMenu>,
 }
 
-/// A menu a feature's command can go to.
+/// Where ⌘K lists an action that does not say (`Action::order`): after Artoo's own.
+pub const LATER: u16 = 1000;
+
+impl Action {
+    /// `act` under `id`, found nowhere yet: give it words, keys or a menu.
+    pub fn new(id: &'static str, act: impl gpui::Action) -> Self {
+        Self {
+            id,
+            act: Box::new(act),
+            words: None,
+            order: LATER,
+            keys: Vec::new(),
+            menu: None,
+        }
+    }
+
+    /// In ⌘K by `words`.
+    pub fn words(self, words: &'static str) -> Self {
+        Self {
+            words: Some(words),
+            ..self
+        }
+    }
+
+    /// Where ⌘K lists it (`Action::order`).
+    pub fn order(self, order: u16) -> Self {
+        Self { order, ..self }
+    }
+
+    /// Shipped on `keys` (macOS's way, `cmd-alt-/`; the app puts them in this OS's terms) where `when` applies
+    /// (`when::TAB`, …).
+    pub fn key(mut self, keys: &'static str, when: &'static str) -> Self {
+        self.keys.push(Key { keys, when });
+        self
+    }
+
+    /// In `menu` by `words` ("Check for Updates…"), in its first group, after the items that say where.
+    pub fn menu(self, menu: Menu, words: &'static str) -> Self {
+        Self {
+            menu: Some(InMenu {
+                menu,
+                words,
+                group: 0,
+                order: LATER,
+                checked: None,
+            }),
+            ..self
+        }
+    }
+
+    /// Its menu item's place: in group `group` (a rule between groups, the lowest first), at `order` in it.
+    pub fn at(mut self, group: u16, order: u16) -> Self {
+        if let Some(item) = &mut self.menu {
+            item.group = group;
+            item.order = order;
+        }
+        self
+    }
+
+    /// Its menu item a choice, checked while `on` says so (asked as the menus are set).
+    pub fn checked(mut self, on: impl Fn(&App) -> bool + 'static) -> Self {
+        if let Some(item) = &mut self.menu {
+            item.checked = Some(Rc::new(on));
+        }
+        self
+    }
+}
+
+/// A key an action ships with (`Action::key`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Key {
+    /// macOS's way: `cmd-alt-/`, `shift-n`, `cmd-k cmd-s`.
+    pub keys: &'static str,
+    /// The key context it applies in (`when`).
+    pub when: &'static str,
+}
+
+/// Where a key applies (`Action::key`): a key context's predicate.
+pub mod when {
+    /// Anywhere in the app, with a window or not.
+    pub const APP: &str = "";
+    /// In a tab, typing or not.
+    pub const TAB: &str = "Workspace";
+    /// In a tab while nothing types: bare letters and arrows.
+    pub const NOT_TYPING: &str = "Workspace && !Typing";
+    /// In a tab while no field has a caret of its own (↑ ↓ move it there).
+    pub const NO_CARET: &str = "Workspace && !Caret";
+    /// In a tab while neither ⌘K nor a field with a caret is up.
+    pub const LISTS: &str = "Workspace && !Palette && !Caret";
+    /// In ⌘K.
+    pub const PALETTE: &str = "Palette";
+}
+
+/// An action's item in the menu bar (`Action::menu`).
+pub struct InMenu {
+    pub menu: Menu,
+    /// Its words there ("Check for Updates…").
+    pub words: &'static str,
+    /// Its group: a rule between groups, the lowest first.
+    pub group: u16,
+    /// Where it stands in its group, the lowest first; those of one order as they were offered.
+    pub order: u16,
+    /// A choice: whether it is on, asked as the menus are set.
+    pub checked: Option<Rc<dyn Fn(&App) -> bool>>,
+}
+
+/// A menu of the menu bar, in its order there. A feature adds items to them; the menus themselves are the
+/// frame's.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Menu {
-    /// Artoo's own menu, above Settings….
+    /// Artoo's own menu: Settings… and Quit among it.
     App,
-    /// Help, after its own items.
+    File,
+    Go,
+    View,
     Help,
+}
+
+impl Menu {
+    pub const ALL: [Menu; 5] = [Menu::App, Menu::File, Menu::Go, Menu::View, Menu::Help];
+
+    /// Its title in the menu bar.
+    pub fn title(self) -> &'static str {
+        match self {
+            Menu::App => "Artoo",
+            Menu::File => "File",
+            Menu::Go => "Go",
+            Menu::View => "View",
+            Menu::Help => "Help",
+        }
+    }
 }
 
 /// What a part asks of the tab it was made for. A change is made once the update under way is over; a read is
@@ -620,9 +751,37 @@ pub fn editors(cx: &App) -> &[Editor] {
         .unwrap_or(&[])
 }
 
-/// Offers a command (a feature's `install`).
+/// Offers a command (a feature's `install`). One whose id, or whose GPUI name's last part (what `keymap.txt` keeps),
+/// was offered already is refused, and the log says so: the first to offer it keeps it.
 pub fn add_action(cx: &mut App, action: Action) {
-    cx.default_global::<Registry>().actions.push(action);
+    let actions = &mut cx.default_global::<Registry>().actions;
+    if let Some(taken) = taken(actions, &action) {
+        artoo_core::applog::line(&format!(
+            "action {:?} ({}) offered twice: the second refused",
+            action.id, taken
+        ));
+        return;
+    }
+    actions.push(action);
+}
+
+/// What of `action`'s a command offered before has: its id or its GPUI name's last part.
+fn taken(actions: &[Action], action: &Action) -> Option<&'static str> {
+    let name = short(action.act.name());
+    actions.iter().find_map(|a| {
+        if a.id == action.id {
+            Some("its id")
+        } else if short(a.act.name()) == name {
+            Some("its name")
+        } else {
+            None
+        }
+    })
+}
+
+/// `artoo::NextFile` → `NextFile`: what `keymap.txt` names an action by.
+pub fn short(name: &str) -> &str {
+    name.rsplit("::").next().unwrap_or(name)
 }
 
 /// The commands offered, in the order they were.
@@ -666,6 +825,41 @@ mod tests {
         fn hello(&self) -> &'static str {
             "hello"
         }
+    }
+
+    gpui::actions!(test, [Wrap, Unwrap]);
+    mod other {
+        gpui::actions!(elsewhere, [Wrap]);
+    }
+
+    #[test]
+    fn an_action_offered_twice_is_refused() {
+        let wrap = Action::new("review.wrap", Wrap);
+        let actions = vec![wrap];
+        // Its id again, under another action.
+        assert_eq!(
+            taken(&actions, &Action::new("review.wrap", Unwrap)),
+            Some("its id")
+        );
+        // Its name in another namespace: `keymap.txt` could not tell them apart.
+        assert_eq!(
+            taken(&actions, &Action::new("other.wrap", other::Wrap)),
+            Some("its name")
+        );
+        assert_eq!(taken(&actions, &Action::new("review.unwrap", Unwrap)), None);
+    }
+
+    #[test]
+    fn a_menu_place_is_set_on_its_item() {
+        let action = Action::new("review.wrap", Wrap)
+            .menu(Menu::View, "Wrap Long Lines")
+            .at(3, 1)
+            .checked(|_| true);
+        let item = action.menu.unwrap();
+        assert_eq!((item.menu, item.group, item.order), (Menu::View, 3, 1));
+        assert!(item.checked.is_some());
+        // Without a menu, a place has nowhere to go.
+        assert!(Action::new("review.wrap", Wrap).at(3, 1).menu.is_none());
     }
 
     #[test]

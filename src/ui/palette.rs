@@ -5,7 +5,6 @@
 //! does is here; the window is drawn by the shell (`artoo_shell_api::palette`).
 
 use super::input::{self, Edit};
-use super::spaces::Space;
 use super::{Workspace, format, theme};
 use crate::git::{NamedRef, Repo};
 use artoo_shell_api::palette;
@@ -110,165 +109,29 @@ pub enum Kind {
     Face { code: bool },
 }
 
-#[derive(Clone, Copy)]
-pub enum Cmd {
-    Open,
-    /// The card naming the project and giving it a hue (`labeling.rs`).
-    NameProject,
-    Refresh,
-    Settings,
-    Back,
-    Forward,
-    FindInDiff,
-    FindCommits,
-    FilterFiles,
-    ToggleSidebar,
-    ToggleFiles,
-    ToggleRequests,
-    FocusDiff,
-    ZenOneFile,
-    SetUp,
-    Merge,
-    Unified,
-    CycleMode,
-    Rendered,
-    Theme,
-    Wrap,
-    FullContext,
-    Whitespace,
-    OneFile,
-    ExpandAll,
-    RichComments,
-    LeaveRequest,
-    AllReviewed,
-    NextRequest,
-    PreviousRequest,
-    Compare,
-    NewTab,
-    CreateRequest,
-    SendToAgent,
-    OpenIn,
-    Reveal,
-    Shortcuts,
-    Comments,
-    Agents,
-    FoldMenu,
-    Details,
-    NextSection,
-    FindInFiles,
-    Annotate,
-    Recent,
-    Structure,
-    Bookmarks,
-    ZoomIn,
-    ZoomOut,
-    ZoomReset,
-    Switch,
-    CopyLink,
-    PinTab,
-    Space(Space),
+/// A command in ⌘K: one offered with words (`artoo_shell_api::Action::words`), in ⌘K's order.
+pub(super) struct Offered {
+    id: &'static str,
+    words: &'static str,
+    act: Box<dyn Action>,
 }
 
-const COMMANDS: &[(&str, &str, Cmd)] = &[
-    ("Inbox", "⌃⌘1", Cmd::Space(Space::Inbox)),
-    ("Code", "⌃⌘2", Cmd::Space(Space::Code)),
-    ("Branches", "⌃⌘3", Cmd::Space(Space::Branches)),
-    ("Merge requests", "⌃⌘4", Cmd::Space(Space::Requests)),
-    ("Switch to a branch or a merge request…", "", Cmd::Switch),
-    ("Compare two refs…", "⌥⌘C", Cmd::Compare),
-    ("Copy link to this page", "⌥⇧⌘C", Cmd::CopyLink),
-    ("Pin tab", "⌥⌘P", Cmd::PinTab),
-    ("Create merge request…", "⌥⌘M", Cmd::CreateRequest),
-    (
-        "Send the comments to an agent's chat…",
-        "⌥⌘A",
-        Cmd::SendToAgent,
-    ),
-    ("Show or hide the Agents window", "⇧⌘A", Cmd::Agents),
-    (
-        "Open in its app — the file or the folder",
-        "⌥⌘O",
-        Cmd::OpenIn,
-    ),
-    ("Reveal in Finder", "⌥⌘R", Cmd::Reveal),
-    ("Fold the menu to icons", "⌘B", Cmd::FoldMenu),
-    ("Keyboard shortcuts", "?", Cmd::Shortcuts),
-    ("Show or hide the Discussions window", "⌘⇧D", Cmd::Comments),
-    ("Show the request's overview", "⌘I", Cmd::Details),
-    ("Next section of the request", "⌃⇥", Cmd::NextSection),
-    ("Find in the diff", "⌘F", Cmd::FindInDiff),
-    ("Search in all files of the diff", "⌘⌥F", Cmd::FindInFiles),
-    ("Annotate — who wrote each line", "⌥⌘B", Cmd::Annotate),
-    ("Recent places", "⌘E", Cmd::Recent),
-    (
-        "Changes in this file — functions and types",
-        "⌘⇧O",
-        Cmd::Structure,
-    ),
-    ("Bookmarks", "⌘F3", Cmd::Bookmarks),
-    ("Zoom in — bigger interface", "⌘+", Cmd::ZoomIn),
-    ("Zoom out — smaller interface", "⌘−", Cmd::ZoomOut),
-    ("Actual size", "⌘0", Cmd::ZoomReset),
-    (
-        "Changes in this file — functions and types",
-        "⌘⇧O",
-        Cmd::Structure,
-    ),
-    ("Search commits", "⌘⇧F", Cmd::FindCommits),
-    ("Filter files by path", "⌥⌘P", Cmd::FilterFiles),
-    ("Refresh", "⌘R", Cmd::Refresh),
-    ("Open a repository…", "⌘O", Cmd::Open),
-    ("Name and colour this project…", "", Cmd::NameProject),
-    ("Back", "⌘[", Cmd::Back),
-    ("Forward", "⌘]", Cmd::Forward),
-    ("Toggle split / unified", "⌥U", Cmd::Unified),
-    ("Cycle lines, words, structural", "⌥D", Cmd::CycleMode),
-    (
-        "Markdown files rendered, or their source",
-        "M",
-        Cmd::Rendered,
-    ),
-    ("Theme — try each on the whole window", "", Cmd::Theme),
-    ("Toggle wrap", "⌥Z", Cmd::Wrap),
-    ("Toggle full file", "⌥E", Cmd::FullContext),
-    ("Toggle ignore whitespace", "⌥W", Cmd::Whitespace),
-    (
-        "All files in one scroll, or one file at a time",
-        "⌥A",
-        Cmd::OneFile,
-    ),
-    (
-        "Expand all files, or collapse them all",
-        "⌥⇧A",
-        Cmd::ExpandAll,
-    ),
-    ("Comments as markdown or raw text", "⌥M", Cmd::RichComments),
-    (
-        "Leave the merge request — back to your branch",
-        "⌥⌘L",
-        Cmd::LeaveRequest,
-    ),
-    (
-        "Mark all files reviewed, or unmark all",
-        "⌥⇧V",
-        Cmd::AllReviewed,
-    ),
-    (
-        "Next merge request not reviewed yet",
-        "⌥↓",
-        Cmd::NextRequest,
-    ),
-    ("Previous merge request", "⌥↑", Cmd::PreviousRequest),
-    ("Hide or show the side panel", "⌘J", Cmd::ToggleSidebar),
-    ("Fold or open Changes", "⌥⌘2", Cmd::ToggleFiles),
-    ("Branches or merge requests", "⌥⌘3", Cmd::ToggleRequests),
-    ("Diff only", "⌘.", Cmd::FocusDiff),
-    ("Diff only, one file at a time", "⌥⌘.", Cmd::ZenOneFile),
-    ("Set up Artoo", "", Cmd::SetUp),
-    ("Merge this merge request…", "", Cmd::Merge),
-    ("New tab", "⌘T", Cmd::NewTab),
-    ("Settings", "⌘,", Cmd::Settings),
-];
+/// The commands offered with words, the window root's and the features', in ⌘K's order (`Action::order`).
+pub(super) fn offered(cx: &App) -> Vec<Offered> {
+    let mut offered: Vec<&artoo_shell_api::Action> = artoo_shell_api::actions(cx)
+        .iter()
+        .filter(|a| a.words.is_some())
+        .collect();
+    offered.sort_by_key(|a| a.order);
+    offered
+        .into_iter()
+        .map(|a| Offered {
+            id: a.id,
+            words: a.words.unwrap_or_default(),
+            act: a.act.boxed_clone(),
+        })
+        .collect()
+}
 
 #[derive(Clone)]
 enum Pick {
@@ -288,9 +151,10 @@ enum Pick {
     /// A file of the repository the diff does not change.
     RepoFile(String),
     Link(crate::links::Link),
-    Command(Cmd),
-    /// A command a feature offers (`Workspace::contributed`), by its place there.
-    Offered(usize),
+    /// A command offered (`Workspace::contributed`), by its place there.
+    Command(usize),
+    /// Browse… for a folder: Open's.
+    Browse,
     Ref(String, Oid),
     Theme(String),
     /// A repository to open in a tab of its own, or go to when one has it.
@@ -394,7 +258,7 @@ fn project_items(
         label: "Browse…".to_owned(),
         detail: String::new(),
         key: "⌘O",
-        pick: Pick::Command(Cmd::Open),
+        pick: Pick::Browse,
     });
     items
 }
@@ -640,27 +504,27 @@ impl Workspace {
         cx.notify();
     }
 
-    /// A command's label: Copy link names what is on screen.
-    fn command_label(&self, label: &str, cmd: Cmd, cx: &App) -> String {
-        match cmd {
-            Cmd::CopyLink => format!("Copy link to {}", self.page_kind()),
-            Cmd::PinTab if self.shown_tab_pinned(cx) => "Unpin tab".to_owned(),
-            _ => label.to_owned(),
+    /// A command's label: Copy link names what is on screen, Pin tab says Unpin on a pinned one.
+    fn command_label(&self, offered: &Offered, cx: &App) -> String {
+        match offered.id {
+            "shell.copy-link" => format!("Copy link to {}", self.page_kind()),
+            "shell.pin-tab" if self.shown_tab_pinned(cx) => "Unpin tab".to_owned(),
+            _ => offered.words.to_owned(),
         }
     }
 
-    /// The commands features offer that the palette's words match.
-    fn offered_items(&self, group: &'static str, words: &[String]) -> Vec<Item> {
+    /// The commands offered that the palette's words match, under `group`.
+    fn command_items(&self, group: &'static str, words: &[String], cx: &App) -> Vec<Item> {
         self.contributed
             .iter()
             .enumerate()
-            .filter(|(_, (label, _))| matches(words, label))
-            .map(|(ix, (label, _))| Item {
+            .filter(|(_, o)| matches(words, o.words))
+            .map(|(ix, o)| Item {
                 group,
-                label: (*label).to_owned(),
+                label: self.command_label(o, cx),
                 detail: String::new(),
                 key: "",
-                pick: Pick::Offered(ix),
+                pick: Pick::Command(ix),
             })
             .collect()
     }
@@ -671,18 +535,7 @@ impl Workspace {
         let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
         match scope {
             Scope::All => self.all_items(query, &p.files, cx),
-            Scope::Actions => COMMANDS
-                .iter()
-                .filter(|(label, ..)| matches(&words, label))
-                .map(|&(label, key, cmd)| Item {
-                    group: "Actions",
-                    label: self.command_label(label, cmd, cx),
-                    detail: String::new(),
-                    key,
-                    pick: Pick::Command(cmd),
-                })
-                .chain(self.offered_items("Actions", &words))
-                .collect(),
+            Scope::Actions => self.command_items("Actions", &words, cx),
             Scope::Branches => crate::rank::rank(self.listed_branches(cx), query, |(_, b)| &b.name)
                 .into_iter()
                 .take(60)
@@ -1004,17 +857,8 @@ impl Workspace {
         let mut items = Vec::new();
         if scope.is_none_or(|s| s == '>') {
             items.extend(
-                COMMANDS
-                    .iter()
-                    .filter(|(label, ..)| matches(&words, label))
-                    .map(|&(label, key, cmd)| Item {
-                        group: "Commands",
-                        label: self.command_label(label, cmd, cx),
-                        detail: String::new(),
-                        key,
-                        pick: Pick::Command(cmd),
-                    })
-                    .chain(self.offered_items("Commands", &words))
+                self.command_items("Commands", &words, cx)
+                    .into_iter()
                     .take(cap(5)),
             );
         }
@@ -1267,17 +1111,17 @@ impl Workspace {
                 self.palette = None;
                 self.open_link(link, cx);
             }
-            Pick::Command(cmd) => {
+            Pick::Command(ix) => {
                 self.palette = None;
                 cx.notify();
-                window.dispatch_action(command_action(cmd), cx);
-            }
-            Pick::Offered(ix) => {
-                self.palette = None;
-                cx.notify();
-                if let Some((_, act)) = self.contributed.get(ix) {
-                    window.dispatch_action(act.boxed_clone(), cx);
+                if let Some(offered) = self.contributed.get(ix) {
+                    window.dispatch_action(offered.act.boxed_clone(), cx);
                 }
+            }
+            Pick::Browse => {
+                self.palette = None;
+                cx.notify();
+                window.dispatch_action(Box::new(super::Open), cx);
             }
             Pick::Theme(id) => {
                 self.palette = None;
@@ -1375,16 +1219,16 @@ impl Workspace {
             .items
             .iter()
             .map(|item| {
-                // A command whose key was changed in Settings → Keyboard shows the new one.
+                // A command's key in force: one changed in Settings → Keyboard shows the new one.
                 let key = match item.pick {
-                    Pick::Command(cmd) => keymap
-                        .shown(command_action(cmd).as_ref())
-                        .unwrap_or_else(|| item.key.to_owned()),
-                    Pick::Offered(ix) => self
+                    Pick::Command(ix) => self
                         .contributed
                         .get(ix)
-                        .map(|(_, act)| keymap.key_now(act.as_ref()))
+                        .map(|o| keymap.key_now(o.act.as_ref()))
                         .unwrap_or_default(),
+                    Pick::Browse => keymap
+                        .shown(&super::Open)
+                        .unwrap_or_else(|| item.key.to_owned()),
                     _ => item.key.to_owned(),
                 };
                 palette::Row {
@@ -1485,70 +1329,6 @@ impl palette::PaletteHost for Glue {
         if let Some(scope) = Scope::ALL.get(ix).copied() {
             self.0.update(cx, |this, cx| this.search(scope, cx)).ok();
         }
-    }
-}
-
-fn command_action(cmd: Cmd) -> Box<dyn Action> {
-    use super::*;
-    match cmd {
-        Cmd::Open => Box::new(Open),
-        Cmd::NameProject => Box::new(NameProject),
-        Cmd::Refresh => Box::new(Refresh),
-        Cmd::Settings => Box::new(OpenSettings),
-        Cmd::Back => Box::new(GoBack),
-        Cmd::Forward => Box::new(GoForward),
-        Cmd::FindInDiff => Box::new(Find),
-        Cmd::FindCommits => Box::new(FindCommits),
-        Cmd::FilterFiles => Box::new(FilterFiles),
-        Cmd::ToggleSidebar => Box::new(ToggleSidebar),
-        Cmd::ToggleFiles => Box::new(ToggleFiles),
-        Cmd::ToggleRequests => Box::new(ToggleRequests),
-        Cmd::FocusDiff => Box::new(FocusDiff),
-        Cmd::ZenOneFile => Box::new(ZenOneFile),
-        Cmd::SetUp => Box::new(super::SetUp),
-        Cmd::Merge => Box::new(super::MergeRequest),
-        Cmd::Unified => Box::new(ToggleUnified),
-        Cmd::CycleMode => Box::new(CycleMode),
-        Cmd::Wrap => Box::new(ToggleWrap),
-        Cmd::FullContext => Box::new(ToggleFullContext),
-        Cmd::Whitespace => Box::new(ToggleWhitespace),
-        Cmd::OneFile => Box::new(ToggleOneFile),
-        Cmd::ExpandAll => Box::new(ToggleExpandAll),
-        Cmd::RichComments => Box::new(ToggleRichComments),
-        Cmd::Rendered => Box::new(ToggleRendered),
-        Cmd::Theme => Box::new(PickTheme),
-        Cmd::LeaveRequest => Box::new(LeaveRequest),
-        Cmd::AllReviewed => Box::new(ToggleAllReviewed),
-        Cmd::NextRequest => Box::new(NextRequest),
-        Cmd::PreviousRequest => Box::new(PreviousRequest),
-        Cmd::Compare => Box::new(Compare),
-        Cmd::NewTab => Box::new(NewTab),
-        // From ⌘K, the quick way: one question at a time (#47 D).
-        Cmd::CreateRequest => Box::new(super::QuickCreateRequest),
-        Cmd::SendToAgent => Box::new(super::SendToAgent),
-        Cmd::OpenIn => Box::new(super::OpenIn),
-        Cmd::Reveal => Box::new(super::RevealInFinder),
-        Cmd::Shortcuts => Box::new(ShowShortcuts),
-        Cmd::Comments => Box::new(ToggleComments),
-        Cmd::Agents => Box::new(ToggleAgents),
-        Cmd::FoldMenu => Box::new(FoldMenu),
-        Cmd::Details => Box::new(ShowOverview),
-        Cmd::NextSection => Box::new(NextSection),
-        Cmd::FindInFiles => Box::new(FindInFiles),
-        Cmd::Annotate => Box::new(ToggleAnnotate),
-        Cmd::Recent => Box::new(OpenRecent),
-        Cmd::Structure => Box::new(ShowStructure),
-        Cmd::Bookmarks => Box::new(ShowBookmarks),
-        Cmd::ZoomIn => Box::new(ZoomIn),
-        Cmd::ZoomOut => Box::new(ZoomOut),
-        Cmd::ZoomReset => Box::new(ZoomReset),
-        Cmd::Switch => Box::new(SwitchTo),
-        Cmd::CopyLink => Box::new(super::CopyLink),
-        Cmd::PinTab => Box::new(super::PinTab),
-        Cmd::Space(Space::Inbox) => Box::new(super::GoToInbox),
-        Cmd::Space(Space::Code) => Box::new(super::GoToCode),
-        Cmd::Space(Space::Branches) => Box::new(super::GoToBranches),
-        Cmd::Space(Space::Requests) => Box::new(super::GoToMergeRequests),
     }
 }
 

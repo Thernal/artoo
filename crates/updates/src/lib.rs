@@ -29,13 +29,9 @@ gpui::actions!(
 pub fn install(cx: &mut App) {
     artoo_shell_api::add_action(
         cx,
-        Action {
-            id: "updates.check",
-            words: "Check for updates",
-            key: None,
-            menu: Some((Menu::App, "Check for Updates…")),
-            act: Box::new(CheckForUpdates),
-        },
+        Action::new("updates.check", CheckForUpdates)
+            .words("Check for updates")
+            .menu(Menu::App, "Check for Updates…"),
     );
     artoo_shell_api::add_parts(cx, card::parts);
     cx.spawn(async move |cx| {

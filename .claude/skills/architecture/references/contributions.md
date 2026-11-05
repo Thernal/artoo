@@ -5,12 +5,17 @@
 (`artoo_core::route`: `nav.txt` keeps them, the app's kinds in `src/ui/routes.rs`); the page registry (`Pages`)
 since 2026-10-30, Code's pages the first on it, still drawn in the app until Code is a crate; toasts since 2026-11-04
 (`Toast`, the closed `toast::Act` gone, #171); tool windows and editors since 2026-11-04 (`Tool`, the tab's
-`tools::Tool` gone; `add_editor`, the core's `Editor` enum data, #171). Until every space is on it, `Page` (`src/ui/nav.rs`) and `menu::Act`
-are what these replace, and a new page or action is added there in the shape below — one variant, one id, one
-owner.
+`tools::Tool` gone; `add_editor`, the core's `Editor` enum data, #171); commands since 2026-11-05 (every one offered, the
+window root's as data in `src/ui/commands.rs`; ⌘K, the menu bar and the keys made from the registry alone, `palette::Cmd`
+and the hand-written lists gone, #171). Until every space is on it, `Page` (`src/ui/nav.rs`) and `menu::Act`
+are what these replace, and a new page or a context menu's act is added there in the shape below — one variant, one
+id, one owner. A new command is offered: the window root's in `commands.rs` while the tab runs it, a feature's in its
+`install`.
 
-**What `artoo-shell-api` holds now:** `add_action` (an id, its words for ⌘K, the keys it ships with, the menu that
-shows it — Artoo's or Help —, its GPUI action), `add_editor` (an editor Open in opens a file in at a line, by its
+**What `artoo-shell-api` holds now:** `add_action` (an `Action`: its id, its GPUI action, its words for ⌘K and its
+place there, the keys it ships with each with the key context it applies in (`when::TAB`, `when::NOT_TYPING`, …), its
+item in the menu bar — `Menu`'s App, File, Go, View or Help, a group and an order in it, a check asked as the menus are
+set —; a second id, or a second GPUI name's last part as `keymap.txt` keeps it, refused), `add_editor` (an editor Open in opens a file in at a line, by its
 key, a key offered twice refused) and `add_parts` (a maker each tab calls with its `Frame`: a
 title-bar item with when it shows, an `Overlay` — a card that is drawn and has the keys while open, closed by
 Escape, polled each frame the tab is not busy —, a `Tool` — a tool window in the spaces it names, on their pages

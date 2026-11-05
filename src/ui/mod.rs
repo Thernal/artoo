@@ -18,6 +18,7 @@ mod bar;
 mod beside;
 mod bookmarks;
 mod code;
+mod commands;
 mod compare;
 mod complete;
 mod composer;
@@ -93,9 +94,9 @@ use artoo_shell_api::frame::{Drag, Split};
 use artoo_shell_api::title;
 use artoo_ui_kit::controls::tag;
 use gpui::{
-    App, Context, FocusHandle, KeyBinding, KeyDownEvent, Menu, MenuItem, MouseButton,
-    MouseDownEvent, MouseMoveEvent, PathPromptOptions, Point, SharedString, Task, TitlebarOptions,
-    Window, WindowBounds, WindowOptions, actions, div, font, prelude::*, size,
+    App, Context, FocusHandle, KeyBinding, KeyDownEvent, MenuItem, MouseButton, MouseDownEvent,
+    MouseMoveEvent, PathPromptOptions, Point, SharedString, Task, TitlebarOptions, Window,
+    WindowBounds, WindowOptions, actions, div, font, prelude::*, size,
 };
 use lists::Field;
 use menu::{Act, Entry};
@@ -265,239 +266,15 @@ fn share_settings(settings: &Settings) {
     PROJECTS.store(n as u8, Relaxed);
 }
 
-/// The keys of the app as shipped; `keymap.txt` changes them (`keymap.rs`).
-fn default_bindings() -> Vec<KeyBinding> {
-    bindings(crate::platform::keys)
-}
-
-/// The shipped keys, written with macOS keys and put in this OS's terms by `k`.
-/// The keys the commands features offer ship with (`artoo_shell_api::Action::key`), in the tab.
-fn offered_bindings(k: fn(&str) -> String, cx: &App) -> Vec<KeyBinding> {
-    let tab: Option<std::rc::Rc<gpui::KeyBindingContextPredicate>> =
-        gpui::KeyBindingContextPredicate::parse("Workspace")
-            .ok()
-            .map(Into::into);
-    artoo_shell_api::actions(cx)
-        .iter()
-        .filter_map(|a| {
-            KeyBinding::load(
-                &k(a.key?),
-                a.act.boxed_clone(),
-                tab.clone(),
-                false,
-                None,
-                &gpui::DummyKeyboardMapper,
-            )
-            .ok()
-        })
-        .collect()
-}
-
-fn bindings(k: fn(&str) -> String) -> Vec<KeyBinding> {
-    vec![
-        KeyBinding::new(&k("cmd-o"), Open, None),
-        KeyBinding::new(&k("cmd-r"), Refresh, None),
-        KeyBinding::new(&k("cmd-q"), Quit, None),
-        KeyBinding::new(&k("cmd-,"), OpenSettings, None),
-        KeyBinding::new(&k("cmd-f"), Find, Some("Workspace")),
-        KeyBinding::new(&k("cmd-s"), SaveTheme, Some("Workspace")),
-        KeyBinding::new(&k("cmd-shift-f"), FindCommits, Some("Workspace")),
-        KeyBinding::new(&k("cmd-alt-p"), FilterFiles, Some("Workspace")),
-        KeyBinding::new(&k("cmd-["), GoBack, Some("Workspace")),
-        KeyBinding::new(&k("cmd-]"), GoForward, Some("Workspace")),
-        // ⌘J the side panel, as ⌘B the menu (the developer, 2026-10-23; ⌥⌘1 before).
-        KeyBinding::new(&k("cmd-j"), ToggleSidebar, Some("Workspace")),
-        KeyBinding::new(&k("cmd-alt-2"), ToggleFiles, Some("Workspace")),
-        KeyBinding::new(&k("cmd-alt-3"), ToggleRequests, Some("Workspace")),
-        KeyBinding::new(&k("c"), CommentLine, Some("Workspace && !Typing")),
-        KeyBinding::new(
-            &k("cmd-shift-enter"),
-            SubmitReview,
-            Some("Workspace && !Typing"),
-        ),
-        KeyBinding::new(&k("cmd-alt-m"), CreateRequest, Some("Workspace && !Typing")),
-        // ⇧⌘A the Agents window as Design gives it, ⌥⌘A sends to an agent (D12, X3).
-        KeyBinding::new(&k("cmd-alt-a"), SendToAgent, Some("Workspace && !Typing")),
-        // Open in (#78): the page's file or folder in its app, or in Finder.
-        KeyBinding::new(&k("cmd-alt-o"), OpenIn, Some("Workspace && !Typing")),
-        KeyBinding::new(
-            &k("cmd-alt-r"),
-            RevealInFinder,
-            Some("Workspace && !Typing"),
-        ),
-        KeyBinding::new(
-            &k("cmd-shift-a"),
-            ToggleAgents,
-            Some("Workspace && !Typing"),
-        ),
-        // The menu folds with ⌘B (D2; ⌘0 stays zoom reset, the switch picker has no
-        // key); in a field ⌘B is bold. ⌃⌘1…4 the spaces, Ctrl+Shift+1…4 on Windows and Linux.
-        KeyBinding::new(&k("cmd-b"), FoldMenu, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("ctrl-cmd-1"), GoToInbox, Some("Workspace")),
-        KeyBinding::new(&k("ctrl-cmd-2"), GoToCode, Some("Workspace")),
-        KeyBinding::new(&k("ctrl-cmd-3"), GoToBranches, Some("Workspace")),
-        KeyBinding::new(&k("ctrl-cmd-4"), GoToMergeRequests, Some("Workspace")),
-        KeyBinding::new(&k("a"), ApproveRequest, Some("Workspace && !Typing")),
-        // The Inbox's older key, from when the bell opened a window (#72).
-        KeyBinding::new(&k("cmd-shift-n"), GoToInbox, Some("Workspace")),
-        KeyBinding::new(&k("alt-n"), NextDraft, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("alt-p"), PreviousDraft, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("?"), ShowShortcuts, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("cmd-/"), ShowShortcuts, Some("Workspace")),
-        KeyBinding::new(&k("shift-n"), NextThread, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("shift-p"), PreviousThread, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("r"), ReplyThread, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("x"), ResolveThread, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("e"), EditComment, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("shift-e"), ReactNote, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("o"), ToggleThread, Some("Workspace && !Typing")),
-        KeyBinding::new(
-            &k("cmd-shift-d"),
-            ToggleComments,
-            Some("Workspace && !Typing"),
-        ),
-        KeyBinding::new(&k("cmd-i"), ShowOverview, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("ctrl-tab"), NextSection, Some("Workspace")),
-        KeyBinding::new(&k("ctrl-shift-tab"), PreviousSection, Some("Workspace")),
-        // The items open under the space, as a browser's tabs: ⌥⌘→ ⌥⌘←, not ⌃→ (macOS's Spaces).
-        KeyBinding::new(
-            &k("cmd-alt-right"),
-            NextOpenItem,
-            Some("Workspace && !Typing"),
-        ),
-        KeyBinding::new(
-            &k("cmd-alt-left"),
-            PreviousOpenItem,
-            Some("Workspace && !Typing"),
-        ),
-        KeyBinding::new(&k("v"), MarkReviewed, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("cmd-e"), OpenRecent, Some("Workspace")),
-        KeyBinding::new(&k("cmd-="), ZoomIn, Some("Workspace")),
-        KeyBinding::new(&k("cmd-+"), ZoomIn, Some("Workspace")),
-        KeyBinding::new(&k("cmd-shift-="), ZoomIn, Some("Workspace")),
-        KeyBinding::new(&k("cmd--"), ZoomOut, Some("Workspace")),
-        KeyBinding::new(&k("cmd-_"), ZoomOut, Some("Workspace")),
-        KeyBinding::new(&k("cmd-0"), ZoomReset, Some("Workspace")),
-        KeyBinding::new(&k("f3"), ToggleBookmark, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("cmd-f3"), ShowBookmarks, Some("Workspace")),
-        KeyBinding::new(&k("cmd-shift-o"), ShowStructure, Some("Workspace")),
-        KeyBinding::new(
-            &k("cmd-alt-b"),
-            ToggleAnnotate,
-            Some("Workspace && !Typing"),
-        ),
-        KeyBinding::new(&k("cmd-alt-f"), FindInFiles, Some("Workspace")),
-        KeyBinding::new(&k("shift-v"), ToggleReviewed, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("tab"), NextZone, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("shift-tab"), PreviousZone, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("enter"), Activate, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("pagedown"), PageDown, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("space"), PageDown, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("pageup"), PageUp, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("shift-space"), PageUp, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("home"), DiffStart, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("end"), DiffEnd, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("h"), PreviousFile, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("l"), NextFile, Some("Workspace && !Typing")),
-        // [ ] walk a commit's neighbours on its page, else the files as ← → do (the developer,
-        // 2026-10-23).
-        KeyBinding::new(&k("["), PreviousCommitOrFile, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("]"), NextCommitOrFile, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("ctrl-1"), SwitchBranch, Some("Workspace")),
-        KeyBinding::new(&k("ctrl-2"), FocusCommits, Some("Workspace")),
-        KeyBinding::new(&k("ctrl-3"), FocusFiles, Some("Workspace")),
-        KeyBinding::new(&k("ctrl-4"), FocusDiffZone, Some("Workspace")),
-        KeyBinding::new(&k("cmd-t"), NewTab, Some("Workspace")),
-        // ⌘W closes what is open on screen; a project's tab is ⇧⌘W (#71).
-        KeyBinding::new(&k("cmd-w"), CloseItem, Some("Workspace")),
-        KeyBinding::new(&k("cmd-shift-w"), CloseTab, Some("Workspace")),
-        KeyBinding::new(&k("cmd-shift-t"), ReopenTab, Some("Workspace")),
-        KeyBinding::new(&k("cmd-shift-]"), NextTab, Some("Workspace")),
-        KeyBinding::new(&k("cmd-shift-["), PreviousTab, Some("Workspace")),
-        KeyBinding::new(&k("cmd-1"), Tab1, Some("Workspace")),
-        KeyBinding::new(&k("cmd-2"), Tab2, Some("Workspace")),
-        KeyBinding::new(&k("cmd-3"), Tab3, Some("Workspace")),
-        KeyBinding::new(&k("cmd-4"), Tab4, Some("Workspace")),
-        KeyBinding::new(&k("cmd-5"), Tab5, Some("Workspace")),
-        KeyBinding::new(&k("cmd-6"), Tab6, Some("Workspace")),
-        KeyBinding::new(&k("cmd-7"), Tab7, Some("Workspace")),
-        KeyBinding::new(&k("cmd-8"), Tab8, Some("Workspace")),
-        KeyBinding::new(&k("cmd-9"), Tab9, Some("Workspace")),
-        KeyBinding::new(&k("cmd-."), FocusDiff, Some("Workspace")),
-        KeyBinding::new(&k("cmd-alt-."), ZenOneFile, Some("Workspace")),
-        KeyBinding::new(&k("cmd-c"), CopySelection, Some("Workspace")),
-        KeyBinding::new(&k("cmd-a"), SelectAll, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("f7"), NextChange, Some("Workspace")),
-        KeyBinding::new(&k("shift-f7"), PreviousChange, Some("Workspace")),
-        KeyBinding::new(&k("n"), NextChange, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("p"), PreviousChange, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("cmd-g"), NextMatch, Some("Workspace")),
-        KeyBinding::new(&k("cmd-shift-g"), PreviousMatch, Some("Workspace")),
-        KeyBinding::new(
-            &k("up"),
-            PreviousCommit,
-            Some("Workspace && !Palette && !Caret"),
-        ),
-        KeyBinding::new(
-            &k("down"),
-            NextCommit,
-            Some("Workspace && !Palette && !Caret"),
-        ),
-        KeyBinding::new(&k("up"), PaletteUp, Some("Palette")),
-        KeyBinding::new(&k("down"), PaletteDown, Some("Palette")),
-        // Search everywhere (#52): one window, a tab per scope.
-        KeyBinding::new(&k("cmd-k"), SearchEverywhere, Some("Workspace")),
-        KeyBinding::new(&k("cmd-p"), SearchFiles, Some("Workspace")),
-        KeyBinding::new(&k("cmd-shift-c"), SearchCommits, Some("Workspace")),
-        KeyBinding::new(&k("cmd-shift-b"), SearchBranches, Some("Workspace")),
-        KeyBinding::new(&k("cmd-shift-r"), SearchRequests, Some("Workspace")),
-        // In a comment box ⌘⇧P previews the markdown.
-        KeyBinding::new(
-            &k("cmd-shift-p"),
-            SearchActions,
-            Some("Workspace && !Caret"),
-        ),
-        KeyBinding::new(&k("cmd-alt-c"), Compare, Some("Workspace")),
-        // Android Studio's Copy Reference: the page on screen's link (#162).
-        KeyBinding::new(&k("cmd-alt-shift-c"), CopyLink, Some("Workspace")),
-        // Bare letters and arrows are typing while the search field is active.
-        KeyBinding::new(&k("k"), PreviousCommit, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("j"), NextCommit, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("left"), PreviousFile, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("right"), NextFile, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("w"), CycleMode, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("m"), ToggleRendered, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("alt-u"), ToggleUnified, Some("Workspace")),
-        KeyBinding::new(&k("alt-d"), CycleMode, Some("Workspace")),
-        KeyBinding::new(&k("alt-z"), ToggleWrap, Some("Workspace")),
-        KeyBinding::new(&k("alt-e"), ToggleFullContext, Some("Workspace")),
-        KeyBinding::new(&k("alt-w"), ToggleWhitespace, Some("Workspace")),
-        KeyBinding::new(&k("alt-a"), ToggleOneFile, Some("Workspace")),
-        KeyBinding::new(&k("alt-shift-a"), ToggleExpandAll, Some("Workspace")),
-        KeyBinding::new(
-            &k("alt-m"),
-            ToggleRichComments,
-            Some("Workspace && !Typing"),
-        ),
-        KeyBinding::new(&k("cmd-alt-l"), LeaveRequest, Some("Workspace")),
-        KeyBinding::new(
-            &k("alt-shift-v"),
-            ToggleAllReviewed,
-            Some("Workspace && !Typing"),
-        ),
-        KeyBinding::new(&k("alt-down"), NextRequest, Some("Workspace && !Typing")),
-        KeyBinding::new(&k("alt-up"), PreviousRequest, Some("Workspace && !Typing")),
-    ]
-}
-
 /// The window, once `install` has wired the crates in (`main.rs`).
 pub fn run(path: Option<PathBuf>, install: impl FnOnce(&mut App) + 'static) {
     gpui_platform::application()
         .with_assets(icons::Icons)
         .run(move |cx: &mut App| {
+            // The window root's commands first: the features' come after them in the keys, as they always did.
+            commands::install(cx);
             install(cx);
-            let mut bindings = default_bindings();
-            bindings.extend(offered_bindings(crate::platform::keys, cx));
+            let bindings = commands::bindings(artoo_shell_api::actions(cx), crate::platform::keys);
             keymap::install(bindings, cx);
             // Before any window: who Artoo is to the system's notifications (#26).
             system_notes::install(cx);
@@ -522,7 +299,7 @@ pub fn run(path: Option<PathBuf>, install: impl FnOnce(&mut App) + 'static) {
                 crate::platform::set_icon();
             }
             cx.on_action(|_: &Quit, cx| cx.quit());
-            cx.set_menus(menus(&ViewOptions::load(&Settings::load()), cx));
+            commands::set_menus(&ViewOptions::load(&Settings::load()), cx);
 
             // A snapshot renders offscreen: no window shown, no focus taken.
             let offscreen =
@@ -585,109 +362,6 @@ fn window_size() -> (f32, f32) {
         return (w, h);
     }
     (1480., 920.)
-}
-
-/// The menu bar; View items carry a check mark for the options in effect. Artoo's menu opens with the
-/// commands features put there (`artoo_shell_api::Menu::App`).
-fn menus(options: &ViewOptions, cx: &App) -> Vec<Menu> {
-    // The commands features offer, in the menu each names (`artoo_shell_api::Action::menu`).
-    let offered = |menu: artoo_shell_api::Menu| {
-        artoo_shell_api::actions(cx)
-            .iter()
-            .filter_map(|a| {
-                let (to, words) = a.menu?;
-                (to == menu).then(|| MenuItem::Action {
-                    name: words.into(),
-                    action: a.act.boxed_clone(),
-                    os_action: None,
-                    checked: false,
-                    disabled: false,
-                })
-            })
-            .collect::<Vec<_>>()
-    };
-    let help = offered(artoo_shell_api::Menu::Help);
-    let offered = offered(artoo_shell_api::Menu::App);
-    let separated = !offered.is_empty();
-    vec![
-        Menu::new("Artoo").items(
-            offered
-                .into_iter()
-                .chain(separated.then(MenuItem::separator))
-                .chain([
-                    MenuItem::action("Settings…", OpenSettings),
-                    MenuItem::separator(),
-                    MenuItem::action("Quit Artoo", Quit),
-                ]),
-        ),
-        Menu::new("File").items([
-            MenuItem::action("New Tab", NewTab),
-            MenuItem::action("Close", CloseItem),
-            MenuItem::action("Close Tab", CloseTab),
-            MenuItem::action("Reopen Closed Tab", ReopenTab),
-            MenuItem::separator(),
-            MenuItem::action("Open Repository…", Open),
-            MenuItem::action("Create Merge Request…", CreateRequest),
-            MenuItem::action("Refresh", Refresh),
-            MenuItem::separator(),
-            MenuItem::action("Find in Diff…", Find),
-            MenuItem::action("Find Next", NextMatch),
-            MenuItem::action("Find Previous", PreviousMatch),
-            MenuItem::separator(),
-            MenuItem::action("Find Commits…", FindCommits),
-            MenuItem::action("Filter Files…", FilterFiles),
-            MenuItem::separator(),
-            MenuItem::action("Next Change", NextChange),
-            MenuItem::action("Previous Change", PreviousChange),
-        ]),
-        Menu::new("Go").items([
-            MenuItem::action("Inbox", GoToInbox),
-            MenuItem::action("Code", GoToCode),
-            MenuItem::action("Branches", GoToBranches),
-            MenuItem::action("Merge Requests", GoToMergeRequests),
-            MenuItem::separator(),
-            MenuItem::action("Back", GoBack),
-            MenuItem::action("Forward", GoForward),
-            MenuItem::separator(),
-            MenuItem::action("Next Tab", NextTab),
-            MenuItem::action("Previous Tab", PreviousTab),
-            MenuItem::separator(),
-            MenuItem::action("Next Open Item", NextOpenItem),
-            MenuItem::action("Previous Open Item", PreviousOpenItem),
-        ]),
-        Menu::new("View").items([
-            MenuItem::action("Show the Side Panel", ToggleSidebar),
-            MenuItem::action("Show Files", ToggleFiles),
-            MenuItem::action("Focus on the Diff", FocusDiff),
-            MenuItem::action("Fold the Menu to Icons", FoldMenu),
-            MenuItem::action("Agents", ToggleAgents),
-            MenuItem::separator(),
-            MenuItem::action("Zoom In", ZoomIn),
-            MenuItem::action("Zoom Out", ZoomOut),
-            MenuItem::action("Actual Size", ZoomReset),
-            MenuItem::separator(),
-            MenuItem::action("Unified Diff", ToggleUnified).checked(options.unified),
-            MenuItem::action("Line Diff", SetLines).checked(options.mode == DiffMode::Lines),
-            MenuItem::action("Word Diff", SetWords).checked(options.mode == DiffMode::Words),
-            MenuItem::action("Structural Diff (difftastic)", SetStructural)
-                .checked(options.mode == DiffMode::Structural),
-            MenuItem::separator(),
-            MenuItem::separator(),
-            MenuItem::action("Wrap Long Lines", ToggleWrap).checked(options.wrap),
-            MenuItem::action("Show All Lines", ToggleFullContext).checked(options.full_context),
-            MenuItem::action("Hide Whitespace Changes", ToggleWhitespace)
-                .checked(options.ignore_whitespace),
-            MenuItem::action("One File at a Time", ToggleOneFile).checked(options.one_file),
-        ]),
-        Menu::new("Help").items(
-            [
-                MenuItem::action("Set Up Artoo…", SetUp),
-                MenuItem::action("Keyboard Shortcuts", ShowShortcuts),
-            ]
-            .into_iter()
-            .chain(help),
-        ),
-    ]
 }
 
 /// Waits for loading (`ARTOO_SNAPSHOT_DELAY_MS`, 2500 by default), selects a commit by SHA
@@ -1614,8 +1288,8 @@ pub struct Workspace {
     label_name: String,
     /// What features draw in this tab (#165): title-bar items, cards over it, Settings rows.
     parts: Vec<artoo_shell_api::Parts>,
-    /// The commands features offer (⌘K): their words and actions.
-    contributed: Vec<(&'static str, Box<dyn gpui::Action>)>,
+    /// The commands offered with words, in ⌘K's order.
+    contributed: Vec<palette::Offered>,
     /// The tree folder opened last, and a count of openings: its rows fade in (`tree_row`).
     tree_opened: Option<(String, usize)>,
     /// What a narrow window folded, for the session (#80).
@@ -1748,10 +1422,7 @@ impl Workspace {
             label_edit: None,
             label_name: String::new(),
             parts: Vec::new(),
-            contributed: artoo_shell_api::actions(cx)
-                .iter()
-                .map(|a| (a.words, a.act.boxed_clone()))
-                .collect(),
+            contributed: palette::offered(cx),
             tree_opened: None,
             narrowed: Default::default(),
             keyboard: Default::default(),
@@ -2279,7 +1950,7 @@ impl Workspace {
         if !self.rv().set_option(opt, value, cx) {
             return;
         }
-        cx.set_menus(menus(&self.view_options(cx), cx));
+        commands::set_menus(&self.view_options(cx), cx);
         match opt {
             Opt::Unified | Opt::FullContext => self.relayout_all(cx),
             Opt::FoldReviewed => self.refold(cx),
@@ -2296,7 +1967,7 @@ impl Workspace {
         if !self.rv().set_mode(mode, cx) {
             return;
         }
-        cx.set_menus(menus(&self.view_options(cx), cx));
+        commands::set_menus(&self.view_options(cx), cx);
         if self.rv().stacked(cx) {
             self.reopen_stack(cx);
         } else {
@@ -3171,7 +2842,7 @@ mod tests {
     #[test]
     fn the_shipped_keys_do_not_clash() {
         let shipped = keymap::Keymap::with_preset(
-            default_bindings(),
+            commands::bindings(&commands::own(), crate::platform::keys),
             crate::platform::MAC,
             keymap::Preset::Artoo,
         );
@@ -3182,7 +2853,7 @@ mod tests {
     #[test]
     fn the_shipped_keys_do_not_clash_on_windows_and_linux() {
         let shipped = keymap::Keymap::with_preset(
-            bindings(crate::platform::pc_keys),
+            commands::bindings(&commands::own(), crate::platform::pc_keys),
             false,
             keymap::Preset::Artoo,
         );
@@ -3200,7 +2871,11 @@ mod tests {
                 crate::platform::pc_keys
             };
             for preset in keymap::Preset::ALL {
-                let map = keymap::Keymap::with_preset(bindings(keys), mac, preset);
+                let map = keymap::Keymap::with_preset(
+                    commands::bindings(&commands::own(), keys),
+                    mac,
+                    preset,
+                );
                 let entries = map.entries();
                 for name in preset.actions() {
                     assert!(
@@ -3218,7 +2893,7 @@ mod tests {
     fn a_change_says_what_the_preset_had() {
         // alt, not cmd: cmd is written super- on Linux and win- on Windows.
         let map = keymap::Keymap::from_text(
-            default_bindings(),
+            commands::bindings(&commands::own(), crate::platform::keys),
             crate::platform::MAC,
             "Preset = android-studio\nSearchFiles = alt-p\n",
         );
