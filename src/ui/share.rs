@@ -4,10 +4,11 @@
 //! branch only on this Mac, what is not committed) says why instead.
 
 use super::menu::{Act, Entry};
-use super::nav::{Item, Page};
+use super::nav::Page;
 use super::spaces::{BRANCHES, CODE, INBOX, REQUESTS};
 use super::{Workspace, format, words};
 use crate::git::{RefKind, WebRemote};
+use artoo_core::route::Route;
 use gpui::{App, Context, Pixels, Point};
 
 /// No GitLab or GitHub remote: nothing here has a link.
@@ -241,13 +242,13 @@ impl Workspace {
                         self.on_host(&head.name, cx)?
                     }
                 };
-                Ok(match self.nav_page() {
+                Ok(match self.shown_page() {
                     Some(Page::File(path)) => Link {
-                        url: web.file(&rev, path),
+                        url: web.file(&rev, &path),
                         what: format!("{path} at {rev}"),
                     },
                     Some(Page::Folder(path)) => Link {
-                        url: web.tree(&rev, path),
+                        url: web.tree(&rev, &path),
                         what: format!("{path} at {rev}"),
                     },
                     _ => Link {
@@ -256,8 +257,8 @@ impl Workspace {
                     },
                 })
             }
-            BRANCHES | REQUESTS => match self.nav_page() {
-                Some(page) => self.link_of(web, page, cx),
+            BRANCHES | REQUESTS => match self.shown_page() {
+                Some(page) => self.link_of(web, &page, cx),
                 None => Err("Nothing here has a link: open a branch or a merge request".into()),
             },
             _ => Err("Nothing here has a link".into()),
@@ -299,7 +300,7 @@ impl Workspace {
 
     /// What the page on screen is, for ⌘K's "Copy link to this …".
     pub(super) fn page_kind(&self) -> &'static str {
-        match (self.nav.space, self.nav_page()) {
+        match (self.nav.space, self.shown_page()) {
             (INBOX, _) => "this merge request",
             (CODE, Some(Page::File(_))) => "this file",
             (CODE, Some(Page::Folder(_))) => "this folder",
@@ -355,26 +356,31 @@ impl Workspace {
     }
 
     /// An open row's right click under Branches or Merge requests: its link.
-    pub(super) fn item_context(&mut self, item: &Item, at: Point<Pixels>, cx: &mut Context<Self>) {
-        let link = match item {
-            Item::Request(iid) => return self.request_context(*iid, at, cx),
-            Item::Branch(refname) => {
+    pub(super) fn item_context(&mut self, item: &Route, at: Point<Pixels>, cx: &mut Context<Self>) {
+        let link = match Page::from_route(item) {
+            Some(Page::Request(iid)) => return self.request_context(iid, at, cx),
+            Some(Page::Branch(refname)) => {
                 if let Some(ix) = self
                     .branch_list(cx)
                     .iter()
-                    .position(|b| b.refname == *refname)
+                    .position(|b| b.refname == refname)
                 {
                     self.branch_context(ix, at, cx);
                 }
                 return;
             }
-            Item::Compare(..) => match self.nav.opened(item).map(|o| &o.page) {
+            Some(_) => return,
+            // A comparison: its link is its page's.
+            None => match self
+                .nav
+                .opened(item)
+                .and_then(|o| Page::from_route(&o.page))
+            {
                 Some(Page::Compare((base, _), (head, _), direct)) => {
-                    self.compare_link(base, head, *direct, cx)
+                    self.compare_link(&base, &head, direct, cx)
                 }
                 _ => return,
             },
-            Item::WorkingTree => return,
         };
         let groups = match (link, &self.web) {
             (Ok(link), Some(web)) => {
@@ -396,7 +402,7 @@ impl Workspace {
     /// The link of file `path` in the diff on screen, where the host anchors its files.
     pub(super) fn diff_file_link(&self, path: &str, cx: &App) -> Option<Link> {
         let web = self.web.as_ref()?;
-        let page = match self.loaded_page(cx)? {
+        let page = match Page::from_route(&self.loaded_page(cx)?)? {
             Page::Request(iid) => self.request_diff_link(web, iid, None, cx),
             page @ (Page::RequestCommit(..)
             | Page::RequestCommits(..)

@@ -56,7 +56,7 @@ impl Workspace {
             return None;
         }
         let space = self.nav.space;
-        let page = self.nav_page().cloned();
+        let page = self.shown_page();
         let (path, id, mono) = self.path_of(space, page.as_ref(), cx);
         // Narrow, the path is ‹ — one level up — and the id (#80).
         let up = self
@@ -533,7 +533,7 @@ impl BarGlue {
         self.tab
             .update(cx, |this, cx| {
                 this.nav.from = None;
-                this.show(space, to, cx)
+                this.show(space, to.map(|p| p.route()), cx)
             })
             .ok();
     }

@@ -12,18 +12,17 @@ use gpui::{App, Context};
 impl Workspace {
     /// The comparison's page is on screen, its commits read.
     pub(super) fn shown_compare(&self, cx: &App) -> bool {
-        let route = self.nav_page().map(Page::route);
         self.branches()
-            .is_some_and(|b| b.compare_listed(route.as_ref(), cx))
+            .is_some_and(|b| b.compare_listed(self.nav_page(), cx))
     }
 
     /// The comparison's page while a run of its commits narrows its diff.
     pub(super) fn narrowed_compare(&self, cx: &App) -> Option<Page> {
-        let page = self.nav_page()?;
-        let route = page.route();
+        let route = self.nav_page()?;
         self.branches()
-            .is_some_and(|b| b.compare_narrowed(Some(&route), cx))
-            .then(|| page.clone())
+            .is_some_and(|b| b.compare_narrowed(Some(route), cx))
+            .then(|| Page::from_route(route))
+            .flatten()
     }
 
     /// A comparison of `page` shown whole: its commits are read, unless they are these already
@@ -48,7 +47,7 @@ impl Workspace {
 
     /// ↑ ↓ in the comparison's commits: the one above or below the one picked.
     pub(super) fn step_compare_pick(&mut self, down: bool, cx: &mut Context<Self>) {
-        let route = self.nav_page().map(Page::route);
+        let route = self.nav_page().cloned();
         let keep = self.current_path(cx);
         if self.root.is_some()
             && self

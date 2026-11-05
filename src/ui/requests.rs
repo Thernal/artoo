@@ -175,7 +175,7 @@ impl Workspace {
     /// Request `iid` opened as its page: kept in the history, and loaded unless it is (`load_page`,
     /// which reads it through `select_request`).
     pub(super) fn open_request(&mut self, iid: u64, cx: &mut Context<Self>) {
-        self.go_page(super::nav::Page::Request(iid), cx);
+        self.go_page(super::nav::Page::Request(iid).route(), cx);
     }
 
     /// Opens merge request `iid`: its branch in the lists and, as the diff, what the branch adds to
@@ -231,7 +231,7 @@ impl Workspace {
         };
         self.error = None;
         // Its page now, before the branch it is read from replaces what is loaded (#71).
-        self.arrive(super::nav::Page::Request(iid), cx);
+        self.arrive(super::nav::Page::Request(iid).route(), cx);
         if let Some(sides) = sides
             && let Some(branches) = self.branches()
         {
@@ -291,7 +291,7 @@ impl Workspace {
     /// ⌥⌘L: closes the request on screen, back to the list (as ⌘W on it does).
     pub(super) fn leave_request(&mut self, cx: &mut Context<Self>) {
         if let Some(iid) = self.current_request(cx) {
-            self.close_open(&super::nav::Item::Request(iid), cx);
+            self.close_open(&super::nav::Page::Request(iid).route(), cx);
         }
     }
 
@@ -388,7 +388,7 @@ impl Workspace {
                 branches.show_request_commits(&base, &head, cx);
                 let whole = self.request_loaded(iid, cx)
                     || (self.shown_diff(cx).is_none()
-                        && self.nav_page() == Some(&Page::Request(iid)));
+                        && self.shown_page() == Some(Page::Request(iid)));
                 if self.selection(cx) == Selection::None && whole {
                     self.run_compare(base, head, true, Some(iid), cx);
                 }
@@ -470,7 +470,7 @@ impl Workspace {
         self.current_request(cx).is_some_and(|iid| {
             self.request_loaded(iid, cx)
                 && self.nav.space == super::spaces::REQUESTS
-                && self.nav_page() == Some(&super::nav::Page::Request(iid))
+                && self.shown_page() == Some(super::nav::Page::Request(iid))
         })
     }
 

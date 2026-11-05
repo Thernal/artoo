@@ -3,11 +3,12 @@
 //! ask.
 
 use super::menu::{Act, Entry};
-use super::nav::Page;
 use super::recents::Key;
 use super::spaces::{BRANCHES, REQUESTS, Space};
 use super::zones::Zone;
 use super::{Workspace, motion, px};
+use artoo_code_api::FileRoute;
+use artoo_core::route::Place;
 use artoo_core::route::Route;
 use artoo_shell_api::{
     Chrome, Drawing, Frame, ItemTab, ListZone, MenuItem, Overlay, Pages, Pick, Places, Run,
@@ -141,12 +142,10 @@ impl Frame for TabFrame {
 
     fn open(&self, route: Route, cx: &mut App) {
         self.later(cx, move |this, cx| {
-            let mut drawn = this.parts.iter().filter_map(|p| p.pages.as_ref());
-            match Page::from_route(&route)
-                .filter(|_| drawn.any(|p| p.kinds.contains(&route.kind.as_str())))
-            {
-                Some(page) => this.open_page(page, cx),
-                None => this.toast_info(format!("Nothing here opens {}", route.kind).into(), cx),
+            if this.drawn().has(&route) {
+                this.open_page(route, cx);
+            } else {
+                this.toast_info(format!("Nothing here opens {}", route.kind).into(), cx);
             }
         });
     }
@@ -240,7 +239,7 @@ impl Frame for TabFrame {
     }
 
     fn route(&self, cx: &App) -> Option<Route> {
-        self.0.upgrade()?.read(cx).nav_page().map(Page::route)
+        self.0.upgrade()?.read(cx).nav_page().cloned()
     }
 
     fn item_tab(&self, cx: &App) -> Option<ItemTab> {
@@ -262,7 +261,7 @@ impl Frame for TabFrame {
 
     fn remember(&self, route: Route, cx: &mut App) {
         self.later(cx, move |this, _| {
-            if let Some(Page::File(path)) = Page::from_route(&route) {
+            if let Some(FileRoute { path }) = FileRoute::from_route(&route) {
                 this.remember_place(Key::File(path.clone()), path, "file".to_owned());
             }
         });
@@ -290,12 +289,9 @@ impl Workspace {
 
     /// The pages a feature draws in `space` when they draw `page`: one of their kinds, or the
     /// space's own (`None`).
-    pub(super) fn pages_drawing(&self, space: Space, page: Option<&Page>) -> Option<&Pages> {
-        self.space_pages(space).filter(|p| {
-            page.is_none_or(|page| {
-                !p.kinds.is_empty() && p.kinds.contains(&page.route().kind.as_str())
-            })
-        })
+    pub(super) fn pages_drawing(&self, space: Space, page: Option<&Route>) -> Option<&Pages> {
+        self.space_pages(space)
+            .filter(|p| page.is_none_or(|page| p.kinds.contains(&page.kind.as_str())))
     }
 
     /// The pages of `space` told what is on screen: `page`, or the space's own (`None`); `opened`
@@ -303,19 +299,22 @@ impl Workspace {
     pub(super) fn show_pages(
         &self,
         space: Space,
-        page: Option<&Page>,
+        page: Option<&Route>,
         opened: bool,
         cx: &mut Context<Self>,
     ) {
         if let Some(show) = self.space_pages(space).map(|p| p.show.clone()) {
-            show(page.map(Page::route).as_ref(), opened, cx);
+            show(page, opened, cx);
         }
     }
 
     /// Page `page` opened: on screen in its space, kept in the history, its pages told so.
-    pub(super) fn open_page(&mut self, page: Page, cx: &mut Context<Self>) {
+    pub(super) fn open_page(&mut self, page: Route, cx: &mut Context<Self>) {
+        let Some(space) = self.drawn().space(&page) else {
+            return;
+        };
         self.arrive(page.clone(), cx);
-        self.show_pages(page.space(), Some(&page), true, cx);
+        self.show_pages(space, Some(&page), true, cx);
         cx.notify();
     }
 
@@ -326,7 +325,7 @@ impl Workspace {
     pub(super) fn render_pages(&self, pages: &Pages, cx: &mut Context<Self>) -> Div {
         let width = self.layout.sidebar;
         let beside = !self.compact() && (self.layout.show_sidebar || self.motion.recent("side"));
-        let route = self.nav_page().map(Page::route);
+        let route = self.nav_page().cloned();
         // An item's Overview or Commits is a page of its own, nothing beside it (#73, #74).
         let tab_page = self.item_tab(cx).is_some();
         let side = pages.side.as_ref().filter(|_| !tab_page);
@@ -398,7 +397,7 @@ impl Workspace {
     /// The first piece the parts draw in `slot` for the route on screen (`artoo_shell_api::Piece`), in the order
     /// they were installed.
     pub(super) fn piece(&self, slot: Slot, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let route = self.nav_page()?.route();
+        let route = self.nav_page()?.clone();
         let drawing = self.drawing(cx);
         self.parts
             .iter()
@@ -409,7 +408,7 @@ impl Workspace {
 
     /// Every piece the parts draw in `slot` for the route on screen, in the order they were installed.
     pub(super) fn pieces(&self, slot: Slot, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let Some(route) = self.nav_page().map(|p| p.route()) else {
+        let Some(route) = self.nav_page().cloned() else {
             return Vec::new();
         };
         let drawing = self.drawing(cx);

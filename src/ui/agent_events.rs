@@ -6,9 +6,10 @@
 
 use super::Workspace;
 use super::goto::Spot;
-use super::nav::{Item, Page};
+use super::nav::Page;
 use crate::bus::{Mark, Place, RequestDraft, What};
 use crate::git::RefKind;
+use artoo_core::route::Route;
 use artoo_shell_api::Toast;
 use gpui::{Action, App, Context};
 use std::path::Path;
@@ -36,7 +37,7 @@ pub(super) struct ReviewGathered {
 #[derive(Clone, PartialEq, Debug, Action)]
 #[action(namespace = agents, no_json, no_register)]
 pub(super) struct ShowChanges {
-    item: Item,
+    item: Route,
     unstaged: Option<bool>,
     agent: String,
 }
@@ -114,11 +115,11 @@ impl Workspace {
             self.reload_threads(cx);
         }
         // Its row under Merge requests, quietly, with a dot (#160).
-        if self.open_quietly(Page::Request(iid), cx) {
+        if self.open_quietly(Page::Request(iid).route(), cx) {
             self.save_nav();
         }
         self.call_reviewer(
-            Item::Request(iid),
+            Page::Request(iid).route(),
             format!("{agent} left {}", super::plural(count, "pending comment")),
         );
         let number = self.number(iid);
@@ -140,11 +141,11 @@ impl Workspace {
             return;
         };
         for &iid in &iids {
-            self.open_quietly(Page::Request(iid), cx);
+            self.open_quietly(Page::Request(iid).route(), cx);
             if !self.request_loaded(iid, cx) {
                 self.agent_fresh.insert(iid);
             }
-            self.call_reviewer(Item::Request(iid), format!("{agent} gathered it"));
+            self.call_reviewer(Page::Request(iid).route(), format!("{agent} gathered it"));
         }
         self.save_nav();
         let count = iids.len();
@@ -176,11 +177,12 @@ impl Workspace {
         notes: usize,
         cx: &mut Context<Self>,
     ) {
-        let Some(item) = page.item() else {
+        let page_route = page.route();
+        let Some(item) = self.item_of(&page_route) else {
             return;
         };
         let what = changes_said(&page);
-        self.open_quietly(page, cx);
+        self.open_quietly(page_route, cx);
         self.save_nav();
         self.call_reviewer(
             item.clone(),
@@ -216,8 +218,8 @@ impl Workspace {
         self.agent_requests.push((agent.clone(), draft));
         self.drafts_unseen.insert(source.clone());
         if let Some(ix) = self.draft_branch(&source, cx) {
-            let page = Page::Branch(self.branch_list(cx)[ix].refname.clone());
-            if let Some(item) = page.item() {
+            let page = Page::Branch(self.branch_list(cx)[ix].refname.clone()).route();
+            if let Some(item) = self.item_of(&page) {
                 self.call_reviewer(item, format!("{agent} drafted a merge request: {said}"));
             }
             self.open_quietly(page, cx);
@@ -293,7 +295,7 @@ impl Workspace {
         match place {
             Place::File { path, line } => {
                 let diff_shown = self.nav_page().is_some_and(|p| {
-                    !matches!(p, Page::File(_) | Page::Folder(_))
+                    !matches!(Page::from_route(p), Some(Page::File(_) | Page::Folder(_)))
                         && self.loaded_page(cx).as_ref() == Some(p)
                 });
                 let ix = self
@@ -337,7 +339,7 @@ impl Workspace {
 
     /// An orange dot on `item`'s row saying `what`, until the row is opened (#160); none on the
     /// page on screen.
-    pub(super) fn call_reviewer(&mut self, item: Item, what: String) {
+    pub(super) fn call_reviewer(&mut self, item: Route, what: String) {
         if !self.is_shown(&item) {
             self.agent_calls.insert(item, what);
         }
@@ -360,8 +362,8 @@ impl Workspace {
             self.error = Some(format!("{source} is not a branch here any more.").into());
             return cx.notify();
         };
-        let page = Page::Branch(self.branch_list(cx)[ix].refname.clone());
-        let Some(item) = page.item() else {
+        let page = Page::Branch(self.branch_list(cx)[ix].refname.clone()).route();
+        let Some(item) = self.item_of(&page) else {
             return;
         };
         self.open_quietly(page, cx);
@@ -408,7 +410,7 @@ impl Workspace {
     /// Show on that toast: the row's page on screen.
     pub(super) fn show_changes(
         &mut self,
-        item: &Item,
+        item: &Route,
         unstaged: Option<bool>,
         cx: &mut Context<Self>,
     ) {
@@ -521,7 +523,7 @@ impl Workspace {
 
     /// The Review on a gathering's toast: its first request, opened from its row.
     pub(super) fn review_gathered(&mut self, iid: u64, cx: &mut Context<Self>) {
-        self.show_open(&Item::Request(iid), cx);
+        self.show_open(&Page::Request(iid).route(), cx);
     }
 }
 

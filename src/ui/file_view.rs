@@ -37,7 +37,7 @@ impl Workspace {
                 code.follow(rev, cx);
             }
         }
-        self.open_page(super::nav::Page::File(path), cx);
+        self.open_page(super::nav::Page::File(path).route(), cx);
     }
 
     /// The file read came (`ReviewEvent::FileRead`): a note shown from the Agents window has its line come

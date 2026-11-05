@@ -201,6 +201,13 @@ impl Page {
             Page::Folder(path) => FolderRoute { path: path.clone() }.route(),
         }
     }
+
+    /// The folder it is in, as its path says (A, 2026-10-23); at the top, the project's page.
+    fn parent(&self) -> Option<Page> {
+        let (Page::File(path) | Page::Folder(path)) = self;
+        path.rsplit_once('/')
+            .map(|(dir, _)| Page::Folder(dir.to_owned()))
+    }
 }
 
 /// The Code space of one tab (#75): what it reads and holds (`Code`), the project it reads, its tree and
@@ -235,6 +242,9 @@ impl CodeSpace {
         Pages {
             space: artoo_code_api::SPACE,
             kinds: &[FileRoute::KIND, FolderRoute::KIND],
+            parent: |route| Page::from_route(route)?.parent().map(|p| p.route()),
+            // A file read stays open as Code's own tab, not under the space in the menu.
+            item: |_| None,
             view: this.clone().into(),
             side: Some(Rc::new(move |_, width, cx| {
                 Some(side.update(cx, |c, cx| c.render_tree(width, cx).into_any_element()))
@@ -1587,6 +1597,21 @@ impl artoo_code_api::Code for Handle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A file's or a folder's page one up is the folder it is in; at the top, the project's own page.
+    #[test]
+    fn a_page_of_code_is_under_its_folder() {
+        assert_eq!(
+            Page::File("a/b/c.kt".into()).parent(),
+            Some(Page::Folder("a/b".into()))
+        );
+        assert_eq!(
+            Page::Folder("a/b".into()).parent(),
+            Some(Page::Folder("a".into()))
+        );
+        assert_eq!(Page::File("README.md".into()).parent(), None);
+        assert_eq!(Page::Folder("a".into()).parent(), None);
+    }
 
     #[test]
     fn a_pinned_tab_goes_first_and_is_kept_by_project() {

@@ -14,8 +14,13 @@ rows in a section placed by their order, the window root's faces and panes insid
 `settings::Section` gone, #171 phase 4); the kinds of link a text has unwritten since 2026-11-05 (`Parts::links`, the
 requests' `!398` / `#12` the first, #171 D11); the spaces of the menu since 2026-11-05 (`spaces::add`: an id, a label,
 an icon, a place in the menu, the action that goes there — the requests' Inbox and Merge requests, Code's, the
-branches'; the closed `Space` enum gone, a `Space` its id, #171 phase 6). Until every space is on it, `Page` (`src/ui/nav.rs`) is what these replace, and a new page is added there in
-the shape below — one variant, one id, one owner. A new command is offered: the window root's in `commands.rs` while the tab runs it, a feature's in its
+branches'; the closed `Space` enum gone, a `Space` its id, #171 phase 6); the tab's places as routes since 2026-11-05
+(the page on screen, its history, esc's way up, the items open under a space and `nav.txt` all routes, the page one up
+and the item a route belongs to its pages' — `Pages::parent`, `Pages::item` —; a route of any kind its pages draw
+opens, one no page draws dropped where `nav.txt` is read; the closed `nav::Item` gone, #171 phase 7). A new page is a
+route kind its owner's `Pages` draw, no variant anywhere else; `Page` (`src/ui/nav.rs`) is only the tab's reading of
+the kinds it still coordinates — the item screen's bar, sections and links — and shrinks as their owners take those.
+A new command is offered: the window root's in `commands.rs` while the tab runs it, a feature's in its
 `install`.
 
 **What `artoo-shell-api` holds now:** `add_settings_section` (a section of Settings: its id, its title, its place in
@@ -35,7 +40,7 @@ the kinds of link it finds in the tab's texts (`links::Pattern`: an id, an order
 every text the kit's markdown draws with the tab's `Selecting` shows them, an earlier pattern's kept where two meet,
 what is written as a link or code winning; the requests' numbers the first, #171 D11),
 the tab's handlers of the feature's actions, the snapshot views it opens (a name ending in `:` given what follows), a space's `Pages` — the kinds of route
-they draw, their view, the panel beside them, and `show`, which the shell calls with the route on screen, or none
+they draw, the page one up from each and what stays open of it (`parent`, `item`), their view, the panel beside them, and `show`, which the shell calls with the route on screen, or none
 for the space's own page, and whether it was just opened or gone back to). What the `Frame` changes (a toast, the
 error line, a redraw, a tool window shown, a menu at the pointer — `MenuItem`s, each running its own closure, its groups titled or not —, the
 narrow tab's drawer closed, a route opened — a kind no pages draw says so in a toast —, a space's own page opened, a space gone to as its row

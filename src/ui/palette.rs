@@ -1051,7 +1051,10 @@ impl Workspace {
                     }
                     Some(Kind::Head(base)) => {
                         self.palette = None;
-                        self.go_page(super::nav::Page::Compare(base, (name, id), true), cx);
+                        self.go_page(
+                            super::nav::Page::Compare(base, (name, id), true).route(),
+                            cx,
+                        );
                     }
                     _ => self.palette = None,
                 }
@@ -1173,14 +1176,15 @@ impl Workspace {
         // A comparison on screen is what it shows: Swap, Direct and Use <upstream> write it, so
         // coming back to it, ⌘[ ⌘] and nav.txt have it as it was left (#147).
         let page = super::nav::Page::Compare(base.clone(), head.clone(), since_merge_base);
+        let route = page.route();
         if request.is_none()
-            && matches!(self.nav_page(), Some(super::nav::Page::Compare(..)))
-            && self.nav_page() != Some(&page)
+            && matches!(self.shown_page(), Some(super::nav::Page::Compare(..)))
+            && self.nav_page() != Some(&route)
         {
-            self.arrive(page.clone(), cx);
+            self.arrive(route.clone(), cx);
         }
         // A comparison's own page lists its commits (#21); a request's or a branch's has its own.
-        let own = request.is_none() && self.nav_page() == Some(&page);
+        let own = request.is_none() && self.nav_page() == Some(&route);
         self.read_compare_commits(own.then_some(page), cx);
         cx.notify();
     }

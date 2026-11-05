@@ -76,7 +76,10 @@ impl Workspace {
             return self.agent_changes(agent, page, unstaged, count, cx);
         }
         let what = super::agent_events::changes_said(&page);
-        if let Some(item) = page.item().filter(|item| self.nav.opened(item).is_some()) {
+        if let Some(item) = self
+            .item_of(&page.route())
+            .filter(|item| self.nav.opened(item).is_some())
+        {
             let notes = super::plural(count, "note");
             self.call_reviewer(item, format!("{agent} left {notes} on it"));
         }
@@ -99,7 +102,8 @@ impl Workspace {
         unstaged: Option<bool>,
         cx: &mut Context<Self>,
     ) {
-        let Some(item) = page.item() else {
+        let page = page.route();
+        let Some(item) = self.item_of(&page) else {
             return;
         };
         self.open_quietly(page, cx);

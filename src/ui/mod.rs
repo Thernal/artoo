@@ -890,7 +890,10 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                     .filter_map(|s| Some((s.to_owned(), repo.as_ref()?.resolve(s).ok()?)));
                 if let (Some(base), Some(head)) = (sides.next(), sides.next()) {
                     // As ⌥⌘C opens it: a comparison page of Branches.
-                    this.arrive(nav::Page::Compare(base.clone(), head.clone(), true), cx);
+                    this.arrive(
+                        nav::Page::Compare(base.clone(), head.clone(), true).route(),
+                        cx,
+                    );
                     this.run_compare(base, head, true, None, cx);
                 }
             });
@@ -1223,7 +1226,7 @@ pub struct Workspace {
     drafts_unseen: HashSet<String>,
     /// Rows an agent put something on for the reviewer, with what, until opened: an orange dot
     /// (#160).
-    agent_calls: std::collections::HashMap<nav::Item, String>,
+    agent_calls: std::collections::HashMap<artoo_core::route::Route, String>,
     tabs: shell::TabModel,
     settings: Settings,
     settings_open: bool,
@@ -1635,12 +1638,7 @@ impl Workspace {
                         if !refresh {
                             // Opened: the space and pages it was left on (#71).
                             this.restore_nav(ix, cx);
-                        } else if let Some(
-                            page @ (nav::Page::Request(_)
-                            | nav::Page::RequestCommit(..)
-                            | nav::Page::RequestCommits(..)
-                            | nav::Page::RequestVersions(..)),
-                        ) = this.page_of(spaces::REQUESTS).cloned()
+                        } else if let Some(page) = this.page_of(spaces::REQUESTS).cloned()
                             && this.nav.space == spaces::REQUESTS
                         {
                             // A request's page loads again as the request it is.
@@ -2632,7 +2630,7 @@ impl Workspace {
         {
             return format!("{} {}", words::number(m.iid), m.title);
         }
-        let route = self.nav_page().map(nav::Page::route);
+        let route = self.nav_page().cloned();
         self.branches()
             .and_then(|b| b.diff_title(route.as_ref(), cx))
             .unwrap_or_default()

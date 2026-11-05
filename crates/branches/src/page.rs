@@ -21,6 +21,7 @@ use artoo_shell_api::{Frame, Pages, Services};
 use artoo_ui_kit::px;
 use artoo_ui_kit::room::Widths;
 use gpui::{AnyElement, App, Context, Entity, Render, Window, div, prelude::*};
+use serde::{Deserialize, Serialize};
 use std::rc::Rc;
 
 /// Branches' own page in one tab.
@@ -59,6 +60,8 @@ pub fn pages(
             WorkingTreeRoute::KIND,
             CompareRoute::KIND,
         ],
+        parent,
+        item,
         view: view.into(),
         side: Some(Rc::new(move |route, width, cx| {
             route?;
@@ -205,5 +208,100 @@ fn beside(h: &History, ix: usize, services: &Services, cx: &App) -> Beside {
         reviewed: review.is_some_and(|r| r.head_reviewed(b.tip, cx)),
         card: branch_card(h, ix, request.clone()).map(|card| Box::new(card) as Card),
         request,
+    }
+}
+
+/// Two refs compared as what stays open under Branches (#149): by their names, whichever is the base, so Swap and
+/// Direct keep its row. No page draws it; its page is the comparison it was left on.
+#[derive(Serialize, Deserialize)]
+struct ComparisonRoute {
+    a: String,
+    b: String,
+}
+
+impl Place for ComparisonRoute {
+    const KIND: &'static str = "branches.comparison";
+}
+
+/// The branch a commit, a run or two versions of it are under; a branch, a comparison and the working tree are
+/// under Branches' own page.
+fn parent(route: &Route) -> Option<Route> {
+    let refname = match route.kind.as_str() {
+        BranchCommitRoute::KIND => BranchCommitRoute::from_route(route)?.refname,
+        BranchCommitsRoute::KIND => BranchCommitsRoute::from_route(route)?.refname,
+        VersionsRoute::KIND => VersionsRoute::from_route(route)?.refname,
+        _ => return None,
+    };
+    Some(BranchRoute { refname }.route())
+}
+
+/// What stays open under Branches: the branch a page is of, the working tree, a comparison by its refs' names.
+fn item(route: &Route) -> Option<Route> {
+    let refname = match route.kind.as_str() {
+        BranchRoute::KIND => BranchRoute::from_route(route)?.refname,
+        BranchCommitRoute::KIND => BranchCommitRoute::from_route(route)?.refname,
+        BranchCommitsRoute::KIND => BranchCommitsRoute::from_route(route)?.refname,
+        VersionsRoute::KIND => VersionsRoute::from_route(route)?.refname,
+        WorkingTreeRoute::KIND => return Some(WorkingTreeRoute {}.route()),
+        CompareRoute::KIND => {
+            let compare = CompareRoute::from_route(route)?;
+            let (a, b) = if compare.base <= compare.head {
+                (compare.base, compare.head)
+            } else {
+                (compare.head, compare.base)
+            };
+            return Some(ComparisonRoute { a, b }.route());
+        }
+        _ => return None,
+    };
+    Some(BranchRoute { refname }.route())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_branchs_pages_are_under_it_and_keep_it_open() {
+        let x = || "refs/heads/x".to_owned();
+        let branch = BranchRoute { refname: x() }.route();
+        let commit = BranchCommitRoute {
+            refname: x(),
+            commit: "0123".to_owned(),
+        }
+        .route();
+        let versions = VersionsRoute {
+            refname: x(),
+            from: 1,
+            to: 2,
+        }
+        .route();
+        for page in [&commit, &versions] {
+            assert_eq!(parent(page), Some(branch.clone()));
+            assert_eq!(item(page), Some(branch.clone()));
+        }
+        assert_eq!(parent(&branch), None);
+        assert_eq!(item(&branch), Some(branch.clone()));
+        let tree = WorkingTreeRoute {}.route();
+        assert_eq!((parent(&tree), item(&tree)), (None, Some(tree.clone())));
+    }
+
+    /// A comparison stays one row whichever side is the base, and since its merge base or not.
+    #[test]
+    fn a_comparison_is_kept_open_by_its_refs_either_way_round() {
+        let compare = |base: &str, head: &str, since| {
+            CompareRoute {
+                base: base.to_owned(),
+                base_commit: "a".to_owned(),
+                head: head.to_owned(),
+                head_commit: "b".to_owned(),
+                since,
+            }
+            .route()
+        };
+        let one = item(&compare("main", "origin/x", true));
+        assert_eq!(one, item(&compare("origin/x", "main", false)));
+        assert_eq!(one.map(|r| r.kind), Some(ComparisonRoute::KIND.to_owned()));
+        assert_eq!(parent(&compare("main", "origin/x", true)), None);
     }
 }

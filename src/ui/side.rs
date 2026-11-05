@@ -3,7 +3,6 @@
 //! (a count, the first item, how far the review is). An open Commits or Changes takes the room left;
 //! Versions takes what its rows need. Each section's feature keeps its fold; ⌥⌘2 folds Changes.
 
-use super::nav::Page;
 use super::zones::Zone;
 use super::{Selection, Workspace};
 use artoo_branches_api::PanelShows;
@@ -69,7 +68,7 @@ impl Workspace {
 
     /// What the panel holds on the page on screen (`Branches::panel_shows`).
     pub(super) fn panel_shows(&self, cx: &App) -> PanelShows {
-        let route = self.nav_page().map(Page::route);
+        let route = self.nav_page().cloned();
         self.branches()
             .map(|b| b.panel_shows(route.as_ref(), cx))
             .unwrap_or_default()

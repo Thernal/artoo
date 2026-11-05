@@ -18,3 +18,5 @@ artoo-shell-api = { path = "../shell-api" }
 anyhow.workspace = true
 git2.workspace = true
 gpui.workspace = true
+# A comparison kept open is a route of its own (`page::ComparisonRoute`).
+serde.workspace = true

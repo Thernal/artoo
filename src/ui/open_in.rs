@@ -183,8 +183,11 @@ impl Workspace {
     /// folder; a diff's file at its change.
     pub(super) fn open_target(&self, cx: &gpui::App) -> Option<(PathBuf, u32)> {
         let root = self.root.clone()?;
-        match (self.nav.space, self.nav_page()) {
-            (CODE, Some(Page::File(path))) => Some((root.join(path), self.file_top_line(path, cx))),
+        match (self.nav.space, self.shown_page()) {
+            (CODE, Some(Page::File(path))) => {
+                let line = self.file_top_line(&path, cx);
+                Some((root.join(path), line))
+            }
             (CODE, Some(Page::Folder(path))) => Some((root.join(path), 1)),
             (CODE, _) => Some((root, 1)),
             // A page showing a diff: not a request's Overview or Commits.

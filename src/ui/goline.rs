@@ -18,7 +18,7 @@ impl Workspace {
             return cx.notify();
         }
         // On a folder's page in Code: a note for the agent on the folder (#97).
-        if let Some(super::nav::Page::Folder(path)) = self.nav_page().cloned()
+        if let Some(super::nav::Page::Folder(path)) = self.shown_page()
             && self.nav.space == super::spaces::CODE
             && !self.settings_open
             && self.compose.is_none()

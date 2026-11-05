@@ -53,6 +53,8 @@ pub fn pages(
     Pages {
         space: artoo_requests_api::INBOX,
         kinds: &[],
+        parent: |_| None,
+        item: |_| None,
         view: page.into(),
         side: None,
         show: Rc::new(|_, _, _| {}),

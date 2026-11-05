@@ -391,7 +391,7 @@ impl Workspace {
     pub(super) fn poll_agents(&mut self, cx: &mut Context<Self>) {
         // A row an agent called the reviewer to, once its page is on screen, has been seen (#160);
         // however it was reached, a row, a link, a search.
-        if let Some(item) = self.nav_page().and_then(super::nav::Page::item) {
+        if let Some(item) = self.nav_page().and_then(|p| self.item_of(p)) {
             self.agent_calls.remove(&item);
         }
         // The chats are read on every beat: the stripe shows who listens, a toast who comes and

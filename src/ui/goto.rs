@@ -81,7 +81,7 @@ impl Workspace {
                 self.spot = note.map(Spot::Note).or(line.map(Spot::Line));
                 // Loaded under another page: it only comes on screen (#71).
                 if self.request_loaded(iid, cx) {
-                    self.arrive(super::nav::Page::Request(iid), cx);
+                    self.arrive(super::nav::Page::Request(iid).route(), cx);
                     self.resolve_spot(true, cx);
                 } else {
                     self.open_request(iid, cx);

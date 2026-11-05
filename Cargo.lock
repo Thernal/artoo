@@ -314,6 +314,7 @@ dependencies = [
  "artoo-ui-kit",
  "git2",
  "gpui-pre",
+ "serde",
 ]
 
 [[package]]

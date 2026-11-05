@@ -9,7 +9,6 @@
 use super::Workspace;
 use super::keyboard::{self, Keys};
 use super::lists::Field;
-use super::nav::Page;
 use super::spaces::Space;
 use gpui::{App, Context, MouseButton, MouseDownEvent, WeakEntity, prelude::*};
 
@@ -92,7 +91,7 @@ impl keyboard::Input for Input {
 pub struct Spot {
     settings: bool,
     space: Option<Space>,
-    page: Option<Page>,
+    page: Option<artoo_core::route::Route>,
     file: Option<String>,
 }
 

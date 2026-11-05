@@ -54,6 +54,8 @@ pub fn pages(requests: Entity<Requests>, frame: Rc<dyn Frame>, cx: &mut App) -> 
             RequestCommitsRoute::KIND,
             RequestVersionsRoute::KIND,
         ],
+        parent,
+        item,
         view: view.into(),
         side: Some(Rc::new({
             let services = services.clone();
@@ -229,5 +231,51 @@ impl RootPage {
             .children(banner)
             .child(body)
             .into_any_element()
+    }
+}
+
+/// The request a commit, a run or two versions of it are under; a request is under Merge requests' own page.
+fn parent(route: &Route) -> Option<Route> {
+    (route.kind != RequestRoute::KIND)
+        .then(|| item(route))
+        .flatten()
+}
+
+/// The request a page is of, which stays open under Merge requests.
+fn item(route: &Route) -> Option<Route> {
+    let number = match route.kind.as_str() {
+        RequestRoute::KIND => RequestRoute::from_route(route)?.number,
+        RequestCommitRoute::KIND => RequestCommitRoute::from_route(route)?.number,
+        RequestCommitsRoute::KIND => RequestCommitsRoute::from_route(route)?.number,
+        RequestVersionsRoute::KIND => RequestVersionsRoute::from_route(route)?.number,
+        _ => return None,
+    };
+    Some(RequestRoute { number }.route())
+}
+
+#[cfg(test)]
+mod route_tests {
+    use super::*;
+
+    #[test]
+    fn a_requests_pages_are_under_it_and_keep_it_open() {
+        let request = RequestRoute { number: 398 }.route();
+        let commit = RequestCommitRoute {
+            number: 398,
+            commit: "0123".to_owned(),
+        }
+        .route();
+        let versions = RequestVersionsRoute {
+            number: 398,
+            from: 1,
+            to: 2,
+        }
+        .route();
+        for page in [&commit, &versions] {
+            assert_eq!(parent(page), Some(request.clone()));
+            assert_eq!(item(page), Some(request.clone()));
+        }
+        assert_eq!(parent(&request), None);
+        assert_eq!(item(&request), Some(request.clone()));
     }
 }

@@ -15,8 +15,9 @@
 //! - **Editors** (`add_editor`): an editor Open in opens a file in at a line (`artoo_core::editor::Editor`), by
 //!   its key, which Settings keeps; Artoo's three the frame's.
 //! - **Pages**: the routes of some kinds and a space's own page, drawn by the feature that owns them. The shell
-//!   keeps which is on screen — its history, `nav.txt` — and says so (`Pages::show`); a feature opens one of its
-//!   own through the `Frame` like any other.
+//!   keeps which is on screen — its history, esc's way up, the items open under a space, `nav.txt` — and says so
+//!   (`Pages::show`); what a route's page one up is and what it belongs to the pages say (`parent`, `item`). A
+//!   feature opens one of its own through the `Frame` like any other.
 //! - **`Frame`**: what a part asks of its tab: a toast, the error line, a redraw, the text selection, the places
 //!   it has open, its tool window opened or closed, a menu at the pointer, the narrow tab's drawer closed, a
 //!   route opened (or a space's own page), a route kept among the places opened lately, the tab's services.
@@ -700,6 +701,13 @@ pub struct Pages {
     pub space: &'static str,
     /// The kinds of route they draw (`code.file`).
     pub kinds: &'static [&'static str],
+    /// The page one up from a route of theirs, where esc goes and the bar's path leads; none when that is the
+    /// space's own page.
+    pub parent: fn(&Route) -> Option<Route>,
+    /// What a route of theirs belongs to, which stays open under the space in the menu once it was seen: a
+    /// request, a branch. A route as well — the item's own page, or a key no page draws (two refs compared, either
+    /// way round), whose page is the one it was left on. None: nothing stays open (a file read in Code).
+    pub item: fn(&Route) -> Option<Route>,
     /// The page on screen.
     pub view: AnyView,
     /// The panel beside it (Code's tree, an item's side panel) for the route on screen, at the width given; the

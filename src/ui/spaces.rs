@@ -5,9 +5,10 @@
 //! (D2); Settings is the title bar's gear. Until the spaces get pages of their own (#72, #75), Code opens search
 //! everywhere on Files, Branches and Merge requests the picker beside the menu.
 
-use super::nav::{Item, Page};
+use super::nav::Page;
 use super::requests::Scope;
 use super::{Workspace, icons, px, theme};
+use artoo_core::route::Route;
 use artoo_shell_api::spaces::{self, Open, SpaceRow, SpacesHost, SpacesMenu, ordered};
 pub use artoo_shell_api::spaces::{Places, Space};
 
@@ -55,7 +56,7 @@ impl Missing {
 /// What is open under a space, as its row in the menu.
 struct OpenRow {
     /// The request or branch; None for Code's file.
-    item: Option<Item>,
+    item: Option<Route>,
     icon: &'static str,
     label: String,
     mono: bool,
@@ -105,10 +106,11 @@ impl Workspace {
     fn open_rows(&self, space: Space, cx: &App) -> Vec<OpenRow> {
         let here = self.space() == Some(space);
         if space == CODE {
-            return match self.page_of(CODE) {
+            let page = self.page_of(CODE).and_then(Page::from_route);
+            return match &page {
                 Some(Page::File(path) | Page::Folder(path)) => vec![OpenRow {
                     item: None,
-                    icon: if matches!(self.page_of(CODE), Some(Page::Folder(_))) {
+                    icon: if matches!(page, Some(Page::Folder(_))) {
                         "folder"
                     } else {
                         "file"
@@ -125,7 +127,7 @@ impl Workspace {
                 _ => Vec::new(),
             };
         }
-        let loaded = self.page_of(space).and_then(Page::item);
+        let loaded = self.page_of(space).and_then(|p| self.item_of(p));
         self.open_items(space)
             .into_iter()
             .map(|open| {
@@ -143,9 +145,9 @@ impl Workspace {
                     .comments(cx)
                     .iter()
                     .any(|c| c.state == crate::comment::State::Draft && paths.contains(&c.path));
-                match &open.item {
-                    Item::Request(iid) => {
-                        let m = self.find_request(*iid, cx);
+                match Page::from_route(&open.item) {
+                    Some(Page::Request(iid)) => {
+                        let m = self.find_request(iid, cx);
                         let title = m.as_ref().map(|m| m.title.clone()).unwrap_or_default();
                         // One merged or closed since stays here, saying so, until closed (#114).
                         let state = m
@@ -153,9 +155,9 @@ impl Workspace {
                             .filter(|s| *s != crate::mr::MrState::Opened)
                             .map(|s| format!(" · {}", s.word().to_lowercase()))
                             .unwrap_or_default();
-                        let label = format!("{} {title}{state}", super::words::number(*iid));
+                        let label = format!("{} {title}{state}", super::words::number(iid));
                         // Gathered by an agent: its line under the title (#148).
-                        let gathered = self.gathered(*iid);
+                        let gathered = self.gathered(iid);
                         let tip = match gathered.and_then(|g| g.note.as_deref().map(|n| (g, n))) {
                             Some((g, note)) if !note.is_empty() => {
                                 format!("{label}\n{}: {note}", g.agent)
@@ -165,7 +167,7 @@ impl Workspace {
                         };
                         let agent = gathered.map(|g| {
                             let (letter, hue) = self.agent_mark(&g.agent, cx);
-                            (letter, hue, self.agent_waiting(*iid, &g.agent, cx))
+                            (letter, hue, self.agent_waiting(iid, &g.agent, cx))
                         });
                         OpenRow {
                             item: Some(open.item.clone()),
@@ -175,31 +177,12 @@ impl Workspace {
                             mono: false,
                             on,
                             drafts,
-                            news: self.requests_api().is_some_and(|r| r.unread_of(*iid, cx)),
+                            news: self.requests_api().is_some_and(|r| r.unread_of(iid, cx)),
                             agent,
                             call: self.agent_calls.get(&open.item).filter(|_| !on).cloned(),
                         }
                     }
-                    // Named as their page is (#149).
-                    Item::Compare(..) => {
-                        let label = match &open.page {
-                            Page::Compare(base, head, _) => format!("{} … {}", base.0, head.0),
-                            _ => String::new(),
-                        };
-                        OpenRow {
-                            item: Some(open.item.clone()),
-                            icon: "layers",
-                            tip: label.clone(),
-                            label,
-                            mono: true,
-                            on,
-                            drafts,
-                            news: false,
-                            agent: None,
-                            call: self.agent_calls.get(&open.item).filter(|_| !on).cloned(),
-                        }
-                    }
-                    Item::WorkingTree => OpenRow {
+                    Some(Page::WorkingTree) => OpenRow {
                         item: Some(open.item.clone()),
                         icon: "files",
                         label: "Working tree".to_owned(),
@@ -211,17 +194,38 @@ impl Workspace {
                         agent: None,
                         call: self.agent_calls.get(&open.item).filter(|_| !on).cloned(),
                     },
-                    Item::Branch(refname) => {
+                    Some(Page::Branch(refname)) => {
                         let name = self
                             .branch_list(cx)
                             .iter()
-                            .find(|b| &b.refname == refname)
-                            .map_or_else(|| refname.clone(), |b| b.name.clone());
+                            .find(|b| b.refname == refname)
+                            .map_or(refname, |b| b.name.clone());
                         OpenRow {
                             item: Some(open.item.clone()),
                             icon: "branch",
                             tip: name.clone(),
                             label: name,
+                            mono: true,
+                            on,
+                            drafts,
+                            news: false,
+                            agent: None,
+                            call: self.agent_calls.get(&open.item).filter(|_| !on).cloned(),
+                        }
+                    }
+                    // Named as their page is: a comparison (#149); another kind by its route's.
+                    _ => {
+                        let label = match Page::from_route(&open.page) {
+                            Some(Page::Compare(base, head, _)) => {
+                                format!("{} … {}", base.0, head.0)
+                            }
+                            _ => open.page.kind.clone(),
+                        };
+                        OpenRow {
+                            item: Some(open.item.clone()),
+                            icon: "layers",
+                            tip: label.clone(),
+                            label,
                             mono: true,
                             on,
                             drafts,
@@ -361,12 +365,12 @@ impl Workspace {
 struct Glue {
     tab: WeakEntity<Workspace>,
     /// What each row under a space is: its request or branch; None for Code's file.
-    items: Vec<(Space, Vec<Option<Item>>)>,
+    items: Vec<(Space, Vec<Option<Route>>)>,
 }
 
 impl Glue {
     /// Row `n` under `space`, when it is there.
-    fn item(&self, space: Space, n: usize) -> Option<Option<Item>> {
+    fn item(&self, space: Space, n: usize) -> Option<Option<Route>> {
         let (_, items) = self.items.iter().find(|(s, _)| *s == space)?;
         items.get(n).cloned()
     }

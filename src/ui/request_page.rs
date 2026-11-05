@@ -5,7 +5,7 @@
 //! been inside opens on Overview, later ones on Changes (`nav::first_section`). A commit opens as
 //! a level under Commits.
 
-use super::nav::{Item, Page, Section};
+use super::nav::{Page, Section};
 use super::{Selection, Workspace};
 use gpui::{ClickEvent, Context, SharedString, prelude::*};
 
@@ -14,14 +14,15 @@ impl Workspace {
     /// Changes, a branch's Commits and Changes (#74); ⌃⇥ walks them.
     pub(super) fn section_tabs(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         let at = self.page_section(cx)?;
-        let (loaded, files) = match self.nav_page()?.item()? {
-            Item::Request(iid) => (
+        let item = self.item_of(self.nav_page()?)?;
+        let (loaded, files) = match Page::from_route(&item)? {
+            Page::Request(iid) => (
                 self.current_request(cx) == Some(iid),
                 self.requests_api().and_then(|r| r.files(iid, cx)),
             ),
             // Tabbed only while it is the branch loaded.
-            Item::Branch(_) => (true, self.branches().and_then(|b| b.branch_files(cx))),
-            Item::Compare(..) | Item::WorkingTree => return None,
+            Page::Branch(_) => (true, self.branches().and_then(|b| b.branch_files(cx))),
+            _ => return None,
         };
         let count = |section: Section| match section {
             Section::Overview => None,
@@ -68,7 +69,7 @@ impl Workspace {
     /// first). Whether the page was one.
     pub(super) fn step_item_commit(&mut self, forward: bool, cx: &mut Context<Self>) -> bool {
         let (Some(Page::RequestCommit(_, id)) | Some(Page::BranchCommit(_, id))) =
-            self.nav_page().cloned()
+            self.shown_page()
         else {
             return false;
         };
