@@ -18,7 +18,7 @@ branches'; the closed `Space` enum gone, a `Space` its id, #171 phase 6); the ta
 (the page on screen, its history, esc's way up, the items open under a space and `nav.txt` all routes, the page one up
 and the item a route belongs to its pages' — `Pages::parent`, `Pages::item` —, the page bar's path and name too
 (`Pages::path`), what the tab frames it as and so its keyboard zones (`Pages::screen`: a page of its own, a list, an item's
-screen); a route of any kind its pages draw opens, one no page draws dropped where `nav.txt` is read; the closed `nav::Item` gone, #171 phase 7). A new page is a
+screen), and its row in the menu while it is open (`Pages::row`); a route of any kind its pages draw opens, one no page draws dropped where `nav.txt` is read; the closed `nav::Item` gone, #171 phase 7). A new page is a
 route kind its owner's `Pages` draw, no variant anywhere else; `Page` (`src/ui/nav.rs`) is only the tab's reading of
 the kinds it still coordinates — the item screen's bar, sections and links — and shrinks as their owners take those.
 A new command is offered: the window root's in `commands.rs` while the tab runs it, a feature's in its
@@ -44,7 +44,9 @@ the tab's handlers of the feature's actions, the snapshot views it opens (a name
 they draw, the page one up from each and what stays open of it (`parent`, `item`), what the page bar says of each — the path above it, each part a
 route up or the space's own page, its name, the name's long hover (a tip or a card) and the faint count after it (`path`, a `PagePath`) —, what the tab frames each as (`screen`, a `Screen`: a page of its own with the tool window the only
 keyboard zone beside it; a list of the tab's, ↑ ↓ ↵ its rows and ⌃1; an item's screen, the side panel's commits, the review's files and diff, its
-sections in the bar, zen's keys), their view, the panel beside them, and `show`, which the shell calls with the route on screen, or none
+sections in the bar, zen's keys), the menu's row of what is open of theirs under the space (`row`, an `ItemRow`: its icon,
+words, hover and whether something of it is unread — an item open there given the page it was left on, or the page the space keeps when it
+belongs to no item, Code's file —; the tab adds whether it is on screen, the agents' marks and the comments waiting), their view, the panel beside them, and `show`, which the shell calls with the route on screen, or none
 for the space's own page, and whether it was just opened or gone back to). What the `Frame` changes (a toast, the
 error line, a redraw, a tool window shown, a menu at the pointer — `MenuItem`s, each running its own closure, its groups titled or not —, the
 narrow tab's drawer closed, a route opened — a kind no pages draw says so in a toast —, a space's own page opened, a space gone to as its row

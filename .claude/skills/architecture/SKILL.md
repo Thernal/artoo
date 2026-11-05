@@ -113,7 +113,8 @@ order; Set up's Look its rows' short form). `artoo-shell-api` holds actions, par
   to are its pages' (`Pages::parent`, `Pages::item`), so a route of any kind a feature's pages draw opens and stays,
   and so is what the page bar says of it — the path above it, its name and the name's long hover (`Pages::path`) —
   and what the tab frames it as, a page of its own, a list or an item's screen, which says its keyboard zones, what
-  goes beside it and its sections (`Pages::screen`) (#171 phase 7). `Page` (`src/ui/nav.rs`, `src/ui/routes.rs` mapping it) is only the tab's reading of the kinds it
+  goes beside it and its sections (`Pages::screen`) —, and its row in the menu while it is open (`Pages::row`)
+  (#171 phase 7). `Page` (`src/ui/nav.rs`, `src/ui/routes.rs` mapping it) is only the tab's reading of the kinds it
   still coordinates — the item screen's bar actions, sections and links —; a new page is a kind its owner's `Pages` draw. Every
   command is offered (`add_action`), the window root's as data in `src/ui/commands.rs`, a feature's in its `install`
   (⇧⌘D the requests', ⇧⌘A the agents'), and ⌘K, the menu bar and the keys are made from the registry alone; a

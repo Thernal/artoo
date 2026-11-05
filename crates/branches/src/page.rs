@@ -17,9 +17,11 @@ use artoo_branches_api::{
 use artoo_core::route::{Place, Route};
 use artoo_requests_api::Requests;
 use artoo_review_api::{ItemView, Review};
-use artoo_shell_api::{Drawing, Frame, NameHover, PagePath, Pages, PathUp, Screen, Services};
-use artoo_ui_kit::px;
+use artoo_shell_api::{
+    Drawing, Frame, ItemRow, NameHover, PagePath, Pages, PathUp, Screen, Services,
+};
 use artoo_ui_kit::room::Widths;
+use artoo_ui_kit::{px, theme};
 use gpui::{AnyElement, App, Context, Entity, Render, Window, div, prelude::*};
 use serde::{Deserialize, Serialize};
 use std::rc::Rc;
@@ -70,6 +72,13 @@ pub fn pages(
             }
         }),
         screen,
+        row: Rc::new({
+            let services = services.clone();
+            move |item, page, cx| {
+                let services = services.upgrade()?;
+                row(item, page, &services, cx)
+            }
+        }),
         view: view.into(),
         side: Some(Rc::new(move |route, width, cx| {
             route?;
@@ -217,6 +226,44 @@ fn beside(h: &History, ix: usize, services: &Services, cx: &App) -> Beside {
         card: branch_card(h, ix, request.clone()).map(|card| Box::new(card) as Card),
         request,
     }
+}
+
+/// The menu's row of what is open under Branches: a branch by its name, the working tree, two refs compared named as
+/// their page is (#149).
+fn row(item: &Route, page: &Route, services: &Services, cx: &App) -> Option<ItemRow> {
+    let (label, icon, mono) = match item.kind.as_str() {
+        BranchRoute::KIND => {
+            let refname = BranchRoute::from_route(item)?.refname;
+            let list = (services.get::<Rc<dyn Branches>>())
+                .map(|b| b.list(cx))
+                .unwrap_or_default();
+            let name =
+                (list.iter().find(|b| b.refname == refname)).map_or(refname, |b| b.name.clone());
+            (name, "branch", true)
+        }
+        WorkingTreeRoute::KIND => ("Working tree".to_owned(), "files", false),
+        ComparisonRoute::KIND => {
+            let label = CompareRoute::from_route(page)
+                .map_or_else(|| page.kind.clone(), |c| format!("{} … {}", c.base, c.head));
+            (label, "layers", true)
+        }
+        _ => return None,
+    };
+    Some(ItemRow {
+        icon: row_icon(icon),
+        tip: label.clone(),
+        label,
+        mono,
+        news: false,
+    })
+}
+
+/// A row's icon in the menu, as the menu draws its rows'.
+fn row_icon(name: &'static str) -> AnyElement {
+    artoo_ui_kit::icons::icon(name)
+        .size(px(14.))
+        .text_color(theme::faint())
+        .into_any_element()
 }
 
 /// The space's own page is its list; a route of theirs, an item's screen.

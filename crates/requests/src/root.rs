@@ -19,7 +19,7 @@ use artoo_requests_api::{
 use artoo_review_api::ItemView;
 use artoo_review_api::{Review, Seen};
 use artoo_shell_api::{
-    Drawing, Frame, ItemTab, NameHover, PagePath, Pages, PathUp, Screen, Services,
+    Drawing, Frame, ItemRow, ItemTab, NameHover, PagePath, Pages, PathUp, Screen, Services,
 };
 use artoo_ui_kit::controls::skeleton;
 use artoo_ui_kit::room::Widths;
@@ -67,6 +67,13 @@ pub fn pages(requests: Entity<Requests>, frame: Rc<dyn Frame>, cx: &mut App) -> 
             }
         }),
         screen,
+        row: Rc::new({
+            let services = services.clone();
+            move |item, _, cx| {
+                let services = services.upgrade()?;
+                row(item, &services, cx)
+            }
+        }),
         view: view.into(),
         side: Some(Rc::new({
             let services = services.clone();
@@ -243,6 +250,37 @@ impl RootPage {
             .child(body)
             .into_any_element()
     }
+}
+
+/// The menu's row of a request open under Merge requests: its number and title, said merged or closed since, a
+/// notification of it not read yet.
+fn row(item: &Route, services: &Services, cx: &App) -> Option<ItemRow> {
+    let number = RequestRoute::from_route(item)?.number;
+    let requests = services.get::<Rc<dyn artoo_requests_api::Requests>>();
+    let m = requests.as_ref().and_then(|r| r.find(number, cx));
+    let title = m.as_ref().map(|m| m.title.clone()).unwrap_or_default();
+    // One merged or closed since stays here, saying so, until closed (#114).
+    let state = m
+        .map(|m| m.state)
+        .filter(|s| *s != artoo_core::mr::MrState::Opened)
+        .map(|s| format!(" · {}", s.word().to_lowercase()))
+        .unwrap_or_default();
+    let label = format!("{} {title}{state}", words::number(number));
+    Some(ItemRow {
+        icon: row_icon("pull-request"),
+        tip: label.clone(),
+        label,
+        mono: false,
+        news: requests.is_some_and(|r| r.unread_of(number, cx)),
+    })
+}
+
+/// A row's icon in the menu, as the menu draws its rows'.
+fn row_icon(name: &'static str) -> AnyElement {
+    artoo_ui_kit::icons::icon(name)
+        .size(px(14.))
+        .text_color(theme::faint())
+        .into_any_element()
 }
 
 /// The space's own page is its list; a route of theirs, an item's screen.

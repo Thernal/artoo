@@ -6,7 +6,7 @@ use artoo_core::files;
 use artoo_core::git::Repo;
 use artoo_core::route::{Place, Route};
 use artoo_review_api::{FileView, Review};
-use artoo_shell_api::{Frame, MenuItem, NameHover, PagePath, Pages, PathUp, Screen};
+use artoo_shell_api::{Frame, ItemRow, MenuItem, NameHover, PagePath, Pages, PathUp, Screen};
 use artoo_ui_kit::hover::{CutInTip, Tip, TipOwned};
 use artoo_ui_kit::{icons, island, keys, markdown, px, theme};
 use git2::Oid;
@@ -247,6 +247,7 @@ impl CodeSpace {
             item: |_| None,
             path: Rc::new(move |route, _, cx| named.upgrade()?.read(cx).path_of(route, cx)),
             screen: |_| Screen::Own,
+            row: Rc::new(|route, _, _| row(route)),
             view: this.clone().into(),
             side: Some(Rc::new(move |_, width, cx| {
                 Some(side.update(cx, |c, cx| c.render_tree(width, cx).into_any_element()))
@@ -1658,6 +1659,23 @@ impl artoo_code_api::Code for Handle {
     fn step_tab(&self, forward: bool, cx: &mut App) {
         self.update(cx, |c, cx| c.step_tab(forward, cx));
     }
+}
+
+/// The menu's row of the file or the folder Code was left on: its own icon, its name, its whole path in the hover.
+fn row(route: &Route) -> Option<ItemRow> {
+    let page = Page::from_route(route)?;
+    let (Page::File(path) | Page::Folder(path)) = &page;
+    let icon = match &page {
+        Page::Folder(_) => artoo_ui_kit::icons::folder_icon(path, 14.),
+        Page::File(_) => artoo_ui_kit::icons::file_icon(path, 14.),
+    };
+    Some(ItemRow {
+        icon,
+        label: path.rsplit('/').next().unwrap_or(path).to_owned(),
+        mono: false,
+        tip: path.clone(),
+        news: false,
+    })
 }
 
 #[cfg(test)]

@@ -18,7 +18,7 @@
 //!   keeps which is on screen — its history, esc's way up, the items open under a space, `nav.txt` — and says so
 //!   (`Pages::show`); what a route's page one up is and what it belongs to the pages say (`parent`, `item`), and
 //!   what the page bar says of it (`path`), and what the tab frames it as — a page of its own, a list, an item's
-//!   screen, its islands with the keyboard (`screen`). A
+//!   screen, its islands with the keyboard (`screen`) —, and its row in the menu while it is open (`row`). A
 //!   feature opens one of its own through the `Frame` like any other.
 //! - **`Frame`**: what a part asks of its tab: a toast, the error line, a redraw, the text selection, the places
 //!   it has open, its tool window opened or closed, a menu at the pointer, the narrow tab's drawer closed, a
@@ -715,6 +715,8 @@ pub struct Pages {
     /// What the tab frames a route of theirs as, or the space's own page (`None`): its islands with the keyboard,
     /// what goes beside it and over it (`Screen`).
     pub screen: fn(Option<&Route>) -> Screen,
+    /// The menu's row of what is open of theirs under the space (`ItemRow`).
+    pub row: RowOf,
     /// The page on screen.
     pub view: AnyView,
     /// The panel beside it (Code's tree, an item's side panel) for the route on screen, at the width given; the
@@ -725,6 +727,23 @@ pub struct Pages {
     /// (a click, a link), so what it shows is read anew, `false` when it was gone back to or kept from before.
     /// The shell says it from inside its own update (see the crate's doc).
     pub show: Show,
+}
+
+/// The menu's row of a route under a space (`Pages::row`), given the page it was left on: an item open there (a
+/// request, a branch; the page one of its pages), or the page the space keeps when it belongs to no item (Code's file,
+/// itself). None when they say nothing of it: its kind names it. Called while the tab draws: it reads the feature's
+/// own state, never the tab.
+pub type RowOf = Rc<dyn Fn(&Route, &Route, &App) -> Option<ItemRow>>;
+
+/// What a row under a space says of what is open there: its icon, its words (in code's font when `mono`), its long
+/// hover and whether something of it is not read yet. Whether it is on screen, the agents' marks on it and the
+/// comments waiting in it the tab adds.
+pub struct ItemRow {
+    pub icon: AnyElement,
+    pub label: String,
+    pub mono: bool,
+    pub tip: String,
+    pub news: bool,
 }
 
 /// What the tab frames a page as (`Pages::screen`): which of its islands take the keyboard (Tab and ⇧Tab between

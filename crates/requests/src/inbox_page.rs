@@ -57,6 +57,7 @@ pub fn pages(
         item: |_| None,
         path: Rc::new(|_, _, _| None),
         screen: |_| Screen::Own,
+        row: Rc::new(|_, _, _| None),
         view: page.into(),
         side: None,
         show: Rc::new(|_, _, _| {}),
