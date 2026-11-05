@@ -237,6 +237,9 @@ pub const SPACE: &str = "branches";
 /// The branches' scope of search everywhere, by its id (`artoo_shell_api::search`): ⌘⇧B opens ⌘K on it.
 pub const SEARCH: &str = "branches";
 
+/// The commits' scope of search everywhere (the branch open's, or the request's): ⌘⇧C opens ⌘K on it.
+pub const SEARCH_COMMITS: &str = "commits";
+
 /// The commits' search, as one of the tab's inputs.
 pub const SEARCH_INPUT: &str = "branches.search";
 

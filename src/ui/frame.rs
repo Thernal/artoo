@@ -489,9 +489,12 @@ impl Render for Workspace {
         .on_action(
             cx.listener(|this, _: &SearchFiles, _, cx| this.search(palette::Scope::Files, cx)),
         )
-        .on_action(
-            cx.listener(|this, _: &SearchCommits, _, cx| this.search(palette::Scope::Commits, cx)),
-        )
+        .on_action(cx.listener(|this, _: &SearchCommits, _, cx| {
+            this.search(
+                palette::Scope::Offered(artoo_branches_api::SEARCH_COMMITS),
+                cx,
+            )
+        }))
         .on_action(cx.listener(|this, _: &SearchBranches, _, cx| {
             this.search(palette::Scope::Offered(artoo_branches_api::SEARCH), cx)
         }))

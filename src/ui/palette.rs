@@ -18,7 +18,6 @@ use std::sync::Arc;
 pub enum Scope {
     All,
     Files,
-    Commits,
     Actions,
     Offered(&'static str),
 }
@@ -29,7 +28,6 @@ impl Scope {
         match self {
             Scope::All => 0,
             Scope::Files => 10,
-            Scope::Commits => 20,
             Scope::Actions => 90,
             Scope::Offered(_) => u16::MAX,
         }
@@ -40,7 +38,6 @@ impl Scope {
 enum Section<'a> {
     Commands,
     Files,
-    Commits,
     Offered(&'a artoo_shell_api::search::Search),
 }
 
@@ -106,7 +103,6 @@ enum Pick {
         line: u32,
     },
     Recent(super::recents::Key),
-    Commit(Oid),
     File(usize),
     Branch(usize),
     Request(u64),
@@ -261,15 +257,14 @@ impl Workspace {
 
     /// Search everywhere's tabs, in their order: the tab's own, the offered ones among them.
     pub(super) fn scopes(&self) -> Vec<Scope> {
-        let mut scopes: Vec<(u16, Scope)> =
-            [Scope::All, Scope::Files, Scope::Commits, Scope::Actions]
-                .into_iter()
-                .map(|s| (s.order(), s))
-                .chain(
-                    self.offered_searches()
-                        .map(|s| (s.order, Scope::Offered(s.id))),
-                )
-                .collect();
+        let mut scopes: Vec<(u16, Scope)> = [Scope::All, Scope::Files, Scope::Actions]
+            .into_iter()
+            .map(|s| (s.order(), s))
+            .chain(
+                self.offered_searches()
+                    .map(|s| (s.order, Scope::Offered(s.id))),
+            )
+            .collect();
         scopes.sort_by_key(|(order, _)| *order);
         scopes.into_iter().map(|(_, s)| s).collect()
     }
@@ -278,7 +273,6 @@ impl Workspace {
         match scope {
             Scope::All => "All",
             Scope::Files => "Files",
-            Scope::Commits => "Commits",
             Scope::Actions => "Actions",
             Scope::Offered(id) => self.offered_search(id).map_or(id, |s| s.label),
         }
@@ -289,7 +283,6 @@ impl Workspace {
         match scope {
             Scope::All => "shell.search",
             Scope::Files => "shell.search-files",
-            Scope::Commits => "shell.search-commits",
             Scope::Actions => "shell.search-actions",
             Scope::Offered(id) => self.offered_search(id).map_or("", |s| s.go),
         }
@@ -299,7 +292,6 @@ impl Workspace {
         match scope {
             Scope::All => "Search everywhere — files, commits, branches, requests, actions",
             Scope::Files => "Files — this diff's first, then the repository's",
-            Scope::Commits => "Commits — by words of the message, the author or the id",
             Scope::Actions => "Actions — everything the app does, with its key",
             Scope::Offered(id) => self.offered_search(id).map_or("", |s| s.placeholder),
         }
@@ -592,30 +584,6 @@ impl Workspace {
                 };
                 self.offered_items(search, ask, cx)
             }),
-            Scope::Commits => self
-                .branches()
-                .map(|b| {
-                    b.commits_where(
-                        &|c| {
-                            words.is_empty()
-                                || matches(&words, &c.summary)
-                                || matches(&words, &c.author)
-                                || c.id.to_string().starts_with(&words[0])
-                        },
-                        60,
-                        cx,
-                    )
-                })
-                .unwrap_or_default()
-                .into_iter()
-                .map(|c| Item {
-                    group: "Commits",
-                    label: c.summary.clone(),
-                    detail: format!("{} · {}", format::short(c.id), c.author),
-                    key: "",
-                    pick: Pick::Commit(c.id),
-                })
-                .collect(),
             Scope::Files => self.file_items(query, &p.files, cx),
         }
     }
@@ -888,11 +856,7 @@ impl Workspace {
             Some(c) => own == Some(c),
             None => !words.is_empty(),
         };
-        let mut sections: Vec<(u16, Section)> = vec![
-            (0, Section::Commands),
-            (20, Section::Files),
-            (30, Section::Commits),
-        ];
+        let mut sections: Vec<(u16, Section)> = vec![(0, Section::Commands), (20, Section::Files)];
         sections.extend(
             self.offered_searches()
                 .map(|s| (s.all.order, Section::Offered(s))),
@@ -914,29 +878,6 @@ impl Workspace {
                         .map(|i| Item {
                             group: "Files",
                             ..i
-                        }),
-                ),
-                Section::Commits if shows(None) => items.extend(
-                    self.branches()
-                        .map(|b| {
-                            b.commits_where(
-                                &|c| {
-                                    matches(&words, &c.summary)
-                                        || matches(&words, &c.author)
-                                        || c.id.to_string().starts_with(&words[0])
-                                },
-                                4,
-                                cx,
-                            )
-                        })
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|c| Item {
-                            group: "Commits",
-                            label: c.summary.clone(),
-                            detail: format!("{} · {}", format::short(c.id), c.author),
-                            key: "",
-                            pick: Pick::Commit(c.id),
                         }),
                 ),
                 Section::Offered(search) if shows(search.all.prefix) => {
@@ -1098,13 +1039,7 @@ impl Workspace {
                     self.jump_to_line(&path, line, old, cx);
                 }
             }
-            // A result opens in its space (#71): a commit or a file of what is loaded on its page.
-            Pick::Commit(id) => {
-                self.palette = None;
-                if let Some(ix) = self.commit_at(id, cx) {
-                    self.open_commit(ix, cx);
-                }
-            }
+            // A result opens in its space (#71): a file of what is loaded on its page.
             // In Code a file opens there, as a tab, changed or not (#75).
             Pick::File(ix) if self.nav.space == super::spaces::CODE => {
                 self.palette = None;
