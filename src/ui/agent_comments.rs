@@ -1,103 +1,34 @@
-//! The agents' comments on lines (#10, #46, #50 G, #76): added from the composer, sent to a chat or copied for
-//! one, an agent's form answered, a purple note on a discussion, deleted, saved on this Mac (`crate::review`),
-//! placed in a file against its text, and drawn under their line as a thread.
+//! The agents' comments on lines (#10, #46, #50 G, #76) as the tab writes them: added from the composer, sent to a
+//! chat or copied for one, an agent's form answered, a purple note on a discussion, deleted, and drawn under their
+//! line as a thread. What is done to them — kept, placed in a file against its text, their lines followed — is the
+//! agents' (`Agents`); the tab hears them changed (`on_comments`).
 
 use super::composer::{Change, Compose, Target, edit_button};
 use super::discussion::{self, Kind, Source};
 use super::markdown;
 use super::px;
-use super::rows::FileData;
 use super::typing::Input;
 use super::{Workspace, theme};
-use crate::comment::{self, Comment, Place, State};
+use crate::comment::{Comment, Place, State};
 use crate::textedit::TextEdit;
 use gpui::{App, ClipboardItem, Context, WeakEntity, div, prelude::*};
 
 impl Workspace {
     /// Where `comment` sits in the open file now (`None` when it belongs to another file).
     pub(super) fn place_in_open_file(&self, comment: &Comment, cx: &App) -> Option<Place> {
-        self.place_in_file(
-            comment,
-            &self.current_path(cx)?,
-            self.diff_data(cx).as_ref()?,
-        )
+        let (path, data) = (self.current_path(cx)?, self.diff_data(cx)?);
+        self.agents.place(comment, &path, &data, cx)
     }
 
-    /// Where `comment` sits in file `path` built as `data`: by its line's text, else, its line
-    /// changed since, where that line went (`agent_lines`); nowhere once archived (#76).
-    fn place_in_file(&self, comment: &Comment, path: &str, data: &FileData) -> Option<Place> {
-        if comment.archived {
-            return None;
-        }
-        match place_in(comment, path, data)? {
-            Place::Outdated => Some(
-                self.agent_lines
-                    .get(&comment.id)
-                    .map_or(Place::Outdated, |&n| Place::Line(n)),
-            ),
-            found => Some(found),
-        }
-    }
-
-    /// Follows the line of every agent comment whose text no longer matches, from the commit it
-    /// was written on to the diff shown, in the background (#46).
+    /// Follows the line of every agent comment on the diff shown whose text no longer matches, from the commit it
+    /// was written on to the one shown, in the background (#46, `Agents::follow_comments`).
     pub(super) fn map_agent_comments(&mut self, cx: &mut Context<Self>) {
-        self.agent_lines.clear();
-        let (Some(root), Some(head), Some(diff)) = (
-            self.root.clone(),
-            self.rv().shown_head(cx),
-            self.shown_diff(cx),
-        ) else {
-            return;
-        };
-        let paths: Vec<String> = diff.files.iter().map(|f| f.path().to_owned()).collect();
-        let asks: Vec<(u64, String, String, u32)> = self
-            .comments(cx)
-            .iter()
-            .filter(|c| !c.old && paths.contains(&c.path))
-            .filter_map(|c| {
-                let commit = c.commit.clone()?;
-                (!head.to_string().starts_with(&commit))
-                    .then(|| (c.id, commit, c.path.clone(), c.line))
-            })
-            .collect();
-        if asks.is_empty() {
-            return;
-        }
-        self.agent_task = Some(cx.spawn(async move |this, cx| {
-            let found = cx
-                .background_executor()
-                .spawn(async move {
-                    let Ok(repo) = crate::git::Repo::open(&root) else {
-                        return std::collections::HashMap::new();
-                    };
-                    asks.into_iter()
-                        .filter_map(|(id, commit, path, line)| {
-                            let from = git2::Oid::from_str(&commit).ok()?;
-                            match repo.follow_line(from, head, &path, line) {
-                                crate::git::Fate::Same(n) | crate::git::Fate::Changed(n, _) => {
-                                    Some((id, n))
-                                }
-                                crate::git::Fate::Gone => None,
-                            }
-                        })
-                        .collect()
-                })
-                .await;
-            this.update(cx, |this, cx| {
-                this.agent_lines = found;
-                this.refresh_rows(cx);
-                cx.notify();
-            })
-            .ok();
-        }));
-    }
-
-    /// Whether folder `path` has a note for the agent not yet resolved or put away (#97).
-    pub(super) fn folder_note_waits(&self, path: &str, cx: &App) -> bool {
-        self.comments(cx).iter().any(|c| {
-            c.path.strip_suffix('/') == Some(path) && !c.archived && c.state != State::Resolved
-        })
+        let paths: Vec<String> = (self.shown_diff(cx))
+            .map(|d| d.files.iter().map(|f| f.path().to_owned()).collect())
+            .unwrap_or_default();
+        let head = self.rv().shown_head(cx).map(|h| h.to_string());
+        self.agents
+            .follow_comments(self.root.clone(), head, paths, cx);
     }
 
     /// Adds the agent comment being written to the drafts, then sends it alone or with all.
@@ -204,16 +135,7 @@ impl Workspace {
         let Some(compose) = self.compose.take() else {
             return;
         };
-        self.change_comment(id, cx, |c| {
-            let a = c.answer.get_or_insert_with(Default::default);
-            a.value = compose.edit.text().trim().to_owned();
-            if !a.value.is_empty() {
-                a.picks.clear();
-                a.your_call = false;
-            }
-            c.state = State::Draft;
-        });
-        self.save_comments(cx);
+        self.agents.answer_value(id, compose.edit.text(), cx);
         self.refresh_rows(cx);
         cx.notify();
     }
@@ -223,12 +145,7 @@ impl Workspace {
         let Some(compose) = self.compose.take() else {
             return;
         };
-        self.change_comment(id, cx, |c| {
-            let a = c.answer.get_or_insert_with(Default::default);
-            a.note = compose.edit.text().trim().to_owned();
-            c.state = State::Draft;
-        });
-        self.save_comments(cx);
+        self.agents.answer_note(id, compose.edit.text(), cx);
         self.refresh_rows(cx);
         cx.notify();
         // Written in the Inbox: it goes to the chat now (#116).
@@ -261,9 +178,7 @@ impl Workspace {
             .diff_data(cx)
             .map(|d| d.side(compose.old).line(compose.line).0.to_owned())
             .unwrap_or_default();
-        let id = crate::comment::next_id(self.comments(cx));
         let comment = Comment {
-            id,
             path: compose.path,
             old: compose.old,
             line: compose.line,
@@ -273,55 +188,21 @@ impl Workspace {
             thread: Some(thread),
             ..Default::default()
         };
-        self.change_comments(cx, |list| list.push(comment));
-        self.save_comments(cx);
+        self.agents.add_comment(comment, cx);
         self.refresh_rows(cx);
         cx.notify();
     }
 
+    /// Comment `id` gone; its line drawn again when the agents say so (`on_comments`).
     pub(super) fn delete_comment(&mut self, id: u64, cx: &mut Context<Self>) {
-        self.change_comments(cx, |list| list.retain(|c| c.id != id));
-        self.save_comments(cx);
+        self.agents.delete_comment(id, cx);
         self.copied = false;
-        self.refresh_rows(cx);
         cx.notify();
-    }
-
-    pub(super) fn save_comments(&self, cx: &App) {
-        self.agents.save_comments(cx);
     }
 
     /// The reviewer's comments to agents, as they are now (`Agents::comments`).
     pub(super) fn comments<'a>(&self, cx: &'a App) -> &'a [Comment] {
         self.agents.comments(cx)
-    }
-
-    /// Comment `id` changed by `f`, when it is one; not saved.
-    pub(super) fn change_comment<R>(
-        &mut self,
-        id: u64,
-        cx: &mut App,
-        f: impl FnOnce(&mut Comment) -> R,
-    ) -> Option<R> {
-        self.change_comments(cx, |list| list.iter_mut().find(|c| c.id == id).map(f))
-    }
-
-    /// The comments changed by `f`; not saved.
-    pub(super) fn change_comments<R>(
-        &mut self,
-        cx: &mut App,
-        f: impl FnOnce(&mut Vec<Comment>) -> R,
-    ) -> R {
-        let (mut f, mut out) = (Some(f), None);
-        self.agents.change_comments(
-            &mut |list| {
-                if let Some(f) = f.take() {
-                    out = Some(f(list));
-                }
-            },
-            cx,
-        );
-        out.expect("the comments are changed once")
     }
 
     /// The comments as markdown, copied for pasting into an agent.
@@ -333,13 +214,9 @@ impl Workspace {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
         // What the agent still has to do: not the comments it did or the reviewer resolved.
-        let comments: Vec<(Comment, Place)> = self
-            .comments(cx)
-            .iter()
-            .filter(|c| c.open())
-            .map(|c| (c.clone(), self.place_of(c, cx)))
-            .collect();
-        cx.write_to_clipboard(ClipboardItem::new_string(comment::export(&repo, &comments)));
+        let app: &App = cx;
+        let text = (self.agents).export_comments(&repo, &|c| self.place_of(c, app), app);
+        cx.write_to_clipboard(ClipboardItem::new_string(text));
         self.copied = true;
         cx.notify();
     }
@@ -587,13 +464,4 @@ impl Workspace {
             )
             .into_any_element()
     }
-}
-
-/// Where `comment` sits in file `path`, built as `data` (`None` when it belongs to another file).
-fn place_in(comment: &Comment, path: &str, data: &FileData) -> Option<Place> {
-    if comment.path != path {
-        return None;
-    }
-    let side = data.side(comment.old);
-    Some(comment::place(comment, side.count(), |n| side.line(n).0))
 }

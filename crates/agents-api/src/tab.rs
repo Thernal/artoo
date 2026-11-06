@@ -3,15 +3,16 @@
 //! the agents' parts in it — the Agents window, the card, the notes' summary, Settings → Agents — draw the same.
 
 use crate::bus::{Chat, Mark};
-use crate::comment::{Comment, State};
+use crate::comment::{Comment, Place, State};
 use crate::notes::{Notes, Shown};
+use artoo_core::rows::FileData;
 use gpui::{App, Global, Rgba};
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-/// What the tab is told: the notes or the comments changed, the notes' lines were found.
+/// What the tab is told: the notes or the comments changed, their lines were found.
 pub type OnChange = Rc<dyn Fn(&mut App)>;
 
 /// One tab's agents.
@@ -51,14 +52,43 @@ pub trait Agents {
     /// The reviewer's comments to agents, oldest first.
     fn comments<'a>(&self, cx: &'a App) -> &'a [Comment];
 
-    /// The comments changed; kept with `save_comments`.
-    fn change_comments(&self, change: &mut dyn FnMut(&mut Vec<Comment>), cx: &mut App);
-
     /// Project `root`'s comments, read anew; its marks on the next beat.
     fn load_comments(&self, root: PathBuf, cx: &mut App);
 
-    /// The comments kept for their project, as they are now.
-    fn save_comments(&self, cx: &App);
+    /// `comment` added to the drafts as the next one (its id, given back); comment `id` deleted; `comment` put in by
+    /// its id, where it was (a draft deleted brought back); comment `id`'s text edited.
+    fn add_comment(&self, comment: Comment, cx: &mut App) -> u64;
+    fn delete_comment(&self, id: u64, cx: &mut App);
+    fn restore_comment(&self, comment: Comment, cx: &mut App);
+    fn edit_comment(&self, id: u64, body: String, cx: &mut App);
+
+    /// The value typed on the agent's form on comment `id`, in a field of its own (it replaces any pick), and the
+    /// note under the form: each a draft again, to go with the next send (#10 C).
+    fn answer_value(&self, id: u64, value: &str, cx: &mut App);
+    fn answer_note(&self, id: u64, note: &str, cx: &mut App);
+
+    /// Whether folder `path` has a note for the agent not yet resolved or put away (#97).
+    fn folder_waits(&self, path: &str, cx: &App) -> bool;
+
+    /// Where `comment` sits in file `path` built as `data`: by its line's text, else, its line changed since, where
+    /// that line went (`follow_comments`); nowhere once archived (#76) or in another file.
+    fn place(&self, comment: &Comment, path: &str, data: &FileData, cx: &App) -> Option<Place>;
+
+    /// Where comment `id`, its line changed since it was written, is on the head shown (`follow_comments`).
+    fn comment_line(&self, id: u64, cx: &App) -> Option<u32>;
+
+    /// Follows the line of every comment on the new side of files `paths` written on another commit than `head` (the
+    /// one shown), from that commit to it, in repository `root`, in the background (#46).
+    fn follow_comments(
+        &self,
+        root: Option<PathBuf>,
+        head: Option<String>,
+        paths: Vec<String>,
+        cx: &mut App,
+    );
+
+    /// The open comments as markdown for an agent, each at its place `place`; `repo` the repository's name.
+    fn export_comments(&self, repo: &str, place: &dyn Fn(&Comment) -> Place, cx: &App) -> String;
 
     /// The reviewer's pick on the agent's form on comment `id` — `None` their own call, else option `pick` —, an
     /// Order's item `at` moved one place up (or down), a digit on the form (0 their own call, 1…9 the option drawn
@@ -95,7 +125,8 @@ pub trait Agents {
     /// told, took a note of its on the file and has not answered yet. Its name, letter and hue.
     fn changing(&self, path: &str, page: Option<&str>, cx: &App) -> Option<(String, char, Rgba)>;
 
-    /// What the tab is told when the agents changed the comments themselves: a pick, a send, an archive.
+    /// What the tab is told when the agents changed the comments — a comment added, a pick, a send, an archive — or
+    /// found their lines.
     fn on_comments(&self, changed: OnChange, cx: &mut App);
 
     /// What the agents answered since the last look, taken in and kept: each one's state and replies as they were,

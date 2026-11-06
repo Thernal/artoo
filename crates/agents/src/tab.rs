@@ -8,9 +8,10 @@ use crate::connect::Connect;
 use crate::notes::AgentNotes;
 use crate::pick::SendCard;
 use artoo_agents_api::bus::{Chat, Mark};
-use artoo_agents_api::comment::{self, Comment, Kind, State};
+use artoo_agents_api::comment::{self, Comment, Kind, Place, State};
 use artoo_agents_api::notes::{Notes, Shown};
 use artoo_agents_api::tab::{Agents, OnChange};
+use artoo_core::rows::FileData;
 use gpui::{App, AppContext, Entity, Rgba};
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
@@ -108,17 +109,68 @@ impl Agents for TabAgents {
         &self.comments.read(cx).list
     }
 
-    fn change_comments(&self, change: &mut dyn FnMut(&mut Vec<Comment>), cx: &mut App) {
-        self.comments.update(cx, |c, _| change(&mut c.list));
-    }
-
     fn load_comments(&self, root: PathBuf, cx: &mut App) {
         self.comments.update(cx, |c, _| c.load(root));
         self.chats.update(cx, |c, _| c.marks_stamp = None);
     }
 
-    fn save_comments(&self, cx: &App) {
-        self.comments.read(cx).save();
+    fn add_comment(&self, comment: Comment, cx: &mut App) -> u64 {
+        let mut id = 0;
+        self.change(cx, |c| {
+            id = c.add(comment);
+            true
+        });
+        id
+    }
+
+    fn delete_comment(&self, id: u64, cx: &mut App) {
+        self.change(cx, |c| c.delete(id));
+    }
+
+    fn restore_comment(&self, comment: Comment, cx: &mut App) {
+        self.change(cx, |c| {
+            c.restore(comment);
+            true
+        });
+    }
+
+    fn edit_comment(&self, id: u64, body: String, cx: &mut App) {
+        self.change(cx, |c| c.change(id, |c| c.body = body));
+    }
+
+    fn answer_value(&self, id: u64, value: &str, cx: &mut App) {
+        self.change(cx, |c| c.answer_value(id, value));
+    }
+
+    fn answer_note(&self, id: u64, note: &str, cx: &mut App) {
+        self.change(cx, |c| c.answer_note(id, note));
+    }
+
+    fn folder_waits(&self, path: &str, cx: &App) -> bool {
+        self.comments.read(cx).folder_waits(path)
+    }
+
+    fn place(&self, comment: &Comment, path: &str, data: &FileData, cx: &App) -> Option<Place> {
+        self.comments.read(cx).place(comment, path, data)
+    }
+
+    fn comment_line(&self, id: u64, cx: &App) -> Option<u32> {
+        self.comments.read(cx).lines.get(&id).copied()
+    }
+
+    fn follow_comments(
+        &self,
+        root: Option<PathBuf>,
+        head: Option<String>,
+        paths: Vec<String>,
+        cx: &mut App,
+    ) {
+        self.comments
+            .update(cx, |c, cx| c.follow(root, head, paths, cx));
+    }
+
+    fn export_comments(&self, repo: &str, place: &dyn Fn(&Comment) -> Place, cx: &App) -> String {
+        self.comments.read(cx).export(repo, place)
     }
 
     fn pick_answer(&self, id: u64, pick: Option<usize>, cx: &mut App) {

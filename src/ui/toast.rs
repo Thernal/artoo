@@ -116,11 +116,7 @@ impl Workspace {
 
     /// Undo: the deleted draft is back where it was.
     fn undo(&mut self, comment: crate::comment::Comment, cx: &mut Context<Self>) {
-        self.change_comments(cx, |list| {
-            list.push(comment);
-            list.sort_by_key(|c| c.id);
-        });
-        self.save_comments(cx);
+        self.agents.restore_comment(comment, cx);
         self.refresh_rows(cx);
         cx.notify();
     }

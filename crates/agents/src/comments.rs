@@ -1,11 +1,15 @@
 //! A tab's comments to agents (#10, #46, #76): the reviewer's line comments of this repository, kept on this Mac
-//! (`review::load`, `review::save`), and what the agents answered on them, taken in on the poll's beat. What a
-//! change of them means on screen — the lines' pins, a toast — is the tab's.
+//! (`review::load`, `review::save`), and what the agents answered on them, taken in on the poll's beat; where each
+//! is in a file shown, its line followed from the commit it was written on (#46). What a change of them means on
+//! screen — the lines' pins, a toast — is the tab's.
 
 use crate::agents::{self, Bus};
-use crate::review::{self, Comment, State};
-use artoo_agents_api::comment::{Answered, FormKind};
-use gpui::{App, Entity};
+use crate::git;
+use crate::review::{self, Comment, Place, State};
+use artoo_agents_api::comment::{Answered, FormKind, export, next_id};
+use artoo_core::rows::FileData;
+use gpui::{App, Context, Entity, Task};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -14,6 +18,10 @@ use std::time::SystemTime;
 pub struct AgentComments {
     /// Oldest first.
     pub list: Vec<Comment>,
+    /// Where each comment whose line changed since it was written is on the head shown, by id (`follow`).
+    pub lines: HashMap<u64, u32>,
+    /// The lines being followed.
+    task: Option<Task<()>>,
     /// The project they are kept for.
     root: Option<PathBuf>,
     /// When the agents' answers were last read.
@@ -132,6 +140,148 @@ impl AgentComments {
         }
     }
 
+    /// `comment` added to the drafts as the next one; its id. Not saved.
+    pub fn add(&mut self, mut comment: Comment) -> u64 {
+        comment.id = next_id(&self.list);
+        let id = comment.id;
+        self.list.push(comment);
+        id
+    }
+
+    /// `comment` put in by its id, where it was: a draft deleted brought back (its toast's Undo). Not saved.
+    pub fn restore(&mut self, comment: Comment) {
+        self.list.push(comment);
+        self.list.sort_by_key(|c| c.id);
+    }
+
+    /// Comment `id` gone. Whether it was one; not saved.
+    pub fn delete(&mut self, id: u64) -> bool {
+        let before = self.list.len();
+        self.list.retain(|c| c.id != id);
+        self.list.len() != before
+    }
+
+    /// `value` typed on the agent's form on comment `id`, in a field of its own: it replaces any pick, and goes to the
+    /// drafts like one (#10 C). Whether it is one; not saved.
+    pub fn answer_value(&mut self, id: u64, value: &str) -> bool {
+        self.change(id, |c| {
+            let a = c.answer.get_or_insert_with(Default::default);
+            a.value = value.trim().to_owned();
+            if !a.value.is_empty() {
+                a.picks.clear();
+                a.your_call = false;
+            }
+            c.state = State::Draft;
+        })
+    }
+
+    /// `note` under the agent's form on comment `id`: it goes to the drafts with the comment, for the next send.
+    /// Whether it is one; not saved.
+    pub fn answer_note(&mut self, id: u64, note: &str) -> bool {
+        self.change(id, |c| {
+            c.answer.get_or_insert_with(Default::default).note = note.trim().to_owned();
+            c.state = State::Draft;
+        })
+    }
+
+    /// Whether folder `path` has a note for the agent not yet resolved or put away (#97).
+    pub fn folder_waits(&self, path: &str) -> bool {
+        self.list.iter().any(|c| {
+            c.path.strip_suffix('/') == Some(path) && !c.archived && c.state != State::Resolved
+        })
+    }
+
+    /// Where `comment` sits in file `path` built as `data`: by its line's text, else, its line changed since, where
+    /// that line went (`follow`); nowhere once archived (#76) or in another file.
+    pub fn place(&self, comment: &Comment, path: &str, data: &FileData) -> Option<Place> {
+        let side = data.side(comment.old);
+        self.place_in(comment, path, side.count(), |n| side.line(n).0)
+    }
+
+    /// `place` in a file of `count` lines, `line` each one's text.
+    fn place_in<'a>(
+        &self,
+        comment: &Comment,
+        path: &str,
+        count: u32,
+        line: impl Fn(u32) -> &'a str,
+    ) -> Option<Place> {
+        if comment.archived || comment.path != path {
+            return None;
+        }
+        match review::place(comment, count, line) {
+            Place::Outdated => Some(
+                self.lines
+                    .get(&comment.id)
+                    .map_or(Place::Outdated, |&n| Place::Line(n)),
+            ),
+            found => Some(found),
+        }
+    }
+
+    /// The open ones — not those the agent did or the reviewer resolved — as markdown for an agent, each at its place
+    /// `place`; `repo` the repository's name.
+    pub fn export(&self, repo: &str, place: impl Fn(&Comment) -> Place) -> String {
+        let open: Vec<(Comment, Place)> = (self.list.iter())
+            .filter(|c| c.open())
+            .map(|c| (c.clone(), place(c)))
+            .collect();
+        export(repo, &open)
+    }
+
+    /// Follows the line of every comment on the new side of files `paths` written on another commit than `head` (the
+    /// one shown), from that commit to it, in repository `root`, in the background; whoever observes them told when
+    /// they were found.
+    pub fn follow(
+        &mut self,
+        root: Option<PathBuf>,
+        head: Option<String>,
+        paths: Vec<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.lines.clear();
+        let (Some(root), Some(head)) = (root, head) else {
+            return;
+        };
+        let Ok(to) = git2::Oid::from_str(&head) else {
+            return;
+        };
+        let asks: Vec<(u64, String, String, u32)> = (self.list.iter())
+            .filter(|c| !c.old && paths.contains(&c.path))
+            .filter_map(|c| {
+                let commit = c.commit.clone()?;
+                (!head.starts_with(&commit)).then(|| (c.id, commit, c.path.clone(), c.line))
+            })
+            .collect();
+        if asks.is_empty() {
+            return;
+        }
+        self.task = Some(cx.spawn(async move |this, cx| {
+            let found = cx
+                .background_executor()
+                .spawn(async move {
+                    let Ok(repo) = git::Repo::open(&root) else {
+                        return HashMap::new();
+                    };
+                    asks.into_iter()
+                        .filter_map(|(id, commit, path, line)| {
+                            let from = git2::Oid::from_str(&commit).ok()?;
+                            match repo.follow_line(from, to, &path, line) {
+                                git::Fate::Same(n) | git::Fate::Changed(n, _) => Some((id, n)),
+                                git::Fate::Gone => None,
+                            }
+                        })
+                        .collect()
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.lines = found;
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
     /// Comment `id` changed by `f`. Whether it is one; not saved.
     pub fn change(&mut self, id: u64, f: impl FnOnce(&mut Comment)) -> bool {
         self.list.iter_mut().find(|c| c.id == id).map(f).is_some()
@@ -226,6 +376,94 @@ mod tests {
         assert!(order.move_pick(7, 0, false));
         assert_eq!(picks(&order).0, vec![1, 0, 2]);
         assert!(!order.move_pick(7, 0, true), "the first goes no higher");
+    }
+
+    #[test]
+    fn a_value_typed_replaces_the_picks_and_a_note_goes_with_them() {
+        let mut c = asked(FormKind::Many, &[true, true]);
+        assert!(c.pick(7, Some(0)));
+        assert!(c.answer_note(7, "  and keep the old one  "));
+        assert!(c.answer_value(7, " 30 s "));
+        let a = c.list[0].answer.clone().unwrap_or_default();
+        assert_eq!(
+            (a.value.as_str(), a.note.as_str(), a.picks.is_empty()),
+            ("30 s", "and keep the old one", true)
+        );
+        assert!(c.answer_value(7, ""));
+        assert!(!c.answer_note(8, "x"), "no such comment");
+    }
+
+    #[test]
+    fn a_draft_deleted_comes_back_where_it_was() {
+        let mut c = AgentComments::default();
+        let (one, two) = (
+            c.add(Comment::default()),
+            c.add(Comment {
+                body: "b".to_owned(),
+                ..Default::default()
+            }),
+        );
+        assert_eq!((one, two), (1, 2));
+        let was = c.list[0].clone();
+        assert!(c.delete(one));
+        assert!(!c.delete(one), "gone already");
+        c.restore(was);
+        assert_eq!(c.list.iter().map(|c| c.id).collect::<Vec<_>>(), [1, 2]);
+    }
+
+    #[test]
+    fn a_comment_is_placed_by_its_text_else_where_its_line_went() {
+        let mut c = AgentComments::default();
+        let comment = |line: u32, code: &str| Comment {
+            id: line.into(),
+            path: "f.kt".to_owned(),
+            line,
+            code: code.to_owned(),
+            ..Default::default()
+        };
+        let text = ["a", "b", "c"];
+        let place = |c: &AgentComments, comment: &Comment, path: &str| {
+            c.place_in(comment, path, 3, |n| text[n as usize - 1])
+        };
+        assert_eq!(place(&c, &comment(2, "b"), "f.kt"), Some(Place::Line(2)));
+        let gone = comment(3, "changed since");
+        assert_eq!(place(&c, &gone, "f.kt"), Some(Place::Outdated));
+        c.lines.insert(3, 1);
+        assert_eq!(place(&c, &gone, "f.kt"), Some(Place::Line(1)));
+        assert_eq!(place(&c, &gone, "g.kt"), None, "another file's");
+        let archived = Comment {
+            archived: true,
+            ..comment(2, "b")
+        };
+        assert_eq!(place(&c, &archived, "f.kt"), None);
+    }
+
+    #[test]
+    fn a_folder_waits_until_its_note_is_resolved_or_put_away() {
+        let mut c = AgentComments::default();
+        c.add(Comment {
+            path: "src/ui/".to_owned(),
+            ..Default::default()
+        });
+        assert!(c.folder_waits("src/ui"));
+        assert!(!c.folder_waits("src"));
+        c.list[0].state = State::Resolved;
+        assert!(!c.folder_waits("src/ui"));
+    }
+
+    #[test]
+    fn only_the_open_ones_are_exported() {
+        let mut c = AgentComments::default();
+        for (body, state) in [("to do", State::Draft), ("done", State::Resolved)] {
+            c.add(Comment {
+                path: "f.kt".to_owned(),
+                body: body.to_owned(),
+                state,
+                ..Default::default()
+            });
+        }
+        let out = c.export("app", |c| Place::Line(c.line));
+        assert!(out.contains("to do") && !out.contains("done"), "{out}");
     }
 
     #[test]

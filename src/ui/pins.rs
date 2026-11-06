@@ -110,7 +110,7 @@ impl Workspace {
                 old: c.old,
                 line: c.line,
                 code: c.code.clone(),
-                followed: self.agent_lines.get(&c.id).copied(),
+                followed: self.agents.comment_line(c.id, cx),
             })
             .collect();
         // A note written on Code's file is drawn there, not in a diff (#75).

@@ -365,9 +365,8 @@ impl Workspace {
         }
         match change {
             Change::Agent(id) => {
-                self.change_comment(id, cx, |c| c.body = body);
+                self.agents.edit_comment(id, body, cx);
                 self.compose = None;
-                self.save_comments(cx);
                 self.copied = false;
                 self.refresh_rows(cx);
                 cx.notify();
@@ -488,7 +487,6 @@ impl Workspace {
             return;
         }
         self.last_request_target = None;
-        let id = self.comments(cx).iter().map(|c| c.id).max().unwrap_or(0) + 1;
         let above = match (compose.first, &self.diff_data(cx), self.rv().file_read(cx)) {
             // On a file read in Code: its own lines, whatever diff is loaded (#104).
             (Some(first), _, Some(_)) if compose.file.is_some() => (first..compose.line)
@@ -500,7 +498,6 @@ impl Workspace {
             _ => Vec::new(),
         };
         let comment = Comment {
-            id,
             path: compose.path,
             old: compose.old,
             line: compose.line,
@@ -516,8 +513,7 @@ impl Workspace {
             answers: compose.answers,
             ..Default::default()
         };
-        self.change_comments(cx, |list| list.push(comment));
-        self.save_comments(cx);
+        self.agents.add_comment(comment, cx);
         self.copied = false;
         self.refresh_rows(cx);
         self.rv().remeasure_pages(cx);

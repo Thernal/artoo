@@ -496,7 +496,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                                     at: "a10f3cf".into(),
                                     ..Default::default()
                                 };
-                                this.change_comments(cx, |list| list.push(comment));
+                                this.agents.restore_comment(comment, cx);
                                 this.start_comment(false, line + 1, cx);
                                 if let Some(c) = this.compose.as_mut() {
                                     c.edit = crate::textedit::TextEdit::new(
@@ -588,7 +588,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                                     ],
                                     ..Default::default()
                                 };
-                                this.change_comments(cx, |list| list.push(comment));
+                                this.agents.restore_comment(comment, cx);
                                 this.refresh_rows(cx);
                             }
                             continue;
@@ -1183,10 +1183,6 @@ pub struct Workspace {
     /// A notification opened on a comment: once its line's history is in, an outdated one opens
     /// on the diff since it (request, note).
     since_on_open: Option<(u64, u64)>,
-    /// Agent comments whose line changed since they were written: where their line is in the diff
-    /// shown (#46).
-    agent_lines: std::collections::HashMap<u64, u32>,
-    agent_task: Option<Task<()>>,
     /// Merge requests agents drafted (#152), with who did: the last one for each branch, until
     /// the reviewer creates it.
     agent_requests: Vec<(String, crate::bus::RequestDraft)>,
@@ -1336,8 +1332,6 @@ impl Workspace {
             toggled_agent: HashSet::new(),
             thread_at: None,
             since_on_open: None,
-            agent_lines: Default::default(),
-            agent_task: None,
             agent_requests: Vec::new(),
             create_waiting: None,
             drafts_unseen: HashSet::new(),

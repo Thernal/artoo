@@ -128,7 +128,7 @@ impl Host for CodeHost {
     fn note_waits(&self, folder: &str, cx: &App) -> bool {
         self.0
             .upgrade()
-            .is_some_and(|tab| tab.read(cx).folder_note_waits(folder, cx))
+            .is_some_and(|tab| tab.read(cx).agents.folder_waits(folder, cx))
     }
 
     fn recent_files(&self, cx: &App) -> Vec<String> {

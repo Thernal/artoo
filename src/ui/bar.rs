@@ -58,7 +58,7 @@ impl Workspace {
                 bar::Crumb {
                     noted: folder
                         .as_deref()
-                        .is_some_and(|f| self.folder_note_waits(f, cx)),
+                        .is_some_and(|f| self.agents.folder_waits(f, cx)),
                     open: folder
                         .as_deref()
                         .is_some_and(|f| self.beside.as_ref().is_some_and(|b| b.folder == f)),
