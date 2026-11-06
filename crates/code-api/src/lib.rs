@@ -7,7 +7,6 @@
 //! the notes on a folder, the files opened lately…) the tab offers there as `Rc<dyn Host>` before its parts are
 //! made; a tab without one has no Code.
 
-use artoo_core::git::BranchRef;
 use artoo_core::route::Place;
 use git2::Oid;
 use gpui::{AnyElement, App};
@@ -99,14 +98,10 @@ pub trait Host {
     fn file(&self, path: &str, cx: &mut App) -> FilePage;
     /// The notes for the agent on folder `folder` (how many) and what is drawn of them, the composer with them.
     fn folder_notes(&self, folder: &str, cx: &App) -> (usize, Vec<AnyElement>);
-    /// Whether folder `folder` has a note for the agent waiting (#97).
-    fn note_waits(&self, folder: &str, cx: &App) -> bool;
     /// The files opened lately, the latest first.
     fn recent_files(&self, cx: &App) -> Vec<String>;
     /// Row `row` of the tree for `path`, fading in under a folder just opened (#110).
     fn tree_row(&self, path: &str, row: AnyElement, cx: &App) -> AnyElement;
-    /// The repository's branches, for the revision's menu.
-    fn branches(&self, cx: &App) -> Vec<BranchRef>;
     /// Open in the app `path` opens in, when there is one: its menu item's words, and what opens it.
     fn open_in(&self, path: &Path, cx: &App) -> Option<(String, Opens)>;
     /// A note for the agent on folder `folder` started.

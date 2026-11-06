@@ -1,9 +1,11 @@
 //! Code's space in one tab: what it reads and holds (`Code`), its tree, its tabs and its pages (`CodeSpace`), and
 //! the handle the tab asks it through (`Handle`).
 
+use artoo_agents_api::tab::Agents;
+use artoo_branches_api::Branches;
 use artoo_code_api::{FilePage, FileRoute, FolderRoute, Host};
 use artoo_core::files;
-use artoo_core::git::{Repo, WebRemote};
+use artoo_core::git::{BranchRef, Repo, WebRemote};
 use artoo_core::route::{Place, Route};
 use artoo_review_api::{FileView, Review};
 use artoo_shell_api::{Frame, ItemRow, Link, MenuItem, NameHover, PagePath, Pages, PathUp, Screen};
@@ -211,8 +213,8 @@ impl Page {
 }
 
 /// The Code space of one tab (#75): what it reads and holds (`Code`), the project it reads, its tree and
-/// its pages, drawn as its own view. What it asks of the tab goes through `host`, and what any part asks
-/// (a menu, the drawer) through `frame`.
+/// its pages, drawn as its own view. What it asks of the tab goes through `host`, what any part asks (a menu,
+/// the drawer) through `frame`, and the branches and the agents it reads from the tab's services.
 pub struct CodeSpace {
     code: Code,
     /// The project read, and whether it is a plain folder rather than a git repository.
@@ -299,11 +301,24 @@ impl CodeSpace {
         self.frame.services().get()
     }
 
+    /// The repository's branches, as the tab's branches read them.
+    fn branches(&self, cx: &App) -> Arc<Vec<BranchRef>> {
+        (self.frame.services().get::<Rc<dyn Branches>>())
+            .map(|b| b.list(cx))
+            .unwrap_or_default()
+    }
+
+    /// Whether folder `folder` has a note for the tab's agents waiting (#97).
+    fn note_waits(&self, folder: &str, cx: &App) -> bool {
+        (self.frame.services().get::<Rc<dyn Agents>>())
+            .is_some_and(|agents| agents.folder_waits(folder, cx))
+    }
+
     /// File or folder `route` — else the project — on host `web` at the revision read: its branch as the host has
     /// it, else its commit; the working tree's, the branch checked out (none: why not, as when that branch is only on
     /// this Mac).
     fn link(&self, route: Option<&Route>, web: &WebRemote, cx: &App) -> Result<Link, String> {
-        let branches = self.host.branches(cx);
+        let branches = self.branches(cx);
         let rev = match &self.code.rev {
             Some((name, sha)) => {
                 artoo_core::git::on_host(&branches, name).unwrap_or_else(|_| sha.to_string())
@@ -902,7 +917,7 @@ impl CodeSpace {
         let preview = self.code.preview.as_deref() == Some(row.path.as_str());
         let path = row.path.clone();
         // A folder whose note for the agent waits (#97).
-        let noted = row.folder.is_some() && self.host.note_waits(&row.path, cx);
+        let noted = row.folder.is_some() && self.note_waits(&row.path, cx);
         artoo_ui_kit::row(SharedString::from(format!("tree-{}", row.path)), selected)
             // Its whole path, whatever the depth (#79).
             .tip(row.path.clone())
@@ -1026,7 +1041,7 @@ impl CodeSpace {
     /// The chip's menu: the working tree, HEAD, the local branches.
     fn open_revision_menu(&mut self, at: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
         let now = self.code.at();
-        let all = self.host.branches(cx);
+        let all = self.branches(cx);
         let read_at = |label: String, rev: Option<(String, Oid)>| {
             self.item(label, cx, move |c, cx| c.set_revision(rev.clone(), cx))
         };

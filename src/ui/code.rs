@@ -4,7 +4,6 @@
 use super::Workspace;
 use super::nav::Page;
 use super::spaces::CODE;
-use crate::git::BranchRef;
 use artoo_code_api::{FilePage, Host};
 use gpui::{AnyElement, App, Context, WeakEntity};
 use std::path::Path;
@@ -125,12 +124,6 @@ impl Host for CodeHost {
         (notes.len(), drawn)
     }
 
-    fn note_waits(&self, folder: &str, cx: &App) -> bool {
-        self.0
-            .upgrade()
-            .is_some_and(|tab| tab.read(cx).agents.folder_waits(folder, cx))
-    }
-
     fn recent_files(&self, cx: &App) -> Vec<String> {
         let Some(tab) = self.0.upgrade() else {
             return Vec::new();
@@ -151,13 +144,6 @@ impl Host for CodeHost {
             Some(tab) => tab.read(cx).tree_row(path, row),
             None => row,
         }
-    }
-
-    fn branches(&self, cx: &App) -> Vec<BranchRef> {
-        self.0
-            .upgrade()
-            .map(|tab| tab.read(cx).branch_list(cx).to_vec())
-            .unwrap_or_default()
     }
 
     fn open_in(&self, path: &Path, cx: &App) -> Option<(String, artoo_code_api::Opens)> {

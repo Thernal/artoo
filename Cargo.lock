@@ -331,6 +331,8 @@ dependencies = [
 name = "artoo-code"
 version = "1.3.0"
 dependencies = [
+ "artoo-agents-api",
+ "artoo-branches-api",
  "artoo-code-api",
  "artoo-core",
  "artoo-review-api",

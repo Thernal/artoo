@@ -8,6 +8,10 @@ publish = false
 
 [dependencies]
 artoo-code-api = { path = "../code-api" }
+# The repository's branches, for the revision's menu and a page's link (`Branches::list`).
+artoo-branches-api = { path = "../branches-api" }
+# A folder's note for the agent waiting (`Agents::folder_waits`).
+artoo-agents-api = { path = "../agents-api" }
 artoo-core = { path = "../core" }
 artoo-review-api = { path = "../review-api" }
 artoo-shell-api = { path = "../shell-api" }

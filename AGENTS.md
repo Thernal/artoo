@@ -31,7 +31,9 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   newer releases and draws what it found (its `install` alone is shown). `crates/code` (`artoo-code`): Code — the
   project's tree beside a folder's page or a file's tabs, read at a revision (`space.rs`), and the Outline tool
   window over the file read (`outline.rs`, the review's outline; a click the host's `reveal_line`); its `install`
-  alone is shown; `src/ui/code.rs` is the tab's side: what the tab asks of it, the tab as its host.
+  alone is shown; `src/ui/code.rs` is the tab's side: what the tab asks of it, the tab as its host. The branches
+  (the revision's menu, a page's link) and a folder's note waiting it reads from the tab's services itself
+  (`Branches`, `Agents`), not through the tab (#171 phase 8.5).
   `crates/code-api` (`artoo-code-api`): Code's contract — its routes (`code.file`, `code.folder`), `Code` (what the
   tab asks of it, offered in the tab's services) and `Host` (what it asks of the tab). `crates/review-api`
   (`artoo-review-api`): the review's contract — what a diff is of (`Source`: a commit, a run,
