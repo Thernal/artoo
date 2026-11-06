@@ -26,7 +26,8 @@ branches'; the closed `Space` enum gone, a `Space` its id, #171 phase 6); the ta
 (the page on screen, its history, esc's way up, the items open under a space and `nav.txt` all routes, the page one up
 and the item a route belongs to its pages' — `Pages::parent`, `Pages::item` —, the page bar's path and name too
 (`Pages::path`), what the tab frames it as and so its keyboard zones (`Pages::screen`: a page of its own, a list, an item's
-screen), and its row in the menu while it is open (`Pages::row`); a route of any kind its pages draw opens, one no page draws dropped where `nav.txt` is read; the closed `nav::Item` gone, #171 phase 7); the welcome's ways in since 2026-11-06 (`Parts::ways`,
+screen), and its row in the menu while it is open (`Pages::row`), and what it is on the host, its link or why none
+(`Pages::link`, `Pages::called`, since 2026-11-06, #171 phase 8); a route of any kind its pages draw opens, one no page draws dropped where `nav.txt` is read; the closed `nav::Item` gone, #171 phase 7); the welcome's ways in since 2026-11-06 (`Parts::ways`,
 `welcome::Way`: an id, an icon, its words, a place under Open a repository, what a click does, its card while open — the
 card's fields one input each, its frame the shell's —: Connect GitLab or GitHub the hosts', Clone from a URL the
 shell's; a way's entity held by its card's hook, #171 phase 8); Set up's parts since 2026-11-06 (`Parts::setup`,

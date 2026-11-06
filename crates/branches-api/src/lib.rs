@@ -453,6 +453,11 @@ pub trait Branches {
     fn version(&self, ix: usize, cx: &App) -> Option<Version>;
     fn latest_version(&self, cx: &App) -> Option<Version>;
 
+    /// Whether the host has commit `sha` — a remote branch or a request it fetched has it —, so it has a link; and
+    /// its first parent, none for one that starts the history.
+    fn pushed(&self, sha: git2::Oid, cx: &App) -> bool;
+    fn parent(&self, sha: git2::Oid, cx: &App) -> Option<git2::Oid>;
+
     /// The version comparison shows the files that changed (not its commits paired).
     fn show_version_files(&self, cx: &mut App);
 

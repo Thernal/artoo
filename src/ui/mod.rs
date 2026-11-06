@@ -2123,7 +2123,7 @@ impl Workspace {
         ]];
         // Where the host anchors the diff's files: this one in it (#162).
         if let Some(link) = self.diff_file_link(&path, cx) {
-            groups[0].push(Entry::new("Copy link", link.act()).key("↗"));
+            groups[0].push(Entry::new("Copy link", share::copied(link)).key("↗"));
         }
         if let Some(editor) = self.editor(cx) {
             groups.push(vec![Entry::new(
@@ -2148,8 +2148,8 @@ impl Workspace {
             Act::copy(branch.name.clone()),
         )]];
         // Its page on the host; one only on this Mac says so instead (#162).
-        let link = self.branch_link(&branch.name, cx).ok();
-        groups[0].extend(self.branch_link_entry(&branch.name, cx));
+        let link = self.branch_link(&branch.refname, cx).ok();
+        groups[0].extend(self.branch_link_entry(&branch.refname, cx));
         if self.requests_available(cx) && branch.name != "main" && branch.name != "master" {
             groups.push(vec![
                 Entry::new(

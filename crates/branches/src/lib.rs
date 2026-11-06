@@ -17,6 +17,7 @@ mod facts;
 mod find;
 mod head;
 mod history;
+mod link;
 mod list;
 mod news;
 mod opening;

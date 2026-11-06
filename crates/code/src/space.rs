@@ -3,10 +3,10 @@
 
 use artoo_code_api::{FilePage, FileRoute, FolderRoute, Host};
 use artoo_core::files;
-use artoo_core::git::Repo;
+use artoo_core::git::{Repo, WebRemote};
 use artoo_core::route::{Place, Route};
 use artoo_review_api::{FileView, Review};
-use artoo_shell_api::{Frame, ItemRow, MenuItem, NameHover, PagePath, Pages, PathUp, Screen};
+use artoo_shell_api::{Frame, ItemRow, Link, MenuItem, NameHover, PagePath, Pages, PathUp, Screen};
 use artoo_ui_kit::hover::{CutInTip, Tip, TipOwned};
 use artoo_ui_kit::{icons, island, keys, markdown, px, theme};
 use git2::Oid;
@@ -255,7 +255,12 @@ impl CodeSpace {
 
     /// Its pages as the shell draws them: a file, a folder, the project's own; the tree beside them.
     pub fn pages(this: &Entity<Self>) -> Pages {
-        let (side, show, named) = (this.clone(), this.clone(), this.downgrade());
+        let (side, show, named, linked) = (
+            this.clone(),
+            this.clone(),
+            this.downgrade(),
+            this.downgrade(),
+        );
         Pages {
             space: artoo_code_api::SPACE,
             kinds: &[FileRoute::KIND, FolderRoute::KIND],
@@ -265,6 +270,20 @@ impl CodeSpace {
             path: Rc::new(move |route, _, cx| named.upgrade()?.read(cx).path_of(route, cx)),
             screen: |_| Screen::Own,
             row: Rc::new(|route, _, _| row(route)),
+            called: |route| match route.map(|r| r.kind.as_str()) {
+                Some(FileRoute::KIND) => "this file",
+                Some(FolderRoute::KIND) => "this folder",
+                _ => "this project",
+            },
+            link: Rc::new(move |route, web, diff, cx| {
+                if diff {
+                    return Err("A file read in Code has no diff on the host".to_owned());
+                }
+                let code = linked
+                    .upgrade()
+                    .ok_or_else(|| "Nothing here has a link".to_owned())?;
+                code.read(cx).link(route, web, cx)
+            }),
             view: this.clone().into(),
             side: Some(Rc::new(move |_, width, cx| {
                 Some(side.update(cx, |c, cx| c.render_tree(width, cx).into_any_element()))
@@ -278,6 +297,37 @@ impl CodeSpace {
     /// The tab's review, which reads and draws the file shown.
     fn file_view(&self) -> Option<Rc<dyn FileView>> {
         self.frame.services().get()
+    }
+
+    /// File or folder `route` — else the project — on host `web` at the revision read: its branch as the host has
+    /// it, else its commit; the working tree's, the branch checked out (none: why not, as when that branch is only on
+    /// this Mac).
+    fn link(&self, route: Option<&Route>, web: &WebRemote, cx: &App) -> Result<Link, String> {
+        let branches = self.host.branches(cx);
+        let rev = match &self.code.rev {
+            Some((name, sha)) => {
+                artoo_core::git::on_host(&branches, name).unwrap_or_else(|_| sha.to_string())
+            }
+            None => {
+                let head = (branches.iter().find(|b| b.is_head))
+                    .ok_or_else(|| "No branch is checked out: no link to read it at".to_owned())?;
+                artoo_core::git::on_host(&branches, &head.name)?
+            }
+        };
+        Ok(match route.and_then(Page::from_route) {
+            Some(Page::File(path)) => Link {
+                url: web.file(&rev, &path),
+                what: format!("{path} at {rev}"),
+            },
+            Some(Page::Folder(path)) => Link {
+                url: web.tree(&rev, &path),
+                what: format!("{path} at {rev}"),
+            },
+            None => Link {
+                url: web.tree(&rev, ""),
+                what: format!("the project at {rev}"),
+            },
+        })
     }
 
     /// The bar's path to a file or a folder: Code, the project, each folder above it a way up (its page); the

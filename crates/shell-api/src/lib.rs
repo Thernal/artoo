@@ -19,8 +19,9 @@
 //!   keeps which is on screen — its history, esc's way up, the items open under a space, `nav.txt` — and says so
 //!   (`Pages::show`); what a route's page one up is and what it belongs to the pages say (`parent`, `item`), and
 //!   what the page bar says of it (`path`), and what the tab frames it as — a page of its own, a list, an item's
-//!   screen, its islands with the keyboard (`screen`) —, and its row in the menu while it is open (`row`). A
-//!   feature opens one of its own through the `Frame` like any other.
+//!   screen, its islands with the keyboard (`screen`) —, its row in the menu while it is open (`row`), and what it is
+//!   on the host — its link, or why none, and its words in ⌘K's Copy link to… (`link`, `called`). A feature opens one
+//!   of its own through the `Frame` like any other.
 //! - **Searches** (`Parts::searches`, `search`): a scope of search everywhere a feature offers in a tab — ⌘K's tab,
 //!   its words, the action that opens it, what it finds for a text and the route each find opens (or, for what is
 //!   no place, the owner's doing, run once ⌘K has closed); the All tab takes a few of each, or its own alone after
@@ -740,6 +741,10 @@ pub struct Pages {
     pub screen: fn(Option<&Route>) -> Screen,
     /// The menu's row of what is open of theirs under the space (`ItemRow`).
     pub row: RowOf,
+    /// What a route of theirs is, or the space's own page (`None`), in ⌘K's Copy link to… (`this merge request`).
+    pub called: fn(Option<&Route>) -> &'static str,
+    /// A route of theirs, or the space's own page, on the host (`LinkOf`).
+    pub link: LinkOf,
     /// The page on screen.
     pub view: AnyView,
     /// The panel beside it (Code's tree, an item's side panel) for the route on screen, at the width given; the
@@ -757,6 +762,30 @@ pub struct Pages {
 /// itself). None when they say nothing of it: its kind names it. Called while the tab draws: it reads the feature's
 /// own state, never the tab.
 pub type RowOf = Rc<dyn Fn(&Route, &Route, &App) -> Option<ItemRow>>;
+
+/// A route of theirs, or the space's own page (`None`), as a link on host `web` (`Pages::link`): its page's — or with
+/// `diff`, where the host shows its diff, which anchors its files (a request's Changes) —, or why there is none, in a
+/// sentence (a branch only on this Mac, what is not committed). A route's link a menu or a diff's file asks is asked
+/// inside the tab's update, so it reads the feature's own state, never the tab; the page on screen's (⌘K, ⌥⇧⌘C) once
+/// the update is over, so it may read what the tab answers in its services (the Inbox's notes an agent answered).
+pub type LinkOf = Rc<dyn Fn(Option<&Route>, &WebRemote, bool, &App) -> Result<Link, String>>;
+
+/// A link to something on the host, and what it is in a toast's words (`!398`, `branch feat/x`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Link {
+    pub url: String,
+    pub what: String,
+}
+
+impl Link {
+    /// The same page at `anchor`, file `name` of its diff.
+    pub fn at(self, anchor: &str, name: &str) -> Link {
+        Link {
+            url: format!("{}#{anchor}", self.url),
+            what: format!("{name} in {}", self.what),
+        }
+    }
+}
 
 /// What a row under a space says of what is open there: its icon, its words (in code's font when `mono`), its long
 /// hover and whether something of it is not read yet. Whether it is on screen, the agents' marks on it and the

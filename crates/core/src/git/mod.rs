@@ -170,6 +170,26 @@ pub struct BranchRef {
     pub is_head: bool,
 }
 
+/// Branch, tag or commit `name` as the host has it among branches `list`: a remote branch with its remote dropped,
+/// a local one pushed under its own name, anything not a branch as it is; why not when it is a branch only on this
+/// Mac.
+pub fn on_host(list: &[BranchRef], name: &str) -> Result<String, String> {
+    let Some(branch) = list.iter().find(|b| b.name == name) else {
+        return Ok(name.to_owned());
+    };
+    if branch.kind == RefKind::Remote {
+        return Ok(name.split_once('/').map_or(name, |(_, n)| n).to_owned());
+    }
+    let pushed = list.iter().any(|b| {
+        b.kind == RefKind::Remote && b.name.split_once('/').is_some_and(|(_, n)| n == name)
+    });
+    if pushed {
+        Ok(name.to_owned())
+    } else {
+        Err(format!("{name} is only on this Mac: push it for a link"))
+    }
+}
+
 /// Who wrote a line, and in which commit.
 #[derive(Clone, Debug)]
 pub struct BlameLine {

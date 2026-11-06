@@ -133,6 +133,24 @@ impl History {
             _ => None,
         }
     }
+
+    /// Whether the host has commit `sha`: a remote branch or a request it fetched has it; taken as so while the
+    /// repository cannot be read.
+    pub fn pushed(&self, sha: git2::Oid) -> bool {
+        let Some(repo) = (self.root.as_ref()).and_then(|r| artoo_core::git::Repo::open(r).ok())
+        else {
+            return true;
+        };
+        (self.branches.iter())
+            .filter(|b| b.kind != artoo_core::git::RefKind::Local)
+            .any(|b| repo.contains(b.tip, sha))
+    }
+
+    /// The first parent of commit `sha`; none for one that starts the history.
+    pub fn parent(&self, sha: git2::Oid) -> Option<git2::Oid> {
+        let repo = artoo_core::git::Repo::open(self.root.as_ref()?).ok()?;
+        repo.parent_of(sha).ok()
+    }
 }
 
 /// A row of the commit list: the working tree's, or commit `ix` of `History::commits`.
@@ -656,6 +674,14 @@ impl artoo_branches_api::Branches for Handle {
 
     fn latest_version(&self, cx: &gpui::App) -> Option<Version> {
         self.0.upgrade()?.read(cx).versions.last().cloned()
+    }
+
+    fn pushed(&self, sha: git2::Oid, cx: &gpui::App) -> bool {
+        self.0.upgrade().is_some_and(|h| h.read(cx).pushed(sha))
+    }
+
+    fn parent(&self, sha: git2::Oid, cx: &gpui::App) -> Option<git2::Oid> {
+        self.0.upgrade()?.read(cx).parent(sha)
     }
 
     fn show_version_files(&self, cx: &mut gpui::App) {

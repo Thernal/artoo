@@ -11,6 +11,7 @@ mod group;
 mod inbox;
 mod inbox_page;
 mod inbox_view;
+mod link;
 mod list;
 mod merge;
 mod merging;

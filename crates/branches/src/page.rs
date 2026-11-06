@@ -43,7 +43,7 @@ pub fn pages(
     cx: &mut App,
 ) -> Pages {
     let services = Rc::downgrade(&frame.services());
-    let listed = history.downgrade();
+    let (listed, linked) = (history.downgrade(), history.downgrade());
     let view = cx.new(|cx| {
         cx.observe(&history, |_, _, cx| cx.notify()).detach();
         RootPage {
@@ -78,6 +78,13 @@ pub fn pages(
                 let services = services.upgrade()?;
                 row(item, page, &services, cx)
             }
+        }),
+        called: crate::link::called,
+        link: Rc::new(move |route, web, diff, cx| {
+            let history = linked
+                .upgrade()
+                .ok_or_else(|| "Nothing here has a link".to_owned())?;
+            crate::link::link(route, web, diff, history.read(cx))
         }),
         view: view.into(),
         side: Some(Rc::new(move |route, width, cx| {

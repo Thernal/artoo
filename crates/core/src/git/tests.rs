@@ -880,3 +880,26 @@ fn the_main_line_is_what_origin_head_names_else_main() {
     assert_eq!(repo.default_branch().as_deref(), Some("develop"));
     assert_eq!(repo.ahead_behind(c, a), Some((2, 0)));
 }
+
+#[test]
+fn a_name_is_on_the_host_as_its_remote_has_it() {
+    let at = |name: &str, kind| BranchRef {
+        name: name.to_owned(),
+        refname: String::new(),
+        kind,
+        tip: Oid::ZERO_SHA1,
+        is_head: false,
+    };
+    let list = [
+        at("main", RefKind::Local),
+        at("origin/main", RefKind::Remote),
+        at("mine", RefKind::Local),
+    ];
+    assert_eq!(on_host(&list, "main"), Ok("main".to_owned()));
+    assert_eq!(on_host(&list, "origin/main"), Ok("main".to_owned()));
+    assert_eq!(on_host(&list, "v1.0"), Ok("v1.0".to_owned()));
+    assert_eq!(
+        on_host(&list, "mine"),
+        Err("mine is only on this Mac: push it for a link".to_owned())
+    );
+}

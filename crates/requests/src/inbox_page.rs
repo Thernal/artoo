@@ -38,6 +38,7 @@ pub fn pages(
     frame: Rc<dyn Frame>,
     cx: &mut App,
 ) -> Pages {
+    let services = Rc::downgrade(&frame.services());
     let page = cx.new(|cx| {
         cx.observe(&notices, |_, _, cx| cx.notify()).detach();
         cx.observe(&view, |_, _, cx| cx.notify()).detach();
@@ -58,6 +59,14 @@ pub fn pages(
         path: Rc::new(|_, _, _| None),
         screen: |_| Screen::Own,
         row: Rc::new(|_, _, _| None),
+        called: |_| "this merge request",
+        // The request of the notice picked.
+        link: Rc::new(move |_, web, _, cx| {
+            let services = services
+                .upgrade()
+                .ok_or_else(|| "Nothing here has a link".to_owned())?;
+            crate::link::inbox_link(web, &services, cx)
+        }),
         view: page.into(),
         side: None,
         show: Rc::new(|_, _, _| {}),

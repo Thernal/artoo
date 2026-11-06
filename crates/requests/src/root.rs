@@ -74,6 +74,16 @@ pub fn pages(requests: Entity<Requests>, frame: Rc<dyn Frame>, cx: &mut App) -> 
                 row(item, &services, cx)
             }
         }),
+        called: crate::link::called,
+        link: Rc::new({
+            let services = services.clone();
+            move |route, web, diff, cx| {
+                let services = services
+                    .upgrade()
+                    .ok_or_else(|| "Nothing here has a link".to_owned())?;
+                crate::link::link(route, web, diff, &services, cx)
+            }
+        }),
         view: view.into(),
         side: Some(Rc::new({
             let services = services.clone();
