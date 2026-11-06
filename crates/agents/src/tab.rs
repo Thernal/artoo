@@ -244,16 +244,26 @@ impl Agents for TabAgents {
         self.notes.read(cx).lines.get(&id).copied()
     }
 
-    fn change_notes(&self, change: &mut dyn FnMut(&mut Vec<Notes>), cx: &mut App) {
-        self.notes.update(cx, |n, _| change(&mut n.all));
+    fn take_notes(&self, notes: Notes, cx: &mut App) {
+        crate::notes::change(&self.notes, cx, |all| {
+            artoo_agents_api::notes::take(all, notes)
+        });
+    }
+
+    fn dismiss_note(&self, id: u64, cx: &mut App) {
+        crate::notes::change(&self.notes, cx, |all| {
+            artoo_agents_api::notes::dismiss(all, id)
+        });
+    }
+
+    fn dismiss_notes(&self, uid: &str, cx: &mut App) {
+        crate::notes::change(&self.notes, cx, |all| {
+            artoo_agents_api::notes::dismiss_all(all, uid)
+        });
     }
 
     fn load_notes(&self, project: PathBuf, cx: &mut App) {
         self.notes.update(cx, |n, _| n.load(project));
-    }
-
-    fn save_notes(&self, cx: &App) {
-        self.notes.read(cx).save();
     }
 
     fn follow(
@@ -267,8 +277,8 @@ impl Agents for TabAgents {
             .update(cx, |n, cx| n.follow(root, shown, branch, cx));
     }
 
-    fn on_followed(&self, done: OnChange, cx: &mut App) {
-        cx.observe(&self.notes, move |_, cx| done(cx)).detach();
+    fn on_notes(&self, changed: OnChange, cx: &mut App) {
+        cx.observe(&self.notes, move |_, cx| changed(cx)).detach();
     }
 
     fn pick_chat(&self, ids: Vec<u64>, root: &Path, project: &Path, cx: &mut App) {

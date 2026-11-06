@@ -2,8 +2,8 @@
 //! (`Slot::OverDiff`), drawn as a view of its own so it reads the tab's answers through `NotesHost` — the page's
 //! branch, an agent's mark, how comments are drawn — and the diff shown through the review's handle.
 
-use crate::notes::{AgentNotes, shown_of};
-use crate::view::{self, OnNote};
+use crate::notes::{AgentNotes, change, shown_of};
+use crate::view::{self, NoteEvent, OnNote};
 use artoo_review_api::Review;
 use artoo_shell_api::{Frame, Piece, Slot};
 use artoo_ui_kit::gap;
@@ -54,7 +54,17 @@ impl Render for Summary {
                 .map(|n| (n, host.mark(&n.agent, cx)))
                 .collect();
         let rich = host.rich(cx);
-        let on: OnNote = Rc::new(move |event, cx| host.note(event, cx));
+        // Dismiss and Dismiss all are the agents' own; Answer opens the tab's composer.
+        let kept = self.notes.clone();
+        let on: OnNote = Rc::new(move |event, cx| match event {
+            NoteEvent::Dismiss(id) => {
+                change(&kept, cx, |all| artoo_agents_api::notes::dismiss(all, id))
+            }
+            NoteEvent::DismissAll(uid) => change(&kept, cx, |all| {
+                artoo_agents_api::notes::dismiss_all(all, &uid)
+            }),
+            event => host.note(event, cx),
+        });
         view::notes_summary(&shown, rich, selecting, gap(), on, cx)
             .unwrap_or_else(|| div().into_any_element())
     }

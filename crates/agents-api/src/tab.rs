@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-/// What the tab is told: the notes' lines were found, the comments changed.
+/// What the tab is told: the notes or the comments changed, the notes' lines were found.
 pub type OnChange = Rc<dyn Fn(&mut App)>;
 
 /// One tab's agents.
@@ -100,14 +100,14 @@ pub trait Agents {
     /// Where note `id`, on a head the diff has moved on from, is on the head shown (`follow`).
     fn followed(&self, id: u64, cx: &App) -> Option<u32>;
 
-    /// The notes changed; kept with `save_notes`.
-    fn change_notes(&self, change: &mut dyn FnMut(&mut Vec<Notes>), cx: &mut App);
+    /// An agent's notes on its changes kept, its earlier ones on the same changes replaced; note `id` dismissed (its
+    /// notes go with their last); a summary's notes dismissed with it, `uid` theirs.
+    fn take_notes(&self, notes: Notes, cx: &mut App);
+    fn dismiss_note(&self, id: u64, cx: &mut App);
+    fn dismiss_notes(&self, uid: &str, cx: &mut App);
 
     /// Project `project`'s notes, read anew.
     fn load_notes(&self, project: PathBuf, cx: &mut App);
-
-    /// The notes kept for their project, as they are now.
-    fn save_notes(&self, cx: &App);
 
     /// Follows the line of every note on the changes `shown` (with the page's `branch`) whose head they moved on
     /// from, from the commit it was written on to the one shown, in repository `root`, in the background.
@@ -119,8 +119,8 @@ pub trait Agents {
         cx: &mut App,
     );
 
-    /// What the tab is told when the notes' lines were found.
-    fn on_followed(&self, done: OnChange, cx: &mut App);
+    /// What the tab is told when the notes changed — taken, dismissed — or their lines were found.
+    fn on_notes(&self, changed: OnChange, cx: &mut App);
 
     /// The card asking which chat `ids` go to: the chats of `project`, Claude Code's recent ones in `root`, a new
     /// chat.

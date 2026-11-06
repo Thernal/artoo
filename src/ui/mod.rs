@@ -1490,9 +1490,9 @@ impl Workspace {
                 cx,
             );
         }
-        // The notes' lines followed to the head shown: they are pinned again.
+        // The notes changed or their lines followed to the head shown: they are pinned again.
         let tab = cx.weak_entity();
-        this.agents.on_followed(
+        this.agents.on_notes(
             Rc::new(move |cx| {
                 tab.update(cx, |this, cx| {
                     this.refresh_rows(cx);

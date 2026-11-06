@@ -164,4 +164,19 @@ mod tests {
         let json = serde_json::to_string(&kept).unwrap();
         assert_eq!(serde_json::from_str::<Vec<Notes>>(&json).unwrap(), kept);
     }
+
+    #[test]
+    fn a_note_dismissed_takes_its_notes_with_its_last_unless_a_summary_stays() {
+        let mut kept = Vec::new();
+        take(&mut kept, notes("Claude", On::WorkingTree, 2));
+        take(&mut kept, notes("Codex", On::WorkingTree, 1));
+        kept[1].summary.clear();
+        dismiss(&mut kept, 3);
+        assert_eq!(kept.len(), 1, "Codex's last note gone, and no summary of it");
+        dismiss(&mut kept, 1);
+        dismiss(&mut kept, 2);
+        assert_eq!(kept.len(), 1, "Claude's summary stays");
+        dismiss_all(&mut kept, "Claude-2");
+        assert!(kept.is_empty());
+    }
 }

@@ -2,8 +2,9 @@
 //! the agent's colour, apart from the reviewer's comments, with the summary over the diff, while
 //! the diff shows the changes they are on — the working tree, or a head the agent named (its
 //! branch's pages, a comparison or a request with that head). Answer opens a comment for the agent
-//! on the note's line; the reviewer dismisses one, or all of them at once. The notes kept, which are
-//! on the diff and where they followed their lines are the agents' (`Agents`).
+//! on the note's line; the reviewer dismisses one, or all of them at once. The notes kept — taken,
+//! dismissed —, which are on the diff and where they followed their lines are the agents' (`Agents`);
+//! the tab hears them changed (`on_notes`).
 
 use super::Workspace;
 use super::nav::Page;
@@ -60,16 +61,7 @@ impl Workspace {
             summary,
             notes,
         };
-        let mut notes = Some(notes);
-        self.agents.change_notes(
-            &mut |all| {
-                if let Some(notes) = notes.take() {
-                    crate::notes::take(all, notes);
-                }
-            },
-            cx,
-        );
-        self.save_agent_notes(cx);
+        self.agents.take_notes(notes, cx);
         self.map_agent_notes(cx);
         self.refresh_rows(cx);
         if open {
@@ -109,10 +101,6 @@ impl Workspace {
         self.open_quietly(page, cx);
         self.save_nav();
         self.show_changes(&item, unstaged, cx);
-    }
-
-    pub(super) fn save_agent_notes(&self, cx: &App) {
-        self.agents.save_notes(cx);
     }
 
     /// The notes on the changes the diff shows (`notes::shown`), by the page's branch.
@@ -203,33 +191,13 @@ impl Workspace {
         }
     }
 
-    /// Dismisses note `id`; its notes go with their last.
-    pub(super) fn dismiss_note(&mut self, id: u64, cx: &mut Context<Self>) {
-        self.agents
-            .change_notes(&mut |all| crate::notes::dismiss(all, id), cx);
-        self.save_agent_notes(cx);
-        self.refresh_rows(cx);
-        cx.notify();
-    }
-
-    /// Dismiss all on a summary: those notes and their summary go.
-    pub(super) fn dismiss_agent_notes(&mut self, uid: &str, cx: &mut Context<Self>) {
-        self.agents
-            .change_notes(&mut |all| crate::notes::dismiss_all(all, uid), cx);
-        self.save_agent_notes(cx);
-        self.refresh_rows(cx);
-        cx.notify();
-    }
-
-    /// A note under its line: the agent's mark and name in its colour, Answer and Dismiss, the
-    /// note.
-    /// What answers a note's clicks.
+    /// What answers a note's clicks: Answer the tab's composer, Dismiss the agents'.
     fn note_on(this: WeakEntity<Self>) -> OnNote {
         Rc::new(move |event, cx| {
             this.update(cx, |this, cx| match event {
                 NoteEvent::Answer(id) => this.answer_note(id, cx),
-                NoteEvent::Dismiss(id) => this.dismiss_note(id, cx),
-                NoteEvent::DismissAll(uid) => this.dismiss_agent_notes(&uid, cx),
+                NoteEvent::Dismiss(id) => this.agents.dismiss_note(id, cx),
+                NoteEvent::DismissAll(uid) => this.agents.dismiss_notes(&uid, cx),
             })
             .ok();
         })

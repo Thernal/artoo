@@ -6,7 +6,7 @@
 
 use crate::git;
 use artoo_review_api::diff::{Diff, Header};
-use gpui::{Context, Task};
+use gpui::{App, Context, Entity, Task};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -37,6 +37,16 @@ pub struct AgentNotes {
     /// The project they are kept for.
     root: Option<PathBuf>,
     task: Option<Task<()>>,
+}
+
+/// Notes `notes` changed by `f`: kept, and whoever observes them told (the summary, the tab drawing their lines
+/// again: `Agents::on_notes`).
+pub fn change(notes: &Entity<AgentNotes>, cx: &mut App, f: impl FnOnce(&mut Vec<Notes>)) {
+    notes.update(cx, |n, cx| {
+        f(&mut n.all);
+        n.save();
+        cx.notify();
+    });
 }
 
 /// What `diff` is of, as the notes ask it.
