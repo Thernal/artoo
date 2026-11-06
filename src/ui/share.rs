@@ -290,8 +290,8 @@ impl Workspace {
             Page::Versions(..) => {
                 Err("A branch's earlier versions are only on this Mac: no link".into())
             }
-            Page::Compare((base, _), (head, _), direct) => {
-                self.compare_link(base, head, *direct, cx)
+            Page::Compare((base, _), (head, _), since) => {
+                self.compare_link(base, head, !*since, cx)
             }
             Page::WorkingTree => Err("What is not committed is only on this Mac".into()),
             Page::File(_) | Page::Folder(_) => Err("Open it in Code for its link".into()),
@@ -376,8 +376,8 @@ impl Workspace {
                 .opened(item)
                 .and_then(|o| Page::from_route(&o.page))
             {
-                Some(Page::Compare((base, _), (head, _), direct)) => {
-                    self.compare_link(&base, &head, direct, cx)
+                Some(Page::Compare((base, _), (head, _), since)) => {
+                    self.compare_link(&base, &head, !since, cx)
                 }
                 _ => return,
             },
