@@ -7,7 +7,7 @@ use crate::comments::AgentComments;
 use crate::connect::Connect;
 use crate::notes::AgentNotes;
 use crate::pick::SendCard;
-use artoo_agents_api::bus::Chat;
+use artoo_agents_api::bus::{Chat, Mark};
 use artoo_agents_api::comment::{self, Comment, Kind, State};
 use artoo_agents_api::notes::{Notes, Shown};
 use artoo_agents_api::tab::{Agents, OnChange};
@@ -84,14 +84,24 @@ impl Agents for TabAgents {
         cx: &mut App,
     ) -> (bool, Vec<String>) {
         let comments = self.comments.read(cx).list.clone();
-        let said = self
+        let (mut changed, said) = self
             .chats
             .update(cx, |c, cx| c.beat(root, here, &comments, cx));
         if let Some(root) = root {
-            self.chats
-                .update(cx, |c, cx| c.beat_providers(root.to_owned(), cx));
+            self.chats.update(cx, |c, cx| {
+                changed |= c.read_marks(root, cx);
+                c.beat_providers(root.to_owned(), cx);
+            });
         }
-        said
+        (changed, said)
+    }
+
+    fn marks<'a>(&self, cx: &'a App) -> &'a [Mark] {
+        &self.chats.read(cx).marks
+    }
+
+    fn agent_mark(&self, agent: &str, cx: &App) -> (char, Rgba) {
+        self.chats.read(cx).agent_mark(agent)
     }
 
     fn comments<'a>(&self, cx: &'a App) -> &'a [Comment] {
@@ -104,6 +114,7 @@ impl Agents for TabAgents {
 
     fn load_comments(&self, root: PathBuf, cx: &mut App) {
         self.comments.update(cx, |c, _| c.load(root));
+        self.chats.update(cx, |c, _| c.marks_stamp = None);
     }
 
     fn save_comments(&self, cx: &App) {

@@ -113,7 +113,12 @@ fn parts(
             frame.clone(),
             cx,
         )),
-        pieces: vec![summary::piece(tab.notes.clone(), frame.clone(), cx)],
+        pieces: vec![summary::piece(
+            tab.notes.clone(),
+            tab.chats.clone(),
+            frame.clone(),
+            cx,
+        )],
         actions: vec![(
             Box::new(ToggleAgents),
             std::rc::Rc::new(move |_, cx| frame.toggle_tool(artoo_agents_api::view::WINDOW, cx)),

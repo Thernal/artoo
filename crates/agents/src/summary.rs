@@ -1,7 +1,8 @@
 //! Over the diff, the summary of each agent's notes on the changes shown (#151): a piece of the item page
 //! (`Slot::OverDiff`), drawn as a view of its own so it reads the tab's answers through `NotesHost` — the page's
-//! branch, an agent's mark, how comments are drawn — and the diff shown through the review's handle.
+//! branch, how comments are drawn — and the diff shown through the review's handle; an agent's mark is its chats'.
 
+use crate::chats::Chats;
 use crate::notes::{AgentNotes, change, shown_of};
 use crate::view::{self, NoteEvent, OnNote};
 use artoo_review_api::Review;
@@ -16,15 +17,25 @@ pub use artoo_agents_api::view::NotesHost;
 /// The summary in one tab.
 struct Summary {
     notes: Entity<AgentNotes>,
+    chats: Entity<Chats>,
     frame: Rc<dyn Frame>,
 }
 
 /// The summary as a piece over the diff.
-pub fn piece(notes: Entity<AgentNotes>, frame: Rc<dyn Frame>, cx: &mut App) -> Piece {
+pub fn piece(
+    notes: Entity<AgentNotes>,
+    chats: Entity<Chats>,
+    frame: Rc<dyn Frame>,
+    cx: &mut App,
+) -> Piece {
     let view: AnyView = cx
         .new(|cx| {
             cx.observe(&notes, |_, _, cx| cx.notify()).detach();
-            Summary { notes, frame }
+            Summary {
+                notes,
+                chats,
+                frame,
+            }
         })
         .into();
     Piece {
@@ -47,11 +58,11 @@ impl Render for Summary {
         let Some(diff) = review.shown(cx) else {
             return div().into_any_element();
         };
-        let notes = self.notes.read(cx);
+        let (notes, chats) = (self.notes.read(cx), self.chats.read(cx));
         let shown: Vec<_> =
             artoo_agents_api::notes::shown(&notes.all, &shown_of(&diff), host.branch(cx))
                 .into_iter()
-                .map(|n| (n, host.mark(&n.agent, cx)))
+                .map(|n| (n, chats.agent_mark(&n.agent)))
                 .collect();
         let rich = host.rich(cx);
         // Dismiss and Dismiss all are the agents' own; Answer opens the tab's composer.

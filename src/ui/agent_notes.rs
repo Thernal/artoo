@@ -215,7 +215,7 @@ impl Workspace {
             return div().into_any_element();
         };
         let look = NoteLook {
-            mark: self.agent_mark(&notes.agent, cx),
+            mark: self.agents.agent_mark(&notes.agent, cx),
             rich: self.settings.rich_comments,
             tight: self.tight(cx),
             selecting: self.selecting(this.clone()),
@@ -244,13 +244,6 @@ pub(super) struct NotesHost(pub WeakEntity<Workspace>);
 impl view::NotesHost for NotesHost {
     fn branch(&self, cx: &App) -> Option<String> {
         self.0.upgrade()?.read(cx).page_branch(cx)
-    }
-
-    fn mark(&self, agent: &str, cx: &App) -> (char, gpui::Rgba) {
-        match self.0.upgrade() {
-            Some(tab) => tab.read(cx).agent_mark(agent, cx),
-            None => (agent.chars().next().unwrap_or('?'), super::theme::accent()),
-        }
     }
 
     fn rich(&self, cx: &App) -> bool {

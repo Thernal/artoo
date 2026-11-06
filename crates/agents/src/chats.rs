@@ -5,6 +5,7 @@
 
 use crate::agents::{self, Bus, Chat};
 use crate::review::{Comment, State};
+use artoo_agents_api::bus::Mark;
 use artoo_core::{git, labels};
 use artoo_ui_kit::theme;
 use gpui::{Context, Rgba, Task};
@@ -27,9 +28,36 @@ pub struct Chats {
     edits_task: Option<Task<()>>,
     /// The providers' beat under way (`beat_providers`).
     providers_task: Option<Task<()>>,
+    /// The marks agents left on the project's requests — a pending comment of theirs, a request gathered (#148,
+    /// #150) —, as last read, and when they last changed (none: read on the next beat).
+    pub marks: Vec<Mark>,
+    pub marks_stamp: Option<std::time::SystemTime>,
 }
 
 impl Chats {
+    /// `project`'s marks read again when they changed: whether they did.
+    pub fn read_marks(&mut self, project: &Path, cx: &gpui::App) -> bool {
+        let folder = artoo_agents_api::bus::folder(cx);
+        let stamp = folder.marks_stamp(project);
+        if stamp == self.marks_stamp {
+            return false;
+        }
+        self.marks_stamp = stamp;
+        self.marks = folder.marks(project);
+        true
+    }
+
+    /// Agent `agent`'s mark: its letter on the hue of its newest chat here, else the accent.
+    pub fn agent_mark(&self, agent: &str) -> (char, Rgba) {
+        match (self.list.iter())
+            .filter(|c| c.agent == agent)
+            .max_by_key(|c| c.beat)
+        {
+            Some(chat) => self.mark(&chat.session),
+            None => (agent.chars().next().unwrap_or('?'), theme::accent()),
+        }
+    }
+
     /// A session that runs no watcher of its own (Codex's) listens through the app, and what was sent to one is
     /// handed over (each provider's `beat`, #18) — off the window's thread, one beat at a time; a snapshot leaves the
     /// agents alone. `project` the tab's.

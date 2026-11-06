@@ -172,7 +172,11 @@ mod tests {
         take(&mut kept, notes("Codex", On::WorkingTree, 1));
         kept[1].summary.clear();
         dismiss(&mut kept, 3);
-        assert_eq!(kept.len(), 1, "Codex's last note gone, and no summary of it");
+        assert_eq!(
+            kept.len(),
+            1,
+            "Codex's last note gone, and no summary of it"
+        );
         dismiss(&mut kept, 1);
         dismiss(&mut kept, 2);
         assert_eq!(kept.len(), 1, "Claude's summary stays");

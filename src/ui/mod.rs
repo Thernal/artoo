@@ -1140,10 +1140,6 @@ pub struct Workspace {
     /// review comments to them, their notes on the lines of their changes (#151), the "send to which
     /// chat?" card, Settings → Agents' connecting.
     agents: Rc<dyn artoo_agents_api::tab::Agents>,
-    /// What agents left in this project, to tell it apart (`agent_events.rs`, #150), and when it
-    /// was last read.
-    agent_marks: Vec<crate::bus::Mark>,
-    marks_stamp: Option<std::time::SystemTime>,
     /// Requests an agent gathered under Merge requests not opened since: the first open goes to
     /// its comments (#148).
     agent_fresh: HashSet<u64>,
@@ -1313,8 +1309,6 @@ impl Workspace {
             open_ask: None,
             beside: None,
             agents: artoo_agents_api::tab::tab(cx),
-            agent_marks: Vec::new(),
-            marks_stamp: None,
             agent_fresh: HashSet::new(),
             confirm_note: None,
             inbox: false,
@@ -1574,7 +1568,6 @@ impl Workspace {
                         if this.root.as_ref() != Some(&root) {
                             this.agents.load_comments(project.clone(), cx);
                             this.agents.load_notes(project.clone(), cx);
-                            this.marks_stamp = None;
                             this.compose = None;
                         }
                         this.watch.watch(git_dir, fingerprint);
@@ -1643,7 +1636,6 @@ impl Workspace {
         let fresh = self.root.as_ref() != Some(&root);
         if fresh {
             self.agents.load_comments(root.clone(), cx);
-            self.marks_stamp = None;
             self.compose = None;
         }
         // Nothing of git's to watch or fetch; the poll only brings the agents' answers.

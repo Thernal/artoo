@@ -70,9 +70,6 @@ pub trait NotesHost {
     /// The branch the page is of: a request's source, the branch open in Branches, else the one checked out.
     fn branch(&self, cx: &App) -> Option<String>;
 
-    /// Agent `agent`'s mark: its latest chat's letter and colour.
-    fn mark(&self, agent: &str, cx: &App) -> (char, Rgba);
-
     /// Comments drawn as markdown.
     fn rich(&self, cx: &App) -> bool;
 

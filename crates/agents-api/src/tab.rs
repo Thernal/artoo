@@ -2,7 +2,7 @@
 //! its changes, the card asking which chat, Claude Code being connected. The tab makes them (`tab`) and keeps them;
 //! the agents' parts in it — the Agents window, the card, the notes' summary, Settings → Agents — draw the same.
 
-use crate::bus::Chat;
+use crate::bus::{Chat, Mark};
 use crate::comment::{Comment, State};
 use crate::notes::{Notes, Shown};
 use gpui::{App, Global, Rgba};
@@ -34,9 +34,17 @@ pub trait Agents {
     /// `root`'s chats read again; whether they changed.
     fn refresh(&self, root: Option<&Path>, cx: &mut App) -> bool;
 
+    /// The marks agents left on the project's requests — a pending comment of theirs, a request gathered (#148,
+    /// #150) —, as last read (on the beat, when they changed).
+    fn marks<'a>(&self, cx: &'a App) -> &'a [Mark];
+
+    /// Agent `agent`'s mark: its letter on the hue of its newest chat here, else the accent.
+    fn agent_mark(&self, agent: &str, cx: &App) -> (char, Rgba);
+
     /// The poll's beat: `root`'s chats read again, and what a chat in a worktree of its own changed when it is time
     /// (`here` the tab's working tree); the chats that listen through the app handed what was sent to them (each
-    /// provider's beat, #18). Whether they changed, and what to say of each that began listening or went.
+    /// provider's beat, #18); its marks read again when they changed. Whether any of it changed, and what to say of
+    /// each chat that began listening or went.
     fn beat(&self, root: Option<&Path>, here: Option<PathBuf>, cx: &mut App)
     -> (bool, Vec<String>);
 
@@ -46,7 +54,7 @@ pub trait Agents {
     /// The comments changed; kept with `save_comments`.
     fn change_comments(&self, change: &mut dyn FnMut(&mut Vec<Comment>), cx: &mut App);
 
-    /// Project `root`'s comments, read anew.
+    /// Project `root`'s comments, read anew; its marks on the next beat.
     fn load_comments(&self, root: PathBuf, cx: &mut App);
 
     /// The comments kept for their project, as they are now.

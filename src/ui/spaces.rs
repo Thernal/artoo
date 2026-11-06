@@ -154,7 +154,7 @@ impl Workspace {
             });
             // A request an agent gathered: its line under the title, its mark and its comments waiting (#148).
             let gathered = match Page::from_route(&open.item) {
-                Some(Page::Request(iid)) => self.gathered(iid).map(|g| (iid, g)),
+                Some(Page::Request(iid)) => self.gathered(iid, cx).map(|g| (iid, g)),
                 _ => None,
             };
             let tip = match gathered.and_then(|(_, g)| g.note.as_deref().map(|n| (g, n))) {
@@ -163,7 +163,7 @@ impl Workspace {
                 None => row.tip,
             };
             let agent = gathered.map(|(iid, g)| {
-                let (letter, hue) = self.agent_mark(&g.agent, cx);
+                let (letter, hue) = self.agents.agent_mark(&g.agent, cx);
                 (letter, hue, self.agent_waiting(iid, &g.agent, cx))
             });
             OpenRow {

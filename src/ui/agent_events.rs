@@ -60,17 +60,11 @@ pub(super) struct ShowPlace {
 }
 
 impl Workspace {
-    /// On the agents' beat (`poll_agents`): the marks read again when they changed, and this
+    /// On the agents' beat (`poll_agents`; the marks are read again in it, `Agents::marks`): this
     /// project's events taken. Only a tab on screen polls, so a tab behind hears its news when it
     /// comes on screen.
     pub(super) fn agent_events(&mut self, project: &Path, cx: &mut Context<Self>) {
         let folder = crate::bus::folder(cx);
-        let stamp = folder.marks_stamp(project);
-        if stamp != self.marks_stamp {
-            self.marks_stamp = stamp;
-            self.agent_marks = folder.marks(project);
-            cx.notify();
-        }
         // The window's own beat takes `Open` (`shell::Beat`).
         for event in folder.events() {
             if event.project != project
@@ -435,9 +429,7 @@ impl Workspace {
     /// the pending comments `agent` left on it, and ⌥N goes on through them; with none, on
     /// Changes.
     pub(super) fn review_agent(&mut self, iid: u64, agent: &str, cx: &mut Context<Self>) {
-        let ids: Vec<u64> = self
-            .agent_marks
-            .iter()
+        let ids: Vec<u64> = (self.agents.marks(cx).iter())
             .filter(|m| m.iid == iid && m.agent == agent)
             .filter_map(|m| m.draft)
             .collect();
@@ -464,7 +456,7 @@ impl Workspace {
     /// A gathered request's row opened the first time: at its agent's first pending comment.
     pub(super) fn open_gathered(&mut self, iid: u64, cx: &mut Context<Self>) {
         let agent = self
-            .gathered(iid)
+            .gathered(iid, cx)
             .map(|m| m.agent.clone())
             .unwrap_or_default();
         self.review_agent(iid, &agent, cx);
@@ -473,9 +465,8 @@ impl Workspace {
     }
 
     /// The agent's line on request `iid`, when one gathered it: the latest.
-    pub(super) fn gathered(&self, iid: u64) -> Option<&Mark> {
-        self.agent_marks
-            .iter()
+    pub(super) fn gathered<'a>(&self, iid: u64, cx: &'a App) -> Option<&'a Mark> {
+        (self.agents.marks(cx).iter())
             .rev()
             .find(|m| m.iid == iid && m.note.is_some())
     }
@@ -483,9 +474,7 @@ impl Workspace {
     /// The pending comments `agent` left on request `iid` that still wait there: as the host
     /// lists them when the request is loaded, else as the marks say.
     pub(super) fn agent_waiting(&self, iid: u64, agent: &str, cx: &App) -> usize {
-        let ids = self
-            .agent_marks
-            .iter()
+        let ids = (self.agents.marks(cx).iter())
             .filter(|m| m.iid == iid && m.agent == agent)
             .filter_map(|m| m.draft);
         if self.current_request(cx) == Some(iid)
@@ -498,25 +487,10 @@ impl Workspace {
         }
     }
 
-    /// An agent's mark: its letter on the hue of its newest chat here, else the accent.
-    pub(super) fn agent_mark(&self, agent: &str, cx: &App) -> (char, gpui::Rgba) {
-        match self
-            .agents
-            .chats(cx)
-            .iter()
-            .filter(|c| c.agent == agent)
-            .max_by_key(|c| c.beat)
-        {
-            Some(chat) => self.agents.mark(&chat.session, cx),
-            None => (agent.chars().next().unwrap_or('?'), super::theme::accent()),
-        }
-    }
-
     /// The agent that wrote pending comment `id` of the request open, when one did.
-    pub(super) fn draft_agent(&self, id: u64, cx: &App) -> Option<&str> {
+    pub(super) fn draft_agent<'a>(&self, id: u64, cx: &'a App) -> Option<&'a str> {
         let iid = self.current_request(cx)?;
-        self.agent_marks
-            .iter()
+        (self.agents.marks(cx).iter())
             .find(|m| m.iid == iid && m.draft == Some(id))
             .map(|m| m.agent.as_str())
     }
