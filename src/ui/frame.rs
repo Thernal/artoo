@@ -543,7 +543,7 @@ impl Render for Workspace {
         .child(self.render_title_bar(cx))
         .children(self.render_toasts(cx))
         .child(match self.root {
-            _ if self.setup.is_some() => self.render_setup(cx),
+            _ if self.setup_open(cx) => self.render_setup(cx),
             _ if self.settings_open => self.render_settings(cx).into_any_element(),
             None => self.render_welcome(cx).into_any_element(),
             Some(_) => frame::body(

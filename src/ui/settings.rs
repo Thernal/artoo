@@ -23,7 +23,7 @@ impl Workspace {
         }
         self.refilter(cx);
         // Set up's "every key in Settings → Keyboard": Settings takes its place.
-        self.setup = None;
+        self.close_setup(cx);
         self.settings_open = true;
         cx.notify();
     }

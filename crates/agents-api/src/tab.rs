@@ -90,16 +90,6 @@ pub trait Agents {
     /// The card asking which chat `branch`'s notes go to; `now` the one they go to.
     fn pick_route(&self, branch: String, now: Option<String>, cx: &mut App);
 
-    /// An agent being connected (Set up's Agents): whether it is under way, and what the last one said.
-    fn connecting(&self, cx: &App) -> (bool, Option<String>);
-
-    /// Artoo's MCP server added to the first agent Artoo connects itself (every Claude Code profile), in the
-    /// background.
-    fn connect(&self, cx: &mut App);
-
-    /// What the tab is told when a connect began or ended.
-    fn on_connecting(&self, changed: OnChange, cx: &mut App);
-
     /// The handle itself, for the agents' parts in the tab.
     fn as_any(&self) -> &dyn Any;
 }

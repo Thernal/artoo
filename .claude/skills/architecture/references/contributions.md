@@ -29,7 +29,10 @@ and the item a route belongs to its pages' — `Pages::parent`, `Pages::item` �
 screen), and its row in the menu while it is open (`Pages::row`); a route of any kind its pages draw opens, one no page draws dropped where `nav.txt` is read; the closed `nav::Item` gone, #171 phase 7); the welcome's ways in since 2026-11-06 (`Parts::ways`,
 `welcome::Way`: an id, an icon, its words, a place under Open a repository, what a click does, its card while open — the
 card's fields one input each, its frame the shell's —: Connect GitLab or GitHub the hosts', Clone from a URL the
-shell's; a way's entity held by its card's hook, #171 phase 8). A new page is a
+shell's; a way's entity held by its card's hook, #171 phase 8); Set up's parts since 2026-11-06 (`Parts::setup`,
+`setup::Part`: a key `setup.txt` keeps, a name, an order, whether it is done, its body, what it reads again when shown,
+whether it is offered again — Agents the agents', Keys and Look the tab's; the page and which parts are offered when the
+shell's, `setup::SetUp` in the tab's services, #171 phase 8). A new page is a
 route kind its owner's `Pages` draw, no variant anywhere else; `Page` (`src/ui/nav.rs`) is only the tab's reading of
 the kinds it still coordinates — the item screen's bar, sections and links — and shrinks as their owners take those.
 A new command is offered: the window root's in `commands.rs` while the tab runs it, a feature's in its
@@ -51,7 +54,7 @@ rows, what Set up draws of them, and whether they fill the section now, take esc
 the kinds of link it finds in the tab's texts (`links::Pattern`: an id, an order, its finds — bytes and an address;
 every text the kit's markdown draws with the tab's `Selecting` shows them, an earlier pattern's kept where two meet,
 what is written as a link or code winning; the requests' numbers the first, #171 D11), its ways into the welcome
-(`welcome::Way`, each with its card),
+(`welcome::Way`, each with its card), its parts of Set up (`setup::Part`),
 the tab's handlers of the feature's actions, the snapshot views it opens (a name ending in `:` given what follows), a space's `Pages` — the kinds of route
 they draw, the page one up from each and what stays open of it (`parent`, `item`), what the page bar says of each — the path above it, each part a
 route up or the space's own page, its name, the name's long hover (a tip or a card) and the faint count after it (`path`, a `PagePath`) —, what the tab frames each as (`screen`, a `Screen`: a page of its own with the tool window the only

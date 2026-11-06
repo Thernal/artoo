@@ -1,48 +1,15 @@
-//! Set up Artoo (#143 B): on the first start, a page of tabs — Agents, Keys, Look — whose title,
-//! tabs and foot stay put while only the column between them scrolls. Each part is its Settings
-//! section at its shortest, drawn by the same code (`key_presets`, `panes_chips`, `font_rows`, the kit's
-//! `choice_row`; Look's themes are Appearance's rows' short form, `settings::Rows::short`): what is set here is
-//! set there. Later and Done bring
-//! back what was under it — the welcome, with no repository open. A part is offered once
-//! (`setup.txt`); a release that adds one offers that part alone; Help → Set Up Artoo… opens
-//! every part again. The frame is drawn by the shell (`artoo_shell_api::setup`).
+//! Set up's parts the tab offers (#143 B; the page is the shell's, `artoo_shell_api::setup`): Keys — the keymaps to
+//! start from, then the keys that matter by group — and Look — Appearance's rows' short form, Panes, the faces and
+//! the sizes. Each is its Settings section at its shortest, drawn by the same code (`key_presets`, `panes_chips`,
+//! `font_rows`, `settings::Rows::short`): what is set here is set there. Agents is the agents' part.
 
-use super::discussion::{self, Kind};
 use super::keymap::Keymap;
 use super::keys::{self, On};
 use super::settings::item;
 use super::{ROW_RADIUS, Workspace, px, theme};
-use crate::storage;
-use artoo_shell_api::setup;
-use gpui::{AnyElement, App, ClickEvent, Context, FontWeight, WeakEntity, Window, div, prelude::*};
+use artoo_shell_api::setup::{Part, SetUp};
+use gpui::{AnyElement, App, Context, FontWeight, WeakEntity, div, prelude::*};
 use std::rc::Rc;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Part {
-    Agents,
-    Keys,
-    Look,
-}
-
-impl Part {
-    pub const ALL: [Part; 3] = [Part::Agents, Part::Keys, Part::Look];
-
-    fn name(self) -> &'static str {
-        match self {
-            Part::Agents => "Agents",
-            Part::Keys => "Keys",
-            Part::Look => "Look",
-        }
-    }
-
-    fn key(self) -> &'static str {
-        match self {
-            Part::Agents => "agents",
-            Part::Keys => "keys",
-            Part::Look => "look",
-        }
-    }
-}
 
 /// The keys that matter, by group, as the Keys part lists them.
 const GROUPS: [(&str, &[&str]); 4] = [
@@ -58,291 +25,128 @@ const GROUPS: [(&str, &[&str]); 4] = [
     ("Window", &["FocusDiff", "ToggleAgents", "ShowShortcuts"]),
 ];
 
-/// The page while it is open.
-pub struct Setup {
-    pub parts: Vec<Part>,
-    pub at: usize,
-    /// Each Claude Code profile (`~/.claude`) and whether Artoo is in it; whether Codex has it —
-    /// looked at as the page opens, a tab is shown and a connect ends.
-    profiles: Vec<(String, bool)>,
-    codex: bool,
-}
-
-impl Setup {
-    fn look(&mut self) {
-        self.profiles = artoo_agents::claude_profiles()
-            .iter()
-            .map(|p| {
-                let name = p
-                    .file_name()
-                    .map(|n| format!("~/{}", n.to_string_lossy()))
-                    .unwrap_or_default();
-                (name, artoo_agents::claude_connected(p))
+/// The tab's parts of Set up: Keys and Look, after the agents'.
+pub(super) fn parts(tab: WeakEntity<Workspace>) -> Vec<Part> {
+    let draw = |tab: WeakEntity<Workspace>, look: bool| -> artoo_shell_api::setup::Body {
+        Rc::new(move |_, cx| {
+            tab.update(cx, |this, cx| {
+                if look {
+                    this.render_setup_look(cx)
+                } else {
+                    this.render_setup_keys(cx)
+                }
             })
-            .collect();
-        self.codex = artoo_agents::codex_connected();
-    }
-
-    fn part(&self) -> Part {
-        self.parts[self.at.min(self.parts.len() - 1)]
-    }
-}
-
-/// The parts in `text` (`setup.txt`: a part's key a line).
-fn parse_seen(text: &str) -> Vec<Part> {
-    text.lines()
-        .filter_map(|l| Part::ALL.into_iter().find(|p| p.key() == l.trim()))
-        .collect()
-}
-
-/// The parts to offer: those not seen — none when Artoo was used before Set up came (its
-/// settings kept, no `setup.txt`): what the parts set is in Settings already.
-fn unseen(seen: &str, used_before: bool) -> Vec<Part> {
-    if seen.is_empty() && used_before {
-        return Vec::new();
-    }
-    let seen = parse_seen(seen);
-    Part::ALL
-        .into_iter()
-        .filter(|p| !seen.contains(p))
-        .collect()
-}
-
-fn keep_seen(parts: &[Part]) {
-    let seen = parse_seen(&storage::read("setup.txt"));
-    let text: String = Part::ALL
-        .into_iter()
-        .filter(|p| seen.contains(p) || parts.contains(p))
-        .map(|p| format!("{}\n", p.key()))
-        .collect();
-    storage::save("setup.txt", text);
-}
-
-/// What the first window offers as it opens; a snapshot draws Set up only when asked.
-pub(super) fn due() -> Vec<Part> {
-    if cfg!(feature = "snapshot") && std::env::var_os("ARTOO_SNAPSHOT").is_some() {
-        return Vec::new();
-    }
-    let seen = storage::read("setup.txt");
-    let mut parts = unseen(&seen, !storage::read("settings.txt").is_empty());
-    if seen.is_empty() && parts.is_empty() {
-        keep_seen(&Part::ALL);
-    }
-    // Agents connected under GitLance, the name Artoo had, are offered Agents once to connect again.
-    if storage::read("renamed.txt").is_empty() && artoo_agents::connected_as_gitlance() {
-        storage::save(
-            "renamed.txt",
-            "agents offered to connect again\n".to_owned(),
-        );
-        if !parts.contains(&Part::Agents) {
-            parts.insert(0, Part::Agents);
-        }
-    }
-    parts
+            .unwrap_or_else(|_| div().into_any_element())
+        })
+    };
+    let looked = tab.clone();
+    vec![
+        Part {
+            key: "keys",
+            name: "Keys",
+            order: 1,
+            // A keymap chosen, or a key changed.
+            done: Rc::new(|cx| {
+                let map = cx.global::<Keymap>();
+                map.preset() != super::keymap::Preset::Artoo || map.changed_count() > 0
+            }),
+            body: draw(tab.clone(), false),
+            shown: None,
+            again: None,
+        },
+        Part {
+            key: "look",
+            name: "Look",
+            order: 2,
+            // A look other than the first.
+            done: Rc::new(move |cx| {
+                looked
+                    .upgrade()
+                    .is_some_and(|tab| tab.read(cx).look_changed())
+            }),
+            body: draw(tab, true),
+            shown: None,
+            again: None,
+        },
+    ]
 }
 
 impl Workspace {
-    /// Opens the page on `parts` (Help → Set Up Artoo…: all of them); they are offered now.
-    pub(super) fn open_setup(&mut self, parts: Vec<Part>, cx: &mut Context<Self>) {
-        if parts.is_empty() {
-            return;
+    /// Set up in this tab, the shell's.
+    fn setup_page(&self) -> Option<Rc<dyn SetUp>> {
+        self.services.get()
+    }
+
+    /// The parts its features offer and its own handed to Set up, once.
+    pub(super) fn offer_setup(&self, cx: &mut App) {
+        let parts = self
+            .parts
+            .iter()
+            .flat_map(|p| p.setup.iter().cloned())
+            .collect();
+        if let Some(set_up) = self.setup_page() {
+            set_up.offer(parts, cx);
         }
-        keep_seen(&parts);
-        let mut setup = Setup {
-            parts,
-            at: 0,
-            profiles: Vec::new(),
-            codex: false,
-        };
-        setup.look();
-        self.setup = Some(setup);
+    }
+
+    /// Opens Set up on every part (Help → Set Up Artoo…), on part `at` when given; Settings goes.
+    pub(super) fn open_setup(&mut self, at: Option<&str>, cx: &mut Context<Self>) {
+        if let Some(set_up) = self.setup_page() {
+            set_up.open(at, cx);
+        }
         self.settings_open = false;
         cx.notify();
     }
 
-    /// Later, Done and esc: what was under it comes back. Whether it was open.
+    /// The first start: the parts due, if any; Settings goes.
+    pub(super) fn open_setup_due(&mut self, cx: &mut Context<Self>) {
+        if let Some(set_up) = self.setup_page() {
+            set_up.open_due(cx);
+            if set_up.is_open(cx) {
+                self.settings_open = false;
+                cx.notify();
+            }
+        }
+    }
+
+    pub(super) fn setup_open(&self, cx: &App) -> bool {
+        self.setup_page().is_some_and(|s| s.is_open(cx))
+    }
+
+    /// Later, Done, esc and Settings opened: what was under it comes back. Whether it was open.
     pub(super) fn close_setup(&mut self, cx: &mut Context<Self>) -> bool {
-        let open = self.setup.take().is_some();
+        let open = self.setup_page().is_some_and(|s| s.close(cx));
         if open {
             cx.notify();
         }
         open
     }
 
-    fn setup_go(&mut self, at: usize, cx: &mut Context<Self>) {
-        if let Some(s) = &mut self.setup {
-            s.at = at.min(s.parts.len() - 1);
-            s.look();
-            cx.notify();
-        }
-    }
-
     /// ↵: the next part, or Done on the last.
     pub(super) fn setup_next(&mut self, cx: &mut Context<Self>) {
-        let Some(s) = &self.setup else {
-            return;
-        };
-        if s.at + 1 < s.parts.len() {
-            self.setup_go(s.at + 1, cx);
-        } else {
-            self.close_setup(cx);
+        if let Some(set_up) = self.setup_page() {
+            set_up.next(cx);
+        }
+        cx.notify();
+    }
+
+    /// The page, while it is open.
+    pub(super) fn render_setup(&self, cx: &App) -> AnyElement {
+        match self.setup_page().and_then(|s| s.view(cx)) {
+            Some(view) => view.into_any_element(),
+            None => div().into_any_element(),
         }
     }
 
-    /// A connect ended: whether the profiles have Artoo now.
-    pub(super) fn setup_look_again(&mut self) {
-        if let Some(s) = &mut self.setup {
-            s.look();
-        }
-    }
-
-    /// The part's state as its Settings section says it: an agent connected, a keymap chosen, a
-    /// look other than the first.
-    fn part_done(&self, part: Part, setup: &Setup, cx: &Context<Self>) -> bool {
-        match part {
-            Part::Agents => setup.codex || setup.profiles.iter().any(|(_, on)| *on),
-            Part::Keys => {
-                let map = cx.global::<Keymap>();
-                map.preset() != super::keymap::Preset::Artoo || map.changed_count() > 0
-            }
-            Part::Look => {
-                let choice = theme::choice();
-                choice.window != "one-dark"
-                    || choice.code.is_some()
-                    || theme::faces() != theme::Faces::default()
-                    || self.settings.ui_zoom != 100
-                    || self.settings.zoom != 100
-                    || self.settings.flat
-            }
-        }
-    }
-
-    /// The page (`artoo_shell_api::setup`): its tabs, each with whether its part is done, and the part on.
-    pub(super) fn render_setup(&self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(s) = &self.setup else {
-            return div().into_any_element();
-        };
-        let tabs = s
-            .parts
-            .iter()
-            .map(|&p| (p.name(), self.part_done(p, s, cx)))
-            .collect();
-        let body = match s.part() {
-            Part::Agents => self.render_setup_agents(s, cx),
-            Part::Keys => self.render_setup_keys(cx),
-            Part::Look => self.render_setup_look(cx),
-        };
-        setup::page(
-            setup::Page {
-                tabs,
-                at: s.at,
-                body,
-            },
-            Rc::new(Glue(cx.weak_entity())),
-            cx,
-        )
-    }
-
-    /// Agents: Claude Code with its profiles, Codex — the connect panel's rows.
-    fn render_setup_agents(&self, s: &Setup, cx: &mut Context<Self>) -> AnyElement {
-        let server = artoo_agents::server_command();
-        let codex_cmd = artoo_agents::codex_command(&server);
-        let all_in = !s.profiles.is_empty() && s.profiles.iter().all(|(_, on)| *on);
-        let what = if s.profiles.is_empty() {
-            "No Claude Code profile found (~/.claude)".to_owned()
-        } else {
-            s.profiles
-                .iter()
-                .map(|(name, on)| format!("{name} {}", if *on { "connected" } else { "not yet" }))
-                .collect::<Vec<_>>()
-                .join(" · ")
-        };
-        let claude_end: Option<AnyElement> = if all_in {
-            Some(super::tag("Connected", theme::added()).into_any_element())
-        } else if s.profiles.is_empty() {
-            None
-        } else {
-            Some(
-                discussion::button(
-                    "setup-connect-claude",
-                    match (self.agents.connecting(cx).0, s.profiles.len()) {
-                        (true, _) => "Connecting…",
-                        (false, 1) => "Connect",
-                        (false, _) => "Connect all",
-                    },
-                    None,
-                    Kind::Primary(theme::accent()),
-                )
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.agents.connect(cx)))
-                .into_any_element(),
-            )
-        };
-        let codex_end: AnyElement = if s.codex {
-            super::tag("Ready", theme::added()).into_any_element()
-        } else {
-            discussion::button("setup-codex-copy", "Copy the command", None, Kind::Plain)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(codex_cmd.clone()));
-                    this.toast_info("The command is copied: run it in a terminal".into(), cx);
-                }))
-                .into_any_element()
-        };
-        let row = |id: &'static str, icon, name: &str, what: String| {
-            artoo_ui_kit::controls::choice_row(
-                id,
-                None,
-                icon,
-                name.to_owned(),
-                None,
-                what,
-                false,
-                false,
-            )
-        };
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(8.))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .rounded(px(10.))
-                    .bg(theme::panel())
-                    .border_1()
-                    .border_color(theme::island_border())
-                    .overflow_hidden()
-                    .child(
-                        row("setup-claude", "bot", "Claude Code", what).children(claude_end),
-                    )
-                    .child(div().h(px(1.)).bg(theme::island_border()))
-                    .child(
-                        row(
-                            "setup-codex",
-                            "terminal",
-                            "Codex",
-                            if s.codex {
-                                "a Codex running in a terminal listens by itself".to_owned()
-                            } else {
-                                "codex mcp add, in a terminal".to_owned()
-                            },
-                        )
-                        .child(codex_end),
-                    ),
-            )
-            .children(self.agents.connecting(cx).1.map(|said| {
-                div()
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .child(said)
-            }))
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .child("A comment you write for an agent goes to its chat; its answers come back on the line."),
-            )
-            .into_any_element()
+    /// Look's state other than the first: a theme, code colours, faces, a size, flat panes.
+    fn look_changed(&self) -> bool {
+        let choice = theme::choice();
+        choice.window != "one-dark"
+            || choice.code.is_some()
+            || theme::faces() != theme::Faces::default()
+            || self.settings.ui_zoom != 100
+            || self.settings.zoom != 100
+            || self.settings.flat
     }
 
     /// Keys: the keymaps to start from, then the keys that matter by group — a mark and
@@ -463,38 +267,5 @@ impl Workspace {
             ))
             .children(self.font_rows(cx))
             .into_any_element()
-    }
-}
-
-/// What a click on Set up's frame does, answered by the tab.
-struct Glue(WeakEntity<Workspace>);
-
-impl setup::SetupHost for Glue {
-    fn go(&self, at: usize, _: &mut Window, cx: &mut App) {
-        self.0.update(cx, |this, cx| this.setup_go(at, cx)).ok();
-    }
-
-    fn close(&self, _: &mut Window, cx: &mut App) {
-        self.0
-            .update(cx, |this, cx| {
-                this.close_setup(cx);
-            })
-            .ok();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_part_is_offered_once_and_not_to_who_used_artoo_before() {
-        // The first start: every part.
-        assert_eq!(unseen("", false), Part::ALL);
-        // Artoo used before Set up came: none.
-        assert!(unseen("", true).is_empty());
-        // A release that adds a part: that part alone.
-        assert_eq!(unseen("agents\nkeys\n", true), [Part::Look]);
-        assert_eq!(parse_seen("keys\nwhat\n look"), [Part::Keys, Part::Look]);
     }
 }

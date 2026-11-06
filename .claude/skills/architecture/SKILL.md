@@ -107,8 +107,8 @@ The target above is reached for every feature: each implementation shows the app
   draws of them a render contract `view`), and Appearance (`artoo-appearance`, #171 phase 4: Settings → Appearance's
 themes, the theme editor and the file icons, the window root's faces and panes rows placed in its section by their
 order; Set up's Look its rows' short form). `artoo-shell-api` holds actions, parts (a title-bar item, a card over the
-  window, a tool window, Settings rows, snapshot views, a space's pages, inputs, pieces) and `Frame`; the tab draws
-  them (`src/ui/parts.rs`).
+  window, a tool window, Settings rows, snapshot views, a space's pages, inputs, pieces, ways into the welcome, parts
+  of Set up) and `Frame`; the tab draws them (`src/ui/parts.rs`), Set up's page the shell's (#171 phase 8).
 - The tab keeps its places as routes (the core's `Route` and `Place`, each kind's type its owner's contract's): the
   page on screen, its history, the items open under a space, `nav.txt`; the page one up and the item a route belongs
   to are its pages' (`Pages::parent`, `Pages::item`), so a route of any kind a feature's pages draw opens and stays,

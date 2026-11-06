@@ -7,7 +7,8 @@
 //! - **Parts** (`add_parts`): what a feature draws in every tab — an item in the title bar, a card over the
 //!   window, a tool window on the right, rows in Settings, the views a snapshot run opens, a space's pages, the
 //!   fields it types in (`Input`), its pieces of the item page on screen (`Piece`), its ways into the welcome with
-//!   their cards (`welcome::Way`) —, made for each tab with its `Frame`.
+//!   their cards (`welcome::Way`), its parts of Set up (`setup::Part`; the page the shell's, `setup::SetUp`) —,
+//!   made for each tab with its `Frame`.
 //! - **Settings' sections** (`add_settings_section`): a section's id, title and place in the left column; the window
 //!   root draws its own, a feature's holds its parts' rows (`Parts::settings`), any owner's in their places.
 //! - **Spaces** (`spaces::add`): a space's id, its row in the menu, its place there and the action that goes to it;
@@ -38,7 +39,7 @@
 //! from inside its own update, where reading the tab would panic, so a hook defers what reads it (`cx.defer`).
 //! The part's views, listeners and tasks read it as they like.
 //!
-//! - **Render contracts** (`render`): the pieces of the frame the tab draws — the page bar (`bar`), the title bar (`title`), the window's tabs (`tabs`), the body's row, zen's strips and the splitters (`frame`), the stripe and a tool window (`tools`), the spaces' menu (`spaces`), search everywhere's window (`palette`), Settings', Set up's and the welcome's frames (`settings`, `setup`, `welcome`), the keyboard card (`shortcuts`) — through a
+//! - **Render contracts** (`render`): the pieces of the frame the tab draws — the page bar (`bar`), the title bar (`title`), the window's tabs (`tabs`), the body's row, zen's strips and the splitters (`frame`), the stripe and a tool window (`tools`), the spaces' menu (`spaces`), search everywhere's window (`palette`), Settings' and the welcome's frames (`settings`, `welcome`), the keyboard card (`shortcuts`) — through a
 //!   renderer the frame installs, so the tab knows this contract and never the frame's drawing.
 
 pub mod bar;
@@ -861,6 +862,8 @@ pub struct Parts {
     pub lists: Vec<search::List>,
     /// Its ways into the welcome (`welcome::Way`), each with its card.
     pub ways: Vec<welcome::Way>,
+    /// Its parts of Set up (`setup::Part`).
+    pub setup: Vec<setup::Part>,
 }
 
 type Maker = Rc<dyn Fn(Rc<dyn Frame>, &mut Window, &mut App) -> Parts>;

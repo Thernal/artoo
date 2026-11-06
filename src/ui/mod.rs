@@ -91,7 +91,6 @@ use artoo_review_api::diff::Header;
 use artoo_review_api::{CODE_SIZE, Notice, Opt};
 use artoo_shell_api::frame::{Drag, Split};
 use artoo_shell_api::title;
-use artoo_ui_kit::controls::tag;
 use gpui::{
     App, Context, FocusHandle, KeyBinding, KeyDownEvent, MenuItem, MouseButton, MouseDownEvent,
     MouseMoveEvent, PathPromptOptions, Point, SharedString, Task, TitlebarOptions, Window,
@@ -739,15 +738,12 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             continue;
                         }
                         // Set up on a part (#143).
-                        "setup" | "setup-keys" | "setup-look" => {
-                            this.open_setup(setup::Part::ALL.to_vec(), cx);
-                            let at = ["setup", "setup-keys", "setup-look"]
-                                .iter()
-                                .position(|v| *v == name.trim())
-                                .unwrap_or(0);
-                            if let Some(s) = &mut this.setup {
-                                s.at = at;
-                            }
+                        "setup" => {
+                            this.open_setup(None, cx);
+                            continue;
+                        }
+                        part if part.starts_with("setup-") => {
+                            this.open_setup(Some(&part[6..]), cx);
                             continue;
                         }
                         // Applied last, once the request's discussions are in (below).
@@ -1212,8 +1208,6 @@ pub struct Workspace {
     tabs: shell::TabModel,
     settings: Settings,
     settings_open: bool,
-    /// Set up Artoo, while it is open (#143).
-    setup: Option<setup::Setup>,
     watch: watch::Watch,
     /// The review comment being written, and the Review island.
     compose: Option<composer::Compose>,
@@ -1361,7 +1355,6 @@ impl Workspace {
             tabs: Default::default(),
             settings,
             settings_open: false,
-            setup: None,
             watch: watch::Watch::default(),
             compose: None,
             last_request_target: None,
@@ -1427,9 +1420,11 @@ impl Workspace {
         this.parts.push(artoo_shell_api::Parts {
             searches: palette_lists::searches(cx.weak_entity()),
             lists: palette_lists::lists(cx.weak_entity()),
+            setup: setup::parts(cx.weak_entity()),
             ..Default::default()
         });
         this.offer_searches(cx);
+        this.offer_setup(cx);
         // A way in connected the host (hosts' connect panel): the requests read again, a toast saying with what.
         if let Some(connecting) = this.connecting() {
             let tab = cx.weak_entity();
@@ -1505,20 +1500,6 @@ impl Workspace {
             Rc::new(move |cx| {
                 tab.update(cx, |this, cx| {
                     this.refresh_rows(cx);
-                    cx.notify();
-                })
-                .ok();
-            }),
-            cx,
-        );
-        // A connect ended: Set up looks whether the profiles have Artoo now.
-        let tab = cx.weak_entity();
-        this.agents.on_connecting(
-            Rc::new(move |cx| {
-                tab.update(cx, |this, cx| {
-                    if !this.agents.connecting(cx).0 {
-                        this.setup_look_again();
-                    }
                     cx.notify();
                 })
                 .ok();
@@ -2426,7 +2407,7 @@ impl Workspace {
 
     /// Help → Set Up Artoo…, ⌘K (#143): every part again.
     fn set_up(&mut self, _: &SetUp, _: &mut Window, cx: &mut Context<Self>) {
-        self.open_setup(setup::Part::ALL.to_vec(), cx);
+        self.open_setup(None, cx);
     }
 
     /// ⌘K's Merge this merge request (#164): the card, or what is in the way.

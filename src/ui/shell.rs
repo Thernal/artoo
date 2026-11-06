@@ -86,14 +86,11 @@ pub(super) fn new(
         super::system_notes::set_front(key, window.is_window_active());
     })
     .detach();
-    // The first start: Set up over the welcome (#143); a release that adds a part, that part.
-    let parts = if primary {
-        super::setup::due()
-    } else {
-        Vec::new()
-    };
-    if !parts.is_empty() {
-        shell.active().update(cx, |w, cx| w.open_setup(parts, cx));
+    // The first start: Set up over the welcome (#143); a release that adds a part, that part. A snapshot draws it only
+    // when asked.
+    let snapshot = cfg!(feature = "snapshot") && std::env::var_os("ARTOO_SNAPSHOT").is_some();
+    if primary && !snapshot {
+        shell.active().update(cx, |w, cx| w.open_setup_due(cx));
     }
     shell
 }
