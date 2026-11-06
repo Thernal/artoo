@@ -51,12 +51,6 @@ impl Workspace {
         self.send_agent(vec![id], cx);
     }
 
-    /// Whether a chat is here and listening, as the chats are now: to ask while the tab changes.
-    pub(super) fn listening(&self, cx: &App) -> impl Fn(&str) -> bool + use<> {
-        let on = self.agents.listening(cx);
-        move |session| on.contains(session)
-    }
-
     /// Another chat than the page's is changing file `path` (#77, `Agents::changing`): its name, letter and hue.
     pub(super) fn changing(&self, path: &str, cx: &App) -> Option<(String, char, gpui::Rgba)> {
         let page = self

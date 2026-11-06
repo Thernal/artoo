@@ -2,12 +2,12 @@
 //! remote —, or its Changes, where the host anchors its files; a commit of it; a run of its commits as one diff; two
 //! of its versions compared. The Inbox's own page is the request of the notice picked.
 
+use artoo_agents_api::tab::Agents;
 use artoo_branches_api::Branches;
 use artoo_core::git::WebRemote;
 use artoo_core::route::{Place, Route};
 use artoo_requests_api::{
-    InboxHost, InboxRow, RequestCommitRoute, RequestCommitsRoute, RequestRoute,
-    RequestVersionsRoute, Requests,
+    InboxRow, RequestCommitRoute, RequestCommitsRoute, RequestRoute, RequestVersionsRoute, Requests,
 };
 use artoo_shell_api::{Link, Services};
 use artoo_ui_kit::{format, words};
@@ -82,9 +82,8 @@ pub(crate) fn link(
 /// nothing.
 pub(crate) fn inbox_link(web: &WebRemote, services: &Services, cx: &App) -> Result<Link, String> {
     let requests = services.get::<Rc<dyn Requests>>();
-    let answers = services
-        .get::<Rc<dyn InboxHost>>()
-        .map(|h| h.answers(cx))
+    let answers = (services.get::<Rc<dyn Agents>>())
+        .map(|a| a.inbox_answers(cx))
         .unwrap_or_default();
     let number = requests
         .as_ref()

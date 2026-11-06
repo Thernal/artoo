@@ -19,7 +19,7 @@ use std::rc::Rc;
 impl Workspace {
     /// What the Inbox lists under its filter, newest first (`Requests::inbox_rows`).
     pub(super) fn inbox_rows(&self, cx: &App) -> Vec<InboxRow> {
-        let answers = self.agent_notices(cx);
+        let answers = self.agents.inbox_answers(cx);
         self.requests_api()
             .map(|r| r.inbox_rows(&answers, cx))
             .unwrap_or_default()
@@ -28,34 +28,16 @@ impl Workspace {
     /// Your notes an agent answered that wait for you: it asked something (your answer, once
     /// given, waits to be sent from here), or it says it is done. With when it last wrote, and
     /// the key that is read once looked at (a new answer is new again).
-    pub(super) fn agent_notices(&self, cx: &App) -> Vec<(u64, i64, String)> {
-        use crate::comment::{Kind as AgentKind, kind_of};
-        let alive = self.listening(cx);
-        self.comments(cx)
-            .iter()
-            .filter(|c| !c.archived)
-            .filter(|c| match kind_of(c, &alive) {
-                AgentKind::Asks | AgentKind::Addressed => true,
-                AgentKind::Draft => c.answer.is_some() && !c.replies.is_empty(),
-                _ => false,
-            })
-            .filter_map(|c| {
-                let at = c.replies.last()?.at;
-                Some((c.id, at, format!("agent:{}:{}", c.id, c.replies.len())))
-            })
-            .collect()
-    }
-
     /// The Inbox's count: notices not read, and agents' answers not looked at.
     pub(super) fn inbox_unread(&self, cx: &App) -> usize {
-        let answers = self.agent_notices(cx);
+        let answers = self.agents.inbox_answers(cx);
         self.requests_api()
             .map_or(0, |r| r.unread_with(&answers, cx))
     }
 
     /// The Inbox's selected row (`Requests::inbox_current`).
     pub(super) fn inbox_current(&self, cx: &App) -> Option<InboxRow> {
-        let answers = self.agent_notices(cx);
+        let answers = self.agents.inbox_answers(cx);
         self.requests_api()?.inbox_current(&answers, cx)
     }
 
@@ -84,7 +66,7 @@ impl Workspace {
 
     /// j k in the Inbox: the next or previous listed notice.
     pub(super) fn inbox_step(&mut self, down: bool, cx: &mut Context<Self>) {
-        let answers = self.agent_notices(cx);
+        let answers = self.agents.inbox_answers(cx);
         let next = self
             .requests_api()
             .and_then(|r| r.inbox_step(&answers, down, cx));
@@ -106,8 +88,11 @@ impl Workspace {
             InboxRow::Notice(_) => requests.read_excerpt(cx),
             InboxRow::Agent(id) => {
                 // Looked at: read, until the agent writes again.
-                if let Some((_, _, key)) =
-                    self.agent_notices(cx).into_iter().find(|(i, ..)| *i == id)
+                if let Some((_, _, key)) = self
+                    .agents
+                    .inbox_answers(cx)
+                    .into_iter()
+                    .find(|(i, ..)| *i == id)
                 {
                     requests.mark_read(key, cx);
                 }
@@ -285,13 +270,6 @@ impl Workspace {
 pub(super) struct InboxHost(pub WeakEntity<Workspace>);
 
 impl artoo_requests_api::InboxHost for InboxHost {
-    fn answers(&self, cx: &App) -> Vec<(u64, i64, String)> {
-        self.0
-            .upgrade()
-            .map(|tab| tab.read(cx).agent_notices(cx))
-            .unwrap_or_default()
-    }
-
     fn answer_row(&self, id: u64, look: RowLook, cx: &App) -> AnyElement {
         let Some(tab) = self.0.upgrade() else {
             return div().into_any_element();
@@ -315,15 +293,6 @@ impl artoo_requests_api::InboxHost for InboxHost {
         let thread = this.render_thread(id, 0., self.0.clone(), cx);
         let on = Workspace::answer_on(self.0.clone());
         Some(answer_preview(c, this.agent_of(c, cx), thread, &on, cx))
-    }
-
-    fn answer_done(&self, id: u64, cx: &App) -> bool {
-        self.0.upgrade().is_some_and(|tab| {
-            tab.read(cx)
-                .comments(cx)
-                .iter()
-                .any(|c| c.id == id && c.state == crate::comment::State::Addressed)
-        })
     }
 
     fn writing(&self, cx: &App) -> Option<AnyElement> {

@@ -232,9 +232,12 @@ impl RootPage {
             } => {
                 if let Some(near) = more {
                     let this = cx.entity().downgrade();
+                    let requests = services.get::<Rc<dyn artoo_requests_api::Requests>>();
                     cx.defer(move |cx| {
                         if near {
-                            host.more(cx);
+                            if let Some(r) = requests {
+                                r.load_past_page(r.scope(cx), cx);
+                            }
                         } else {
                             this.update(cx, |_, cx| cx.notify()).ok();
                         }

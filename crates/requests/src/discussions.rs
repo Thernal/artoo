@@ -1,20 +1,22 @@
 //! The Discussions tool window (#76): the request's discussions and pending comments — public ones only, the
 //! agent's are the Agents window's —, the outdated ones apart by the version they were written on (#46); a click
 //! shows one in the diff. What a click asks goes to the tab (`Act`); what it is drawn with that the tab knows
-//! comes from the tab's `DiscussionsHost`. It is the requests' tool window, in a request's page.
+//! comes from the tab's `DiscussionsHost`, the timeline's last version from the branches. It is the requests' tool
+//! window, in a request's page.
 
 use crate::requests::{Act, Acts, Requests};
 use crate::waiting::{FADED, is_temp};
+use artoo_branches_api::Branches;
 use artoo_hosts_api::{Draft, Thread};
 use artoo_requests_api::{DISCUSSIONS, DiscussionsHost};
-use artoo_shell_api::{Badge, ListKey, Tool};
+use artoo_shell_api::{Badge, ListKey, Services, Tool};
 use artoo_ui_kit::controls::{comment_item, group_heading, skeleton, tool_foot};
 use artoo_ui_kit::format::{one_line, plural};
 use artoo_ui_kit::hover::{self, Hover, Tip};
 use artoo_ui_kit::{ROW_RADIUS, px, theme};
 use gpui::{AnyElement, App, ClickEvent, Context, Entity, FontWeight, Window, div, prelude::*};
 use std::cell::Cell;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 pub use artoo_requests_api::Listing;
 
@@ -29,12 +31,14 @@ pub struct DiscussionsWindow {
 pub(crate) fn tool(
     requests: Entity<Requests>,
     host: Rc<dyn DiscussionsHost>,
+    services: Weak<Services>,
     acts: Acts,
     cx: &mut App,
 ) -> Tool {
     let view = cx.new(|_| DiscussionsView {
         requests: requests.clone(),
         host: host.clone(),
+        services,
         acts: acts.clone(),
     });
     // Asked while the tab draws its stripe and the window's title: the tab is not read.
@@ -91,16 +95,19 @@ pub(crate) fn tool(
 struct DiscussionsView {
     requests: Entity<Requests>,
     host: Rc<dyn DiscussionsHost>,
+    /// The tab's, where the branches are.
+    services: Weak<Services>,
     acts: Acts,
 }
 
 impl Render for DiscussionsView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let look = self.host.listing(cx);
-        let window = self
-            .requests
-            .read(cx)
-            .discussions_window(look, self.acts.clone());
+        let latest = (self.services.upgrade())
+            .and_then(|s| s.get::<Rc<dyn Branches>>())
+            .and_then(|b| b.latest_version(cx))
+            .map(|v| v.number);
+        let window = (self.requests.read(cx)).discussions_window(look, latest, self.acts.clone());
         div()
             .flex_1()
             .min_h_0()
@@ -114,7 +121,12 @@ impl Render for DiscussionsView {
 impl Requests {
     /// The Discussions tool window: the request's discussions and pending notes — public ones only,
     /// the agent's are the Agents window's (#76); a click shows one in the diff.
-    pub fn discussions_window(&self, look: Listing, acts: Acts) -> DiscussionsWindow {
+    pub fn discussions_window(
+        &self,
+        look: Listing,
+        latest: Option<usize>,
+        acts: Acts,
+    ) -> DiscussionsWindow {
         let (threads, drafts): (&[Thread], &[Draft]) = if look.showing {
             (&self.threads, &self.drafts)
         } else {
@@ -144,7 +156,7 @@ impl Requests {
         for (version, list) in outdated {
             let items: Vec<gpui::AnyElement> = list
                 .iter()
-                .map(|&ix| self.outdated_item(ix, &look, &acts))
+                .map(|&ix| self.outdated_item(ix, &look, latest, &acts))
                 .collect();
             outdated_items.push(
                 div()
@@ -289,7 +301,13 @@ impl Requests {
     /// changed. A click shows it — its line where it is now, else the versions compared since —,
     /// and it is resolved or reopened there, where it is read (the developer, 2026-10-23: no Show
     /// or Reopen on the row).
-    fn outdated_item(&self, ix: usize, look: &Listing, acts: &Acts) -> AnyElement {
+    fn outdated_item(
+        &self,
+        ix: usize,
+        look: &Listing,
+        latest: Option<usize>,
+        acts: &Acts,
+    ) -> AnyElement {
         let t = &self.threads[ix];
         let line_now = self.histories.get(&t.id).and_then(|h| h.line_now);
         let path = t.path.clone().unwrap_or_default();
@@ -301,7 +319,7 @@ impl Requests {
         let first = &t.notes[0];
         let written = self.histories.get(&t.id).map(|h| h.written);
         // What a click does: the line where it is now, or (gone) the versions compared.
-        let shows = match (line_now, self.compare_label(ix, look.latest)) {
+        let shows = match (line_now, self.compare_label(ix, latest)) {
             (Some(_), _) => "Show its line now".to_owned(),
             (None, Some(compare)) => compare,
             (None, None) => String::new(),

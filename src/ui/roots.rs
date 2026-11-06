@@ -323,14 +323,4 @@ impl artoo_requests_api::RootHost for RootHost {
     fn narrow(&self, cx: &App) -> bool {
         self.0.upgrade().is_some_and(|tab| tab.read(cx).compact())
     }
-
-    fn more(&self, cx: &mut App) {
-        self.0
-            .update(cx, |this, cx| {
-                if let Some(scope) = this.requests_api().map(|r| r.scope(cx)) {
-                    this.load_past_page(scope, cx)
-                }
-            })
-            .ok();
-    }
 }

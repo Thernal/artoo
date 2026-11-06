@@ -24,13 +24,6 @@ impl Workspace {
         cx.notify();
     }
 
-    /// The next page of `scope`'s merged or closed requests (`Requests::load_past_page`).
-    pub(super) fn load_past_page(&mut self, scope: Scope, cx: &mut Context<Self>) {
-        if let Some(requests) = self.requests_api() {
-            requests.load_past_page(scope, cx);
-        }
-    }
-
     /// The page of the scope shown that could not be read, again.
     pub(super) fn retry_past_page(&mut self, cx: &mut Context<Self>) {
         if let Some(requests) = self.requests_api() {
@@ -1078,7 +1071,6 @@ impl artoo_requests_api::DiscussionsHost for DiscussionsHost {
                 showing: false,
                 rich: false,
                 github: false,
-                latest: None,
                 agents: Default::default(),
             };
         };
@@ -1087,7 +1079,6 @@ impl artoo_requests_api::DiscussionsHost for DiscussionsHost {
             showing: self.1.get(),
             rich: this.settings.rich_comments,
             github: this.on_github(),
-            latest: this.latest_version(cx),
             agents: this.draft_agents(cx),
         }
     }

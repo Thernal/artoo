@@ -6,7 +6,7 @@
 use crate::agents::{self, Bus};
 use crate::git;
 use crate::review::{self, Comment, Place, State};
-use artoo_agents_api::comment::{Answered, FormKind, export, next_id};
+use artoo_agents_api::comment::{Answered, FormKind, Kind, export, kind_of, next_id};
 use artoo_core::rows::FileData;
 use gpui::{App, Context, Entity, Task};
 use std::collections::HashMap;
@@ -282,6 +282,24 @@ impl AgentComments {
         }));
     }
 
+    /// Those an agent answered that wait for the reviewer, for the Inbox — one it asks on, one it says it did, a draft
+    /// whose answer was picked again —, `alive` the sessions listening: each one's id, when the agent last wrote, and
+    /// the key read once it is looked at (`agent:<id>:<replies>`: a new answer is new again).
+    pub fn inbox_answers(&self, alive: &dyn Fn(&str) -> bool) -> Vec<(u64, i64, String)> {
+        (self.list.iter())
+            .filter(|c| !c.archived)
+            .filter(|c| match kind_of(c, alive) {
+                Kind::Asks | Kind::Addressed => true,
+                Kind::Draft => c.answer.is_some() && !c.replies.is_empty(),
+                _ => false,
+            })
+            .filter_map(|c| {
+                let at = c.replies.last()?.at;
+                Some((c.id, at, format!("agent:{}:{}", c.id, c.replies.len())))
+            })
+            .collect()
+    }
+
     /// Comment `id` changed by `f`. Whether it is one; not saved.
     pub fn change(&mut self, id: u64, f: impl FnOnce(&mut Comment)) -> bool {
         self.list.iter_mut().find(|c| c.id == id).map(f).is_some()
@@ -464,6 +482,32 @@ mod tests {
         }
         let out = c.export("app", |c| Place::Line(c.line));
         assert!(out.contains("to do") && !out.contains("done"), "{out}");
+    }
+
+    #[test]
+    fn the_inbox_lists_what_an_agent_asked_or_did_until_it_is_archived() {
+        let mut c = asked(FormKind::One, &[false, false]);
+        c.list[0].replies[0].at = 40;
+        let listening = |_: &str| true;
+        assert_eq!(
+            c.inbox_answers(&listening),
+            [(7, 40, "agent:7:1".to_owned())]
+        );
+        assert!(c.pick(7, Some(0)), "its answer picked: a draft again");
+        assert_eq!(
+            c.inbox_answers(&listening).len(),
+            1,
+            "still waits for the send"
+        );
+        c.list[0].state = State::Addressed;
+        c.list[0].replies.push(Default::default());
+        assert_eq!(
+            c.inbox_answers(&listening)[0].2,
+            "agent:7:2",
+            "a new answer is new again"
+        );
+        c.list[0].archived = true;
+        assert!(c.inbox_answers(&listening).is_empty());
     }
 
     #[test]

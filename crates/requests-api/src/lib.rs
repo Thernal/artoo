@@ -197,18 +197,11 @@ pub type OnInbox = Rc<dyn Fn(InboxEvent, &mut App)>;
 
 /// What the Inbox asks of the tab (`Rc<dyn InboxHost>` in its services).
 pub trait InboxHost {
-    /// Your notes an agent answered that wait for you: each one's id, when the agent last wrote, and the key read
-    /// once it is looked at (a new answer is new again).
-    fn answers(&self, cx: &App) -> Vec<(u64, i64, String)>;
-
     /// The row of the answer to note `id`.
     fn answer_row(&self, id: u64, look: RowLook, cx: &App) -> AnyElement;
 
     /// The answer to note `id` previewed; `None` once it is gone.
     fn answer_preview(&self, id: u64, cx: &App) -> Option<AnyElement>;
-
-    /// The agent says it is done with note `id`: E resolves it.
-    fn answer_done(&self, id: u64, cx: &App) -> bool;
 
     /// The composer, while it writes a reply to the notice selected.
     fn writing(&self, cx: &App) -> Option<AnyElement>;
@@ -517,8 +510,6 @@ pub struct Listing {
     pub rich: bool,
     /// The host is GitHub: a pending comment is not sent alone (#138).
     pub github: bool,
-    /// The timeline's last version.
-    pub latest: Option<usize>,
     /// The agent that wrote a pending comment, by its id (#150).
     pub agents: HashMap<u64, String>,
 }
@@ -568,9 +559,6 @@ pub trait RootHost {
 
     /// The tab narrow: no preview beside the list, and a click opens a request (#80).
     fn narrow(&self, cx: &App) -> bool;
-
-    /// The next page of the merged or the closed of the scope shown read: the list's end is in sight.
-    fn more(&self, cx: &mut App);
 }
 
 /// Who hears what the requests' reads come to (`Requests::on_event`).

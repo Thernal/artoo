@@ -1,8 +1,8 @@
 //! The Inbox, a place of the menu (#49), as the requests' page (Design L4, STYLE.md: "notifications listed, the
 //! selected one previewed and answerable"): the notifications on the left under Today and Earlier, the one selected
 //! on the right (`inbox_view`), a banner over them while the host cannot be read (#72). Among them your notes an
-//! agent answered (#116), drawn by the agents: what the tab keeps of them, the composer and its answers to the clicks
-//! come through its `InboxHost`.
+//! agent answered (#116): which they are the agents say (`Agents::inbox_answers`, in the tab's services); their rows
+//! and previews, the composer and the answers to the clicks come through the tab's `InboxHost`.
 
 use crate::inbox::{InboxRow, InboxView};
 use crate::inbox_view::{
@@ -11,6 +11,8 @@ use crate::inbox_view::{
 use crate::list;
 use crate::notices::{Kind, Notices};
 use crate::requests::{Acts, Requests};
+use artoo_agents_api::comment::State;
+use artoo_agents_api::tab::Agents;
 use artoo_shell_api::{Frame, Pages, Screen};
 use artoo_ui_kit::format::{self, now};
 use artoo_ui_kit::room::Widths;
@@ -103,7 +105,9 @@ impl InboxPage {
         // The list's handle first: the tab draws it in its own update.
         let handle = (!host.narrow(cx)).then(|| self.frame.list_handle(cx));
         let cx: &App = cx;
-        let answers = host.answers(cx);
+        let answers = (services.get::<Rc<dyn Agents>>())
+            .map(|a| a.inbox_answers(cx))
+            .unwrap_or_default();
         let (notices, view) = (self.notices.read(cx), self.view.read(cx));
         let rows = view.rows(notices, &answers);
         let body = if !notices.loaded && rows.is_empty() {
@@ -123,6 +127,13 @@ impl InboxPage {
             .children(list::banner(self.requests.read(cx), &acts))
             .child(body)
             .into_any_element()
+    }
+
+    /// The agent says it is done with your note `id`: E resolves it.
+    fn agent_done(&self, id: u64, cx: &App) -> bool {
+        (self.frame.services().get::<Rc<dyn Agents>>()).is_some_and(|a| {
+            (a.comments(cx).iter()).any(|c| c.id == id && c.state == State::Addressed)
+        })
     }
 
     /// The list, and the row selected previewed and answerable.
@@ -215,7 +226,7 @@ impl InboxPage {
             });
         let narrow = handle.is_none();
         let agent = match current {
-            Some(InboxRow::Agent(id)) => Some(host.answer_done(id, cx)),
+            Some(InboxRow::Agent(id)) => Some(self.agent_done(id, cx)),
             _ => None,
         };
         div()

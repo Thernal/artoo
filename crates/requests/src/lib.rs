@@ -122,7 +122,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     // The Discussions window, in a tab that says what it is drawn with.
     let tool = services
         .get::<Rc<dyn artoo_requests_api::DiscussionsHost>>()
-        .map(|host| discussions::tool(requests.clone(), host, acts, cx));
+        .map(|host| discussions::tool(requests.clone(), host, Rc::downgrade(&services), acts, cx));
     let (shows, goes) = (frame.clone(), frame.clone());
     Parts {
         tool,

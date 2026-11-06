@@ -129,6 +129,11 @@ pub trait Agents {
     /// found their lines.
     fn on_comments(&self, changed: OnChange, cx: &mut App);
 
+    /// The reviewer's comments an agent answered that wait for them, for the Inbox: one it asks on, one it says it
+    /// did, a draft whose answer was picked again; each one's id, when the agent last wrote, and the key read once
+    /// it is looked at (a new answer is new again).
+    fn inbox_answers(&self, cx: &App) -> Vec<(u64, i64, String)>;
+
     /// What the agents answered since the last look, taken in and kept: each one's state and replies as they were,
     /// when anything changed.
     fn take_answers(&self, cx: &mut App) -> Option<Vec<(u64, State, usize)>>;

@@ -294,6 +294,13 @@ impl Agents for TabAgents {
             .detach();
     }
 
+    fn inbox_answers(&self, cx: &App) -> Vec<(u64, i64, String)> {
+        let on = self.chats.read(cx).listening();
+        self.comments
+            .read(cx)
+            .inbox_answers(&|session| on.contains(session))
+    }
+
     fn take_answers(&self, cx: &mut App) -> Option<Vec<(u64, State, usize)>> {
         let bus = Bus::new()?;
         self.comments.update(cx, |c, _| c.take_answers(&bus))
