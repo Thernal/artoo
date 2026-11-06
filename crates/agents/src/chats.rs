@@ -25,9 +25,31 @@ pub struct Chats {
     pub edits: HashMap<String, HashSet<String>>,
     edits_in: u32,
     edits_task: Option<Task<()>>,
+    /// The providers' beat under way (`beat_providers`).
+    providers_task: Option<Task<()>>,
 }
 
 impl Chats {
+    /// A session that runs no watcher of its own (Codex's) listens through the app, and what was sent to one is
+    /// handed over (each provider's `beat`, #18) — off the window's thread, one beat at a time; a snapshot leaves the
+    /// agents alone. `project` the tab's.
+    pub fn beat_providers(&mut self, project: PathBuf, cx: &mut Context<Self>) {
+        if artoo_core::storage::snapshot_run() || self.providers_task.is_some() {
+            return;
+        }
+        let providers = artoo_agents_api::provider::all(cx);
+        self.providers_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .spawn(async move {
+                    for provider in &providers {
+                        provider.beat(&project);
+                    }
+                })
+                .await;
+            this.update(cx, |this, _| this.providers_task = None).ok();
+        }));
+    }
+
     /// Chat `session` is here and listening: a note sent to it and not taken is not waiting.
     pub fn listens(&self, session: &str) -> bool {
         self.list

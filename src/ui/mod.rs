@@ -1147,9 +1147,6 @@ pub struct Workspace {
     /// Requests an agent gathered under Merge requests not opened since: the first open goes to
     /// its comments (#148).
     agent_fresh: HashSet<u64>,
-    /// The sessions without a watcher of their own (Codex's) looked at and handed their comments, in the
-    /// background (#18).
-    watch_beat: Option<Task<()>>,
     /// One's own public note asked about before it is deleted (#76).
     confirm_note: Option<u64>,
     /// The Inbox place is shown, and which of its notifications it lists.
@@ -1319,7 +1316,6 @@ impl Workspace {
             agent_marks: Vec::new(),
             marks_stamp: None,
             agent_fresh: HashSet::new(),
-            watch_beat: None,
             confirm_note: None,
             inbox: false,
             hover_note: None,
@@ -1497,6 +1493,18 @@ impl Workspace {
         // The notes' lines followed to the head shown: they are pinned again.
         let tab = cx.weak_entity();
         this.agents.on_followed(
+            Rc::new(move |cx| {
+                tab.update(cx, |this, cx| {
+                    this.refresh_rows(cx);
+                    cx.notify();
+                })
+                .ok();
+            }),
+            cx,
+        );
+        // A comment the agents changed themselves (a pick, a send, an archive): its line drawn again.
+        let tab = cx.weak_entity();
+        this.agents.on_comments(
             Rc::new(move |cx| {
                 tab.update(cx, |this, cx| {
                     this.refresh_rows(cx);

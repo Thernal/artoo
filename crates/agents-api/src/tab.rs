@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-/// What the tab is told: the notes changed or their lines were found, a connect began or ended.
+/// What the tab is told: the notes' lines were found, the comments changed.
 pub type OnChange = Rc<dyn Fn(&mut App)>;
 
 /// One tab's agents.
@@ -35,7 +35,8 @@ pub trait Agents {
     fn refresh(&self, root: Option<&Path>, cx: &mut App) -> bool;
 
     /// The poll's beat: `root`'s chats read again, and what a chat in a worktree of its own changed when it is time
-    /// (`here` the tab's working tree). Whether they changed, and what to say of each that began listening or went.
+    /// (`here` the tab's working tree); the chats that listen through the app handed what was sent to them (each
+    /// provider's beat, #18). Whether they changed, and what to say of each that began listening or went.
     fn beat(&self, root: Option<&Path>, here: Option<PathBuf>, cx: &mut App)
     -> (bool, Vec<String>);
 
@@ -50,6 +51,44 @@ pub trait Agents {
 
     /// The comments kept for their project, as they are now.
     fn save_comments(&self, cx: &App);
+
+    /// The reviewer's pick on the agent's form on comment `id` — `None` their own call, else option `pick` —, an
+    /// Order's item `at` moved one place up (or down), a digit on the form (0 their own call, 1…9 the option drawn
+    /// with that number; whether it took it): a draft again, to go with the next send (#10 C).
+    fn pick_answer(&self, id: u64, pick: Option<usize>, cx: &mut App);
+    fn move_answer(&self, id: u64, at: usize, up: bool, cx: &mut App);
+    fn answer_by_key(&self, id: u64, digit: usize, cx: &mut App) -> bool;
+
+    /// Comment `id` resolved, or a draft again to be sent with what was said so far; sent and not taken yet, a draft
+    /// with no chat (`withdraw`); archived or back; every resolved one archived.
+    fn set_state(&self, id: u64, state: State, cx: &mut App);
+    fn withdraw(&self, id: u64, cx: &mut App);
+    fn archive(&self, id: u64, on: bool, cx: &mut App);
+    fn archive_resolved(&self, cx: &mut App);
+
+    /// `ids` each sent to its route (#77) — the chat working on the branch it was written on, else project `main`'s
+    /// default —, the chats read again first; those no chat listening takes, for the card to ask.
+    fn send(&self, ids: Vec<u64>, main: &Path, cx: &mut App) -> Vec<u64>;
+
+    /// `ids` sent to chat `session` picked on the card, "" a new chat opened in a terminal in `root` (`main` the
+    /// project); why not when the terminal could not open.
+    fn send_to(
+        &self,
+        ids: Vec<u64>,
+        session: &str,
+        title: &str,
+        root: &Path,
+        main: &Path,
+        cx: &mut App,
+    ) -> Option<String>;
+
+    /// Another chat than the page's (`page`, a session) changing file `path` (#77): one in a worktree of its own
+    /// changed it there (#117: what it really edits); one in this working tree, where whose edit is whose cannot be
+    /// told, took a note of its on the file and has not answered yet. Its name, letter and hue.
+    fn changing(&self, path: &str, page: Option<&str>, cx: &App) -> Option<(String, char, Rgba)>;
+
+    /// What the tab is told when the agents changed the comments themselves: a pick, a send, an archive.
+    fn on_comments(&self, changed: OnChange, cx: &mut App);
 
     /// What the agents answered since the last look, taken in and kept: each one's state and replies as they were,
     /// when anything changed.

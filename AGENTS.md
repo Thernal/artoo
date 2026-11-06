@@ -132,7 +132,8 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   `theme-palette` the tab's); `appearance.rs` the entity — the theme edited, the hex field a part's input —, `cards.rs`
   the cards and the editor's preview; its `install` alone is shown). `crates/agents-api` (`artoo-agents-api`): the
   agents' contract — the reports chats drafted, which Report a problem opens; the models the tab speaks with them
-  (`comment`, `notes`, `bus`); a tab's agents (`tab::Agents`, made with `tab::tab`), the folder the windows read
+  (`comment`, `notes`, `bus`); a tab's agents (`tab::Agents`, made with `tab::tab`: their chats, comments and notes, and what is done to them — a
+  pick on a form, a send to its route, an archive —, the tab told through `on_comments`, #171 phase 8), the folder the windows read
   (`bus::Folder`), what the tab draws of them (`view`, a render contract with its hosts), and the kinds of agent
   (`provider::Provider`: its name, the session a program runs in, connecting it, its limits, its recent chats, the
   program a new chat opens, a beat for sessions without a watcher; offered with `provider::add` and an order, read with

@@ -103,6 +103,25 @@ pub fn tool(
     }
 }
 
+/// `act` done when it is the agents' own — a comment withdrawn, archived or back, resolved; the resolved archived —:
+/// whether it was. The tab hears the comments changed (`Agents::on_comments`).
+fn own(comments: &Entity<AgentComments>, act: &Act, cx: &mut App) -> bool {
+    use crate::comments::change;
+    match *act {
+        Act::Withdraw(id) => change(comments, cx, |c| c.withdraw(id)),
+        Act::Archive(id, on) => change(comments, cx, |c| c.change(id, |c| c.archived = on)),
+        Act::ArchiveResolved => change(comments, cx, |c| {
+            c.archive_resolved();
+            true
+        }),
+        Act::Resolve(id) => change(comments, cx, |c| {
+            c.change(id, |c| c.state = State::Resolved)
+        }),
+        _ => return false,
+    };
+    true
+}
+
 /// The stripe's icon: the drafts waiting, a dot for each chat listening on its own hue (#77).
 fn badge(chats: &Entity<Chats>, comments: &Entity<AgentComments>, cx: &App) -> Badge {
     let drafts = review::drafts(&comments.read(cx).list).len();
@@ -131,23 +150,29 @@ impl AgentsWindow {
         self.frame.services().get::<Rc<dyn AgentsHost>>()
     }
 
-    /// `act` asked of the tab, from a click; a draft deleted is no longer picked.
+    /// `act` from a click: done here when it is the agents' own, else asked of the tab; a draft deleted is no longer
+    /// picked.
     fn act(&mut self, act: Act, cx: &mut App) {
         if let Act::Delete(id) = act
             && self.row == Some(id)
         {
             self.row = None;
         }
+        if own(&self.comments, &act, cx) {
+            return;
+        }
         if let Some(host) = self.host() {
             host.act(act, cx);
         }
     }
 
-    /// `act` asked of the tab once its update is over: from a key, which the tab hands in.
+    /// `act` done once the tab's update is over: from a key, which the tab hands in.
     fn act_later(&self, act: Act, cx: &mut App) {
-        let host = self.host();
+        let (host, comments) = (self.host(), self.comments.clone());
         cx.defer(move |cx| {
-            if let Some(host) = host {
+            if !own(&comments, &act, cx)
+                && let Some(host) = host
+            {
                 host.act(act, cx);
             }
         });

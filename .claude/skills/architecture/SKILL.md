@@ -103,7 +103,8 @@ The target above is reached for every feature: each implementation shows the app
   (#171 phase 5) —, the connect panel a part of every tab behind
   `artoo_hosts_api::connect::Connect`, markdown's pictures through the kit's `Pictures` port) and agents (their
   kinds — Claude Code's and Codex's, each a `provider::Provider` offered with `provider::add` (#171 phase 5) —, their
-  models, a tab's agents `artoo_agents_api::tab::Agents`, the folder the windows read `bus::Folder`, what the tab
+  models, a tab's agents `artoo_agents_api::tab::Agents` — what is done to their comments theirs, the tab hearing it
+  (`on_comments`, #171 phase 8) —, the folder the windows read `bus::Folder`, what the tab
   draws of them a render contract `view`), and Appearance (`artoo-appearance`, #171 phase 4: Settings → Appearance's
 themes, the theme editor and the file icons, the window root's faces and panes rows placed in its section by their
 order; Set up's Look its rows' short form). `artoo-shell-api` holds actions, parts (a title-bar item, a card over the

@@ -1,12 +1,13 @@
 //! Sending the review to an agent's chat (`crate::agents`): the reviewer's comments stay drafts
 //! until *Send to agent* (⌥⌘A); a card (`Agents::pick_chat`) then lists this repository's chats — those listening first,
 //! then Claude Code's recent ones, which get the comments when they listen — and a new chat. The
-//! agent's answers come back every couple of seconds, and the reviewer resolves or reopens each.
+//! agent's answers come back every couple of seconds, and the reviewer resolves or reopens each. What is done to a
+//! comment — a pick on its form, a send to its route, an archive — is the agents' (`Agents`); the tab hears it changed
+//! (`on_comments`) and asks it from what it coordinates: the page's branch, the form under the line, the card.
 
 use super::Workspace;
 use crate::bus::Chat;
 use crate::comment::State;
-use crate::comment::{Kind, kind_of};
 use artoo_agents_api::view::{self, Act, FormEvent, OnForm};
 use gpui::{App, Context, WeakEntity};
 
@@ -46,10 +47,7 @@ impl Workspace {
 
     /// Send to … instead: a note its gone chat never took goes to its route now.
     fn resend(&mut self, id: u64, cx: &mut Context<Self>) {
-        self.change_comment(id, cx, |c| {
-            c.state = State::Draft;
-            c.sent = None;
-        });
+        self.agents.withdraw(id, cx);
         self.send_agent(vec![id], cx);
     }
 
@@ -59,79 +57,21 @@ impl Workspace {
         move |session| on.contains(session)
     }
 
-    /// Another chat than the page's is changing file `path` (#77). One in a worktree of its own:
-    /// the file is changed there (#117: what it really edits). One in this working tree, where
-    /// whose edit is whose cannot be told: a note of its on the file was taken and not answered
-    /// yet. Its name, letter and hue.
+    /// Another chat than the page's is changing file `path` (#77, `Agents::changing`): its name, letter and hue.
     pub(super) fn changing(&self, path: &str, cx: &App) -> Option<(String, char, gpui::Rgba)> {
-        let alive = self.listening(cx);
         let page = self
             .route_of(self.page_branch(cx).as_deref(), cx)
             .map(|c| c.session);
-        let (chats, edits) = (self.agents.chats(cx), self.agents.edits(cx));
-        let edited = chats
-            .iter()
-            .filter(|c| Some(&c.session) != page.as_ref())
-            .find(|c| {
-                edits
-                    .get(&c.session)
-                    .is_some_and(|paths| paths.contains(path))
-            })
-            .map(|c| c.session.clone());
-        let session = edited.or_else(|| {
-            self.comments(cx)
-                .iter()
-                .filter(|c| c.path == path && !c.archived && kind_of(c, &alive) == Kind::Working)
-                .filter_map(|c| c.sent.as_ref())
-                .map(|s| s.session.clone())
-                .filter(|s| !edits.contains_key(s))
-                .find(|s| Some(s) != page.as_ref())
-        })?;
-        let chat = chats.iter().find(|c| c.session == session)?;
-        let (letter, hue) = self.agents.mark(&session, cx);
-        let name = if chat.title.is_empty() {
-            chat.agent.clone()
-        } else {
-            chat.title.clone()
-        };
-        Some((name, letter, hue))
+        self.agents.changing(path, page.as_deref(), cx)
     }
 
-    /// Sends each of `ids` to its route (#77): the chat working on the branch it was written on,
+    /// Sends each of `ids` to its route (#77, `Agents::send`): the chat working on the branch it was written on,
     /// else the project's default; with no chat listening, the card asks.
     pub(super) fn send_agent(&mut self, ids: Vec<u64>, cx: &mut Context<Self>) {
-        if ids.is_empty() {
+        let Some(main) = self.project.clone().or(self.root.clone()) else {
             return;
-        }
-        self.refresh_chats(cx);
-        let mut by_chat: Vec<(Chat, Vec<u64>)> = Vec::new();
-        let mut nowhere = Vec::new();
-        for id in ids {
-            let branch = self
-                .comments(cx)
-                .iter()
-                .find(|c| c.id == id)
-                .and_then(|c| c.branch.clone());
-            match self.route_of(branch.as_deref(), cx) {
-                Some(chat) => match by_chat.iter_mut().find(|(c, _)| c.session == chat.session) {
-                    Some((_, ids)) => ids.push(id),
-                    None => by_chat.push((chat, vec![id])),
-                },
-                None => nowhere.push(id),
-            }
-        }
-        for (chat, ids) in &by_chat {
-            self.change_comments(cx, |list| {
-                crate::comment::send(list, ids, &chat.session, &chat.title)
-            });
-        }
-        if !by_chat.is_empty() {
-            self.save_comments(cx);
-            // A session the app watches for (Codex's) is handed them now, not on the next beat (#18).
-            self.watch_beat(cx);
-            self.refresh_rows(cx);
-            cx.notify();
-        }
+        };
+        let nowhere = self.agents.send(ids, &main, cx);
         if !nowhere.is_empty() {
             self.open_agent_pick_for(nowhere, cx);
         }
@@ -170,83 +110,6 @@ impl Workspace {
         })
     }
 
-    /// The reviewer's pick on the agent's form for comment `id`: saved to the drafts at once
-    /// (#10 C) — it goes with the next send.
-    pub(super) fn pick_answer(&mut self, id: u64, pick: Option<usize>, cx: &mut Context<Self>) {
-        let picked = self.change_comment(id, cx, |c| {
-            let form = c.replies.last().and_then(|r| r.form.clone());
-            let a = c.answer.get_or_insert_with(|| crate::comment::Answered {
-                picks: match &form {
-                    Some(f) if f.kind == crate::comment::FormKind::Order => {
-                        (0..f.choices().len()).collect()
-                    }
-                    Some(f) if f.kind.many() => f
-                        .choices()
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, o)| o.on)
-                        .map(|(i, _)| i)
-                        .collect(),
-                    _ => Vec::new(),
-                },
-                ..Default::default()
-            });
-            match (pick, &form) {
-                (None, _) => {
-                    a.your_call = !a.your_call;
-                }
-                (Some(i), Some(f)) if f.kind.many() => {
-                    a.your_call = false;
-                    match a.picks.iter().position(|p| *p == i) {
-                        Some(at) => {
-                            a.picks.remove(at);
-                        }
-                        None => a.picks.push(i),
-                    }
-                    a.picks.sort_unstable();
-                }
-                (Some(i), _) => {
-                    a.your_call = false;
-                    a.picks = vec![i];
-                }
-            }
-            c.state = State::Draft;
-        });
-        if picked.is_none() {
-            return;
-        }
-        self.save_comments(cx);
-        self.refresh_rows(cx);
-        cx.notify();
-    }
-
-    /// Order: moves item `at` of the answer one place up (or down).
-    pub(super) fn move_answer(&mut self, id: u64, at: usize, up: bool, cx: &mut Context<Self>) {
-        let moved = self.change_comment(id, cx, |c| {
-            let n = c
-                .replies
-                .last()
-                .and_then(|r| r.form.as_ref())
-                .map_or(0, |f| f.choices().len());
-            let a = c.answer.get_or_insert_with(|| crate::comment::Answered {
-                picks: (0..n).collect(),
-                ..Default::default()
-            });
-            let to = if up { at.checked_sub(1) } else { Some(at + 1) };
-            let to = to.filter(|&t| t < a.picks.len());
-            if let Some(to) = to {
-                a.picks.swap(at, to);
-                c.state = State::Draft;
-            }
-            to.is_some()
-        });
-        if moved == Some(true) {
-            self.save_comments(cx);
-            self.refresh_rows(cx);
-            cx.notify();
-        }
-    }
-
     /// Under the agent's question on comment `c`: its form (`artoo_agents_api::view::form`), with the lines
     /// of the file when it is the one open, for a Line's suggestions.
     pub(super) fn agent_form(
@@ -277,8 +140,8 @@ impl Workspace {
     /// A click on an agent's form.
     fn form_event(&mut self, event: FormEvent, cx: &mut Context<Self>) {
         match event {
-            FormEvent::Pick(id, pick) => self.pick_answer(id, pick, cx),
-            FormEvent::Move(id, at, up) => self.move_answer(id, at, up, cx),
+            FormEvent::Pick(id, pick) => self.agents.pick_answer(id, pick, cx),
+            FormEvent::Move(id, at, up) => self.agents.move_answer(id, at, up, cx),
             FormEvent::Own(id) => self.start_answer_value(id, cx),
             FormEvent::Note(id) => self.start_answer(id, cx),
             FormEvent::SendOnly(id) => self.send_agent(vec![id], cx),
@@ -309,82 +172,22 @@ impl Workspace {
             })
     }
 
-    /// A digit on the acting form: 0 is your call, 1…9 the option drawn with that number (Line:
-    /// the suggestion in order). Whether it took the key.
+    /// A digit on the acting form (`Agents::answer_by_key`). Whether it took the key.
     pub(super) fn answer_by_key(&mut self, digit: usize, cx: &mut Context<Self>) -> bool {
-        use crate::comment::FormKind;
-        let Some(id) = self.acting_agent_form(cx) else {
-            return false;
-        };
-        if digit == 0 {
-            self.pick_answer(id, None, cx);
-            return true;
-        }
-        let Some(f) = self
-            .comments(cx)
-            .iter()
-            .find(|c| c.id == id)
-            .and_then(|c| c.replies.last())
-            .and_then(|r| r.form.clone())
-        else {
-            return false;
-        };
-        if f.kind == FormKind::Order || digit > f.choices().len() {
-            return false;
-        }
-        self.pick_answer(id, Some(digit - 1), cx);
-        true
+        self.acting_agent_form(cx)
+            .is_some_and(|id| self.agents.answer_by_key(id, digit, cx))
     }
 
-    /// `ids` sent to chat `session`, picked on the card: "" a new chat, opened in a terminal.
+    /// `ids` sent to chat `session`, picked on the card: "" a new chat, opened in a terminal (`Agents::send_to`).
     fn send_to(&mut self, ids: Vec<u64>, session: String, title: String, cx: &mut Context<Self>) {
         let Some(root) = self.root.clone() else {
             return;
         };
-        self.change_comments(cx, |list| {
-            crate::comment::send(list, &ids, &session, &title)
-        });
-        self.save_comments(cx);
-        self.watch_beat(cx);
-        // A new chat: the first agent that starts one (Claude Code's `claude`).
-        let program = artoo_agents_api::provider::all(cx)
-            .iter()
-            .find_map(|p| p.program());
-        if session.is_empty()
-            && let Some(program) = program
-        {
-            let prompt = "Artoo sent review comments to this chat. Call the artoo list_comments tool, change the code for each comment and answer each with address_comment.";
-            if let Err(e) = crate::platform::open_terminal(&root, program, prompt) {
-                self.error =
-                    Some(format!("Could not open a terminal for the new chat: {e}").into());
-            }
+        let main = self.project.clone().unwrap_or_else(|| root.clone());
+        if let Some(e) = self.agents.send_to(ids, &session, &title, &root, &main, cx) {
+            self.error = Some(e.into());
         }
-        self.refresh_rows(cx);
         cx.notify();
-    }
-
-    /// A session that runs no watcher of its own (Codex's) listens through the app, and what was
-    /// sent to one is handed over (each provider's `beat`, #18) — off the window's thread, one beat
-    /// at a time; a snapshot leaves the agents alone.
-    fn watch_beat(&mut self, cx: &mut Context<Self>) {
-        let snapshot = cfg!(feature = "snapshot") && std::env::var_os("ARTOO_SNAPSHOT").is_some();
-        if snapshot || self.watch_beat.is_some() {
-            return;
-        }
-        let Some(project) = self.project.clone().or(self.root.clone()) else {
-            return;
-        };
-        let providers = artoo_agents_api::provider::all(cx);
-        self.watch_beat = Some(cx.spawn(async move |this, cx| {
-            cx.background_executor()
-                .spawn(async move {
-                    for provider in &providers {
-                        provider.beat(&project);
-                    }
-                })
-                .await;
-            this.update(cx, |this, _| this.watch_beat = None).ok();
-        }));
     }
 
     /// Takes in what the agents answered since the last look (from the 2-second poll).
@@ -407,7 +210,6 @@ impl Workspace {
         if changed {
             cx.notify();
         }
-        self.watch_beat(cx);
         let Some(root) = self.project.clone().or(self.root.clone()) else {
             return;
         };
@@ -441,10 +243,8 @@ impl Workspace {
             Act::Edit(id) => self.start_edit(super::composer::Change::Agent(id), cx),
             Act::Delete(id) => self.delete_draft(id, cx),
             Act::Resend(id) => self.resend(id, cx),
-            Act::Withdraw(id) => self.withdraw(id, cx),
-            Act::Archive(id, on) => self.set_archived(id, on, cx),
-            Act::ArchiveResolved => self.archive_resolved(cx),
-            Act::Resolve(id) => self.resolve_agent_comment(id, cx),
+            // The agents' own: their window does them.
+            Act::Withdraw(_) | Act::Archive(..) | Act::ArchiveResolved | Act::Resolve(_) => {}
             Act::NameChat { session, agent } => {
                 self.open_label(super::labeling::Target::Chat { session, agent }, cx)
             }
@@ -460,55 +260,14 @@ impl Workspace {
         self.toast_deleted(comment, cx);
     }
 
-    /// A sent one its chat has not taken yet comes back to the drafts.
-    fn withdraw(&mut self, id: u64, cx: &mut Context<Self>) {
-        let withdrawn = self.change_comment(id, cx, |c| {
-            c.state = State::Draft;
-            c.sent = None;
-        });
-        if withdrawn.is_some() {
-            self.save_comments(cx);
-            self.refresh_rows(cx);
-            cx.notify();
-        }
-    }
-
-    fn set_archived(&mut self, id: u64, on: bool, cx: &mut Context<Self>) {
-        if self.change_comment(id, cx, |c| c.archived = on).is_some() {
-            self.save_comments(cx);
-            self.refresh_rows(cx);
-            cx.notify();
-        }
-    }
-
-    /// Archive resolved: every resolved one goes off the lists and its line.
-    fn archive_resolved(&mut self, cx: &mut Context<Self>) {
-        self.change_comments(cx, |list| {
-            for c in list.iter_mut().filter(|c| c.state == State::Resolved) {
-                c.archived = true;
-            }
-        });
-        self.save_comments(cx);
-        self.refresh_rows(cx);
-        cx.notify();
-    }
-
     /// The reviewer agrees the agent did it.
     pub(super) fn resolve_agent_comment(&mut self, id: u64, cx: &mut Context<Self>) {
-        self.set_agent_state(id, State::Resolved, cx);
+        self.agents.set_state(id, State::Resolved, cx);
     }
 
     /// Not done: back to a draft, to be sent again (with what was said so far).
     pub(super) fn reopen_agent_comment(&mut self, id: u64, cx: &mut Context<Self>) {
-        self.set_agent_state(id, State::Draft, cx);
-    }
-
-    fn set_agent_state(&mut self, id: u64, state: State, cx: &mut Context<Self>) {
-        if self.change_comment(id, cx, |c| c.state = state).is_some() {
-            self.save_comments(cx);
-            self.refresh_rows(cx);
-            cx.notify();
-        }
+        self.agents.set_state(id, State::Draft, cx);
     }
 }
 

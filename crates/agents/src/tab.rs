@@ -8,7 +8,7 @@ use crate::connect::Connect;
 use crate::notes::AgentNotes;
 use crate::pick::SendCard;
 use artoo_agents_api::bus::Chat;
-use artoo_agents_api::comment::{Comment, State};
+use artoo_agents_api::comment::{self, Comment, Kind, State};
 use artoo_agents_api::notes::{Notes, Shown};
 use artoo_agents_api::tab::{Agents, OnChange};
 use gpui::{App, AppContext, Entity, Rgba};
@@ -36,6 +36,13 @@ pub(crate) fn make(cx: &mut App) -> Rc<dyn Agents> {
         notes: cx.new(|_| AgentNotes::default()),
         connect: cx.new(|_| Connect::default()),
     })
+}
+
+impl TabAgents {
+    /// The comments changed by `f` when it says so: kept, and the tab told (`on_comments`). What `f` said.
+    fn change(&self, cx: &mut App, f: impl FnOnce(&mut AgentComments) -> bool) -> bool {
+        crate::comments::change(&self.comments, cx, f)
+    }
 }
 
 /// The entities behind a tab's `agents`.
@@ -77,8 +84,14 @@ impl Agents for TabAgents {
         cx: &mut App,
     ) -> (bool, Vec<String>) {
         let comments = self.comments.read(cx).list.clone();
-        self.chats
-            .update(cx, |c, cx| c.beat(root, here, &comments, cx))
+        let said = self
+            .chats
+            .update(cx, |c, cx| c.beat(root, here, &comments, cx));
+        if let Some(root) = root {
+            self.chats
+                .update(cx, |c, cx| c.beat_providers(root.to_owned(), cx));
+        }
+        said
     }
 
     fn comments<'a>(&self, cx: &'a App) -> &'a [Comment] {
@@ -95,6 +108,127 @@ impl Agents for TabAgents {
 
     fn save_comments(&self, cx: &App) {
         self.comments.read(cx).save();
+    }
+
+    fn pick_answer(&self, id: u64, pick: Option<usize>, cx: &mut App) {
+        self.change(cx, |c| c.pick(id, pick));
+    }
+
+    fn move_answer(&self, id: u64, at: usize, up: bool, cx: &mut App) {
+        self.change(cx, |c| c.move_pick(id, at, up));
+    }
+
+    fn answer_by_key(&self, id: u64, digit: usize, cx: &mut App) -> bool {
+        self.change(cx, |c| c.key_pick(id, digit))
+    }
+
+    fn set_state(&self, id: u64, state: State, cx: &mut App) {
+        self.change(cx, |c| c.change(id, |c| c.state = state));
+    }
+
+    fn withdraw(&self, id: u64, cx: &mut App) {
+        self.change(cx, |c| c.withdraw(id));
+    }
+
+    fn archive(&self, id: u64, on: bool, cx: &mut App) {
+        self.change(cx, |c| c.change(id, |c| c.archived = on));
+    }
+
+    fn archive_resolved(&self, cx: &mut App) {
+        self.change(cx, |c| {
+            c.archive_resolved();
+            true
+        });
+    }
+
+    fn send(&self, ids: Vec<u64>, main: &Path, cx: &mut App) -> Vec<u64> {
+        if ids.is_empty() {
+            return ids;
+        }
+        self.refresh(Some(main), cx);
+        let mut by_chat: Vec<(Chat, Vec<u64>)> = Vec::new();
+        let mut nowhere = Vec::new();
+        for id in ids {
+            let branch = (self.comments.read(cx).list.iter())
+                .find(|c| c.id == id)
+                .and_then(|c| c.branch.clone());
+            match self.route_of(branch.as_deref(), main, cx) {
+                Some(chat) => match by_chat.iter_mut().find(|(c, _)| c.session == chat.session) {
+                    Some((_, ids)) => ids.push(id),
+                    None => by_chat.push((chat, vec![id])),
+                },
+                None => nowhere.push(id),
+            }
+        }
+        if !by_chat.is_empty() {
+            self.change(cx, |c| {
+                for (chat, ids) in &by_chat {
+                    comment::send(&mut c.list, ids, &chat.session, &chat.title);
+                }
+                true
+            });
+            // A session the app watches for (Codex's) is handed them now, not on the next beat (#18).
+            self.chats
+                .update(cx, |c, cx| c.beat_providers(main.to_owned(), cx));
+        }
+        nowhere
+    }
+
+    fn send_to(
+        &self,
+        ids: Vec<u64>,
+        session: &str,
+        title: &str,
+        root: &Path,
+        main: &Path,
+        cx: &mut App,
+    ) -> Option<String> {
+        self.change(cx, |c| {
+            comment::send(&mut c.list, &ids, session, title);
+            true
+        });
+        self.chats
+            .update(cx, |c, cx| c.beat_providers(main.to_owned(), cx));
+        // A new chat: the first agent that starts one (Claude Code's `claude`).
+        let program = (artoo_agents_api::provider::all(cx).iter()).find_map(|p| p.program());
+        let (true, Some(program)) = (session.is_empty(), program) else {
+            return None;
+        };
+        let prompt = "Artoo sent review comments to this chat. Call the artoo list_comments tool, change the code for each comment and answer each with address_comment.";
+        artoo_core::platform::open_terminal(root, program, prompt)
+            .err()
+            .map(|e| format!("Could not open a terminal for the new chat: {e}"))
+    }
+
+    fn changing(&self, path: &str, page: Option<&str>, cx: &App) -> Option<(String, char, Rgba)> {
+        let chats = self.chats.read(cx);
+        let alive = |session: &str| chats.listens(session);
+        let edited = (chats.list.iter())
+            .filter(|c| Some(c.session.as_str()) != page)
+            .find(|c| (chats.edits.get(&c.session)).is_some_and(|paths| paths.contains(path)))
+            .map(|c| c.session.clone());
+        let session = edited.or_else(|| {
+            (self.comments.read(cx).list.iter())
+                .filter(|c| c.path == path && !c.archived)
+                .filter(|c| comment::kind_of(c, &alive) == Kind::Working)
+                .filter_map(|c| c.sent.as_ref())
+                .map(|s| s.session.clone())
+                .filter(|s| !chats.edits.contains_key(s))
+                .find(|s| Some(s.as_str()) != page)
+        })?;
+        let chat = chats.list.iter().find(|c| c.session == session)?;
+        let (letter, hue) = chats.mark(&session);
+        let name = if chat.title.is_empty() {
+            chat.agent.clone()
+        } else {
+            chat.title.clone()
+        };
+        Some((name, letter, hue))
+    }
+
+    fn on_comments(&self, changed: OnChange, cx: &mut App) {
+        cx.observe(&self.comments, move |_, cx| changed(cx))
+            .detach();
     }
 
     fn take_answers(&self, cx: &mut App) -> Option<Vec<(u64, State, usize)>> {
