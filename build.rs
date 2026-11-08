@@ -18,4 +18,14 @@ fn main() {
     println!("cargo:rerun-if-env-changed=ARTOO_COMMIT");
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs/heads");
+
+    // Windows: the `.exe` carries the icon as resource 1, the one GPUI gives its windows (Explorer and the taskbar
+    // read it too). Made from `Artoo.icns`'s master without macOS's margin.
+    #[cfg(windows)]
+    {
+        let mut res = winresource::WindowsResource::new();
+        res.set_icon("assets/Artoo.ico");
+        res.compile().expect("the Windows resource (the icon)");
+    }
+    println!("cargo:rerun-if-changed=assets/Artoo.ico");
 }
