@@ -52,6 +52,11 @@ changed. `forward/` keeps that address: a Worker named `gitlance-reports` that h
 (`artoo-reports`) through a service binding, so GitLance's reports land in the same intake and their states are read
 from the same KV. It holds no key. Deploy it after this one: `cd forward && npx wrangler deploy`.
 
+How the name moved (2026-11-08): the Worker that was `gitlance-reports` was renamed `artoo-reports` (Cloudflare's API,
+`PATCH /accounts/<account>/workers/workers/<id>` with the new `name`). A rename keeps a Worker's secrets and bindings,
+so the App's key went with it and none was made again; the old address answers 404 from that moment until `forward/`
+is deployed under it, a few seconds.
+
 It goes once Artoo 2.0.0 is out (#173): `npx wrangler delete --name gitlance-reports`. GitLance then opens GitHub's
 page instead, as it does whenever the relay can't be reached.
 
