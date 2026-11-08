@@ -21,6 +21,7 @@ mod item;
 mod lines;
 mod lists;
 mod md_page;
+mod owners;
 mod pane;
 mod path_filter;
 mod pins;
@@ -39,6 +40,7 @@ use std::rc::Rc;
 pub fn install(cx: &mut App) {
     artoo_review_api::viewers::add(cx, md_page::viewer());
     artoo_review_api::viewers::add(cx, image_view::viewer());
+    artoo_review_api::decorations::add(cx, owners::decorator());
     artoo_shell_api::add_parts(cx, parts);
 }
 

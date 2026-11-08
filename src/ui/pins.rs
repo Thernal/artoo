@@ -11,6 +11,14 @@ use artoo_review_api::NoteTone;
 use artoo_review_api::{Anchored, FilePins, Pins};
 use gpui::{App, Context};
 
+/// The id of row `n` decorator `d` put on file `path`: the same each time the file is laid out.
+fn decoration_id(path: &str, d: usize, n: usize) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (path, d, n).hash(&mut hasher);
+    hasher.finish()
+}
+
 /// The tab's side: what is pinned on the files a layout lays out, gathered now.
 impl Workspace {
     /// The pins of the open file.
@@ -198,6 +206,31 @@ impl Workspace {
                     .iter()
                     .map(|&(_, old, line)| (old, line, NoteTone::Draft)),
             );
+        }
+        // What the decorators put on it: rows under its lines after the tab's own, marks in their colours.
+        if let Some(file) = (self.shown_diff(cx).as_ref())
+            .and_then(|d| d.files.iter().find(|f| f.path() == path).cloned())
+        {
+            let mut decorated = self.decorated.borrow_mut();
+            decorated.retain(|_, (of, _)| of != path);
+            for (d, decorations) in
+                artoo_review_api::decorations::of(&file, self.root.as_deref(), cx)
+                    .into_iter()
+                    .enumerate()
+            {
+                marks.extend(
+                    (decorations.marks.iter()).map(|m| (m.old, m.line, NoteTone::Marked(m.rgb))),
+                );
+                for (n, under) in decorations.rows.into_iter().enumerate() {
+                    let id = decoration_id(path, d, n);
+                    fixed.push(Pin {
+                        old: under.old,
+                        line: under.line,
+                        row: Row::Decoration(id),
+                    });
+                    decorated.insert(id, (path.to_owned(), under));
+                }
+            }
         }
         FilePins {
             notes,

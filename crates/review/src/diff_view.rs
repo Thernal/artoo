@@ -142,9 +142,12 @@ pub fn row(
             .child(half(&data.new, right, false, style, events))
             .into_any_element(),
         // Drawn by the workspace, which owns the comments.
-        Row::Thread(_) | Row::Request(_) | Row::Draft(_) | Row::Note(_) | Row::Composer => {
-            div().into_any_element()
-        }
+        Row::Thread(_)
+        | Row::Request(_)
+        | Row::Draft(_)
+        | Row::Note(_)
+        | Row::Composer
+        | Row::Decoration(_) => div().into_any_element(),
         Row::Unified {
             cell,
             old,
@@ -291,6 +294,7 @@ fn gutter(
                 NoteTone::Draft => theme::renamed(),
                 NoteTone::Agent => theme::agent(),
                 NoteTone::Bookmark => theme::renamed(),
+                NoteTone::Marked(rgb) => gpui::rgb(rgb),
             };
             Some(
                 div()

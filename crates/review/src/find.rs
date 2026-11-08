@@ -132,7 +132,12 @@ impl Review {
         let mut inside = false;
         for (ix, row) in self.rows.iter().enumerate() {
             match row {
-                Row::Thread(_) | Row::Request(_) | Row::Draft(_) | Row::Note(_) | Row::Composer => {
+                Row::Thread(_)
+                | Row::Request(_)
+                | Row::Draft(_)
+                | Row::Note(_)
+                | Row::Composer
+                | Row::Decoration(_) => {
                     continue;
                 }
                 row if rows::is_change(row) => {

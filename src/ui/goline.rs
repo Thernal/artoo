@@ -172,7 +172,11 @@ impl Workspace {
                     .take_while(|r| {
                         matches!(
                             r,
-                            Row::Request(_) | Row::Draft(_) | Row::Thread(_) | Row::Note(_)
+                            Row::Request(_)
+                                | Row::Draft(_)
+                                | Row::Thread(_)
+                                | Row::Note(_)
+                                | Row::Decoration(_)
                         )
                     })
                     .count();

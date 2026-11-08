@@ -76,6 +76,7 @@ impl Laid for FilePins {
                     NoteTone::Draft => 1,
                     NoteTone::Agent => 2,
                     NoteTone::Bookmark => 3,
+                    NoteTone::Marked(_) => 4,
                 };
                 if rank(tone) < rank(n.tone) {
                     n.tone = tone;

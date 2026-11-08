@@ -61,6 +61,8 @@ pub enum Row {
     Note(u64),
     /// The box for writing a new comment under the line above.
     Composer,
+    /// Row `0` a decorator put under the line above (the review's `decorations`), drawn by the tab.
+    Decoration(u64),
     /// One line of a unified diff; its text is from the old side when `old`.
     Unified {
         cell: Cell,
@@ -659,7 +661,8 @@ pub fn matching_rows(data: &FileData, rows: &[Row], terms: &crate::search::Terms
             | Row::Request(_)
             | Row::Draft(_)
             | Row::Note(_)
-            | Row::Composer => false,
+            | Row::Composer
+            | Row::Decoration(_) => false,
             Row::Split { left, right } => hit(true, left) || hit(false, right),
             Row::Unified { cell, old, .. } => hit(old, Some(cell)),
         })

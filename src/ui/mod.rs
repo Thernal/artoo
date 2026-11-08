@@ -1162,6 +1162,11 @@ pub struct Workspace {
     mention_hover: Option<hover::MentionHover>,
     /// When panes last opened or closed, to draw them coming and going (#56).
     motion: motion::Marks,
+    /// The rows decorators put under the lines laid out last, by their row's id (`Row::Decoration`, `pins.rs`).
+    /// Each kept with its file's path, dropped when that file is laid out again.
+    decorated: std::cell::RefCell<
+        std::collections::HashMap<u64, (String, artoo_review_api::decorations::Under)>,
+    >,
     /// The tool window last open, drawn on its way out.
     last_tool: Option<&'static str>,
     /// The menu just closed, drawn fading out.
@@ -1326,6 +1331,7 @@ impl Workspace {
             open_cache: Default::default(),
             discussions_showing: Default::default(),
             motion: Default::default(),
+            decorated: Default::default(),
             last_tool: None,
             win_width: 1480.,
             toggled_mr: HashSet::new(),
@@ -2620,6 +2626,10 @@ impl artoo_review_api::Host for TabHost {
             Row::Request(ix) => workspace.render_request_thread(ix, indent, this, cx),
             Row::Draft(ix) => workspace.render_draft(ix, indent, this, cx),
             Row::Note(id) => workspace.render_agent_note(id, indent, this, cx),
+            Row::Decoration(id) => match workspace.decorated.borrow().get(&id) {
+                Some((_, under)) => (under.draw)(indent, cx),
+                None => div().into_any_element(),
+            },
             Row::Composer if workspace.compose.is_none() && active => {
                 workspace.render_goline_row(indent, this, cx)
             }
@@ -2836,6 +2846,7 @@ mod tests {
         let refused = installed(|cx| {
             let mut refused = artoo_shell_api::refused(cx);
             refused.extend(artoo_review_api::viewers::refused(cx));
+            refused.extend(artoo_review_api::decorations::refused(cx));
             refused
         });
         assert!(refused.is_empty(), "{refused:?}");

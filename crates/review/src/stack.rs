@@ -282,8 +282,9 @@ impl Review {
                     .children(crate::diff_view::file_tag(
                         self.diff.as_ref().and_then(|d| d.tags.word(ix)),
                     ))
-                    // Another chat is changing it (#77).
+                    // Another chat is changing it (#77); what the decorators say of it (its owners).
                     .children(host.badge(file.path(), cx))
+                    .children(self.badges(file, cx))
                     .children(switch)
                     .child(
                         div()

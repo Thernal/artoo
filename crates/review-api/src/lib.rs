@@ -8,6 +8,7 @@
 //! The tab's review offers it as `Rc<dyn FileView>` in the tab's services (`Frame::services`). What it changes is
 //! changed at once: ask it from anywhere but the review's own update.
 
+pub mod decorations;
 pub mod diff;
 pub mod viewers;
 
@@ -902,6 +903,8 @@ pub enum NoteTone {
     Agent,
     /// A line marked with F3.
     Bookmark,
+    /// A decorator's mark, in its colour (`0xRRGGBB`, `decorations::Mark`).
+    Marked(u32),
 }
 
 /// A line that has comments: drawn as a mark in its gutter.

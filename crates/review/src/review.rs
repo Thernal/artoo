@@ -149,6 +149,14 @@ pub struct Review {
 impl Review {
     /// A tab's review, nothing shown yet: the app's `settings` (the tab keeps its copy equal to its own), the view's
     /// options and the marks of what is reviewed as last saved.
+    /// What the decorators say beside `file`'s name (`artoo_review_api::decorations`).
+    pub fn badges(&self, file: &FileDiff, cx: &gpui::App) -> Vec<gpui::AnyElement> {
+        artoo_review_api::decorations::of(file, self.root.as_deref(), cx)
+            .into_iter()
+            .filter_map(|d| d.badge)
+            .collect()
+    }
+
     /// The viewer that draws `file`: the first claiming it, unless it is read as Source.
     pub fn viewer_of(&self, file: &FileDiff) -> Option<&artoo_review_api::viewers::Viewer> {
         if self.page.is_source(file.path()) {
@@ -297,7 +305,12 @@ impl Review {
             let indent = if review.tight { 24. } else { style.gutter + 8. };
             if matches!(
                 row,
-                Row::Thread(_) | Row::Request(_) | Row::Draft(_) | Row::Note(_) | Row::Composer
+                Row::Thread(_)
+                    | Row::Request(_)
+                    | Row::Draft(_)
+                    | Row::Note(_)
+                    | Row::Composer
+                    | Row::Decoration(_)
             ) {
                 return host.pin(row, active, indent, cx);
             }

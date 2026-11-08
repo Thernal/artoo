@@ -169,6 +169,8 @@ impl Review {
                             .then(|| file_tag(diff.tags.word(self.file)))
                             .flatten(),
                     )
+                    // What the decorators say of it (its owners).
+                    .children(self.badges(f, cx))
                     // An SVG read as its source can go back to the picture.
                     .children(
                         (self.page.is_source(f.path()) && crate::image_view::is_svg(f)).then(

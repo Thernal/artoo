@@ -476,6 +476,7 @@ dependencies = [
  "git2",
  "gpui-pre",
  "regex",
+ "tempfile",
 ]
 
 [[package]]
