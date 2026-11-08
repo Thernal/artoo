@@ -28,11 +28,21 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Settings → Merge requests, its ways looked for (#156): where the connected toast leads.
+    /// Settings → Merge requests, the hosts' (#156): where the connected toast leads.
     pub(super) fn open_requests_settings(&mut self, cx: &mut Context<Self>) {
         self.open_settings(cx);
-        self.settings_section = REQUESTS;
-        self.look_for_token(cx);
+        self.open_settings_section(REQUESTS, cx);
+    }
+
+    /// Section `section` of Settings on: its rows' owners read what they show anew (`Rows::opened`).
+    pub(super) fn open_settings_section(&mut self, section: &'static str, cx: &mut Context<Self>) {
+        self.settings_section = section;
+        let opened: Vec<_> = (self.settings_rows(section).into_iter())
+            .filter_map(|r| r.opened)
+            .collect();
+        for read in opened {
+            read(cx);
+        }
     }
 
     /// A toast's button that opens a section of Settings, answered; false for another's.
@@ -183,10 +193,6 @@ impl Workspace {
             },
         ));
 
-        // The host's ways in, as a list to pick from (#156), hosts' connect panel.
-        let gitlab = self
-            .connecting()
-            .and_then(|connecting| connecting.settings(self.here(cx), cx));
         let section = self.settings_section;
         // Rows that fill the section take the page's height: the theme editor's tokens scroll beside a preview that
         // stays.
@@ -208,21 +214,13 @@ impl Workspace {
                         .border_color(theme::island_border())
                         .children(self.review_api().map(|r| r.mark_preview(s.mark_style))),
                 )
-                .child(item(
-                    "Default mode",
-                    "",
-                    modes,
-                ))
+                .child(item("Default mode", "", modes))
                 .child(item(
                     "Fold generated files",
                     "Lock files and generated code that change by more than 40 lines.",
                     fold,
                 ))
-                .child(item(
-                    "Mark reviewed as I scroll past",
-                    "",
-                    scrolled,
-                ))
+                .child(item("Mark reviewed as I scroll past", "", scrolled))
                 .child(item(
                     "Format comments as markdown",
                     "⌥M, or Raw / Rich beside a comment, switches it.",
@@ -243,11 +241,7 @@ impl Workspace {
                         editors.into_any_element()
                     },
                 ))
-                .child(item(
-                    "Open a repository in",
-                    "",
-                    open_in,
-                ))
+                .child(item("Open a repository in", "", open_in))
                 .child(item(
                     "System notifications",
                     "While Artoo is in the background: the Inbox's news, and an agent's.",
@@ -270,30 +264,22 @@ impl Workspace {
                 )
                 .into_any_element(),
             REPOSITORY => column()
-                .child(item(
-                    "Refresh when the repository changes",
-                    "",
-                    refresh,
-                ))
+                .child(item("Refresh when the repository changes", "", refresh))
                 .child(item(
                     "Fetch in the background",
                     "Every 5 minutes and when the window comes back · this repository only.",
                     fetch,
                 ))
                 .into_any_element(),
-            REQUESTS => gitlab.unwrap_or_else(|| {
-                div()
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .child("This repository has no GitLab or GitHub remote, so there are no merge requests to set up.")
-                    .into_any_element()
-            }),
             KEYBOARD => self.render_keyboard_settings(cx).into_any_element(),
             // A feature's section: the parts' rows and the window root's in their places (Settings → Agents,
             // Appearance), or the rows that fill it now (the theme editor).
             other => {
                 let rows = self.settings_rows(other);
-                match rows.iter().find(|r| r.fills.as_ref().is_some_and(|now| now(cx))) {
+                match rows
+                    .iter()
+                    .find(|r| r.fills.as_ref().is_some_and(|now| now(cx)))
+                {
                     Some(filling) => {
                         editing = true;
                         filling.view.clone().into_any_element()
@@ -304,14 +290,20 @@ impl Workspace {
                         let mut placed: Vec<(u16, gpui::AnyElement)> = if other == APPEARANCE {
                             vec![
                                 (40, self.render_fonts(cx)),
-                                (50, item("Several projects", "", projects).into_any_element()),
+                                (
+                                    50,
+                                    item("Several projects", "", projects).into_any_element(),
+                                ),
                                 (60, item("Panes", "", panes).into_any_element()),
                                 (70, item("Animations", "", animations).into_any_element()),
                             ]
                         } else {
                             Vec::new()
                         };
-                        placed.extend(rows.into_iter().map(|r| (r.order, r.view.into_any_element())));
+                        placed.extend(
+                            rows.into_iter()
+                                .map(|r| (r.order, r.view.into_any_element())),
+                        );
                         placed.sort_by_key(|(order, _)| *order);
                         column()
                             .children(placed.into_iter().map(|(_, row)| row))
@@ -340,10 +332,7 @@ impl settings::SettingsHost for Glue {
     fn section(&self, section: &'static str, _: &mut Window, cx: &mut App) {
         self.0
             .update(cx, |this, cx| {
-                this.settings_section = section;
-                if section == REQUESTS {
-                    this.look_for_token(cx);
-                }
+                this.open_settings_section(section, cx);
                 cx.notify();
             })
             .ok();
@@ -365,11 +354,11 @@ use artoo_shell_api::settings::{self, Section};
 pub(super) const APPEARANCE: &str = "appearance";
 
 /// The window root's sections of Settings, by id: the tab draws them (`render_settings`). A feature's section holds
-/// its parts' rows; the agents' is between Merge requests and Keyboard (order 60).
+/// its parts' rows: Merge requests the hosts' (50), the agents' between it and Keyboard (60).
 pub(super) const DIFF: &str = "diff";
 pub(super) const GENERAL: &str = "general";
 pub(super) const REPOSITORY: &str = "repository";
-pub(super) const REQUESTS: &str = "requests";
+pub(super) const REQUESTS: &str = artoo_hosts_api::connect::SETTINGS;
 pub(super) const KEYBOARD: &str = "keyboard";
 
 /// Offers the window root's sections, in their places in the left column (`run`).
@@ -378,7 +367,6 @@ pub(super) fn install(cx: &mut App) {
         (DIFF, "Diff", 10),
         (GENERAL, "General", 30),
         (REPOSITORY, "Repository", 40),
-        (REQUESTS, "Merge requests", 50),
         (KEYBOARD, "Keyboard", 70),
     ] {
         artoo_shell_api::add_settings_section(cx, Section { id, title, order });

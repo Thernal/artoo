@@ -38,6 +38,9 @@ pub struct Rows {
     /// Settings closed (esc, Done, a place): what was begun in them ends (the theme being edited). Asked as the tab
     /// is drawn while Settings is shut.
     pub closed: Option<Hook>,
+    /// Their section was opened (a click in the left column, a toast's button): what they show is read anew (the
+    /// hosts' ways in looked for). It runs inside the tab's update: it defers what reads the `Frame`.
+    pub opened: Option<Hook>,
 }
 
 /// Whether rows fill their section now (`Rows::fills`).
@@ -56,6 +59,7 @@ impl Rows {
             fills: None,
             escape: None,
             closed: None,
+            opened: None,
         }
     }
 
@@ -83,6 +87,13 @@ impl Rows {
     pub fn closed(self, end: impl Fn(&mut App) + 'static) -> Self {
         Self {
             closed: Some(Rc::new(end)),
+            ..self
+        }
+    }
+
+    pub fn opened(self, read: impl Fn(&mut App) + 'static) -> Self {
+        Self {
+            opened: Some(Rc::new(read)),
             ..self
         }
     }

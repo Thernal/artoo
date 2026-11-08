@@ -28,6 +28,14 @@ pub fn install(cx: &mut gpui::App) {
     }
     artoo_ui_kit::pictures::provide(cx, Arc::new(pictures::WebPictures));
     artoo_ui_kit::people::provide(Arc::new(avatars::Avatars));
+    artoo_shell_api::add_settings_section(
+        cx,
+        artoo_shell_api::settings::Section {
+            id: artoo_hosts_api::connect::SETTINGS,
+            title: "Merge requests",
+            order: 50,
+        },
+    );
     artoo_shell_api::add_parts(cx, |frame, _, cx| panel::parts(frame, cx));
     artoo_shell_api::add_parts(cx, |frame, _, cx| welcome::parts(frame, cx));
 }

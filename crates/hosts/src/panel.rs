@@ -18,7 +18,7 @@ use artoo_ui_kit::input::{self, Area, Edit, Look};
 use artoo_ui_kit::{hover, icons, keys, px, theme, words};
 use gpui::{
     AnyElement, App, AppContext, ClickEvent, Context, Entity, FontWeight, SharedString, Stateful,
-    div, prelude::*,
+    Window, div, prelude::*,
 };
 use gpui::{Div, Rgba};
 use std::collections::HashMap;
@@ -1511,6 +1511,7 @@ impl Panel {
 }
 
 /// A tab's panel as its service.
+#[derive(Clone)]
 struct Handle(Entity<Panel>);
 
 impl Connect for Handle {
@@ -1564,6 +1565,35 @@ impl Connect for Handle {
     }
 }
 
+/// Where the tab is, as the panel reads it: its repository, its remote, whether the panel's field types.
+fn here(frame: &dyn Frame, cx: &mut App) -> Here {
+    let places = frame.places(cx);
+    Here {
+        root: places.root,
+        web: places.web,
+        typing: frame.typing(cx) == Some(INPUT),
+    }
+}
+
+/// Settings → Merge requests (`connect::SETTINGS`): the host's ways in, or why there are none.
+struct WaysSettings {
+    panel: Entity<Panel>,
+    frame: Rc<dyn Frame>,
+}
+
+impl Render for WaysSettings {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let here = here(&*self.frame, cx);
+        Handle(self.panel.clone()).settings(here, cx).unwrap_or_else(|| {
+            div()
+                .text_size(px(12.))
+                .text_color(theme::muted())
+                .child("This repository has no GitLab or GitHub remote, so there are no merge requests to set up.")
+                .into_any_element()
+        })
+    }
+}
+
 /// The panel's field as the tab's input.
 fn input(panel: &Entity<Panel>) -> Input {
     let (open, key, left, selected) = (
@@ -1605,7 +1635,21 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, cx: &mut App) -> artoo_shell_api::Part
         .services()
         .set::<Rc<dyn Connect>>(Rc::new(Handle(panel.clone())));
     let (make, pick) = (panel.downgrade(), panel.downgrade());
+    let rows = cx.new(|_| WaysSettings {
+        panel: panel.clone(),
+        frame: frame.clone(),
+    });
+    let (looked, looking) = (Handle(panel.clone()), frame.clone());
     artoo_shell_api::Parts {
+        // Settings → Merge requests: the ways in, looked for again each time it opens.
+        settings: vec![
+            artoo_shell_api::settings::Rows::new(artoo_hosts_api::connect::SETTINGS, 0, rows)
+                .opened(move |cx| {
+                    let (handle, frame) = (looked.clone(), looking.clone());
+                    // Inside the tab's update: where the tab is, read once it is over.
+                    cx.defer(move |cx| handle.look(here(&*frame, cx), cx));
+                }),
+        ],
         inputs: vec![input(&panel)],
         snapshots: vec![
             (

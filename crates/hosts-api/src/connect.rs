@@ -10,6 +10,10 @@ use std::rc::Rc;
 /// The panel's field, one of the tab's inputs (`Input::id`).
 pub const INPUT: &str = "hosts.token";
 
+/// Settings → Merge requests, the hosts' section: the host's ways in to pick from (#156). Its id is the one the
+/// window root's section had, so a toast's button and a kept place still open it.
+pub const SETTINGS: &str = "requests";
+
 /// Where the tab is: its repository, its host's address, and whether the panel's field has its keyboard.
 #[derive(Clone, Default)]
 pub struct Here {
