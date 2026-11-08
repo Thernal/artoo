@@ -72,6 +72,7 @@ pub fn pages(
         view: page.into(),
         side: None,
         show: Rc::new(|_, _, _| {}),
+        keys: None,
     }
 }
 

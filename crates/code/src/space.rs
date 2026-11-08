@@ -293,6 +293,7 @@ impl CodeSpace {
             show: Rc::new(move |route, opened, cx| {
                 show.update(cx, |c, cx| c.show(route, opened, cx));
             }),
+            keys: None,
         }
     }
 

@@ -755,6 +755,19 @@ pub struct Pages {
     /// (a click, a link), so what it shows is read anew, `false` when it was gone back to or kept from before.
     /// The shell says it from inside its own update (see the crate's doc).
     pub show: Show,
+    /// ↑ ↓ and ↵ on the space's own page when it is a list the tab does not step itself (a plugin's): none where
+    /// the page takes no keys.
+    pub keys: Option<ListKeys>,
+}
+
+/// The keys of a space's own page that is a list (`Pages::keys`), called inside the tab's update: they move and open
+/// the feature's own pick, never reading the tab; what they open goes through the `Frame`.
+#[derive(Clone)]
+pub struct ListKeys {
+    /// ↑ (`false`) or ↓: the row picked moves, the first picked when none is.
+    pub step: Rc<dyn Fn(bool, &mut App)>,
+    /// ↵: the row picked opens, the first when none is.
+    pub open: Rc<dyn Fn(&mut App)>,
 }
 
 /// The menu's row of a route under a space (`Pages::row`), given the page it was left on: an item open there (a

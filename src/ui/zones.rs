@@ -299,8 +299,16 @@ impl Workspace {
             if let Some(branches) = self.branches() {
                 branches.pick_row(picked, cx);
             }
+        } else if let Some(keys) = self.list_keys() {
+            // Another space's list (a plugin's) moves its own pick.
+            (keys.step)(down, cx);
         }
         cx.notify();
+    }
+
+    /// The keys of the space's own page, when it is a list the tab does not step itself (`Pages::keys`).
+    fn list_keys(&self) -> Option<artoo_shell_api::ListKeys> {
+        self.space_pages(self.nav.space)?.keys.clone()
     }
 
     /// ↵ in a space's list: the row selected opens.
@@ -320,6 +328,8 @@ impl Workspace {
             if let Some(row) = pick.or(rows.first().copied()) {
                 self.open_branch_row(row, cx);
             }
+        } else if let Some(keys) = self.list_keys() {
+            (keys.open)(cx);
         }
     }
 
