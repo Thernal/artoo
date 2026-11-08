@@ -17,8 +17,14 @@ pub struct Decorator {
     /// Its place among the decorators: a lower one's rows come first under a line, its badge first in the header.
     pub order: i32,
     /// What it puts on a file (`Decorating`).
-    pub decorate: Rc<dyn Fn(&Decorating, &App) -> Decorations>,
+    pub decorate: Decorate,
 }
+
+/// What a decorator puts on a file (`Decorator::decorate`).
+pub type Decorate = Rc<dyn Fn(&Decorating, &App) -> Decorations>;
+
+/// A row under a line drawn, given how far the code is indented (`Under::draw`).
+pub type DrawUnder = Rc<dyn Fn(f32, &App) -> AnyElement>;
 
 /// The file a decorator is asked about.
 pub struct Decorating<'a> {
@@ -54,7 +60,7 @@ pub struct Under {
     pub old: bool,
     pub line: u32,
     /// The row, given how far the code is indented.
-    pub draw: Rc<dyn Fn(f32, &App) -> AnyElement>,
+    pub draw: DrawUnder,
 }
 
 #[derive(Default)]

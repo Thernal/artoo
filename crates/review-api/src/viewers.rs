@@ -21,8 +21,11 @@ pub struct Viewer {
     /// Whether it shows `file`: by its path, its sides' kinds or texts.
     pub claims: Rc<dyn Fn(&FileDiff) -> bool>,
     /// The file drawn (`Drawing`).
-    pub draw: Rc<dyn Fn(&Drawing, &App) -> AnyElement>,
+    pub draw: DrawFile,
 }
+
+/// A file drawn by its viewer (`Viewer::draw`).
+pub type DrawFile = Rc<dyn Fn(&Drawing, &App) -> AnyElement>;
 
 /// What a viewer is given to draw a file with.
 pub struct Drawing<'a> {

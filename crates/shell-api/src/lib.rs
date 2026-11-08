@@ -760,12 +760,15 @@ pub struct Pages {
     pub keys: Option<ListKeys>,
 }
 
+/// ↑ (`false`) or ↓ on a list (`ListKeys::step`).
+pub type Step = Rc<dyn Fn(bool, &mut App)>;
+
 /// The keys of a space's own page that is a list (`Pages::keys`), called inside the tab's update: they move and open
 /// the feature's own pick, never reading the tab; what they open goes through the `Frame`.
 #[derive(Clone)]
 pub struct ListKeys {
     /// ↑ (`false`) or ↓: the row picked moves, the first picked when none is.
-    pub step: Rc<dyn Fn(bool, &mut App)>,
+    pub step: Step,
     /// ↵: the row picked opens, the first when none is.
     pub open: Rc<dyn Fn(&mut App)>,
 }
