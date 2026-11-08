@@ -368,6 +368,17 @@ pass **reopens its existing id** — it does not get a new one. Renumbering the
 same defect on every pass is how one issue becomes three entries that no one can
 reconcile.
 
+## Ids are for these files, not for the developer
+
+A decision's `D12`, a finding's id, a question's or a phase's number are handles
+inside the workspace: they keep one line findable across files and sessions. The
+developer does not carry them in their head. Whatever leaves the workspace for a
+person — a reply, an issue or its comment, a merge request, a note in their own
+planning — names the thing by what it is, the id after it only where they may
+want to look it up: "the picker now keeps its state (D12)", never "D12 is done"
+or "phase 3 next". A ticket key or a commit sha a reply leans on gets its words
+the same way.
+
 ## `merge_request.md`
 
 Only when enabled, and it describes **one** merge request — the one this task
