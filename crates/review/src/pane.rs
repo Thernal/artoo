@@ -7,6 +7,7 @@
 use crate::diff_view::{change_color, file_tag};
 use crate::review::{Host, PaneEvent, Review};
 use crate::reviewed::State;
+use artoo_review_api::viewers::Drawing;
 use artoo_ui_kit::controls::{chip, group};
 use artoo_ui_kit::format::plural;
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, hover, icons, island, keys, px, theme};
@@ -14,6 +15,7 @@ use gpui::{
     AnyElement, ClickEvent, Context, Div, FontWeight, MouseButton, Rgba, Stateful, canvas, div,
     prelude::*,
 };
+use std::cell::RefCell;
 use std::rc::Rc;
 
 /// What other features put on the file's pane, drawn by them.
@@ -98,10 +100,17 @@ impl Review {
                 .text_color(theme::muted())
                 .child("No changes")
                 .into_any_element(),
-            (Some(file), _) if self.shows_page(file) => {
-                alone.unwrap_or_else(|| div().flex_1().into_any_element())
-            }
-            (Some(file), _) if self.shows_image(file) => self.render_image(file, host.clone()),
+            (Some(file), _) if let Some(viewer) = self.viewer_of(file) => (viewer.draw)(
+                &Drawing {
+                    file,
+                    ix: self.file,
+                    alone: true,
+                    host: &host,
+                    review: self,
+                    ready: RefCell::new(alone),
+                },
+                cx,
+            ),
             (Some(file), _) if file.hunks.is_empty() => div()
                 .flex_1()
                 .flex()
@@ -162,17 +171,19 @@ impl Review {
                     )
                     // An SVG read as its source can go back to the picture.
                     .children(
-                        (self.images.source && crate::image_view::is_svg(f)).then(|| {
-                            group()
-                                .child(
-                                    chip("svg-image", "Image", false)
-                                        .on_click(event(|| PaneEvent::SvgSource(false))),
-                                )
-                                .child(
-                                    chip("svg-source", "Source", true)
-                                        .on_click(event(|| PaneEvent::SvgSource(true))),
-                                )
-                        }),
+                        (self.page.is_source(f.path()) && crate::image_view::is_svg(f)).then(
+                            || {
+                                group()
+                                    .child(
+                                        chip("svg-image", "Image", false)
+                                            .on_click(event(|| PaneEvent::SvgSource(false))),
+                                    )
+                                    .child(
+                                        chip("svg-source", "Source", true)
+                                            .on_click(event(|| PaneEvent::SvgSource(true))),
+                                    )
+                            },
+                        ),
                     )
                     // With every file in one scroll the card's own header has the document's switch.
                     .children(

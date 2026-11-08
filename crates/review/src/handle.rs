@@ -876,10 +876,6 @@ impl artoo_review_api::Review for Handle {
         })
     }
 
-    fn set_svg_source(&self, source: bool, cx: &mut App) {
-        self.with(cx, |rv, _| rv.images.source = source)
-    }
-
     fn set_image_mode(&self, mode: ImageMode, cx: &mut App) {
         self.with(cx, |rv, _| rv.images.mode = mode)
     }

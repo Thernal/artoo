@@ -37,6 +37,8 @@ use std::rc::Rc;
 /// The review's parts in every tab: the find bar's field and the line typed after `c` as its inputs; its item
 /// page's middle among the tab's services (`item`).
 pub fn install(cx: &mut App) {
+    artoo_review_api::viewers::add(cx, md_page::viewer());
+    artoo_review_api::viewers::add(cx, image_view::viewer());
     artoo_shell_api::add_parts(cx, parts);
 }
 
@@ -50,7 +52,10 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     }
     let settings = artoo_core::storage::Settings::load();
     let review = cx.new(|_| review::Review::new(settings));
-    review.update(cx, |rv, _| rv.frame = Some(Rc::downgrade(&frame)));
+    review.update(cx, |rv, cx| {
+        rv.frame = Some(Rc::downgrade(&frame));
+        rv.viewers = artoo_review_api::viewers::all(cx);
+    });
     services.set(file_view::file_view(&review));
     services.set(handle::handle(&review));
     services.set(item::view(review.clone(), &frame, cx));

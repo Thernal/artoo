@@ -7,6 +7,7 @@ use crate::review::{FileEvent, Host, Review, ReviewEvent};
 use crate::reviewed::State;
 use artoo_core::git::FileDiff;
 use artoo_core::rows::{self, FileData, Row};
+use artoo_review_api::viewers::Drawing;
 use artoo_ui_kit::{ROW_RADIUS, px, theme};
 use gpui::{
     App, ClickEvent, Context, FontWeight, ListOffset, MouseButton, Task, WeakEntity, div,
@@ -155,6 +156,41 @@ pub fn changed_span(old: &[Row], new: &[Row]) -> Option<(usize, usize, usize)> {
         .count();
     let (gone, come) = (old.len() - head - tail, new.len() - head - tail);
     (gone > 0 || come > 0).then_some((head, gone, come))
+}
+
+/// A line in a file's card where its rows would be: why there are none, or what is there instead.
+pub(crate) fn note_line(text: String) -> gpui::Div {
+    div()
+        .w_full()
+        .px(px(18.))
+        .py(px(8.))
+        .font_family(theme::ui_font())
+        .text_size(px(12.))
+        .text_color(theme::muted())
+        .flex()
+        .items_center()
+        .gap_3()
+        .child(text)
+}
+
+/// A button on such a line, of file `ix`.
+pub(crate) fn note_action(
+    id: &'static str,
+    ix: usize,
+    label: &'static str,
+) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id((id, ix))
+        .px_2()
+        .h(px(22.))
+        .flex()
+        .items_center()
+        .rounded(px(ROW_RADIUS))
+        .bg(theme::hover())
+        .text_color(theme::text())
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::selected()))
+        .child(label)
 }
 
 impl Review {
@@ -327,33 +363,8 @@ impl Review {
         let Some(file) = self.diff.as_ref().and_then(|d| d.files.get(ix)) else {
             return div().into_any_element();
         };
-        let line = |text: String| {
-            div()
-                .w_full()
-                .px(px(18.))
-                .py(px(8.))
-                .font_family(theme::ui_font())
-                .text_size(px(12.))
-                .text_color(theme::muted())
-                .flex()
-                .items_center()
-                .gap_3()
-                .child(text)
-        };
-        let action = |id: &'static str, label: &'static str| {
-            div()
-                .id((id, ix))
-                .px_2()
-                .h(px(22.))
-                .flex()
-                .items_center()
-                .rounded(px(ROW_RADIUS))
-                .bg(theme::hover())
-                .text_color(theme::text())
-                .cursor_pointer()
-                .hover(|s| s.bg(theme::selected()))
-                .child(label)
-        };
+        let line = note_line;
+        let action = |id: &'static str, label: &'static str| note_action(id, ix, label);
         if self.body(b) == Body::Waiting {
             let rows = (file.added + file.removed + 6).min(14) as f32;
             // Its rows are being built: a shimmer as tall as they will about be (#56, 18).
@@ -383,18 +394,18 @@ impl Review {
             ))
             .into_any_element();
         }
-        if self.shows_page(file) {
-            return self.card_row(host.page(ix, cx), ix, true);
-        }
-        if self.shows_image(file) {
-            let alone = host.clone();
-            return line("An image.".to_owned())
-                .child(action("image-alone", "View it on its own").on_click(
-                    move |_: &ClickEvent, _, cx| {
-                        alone.file(FileEvent::Alone(ix), cx);
-                    },
-                ))
-                .into_any_element();
+        if let Some(viewer) = self.viewer_of(file) {
+            return (viewer.draw)(
+                &Drawing {
+                    file,
+                    ix,
+                    alone: false,
+                    host,
+                    review: self,
+                    ready: Default::default(),
+                },
+                cx,
+            );
         }
         let text = if file.hunks.is_empty() {
             file.note
@@ -552,10 +563,7 @@ impl Review {
     }
 
     fn needs_rows(&self, file: &FileDiff) -> bool {
-        !file.hunks.is_empty()
-            && !self.generated_folded(file)
-            && !self.shows_image(file)
-            && !self.shows_page(file)
+        !file.hunks.is_empty() && !self.generated_folded(file) && self.viewer_of(file).is_none()
     }
 
     /// File `ix` folds by default: it is reviewed and View → Fold reviewed files is on.

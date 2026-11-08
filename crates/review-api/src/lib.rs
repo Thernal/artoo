@@ -9,6 +9,7 @@
 //! changed at once: ask it from anywhere but the review's own update.
 
 pub mod diff;
+pub mod viewers;
 
 use artoo_core::git::{CommitInfo, PairCommit, Version};
 use artoo_core::rows::{FileData, Pin, Row};
@@ -559,9 +560,6 @@ pub trait Review {
 
     /// The file shown, when it is shown alone as a page that scrolls on its own.
     fn page_alone_file(&self, cx: &App) -> Option<usize>;
-
-    /// An SVG shows its text diff (`true`) or its picture.
-    fn set_svg_source(&self, source: bool, cx: &mut App);
 
     /// How images are looked at.
     fn set_image_mode(&self, mode: ImageMode, cx: &mut App);

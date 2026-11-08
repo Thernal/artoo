@@ -48,8 +48,11 @@ pub struct Review {
     pub notes: Vec<diff_view::LineNote>,
     /// How changed images are shown (`image_view.rs`).
     pub images: crate::image_view::Images,
-    /// How changed documents are read (`md_page.rs`).
+    /// How changed documents are read (`md_page.rs`); its files read as Source are every viewer's.
     pub page: crate::md_page::Page,
+    /// The ways a changed file is looked at besides its text diff, in their order (`artoo_review_api::viewers`): the
+    /// page's and the images' until the tab's review is given every one offered.
+    pub viewers: Vec<artoo_review_api::viewers::Viewer>,
     /// The annotation column (who wrote each line) is on, and what blame said of the open file.
     pub annotate: bool,
     pub annotations: Vec<diff_view::AnnCell>,
@@ -146,6 +149,14 @@ pub struct Review {
 impl Review {
     /// A tab's review, nothing shown yet: the app's `settings` (the tab keeps its copy equal to its own), the view's
     /// options and the marks of what is reviewed as last saved.
+    /// The viewer that draws `file`: the first claiming it, unless it is read as Source.
+    pub fn viewer_of(&self, file: &FileDiff) -> Option<&artoo_review_api::viewers::Viewer> {
+        if self.page.is_source(file.path()) {
+            return None;
+        }
+        artoo_review_api::viewers::of(&self.viewers, file)
+    }
+
     pub fn new(settings: Settings) -> Self {
         Self {
             root: None,
@@ -158,6 +169,7 @@ impl Review {
             images: Default::default(),
             view_button: Default::default(),
             page: Default::default(),
+            viewers: vec![crate::md_page::viewer(), crate::image_view::viewer()],
             annotate: false,
             annotations: Vec::new(),
             annot_task: None,

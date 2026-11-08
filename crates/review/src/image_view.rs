@@ -3,13 +3,14 @@
 //! other with their sizes (2-up), the new one wiped over the old (Swipe), or laid over it (Onion skin). An SVG can
 //! switch to its source, the text diff. A click goes to the host (`PaneEvent`).
 
-use crate::review::{Host, PaneEvent, Review};
+use crate::review::{FileEvent, Host, PaneEvent, Review};
 use artoo_core::git::{ChangeKind, FileDiff, ImageKind, ImageSide};
+use artoo_review_api::viewers::{Drawing, Viewer};
 use artoo_ui_kit::controls::{chip, group};
 use artoo_ui_kit::{px, theme};
 use gpui::{
-    AnyElement, Bounds, ClickEvent, FontWeight, ImageFormat, MouseButton, ObjectFit, Pixels, div,
-    img, prelude::*,
+    AnyElement, App, Bounds, ClickEvent, FontWeight, ImageFormat, MouseButton, ObjectFit, Pixels,
+    div, img, prelude::*,
 };
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -28,8 +29,6 @@ pub use artoo_review_api::ImageMode as Mode;
 /// How images are being looked at, and the decoded images kept between frames.
 pub struct Images {
     pub mode: Mode,
-    /// An SVG shows its text diff.
-    pub source: bool,
     /// Where the swipe is, or how opaque the new image is: 0 … 1.
     pub mix: f32,
     /// Where the swipe or onion box was drawn, for the mouse.
@@ -41,7 +40,6 @@ impl Default for Images {
     fn default() -> Self {
         Self {
             mode: Mode::default(),
-            source: false,
             mix: 0.5,
             area: Rc::default(),
             cache: RefCell::default(),
@@ -136,13 +134,36 @@ pub fn frame(tone: gpui::Rgba) -> gpui::Div {
         .bg(theme::panel())
 }
 
-impl Review {
-    /// Whether the open file is drawn as images (not as its text diff).
-    pub fn shows_image(&self, file: &FileDiff) -> bool {
-        (file.old_image.is_some() || file.new_image.is_some())
-            && !(self.images.source && is_svg(file))
-    }
+/// The images' id among the viewers.
+pub const ID: &str = "review.image";
 
+/// A changed image: alone, its sides with the way they are looked at; among every file, a line that opens it alone.
+pub fn viewer() -> Viewer {
+    Viewer {
+        id: ID,
+        order: 20,
+        claims: Rc::new(|f: &FileDiff| f.old_image.is_some() || f.new_image.is_some()),
+        draw: Rc::new(|d: &Drawing, _: &App| {
+            let ix = d.ix;
+            match d.review.downcast_ref::<Review>() {
+                Some(review) if d.alone => review.render_image(d.file, d.host.clone()),
+                _ => {
+                    let host = d.host.clone();
+                    crate::stack::note_line("An image.".to_owned())
+                        .child(
+                            crate::stack::note_action("image-alone", ix, "View it on its own")
+                                .on_click(move |_: &ClickEvent, _, cx| {
+                                    host.file(FileEvent::Alone(ix), cx)
+                                }),
+                        )
+                        .into_any_element()
+                }
+            }
+        }),
+    }
+}
+
+impl Review {
     /// The sides next to each other, each with its kind, size and weight.
     pub fn render_two_up(&self, file: &FileDiff) -> impl IntoElement + use<> {
         let half = MAX_W / 2. + 40.;

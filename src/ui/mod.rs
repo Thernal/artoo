@@ -2699,8 +2699,12 @@ impl artoo_review_api::Host for TabHost {
                 PaneEvent::Step { forward } => this.step_change(forward, cx),
                 PaneEvent::Unfold(path) => this.unfold(&path, cx),
                 PaneEvent::SvgSource(source) => {
-                    this.rv().set_svg_source(source, cx);
-                    cx.notify();
+                    let path = (this.shown_diff(cx).as_ref())
+                        .and_then(|d| d.files.get(this.diff_file(cx)))
+                        .map(|f| f.path().to_owned());
+                    if let Some(path) = path {
+                        this.set_page_source(&path, source, cx);
+                    }
                 }
                 PaneEvent::UndoNotice => this.undo_notice(cx),
                 PaneEvent::DismissNotice => {
@@ -2829,7 +2833,11 @@ mod tests {
     /// The contributions check (#171): with every feature installed, nothing was offered twice.
     #[test]
     fn every_feature_installed_offers_each_thing_once() {
-        let refused = installed(|cx| artoo_shell_api::refused(cx));
+        let refused = installed(|cx| {
+            let mut refused = artoo_shell_api::refused(cx);
+            refused.extend(artoo_review_api::viewers::refused(cx));
+            refused
+        });
         assert!(refused.is_empty(), "{refused:?}");
     }
 

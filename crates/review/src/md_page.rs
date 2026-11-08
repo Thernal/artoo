@@ -16,6 +16,7 @@ use artoo_core::git::FileDiff;
 use artoo_core::markdown::Block;
 use artoo_core::mddiff::{self, Change, Row};
 use artoo_core::{markdown, storage};
+use artoo_review_api::viewers::{Drawing, Viewer};
 use artoo_ui_kit::controls::{chip, group};
 use artoo_ui_kit::markdown::{DocPictures, Selecting, doc_block};
 use artoo_ui_kit::{hover, icons, keys, motion, px, theme};
@@ -145,14 +146,44 @@ pub fn heading(block: &Block) -> Option<String> {
     }
 }
 
+/// The page's id among the viewers.
+pub const ID: &str = "review.page";
+
+/// Whether `file` is a changed document with text to read as a page.
+fn claims(file: &FileDiff) -> bool {
+    markdown::is_document(file.path())
+        && file.note.is_none()
+        && !file.hunks.is_empty()
+        && (file.old_text.is_some() || file.new_text.is_some())
+}
+
+/// A changed document read as a page: alone, the page the tab drew before the pane (it needs the tab's look); among
+/// every file, the tab's page in the file's card.
+pub fn viewer() -> Viewer {
+    Viewer {
+        id: ID,
+        order: 10,
+        claims: Rc::new(claims),
+        draw: Rc::new(|d: &Drawing, cx: &App| {
+            if d.alone {
+                return d
+                    .ready
+                    .borrow_mut()
+                    .take()
+                    .unwrap_or_else(|| div().flex_1().into_any_element());
+            }
+            match d.review.downcast_ref::<Review>() {
+                Some(review) => review.card_row(d.host.page(d.ix, cx), d.ix, true),
+                None => d.host.page(d.ix, cx),
+            }
+        }),
+    }
+}
+
 impl Review {
     /// Whether file `file` is drawn as a page (not as its text diff).
     pub fn shows_page(&self, file: &FileDiff) -> bool {
-        !self.page.is_source(file.path())
-            && markdown::is_document(file.path())
-            && file.note.is_none()
-            && !file.hunks.is_empty()
-            && (file.old_text.is_some() || file.new_text.is_some())
+        self.viewer_of(file).is_some_and(|v| v.id == ID)
     }
 
     /// One file at a time, and it is a page.
