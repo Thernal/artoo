@@ -648,6 +648,17 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             this.open_settings(cx);
                             continue;
                         }
+                        // Any section offered, by its id: `settings:plugins`.
+                        other if other.starts_with("settings:") => {
+                            let id = &other["settings:".len()..];
+                            let found = (artoo_shell_api::settings_sections(cx).into_iter())
+                                .find(|s| s.id == id);
+                            if let Some(section) = found {
+                                this.open_settings(cx);
+                                this.open_settings_section(section.id, cx);
+                            }
+                            continue;
+                        }
                         "settings-general" => {
                             this.open_settings(cx);
                             this.settings_section = settings::GENERAL;
@@ -2933,8 +2944,8 @@ mod tests {
         assert!(switch.is_some_and(|s| s > 30));
     }
 
-    /// Settings' left column as it always was: the window root's sections, the agents' between Merge requests and
-    /// Keyboard.
+    /// Settings' left column: the window root's sections, the agents' between Merge requests and Keyboard, the
+    /// plugins' last.
     #[test]
     fn settings_lists_its_sections_in_their_places() {
         let titles = installed(|cx| {
@@ -2952,7 +2963,8 @@ mod tests {
                 "Repository",
                 "Merge requests",
                 "Agents",
-                "Keyboard"
+                "Keyboard",
+                "Plugins"
             ]
         );
     }

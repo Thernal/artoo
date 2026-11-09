@@ -19,7 +19,13 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   into the SDK and the app does not link — build the app (`cargo build`), never `cargo build --workspace` or `-p
   artoo-plugin-sdk`. What makes a crate a plugin is `crates/plugin-api` (`artoo-plugin-api`), a contract inside it:
   `Meta`, the stamp `plugin!` writes into a plugin's own section (the SDK's ABI, the SDK build it was built against,
-  its meta, read before it is loaded) and `services` (what plugins offer each other, by `name@major`);
+  its meta, read before it is loaded) and `services` (what plugins offer each other, by `name@major`).
+  `crates/plugins` (`artoo-plugins`) loads them, the app's last `install`: a plugin's file in a folder of its own under
+  `<data>/plugins/`, or what `ARTOO_PLUGIN_DEV` names (a library or a folder of them, several as in `PATH`; these win
+  over an installed one of the same id); its stamp read and compared with the SDK this app loaded, then ordered by what
+  it requires, opened with every symbol bound, installed inside `catch_unwind`; what became of each is Settings →
+  Plugins, a switch there writing `plugins.txt` for the next start. `Artoo sdk-build` prints the identity a plugin
+  built against this app must name (`ARTOO_SDK_BUILD`);
   `crates/core` (`artoo-core`) holds what draws nothing — it has no GPUI — and depends on no feature: git, highlighting, the platform
   layer, storage, themes, markdown and the diff helpers, among them a selection's ends (`select`), the diff's rows (`rows`: a file built to rows in
   the background, laid out for the view options, with what is pinned on its lines merged in) and a line written on found

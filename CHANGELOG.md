@@ -6,6 +6,11 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **Plugins.** Artoo loads plugins as it starts: libraries built against its SDK, each in a folder of its own in
+  the plugins folder. Settings → Plugins lists them, says why one was not loaded, and turns one off for the next
+  start. One built for another Artoo is refused before any of it runs, and one that fails as it installs leaves
+  the app running.
+
 - **GitLance is now Artoo.** The app, its window and its menus are Artoo's. The first start takes everything
   GitLance remembered — the hosts' tokens, the marks of what you reviewed, the settings, the keys, the pictures
   — from GitLance's folder, which stays as it was, so GitLance still opens beside it. Agents are connected

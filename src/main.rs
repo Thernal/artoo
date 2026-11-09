@@ -29,6 +29,8 @@ fn main() {
     match std::env::args().nth(1).as_deref() {
         Some("mcp") => return artoo_agents::serve_mcp(artoo_hosts::hosts()),
         Some("agent-watch") => return artoo_agents::watch(),
+        // What a plugin is built against: its `ARTOO_SDK_BUILD` (#175).
+        Some("sdk-build") => return artoo_plugins::print_sdk_build(),
         _ => {}
     }
     let path = std::env::args_os()
@@ -52,6 +54,8 @@ fn install(cx: &mut gpui::App) {
     // The requests' pieces of the item page before the branches': a request's identity over a branch's.
     artoo_requests::install(cx);
     artoo_branches::install(cx);
+    // The plugins last: each finds what the features offer.
+    artoo_plugins::install(cx);
 }
 
 #[cfg(test)]

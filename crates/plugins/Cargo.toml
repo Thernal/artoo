@@ -1,0 +1,28 @@
+[package]
+name = "artoo-plugins"
+description = "Plugins (#175): found in the plugins' folder, refused unless built against this SDK, loaded and installed after every feature; Settings → Plugins."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+artoo-core = { path = "../core" }
+# What a plugin is: its stamp, read from its file (`read_stamp`), and the ABI it must have been built for.
+artoo-plugin-api = { path = "../plugin-api" }
+artoo-shell-api = { path = "../shell-api" }
+artoo-ui-kit = { path = "../ui-kit" }
+gpui.workspace = true
+libloading.workspace = true
+object.workspace = true
+
+# The SDK's file: the image an address of it is in.
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[dev-dependencies]
+artoo-core = { path = "../core", features = ["sandbox"] }
+tempfile.workspace = true

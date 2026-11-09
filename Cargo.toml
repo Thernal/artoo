@@ -56,6 +56,11 @@ tree-sitter-yaml = "0.7"
 tree-sitter-md = "0.5"
 # Whether an agent's process still runs (`platform::alive`).
 libc = "0.2"
+# Plugins (#175): a plugin's stamp and the SDK's identity read from their files (already in the dependency graph),
+# a plugin loaded with every symbol bound (already in GPUI's graph), and on Windows the SDK's file found.
+object = { version = "0.37", default-features = false, features = ["read", "std"] }
+libloading = "0.8"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }
 # The key window's picture for a report, its own window only (#118; already in GPUI's graph).
 core-graphics = "0.24"
 objc2 = "0.6"
@@ -91,6 +96,7 @@ artoo-branches = { path = "crates/branches" }
 artoo-branches-api = { path = "crates/branches-api" }
 artoo-ui-kit = { path = "crates/ui-kit" }
 artoo-plugin-sdk = { path = "crates/plugin-sdk" }
+artoo-plugins = { path = "crates/plugins" }
 anyhow.workspace = true
 imagesize.workspace = true
 sha1_smol.workspace = true

@@ -215,6 +215,7 @@ dependencies = [
  "artoo-hosts",
  "artoo-hosts-api",
  "artoo-plugin-sdk",
+ "artoo-plugins",
  "artoo-reports",
  "artoo-requests",
  "artoo-requests-api",
@@ -443,6 +444,22 @@ dependencies = [
  "artoo-ui-kit",
  "gpui-pre",
  "gpui-pre-platform",
+]
+
+[[package]]
+name = "artoo-plugins"
+version = "1.3.0"
+dependencies = [
+ "artoo-core",
+ "artoo-plugin-api",
+ "artoo-shell-api",
+ "artoo-ui-kit",
+ "gpui-pre",
+ "libc",
+ "libloading",
+ "object",
+ "tempfile",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
