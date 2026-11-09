@@ -63,6 +63,20 @@ jobs:
           name: bin-${{ matrix.target }}
           path: out/*
           retention-days: 1
+      # What a plugin is built against for this target (#175), attached to the release.
+      - name: The plugins' SDK
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          T: ${{ matrix.target }}
+        run: |
+          build=$(dwarfdump --uuid "target/$T/release/deps/libartoo_plugin_sdk.dylib" | awk '{print $2; exit}')
+          sh .github/sdk-asset.sh "target/$T/release/deps" target/release/deps "$T" "$build" "$VERSION" sdk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk-${{ matrix.target }}
+          path: sdk/*
+          compression-level: 0
+          retention-days: 3
 
   macos:
     name: macOS (universal)
@@ -135,6 +149,18 @@ jobs:
         with:
           name: windows
           path: dist/*
+      # What a plugin is built against (#175); the app beside its libraries says which SDK build this is.
+      - name: The plugins' SDK
+        shell: bash
+        run: |
+          build=$(pkg/Artoo/Artoo.exe sdk-build)
+          sh .github/sdk-asset.sh target/release/deps target/release/deps x86_64-pc-windows-msvc "$build" "$VERSION" sdk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk-x86_64-pc-windows-msvc
+          path: sdk/*
+          compression-level: 0
+          retention-days: 3
 
   linux:
     name: Linux
@@ -184,6 +210,17 @@ jobs:
         with:
           name: linux
           path: dist/*
+      # What a plugin is built against (#175). A packaged binary has no path to the toolchain's libstd.
+      - name: The plugins' SDK
+        run: |
+          build=$(LD_LIBRARY_PATH="$(rustc --print target-libdir)" target/release/artoo sdk-build)
+          sh .github/sdk-asset.sh target/release/deps target/release/deps x86_64-unknown-linux-gnu "$build" "$VERSION" sdk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk-x86_64-unknown-linux-gnu
+          path: sdk/*
+          compression-level: 0
+          retention-days: 3
 
   publish:
     name: GitHub release
@@ -210,5 +247,5 @@ jobs:
           pre=
           case "$VERSION" in *-*) pre=--prerelease ;; esac
           .github/release-notes.sh "$VERSION" > "$RUNNER_TEMP/notes.md"
-          gh release create "$GITHUB_REF_NAME" dist/macos/* dist/windows/* dist/linux/* --repo "$GITHUB_REPOSITORY" \
+          gh release create "$GITHUB_REF_NAME" dist/macos/* dist/windows/* dist/linux/* dist/sdk-*/* --repo "$GITHUB_REPOSITORY" \
             --title "Artoo $VERSION" --notes-file "$RUNNER_TEMP/notes.md" $pre
