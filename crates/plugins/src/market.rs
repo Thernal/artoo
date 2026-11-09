@@ -86,6 +86,14 @@ fn valid_id(id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
 }
 
+/// An asset's `<id>-<artoo-version>` apart. Both may hold dashes (`my-plugin-2.0.0-rc.1`): the version starts at the
+/// first dash that leaves one.
+fn id_and_version(name: &str) -> Option<(&str, &str)> {
+    (name.match_indices('-'))
+        .map(|(at, _)| (&name[..at], &name[at + 1..]))
+        .find(|(id, version)| valid_id(id) && Version::parse(version).is_ok())
+}
+
 fn build_for(releases: &[Release], artoo: &str, target: &str) -> Build {
     let exact = format!("-{artoo}-{target}.zip");
     let any = format!("-{target}.zip");
@@ -101,10 +109,7 @@ fn build_for(releases: &[Release], artoo: &str, target: &str) -> Build {
                     zip: asset.browser_download_url.clone(),
                 };
             }
-            if let Some((id, version)) =
-                (asset.name.strip_suffix(&any)).and_then(|n| n.rsplit_once('-'))
-                && valid_id(id)
-                && Version::parse(version).is_ok()
+            if let Some((_, version)) = (asset.name.strip_suffix(&any)).and_then(id_and_version)
                 && !others.iter().any(|o| o == version)
             {
                 others.push(version.to_owned());
@@ -536,6 +541,21 @@ mod tests {
     fn a_newer_version_is_told_by_semver() {
         assert!(newer("0.10.0", "0.9.0"));
         assert!(!newer("0.9.0", "0.9.0") && !newer("x", "0.9.0"));
+    }
+
+    #[test]
+    fn a_prerelease_of_artoo_is_read_out_of_an_assets_name() {
+        const T: &str = "aarch64-apple-darwin";
+        let name = format!("my-plugin-2.0.0-rc.1-{T}.zip");
+        let releases = [release("v0.1.0", false, &[&name])];
+        assert!(matches!(
+            build_for(&releases, "2.0.0-rc.1", T),
+            Build::Ready { id, .. } if id == "my-plugin"
+        ));
+        assert!(matches!(
+            build_for(&releases, "1.3.0", T),
+            Build::Other(others) if others == ["2.0.0-rc.1"]
+        ));
     }
 
     #[test]
