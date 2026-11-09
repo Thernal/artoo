@@ -1,7 +1,7 @@
 #!/bin/sh
 # sdk-asset.sh <deps> <host-deps> <target> <build> <version> <out> (#175): what a plugin is built against, for one
 # target, as artoo-sdk-<version>-<target>.tar.zst in <out>. Inside: `deps/` for rustc (`--extern artoo_plugin_sdk=…`,
-# `-L dependency=…`) and `sdk.txt`, the version, the target, the compiler a plugin must be built with and the identity
+# `-L dependency=…`, `-L native=…`) and `sdk.txt`, the version, the target, the compiler a plugin must be built with and the identity
 # of this SDK build (`ARTOO_SDK_BUILD`).
 #
 # <deps> is the build's `deps` folder and <host-deps> the one its proc macros were built into, the same one unless the
@@ -33,6 +33,17 @@ for file in libartoo_plugin_sdk.dylib libartoo_plugin_sdk.so artoo_plugin_sdk.dl
     cp "$deps/$file" "$root/$name/deps/"
   fi
 done
+# On Windows rustc names again on a plugin's link line what the SDK's crates link with: these two are no system's,
+# found through `-L native=…`.
+case $target in
+  *windows*)
+    registry=$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/registry/src
+    cp "$registry"/*/windows_x86_64_msvc-*/lib/*.lib "$root/$name/deps/"
+    for lib in "$deps"/../build/gpui-pre-*/out/gpui.lib; do
+      cp "$lib" "$root/$name/deps/"
+    done
+    ;;
+esac
 # The proc macros, the only other shared libraries there.
 for file in "$hosts"/*.dylib "$hosts"/*.so "$hosts"/*.dll; do
   case "$file" in
