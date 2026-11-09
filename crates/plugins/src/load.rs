@@ -1,8 +1,8 @@
 //! Plugins found, checked, ordered and installed (#175), once, as the app starts, after every feature.
 //!
-//! Where: a folder of its own under `<data>/plugins/` (`plugins/jira/libjira.dylib`), and what `ARTOO_PLUGIN_DEV`
-//! names — a library or a folder of them, several apart as `PATH` is — for a plugin being written, which wins over an
-//! installed one of the same id. A plugin's stamp is read first: one built for another SDK is refused with words,
+//! Where: a folder of its own under `<data>/plugins/` (`plugins/jira/libjira.dylib`), and for a plugin being written,
+//! which wins over an installed one of the same id, what `ARTOO_PLUGIN_DEV` names — a library or a folder of them,
+//! several apart as `PATH` is — and the local list of Settings → Plugins (`plugins-local.txt`). A plugin's stamp is read first: one built for another SDK is refused with words,
 //! before anything of it runs. Then the ones turned off (`plugins.txt`, Settings → Plugins) are left out, and the
 //! rest installed each after what it requires: loaded with every symbol bound (a missing one refuses it, rather than
 //! stopping the app at its first call), installed inside `catch_unwind`. A plugin refused or off takes the plugins
@@ -12,12 +12,26 @@ use crate::crash::{self, Crash, Starting};
 use crate::file;
 use artoo_plugin_api::{ABI, Stamp};
 use gpui::App;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
 /// The file of the plugins turned off: an id a line.
 pub(crate) const OFF: &str = "plugins.txt";
+
+/// The file of the local list: a library or a folder a line.
+const LOCAL: &str = "plugins-local.txt";
+
+/// Where a plugin was found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Origin {
+    /// In the plugins' folder.
+    Installed,
+    /// Named by `ARTOO_PLUGIN_DEV`.
+    Env,
+    /// Through this entry of the local list.
+    Local(PathBuf),
+}
 
 /// What became of a plugin.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,14 +50,18 @@ pub(crate) enum State {
 #[derive(Clone, Debug)]
 pub(crate) struct Plugin {
     pub path: PathBuf,
-    /// Named by `ARTOO_PLUGIN_DEV`.
-    pub dev: bool,
+    pub origin: Origin,
     /// Its stamp, when it has one.
     pub stamp: Option<Stamp>,
     pub state: State,
 }
 
 impl Plugin {
+    /// Whether it is one being written, rather than installed.
+    pub(crate) fn dev(&self) -> bool {
+        self.origin != Origin::Installed
+    }
+
     /// Its id, or its file's name when it has no stamp.
     pub(crate) fn id(&self) -> String {
         match &self.stamp {
@@ -74,16 +92,70 @@ fn libraries_in(dir: &Path) -> Vec<PathBuf> {
     found
 }
 
-/// Every plugin's file, a developer's first (`ARTOO_PLUGIN_DEV`), then each folder of the plugins' folder. A test or
-/// a snapshot reads no plugins' folder: it is the user's.
-fn files(dev: Option<std::ffi::OsString>, folder: Option<PathBuf>) -> Vec<(PathBuf, bool)> {
+/// What was built in a plugin's own project: the newest of each library in `target/debug`, `target/release` and, as the
+/// template builds, the same under `target/<triple>`.
+fn built_in(project: &Path) -> Vec<PathBuf> {
+    let target = project.join("target");
+    let triples = (std::fs::read_dir(&target).into_iter().flatten().flatten())
+        .map(|e| e.path())
+        .filter(|p| p.is_dir());
+    let mut newest: BTreeMap<std::ffi::OsString, (std::time::SystemTime, PathBuf)> =
+        BTreeMap::new();
+    for root in std::iter::once(target.clone()).chain(triples) {
+        for profile in ["debug", "release"] {
+            for library in libraries_in(&root.join(profile)) {
+                let Some(name) = library.file_name().map(|n| n.to_owned()) else {
+                    continue;
+                };
+                let when = (library.metadata().and_then(|m| m.modified()))
+                    .unwrap_or(std::time::UNIX_EPOCH);
+                if newest.get(&name).is_none_or(|(have, _)| when > *have) {
+                    newest.insert(name, (when, library));
+                }
+            }
+        }
+    }
+    newest.into_values().map(|(_, path)| path).collect()
+}
+
+/// What an entry of the local list stands for: a library, the libraries in a folder, or what a plugin's own project
+/// built. The entry itself when there is nothing there yet, so its row says so.
+fn local_libraries(entry: &Path) -> Vec<PathBuf> {
+    let found = if !entry.is_dir() {
+        Vec::new()
+    } else {
+        let here = libraries_in(entry);
+        if here.is_empty() {
+            built_in(entry)
+        } else {
+            here
+        }
+    };
+    if found.is_empty() {
+        vec![entry.to_owned()]
+    } else {
+        found
+    }
+}
+
+/// Every plugin's file: a developer's first (`ARTOO_PLUGIN_DEV`, then the local list), then each folder of the plugins'
+/// folder. A test or a snapshot reads no plugins' folder: it is the user's.
+fn files(
+    dev: Option<std::ffi::OsString>,
+    local: &[PathBuf],
+    folder: Option<PathBuf>,
+) -> Vec<(PathBuf, Origin)> {
     let mut out = Vec::new();
     for path in dev.iter().flat_map(std::env::split_paths) {
         if path.is_dir() {
-            out.extend(libraries_in(&path).into_iter().map(|p| (p, true)));
+            out.extend(libraries_in(&path).into_iter().map(|p| (p, Origin::Env)));
         } else {
-            out.push((path, true));
+            out.push((path, Origin::Env));
         }
+    }
+    for entry in local {
+        let found = local_libraries(entry).into_iter();
+        out.extend(found.map(|p| (p, Origin::Local(entry.clone()))));
     }
     let plugins = (folder.iter())
         .flat_map(|f| std::fs::read_dir(f).into_iter().flatten().flatten())
@@ -91,8 +163,26 @@ fn files(dev: Option<std::ffi::OsString>, folder: Option<PathBuf>) -> Vec<(PathB
         .filter(|p| p.is_dir());
     let mut theirs: Vec<PathBuf> = plugins.flat_map(|dir| libraries_in(&dir)).collect();
     theirs.sort();
-    out.extend(theirs.into_iter().map(|p| (p, false)));
+    out.extend(theirs.into_iter().map(|p| (p, Origin::Installed)));
     out
+}
+
+/// The local list.
+pub(crate) fn local() -> Vec<PathBuf> {
+    (artoo_core::storage::read(LOCAL).lines())
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
+/// Writes down the local list.
+pub(crate) fn save_local(entries: &[PathBuf]) {
+    let body: String = entries
+        .iter()
+        .map(|p| format!("{}\n", p.display()))
+        .collect();
+    artoo_core::storage::save(LOCAL, body);
 }
 
 /// The ids turned off.
@@ -125,10 +215,23 @@ pub(crate) fn foreign(stamp: &Stamp, ours: Option<&str>) -> Option<String> {
 
 /// The plugins as found and checked: each stamp read and compared with this SDK's build (`ours`), the second of an id
 /// refused, the ones in `off` off. Nothing is loaded.
-fn checked(files: Vec<(PathBuf, bool)>, ours: Option<&str>, off: &BTreeSet<String>) -> Vec<Plugin> {
+fn checked(
+    files: Vec<(PathBuf, Origin)>,
+    ours: Option<&str>,
+    off: &BTreeSet<String>,
+) -> Vec<Plugin> {
     let mut out: Vec<Plugin> = Vec::new();
-    for (path, dev) in files {
-        let (stamp, state) = match file::stamp_of(&path) {
+    for (path, origin) in files {
+        let read = if path.is_dir() {
+            Err(String::new())
+        } else {
+            file::stamp_of(&path)
+        };
+        let (stamp, state) = match read {
+            Err(why) if why.is_empty() => (
+                None,
+                State::Refused("nothing has been built in this folder yet".to_owned()),
+            ),
             Err(why) => (None, State::Refused(format!("this file {why}"))),
             Ok(stamp) => {
                 let state = if let Some(first) = out.iter().find(|p| p.id() == stamp.id) {
@@ -149,7 +252,7 @@ fn checked(files: Vec<(PathBuf, bool)>, ours: Option<&str>, off: &BTreeSet<Strin
         };
         out.push(Plugin {
             path,
-            dev,
+            origin,
             stamp,
             state,
         });
@@ -223,7 +326,8 @@ pub(crate) fn load(cx: &mut App) -> (Vec<Plugin>, Option<Crash>) {
         crate::market::apply_staged();
     }
     let folder = if quiet { None } else { folder() };
-    let files = files(std::env::var_os("ARTOO_PLUGIN_DEV"), folder);
+    let listed = if quiet { Vec::new() } else { local() };
+    let files = files(std::env::var_os("ARTOO_PLUGIN_DEV"), &listed, folder);
     if files.is_empty() {
         return (Vec::new(), last);
     }
@@ -304,7 +408,7 @@ mod tests {
     fn on(stamp: Stamp) -> Plugin {
         Plugin {
             path: PathBuf::from(format!("{}.dylib", stamp.id)),
-            dev: false,
+            origin: Origin::Installed,
             stamp: Some(stamp),
             state: State::On,
         }
@@ -368,9 +472,16 @@ mod tests {
         let dev = dir.path().join("dev");
         std::fs::create_dir_all(&dev).unwrap();
         std::fs::write(dev.join(format!("libc.{ext}")), "").unwrap();
-        let found = files(Some(dev.clone().into_os_string()), Some(installed.clone()));
+        let found = files(
+            Some(dev.clone().into_os_string()),
+            &[],
+            Some(installed.clone()),
+        );
         let names: Vec<(String, bool)> = (found.iter())
-            .map(|(p, dev)| (p.file_name().unwrap().to_string_lossy().into_owned(), *dev))
+            .map(|(p, origin)| {
+                let name = p.file_name().unwrap().to_string_lossy().into_owned();
+                (name, *origin == Origin::Env)
+            })
             .collect();
         assert_eq!(
             names,
@@ -385,6 +496,41 @@ mod tests {
         assert_eq!(checked[1].id(), format!("liba.{ext}"));
         assert!(
             matches!(&checked[1].state, State::Refused(why) if why.starts_with("this file is not a library"))
+        );
+    }
+
+    #[test]
+    fn a_local_entry_is_a_library_a_folder_or_a_project_and_says_so_when_nothing_is_there() {
+        let dir = tempfile::tempdir().unwrap();
+        let ext = std::env::consts::DLL_EXTENSION;
+        let write = |path: PathBuf| {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, "").unwrap();
+            path
+        };
+        let library = write(dir.path().join(format!("alone/liba.{ext}")));
+        let alone = std::slice::from_ref(&library);
+        assert_eq!(local_libraries(&library), alone);
+        assert_eq!(local_libraries(library.parent().unwrap()), alone);
+
+        let project = dir.path().join("project");
+        let old = write(project.join(format!("target/debug/libp.{ext}")));
+        let new = write(project.join(format!("target/aarch64-apple-darwin/release/libp.{ext}")));
+        let past = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
+        let file = std::fs::File::options().write(true).open(&old).unwrap();
+        file.set_modified(past).unwrap();
+        assert_eq!(local_libraries(&project), [new]);
+
+        let empty = dir.path().join("empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        let plugins = checked(
+            files(None, std::slice::from_ref(&empty), None),
+            Some("SDK"),
+            &BTreeSet::new(),
+        );
+        assert_eq!(plugins[0].origin, Origin::Local(empty));
+        assert!(
+            matches!(&plugins[0].state, State::Refused(why) if why.starts_with("nothing has been built"))
         );
     }
 }

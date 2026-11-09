@@ -29,8 +29,9 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   `last-crash.txt`; none of it is set up with no plugin to load), and one that ends two starts as it installs is off
   before it loads (`plugins-starting.txt`). Settings → Plugins also finds plugins (`market.rs`: GitHub's topic
   `artoo-plugin`, a release's asset `<id>-<artoo-version>-<target>.zip` for this Artoo), and what is installed, updated
-  or removed is staged in `plugins-staged/` and applied at the next start. `Artoo sdk-build` prints the identity a plugin
-  built against this app must name (`ARTOO_SDK_BUILD`). Plugins start from the public template
+  or removed is staged in `plugins-staged/` and applied at the next start. Settings → Plugins → Local is for a plugin being written: `plugins-local.txt` lists a library, a folder of them or
+  a plugin's project (the newest of what it built under `target/`), read at the start beside `ARTOO_PLUGIN_DEV`.
+  `Artoo sdk-build` prints the identity a plugin built against this app must name (`ARTOO_SDK_BUILD`). Plugins start from the public template
   `Thernal/artoo-plugin-template`: a change to the plugin contract, the SDK's asset or a plugin asset's name changes it
   too, and each release goes into its `artoo-versions.txt`;
   `crates/core` (`artoo-core`) holds what draws nothing — it has no GPUI — and depends on no feature: git, highlighting, the platform

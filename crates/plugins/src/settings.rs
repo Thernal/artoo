@@ -1,9 +1,9 @@
-//! Settings → Plugins (#175): each plugin found as Artoo started, what became of it and why, its switch, and the
-//! plugins' folder. A switch writes `plugins.txt` at once and takes effect at the next start: a plugin's code, once
+//! Settings → Plugins (#175): each plugin found as Artoo started, what became of it and why, its switch, the plugins'
+//! folder, and the local list a plugin being written is tried from. A switch writes `plugins.txt` at once and takes effect at the next start: a plugin's code, once
 //! loaded, stays until the app quits.
 
 use crate::crash::Crash;
-use crate::load::{Plugin, State};
+use crate::load::{Origin, Plugin, State};
 use crate::market::{self, Build, Done, Found, Market, Offer};
 use artoo_plugin_api::{ABI, Stamp};
 use artoo_shell_api::settings::{Rows, Section};
@@ -11,11 +11,11 @@ use artoo_shell_api::{Frame, Parts, Snap};
 use artoo_ui_kit::controls::{outline_button, switch, tag};
 use artoo_ui_kit::{ROW_RADIUS, hover, px, theme};
 use gpui::{
-    App, AppContext, ClickEvent, Context, FontWeight, Global, IntoElement, Render, SharedString,
-    Window, div, prelude::*,
+    App, AppContext, ClickEvent, Context, FontWeight, Global, IntoElement, PathPromptOptions,
+    Render, SharedString, Window, div, prelude::*,
 };
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 /// The section's id.
@@ -26,6 +26,8 @@ const SECTION: &str = "plugins";
 pub(crate) struct Loaded {
     pub(crate) plugins: Vec<Plugin>,
     pub(crate) off: BTreeSet<String>,
+    /// The local list now: what the next start reads.
+    local: Vec<PathBuf>,
     /// This Artoo's SDK build, what a plugin must be built against (`Artoo sdk-build`).
     sdk: Option<String>,
     /// What ended the app last time, until a tab's card has said it.
@@ -41,6 +43,7 @@ pub(crate) fn install(plugins: Vec<Plugin>, crash: Option<Crash>, cx: &mut App) 
     cx.set_global(Loaded {
         plugins,
         off: crate::load::off(),
+        local: crate::load::local(),
         sdk: crate::file::sdk_build(),
         crash,
     });
@@ -101,6 +104,39 @@ pub(crate) fn turn_off(id: &str, cx: &mut App) {
     crate::load::save_off(&loaded.off);
 }
 
+/// Asks for a plugin's project folder or library and adds it to the local list, for the next start.
+fn add_local(cx: &mut App) {
+    let picked = cx.prompt_for_paths(PathPromptOptions {
+        files: true,
+        directories: true,
+        multiple: false,
+        prompt: Some("Add".into()),
+    });
+    cx.spawn(async move |cx| {
+        let Ok(Ok(Some(paths))) = picked.await else {
+            return;
+        };
+        let Some(path) = paths.into_iter().next() else {
+            return;
+        };
+        cx.update(|cx| {
+            let loaded = cx.global_mut::<Loaded>();
+            if !loaded.local.contains(&path) {
+                loaded.local.push(path);
+                crate::load::save_local(&loaded.local);
+            }
+        });
+    })
+    .detach();
+}
+
+/// Takes an entry off the local list; what it stands for stays where it is.
+fn remove_local(entry: &Path, cx: &mut App) {
+    let loaded = cx.global_mut::<Loaded>();
+    loaded.local.retain(|p| p.as_path() != entry);
+    crate::load::save_local(&loaded.local);
+}
+
 /// What a plugin's row says under its name: what became of it, and what the next start does.
 fn said(plugin: &Plugin, off_now: bool) -> Option<(String, bool)> {
     match &plugin.state {
@@ -128,16 +164,27 @@ impl Render for PluginsSettings {
         let loaded = cx.global::<Loaded>();
         let market_now = cx.global::<Market>();
         let folder = crate::load::folder();
+        let row_of = |(i, p): (usize, &Plugin)| {
+            let unlisted =
+                matches!(&p.origin, Origin::Local(entry) if !loaded.local.contains(entry));
+            row(
+                i,
+                p,
+                loaded.off.contains(&p.id()),
+                market_now.done.get(&p.id()),
+                unlisted,
+            )
+            .into_any_element()
+        };
         let rows: Vec<_> = (loaded.plugins.iter().enumerate())
-            .map(|(i, p)| {
-                row(
-                    i,
-                    p,
-                    loaded.off.contains(&p.id()),
-                    market_now.done.get(&p.id()),
-                )
-            })
+            .filter(|(_, p)| !p.dev())
+            .map(row_of)
             .collect();
+        let being_written: Vec<_> = (loaded.plugins.iter().enumerate())
+            .filter(|(_, p)| p.dev())
+            .map(row_of)
+            .collect();
+        let local = local_group(loaded, being_written);
         let available = available(market_now, &loaded.plugins);
         let none = rows.is_empty().then(|| {
             div()
@@ -148,12 +195,6 @@ impl Render for PluginsSettings {
                 .text_size(px(13.))
                 .text_color(theme::muted())
                 .child("No plugins are installed.")
-        });
-        let sdk = (loaded.sdk.clone()).map(|build| {
-            div()
-                .text_size(px(11.))
-                .text_color(theme::faint())
-                .child(format!("Built against: {ABI}, SDK build {build}"))
         });
         div()
             .flex()
@@ -194,9 +235,101 @@ impl Render for PluginsSettings {
                             .text_color(theme::faint())
                     })),
             )
-            .children(sdk)
+            .child(local)
             .child(available)
     }
+}
+
+/// The plugins being written: the ones found as Artoo started, what was added since, and how to try one with no
+/// repository.
+fn local_group(loaded: &Loaded, rows: Vec<gpui::AnyElement>) -> impl IntoElement + use<> {
+    let waiting = (loaded.local.iter().enumerate())
+        .filter(|(_, entry)| {
+            !(loaded.plugins.iter()).any(|p| matches!(&p.origin, Origin::Local(e) if e == *entry))
+        })
+        .map(|(i, entry)| added_row(i, entry).into_any_element());
+    let sdk = (loaded.sdk.clone()).map(|build| {
+        div()
+            .text_size(px(11.))
+            .text_color(theme::faint())
+            .child(format!("Built against: {ABI}, SDK build {build}"))
+    });
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .pt_2()
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_1()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Local"),
+                )
+                .child(
+                    outline_button("Add…")
+                        .id("plugins-add-local")
+                        .on_click(|_: &ClickEvent, _, cx| add_local(cx)),
+                )
+                .child(
+                    outline_button("Restart Artoo")
+                        .id("plugins-restart")
+                        .on_click(|_: &ClickEvent, _, cx| cx.restart()),
+                ),
+        )
+        .child(muted(
+            "A plugin you are writing, with no repository or release. Add its project folder or its library; after \
+             each build, restart Artoo to run it.",
+        ))
+        .child(div().flex().flex_col().children(rows).children(waiting))
+        .children(sdk)
+}
+
+/// An entry added since Artoo started.
+fn added_row(i: usize, entry: &Path) -> impl IntoElement + use<> {
+    let name = (entry.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let key = entry.to_path_buf();
+    div()
+        .flex()
+        .items_center()
+        .gap_4()
+        .py(px(10.))
+        .border_b_1()
+        .border_color(theme::island_border())
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .child(div().font_weight(FontWeight::SEMIBOLD).child(name))
+                        .child(tag("local", theme::agent())),
+                )
+                .child(muted("Added: it loads when Artoo starts again."))
+                .child(
+                    hover::cut(("plugin-added-path", i), entry.display().to_string())
+                        .font_family(theme::code_font())
+                        .text_size(px(11.))
+                        .text_color(theme::faint()),
+                ),
+        )
+        .child(
+            outline_button("Remove")
+                .id(("plugin-added-remove", i))
+                .on_click(move |_: &ClickEvent, _, cx| remove_local(&key, cx)),
+        )
 }
 
 /// The section's second half: what GitHub offers, the warning over it.
@@ -323,7 +456,7 @@ fn action(i: usize, offer: &Offer, market: &Market, installed: &[Plugin]) -> gpu
         None => {}
     }
     let have = (installed.iter())
-        .filter(|p| !p.dev)
+        .filter(|p| !p.dev())
         .filter_map(|p| p.stamp.as_ref())
         .find(|s| s.id == *id);
     let label = match have {
@@ -373,13 +506,19 @@ fn action(i: usize, offer: &Offer, market: &Market, installed: &[Plugin]) -> gpu
 
 /// A plugin's row: its name, version and whether it is a developer's; its id and repository; what became of it;
 /// its switch (none for a file that is no plugin).
-fn row(i: usize, plugin: &Plugin, off_now: bool, done: Option<&Done>) -> impl IntoElement {
+fn row(
+    i: usize,
+    plugin: &Plugin,
+    off_now: bool,
+    done: Option<&Done>,
+    unlisted: bool,
+) -> impl IntoElement {
     let id = plugin.id();
     let (name, version, repository) = match &plugin.stamp {
         Some(s) => (s.name.clone(), s.version.clone(), s.repository.clone()),
         None => (id.clone(), String::new(), String::new()),
     };
-    let removed = done == Some(&Done::Removed);
+    let removed = unlisted || done == Some(&Done::Removed);
     let said_now = if removed {
         Some((
             "Removed: it goes when Artoo starts again.".to_owned(),
@@ -399,25 +538,26 @@ fn row(i: usize, plugin: &Plugin, off_now: bool, done: Option<&Done>) -> impl In
             .child(text)
     });
     // Where a developer's plugin, or a file that is none, was found.
-    let path = (plugin.dev || plugin.stamp.is_none()).then(|| {
+    let path = (plugin.dev() || plugin.stamp.is_none()).then(|| {
         hover::cut(("plugin-path", i), plugin.path.display().to_string())
             .font_family(theme::code_font())
             .text_size(px(11.))
             .text_color(theme::faint())
     });
-    // An installed one can go; a developer's is theirs, named by `ARTOO_PLUGIN_DEV`.
-    let remove = (!plugin.dev && !removed).then(|| {
-        let id = plugin
+    // An installed one can go, and a local one off the list; one named by `ARTOO_PLUGIN_DEV` is that variable's.
+    let remove = (plugin.origin != Origin::Env && !removed).then(|| {
+        let origin = plugin.origin.clone();
+        let folder = plugin
             .path
             .parent()
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().into_owned());
         outline_button("Remove")
             .id(("plugin-remove", i))
-            .on_click(move |_: &ClickEvent, _, cx| {
-                if let Some(id) = &id {
-                    market::remove(id, cx);
-                }
+            .on_click(move |_: &ClickEvent, _, cx| match (&origin, &folder) {
+                (Origin::Local(entry), _) => remove_local(entry, cx),
+                (_, Some(id)) => market::remove(id, cx),
+                _ => {}
             })
     });
     let toggle = plugin.stamp.is_some().then(|| {
@@ -455,7 +595,12 @@ fn row(i: usize, plugin: &Plugin, off_now: bool, done: Option<&Done>) -> impl In
                                     .child(version),
                             )
                         })
-                        .when(plugin.dev, |d| d.child(tag("dev", theme::agent()))),
+                        .when(plugin.origin == Origin::Env, |d| {
+                            d.child(tag("dev", theme::agent()))
+                        })
+                        .when(matches!(plugin.origin, Origin::Local(_)), |d| {
+                            d.child(tag("local", theme::agent()))
+                        }),
                 )
                 .child(
                     div()
@@ -503,31 +648,46 @@ fn sample() -> Loaded {
         provides: Vec::new(),
         requires: requires.iter().map(|r| r.to_string()).collect(),
     };
-    let plugin = |stamp: Stamp, dev: bool, state: State| Plugin {
+    let hello = PathBuf::from("~/code/artoo-hello");
+    let plugin = |stamp: Stamp, origin: Origin, state: State| Plugin {
         path: PathBuf::from(format!(
             "~/code/artoo-{0}/target/debug/libartoo_{0}.dylib",
             stamp.id
         )),
-        dev,
+        origin,
         stamp: Some(stamp),
         state,
     };
     Loaded {
         plugins: vec![
-            plugin(stamp("jira", "Jira", "0.4.1", &[]), false, State::On),
+            plugin(
+                stamp("jira", "Jira", "0.4.1", &[]),
+                Origin::Installed,
+                State::On,
+            ),
             plugin(
                 stamp("confluence", "Confluence", "0.2.0", &[]),
-                false,
+                Origin::Installed,
                 State::Off,
             ),
             plugin(
                 stamp("sprint", "Sprint board", "1.0.0", &["jira.issues@1"]),
-                false,
+                Origin::Installed,
                 State::Refused("needs jira.issues@1, which no plugin on offers".to_owned()),
             ),
-            plugin(stamp("hello", "Hello", "0.1.0", &[]), true, State::On),
+            plugin(
+                stamp("hello", "Hello", "0.1.0", &[]),
+                Origin::Local(hello.clone()),
+                State::On,
+            ),
+            plugin(
+                stamp("scratch", "Scratch", "0.1.0", &[]),
+                Origin::Env,
+                State::On,
+            ),
         ],
         off: ["confluence".to_owned()].into(),
+        local: vec![hello, PathBuf::from("~/code/artoo-notes")],
         sdk: Some("5C0F3B9E-2A41-3D7C-9B1E-6F2A8C4D0E17".to_owned()),
         crash: None,
     }
@@ -540,7 +700,7 @@ mod tests {
     fn plugin(state: State) -> Plugin {
         Plugin {
             path: PathBuf::from("x.dylib"),
-            dev: false,
+            origin: Origin::Installed,
             stamp: None,
             state,
         }

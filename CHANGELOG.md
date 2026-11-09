@@ -4,6 +4,12 @@ What is new in each release of Artoo. A release's notes on GitHub are its sectio
 (`.github/release-notes.sh`); a release tag whose version has no section here does not build. Write what changed
 for someone using the app, not for someone reading the code; the commits follow anyway.
 
+## Unreleased
+
+- **Try a plugin you are writing.** Settings → Plugins → Local takes a plugin's project folder or its library, with
+  no repository or release. After each build, Restart Artoo runs what you built, and its row says why if it was not
+  loaded.
+
 ## 2.0.0-rc.2 — 2026-11-09
 
 - **Plugins can be built for Windows.** What a plugin is built against now holds everything a Windows build links
