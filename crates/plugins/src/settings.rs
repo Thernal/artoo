@@ -4,6 +4,7 @@
 
 use crate::crash::Crash;
 use crate::load::{Plugin, State};
+use crate::market::{self, Build, Done, Found, Market, Offer};
 use artoo_plugin_api::{ABI, Stamp};
 use artoo_shell_api::settings::{Rows, Section};
 use artoo_shell_api::{Frame, Parts, Snap};
@@ -36,6 +37,7 @@ impl Global for Loaded {}
 /// Keeps what was loaded and offers the section, after Keyboard, and its rows in each tab.
 pub(crate) fn install(plugins: Vec<Plugin>, crash: Option<Crash>, cx: &mut App) {
     artoo_plugin_api::set_loaded(cx, on_now(&plugins));
+    cx.set_global(Market::default());
     cx.set_global(Loaded {
         plugins,
         off: crate::load::off(),
@@ -66,12 +68,19 @@ fn on_now(plugins: &[Plugin]) -> Vec<String> {
 fn parts(_: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     let view = cx.new(|cx| {
         cx.observe_global::<Loaded>(|_, cx| cx.notify()).detach();
+        cx.observe_global::<Market>(|_, cx| cx.notify()).detach();
         PluginsSettings
     });
-    let sample: Snap = Rc::new(|_, cx| cx.set_global(sample()));
+    let sample: Snap = Rc::new(|_, cx| {
+        cx.set_global(sample());
+        cx.set_global(market::sample());
+    });
     Parts {
-        settings: vec![Rows::new(SECTION, 10, view)],
-        snapshots: vec![("plugins-sample", sample)],
+        settings: vec![Rows::new(SECTION, 10, view).opened(market::opened)],
+        snapshots: vec![
+            ("plugins-sample", sample),
+            ("plugin-install:", Rc::new(market::install_found)),
+        ],
         ..Default::default()
     }
 }
@@ -117,10 +126,19 @@ struct PluginsSettings;
 impl Render for PluginsSettings {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let loaded = cx.global::<Loaded>();
+        let market_now = cx.global::<Market>();
         let folder = crate::load::folder();
         let rows: Vec<_> = (loaded.plugins.iter().enumerate())
-            .map(|(i, p)| row(i, p, loaded.off.contains(&p.id())))
+            .map(|(i, p)| {
+                row(
+                    i,
+                    p,
+                    loaded.off.contains(&p.id()),
+                    market_now.done.get(&p.id()),
+                )
+            })
             .collect();
+        let available = available(market_now, &loaded.plugins);
         let none = rows.is_empty().then(|| {
             div()
                 .px(px(12.))
@@ -177,18 +195,200 @@ impl Render for PluginsSettings {
                     })),
             )
             .children(sdk)
+            .child(available)
     }
+}
+
+/// The section's second half: what GitHub offers, the warning over it.
+fn available(market: &Market, installed: &[Plugin]) -> impl IntoElement + use<> {
+    let body: Vec<gpui::AnyElement> = match &market.found {
+        Found::NotAsked | Found::Asking => vec![muted("Looking for plugins…").into_any_element()],
+        Found::Failed(why) => {
+            vec![muted(format!("Could not look for plugins: {why}.")).into_any_element()]
+        }
+        Found::Got(offers) if offers.is_empty() => {
+            vec![muted("No plugins were found.").into_any_element()]
+        }
+        Found::Got(offers) => (offers.iter().enumerate())
+            .map(|(i, o)| offer_row(i, o, market, installed).into_any_element())
+            .collect(),
+    };
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .pt_2()
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_1()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Available"),
+                )
+                .child(
+                    outline_button("Look again")
+                        .id("plugins-look-again")
+                        .on_click(|_: &ClickEvent, _, cx| market::ask(cx)),
+                ),
+        )
+        .child(muted(
+            "A plugin runs with all of Artoo's rights, over your files and your accounts. Install one only if you \
+             trust who made it.",
+        ))
+        .child(div().flex().flex_col().children(body))
+}
+
+fn muted(text: impl Into<SharedString>) -> gpui::Div {
+    div()
+        .text_size(px(12.))
+        .text_color(theme::muted())
+        .child(text.into())
+}
+
+/// A repository's row: who made it and what it says it is, and what can be done with it.
+fn offer_row(
+    i: usize,
+    offer: &Offer,
+    market: &Market,
+    installed: &[Plugin],
+) -> impl IntoElement + use<> {
+    let url = offer.url.clone();
+    let right = action(i, offer, market, installed);
+    div()
+        .flex()
+        .items_center()
+        .gap_4()
+        .py(px(10.))
+        .border_b_1()
+        .border_color(theme::island_border())
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .child(
+                            div()
+                                .id(("offer-repository", i))
+                                .cursor_pointer()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .hover(|s| s.underline())
+                                .child(offer.repo.clone())
+                                .on_click(move |_: &ClickEvent, _, cx| cx.open_url(&url)),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(theme::faint())
+                                .child(format!("★ {}", offer.stars)),
+                        ),
+                )
+                .when(!offer.about.is_empty(), |d| {
+                    d.child(muted(offer.about.clone()))
+                }),
+        )
+        .child(div().flex_none().child(right))
+}
+
+/// What can be done with an offer now: a button, or why not.
+fn action(i: usize, offer: &Offer, market: &Market, installed: &[Plugin]) -> gpui::AnyElement {
+    let Build::Ready { id, version, zip } = &offer.build else {
+        let text = match &offer.build {
+            Build::Other(artoos) => format!("Built for Artoo {}", artoos.join(", ")),
+            _ => "No release yet".to_owned(),
+        };
+        return muted(text).into_any_element();
+    };
+    match market.done.get(id) {
+        Some(Done::Installing) => return muted("Installing…").into_any_element(),
+        Some(Done::Installed) => return muted("Comes when Artoo starts again").into_any_element(),
+        Some(Done::Removed) => return muted("Goes when Artoo starts again").into_any_element(),
+        Some(Done::Failed(why)) => {
+            return div()
+                .text_size(px(12.))
+                .text_color(theme::warning())
+                .child(format!("Not installed: {why}"))
+                .into_any_element();
+        }
+        None => {}
+    }
+    let have = (installed.iter())
+        .filter(|p| !p.dev)
+        .filter_map(|p| p.stamp.as_ref())
+        .find(|s| s.id == *id);
+    let label = match have {
+        // Another repository's plugin of the same id: this build is not its update.
+        Some(stamp) if !market::same_repository(&stamp.repository, &offer.url) => {
+            return muted(format!("Another plugin is installed as {id}")).into_any_element();
+        }
+        Some(stamp) if market::newer(version, &stamp.version) => format!("Update to {version}"),
+        Some(_) => return muted("Installed").into_any_element(),
+        None => "Install".to_owned(),
+    };
+    let (key, url, repo) = (id.clone(), zip.clone(), offer.repo.clone());
+    // A first install asks: an update is of what the user already trusted.
+    if have.is_none() && market.asking.as_deref() != Some(offer.repo.as_str()) {
+        return outline_button("Install")
+            .id(("offer-install", i))
+            .on_click(move |_: &ClickEvent, _, cx| {
+                cx.global_mut::<Market>().asking = Some(repo.clone());
+            })
+            .into_any_element();
+    }
+    let word = if have.is_none() {
+        "Install anyway".to_owned()
+    } else {
+        label
+    };
+    div()
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .when(have.is_none(), |d| {
+            d.child(
+                outline_button("Cancel")
+                    .id(("offer-cancel", i))
+                    .on_click(|_: &ClickEvent, _, cx| cx.global_mut::<Market>().asking = None),
+            )
+        })
+        .child(
+            outline_button(&word)
+                .id(("offer-go", i))
+                .on_click(move |_: &ClickEvent, _, cx| {
+                    market::install(key.clone(), url.clone(), cx)
+                }),
+        )
+        .into_any_element()
 }
 
 /// A plugin's row: its name, version and whether it is a developer's; its id and repository; what became of it;
 /// its switch (none for a file that is no plugin).
-fn row(i: usize, plugin: &Plugin, off_now: bool) -> impl IntoElement {
+fn row(i: usize, plugin: &Plugin, off_now: bool, done: Option<&Done>) -> impl IntoElement {
     let id = plugin.id();
     let (name, version, repository) = match &plugin.stamp {
         Some(s) => (s.name.clone(), s.version.clone(), s.repository.clone()),
         None => (id.clone(), String::new(), String::new()),
     };
-    let line = said(plugin, off_now).map(|(text, bad)| {
+    let removed = done == Some(&Done::Removed);
+    let said_now = if removed {
+        Some((
+            "Removed: it goes when Artoo starts again.".to_owned(),
+            false,
+        ))
+    } else {
+        said(plugin, off_now)
+    };
+    let line = said_now.map(|(text, bad)| {
         div()
             .text_size(px(12.))
             .text_color(if bad {
@@ -204,6 +404,21 @@ fn row(i: usize, plugin: &Plugin, off_now: bool) -> impl IntoElement {
             .font_family(theme::code_font())
             .text_size(px(11.))
             .text_color(theme::faint())
+    });
+    // An installed one can go; a developer's is theirs, named by `ARTOO_PLUGIN_DEV`.
+    let remove = (!plugin.dev && !removed).then(|| {
+        let id = plugin
+            .path
+            .parent()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().into_owned());
+        outline_button("Remove")
+            .id(("plugin-remove", i))
+            .on_click(move |_: &ClickEvent, _, cx| {
+                if let Some(id) = &id {
+                    market::remove(id, cx);
+                }
+            })
     });
     let toggle = plugin.stamp.is_some().then(|| {
         let id = id.clone();
@@ -258,6 +473,7 @@ fn row(i: usize, plugin: &Plugin, off_now: bool) -> impl IntoElement {
                 .children(line)
                 .children(path),
         )
+        .children(remove)
         .children(toggle)
 }
 

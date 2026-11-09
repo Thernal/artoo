@@ -6,6 +6,7 @@ mod card;
 mod crash;
 mod file;
 mod load;
+mod market;
 mod settings;
 
 use gpui::App;

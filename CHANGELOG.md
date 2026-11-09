@@ -6,9 +6,8 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
-- **Plugins.** Artoo loads plugins as it starts: libraries built against its SDK, each in a folder of its own in
-  the plugins folder. Settings → Plugins lists them, says why one was not loaded, and turns one off for the next
-  start. One built for another Artoo is refused before any of it runs, and one that fails as it installs leaves
+- **Plugins.** Artoo loads plugins as it starts: libraries built against its SDK. Settings → Plugins finds them on
+  GitHub, installs, updates and removes them, says why one was not loaded, and turns one off for the next start. One built for another Artoo is refused before any of it runs, and one that fails as it installs leaves
   the app running. A plugin that stops Artoo is named at the next start, with a way to turn it off and to report
   it to its own repository; one that stops it twice as it starts is turned off.
 

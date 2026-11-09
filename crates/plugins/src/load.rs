@@ -106,7 +106,7 @@ pub(crate) fn off() -> BTreeSet<String> {
 }
 
 /// Why a stamp is not this SDK's, if it is not.
-fn foreign(stamp: &Stamp, ours: Option<&str>) -> Option<String> {
+pub(crate) fn foreign(stamp: &Stamp, ours: Option<&str>) -> Option<String> {
     if stamp.abi != ABI {
         return Some(format!(
             "built for another Artoo ({}); this one is {ABI}",
@@ -226,6 +226,9 @@ pub(crate) fn save_off(off: &BTreeSet<String>) {
 pub(crate) fn load(cx: &mut App) -> (Vec<Plugin>, Option<Crash>) {
     let quiet = artoo_core::platform::sandboxed() || artoo_core::storage::snapshot_run();
     let last = crash::take(quiet);
+    if !quiet {
+        crate::market::apply_staged();
+    }
     let folder = if quiet { None } else { folder() };
     let files = files(std::env::var_os("ARTOO_PLUGIN_DEV"), folder);
     if files.is_empty() {
