@@ -2,6 +2,8 @@
 //! adds through the same registries a feature does. A plugin is checked before anything of it runs — its stamp
 //! names the SDK it was built against, read from its file — and Settings → Plugins says what became of each.
 
+mod card;
+mod crash;
 mod file;
 mod load;
 mod settings;
@@ -12,8 +14,8 @@ use gpui::App;
 /// the registries filled and what the features offer, and a plugin's own services are offered before the next one
 /// installs.
 pub fn install(cx: &mut App) {
-    let plugins = load::load(cx);
-    settings::install(plugins, cx);
+    let (plugins, crash) = load::load(cx);
+    settings::install(plugins, crash, cx);
 }
 
 /// `Artoo sdk-build`: the identity of the SDK this app loaded — what `ARTOO_SDK_BUILD` names for a plugin built

@@ -60,7 +60,9 @@ libc = "0.2"
 # a plugin loaded with every symbol bound (already in GPUI's graph), and on Windows the SDK's file found.
 object = { version = "0.37", default-features = false, features = ["read", "std"] }
 libloading = "0.8"
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_LibraryLoader"] }
+# Which plugin's code was on the stack as the app ended (#178; already in the dependency graph).
+backtrace = "0.3"
 # The key window's picture for a report, its own window only (#118; already in GPUI's graph).
 core-graphics = "0.24"
 objc2 = "0.6"

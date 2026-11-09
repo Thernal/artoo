@@ -47,7 +47,7 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
             // The window's picture is taken before the report's window is drawn over it.
             opened: Rc::new(move |cx| {
                 opened.update(cx, |r, cx| {
-                    r.prepare();
+                    r.prepare(cx);
                     r.refresh_states(cx);
                 })
             }),
@@ -146,7 +146,7 @@ impl Report {
 
     /// The report gets ready to be written: the extras ticked, the system read, the window's
     /// picture taken now — before the report's own window is drawn over it.
-    fn prepare(&mut self) {
+    fn prepare(&mut self, cx: &App) {
         if !self.ready {
             self.ready = true;
             self.draft.system = true;
@@ -155,7 +155,7 @@ impl Report {
             self.sent = crate::sent();
         }
         if self.system.is_empty() {
-            self.system = crate::system();
+            self.system = crate::with_plugins(crate::system(), &artoo_plugin_api::loaded(cx));
         }
         if !self.sending && !matches!(self.said, Some(Ok(_))) {
             self.picture = platform::window_picture();
@@ -167,7 +167,7 @@ impl Report {
     /// Help → Report a problem, ⌘K: the tool window; with no repository open, GitHub's page.
     fn open(&mut self, cx: &mut Context<Self>) {
         if self.frame.places(cx).root.is_none() {
-            self.prepare();
+            self.prepare(cx);
             return self.in_browser(cx);
         }
         self.frame.show_tool(Some(ID), cx);
@@ -178,7 +178,7 @@ impl Report {
         let Some(d) = artoo_agents_api::get(cx).take().pop() else {
             return;
         };
-        self.prepare();
+        self.prepare(cx);
         self.say(None);
         self.draft.title = d.title;
         self.draft.description = d.description;
@@ -686,7 +686,7 @@ impl Render for Report {
                         bar_button("report-another", "Write another", "", false).on_click(
                             cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.say(None);
-                                this.prepare();
+                                this.prepare(cx);
                                 this.set_focus(Focus::Title, cx);
                             }),
                         ),

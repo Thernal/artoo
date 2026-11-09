@@ -12,6 +12,7 @@ artoo-core = { path = "../core" }
 artoo-plugin-api = { path = "../plugin-api" }
 artoo-shell-api = { path = "../shell-api" }
 artoo-ui-kit = { path = "../ui-kit" }
+backtrace.workspace = true
 gpui.workspace = true
 libloading.workspace = true
 object.workspace = true

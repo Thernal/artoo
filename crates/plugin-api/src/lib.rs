@@ -13,6 +13,23 @@ pub mod services;
 #[doc(hidden)]
 pub use gpui;
 
+/// The plugins this run installed, as `id version`: what a report of a problem says of them.
+struct Installed(Vec<String>);
+
+impl gpui::Global for Installed {}
+
+/// Says which plugins this run installed (the app's, once they have).
+pub fn set_loaded(cx: &mut gpui::App, plugins: Vec<String>) {
+    cx.set_global(Installed(plugins));
+}
+
+/// The plugins this run installed, as `id version`.
+pub fn loaded(cx: &gpui::App) -> Vec<String> {
+    (cx.try_global::<Installed>())
+        .map(|i| i.0.clone())
+        .unwrap_or_default()
+}
+
 /// This SDK's ABI: its version (the app's) and the compiler that built it. A plugin built for another is refused.
 pub const ABI: &str = concat!(
     "artoo-plugin-sdk/",

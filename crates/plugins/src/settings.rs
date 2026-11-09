@@ -2,7 +2,8 @@
 //! plugins' folder. A switch writes `plugins.txt` at once and takes effect at the next start: a plugin's code, once
 //! loaded, stays until the app quits.
 
-use crate::load::{OFF, Plugin, State};
+use crate::crash::Crash;
+use crate::load::{Plugin, State};
 use artoo_plugin_api::{ABI, Stamp};
 use artoo_shell_api::settings::{Rows, Section};
 use artoo_shell_api::{Frame, Parts, Snap};
@@ -21,21 +22,25 @@ const SECTION: &str = "plugins";
 
 /// The plugins as this run loaded them, and the ids turned off now: what the next start reads.
 #[derive(Default)]
-struct Loaded {
-    plugins: Vec<Plugin>,
-    off: BTreeSet<String>,
+pub(crate) struct Loaded {
+    pub(crate) plugins: Vec<Plugin>,
+    pub(crate) off: BTreeSet<String>,
     /// This Artoo's SDK build, what a plugin must be built against (`Artoo sdk-build`).
     sdk: Option<String>,
+    /// What ended the app last time, until a tab's card has said it.
+    pub(crate) crash: Option<Crash>,
 }
 
 impl Global for Loaded {}
 
 /// Keeps what was loaded and offers the section, after Keyboard, and its rows in each tab.
-pub(crate) fn install(plugins: Vec<Plugin>, cx: &mut App) {
+pub(crate) fn install(plugins: Vec<Plugin>, crash: Option<Crash>, cx: &mut App) {
+    artoo_plugin_api::set_loaded(cx, on_now(&plugins));
     cx.set_global(Loaded {
         plugins,
         off: crate::load::off(),
         sdk: crate::file::sdk_build(),
+        crash,
     });
     artoo_shell_api::add_settings_section(
         cx,
@@ -46,6 +51,16 @@ pub(crate) fn install(plugins: Vec<Plugin>, cx: &mut App) {
         },
     );
     artoo_shell_api::add_parts(cx, parts);
+    artoo_shell_api::add_parts(cx, crate::card::parts);
+}
+
+/// The plugins this run installed, as a report says them: `jira 0.4.1`.
+fn on_now(plugins: &[Plugin]) -> Vec<String> {
+    (plugins.iter())
+        .filter(|p| p.state == State::On)
+        .filter_map(|p| p.stamp.as_ref())
+        .map(|s| format!("{} {}", s.id, s.version))
+        .collect()
 }
 
 fn parts(_: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
@@ -67,8 +82,14 @@ fn flip(id: &str, cx: &mut App) {
     if !loaded.off.remove(id) {
         loaded.off.insert(id.to_owned());
     }
-    let body: String = loaded.off.iter().map(|id| format!("{id}\n")).collect();
-    artoo_core::storage::save(OFF, body);
+    crate::load::save_off(&loaded.off);
+}
+
+/// Turns `id` off for the next start (the card's button).
+pub(crate) fn turn_off(id: &str, cx: &mut App) {
+    let loaded = cx.global_mut::<Loaded>();
+    loaded.off.insert(id.to_owned());
+    crate::load::save_off(&loaded.off);
 }
 
 /// What a plugin's row says under its name: what became of it, and what the next start does.
@@ -79,9 +100,13 @@ fn said(plugin: &Plugin, off_now: bool) -> Option<(String, bool)> {
             "Turned off: it goes when Artoo starts again.".to_owned(),
             false,
         )),
-        State::Off if !off_now => Some((
+        State::Off | State::Struck if !off_now => Some((
             "Turned on: it loads when Artoo starts again.".to_owned(),
             false,
+        )),
+        State::Struck => Some((
+            "Turned off: it ended Artoo twice as it started.".to_owned(),
+            true,
         )),
         State::On | State::Off => None,
     }
@@ -288,6 +313,7 @@ fn sample() -> Loaded {
         ],
         off: ["confluence".to_owned()].into(),
         sdk: Some("5C0F3B9E-2A41-3D7C-9B1E-6F2A8C4D0E17".to_owned()),
+        crash: None,
     }
 }
 

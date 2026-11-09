@@ -5,7 +5,9 @@
 use artoo_plugin_api::{STAMP_SECTION, Stamp, read_stamp};
 use object::read::macho::{FatArch, MachOFatFile32, MachOFatFile64};
 use object::read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile32, PeFile64};
-use object::{Architecture, BinaryFormat, FileKind, LittleEndian, Object, ObjectSection};
+use object::{
+    Architecture, BinaryFormat, FileKind, LittleEndian, Object, ObjectSection, ObjectSegment,
+};
 use object::{ReadCache, ReadCacheRange};
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -125,8 +127,30 @@ pub(crate) fn sdk_build() -> Option<String> {
     identity(&sdk_path()?)
 }
 
-#[cfg(unix)]
+/// Where the library at `path` is in memory, given an address in it: what a stack's frames are compared with.
+pub(crate) fn loaded_range(path: &Path, at: *const ()) -> Option<(usize, usize)> {
+    let (_, start) = image_at(at)?;
+    let opened = open(path).ok()?;
+    let file = object::File::parse(opened.range().ok()?).ok()?;
+    let (mut low, mut high) = (u64::MAX, 0);
+    for segment in file.segments() {
+        low = low.min(segment.address());
+        high = high.max(segment.address() + segment.size());
+    }
+    // A PE's sections start past its headers; its image starts at its base.
+    if file.format() == BinaryFormat::Pe {
+        low = file.relative_address_base();
+    }
+    (low < high).then(|| (start, start + (high - low) as usize))
+}
+
 fn image_of(at: *const ()) -> Option<PathBuf> {
+    image_at(at).map(|(path, _)| path)
+}
+
+/// The file of the image an address is in, and where that image starts.
+#[cfg(unix)]
+fn image_at(at: *const ()) -> Option<(PathBuf, usize)> {
     use std::os::unix::ffi::OsStrExt;
     // SAFETY: `dladdr` fills `info` for an address of a loaded image; the name it points at lives with the image.
     let mut info: libc::Dl_info = unsafe { std::mem::zeroed() };
@@ -134,11 +158,12 @@ fn image_of(at: *const ()) -> Option<PathBuf> {
         return None;
     }
     let name = unsafe { std::ffi::CStr::from_ptr(info.dli_fname) };
-    Some(PathBuf::from(std::ffi::OsStr::from_bytes(name.to_bytes())))
+    let path = PathBuf::from(std::ffi::OsStr::from_bytes(name.to_bytes()));
+    Some((path, info.dli_fbase as usize))
 }
 
 #[cfg(windows)]
-fn image_of(at: *const ()) -> Option<PathBuf> {
+fn image_at(at: *const ()) -> Option<(PathBuf, usize)> {
     use std::os::windows::ffi::OsStringExt;
     use windows_sys::Win32::System::LibraryLoader::{
         GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -153,7 +178,12 @@ fn image_of(at: *const ()) -> Option<PathBuf> {
     }
     let mut name = vec![0u16; 32_768];
     let len = unsafe { GetModuleFileNameW(module, name.as_mut_ptr(), name.len() as u32) } as usize;
-    (len > 0).then(|| PathBuf::from(std::ffi::OsString::from_wide(&name[..len])))
+    (len > 0).then(|| {
+        (
+            PathBuf::from(std::ffi::OsString::from_wide(&name[..len])),
+            module as usize,
+        )
+    })
 }
 
 #[cfg(test)]

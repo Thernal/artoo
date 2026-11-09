@@ -8,6 +8,7 @@
 //! stopping the app at its first call), installed inside `catch_unwind`. A plugin refused or off takes the plugins
 //! needing it with it.
 
+use crate::crash::{self, Crash, Starting};
 use crate::file;
 use artoo_plugin_api::{ABI, Stamp};
 use gpui::App;
@@ -25,6 +26,8 @@ pub(crate) enum State {
     On,
     /// Turned off in Settings: not loaded.
     Off,
+    /// Off because it ended two starts as it installed.
+    Struck,
     /// Not installed, and why: another SDK, a missing contract, a failed load, a panic in its install.
     Refused(String),
 }
@@ -212,23 +215,54 @@ fn open(path: &Path) -> Result<fn(&mut App), String> {
     Ok(*install)
 }
 
-/// Finds, checks, orders and installs the plugins (the app's `install`, after every feature).
-pub(crate) fn load(cx: &mut App) -> Vec<Plugin> {
+/// Writes down the ids turned off.
+pub(crate) fn save_off(off: &BTreeSet<String>) {
+    let body: String = off.iter().map(|id| format!("{id}\n")).collect();
+    artoo_core::storage::save(OFF, body);
+}
+
+/// Finds, checks, orders and installs the plugins (the app's `install`, after every feature); with what ended the
+/// app last time, if a plugin did.
+pub(crate) fn load(cx: &mut App) -> (Vec<Plugin>, Option<Crash>) {
     let quiet = artoo_core::platform::sandboxed() || artoo_core::storage::snapshot_run();
+    let last = crash::take(quiet);
     let folder = if quiet { None } else { folder() };
     let files = files(std::env::var_os("ARTOO_PLUGIN_DEV"), folder);
     if files.is_empty() {
-        return Vec::new();
+        return (Vec::new(), last);
     }
     let ours = file::sdk_build();
-    let mut plugins = checked(files, ours.as_deref(), &off());
+    let (mut starting, struck) = Starting::read();
+    let mut off = off();
+    if !struck.is_empty() {
+        off.extend(struck.iter().cloned());
+        save_off(&off);
+    }
+    let mut plugins = checked(files, ours.as_deref(), &off);
+    for plugin in &mut plugins {
+        if plugin.state == State::Off && struck.contains(&plugin.id()) {
+            plugin.state = State::Struck;
+        }
+    }
     let mut order = ordered(&mut plugins);
+    if !order.is_empty() {
+        crash::watch();
+    }
     while let Some(i) = (!order.is_empty()).then(|| order.remove(0)) {
-        let installed = open(&plugins[i].path).and_then(|install| {
+        let (id, path) = (plugins[i].id(), plugins[i].path.clone());
+        starting.begin(&id);
+        let installed = open(&path).and_then(|install| {
+            if let Some(range) = file::loaded_range(&path, install as *const ()) {
+                let name = path.file_name().unwrap_or_default().to_string_lossy();
+                crash::add_image(&id, &name, range);
+            }
             catch_unwind(AssertUnwindSafe(|| install(cx)))
                 .map_err(|panic| format!("stopped as it installed: {}", said(&*panic)))
         });
+        starting.done(&id);
         if let Err(why) = installed {
+            // Caught: the app goes on, and the panic hook's report is no one's end.
+            crash::forget();
             plugins[i].state = State::Refused(why);
             // What it offered is not offered: the rest are ordered again without it.
             order = ordered(&mut plugins)
@@ -241,6 +275,7 @@ pub(crate) fn load(cx: &mut App) -> Vec<Plugin> {
         let state = match &plugin.state {
             State::On => "on".to_owned(),
             State::Off => "off".to_owned(),
+            State::Struck => "off: it ended two starts".to_owned(),
             State::Refused(why) => format!("refused: {why}"),
         };
         artoo_core::applog::line(&format!(
@@ -249,7 +284,7 @@ pub(crate) fn load(cx: &mut App) -> Vec<Plugin> {
             plugin.path.display()
         ));
     }
-    plugins
+    (plugins, last)
 }
 
 #[cfg(test)]

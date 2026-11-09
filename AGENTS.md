@@ -24,7 +24,10 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   `<data>/plugins/`, or what `ARTOO_PLUGIN_DEV` names (a library or a folder of them, several as in `PATH`; these win
   over an installed one of the same id); its stamp read and compared with the SDK this app loaded, then ordered by what
   it requires, opened with every symbol bound, installed inside `catch_unwind`; what became of each is Settings →
-  Plugins, a switch there writing `plugins.txt` for the next start. `Artoo sdk-build` prints the identity a plugin
+  Plugins, a switch there writing `plugins.txt` for the next start. A plugin that ends the app is named at the next
+  start (`crash.rs`: a panic hook and fatal signals walk the stack, the first frame in a plugin's code naming it, in
+  `last-crash.txt`; none of it is set up with no plugin to load), and one that ends two starts as it installs is off
+  before it loads (`plugins-starting.txt`). `Artoo sdk-build` prints the identity a plugin
   built against this app must name (`ARTOO_SDK_BUILD`);
   `crates/core` (`artoo-core`) holds what draws nothing — it has no GPUI — and depends on no feature: git, highlighting, the platform
   layer, storage, themes, markdown and the diff helpers, among them a selection's ends (`select`), the diff's rows (`rows`: a file built to rows in

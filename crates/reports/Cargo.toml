@@ -10,6 +10,8 @@ publish = false
 artoo-core = { path = "../core" }
 # The drafts agents' chats leave (`report_problem`).
 artoo-agents-api = { path = "../agents-api" }
+# Which plugins were installed, for the report.
+artoo-plugin-api = { path = "../plugin-api" }
 artoo-shell-api = { path = "../shell-api" }
 artoo-ui-kit = { path = "../ui-kit" }
 gpui.workspace = true

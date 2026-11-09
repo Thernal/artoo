@@ -82,6 +82,14 @@ pub(crate) fn system() -> String {
     }
 }
 
+/// The system, with the plugins this run installed: "macOS 15.1 · Mac15,3 · Plugins: jira 0.4.1".
+pub(crate) fn with_plugins(system: String, plugins: &[String]) -> String {
+    if plugins.is_empty() {
+        return system;
+    }
+    format!("{system} · Plugins: {}", plugins.join(", "))
+}
+
 /// What a report must not carry, and what it says instead.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Scrub {
