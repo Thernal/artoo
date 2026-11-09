@@ -32,6 +32,8 @@ pub(crate) struct Loaded {
     sdk: Option<String>,
     /// What ended the app last time, until a tab's card has said it.
     pub(crate) crash: Option<Crash>,
+    /// Only what GitHub offers: the snapshot of a part too long to fit under the rest.
+    offers_only: bool,
 }
 
 impl Global for Loaded {}
@@ -46,6 +48,7 @@ pub(crate) fn install(plugins: Vec<Plugin>, crash: Option<Crash>, cx: &mut App) 
         local: crate::load::local(),
         sdk: crate::file::sdk_build(),
         crash,
+        offers_only: false,
     });
     artoo_shell_api::add_settings_section(
         cx,
@@ -82,6 +85,16 @@ fn parts(_: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
         settings: vec![Rows::new(SECTION, 10, view).opened(market::opened)],
         snapshots: vec![
             ("plugins-sample", sample),
+            (
+                "plugins-offers",
+                Rc::new(|_, cx| {
+                    cx.set_global(Loaded {
+                        offers_only: true,
+                        ..self::sample()
+                    });
+                    cx.set_global(market::sample());
+                }),
+            ),
             ("plugin-install:", Rc::new(market::install_found)),
         ],
         ..Default::default()
@@ -186,6 +199,9 @@ impl Render for PluginsSettings {
             .collect();
         let local = local_group(loaded, being_written);
         let available = available(market_now, &loaded.plugins);
+        if loaded.offers_only {
+            return div().flex().flex_col().child(available).into_any_element();
+        }
         let none = rows.is_empty().then(|| {
             div()
                 .px(px(12.))
@@ -237,6 +253,7 @@ impl Render for PluginsSettings {
             )
             .child(local)
             .child(available)
+            .into_any_element()
     }
 }
 
@@ -636,7 +653,7 @@ fn link_of(i: usize, repository: &str) -> Option<impl IntoElement> {
     })
 }
 
-/// Four plugins, one of each state, for the section's snapshot (`plugins-sample,settings:plugins`).
+/// Plugins, one of each state, for the section's snapshot (`plugins-sample,settings:plugins`).
 fn sample() -> Loaded {
     let stamp = |id: &str, name: &str, version: &str, requires: &[&str]| Stamp {
         abi: ABI.to_owned(),
@@ -676,6 +693,11 @@ fn sample() -> Loaded {
                 State::Refused("needs jira.issues@1, which no plugin on offers".to_owned()),
             ),
             plugin(
+                stamp("flaky", "Flaky", "0.9.0", &[]),
+                Origin::Installed,
+                State::Struck,
+            ),
+            plugin(
                 stamp("hello", "Hello", "0.1.0", &[]),
                 Origin::Local(hello.clone()),
                 State::On,
@@ -685,11 +707,22 @@ fn sample() -> Loaded {
                 Origin::Env,
                 State::On,
             ),
+            Plugin {
+                path: PathBuf::from("~/code/artoo-draft"),
+                origin: Origin::Local(PathBuf::from("~/code/artoo-draft")),
+                stamp: None,
+                state: State::Refused("nothing has been built in this folder yet".to_owned()),
+            },
         ],
-        off: ["confluence".to_owned()].into(),
-        local: vec![hello, PathBuf::from("~/code/artoo-notes")],
+        off: ["confluence".to_owned(), "flaky".to_owned()].into(),
+        local: vec![
+            hello,
+            PathBuf::from("~/code/artoo-draft"),
+            PathBuf::from("~/code/artoo-notes"),
+        ],
         sdk: Some("5C0F3B9E-2A41-3D7C-9B1E-6F2A8C4D0E17".to_owned()),
         crash: None,
+        offers_only: false,
     }
 }
 

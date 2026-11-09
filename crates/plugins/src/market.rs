@@ -458,9 +458,46 @@ pub(crate) fn sample() -> Market {
                 2,
                 Build::Nothing,
             ),
+            offer(
+                "someone/artoo-confluence",
+                "Confluence pages beside the code.",
+                120,
+                ready("confluence", "0.2.0"),
+            ),
+            offer(
+                "kim/sprint-board",
+                "Another sprint board, with the same id.",
+                9,
+                ready("sprint", "2.0.0"),
+            ),
+            offer(
+                "ana/artoo-standup",
+                "Yesterday's commits, for the standup.",
+                12,
+                ready("standup", "0.3.0"),
+            ),
+            offer(
+                "ana/artoo-timer",
+                "Time spent on each review.",
+                7,
+                ready("timer", "1.0.0"),
+            ),
+            offer(
+                "bo/artoo-gantt",
+                "A branch's work on a timeline.",
+                3,
+                ready("gantt", "0.1.0"),
+            ),
         ]),
         asking: Some("someone/artoo-linear".to_owned()),
-        done: BTreeMap::new(),
+        done: BTreeMap::from([
+            ("standup".to_owned(), Done::Installing),
+            ("timer".to_owned(), Done::Installed),
+            (
+                "gantt".to_owned(),
+                Done::Failed("the download failed".to_owned()),
+            ),
+        ]),
     }
 }
 
