@@ -8,6 +8,13 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   runs it: without `--all-targets` the tests' lints go unseen, without `--workspace` the crates'), `cargo test
   --workspace` green before a commit to `main`.
 - **A Cargo workspace (#165).** The root package is the app (`src/main.rs`, `src/ui/`);
+  `crates/plugin-sdk` (`artoo-plugin-sdk`, #175) is what a plugin builds against: one shared library holding GPUI, its
+  platform, the core, the kit and every contract, which the app links (`extern crate` in `main.rs`) so each is once in
+  the process — it depends on what is shared alone, nothing but the app depends on it (`tests/crates.rs`), and it and
+  the libstd it links travel with the app (`build.rs`'s rpaths, `bundle.sh`'s Frameworks, the release's packages; on
+  Windows a debug SDK has more exports than a DLL may, so Windows builds it optimised; the C libraries under the
+  core are inside it and not exported, so the app's code calls git2's generic functions only through the core —
+  a test's repositories `artoo_core::git::fixture` —, or it does not link);
   `crates/core` (`artoo-core`) holds what draws nothing — it has no GPUI — and depends on no feature: git, highlighting, the platform
   layer, storage, themes, markdown and the diff helpers, among them a selection's ends (`select`), the diff's rows (`rows`: a file built to rows in
   the background, laid out for the view options, with what is pinned on its lines merged in) and a line written on found

@@ -24,6 +24,7 @@ independent of each other); the Rust form below waits for the developer's review
 | `artoo-<x>-api` (`crates/<x>-api`) | feature x's contract: traits, the plain types they speak, the handle that reads them | core, the kit, GPUI |
 | `artoo-<x>` (`crates/<x>`) | feature x: its implementation, its views, its state; it shows the app functions only (`install`) | core, the kit, any `-api` |
 | `artoo-shell-api` / `artoo-shell` | the registries every feature contributes to (routes, pages, actions, settings sections, toasts) / the frame that shows them: window, tabs, rail, sidebar | as a feature |
+| `artoo-plugin-sdk` (`crates/plugin-sdk`) | what a plugin builds against: one shared library (`dylib`) of GPUI, its platform, the core, the kit and every contract, so each is once in the process (#175) | core, the kit, every `-api`; only the app depends on it |
 | `artoo` (the root package, `src/main.rs`) | the composition root: reads the mode, calls every `install`, opens the window | everything |
 
 → [crates](references/crates.md)

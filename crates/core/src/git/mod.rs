@@ -3,6 +3,8 @@
 
 mod diff;
 pub mod fetch;
+#[cfg(any(test, feature = "sandbox"))]
+pub mod fixture;
 mod versions;
 
 #[cfg(test)]

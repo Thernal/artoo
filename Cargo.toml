@@ -90,6 +90,7 @@ artoo-review-api = { path = "crates/review-api" }
 artoo-branches = { path = "crates/branches" }
 artoo-branches-api = { path = "crates/branches-api" }
 artoo-ui-kit = { path = "crates/ui-kit" }
+artoo-plugin-sdk = { path = "crates/plugin-sdk" }
 anyhow.workspace = true
 imagesize.workspace = true
 sha1_smol.workspace = true

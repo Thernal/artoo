@@ -49,12 +49,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
+      # The plugins' SDK and the libstd it links travel with the binary (#175).
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        env:
+          ARTOO_PACKAGED: 1
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+          mkdir -p out
+          cp target/${{ matrix.target }}/release/artoo target/${{ matrix.target }}/release/deps/libartoo_plugin_sdk.dylib out/
+          cp "$(rustc --print target-libdir --target ${{ matrix.target }})"/libstd-*.dylib out/
       - uses: actions/upload-artifact@v4
         with:
           name: bin-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/artoo
+          path: out/*
           retention-days: 1
 
   macos:
@@ -71,15 +78,19 @@ jobs:
           path: bin
       - name: Join
         run: |
-          mkdir -p target
+          mkdir -p target libs
           lipo -create -output target/artoo-universal \
             bin/bin-aarch64-apple-darwin/artoo \
             bin/bin-x86_64-apple-darwin/artoo
           # An artifact keeps no file modes.
           chmod +x target/artoo-universal
+          # Each library a universal one when both architectures have it under one name (libstd's may differ).
+          for lib in $(cd bin && ls bin-*/*.dylib | xargs -n1 basename | sort -u); do
+            lipo -create -output "libs/$lib" bin/bin-*/"$lib"
+          done
       - name: Bundle
         run: |
-          ARTOO_BIN=target/artoo-universal ./bundle.sh
+          ARTOO_BIN=target/artoo-universal ARTOO_LIBS=libs ./bundle.sh
           mkdir -p dist dmg
           ditto -c -k --keepParent target/Artoo.app "dist/Artoo-$VERSION-macos.zip"
           cp -R target/Artoo.app dmg/
@@ -111,6 +122,9 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist, pkg/Artoo | Out-Null
           Copy-Item target/release/artoo.exe pkg/Artoo/Artoo.exe
+          # The plugins' SDK and the std it links, beside the .exe where Windows looks first (#175).
+          Copy-Item target/release/deps/artoo_plugin_sdk.dll pkg/Artoo/
+          Copy-Item "$(rustc --print target-libdir)/std-*.dll" pkg/Artoo/
           Copy-Item README.md, LICENSE pkg/Artoo/
           New-Item -ItemType Directory -Force pkg/Artoo/licenses | Out-Null
           Copy-Item assets/icons/intellij/LICENSE pkg/Artoo/licenses/intellij-icons-LICENSE
@@ -136,11 +150,16 @@ jobs:
       - name: Linux libraries
         run: sh .github/linux-deps.sh
       - name: Build
+        env:
+          ARTOO_PACKAGED: 1
         run: cargo build --release
       - name: Package
         run: |
           mkdir -p dist "pkg/artoo-$VERSION"
           cp target/release/artoo README.md LICENSE assets/linux/artoo.desktop "pkg/artoo-$VERSION/"
+          # The plugins' SDK and the libstd it links (#175): beside the binary in the archive, `../lib` in the AppImage.
+          libs="target/release/deps/libartoo_plugin_sdk.so $(rustc --print target-libdir)/libstd-*.so"
+          cp $libs "pkg/artoo-$VERSION/"
           cp assets/icon.png "pkg/artoo-$VERSION/artoo.png"
           mkdir -p "pkg/artoo-$VERSION/licenses"
           cp assets/icons/intellij/LICENSE "pkg/artoo-$VERSION/licenses/intellij-icons-LICENSE"
@@ -149,8 +168,9 @@ jobs:
           tar -C pkg -czf "dist/artoo-$VERSION-linux-x86_64.tar.gz" "artoo-$VERSION"
 
           app=Artoo.AppDir
-          mkdir -p "$app/usr/bin" "$app/usr/share/icons/hicolor/512x512/apps"
+          mkdir -p "$app/usr/bin" "$app/usr/lib" "$app/usr/share/icons/hicolor/512x512/apps"
           cp target/release/artoo "$app/usr/bin/"
+          cp $libs "$app/usr/lib/"
           cp assets/linux/artoo.desktop "$app/"
           cp assets/icon.png "$app/artoo.png"
           cp assets/icon.png "$app/usr/share/icons/hicolor/512x512/apps/artoo.png"

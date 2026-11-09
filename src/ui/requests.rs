@@ -1161,20 +1161,11 @@ mod tests {
         n: usize,
         tag: &str,
     ) -> Vec<git2::Oid> {
-        let sig = git2::Signature::now("Test", "test@example.com").unwrap();
         let mut out = Vec::new();
         let mut parent = parent;
         for i in 0..n {
-            let mut tree = repo.treebuilder(None).unwrap();
-            let blob = repo.blob(format!("{tag} {i}").as_bytes()).unwrap();
-            tree.insert(format!("f{i}"), blob, 0o100644).unwrap();
-            let tree = repo.find_tree(tree.write().unwrap()).unwrap();
-            let parents: Vec<_> = parent
-                .iter()
-                .map(|p| repo.find_commit(*p).unwrap())
-                .collect();
-            let parents: Vec<_> = parents.iter().collect();
-            let id = repo.commit(None, &sig, &sig, "c", &tree, &parents).unwrap();
+            let file = (format!("f{i}"), format!("{tag} {i}"));
+            let id = crate::git::fixture::commit(repo, parent, &[(&file.0, &file.1)], "c");
             out.push(id);
             parent = Some(id);
         }
@@ -1185,7 +1176,7 @@ mod tests {
     fn a_request_is_compared_from_the_hosts_sides_when_this_clone_would_differ() {
         use super::{Sides, sides};
         let dir = tempfile::TempDir::new().unwrap();
-        let git = git2::Repository::init(dir.path()).unwrap();
+        let git = crate::git::fixture::init(dir.path());
         // The target here is at `a`; on the host it went on to `c`, the request was rebased on
         // it (`d`), and later the target went on again (`e`).
         let main = line(&git, None, 3, "main");

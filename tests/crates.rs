@@ -3,33 +3,40 @@
 
 use std::path::{Path, PathBuf};
 
-/// What a crate is, read from its name: one of the two shared crates, a feature's contract (`-api`), or a
-/// feature's implementation.
+/// What a crate is, read from its name: one of the two shared crates, a feature's contract (`-api`), a feature's
+/// implementation, or the plugins' SDK.
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Role {
     Core,
     Kit,
     Contract,
     Implementation,
+    Sdk,
 }
+
+/// The plugins' SDK (#175): what a plugin builds against, one shared library.
+const SDK: &str = "artoo-plugin-sdk";
 
 fn role(name: &str) -> Role {
     match name {
         "artoo-core" => Role::Core,
         "artoo-ui-kit" => Role::Kit,
+        SDK => Role::Sdk,
         _ if name.ends_with("-api") => Role::Contract,
         _ => Role::Implementation,
     }
 }
 
 /// The core depends on nothing of Artoo's, the kit on the core alone, a contract on the core and the kit (its
-/// types may be the kit's: a part's selection), an implementation on anything but another implementation.
+/// types may be the kit's: a part's selection), an implementation on anything but another implementation or the
+/// SDK, the SDK on what is shared (a plugin reaches no implementation). Only the app and plugins depend on the SDK.
 fn may_depend(from: Role, to: Role) -> bool {
     match from {
         Role::Core => false,
         Role::Kit => to == Role::Core,
         Role::Contract => matches!(to, Role::Core | Role::Kit),
-        Role::Implementation => to != Role::Implementation,
+        Role::Implementation => !matches!(to, Role::Implementation | Role::Sdk),
+        Role::Sdk => matches!(to, Role::Core | Role::Kit | Role::Contract),
     }
 }
 
@@ -153,11 +160,29 @@ fn an_open_surface_goes_once_it_is_narrow() {
 }
 
 #[test]
+fn the_sdk_holds_every_contract() {
+    let crates = crates();
+    let sdk = crates.iter().find(|c| c.name == SDK).unwrap();
+    let missing: Vec<_> = (crates.iter())
+        .filter(|c| matches!(role(&c.name), Role::Core | Role::Kit | Role::Contract))
+        .filter(|c| !sdk.deps.contains(&c.name))
+        .map(|c| c.name.as_str())
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "the SDK misses {missing:?}: a plugin could not use them (and would link its own copy)"
+    );
+}
+
+#[test]
 fn a_crates_role_is_read_from_its_name() {
     assert_eq!(role("artoo-core"), Role::Core);
     assert_eq!(role("artoo-ui-kit"), Role::Kit);
     assert_eq!(role("artoo-hosts-api"), Role::Contract);
     assert_eq!(role("artoo-hosts"), Role::Implementation);
+    assert_eq!(role("artoo-plugin-sdk"), Role::Sdk);
+    assert!(!may_depend(Role::Implementation, Role::Sdk));
+    assert!(may_depend(Role::Sdk, Role::Contract));
     assert!(may_depend(Role::Implementation, Role::Contract));
     assert!(!may_depend(Role::Implementation, Role::Implementation));
     assert!(!may_depend(Role::Contract, Role::Contract));

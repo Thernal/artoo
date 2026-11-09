@@ -3,6 +3,10 @@
 // A GUI app on Windows: no console window behind it.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
+// The plugins' SDK (#175): GPUI, the core, the kit and the contracts once in the process, in a shared library a plugin
+// loads into too. Named here, the app links them from it rather than its own copy.
+extern crate artoo_plugin_sdk;
+
 mod ui;
 
 /// The agents' models: the comments for an agent, their notes, what goes over their folder.

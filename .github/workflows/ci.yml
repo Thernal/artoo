@@ -43,6 +43,10 @@ jobs:
 
       - name: Test
         shell: bash
+        # Windows: a DLL exports at most 65,535 symbols. The plugins' SDK built for debugging has about 210,000
+        # (generics shared, nothing inlined), optimised about 36,000 (#175).
+        env:
+          CARGO_PROFILE_DEV_OPT_LEVEL: ${{ runner.os == 'Windows' && '2' || '0' }}
         run: |
           # A failing test's name and panic become annotations: the log needs signing in to read.
           set -o pipefail

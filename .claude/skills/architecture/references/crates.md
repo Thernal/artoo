@@ -5,8 +5,8 @@
 ## Rule
 
 1. **A crate's role is read from its name.** `artoo-core` and `artoo-ui-kit` are shared; a name ending in
-   `-api` is a feature's contract; every other crate under `crates/` is a feature's implementation; the root
-   package is the app.
+   `-api` is a feature's contract; `artoo-plugin-sdk` is what a plugin builds against (#175); every other crate
+   under `crates/` is a feature's implementation; the root package is the app.
 2. **Names are flat:** `crates/<x>` is `artoo-<x>`, `crates/<x>-api` is `artoo-<x>-api`, so
    `members = ["crates/*"]` takes them all. Code imports a contract under its feature's name when the package
    name only adds noise: `use artoo_hosts_api as hosts;`.
@@ -18,6 +18,8 @@
      the kit's markdown's (2026-10-30, #165 stage 4);
    - an implementation depends on the core, the kit and any contract, its own and other features'. **Never on
      another implementation;**
+   - the SDK depends on the core, the kit and **every** contract (a plugin reaches no implementation, and a
+     contract outside it would be linked twice); only the app depends on it, and the plugins built outside;
    - the app depends on everything; it is the only crate that names an implementation.
 
    Dev-dependencies are outside the rule: a test may take an implementation (hosts' fixtures through
@@ -51,4 +53,5 @@ artoo-hosts-api.workspace = true   # Host, Request — never artoo-hosts
 ## Checked by
 
 `tests/crates.rs`: `a_crate_depends_only_on_what_its_role_allows` reads every manifest under `crates/`;
-`an_allowed_edge_goes_once_it_is_gone` fails on an exception no longer needed.
+`an_allowed_edge_goes_once_it_is_gone` fails on an exception no longer needed; `the_sdk_holds_every_contract` fails
+when a new contract is not in the SDK.

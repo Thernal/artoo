@@ -1,0 +1,33 @@
+[package]
+name = "artoo-plugin-sdk"
+description = "What a plugin links (#175): GPUI, its platform, the core, the kit and every contract, as one shared library the app and every plugin load."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# One image for the app and every plugin: what is in it is once in the process, its statics (the theme, the
+# registries) the same for both. rustc links a crate the SDK holds from the SDK, in the app too.
+[lib]
+crate-type = ["dylib"]
+test = false
+doctest = false
+
+[dependencies]
+artoo-core = { path = "../core" }
+artoo-ui-kit = { path = "../ui-kit" }
+artoo-shell-api = { path = "../shell-api" }
+artoo-agents-api = { path = "../agents-api" }
+artoo-branches-api = { path = "../branches-api" }
+artoo-code-api = { path = "../code-api" }
+artoo-hosts-api = { path = "../hosts-api" }
+artoo-requests-api = { path = "../requests-api" }
+artoo-review-api = { path = "../review-api" }
+gpui.workspace = true
+# The platform's load-time constructors run in the image their runner is in (ctor): it must be this one, or the
+# app's never run.
+gpui_platform.workspace = true
+
+# The app's features, so the SDK built alone is the app's (the release's SDK, a plugin's build against it).
+[target.'cfg(target_os = "linux")'.dependencies]
+gpui_platform = { workspace = true, features = ["x11", "wayland"] }
