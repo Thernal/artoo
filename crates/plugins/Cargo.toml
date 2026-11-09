@@ -21,13 +21,6 @@ serde.workspace = true
 serde_json.workspace = true
 zip.workspace = true
 
-# The SDK's file: the image an address of it is in.
-[target.'cfg(unix)'.dependencies]
-libc.workspace = true
-
-[target.'cfg(windows)'.dependencies]
-windows-sys.workspace = true
-
 [dev-dependencies]
 artoo-core = { path = "../core", features = ["sandbox"] }
 tempfile.workspace = true

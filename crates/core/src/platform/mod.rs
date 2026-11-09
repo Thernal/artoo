@@ -17,6 +17,9 @@ mod linux;
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 use linux as os;
 
+pub mod faults;
+pub mod libraries;
+
 use std::path::{Path, PathBuf};
 
 pub use os::{TRANSPARENT_TITLEBAR, alive, launch, owner_only, reduce_motion, set_icon};

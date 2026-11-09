@@ -198,15 +198,8 @@ fn said(panic: &(dyn std::any::Any + Send)) -> String {
 
 /// Loads `path` with every symbol bound now, and gives its install. The library stays loaded while the app runs.
 fn open(path: &Path) -> Result<fn(&mut App), String> {
-    #[cfg(unix)]
-    let library = {
-        use libloading::os::unix::{Library, RTLD_LOCAL, RTLD_NOW};
-        // SAFETY: the stamp says it was built against this SDK, so what it runs as it loads is this build's.
-        unsafe { Library::open(Some(path), RTLD_NOW | RTLD_LOCAL) }.map(libloading::Library::from)
-    };
-    #[cfg(windows)]
-    // SAFETY: as above; Windows binds every import as it loads.
-    let library = unsafe { libloading::Library::new(path) };
+    // SAFETY: the stamp says it was built against this SDK, so what it runs as it loads is this build's.
+    let library = unsafe { artoo_core::platform::libraries::open(path) };
     let library = library.map_err(|e| format!("did not load: {e}"))?;
     let library: &'static libloading::Library = Box::leak(Box::new(library));
     // SAFETY: `plugin!` writes `artoo_plugin_install` with this signature, in this SDK's ABI.

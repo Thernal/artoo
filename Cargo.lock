@@ -366,6 +366,7 @@ dependencies = [
  "image",
  "imagesize",
  "libc",
+ "libloading",
  "notify",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
@@ -393,6 +394,7 @@ dependencies = [
  "tree-sitter-typescript",
  "tree-sitter-yaml",
  "two-face",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -456,14 +458,12 @@ dependencies = [
  "artoo-ui-kit",
  "backtrace",
  "gpui-pre",
- "libc",
  "libloading",
  "object",
  "semver",
  "serde",
  "serde_json",
  "tempfile",
- "windows-sys 0.61.2",
  "zip",
 ]
 
