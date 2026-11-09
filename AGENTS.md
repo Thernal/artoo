@@ -14,7 +14,12 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   the libstd it links travel with the app (`build.rs`'s rpaths, `bundle.sh`'s Frameworks, the release's packages; on
   Windows a debug SDK has more exports than a DLL may, so Windows builds it optimised; the C libraries under the
   core are inside it and not exported, so the app's code calls git2's generic functions only through the core —
-  a test's repositories `artoo_core::git::fixture` —, or it does not link);
+  a test's repositories `artoo_core::git::fixture` —, or it does not link). The SDK holds no code and no test:
+  Cargo gives a `dylib` `-C prefer-dynamic` only when it is not a package asked for, and without it std is linked
+  into the SDK and the app does not link — build the app (`cargo build`), never `cargo build --workspace` or `-p
+  artoo-plugin-sdk`. What makes a crate a plugin is `crates/plugin-api` (`artoo-plugin-api`), a contract inside it:
+  `Meta`, the stamp `plugin!` writes into a plugin's own section (the SDK's ABI, the SDK build it was built against,
+  its meta, read before it is loaded) and `services` (what plugins offer each other, by `name@major`);
   `crates/core` (`artoo-core`) holds what draws nothing — it has no GPUI — and depends on no feature: git, highlighting, the platform
   layer, storage, themes, markdown and the diff helpers, among them a selection's ends (`select`), the diff's rows (`rows`: a file built to rows in
   the background, laid out for the view options, with what is pinned on its lines merged in) and a line written on found

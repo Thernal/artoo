@@ -12,6 +12,18 @@
 //! git2 call generic over its arguments (`Repository::init(path)`, `TreeBuilder::insert(name, …)`) is compiled where it
 //! is named, and there it does not link: git goes through the core (`artoo_core::git`; a test's repositories
 //! `git::fixture`).
+//!
+//! What makes a crate a plugin is the plugins' contract, here too: `plugin!` (its meta, its install, the stamp of the
+//! SDK it was built against) and what plugins offer each other (`services`).
+//!
+//! The SDK holds no code of its own, and no test: Cargo gives a `dylib` `-C prefer-dynamic` only when it is not one
+//! of the packages asked for, and without it rustc links std into the SDK, so the app, linking std too, does not
+//! link. A test target here would make `cargo test --workspace` ask for it; `cargo build --workspace` and
+//! `cargo build -p artoo-plugin-sdk` do too — build the app.
+
+pub use artoo_plugin_api::{
+    ABI, Meta, STAMP_SECTION, Stamp, plugin, read_stamp, services, stamp, stamp_len,
+};
 
 pub use artoo_agents_api as agents;
 pub use artoo_branches_api as branches;

@@ -11,4 +11,9 @@ fn main() {
         // linking it (an executable gets it through the platform crate).
         println!("cargo:rustc-link-lib=framework=IOSurface");
     }
+    // The SDK build's identity on Linux is its GNU build-id, a hash of its content (macOS's is the `LC_UUID` ld64
+    // always writes, Windows' the image's link time and size).
+    if os == "linux" {
+        println!("cargo:rustc-link-arg=-Wl,--build-id=sha1");
+    }
 }

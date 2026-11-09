@@ -174,6 +174,28 @@ fn the_sdk_holds_every_contract() {
     );
 }
 
+/// The SDK is a `dylib` Cargo must never be asked for (a test target would be, in `cargo test --workspace`): asked
+/// for, it is built without `-C prefer-dynamic`, std is linked into it, and the app no longer links. What it holds
+/// is its crates; code of its own, and its tests, go in a contract inside it (`artoo-plugin-api`).
+#[test]
+fn the_sdk_holds_no_code_and_no_test() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("crates/plugin-sdk");
+    let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
+    assert!(
+        manifest.lines().any(|l| l.trim() == "test = false"),
+        "the SDK's [lib] must say test = false"
+    );
+    for target in ["tests", "benches", "examples", "src/bin", "src/main.rs"] {
+        assert!(!dir.join(target).exists(), "the SDK has {target}");
+    }
+    let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
+    let code: Vec<&str> = (lib.lines().map(str::trim))
+        .filter(|l| !l.is_empty() && !l.starts_with("//"))
+        .filter(|l| !l.starts_with("pub use ") && !l.ends_with(',') && *l != "};")
+        .collect();
+    assert!(code.is_empty(), "the SDK's lib.rs holds code: {code:?}");
+}
+
 #[test]
 fn a_crates_role_is_read_from_its_name() {
     assert_eq!(role("artoo-core"), Role::Core);

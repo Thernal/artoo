@@ -19,7 +19,10 @@
    - an implementation depends on the core, the kit and any contract, its own and other features'. **Never on
      another implementation;**
    - the SDK depends on the core, the kit and **every** contract (a plugin reaches no implementation, and a
-     contract outside it would be linked twice); only the app depends on it, and the plugins built outside;
+     contract outside it would be linked twice); only the app depends on it, and the plugins built outside. It
+     holds no code and no test target: what plugins need is a contract in it (`artoo-plugin-api`), since a test
+     target would make `cargo test --workspace` ask for the SDK, and Cargo builds a `dylib` it is asked for without
+     `-C prefer-dynamic` — std linked into it, and the app no longer links;
    - the app depends on everything; it is the only crate that names an implementation.
 
    Dev-dependencies are outside the rule: a test may take an implementation (hosts' fixtures through

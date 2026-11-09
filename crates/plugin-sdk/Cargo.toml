@@ -8,6 +8,7 @@ publish = false
 
 # One image for the app and every plugin: what is in it is once in the process, its statics (the theme, the
 # registries) the same for both. rustc links a crate the SDK holds from the SDK, in the app too.
+# No test, nor code to test (src/lib.rs says why): built only as the app's dependency, it links std dynamically.
 [lib]
 crate-type = ["dylib"]
 test = false
@@ -23,6 +24,7 @@ artoo-code-api = { path = "../code-api" }
 artoo-hosts-api = { path = "../hosts-api" }
 artoo-requests-api = { path = "../requests-api" }
 artoo-review-api = { path = "../review-api" }
+artoo-plugin-api = { path = "../plugin-api" }
 gpui.workspace = true
 # The platform's load-time constructors run in the image their runner is in (ctor): it must be this one, or the
 # app's never run.
