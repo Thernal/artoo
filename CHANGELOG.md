@@ -4,7 +4,7 @@ What is new in each release of Artoo. A release's notes on GitHub are its sectio
 (`.github/release-notes.sh`); a release tag whose version has no section here does not build. Write what changed
 for someone using the app, not for someone reading the code; the commits follow anyway.
 
-## Unreleased
+## 2.0.0-rc.1 — 2026-11-09
 
 - **Plugins.** Artoo loads plugins as it starts: libraries built against its SDK. Settings → Plugins finds them on
   GitHub, installs, updates and removes them, says why one was not loaded, and turns one off for the next start. One built for another Artoo is refused before any of it runs, and one that fails as it installs leaves
