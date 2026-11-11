@@ -885,22 +885,14 @@ pub trait Requests {
         drafted: Option<Drafted>,
         cx: &mut App,
     ) -> Option<Pair>;
-    /// Templates ▾ chose `ix`; a list over the form opened (a snapshot's way in); the quick way, at Into.
+    /// Templates ▾ chose `ix`; a list over the form opened (a snapshot's way in).
     fn use_template(&self, ix: usize, cx: &mut App);
     fn open_create_menu(&self, name: &str, cx: &mut App);
-    fn create_quick(&self, cx: &mut App);
     /// The form is open.
     fn creating(&self, cx: &App) -> bool;
     /// From's (`source`) or Into's list chose `name`: the pair; ↑ ↓ on the list open (`true`: taken).
     fn pick_branch(&self, name: String, source: bool, cx: &mut App) -> Option<Pair>;
     fn step_branch_list(&self, down: bool, cx: &mut App) -> bool;
-    /// The quick way over the branch view, `typing` while the form has the keyboard.
-    fn render_create_quick(
-        &self,
-        typing: bool,
-        selecting: Selecting,
-        cx: &mut App,
-    ) -> Option<AnyElement>;
 
     /// Compare with the new version for discussion `ix`, `latest` the newest: the stepper set, its last stop; the
     /// stepper as it is; left (the request it was on); the line of discussion `thread` changed since it was written.

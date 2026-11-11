@@ -169,7 +169,6 @@ actions!(
         NextDraft,
         PreviousDraft,
         CreateRequest,
-        QuickCreateRequest,
         SendToAgent,
         OpenIn,
         RevealInFinder,
@@ -776,10 +775,6 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         // The new request for the open branch, and one of its lists open.
                         "create" => {
                             this.open_create(None, cx);
-                            continue;
-                        }
-                        "create-quick" => {
-                            this.open_create_quick(cx);
                             continue;
                         }
                         menu if menu.starts_with("create-") => {

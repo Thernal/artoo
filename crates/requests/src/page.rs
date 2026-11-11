@@ -1,8 +1,10 @@
-//! A merge request's page, the requests' side of it (#73): Overview — the identity and its facts, the
-//! description, a column of who reviews (#137) — and the request's identity in words for a long hover. Commits and
-//! Changes have no line of their own over them: the title is in the page bar (#188).
+//! A merge request's page, the requests' side of it (#73): Overview — the title with its author and branches on one
+//! line, the facts in a row, what is in the way of merging without a click (#190, Design L4), the description beside
+//! a column of who reviews, its labels, its milestone and its discussions — and the request's identity in words for a
+//! long hover. Commits and Changes have no line of their own over them: the title is in the page bar (#188).
 
 use crate::bar::pipeline_word;
+use crate::merge::{Fix, Stand};
 use crate::requests::Requests;
 use crate::waiting::FADED;
 use artoo_hosts_api::{Details, Mr, MrState};
@@ -11,6 +13,7 @@ use artoo_ui_kit::hover;
 use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::{discussion, island, px, theme, words};
 use gpui::{AnyElement, App, ClickEvent, Div, FontWeight, Rgba, div, prelude::*};
+use std::rc::Rc;
 
 /// Overview's column beside the description, and the least height it keeps when the
 /// description is short.
@@ -26,12 +29,14 @@ pub struct OverviewLook {
     /// The description's text selection.
     pub selecting: Option<Selecting>,
     pub facts: Facts,
+    /// Opens the Discussions window: where an unresolved discussion in the way is fixed.
+    pub discussions: Rc<dyn Fn(&mut App)>,
 }
 
 /// Overview's facts the tab keeps: the commits, how far your review is, the versions.
 pub struct Facts {
     pub commits: usize,
-    /// "3 of 8 files", or "—".
+    /// How far your own marks are: "3 of 8 files", or "—".
     pub reviewed: String,
     /// "v2 → v3", "v3", or "—".
     pub versions: String,
@@ -73,6 +78,7 @@ impl Requests {
                     .min_h_0()
                     .overflow_y_scroll()
                     .child(self.overview_identity(m, look.title, &look.facts))
+                    .children(self.in_the_way(look.discussions.clone()))
                     .child(div().h(px(1.)).bg(theme::island_border()))
                     // The description sets the height; the facts and discussions beside it are no
                     // taller and scroll in their own column (the developer, 2026-10-23).
@@ -110,15 +116,15 @@ impl Requests {
                                     .flex_col()
                                     .gap(px(20.))
                                     .text_size(px(12.))
-                                    .children(self.overview_facts(&d)),
+                                    .children(self.overview_facts(&d, look.discussions)),
                             ),
                     ),
             )
             .into_any_element()
     }
 
-    /// Overview's head: the title and its state, who wants to merge what into what, and the facts
-    /// in a row — author, branches, pipeline, approvals, how far your review is, the versions.
+    /// Overview's head: the title and its state, its author and branches beside it, once (#190); then the facts in a
+    /// row — pipeline, approvals, how far your own review is, the versions, the commits.
     fn overview_identity(&self, m: &Mr, title: AnyElement, facts: &Facts) -> Div {
         let url = m.url.clone();
         let mine = self.login.as_deref().is_some_and(|me| me == m.author_login);
@@ -140,13 +146,18 @@ impl Requests {
             Some(_) => "none yet".to_owned(),
             None => "—".to_owned(),
         };
+        let author = if mine {
+            "You".to_owned()
+        } else {
+            m.author.clone()
+        };
         div()
             .px(px(24.))
             .pt(px(20.))
             .pb(px(18.))
             .flex()
             .flex_col()
-            .gap(px(6.))
+            .gap(px(14.))
             .child(
                 div()
                     .flex()
@@ -154,10 +165,30 @@ impl Requests {
                     .gap(px(10.))
                     .child(
                         hover::cut_with("overview-title", m.title.clone(), title)
+                            .min_w_0()
                             .text_size(px(17.))
                             .font_weight(FontWeight::SEMIBOLD),
                     )
                     .child(state_chip(m))
+                    // Who and from where to where, once, beside the title.
+                    .child(
+                        div()
+                            .flex()
+                            .min_w_0()
+                            .items_center()
+                            .gap(px(6.))
+                            .text_size(px(13.))
+                            .text_color(theme::muted())
+                            .child(discussion::avatar(&m.author, false, 16.))
+                            .child(div().flex_none().child(author))
+                            .child(faint("·").flex_none())
+                            .child(
+                                hover::branches("overview-branches", &m.source, &m.target)
+                                    .min_w_0()
+                                    .font_family(theme::code_font())
+                                    .text_size(px(12.)),
+                            ),
+                    )
                     .child(div().flex_1())
                     .child(
                         div()
@@ -175,59 +206,8 @@ impl Requests {
                 div()
                     .flex()
                     .flex_wrap()
-                    .items_center()
-                    .gap_x(px(5.))
-                    .text_size(px(13.))
-                    .text_color(theme::muted())
-                    .child(div().text_color(theme::text()).child(if mine {
-                        "You".to_owned()
-                    } else {
-                        m.author.clone()
-                    }))
-                    .child(match (m.state, mine) {
-                        (MrState::Merged, _) => "merged",
-                        (MrState::Closed, _) => "wanted to merge",
-                        (MrState::Opened, true) => "want to merge",
-                        (MrState::Opened, false) => "wants to merge",
-                    })
-                    .child(
-                        div()
-                            .text_color(theme::text())
-                            .child(plural(facts.commits, "commit")),
-                    )
-                    .child("from")
-                    .child(name("overview-source", &m.source).text_color(theme::accent()))
-                    .child("into")
-                    .child(name("overview-target", &m.target)),
-            )
-            .child(
-                div()
-                    .mt(px(12.))
-                    .flex()
-                    .flex_wrap()
                     .gap_x(px(32.))
                     .gap_y(px(12.))
-                    .child(fact(
-                        "Author",
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .child(discussion::avatar(&m.author, false, 16.))
-                            .child(m.author.clone())
-                            .into_any_element(),
-                    ))
-                    .child(fact(
-                        "Branches",
-                        div()
-                            .flex()
-                            .min_w_0()
-                            .gap(px(5.))
-                            .child(name("fact-source", &m.source).text_color(theme::accent()))
-                            .child(faint("→").flex_none())
-                            .child(name("fact-target", &m.target))
-                            .into_any_element(),
-                    ))
                     .child(fact("Pipeline", pipeline))
                     .child(fact(
                         "Approvals",
@@ -236,20 +216,101 @@ impl Requests {
                             .child(approvals)
                             .into_any_element(),
                     ))
+                    // Your own marks, not the team's state (#190).
                     .child(fact(
-                        "Reviewed",
+                        "Your review",
                         div().child(facts.reviewed.clone()).into_any_element(),
                     ))
                     .child(fact(
                         "Versions",
                         div().child(facts.versions.clone()).into_any_element(),
+                    ))
+                    .child(fact(
+                        "Commits",
+                        div().child(facts.commits.to_string()).into_any_element(),
                     )),
             )
     }
 
-    /// Overview's column: who reviews and how far (#137; the discussions are the Discussions
-    /// window's).
-    fn overview_facts(&self, d: &Details) -> Vec<AnyElement> {
+    /// `In the way of merging`: a row for each reason, its facts and where it is fixed (#190, Design L4), between
+    /// rules; none while nothing is in the way or the host's word is not in.
+    fn in_the_way(&self, discussions: Rc<dyn Fn(&mut App)>) -> Option<Div> {
+        let Some(Stand::InTheWay(blocks)) = self.merge_stand() else {
+            return None;
+        };
+        let pipeline = self.pipeline.as_ref().map(|p| p.url.clone());
+        let github = self.web.as_ref().is_some_and(|w| w.github);
+        Some(
+            div()
+                .border_t_1()
+                .border_color(theme::island_border())
+                .px(px(24.))
+                .py(px(16.))
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::warning())
+                        .child("IN THE WAY OF MERGING"),
+                )
+                .children(blocks.into_iter().enumerate().map(|(i, b)| {
+                    let link = match &b.fix {
+                        Fix::Nowhere => None,
+                        Fix::Discussions => Some("Discussions →"),
+                        Fix::Page(url) if Some(url) == pipeline.as_ref() => Some("Pipeline →"),
+                        Fix::Page(_) if github => Some("GitHub ↗"),
+                        Fix::Page(_) => Some("GitLab ↗"),
+                    };
+                    // A failure or a conflict is the red of what broke; a count to reach is plain.
+                    let broke = matches!(b.what, "Pipeline" | "Conflicts");
+                    let fix = b.fix.clone();
+                    let discussions = discussions.clone();
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .text_size(px(13.))
+                        .child(
+                            div()
+                                .flex_none()
+                                .w(px(82.))
+                                .text_color(theme::muted())
+                                .child(b.what),
+                        )
+                        .child(
+                            div()
+                                .min_w_0()
+                                .text_color(if broke {
+                                    theme::removed()
+                                } else {
+                                    theme::text()
+                                })
+                                .child(b.detail),
+                        )
+                        .children(link.map(|link| {
+                            div()
+                                .id(("overview-fix", i))
+                                .flex_none()
+                                .text_color(theme::accent())
+                                .cursor_pointer()
+                                .hover(|s| s.text_color(theme::text()))
+                                .child(link)
+                                .on_click(move |_: &ClickEvent, _, cx| match &fix {
+                                    Fix::Nowhere => {}
+                                    Fix::Discussions => discussions(cx),
+                                    Fix::Page(url) => cx.open_url(url),
+                                })
+                        }))
+                })),
+        )
+    }
+
+    /// Overview's column (#137, #190): who reviews and how far, the labels, the milestone, and the discussions —
+    /// open and resolved, a click opening the Discussions window. A part with nothing to say is left out.
+    fn overview_facts(&self, d: &Details, discussions: Rc<dyn Fn(&mut App)>) -> Vec<AnyElement> {
         let approved = self
             .approvals
             .as_ref()
@@ -263,26 +324,95 @@ impl Requests {
                 reviewers.push(name.clone());
             }
         }
-        if reviewers.is_empty() {
-            return Vec::new();
+        let mut column = Vec::new();
+        if !reviewers.is_empty() {
+            column.push(
+                block(
+                    "Reviewers",
+                    reviewers.into_iter().map(|r| {
+                        let state = if approved.contains(&r) {
+                            ("✓ approved", theme::added())
+                        } else if d.changes_requested.contains(&r) {
+                            ("requested changes", theme::warning())
+                        } else {
+                            ("reviewing", theme::muted())
+                        };
+                        let login = self.login_of(&r);
+                        person(r, login, Some(state)).into_any_element()
+                    }),
+                )
+                .into_any_element(),
+            );
         }
-        vec![
-            block(
-                "Reviewers",
-                reviewers.into_iter().map(|r| {
-                    let state = if approved.contains(&r) {
-                        ("✓ approved", theme::added())
-                    } else if d.changes_requested.contains(&r) {
-                        ("requested changes", theme::warning())
-                    } else {
-                        ("reviewing", theme::muted())
-                    };
-                    let login = self.login_of(&r);
-                    person(r, login, Some(state)).into_any_element()
-                }),
-            )
-            .into_any_element(),
-        ]
+        if !d.labels.is_empty() {
+            column.push(
+                block(
+                    "Labels",
+                    [div()
+                        .flex()
+                        .flex_wrap()
+                        .gap(px(6.))
+                        .children(d.labels.iter().map(|l| {
+                            let color = l.color.map_or_else(theme::muted, gpui::rgb);
+                            div()
+                                .px(px(8.))
+                                .h(px(20.))
+                                .flex()
+                                .items_center()
+                                .rounded_full()
+                                .border_1()
+                                .border_color(Rgba { a: 0.5, ..color })
+                                .bg(Rgba { a: 0.12, ..color })
+                                .text_size(px(11.))
+                                .text_color(theme::text())
+                                .child(l.name.clone())
+                        }))
+                        .into_any_element()],
+                )
+                .into_any_element(),
+            );
+        }
+        if let Some((title, due)) = &d.milestone {
+            column.push(
+                block(
+                    "Milestone",
+                    [div()
+                        .flex()
+                        .gap(px(6.))
+                        .text_size(px(13.))
+                        .child(title.clone())
+                        .children(due.clone().map(|due| {
+                            div().text_color(theme::faint()).child(format!("due {due}"))
+                        }))
+                        .into_any_element()],
+                )
+                .into_any_element(),
+            );
+        }
+        let resolvable = self.threads.iter().filter(|t| t.resolvable);
+        let open = resolvable.clone().filter(|t| !t.resolved).count();
+        let resolved = resolvable.count() - open;
+        if open + resolved > 0 {
+            column.push(
+                block(
+                    "Discussions",
+                    [div()
+                        .id("overview-discussions")
+                        .flex()
+                        .items_center()
+                        .text_size(px(13.))
+                        .cursor_pointer()
+                        .hover(|s| s.text_color(theme::accent()))
+                        .child(format!("{open} open · {resolved} resolved"))
+                        .child(div().flex_1())
+                        .child(div().text_color(theme::accent()).child("→"))
+                        .on_click(move |_: &ClickEvent, _, cx| discussions(cx))
+                        .into_any_element()],
+                )
+                .into_any_element(),
+            );
+        }
+        column
     }
 
     /// A request's identity in words, for a long hover: its number and title, whose it is and
@@ -396,11 +526,6 @@ fn person(name: String, login: Option<String>, state: Option<(&'static str, Rgba
                 .child(format!("@{l}"))
         })))
         .children(state.map(|(word, color)| div().text_color(color).child(word)))
-}
-
-/// A branch, cut in its middle to its room (#184).
-fn name(id: &'static str, text: &str) -> gpui::Stateful<Div> {
-    hover::name(id, text.to_owned()).font_family(theme::code_font())
 }
 
 fn faint(text: &'static str) -> Div {

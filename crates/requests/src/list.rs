@@ -1346,8 +1346,8 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
         };
         let people = m.reviewers.iter().map(|login| {
             let name = name_of(login);
-            let approved = approvals
-                .is_some_and(|a| a.by.contains(&name) || (login == me && a.mine));
+            let approved =
+                approvals.is_some_and(|a| a.by.contains(&name) || (login == me && a.mine));
             div()
                 .flex()
                 .items_center()

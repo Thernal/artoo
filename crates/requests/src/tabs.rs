@@ -118,6 +118,12 @@ impl Tabs {
                 reviewed,
                 versions,
             },
+            discussions: {
+                let frame = frame.clone();
+                Rc::new(move |cx: &mut App| {
+                    frame.show_tool(Some(artoo_requests_api::DISCUSSIONS), cx)
+                })
+            },
         };
         self.requests.read(cx).render_overview(m, look, cx)
     }

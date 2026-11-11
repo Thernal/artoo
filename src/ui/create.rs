@@ -1,13 +1,12 @@
 //! New merge request (the requests keep the form and draw it): the tab opens it on a
 //! branch, from an agent's draft for it (#152) when there is one, gives it the keyboard, shows the
-//! diff of the pair it would merge and puts the quick way over the branch view (the requests draw the
-//! form in the diff's place).
+//! diff of the pair it would merge (the requests draw the form in the diff's place).
 
 use super::Workspace;
 use super::typing::Input;
 use artoo_core::mr::source_of;
 use artoo_requests_api::{CreateKey, Drafted, INPUT, Pair};
-use gpui::{AnyElement, App, Context};
+use gpui::{App, Context};
 
 impl Workspace {
     /// Opens the form for branch `ix` (the open one when `None`).
@@ -83,15 +82,6 @@ impl Workspace {
         }
     }
 
-    /// ⌘K → Create merge request: the quick way, starting at Into.
-    pub(super) fn open_create_quick(&mut self, cx: &mut Context<Self>) {
-        self.open_create(None, cx);
-        if let Some(requests) = self.requests_api() {
-            requests.create_quick(cx);
-        }
-        cx.notify();
-    }
-
     /// The form is open.
     pub(super) fn creating(&self, cx: &App) -> bool {
         self.requests_api().is_some_and(|r| r.creating(cx))
@@ -139,13 +129,5 @@ impl Workspace {
         self.layout.show_sidebar = true;
         self.open_request(iid, cx);
         cx.notify();
-    }
-
-    /// The quick way over the branch view (`Requests::render_create_quick`).
-    pub(super) fn render_create_quick(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let typing = self.has_keyboard(Input::Part(INPUT), cx);
-        let selecting = self.selecting(cx.entity().downgrade());
-        self.requests_api()?
-            .render_create_quick(typing, selecting, cx)
     }
 }

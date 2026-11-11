@@ -73,7 +73,6 @@ pub fn create_form(requests: Entity<Requests>, frame: Rc<dyn Frame>) -> Piece {
                 github,
                 base: drawing.web.as_ref().map(|w| w.base.clone()),
                 selecting: Some(drawing.selecting.clone()),
-                totals: shown.as_ref().and_then(|d| Totals::of(d)),
                 branches: &branches,
             };
             let (switch, form) = requests.update(cx, |rq, cx| {

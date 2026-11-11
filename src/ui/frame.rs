@@ -340,7 +340,6 @@ impl Render for Workspace {
         .on_action(cx.listener(|this, _: &NextDraft, _, cx| this.step_draft(true, cx)))
         .on_action(cx.listener(|this, _: &PreviousDraft, _, cx| this.step_draft(false, cx)))
         .on_action(cx.listener(|this, _: &CreateRequest, _, cx| this.open_create(None, cx)))
-        .on_action(cx.listener(|this, _: &QuickCreateRequest, _, cx| this.open_create_quick(cx)))
         // Every draft to its route; with no chat listening, the card asks (#77).
         .on_action(cx.listener(|this, _: &SendToAgent, _, cx| {
             let ids = this.agent_drafts(cx);
@@ -582,7 +581,6 @@ impl Render for Workspace {
         .children(self.render_label_card(cx))
         .children(self.overlay_view())
         .children(self.render_merge_card(cx))
-        .children(self.render_create_quick(cx))
         .children(self.render_shortcuts(cx))
         .children(self.render_palette(cx))
     }

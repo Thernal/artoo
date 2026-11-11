@@ -171,7 +171,10 @@ pub(super) fn own() -> Vec<Action> {
             .order(at(51)),
         Action::new("review.comment-line", CommentLine).key("c", NOT_TYPING),
         Action::new("requests.submit", SubmitReview).key("cmd-shift-enter", NOT_TYPING),
+        // ⌘K's Create merge request… opens the form, the one way in (#190: the quick way is gone).
         Action::new("requests.create", CreateRequest)
+            .words("Create merge request…")
+            .order(at(8))
             .key("cmd-alt-m", NOT_TYPING)
             .menu(Bar::File, "Create Merge Request…")
             .at(1, 1),
@@ -491,10 +494,6 @@ pub(super) fn own() -> Vec<Action> {
         Action::new("shell.pin-tab", PinTab)
             .words("Pin tab")
             .order(at(7)),
-        // From ⌘K, the quick way: one question at a time (#47 D); ⌥⌘M and the menu open the form.
-        Action::new("requests.create-quick", QuickCreateRequest)
-            .words("Create merge request…")
-            .order(at(8)),
         Action::new("shell.name-project", NameProject)
             .words("Name and colour this project…")
             .order(at(32)),

@@ -9,7 +9,6 @@ use artoo_requests_api::{
     Answered, Change, DraftLook, Drafted, InboxFilter, InboxRow, Moved, OnDraft, OnInbox, OnThread,
     Pair, Since, SubmitLook, ThreadLook,
 };
-use artoo_ui_kit::markdown::Selecting;
 use gpui::KeyDownEvent;
 use gpui::{AnyElement, IntoElement};
 use gpui::{App, Entity, Task, WeakEntity};
@@ -350,11 +349,6 @@ impl Handle {
 
     /// The Inbox's notices, from the tab's services.
     fn notices(&self) -> Option<Entity<crate::notices::Notices>> {
-        self.1.upgrade()?.get()
-    }
-
-    /// The tab's review and its branches, from its services.
-    fn review(&self) -> Option<Rc<dyn artoo_review_api::Review>> {
         self.1.upgrade()?.get()
     }
 
@@ -1342,10 +1336,6 @@ impl artoo_requests_api::Requests for Handle {
         self.update(cx, |rq, cx| rq.open_create_menu(name, cx));
     }
 
-    fn create_quick(&self, cx: &mut App) {
-        self.update(cx, |rq, _| rq.create_quick());
-    }
-
     fn creating(&self, cx: &App) -> bool {
         self.0
             .upgrade()
@@ -1375,28 +1365,6 @@ impl artoo_requests_api::Requests for Handle {
             took
         })
         .unwrap_or(false)
-    }
-
-    fn render_create_quick(
-        &self,
-        typing: bool,
-        selecting: Selecting,
-        cx: &mut App,
-    ) -> Option<AnyElement> {
-        let requests = self.0.upgrade()?;
-        let branches = self.branch_list(cx);
-        let shown = self.review().and_then(|r| r.shown(cx));
-        let web = requests.read(cx).web.clone();
-        let look = crate::create::CreateLook {
-            typing,
-            github: web.as_ref().is_some_and(|w| w.github),
-            base: web.map(|w| w.base),
-            selecting: Some(selecting),
-            totals: shown.as_ref().and_then(|d| crate::create::Totals::of(d)),
-            branches: &branches,
-        };
-        let acts = self.acts();
-        requests.update(cx, |rq, cx| rq.render_create_quick(&look, acts, cx))
     }
 
     fn start_since(&self, ix: usize, latest: usize, cx: &mut App) -> Option<usize> {

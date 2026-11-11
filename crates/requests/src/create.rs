@@ -3,10 +3,10 @@
 //! From → Into, the target picked from the branch list; the description starts from the project's
 //! template on the target, else the project's template setting, else a single commit's body, and
 //! Templates ▾ offers the others; whether the pair merges cleanly is worked out in memory; the code
-//! owners of the changed files start as the reviewers; labels and a milestone are picked from the
-//! project's lists; Request | Changes (⌃⇥) shows the diff and keeps the draft. From ⌘K it opens
-//! the quick way (D): the same request asked one question at a time over the branch view — Into,
-//! Title, Description — ↵ next, ⇧⇥ back, ⇥ the whole form, ⌘↵ create. The one outward
+//! owners of the changed files start as the reviewers, and Reviewers searches the project's members for more (#190);
+//! with nothing to merge, Create says so and cannot be pressed; labels and a milestone are picked from the
+//! project's lists; Request | Changes (⌃⇥) shows the diff and keeps the draft. ⌘K's Create merge request… opens
+//! this form, the one way in (#190: the quick way is gone). The one outward
 //! action besides posting comments; it never pushes, so a branch only on this Mac is told to be
 //! pushed first. The form keeps its fields' caret itself, and its field is one of the requests' inputs (`input`);
 //! the tab opens it on a branch, gives it the keyboard, shows the pair's diff (`Event::Create`) and hears the
@@ -25,9 +25,7 @@ use artoo_ui_kit::input::Area;
 use artoo_ui_kit::input::{self, Edit};
 use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::room::Widths;
-use artoo_ui_kit::{
-    ISLAND_RADIUS, ROW_RADIUS, discussion, hover, island, keys, motion, px, theme, words,
-};
+use artoo_ui_kit::{ROW_RADIUS, discussion, hover, island, keys, motion, px, theme, words};
 use git2::Oid;
 use gpui::{
     AnyElement, App, ClickEvent, Context, Entity, FontWeight, KeyDownEvent, div, prelude::*,
@@ -43,6 +41,8 @@ enum Focus {
     Target,
     Title,
     Description,
+    /// Reviewers: what is typed searches the project's members (#190).
+    Reviewers,
 }
 
 /// A list open under its field.
@@ -92,14 +92,17 @@ pub struct NewRequest {
     /// The request that already exists for this pair.
     existing: Option<u64>,
     commits: usize,
-    /// The reviewers chosen.
+    /// The reviewers chosen, by username.
     reviewers: Vec<String>,
+    /// What is typed under Reviewers, and the member picked in its list.
+    reviewer_query: String,
+    reviewer_at: usize,
+    /// Both branches are known and the source has nothing the target lacks: Create cannot be pressed.
+    nothing: bool,
     /// The description as it will read, instead of its text.
     preview: bool,
     /// Request | Changes: the diff of the pair is shown, the draft kept.
     changes: bool,
-    /// Asked one question at a time over the branch view (⌘K, D) instead of in the diff's place.
-    quick: bool,
     error: Option<String>,
     posting: bool,
     /// The focused field's caret, its layout as drawn and its scroll.
@@ -190,13 +193,7 @@ pub struct CreateLook<'a> {
     pub base: Option<String>,
     /// The preview's text selection.
     pub selecting: Option<Selecting>,
-    pub totals: Option<Totals>,
     pub branches: &'a [BranchRef],
-}
-
-/// The quick way is open: its own esc leaves it.
-fn n_quick(n: &Option<NewRequest>) -> bool {
-    n.as_ref().is_some_and(|n| n.quick)
 }
 
 /// The form's field, found again when a click lands.
@@ -324,9 +321,11 @@ impl Requests {
             existing: None,
             commits: 0,
             reviewers: Vec::new(),
+            reviewer_query: String::new(),
+            reviewer_at: 0,
+            nothing: false,
             preview: false,
             changes: false,
-            quick: false,
             error: None,
             posting: false,
             area: Area::new(String::new()),
@@ -466,18 +465,9 @@ impl Requests {
         cx.notify();
     }
 
-    /// ⌘K → Create merge request: the form just opened asked the quick way, starting at Into.
-    pub fn create_quick(&mut self) {
-        if let Some(n) = self.creating.as_mut() {
-            n.quick = true;
-            n.focus = Focus::Target;
-            n.reset_field();
-        }
-    }
-
-    /// The request is written in the diff's place (not asked over it, D).
+    /// The request is written in the diff's place.
     pub fn create_in_place(&self) -> bool {
-        self.creating.as_ref().is_some_and(|n| !n.quick)
+        self.creating.is_some()
     }
 
     /// Recomputes what the form says about the pair: commits, an existing request, the owners;
@@ -539,9 +529,11 @@ impl Requests {
             _ => Vec::new(),
         };
         let suggested = codeowners::suggest(&owners, &paths, self.login.as_deref());
+        let nothing = source.is_some() && target.is_some() && commits == 0;
         if let Some(n) = self.creating.as_mut() {
             n.existing = existing;
             n.commits = commits;
+            n.nothing = nothing;
             n.conflicts = conflicts;
             if !n.reviewers_touched {
                 n.reviewers = suggested.clone();
@@ -650,9 +642,66 @@ impl Requests {
         }
     }
 
-    /// ↑ ↓ on From's or Into's list (#159): they come as the commit keys while the field has no
-    /// caret, so the zones hand them here.
+    /// The project's members Reviewers' list offers for what is typed (#190): by username or name, you left out,
+    /// eight at most; each with whether it is chosen already. None while nothing is typed.
+    pub(crate) fn reviewer_choices(&self) -> Vec<(String, String, bool)> {
+        let Some(n) = self
+            .creating
+            .as_ref()
+            .filter(|n| n.focus == Focus::Reviewers)
+        else {
+            return Vec::new();
+        };
+        members_for(
+            &self.members,
+            self.login.as_deref(),
+            &n.reviewer_query,
+            &n.reviewers,
+        )
+    }
+
+    /// A reviewer's name as the members give it, else the username.
+    fn reviewer_name(&self, login: &str) -> String {
+        self.members
+            .iter()
+            .find(|(l, name)| l == login && !name.is_empty())
+            .map_or_else(|| login.to_owned(), |(_, name)| name.clone())
+    }
+
+    /// `login` asked to review, or no longer; what was typed is cleared once one is added.
+    fn toggle_reviewer(&mut self, login: &str) {
+        let Some(n) = self.creating.as_mut() else {
+            return;
+        };
+        n.reviewers_touched = true;
+        match n.reviewers.iter().position(|r| r == login) {
+            Some(at) => {
+                n.reviewers.remove(at);
+            }
+            None => {
+                n.reviewers.push(login.to_owned());
+                n.reviewer_query.clear();
+                n.reviewer_at = 0;
+                n.reset_field();
+            }
+        }
+    }
+
+    /// ↑ ↓ on From's or Into's list (#159), or Reviewers' (#190): they come as the commit keys while the field has
+    /// no caret, so the zones hand them here.
     pub fn step_branch_list(&mut self, branches: &[BranchRef], down: bool) -> bool {
+        let members = self.reviewer_choices().len();
+        if members > 0 {
+            let Some(n) = self.creating.as_mut() else {
+                return false;
+            };
+            n.reviewer_at = if down {
+                (n.reviewer_at + 1).min(members - 1)
+            } else {
+                n.reviewer_at.saturating_sub(1)
+            };
+            return true;
+        }
         let Some(source) = self.branch_list() else {
             return false;
         };
@@ -710,22 +759,8 @@ impl Requests {
             cx.notify();
             return None;
         }
-        // The quick way: ⇥ opens the whole form where it stands, ⇧⇥ goes a question back.
-        if n.quick && key.key == "tab" {
-            if key.modifiers.shift {
-                n.focus = match n.focus {
-                    Focus::Description => Focus::Title,
-                    _ => Focus::Target,
-                };
-            } else {
-                n.quick = false;
-            }
-            n.reset_field();
-            cx.notify();
-            return None;
-        }
         // ⌃⇥: Request | Changes, the draft kept.
-        if key.key == "tab" && key.modifiers.control && !n.quick {
+        if key.key == "tab" && key.modifiers.control {
             n.changes = !n.changes;
             cx.notify();
             return None;
@@ -771,7 +806,7 @@ impl Requests {
                         return pair.map(CreateKey::Compare);
                     }
                 }
-                "escape" if !n_quick(&self.creating) => {
+                "escape" => {
                     if let Some(n) = self.creating.as_mut() {
                         n.focus = Focus::Title;
                         n.reset_field();
@@ -796,12 +831,43 @@ impl Requests {
             cx.notify();
             return None;
         }
+        // Reviewers: ↵ adds the member picked, or takes them off; ⌫ with nothing typed takes the last off; esc
+        // clears what is typed before it closes the form.
+        if n.focus == Focus::Reviewers {
+            let typed = n.reviewer_query.is_empty();
+            match key.key.as_str() {
+                "enter" => {
+                    let at = n.reviewer_at;
+                    if let Some((login, _, _)) = self.reviewer_choices().get(at).cloned() {
+                        self.toggle_reviewer(&login);
+                    }
+                    cx.notify();
+                    return None;
+                }
+                "backspace" if typed => {
+                    if n.reviewers.pop().is_some() {
+                        n.reviewers_touched = true;
+                    }
+                    cx.notify();
+                    return None;
+                }
+                "escape" if !typed => {
+                    n.reviewer_query.clear();
+                    n.reviewer_at = 0;
+                    n.reset_field();
+                    cx.notify();
+                    return None;
+                }
+                _ => {}
+            }
+        }
         if key.key == "tab" {
             n.focus = match (n.focus, key.modifiers.shift) {
                 (Focus::Source, false) | (Focus::Title, true) => Focus::Target,
                 (Focus::Target, false) | (Focus::Description, true) => Focus::Title,
-                (Focus::Title, false) | (Focus::Source, true) => Focus::Description,
-                (Focus::Description, false) | (Focus::Target, true) => Focus::Source,
+                (Focus::Title, false) | (Focus::Reviewers, true) => Focus::Description,
+                (Focus::Description, false) | (Focus::Source, true) => Focus::Reviewers,
+                (Focus::Reviewers, false) | (Focus::Target, true) => Focus::Source,
             };
             n.reset_field();
             cx.notify();
@@ -819,6 +885,7 @@ impl Requests {
             Focus::Target => &mut n.target,
             Focus::Title => &mut n.title,
             Focus::Description => &mut n.description,
+            Focus::Reviewers => &mut n.reviewer_query,
         };
         let edit = if n.focus == Focus::Description {
             input::edit_area
@@ -841,6 +908,7 @@ impl Requests {
                     n.target_at = 0;
                     n.list_scroll.scroll_to_item(0);
                 }
+                n.reviewer_at = 0;
             }
             Edit::Selected | Edit::Ignored => {}
         }
@@ -856,7 +924,7 @@ impl Requests {
             self.creating = None;
             return Some(iid);
         }
-        if n.local_only || n.posting {
+        if n.local_only || n.posting || n.nothing {
             return None;
         }
         if n.title.trim().is_empty() {
@@ -921,12 +989,16 @@ impl Requests {
         acts: Acts,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let n = self.creating.as_ref().filter(|n| !n.quick)?;
+        let n = self.creating.as_ref()?;
+        // Nothing to merge: Create says why it cannot, and is not a button (#190).
+        let nothing = n.nothing && n.existing.is_none();
         let blocked = n.local_only || n.posting;
         let go = if n.posting {
             "Creating…".to_owned()
         } else if let Some(iid) = n.existing {
             format!("Open {}", words::number(iid))
+        } else if nothing {
+            "Create · Nothing to merge".to_owned()
         } else {
             "Create".to_owned()
         };
@@ -986,13 +1058,22 @@ impl Requests {
                         .gap_2()
                         .rounded(px(ROW_RADIUS))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .bg(theme::accent())
-                        .text_color(theme::base())
-                        .when(blocked, |s| s.opacity(0.45))
-                        .when(!blocked, |s| s.cursor_pointer())
+                        .when(nothing, |s| {
+                            s.border_1()
+                                .border_color(theme::island_border())
+                                .text_color(theme::faint())
+                        })
+                        .when(!nothing, |s| {
+                            s.bg(theme::accent())
+                                .text_color(theme::base())
+                                .when(blocked, |s| s.opacity(0.45))
+                                .when(!blocked, |s| s.cursor_pointer())
+                        })
                         .child(go)
-                        .child(keys::caps("⌘↵", keys::On::Filled))
-                        .on_click(move |_: &ClickEvent, _, cx| acts(Act::CreateGo, cx)),
+                        .when(!nothing, |s| {
+                            s.child(keys::caps("⌘↵", keys::On::Filled))
+                                .on_click(move |_: &ClickEvent, _, cx| acts(Act::CreateGo, cx))
+                        }),
                 )
                 .into_any_element(),
         )
@@ -1025,7 +1106,7 @@ impl Requests {
 
     /// The Request | Changes switch at the top of the pane.
     pub fn render_create_switch(&self, files: usize, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let n = self.creating.as_ref().filter(|n| !n.quick)?;
+        let n = self.creating.as_ref()?;
         let set = |changes: bool| {
             cx.listener(move |this: &mut Self, _: &ClickEvent, _, cx| {
                 if let Some(n) = this.creating.as_mut() {
@@ -1597,6 +1678,8 @@ impl Requests {
                 )
             })
         };
+        // Reviewers (#190): those chosen as pills, the code owners not chosen offered beside them, and a field that
+        // searches the project's members, its list under it.
         let suggested = n.suggested.clone();
         let mut people: Vec<String> = n.reviewers.clone();
         for s in &suggested {
@@ -1604,55 +1687,157 @@ impl Requests {
                 people.push(s.clone());
             }
         }
-        let reviewers = div()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap_2()
-            .child(label("Reviewers"))
-            .children(people.into_iter().enumerate().map(|(i, who)| {
+        let pills: Vec<AnyElement> = people
+            .into_iter()
+            .enumerate()
+            .map(|(i, who)| {
                 let on = n.reviewers.contains(&who);
-                let name = who.clone();
+                let name = self.reviewer_name(&who);
                 div()
                     .id(("create-reviewer", i))
+                    .flex_none()
                     .flex()
                     .items_center()
                     .gap(px(6.))
-                    .h(px(26.))
-                    .pl(px(4.))
+                    .h(px(24.))
+                    .pl(px(3.))
                     .pr(px(8.))
                     .rounded_full()
                     .cursor_pointer()
                     .when(on, |s| s.bg(theme::selected()))
                     .when(!on, |s| s.border_1().border_color(theme::island_border()))
                     .hover(|s| s.bg(theme::hover()))
-                    .child(discussion::avatar(&who, false, 18.))
-                    .child(who)
+                    .child(discussion::avatar(&name, false, 18.))
+                    .child(name)
                     .child(
                         div()
                             .text_color(theme::faint())
                             .child(if on { "×" } else { "+" }),
                     )
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        if let Some(n) = this.creating.as_mut() {
-                            n.reviewers_touched = true;
-                            match n.reviewers.iter().position(|r| *r == name) {
-                                Some(at) => {
-                                    n.reviewers.remove(at);
-                                }
-                                None => n.reviewers.push(name.clone()),
-                            }
-                        }
+                        cx.stop_propagation();
+                        this.toggle_reviewer(&who);
                         cx.notify();
                     }))
-            }))
-            .child(div().text_size(px(11.)).text_color(theme::faint()).child(
-                if suggested.is_empty() {
-                    "no code owners for these files"
-                } else {
-                    "suggested: code owners of the changed files"
-                },
-            ));
+                    .into_any_element()
+            })
+            .collect();
+        let searching = typing && n.focus == Focus::Reviewers;
+        let choices = self.reviewer_choices();
+        let typed = n.reviewer_query.trim().to_lowercase();
+        let member_list =
+            (!choices.is_empty()).then(|| {
+                let list =
+                    div()
+                        .id("create-members")
+                        .w(px(320.))
+                        .max_h(px(260.))
+                        .overflow_y_scroll()
+                        .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+                        .p(px(4.))
+                        .rounded(px(ROW_RADIUS))
+                        .border_1()
+                        .border_color(theme::island_border())
+                        .bg(theme::panel())
+                        .shadow_lg()
+                        .text_size(px(13.))
+                        .children(choices.into_iter().enumerate().map(
+                            |(i, (login, name, added))| {
+                                let shown = if name.is_empty() { login.clone() } else { name };
+                                let pick = login.clone();
+                                div()
+                                    .id(("create-member", i))
+                                    .px(px(8.))
+                                    .h(px(26.))
+                                    .flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .rounded(px(ROW_RADIUS))
+                                    .cursor_pointer()
+                                    .when(i == n.reviewer_at, |s| s.bg(theme::selected()))
+                                    .hover(|s| s.bg(theme::hover()))
+                                    .child(discussion::avatar(&shown, false, 18.))
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .flex()
+                                            .children(matched(&shown, &typed)),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_none()
+                                            .text_size(px(11.))
+                                            .text_color(theme::faint())
+                                            .font_family(if added {
+                                                theme::ui_font()
+                                            } else {
+                                                theme::code_font()
+                                            })
+                                            .child(if added {
+                                                "added".to_owned()
+                                            } else {
+                                                format!("@{login}")
+                                            }),
+                                    )
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                        this.toggle_reviewer(&pick);
+                                        cx.notify();
+                                    }))
+                            },
+                        ));
+                div().absolute().left_0().bottom_0().size_0().child(
+                    gpui::deferred(
+                        gpui::anchored()
+                            .offset(gpui::point(px(0.), px(4.)))
+                            .snap_to_window_with_margin(px(8.))
+                            .child(list),
+                    )
+                    .with_priority(1),
+                )
+            });
+        let reviewers = div()
+            .flex()
+            .flex_col()
+            .gap(px(4.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(label("Reviewers"))
+                    .child(div().text_size(px(11.)).text_color(theme::faint()).child(
+                        if suggested.is_empty() {
+                            "no code owners for these files"
+                        } else {
+                            "suggested: code owners of the changed files"
+                        },
+                    )),
+            )
+            .child(
+                div()
+                    .relative()
+                    .child(boxed(
+                        "create-reviewers",
+                        Some(Focus::Reviewers),
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .items_center()
+                            .gap(px(6.))
+                            .children(pills)
+                            .child(div().flex_1().min_w(px(140.)).child(n.area.field(
+                                &n.reviewer_query,
+                                searching,
+                                "Search the project's members",
+                                false,
+                                area_of,
+                                cx,
+                            )))
+                            .into_any_element(),
+                    ))
+                    .children(member_list),
+            );
         let description: AnyElement = if n.preview {
             div()
                 .min_h(px(200.))
@@ -1917,309 +2102,51 @@ impl Requests {
                 }));
         Some(form)
     }
+}
 
-    /// The quick way (D): a card over the branch view asking one thing at a time.
-    pub fn render_create_quick(
-        &self,
-        look: &CreateLook,
-        acts: Acts,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
-        let n = self.creating.as_ref().filter(|n| n.quick)?;
-        let steps = ["Into", "Title", "Description", "Create"];
-        // The quick way asks Into only; From is the branch it was opened on.
-        let at = match n.focus {
-            Focus::Source | Focus::Target => 0,
-            Focus::Title => 1,
-            Focus::Description => 2,
-        };
-        let at = if n.posting { 3 } else { at };
-        let pills = div().flex().gap(px(4.)).px(px(14.)).pt(px(10.)).children(
-            steps.iter().enumerate().map(|(i, step)| {
-                div()
-                    .h(px(22.))
-                    .px(px(8.))
-                    .flex()
-                    .items_center()
-                    .rounded_full()
-                    .text_size(px(11.))
-                    .when(i == at, |s| {
-                        s.bg(theme::selected()).text_color(theme::text())
-                    })
-                    .when(i < at, |s| s.text_color(theme::muted()))
-                    .when(i > at, |s| s.text_color(theme::faint()))
-                    .child(if i < at {
-                        format!("✓ {step}")
-                    } else {
-                        format!("{} {step}", i + 1)
-                    })
-            }),
-        );
-        let (field, ask): (AnyElement, &str) = match n.focus {
-            Focus::Source | Focus::Target => (
-                div()
-                    .font_family(theme::code_font())
-                    .child(n.area.field(&n.target, true, "main", false, area_of, cx))
-                    .into_any_element(),
-                "Into which branch?",
-            ),
-            Focus::Title => (
-                n.area
-                    .field(&n.title, true, "Title", true, area_of, cx)
-                    .into_any_element(),
-                "Title",
-            ),
-            Focus::Description => (
-                div()
-                    .text_size(px(13.))
-                    .text_color(theme::muted())
-                    .child(n.title.clone())
-                    .into_any_element(),
-                "",
-            ),
-        };
-        let question = div()
-            .flex()
-            .items_center()
-            .gap_3()
-            .px(px(14.))
-            .py(px(12.))
-            .border_b_1()
-            .border_color(theme::island_border())
-            .text_size(px(15.))
-            .child(
-                div()
-                    .flex_none()
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .child(format!("{} ›", words::say("New merge request"))),
-            )
-            .child(div().flex_1().min_w_0().child(field))
-            .child(
-                div()
-                    .flex_none()
-                    .text_size(px(12.))
-                    .text_color(theme::faint())
-                    .child(ask),
-            );
-        let body: Option<AnyElement> = match n.focus {
-            Focus::Source | Focus::Target => {
-                let choices = self.branch_choices(look.branches, false);
-                Some(
-                    div()
-                        .id("quick-targets")
-                        .max_h(px(260.))
-                        .overflow_y_scroll()
-                        .track_scroll(&n.list_scroll)
-                        .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
-                        .p(px(4.))
-                        .children(choices.into_iter().enumerate().map(|(i, (name, local))| {
-                            let pick = name.clone();
-                            let default = ["main", "master"].contains(&name.as_str());
-                            div()
-                                .id(("quick-target", i))
-                                .px(px(10.))
-                                .h(px(28.))
-                                .flex()
-                                .items_center()
-                                .gap_2()
-                                .rounded(px(ROW_RADIUS))
-                                .cursor_pointer()
-                                .when(i == n.target_at, |s| s.bg(theme::selected()))
-                                .hover(|s| s.bg(theme::hover()))
-                                .child(
-                                    hover::name(("quick-target-name", i), name.clone())
-                                        .flex_1()
-                                        .font_family(theme::code_font()),
-                                )
-                                .children(default.then(|| {
-                                    div()
-                                        .text_size(px(11.))
-                                        .text_color(theme::faint())
-                                        .child("default")
-                                }))
-                                .children(local.then(|| {
-                                    div()
-                                        .text_size(px(11.))
-                                        .text_color(theme::faint())
-                                        .child("not on origin")
-                                }))
-                                .on_click({
-                                    let acts = acts.clone();
-                                    move |_: &ClickEvent, _, cx| {
-                                        acts(Act::PickTarget(pick.clone()), cx)
-                                    }
-                                })
-                        }))
-                        .into_any_element(),
-                )
-            }
-            Focus::Title => None,
-            Focus::Description => Some(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(10.))
-                    .px(px(14.))
-                    .py(px(12.))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .text_size(px(12.))
-                            .text_color(theme::muted())
-                            .child(
-                                hover::branches("quick-branches", &n.source, &n.target)
-                                    .flex_1()
-                                    .font_family(theme::code_font()),
-                            )
-                            .children(self.render_create_totals(look.totals)),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .text_size(px(12.))
-                                    .text_color(theme::muted())
-                                    .child("Description"),
-                            )
-                            .children(n.started_from.clone().map(|from| {
-                                div()
-                                    .px(px(8.))
-                                    .h(px(22.))
-                                    .flex()
-                                    .items_center()
-                                    .rounded_full()
-                                    .bg(theme::info_bg())
-                                    .text_size(px(11.))
-                                    .text_color(theme::muted())
-                                    .child(from)
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("quick-description")
-                            .min_h(px(150.))
-                            .max_h(px(260.))
-                            .overflow_y_scroll()
-                            .px_2()
-                            .py(px(5.))
-                            .rounded(px(ROW_RADIUS))
-                            .border_2()
-                            .border_color(theme::focus())
-                            .bg(theme::base())
-                            .child(n.area.field(
-                                &n.description,
-                                true,
-                                "What it changes and why",
-                                true,
-                                area_of,
-                                cx,
-                            )),
-                    )
-                    .children(
-                        self.completion(&n.description, n.area.caret(&n.description), n.closed)
-                            .map(|(_, choices)| render_list(&choices, n.pick)),
-                    )
-                    .into_any_element(),
-            ),
-        };
-        // What stops it, or what went wrong.
-        let note = if n.local_only {
-            Some(
-                words::say(&format!(
-                    "{} is only on this Mac. Push it first: git push -u origin {}",
-                    n.source, n.source
-                ))
-                .into_owned(),
-            )
-        } else if let Some(iid) = n.existing {
-            Some(format!(
-                "{} already exists for this pair. ⌘↵ opens it.",
-                words::number(iid)
-            ))
-        } else {
-            n.error.clone()
-        };
-        let hint = |keys: &'static str, what: &'static str| {
+/// Of the project's `members` (username, name), those `typed` finds by username or name, `me` left out, eight at
+/// most; each with whether it is `chosen` already. None while nothing is typed.
+fn members_for(
+    members: &[(String, String)],
+    me: Option<&str>,
+    typed: &str,
+    chosen: &[String],
+) -> Vec<(String, String, bool)> {
+    let typed = typed.trim().to_lowercase();
+    if typed.is_empty() {
+        return Vec::new();
+    }
+    members
+        .iter()
+        .filter(|(login, _)| Some(login.as_str()) != me)
+        .filter(|(login, name)| {
+            login.to_lowercase().contains(&typed) || name.to_lowercase().contains(&typed)
+        })
+        .take(8)
+        .map(|(login, name)| (login.clone(), name.clone(), chosen.contains(login)))
+        .collect()
+}
+
+/// `text` with the part that matches `typed` (lower case) in bold: `Junip**er** Hale`.
+fn matched(text: &str, typed: &str) -> Vec<AnyElement> {
+    let lower = text.to_lowercase();
+    // A name whose lower case changes its length is shown whole.
+    let at = (lower.len() == text.len() && !typed.is_empty())
+        .then(|| lower.find(typed))
+        .flatten();
+    match at {
+        Some(at) => vec![
+            div().child(text[..at].to_owned()).into_any_element(),
             div()
-                .flex()
-                .items_center()
-                .gap(px(5.))
-                .child(keys::caps(keys, keys::On::Plain))
-                .child(what)
-        };
-        let foot = div()
-            .flex()
-            .items_center()
-            .gap_4()
-            .px(px(14.))
-            .py(px(8.))
-            .border_t_1()
-            .border_color(theme::island_border())
-            .text_size(px(12.))
-            .text_color(theme::muted())
-            .child(
-                match n.focus {
-                    Focus::Target => div()
-                        .flex()
-                        .min_w_0()
-                        .child(div().flex_none().child("From "))
-                        .child(hover::name("quick-hint", n.source.clone())),
-                    _ => div().child(hover::cut("quick-hint", "⇥ reviewers, draft, labels…")),
-                }
-                .flex_1(),
-            )
-            .children((n.focus != Focus::Target).then(|| hint("⇧⇥", "back")))
-            .children((n.focus != Focus::Description).then(|| hint("↵", "next")))
-            .child(hint("⌘↵", "create"))
-            .child(hint("esc", "cancel"));
-        Some(
-            div()
-                .id("quick-create-backdrop")
-                .absolute()
-                .size_full()
-                .flex()
-                .justify_center()
-                .items_start()
-                .pt(px(72.))
-                .on_mouse_down(
-                    gpui::MouseButton::Left,
-                    cx.listener(|this, _, _, cx| this.close_create(cx)),
-                )
-                .child(
-                    div()
-                        .occlude()
-                        .w(px(680.))
-                        .flex()
-                        .flex_col()
-                        .rounded(px(ISLAND_RADIUS))
-                        .border_1()
-                        .border_color(theme::island_border())
-                        .bg(theme::panel())
-                        .shadow_lg()
-                        .overflow_hidden()
-                        .text_size(px(13.))
-                        .child(pills)
-                        .child(question)
-                        .children(body)
-                        .children(note.map(|text| {
-                            div()
-                                .px(px(14.))
-                                .py(px(8.))
-                                .text_size(px(12.))
-                                .text_color(theme::warning())
-                                .child(text)
-                        }))
-                        .child(foot),
-                )
+                .font_weight(FontWeight::BOLD)
+                .text_color(theme::text())
+                .child(text[at..at + typed.len()].to_owned())
                 .into_any_element(),
-        )
+            div()
+                .child(text[at + typed.len()..].to_owned())
+                .into_any_element(),
+        ],
+        None => vec![div().child(text.to_owned()).into_any_element()],
     }
 }
 
@@ -2299,5 +2226,32 @@ mod tests {
         );
         assert!(templates(false, file, |_| Vec::new()).is_empty());
         assert_eq!(template_name("Default.md"), "Default");
+    }
+
+    #[test]
+    fn reviewers_are_found_among_the_members_by_name_or_username() {
+        let members: Vec<(String, String)> = [
+            ("juniper", "Juniper Hale"),
+            ("ember", "Ember Lind"),
+            ("kestrel", "Kestrel Okafor"),
+            ("you", "You"),
+        ]
+        .iter()
+        .map(|(l, n)| (l.to_string(), n.to_string()))
+        .collect();
+        let found =
+            |typed: &str, chosen: &[String]| members_for(&members, Some("you"), typed, chosen);
+        // Nothing typed: no list.
+        assert!(found("  ", &[]).is_empty());
+        // By name, in any case; one already chosen says so; you are never offered.
+        assert_eq!(
+            found("ER", &["ember".to_owned()]),
+            [
+                ("juniper".to_owned(), "Juniper Hale".to_owned(), false),
+                ("ember".to_owned(), "Ember Lind".to_owned(), true),
+            ]
+        );
+        assert_eq!(found("kest", &[]).len(), 1);
+        assert!(found("you", &[]).is_empty());
     }
 }
