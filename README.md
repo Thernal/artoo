@@ -168,7 +168,7 @@ every repository with a remote, is what brings other people's pushes in. Version
 - The pipeline or checks, approvals, and the reviewers with where each stands.
 - What changed since the version you viewed; a comment written on an earlier version is drawn at its line now,
   with that line's history version by version.
-- Creating one (⌥⌘M): the target's template, reviewers from CODEOWNERS, labels, milestone, draft, squash.
+- Creating one (⇧⌘M): the target's template, reviewers from CODEOWNERS, labels, milestone, draft, squash.
 
 **Tokens.** GitLab needs one with the `api` scope (`read_api` to only read); GitHub a classic token with the
 `repo` scope. With none for the host, Merge requests lists the ways in this computer offers, easiest first, each

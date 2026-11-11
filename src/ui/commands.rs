@@ -182,7 +182,7 @@ pub(super) fn own() -> Vec<Action> {
         Action::new("requests.create", CreateRequest)
             .words("Create merge request…")
             .order(at(8))
-            .key("cmd-alt-m", NOT_TYPING)
+            .key("cmd-shift-m", NOT_TYPING)
             .menu(Bar::File, "Create Merge Request…")
             .at(1, 1),
         // ⇧⌘A the Agents window as Design gives it, ⌥⌘A sends to an agent (D12, X3).

@@ -435,7 +435,7 @@ fn overlap(a: &KeyBinding, b: &KeyBinding) -> bool {
 }
 
 /// `NextFile` → `Next file`.
-fn label(name: &str) -> String {
+pub(super) fn label(name: &str) -> String {
     let mut out = String::new();
     for (i, c) in name.chars().enumerate() {
         if c.is_uppercase() && i > 0 {

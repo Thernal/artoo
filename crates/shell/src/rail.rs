@@ -123,6 +123,17 @@ fn rail(tabs: Vec<TabInfo>, host: Rc<dyn TabsHost>) -> impl IntoElement {
                     .rounded_full()
                     .bg(theme::accent())
             }))
+            // ⌘ held: its key over it (#193).
+            .children(
+                (ix < 9)
+                    .then(|| {
+                        artoo_ui_kit::keys::held_cap(
+                            &format!("⌘{}", ix + 1),
+                            artoo_ui_kit::keys::Held::Cmd,
+                        )
+                    })
+                    .flatten(),
+            )
             .tooltip_show_delay(hover::LONG)
             .tooltip(move |_, cx| cx.new(|_| TipOwned(tip.clone().into())).into())
             .on_click(move |_: &ClickEvent, window, cx| select.select(ix, window, cx))

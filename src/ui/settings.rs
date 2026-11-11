@@ -448,13 +448,33 @@ impl Workspace {
         let changed_only = self.keys_changed_only;
         let map = cx.global::<Keymap>();
         let (preset, changed_count) = (map.preset(), map.changed_count());
-        let entries: Vec<_> = map
+        // The menu's and ⌘K's names, not code words (#193); `Activate` is not one to change.
+        let named = key_names(cx);
+        let mut entries: Vec<_> = map
             .entries()
             .into_iter()
+            .filter(|e| e.name != "Activate")
+            .map(|mut e| {
+                if let Some(n) = named.get(e.name) {
+                    e.label = n.said.clone();
+                }
+                if let Some((key, other)) = e.clash.take() {
+                    let other = (named.values())
+                        .find(|n| n.was == other)
+                        .map_or(other, |n| n.said.clone());
+                    e.clash = Some((key, other));
+                }
+                e
+            })
             .filter(|e| matches_keys(e, &query, self.keys_exact))
             .filter(|e| !changed_only || e.changed)
             .collect();
+        // Under headings, Move · Comment · Find · View · Requests · App, by name within each.
+        entries.sort_by(|a, b| {
+            (heading(a.name, &named), &a.label).cmp(&(heading(b.name, &named), &b.label))
+        });
         let presets = self.key_presets(cx);
+        let helpers = self.key_helpers_row(cx);
         let by_keys = self.recording == Some(BY_KEYS);
         let tools = div()
             .flex()
@@ -499,7 +519,7 @@ impl Workspace {
             )
             .child(div().flex_1())
             .child(
-                button("keys-export", "Export", None, Kind::Plain).on_click(cx.listener(
+                button("keys-export", "Copy keymap", None, Kind::Plain).on_click(cx.listener(
                     |_, _: &ClickEvent, _, cx| {
                         let text = cx.global::<Keymap>().export();
                         cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
@@ -520,8 +540,20 @@ impl Workspace {
                 }))
             }));
         let count = entries.len();
+        let mut last_heading = None;
         let rows = entries.into_iter().enumerate().map(|(ix, e)| {
             let name = e.name;
+            let under = heading(name, &named);
+            let head = (last_heading != Some(under)).then(|| {
+                last_heading = Some(under);
+                div()
+                    .pt(px(14.))
+                    .pb(px(4.))
+                    .text_size(px(12.))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(theme::muted())
+                    .child(HEADINGS[under])
+            });
             let was = e
                 .was
                 .iter()
@@ -540,33 +572,32 @@ impl Workspace {
                 .join(" · ");
             let waiting = self.recording == Some(name);
             let clash = e.clash.clone();
+            // A clash names the other command (#193).
+            let also = clash.as_ref().map(|(_, other)| {
+                div()
+                    .flex_none()
+                    .text_size(px(11.))
+                    .text_color(theme::warning())
+                    .child(format!("also {other} — yours wins"))
+            });
             let keys = e.keys.iter().map(|k| {
-                let mine = clash
-                    .as_ref()
-                    .filter(|(key, _)| key == k)
-                    .map(|(_, other)| {
-                        gpui::SharedString::from(format!("Also {other} — the one you set wins"))
-                    });
                 div()
                     .id(gpui::SharedString::from(format!("key-{name}-{k}")))
                     .p(px(2.))
-                    .rounded(px(5.))
-                    .when(mine.is_some(), |s| {
-                        s.border_1().border_color(theme::removed())
-                    })
                     .child(keys::caps(&keymap::symbols(k), On::Plain))
-                    .when_some(mine, |s, tip| {
-                        s.tooltip_show_delay(crate::ui::hover::LONG)
-                            .tooltip(move |_, cx| cx.new(|_| super::TipOwned(tip.clone())).into())
-                    })
             });
-            div()
+            let group = gpui::SharedString::from(format!("key-row-{name}"));
+            let row = div()
+                .id(group.clone())
+                .group(group.clone())
                 .flex()
                 .items_center()
                 .gap_3()
-                .min_h(px(44.))
-                .border_b_1()
-                .border_color(theme::island_border())
+                .min_h(px(36.))
+                .px(px(10.))
+                .rounded(px(6.))
+                .when(waiting, |s| s.border_1().border_color(theme::focus()))
+                .hover(|s| s.bg(theme::hover()))
                 .child(
                     div()
                         .flex_1()
@@ -589,19 +620,17 @@ impl Workspace {
                 .child(
                     div()
                         .flex_none()
-                        .w(px(200.))
+                        .min_w(px(200.))
                         .flex()
                         .justify_end()
                         .items_center()
                         .gap(px(6.))
                         .when(waiting, |s| {
-                            s.child(
-                                div()
-                                    .text_size(px(12.))
-                                    .text_color(theme::accent())
-                                    .child("Press a key…"),
-                            )
+                            s.child(div().text_size(px(12.)).text_color(theme::muted()).child(
+                                keys::text("Press a key · esc cancels · ⌫ no key").into_owned(),
+                            ))
                         })
+                        .when(!waiting, |s| s.children(also))
                         .when(!waiting && e.changed && !was.is_empty(), |s| {
                             s.child(
                                 div()
@@ -637,48 +666,47 @@ impl Workspace {
                                 }),
                             )
                         }))
+                        // Change on the row pointed at alone (#193).
                         .child(
-                            button(
-                                ("key-change", ix),
-                                if waiting { "Cancel" } else { "Change" },
-                                None,
-                                Kind::Plain,
-                            )
-                            .on_click(cx.listener(
-                                move |this, _: &ClickEvent, _, cx| {
-                                    this.recording = if waiting { None } else { Some(name) };
-                                    cx.notify();
-                                },
-                            )),
+                            div()
+                                .when(!waiting, |s| {
+                                    s.invisible().group_hover(group.clone(), |s| s.visible())
+                                })
+                                .child(
+                                    button(
+                                        ("key-change", ix),
+                                        if waiting { "Cancel" } else { "Change" },
+                                        None,
+                                        Kind::Plain,
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _: &ClickEvent, _, cx| {
+                                            this.recording =
+                                                if waiting { None } else { Some(name) };
+                                            cx.notify();
+                                        },
+                                    )),
+                                ),
                         ),
-                )
+                );
+            div().children(head).child(row)
         });
         div()
             .flex()
             .flex_col()
-            .child(
-                div()
-                    .pb(px(12.))
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .child("Start from a preset and change any key · esc cancels, ⌫ leaves it without one"),
-            )
+            .child(helpers)
             .child(presets)
             .child(tools)
-            .child(
-                div()
-                    .pb(px(8.))
-                    .child(self.render_field(
-                        "keys-filter",
-                        super::lists::Field::Keys,
-                        if crate::platform::MAC {
-                            "Filter by name or key — mark, ⌘B, cmd-b"
-                        } else {
-                            "Filter by name or key — mark, Ctrl+B, ctrl-b"
-                        },
-                        cx,
-                    )),
-            )
+            .child(div().pb(px(8.)).child(self.render_field(
+                "keys-filter",
+                super::lists::Field::Keys,
+                if crate::platform::MAC {
+                    "Filter by name or key — mark, ⌘B, cmd-b"
+                } else {
+                    "Filter by name or key — mark, Ctrl+B, ctrl-b"
+                },
+                cx,
+            )))
             .children(rows)
             .children((count == 0).then(|| {
                 div()
@@ -687,6 +715,44 @@ impl Workspace {
                     .text_color(theme::muted())
                     .child("No action by that name or key.")
             }))
+    }
+
+    /// Settings → Keyboard's first row (#193): the keyboard helpers, the keys over what is on screen while ⌘ is held.
+    fn key_helpers_row(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let on = self.settings.key_helpers;
+        div()
+            .mb(px(12.))
+            .px(px(12.))
+            .py(px(8.))
+            .rounded(px(8.))
+            .bg(theme::panel())
+            .flex()
+            .items_center()
+            .gap_3()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .child("Keyboard helpers")
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(theme::muted())
+                            .child(keys_said(
+                                "The keys of what is on screen while ⌘ is held · ⌃⌘ the spaces'",
+                            )),
+                    ),
+            )
+            .child(switch("key-helpers", on).on_click(cx.listener(
+                |this, _: &ClickEvent, _, cx| {
+                    this.change_settings(
+                        |this| this.settings.key_helpers = !this.settings.key_helpers,
+                        cx,
+                    )
+                },
+            )))
     }
 
     /// The key pressed while Settings → Keyboard waits for one.
@@ -763,6 +829,132 @@ fn matches_keys(e: &super::keymap::Entry, query: &str, exact: bool) -> bool {
             .any(|k| k.contains(query) || written(k).contains(query))
 }
 
+/// Settings → Keyboard's headings (#193), in their order.
+const HEADINGS: [&str; 6] = ["Move", "Comment", "Find", "View", "Requests", "App"];
+
+/// A command as Settings → Keyboard names it: the menu's or ⌘K's words, the name the keymap gives it
+/// (`Approve request`, what a clash says), its id (its heading).
+struct Named {
+    said: String,
+    was: String,
+    id: &'static str,
+}
+
+/// Every command's `Named`, by its keymap name (`ApproveRequest`).
+fn key_names(cx: &App) -> std::collections::HashMap<&'static str, Named> {
+    artoo_shell_api::actions(cx)
+        .iter()
+        .map(|a| {
+            let name = artoo_shell_api::short(a.act.name());
+            let was = super::keymap::label(name);
+            let said = match (a.words, &a.menu) {
+                (Some(words), _) => words.trim_end_matches('…').to_owned(),
+                // The menu's Title Case said as a sentence: `Next Open Item`, Next open item.
+                (None, Some(m)) => sentence(m.words.trim_end_matches('…')),
+                (None, None) => was.clone(),
+            };
+            (
+                name,
+                Named {
+                    said,
+                    was,
+                    id: a.id,
+                },
+            )
+        })
+        .collect()
+}
+
+/// Which heading a command goes under (`HEADINGS`); one not offered as an action, the app's.
+fn heading(name: &str, named: &std::collections::HashMap<&'static str, Named>) -> usize {
+    named.get(name).map_or(5, |n| heading_of(n.id))
+}
+
+/// The heading of the command with id `id`: what comments, what moves (a request's next one too), what finds,
+/// what shows, a request's acts, the rest the app's.
+fn heading_of(id: &str) -> usize {
+    const COMMENT: [&str; 9] = [
+        "review.comment-line",
+        "requests.reply",
+        "requests.resolve",
+        "requests.edit",
+        "requests.react",
+        "requests.submit",
+        "agents.send",
+        "requests.next-draft",
+        "requests.previous-draft",
+    ];
+    let (domain, verb) = id.split_once('.').unwrap_or(("", id));
+    // By the id's words (`next-change`: next, change), never a part of one (`rendered` is not `end`).
+    let words: Vec<&str> = verb.split('-').collect();
+    let has = |these: &[&str]| these.iter().any(|w| words.contains(w));
+    if COMMENT.contains(&id) {
+        1
+    } else if domain == "shell" && has(&["new", "close", "reopen", "pin"]) {
+        5
+    } else if has(&[
+        "find",
+        "search",
+        "filter",
+        "match",
+        "recent",
+        "bookmarks",
+        "structure",
+    ]) || id == "shell.switch"
+    {
+        2
+    } else if id == "shell.switch-branch"
+        || matches!(
+            id,
+            "requests.overview" | "requests.commits" | "requests.changes"
+        )
+        || has(&[
+            "next", "previous", "back", "forward", "start", "end", "page", "zone", "focus", "tab",
+            "item", "section", "up", "down",
+        ])
+    {
+        0
+    } else if domain == "requests" {
+        4
+    } else if domain == "review"
+        || has(&[
+            "zoom",
+            "fold",
+            "side",
+            "diff",
+            "shortcuts",
+            "whole",
+            "theme",
+        ])
+    {
+        3
+    } else {
+        5
+    }
+}
+
+/// `text` with its keys in this OS's words.
+fn keys_said(text: &str) -> String {
+    super::keys::text(text).into_owned()
+}
+
+/// `Title Case Words` as a sentence: the first word as it is, the others lower case but a name's (`GitLab`, `PR`).
+fn sentence(title: &str) -> String {
+    title
+        .split(' ')
+        .enumerate()
+        .map(|(i, w)| {
+            let named = w.chars().skip(1).any(char::is_uppercase);
+            if i == 0 || named {
+                w.to_owned()
+            } else {
+                w.to_lowercase()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -785,5 +977,21 @@ mod tests {
         assert!(matches_keys(&entry(&["cmd-shift-b"]), &typed, false));
         assert!(!matches_keys(&entry(&["cmd-b"]), &typed, false));
         assert!(matches_keys(&entry(&[]), "branch", false));
+    }
+
+    #[test]
+    fn a_command_goes_under_its_heading_by_its_words() {
+        assert_eq!(heading_of("review.next-change"), 0);
+        assert_eq!(heading_of("requests.next"), 0);
+        assert_eq!(heading_of("requests.resolve"), 1);
+        assert_eq!(heading_of("review.find"), 2);
+        assert_eq!(heading_of("review.next-match"), 2);
+        assert_eq!(heading_of("shell.new-tab"), 5);
+        // `rendered` holds `end`, not the word.
+        assert_eq!(heading_of("review.rendered"), 3);
+        assert_eq!(heading_of("requests.approve"), 4);
+        assert_eq!(heading_of("shell.quit"), 5);
+        assert_eq!(sentence("Next Open Item"), "Next open item");
+        assert_eq!(sentence("Open in GitLab"), "Open in GitLab");
     }
 }

@@ -31,6 +31,7 @@ mod fonts;
 mod frame;
 mod goline;
 mod goto;
+mod held;
 mod inbox;
 mod input;
 mod keyboard;
@@ -950,6 +951,15 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             });
             wait(1500).await;
         }
+        // The keyboard helpers as a held ⌘ (`cmd`) or ⌃⌘ (`ctrl-cmd`) shows them (#193).
+        if let Ok(held) = std::env::var("ARTOO_SNAPSHOT_HELD") {
+            use artoo_ui_kit::keys::Held;
+            artoo_ui_kit::keys::set_held(Some(if held == "ctrl-cmd" {
+                Held::CtrlCmd
+            } else {
+                Held::Cmd
+            }));
+        }
         if let Ok(keys) = std::env::var("ARTOO_SNAPSHOT_KEYS") {
             // Keystrokes sent to the window itself (not the keyboard), e.g. `right right cmd-t`.
             // `wait` gives a diff a second to load before the next key.
@@ -1269,6 +1279,8 @@ pub struct Workspace {
     toggled_agent: HashSet<u64>,
     /// The discussion `r`, `x` and ⇧n / ⇧p act on (an index into the request's threads).
     thread_at: Option<usize>,
+    /// The modifiers' changes counted: a held ⌘ shows its keys only if nothing changed for a moment (#193).
+    held_gen: u64,
     /// A notification opened on a comment: once its line's history is in, an outdated one opens
     /// on the diff since it (request, note).
     since_on_open: Option<(u64, u64)>,
@@ -1429,6 +1441,7 @@ impl Workspace {
             toggled_mr: HashSet::new(),
             toggled_agent: HashSet::new(),
             thread_at: None,
+            held_gen: 0,
             since_on_open: None,
             since_offer: None,
             agent_requests: Vec::new(),
@@ -1604,6 +1617,11 @@ impl Workspace {
             cx,
         );
         cx.observe_window_activation(window, |this, window, cx| {
+            // A ⌘ held into ⌘⇥ is let go elsewhere: the helpers leave with the window (#193).
+            this.held_gen += 1;
+            if artoo_ui_kit::keys::set_held(None) {
+                window.refresh();
+            }
             if window.is_window_active() {
                 this.window_activated(cx);
             }
@@ -2329,7 +2347,7 @@ impl Workspace {
                     "Create merge request…",
                     Act::new(move |this, _, cx| this.open_create(Some(ix), cx)),
                 )
-                .key("⌥⌘M"),
+                .key("⇧⌘M"),
             ]);
         }
         if let (Some(web), Some(link)) = (&self.web, link) {

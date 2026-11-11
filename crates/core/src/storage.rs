@@ -410,6 +410,8 @@ pub struct Settings {
     pub system_notifications: bool,
     /// The Dock's icon counts the Inbox's unread (#196).
     pub dock_count: bool,
+    /// Keyboard helpers: the keys of what is on screen while ⌘ (or ⌃⌘) is held (#193).
+    pub key_helpers: bool,
 }
 
 impl Default for Settings {
@@ -433,6 +435,7 @@ impl Default for Settings {
             check_updates: true,
             system_notifications: false,
             dock_count: true,
+            key_helpers: true,
         }
     }
 }
@@ -464,6 +467,7 @@ impl Settings {
                 "fold_generated" => settings.fold_generated = value != "false",
                 "auto_reviewed" => settings.auto_reviewed = value == "true",
                 "rich_comments" => settings.rich_comments = value != "false",
+                "key_helpers" => settings.key_helpers = value != "false",
                 "keys_seen" => settings.keys_seen = value == "true",
                 "open_in" => settings.open_in = OpenIn::from_key(value).unwrap_or_default(),
                 "last_new_tab" => settings.last_new_tab = value == "true",
@@ -508,6 +512,7 @@ impl std::fmt::Display for Settings {
         writeln!(f, "check_updates={}", self.check_updates)?;
         writeln!(f, "system_notifications={}", self.system_notifications)?;
         writeln!(f, "dock_count={}", self.dock_count)?;
+        writeln!(f, "key_helpers={}", self.key_helpers)?;
         writeln!(f, "zoom={}", self.zoom)?;
         writeln!(f, "ui_zoom={}", self.ui_zoom)?;
         if let Some(editor) = &self.editor {
@@ -625,6 +630,7 @@ mod tests {
             check_updates: false,
             system_notifications: true,
             dock_count: false,
+            key_helpers: false,
         };
         assert_eq!(Settings::parse(&settings.to_string()), settings);
     }

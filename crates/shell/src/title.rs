@@ -56,14 +56,20 @@ fn title_bar(bar: TitleBar, host: Rc<dyn TitleHost>) -> impl IntoElement {
                         true,
                     )
                     .on_click(move |_, window, cx| fold.fold(window, cx))
+                    .relative()
+                    .children(keys::held_cap("⌘B", keys::Held::Cmd))
                 }))
                 .child(
                     nav_button("go-back", "back", "Back  ⌘[", bar.back)
-                        .on_click(move |_, window, cx| back.back(window, cx)),
+                        .on_click(move |_, window, cx| back.back(window, cx))
+                        .relative()
+                        .children(keys::held_cap("⌘[", keys::Held::Cmd)),
                 )
                 .child(
                     nav_button("go-forward", "forward", "Forward  ⌘]", bar.forward)
-                        .on_click(move |_, window, cx| forward.forward(window, cx)),
+                        .on_click(move |_, window, cx| forward.forward(window, cx))
+                        .relative()
+                        .children(keys::held_cap("⌘]", keys::Held::Cmd)),
                 ),
         )
         .children(bar.tabs)

@@ -288,18 +288,22 @@ impl Workspace {
                     None if self.requests_available(cx) && !self.creating(cx) => out.push(
                         BarAction::new(
                             "create",
-                            bar_button("bar-create", "Create merge request", "⌥⌘M", true).on_click(
-                                cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                    this.open_create(ix, cx)
-                                }),
-                            ),
+                            // Its key in its tooltip: a cap earns a button only for a key that repeats (#193).
+                            {
+                                use super::hover::Hover;
+                                bar_button("bar-create", "Create merge request", "", true)
+                                    .tip(words::say("Create merge request  ⇧⌘M").into_owned())
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                        this.open_create(ix, cx)
+                                    }))
+                            },
                         )
                         .folds(
                             MenuItem::new(
                                 "Create merge request",
                                 on_tab(&tab, move |this, cx| this.open_create(ix, cx)),
                             )
-                            .key("⌥⌘M"),
+                            .key("⇧⌘M"),
                         ),
                     ),
                     None => {}

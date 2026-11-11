@@ -6,6 +6,10 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **Hold ⌘ to see the keys.** Held a moment, ⌘ shows each repository's ⌘1…, and ⌘B ⌘[ ⌘] on the title bar's
+  buttons; ⌃⌘ shows the spaces'. Settings → Keyboard turns these helpers off. Settings → Keyboard reads by headings —
+  Move, Comment, Find, View, Requests, App — with the menu's names, Change on the row you point at, and a clash says
+  which command it shares the key with. Create merge request moves to ⇧⌘M, its key in its tooltip.
 - **⌘K knows where you are.** Opened empty it lists `Here` — on a request `Approve this merge request`, `Submit
   review`, `Merge…`, `Copy link`, `Next merge request`, each with its key — then `Recent`, the places you last chose,
   a file with the request it was in (`AuthApi.kt  !398 · line 23`). Approve, reply, resolve, edit, react and the

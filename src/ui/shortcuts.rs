@@ -98,7 +98,7 @@ const GROUPS: &[Group] = &[
             ("⌘.", "zen: the diff alone, the keys of a review below"),
             ("⌘+  ⌘−  ⌘0", "interface bigger, smaller, actual size"),
             ("⌘T ⇧⌘W ⌘1…9", "tabs"),
-            ("⌥⌘M", "new merge request"),
+            ("⇧⌘M", "new merge request"),
             ("⌥⌘O ⌥⌘R", "the file or folder in its app · in Finder"),
             ("?", "this card"),
         ],

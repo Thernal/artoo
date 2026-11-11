@@ -258,3 +258,50 @@ mod tests {
         assert_eq!(pc_split("Tab"), ["Tab"]);
     }
 }
+
+/// What the keyboard helpers show (#193): the keys of what is on screen while ⌘ is held a moment, or ⌃⌘ (the
+/// spaces'). Kept for the window as the theme is: drawing reads it without a context.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Held {
+    Cmd,
+    CtrlCmd,
+}
+
+thread_local! {
+    static HELD: std::cell::Cell<Option<Held>> = const { std::cell::Cell::new(None) };
+}
+
+/// The modifiers held now, as the helpers show them; none while the helpers are off.
+pub fn held() -> Option<Held> {
+    HELD.with(std::cell::Cell::get)
+}
+
+/// The modifiers held changed: whether what is shown changed.
+pub fn set_held(held: Option<Held>) -> bool {
+    HELD.with(|h| h.replace(held) != held)
+}
+
+/// `spec` as a cap over a control's corner while `when` is held (#193): placed over what is there, so nothing
+/// moves. The control it is put in must be `relative`.
+pub fn held_cap(spec: &str, when: Held) -> Option<Div> {
+    (held() == Some(when)).then(|| {
+        div()
+            .absolute()
+            .right(px(-3.))
+            .bottom(px(-5.))
+            .h(px(15.))
+            .px(px(3.))
+            .flex()
+            .items_center()
+            .rounded(px(4.))
+            .border_1()
+            .border_color(theme::border())
+            .bg(theme::panel())
+            .shadow_sm()
+            .text_size(px(10.))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(theme::text())
+            .whitespace_nowrap()
+            .child(text(spec).into_owned())
+    })
+}

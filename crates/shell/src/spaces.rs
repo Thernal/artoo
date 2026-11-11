@@ -163,6 +163,15 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                 s.cursor_pointer()
                     .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
             })
+            // ⌃⌘ held: its key over it (#193).
+            .children(
+                (!row.key.is_empty())
+                    .then(|| {
+                        artoo_ui_kit::keys::held_cap(&row.key, artoo_ui_kit::keys::Held::CtrlCmd)
+                    })
+                    .flatten()
+                    .map(|cap| cap.right(px(30.)).bottom(px(8.))),
+            )
             .group(id.clone())
             .child(
                 icons::icon(row.icon)
