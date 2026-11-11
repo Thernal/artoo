@@ -336,6 +336,7 @@ impl Render for Workspace {
         .on_action(cx.listener(|this, _: &CommentLine, _, cx| this.open_goline(cx)))
         .on_action(cx.listener(|this, _: &SubmitReview, _, cx| this.open_submit(cx)))
         .on_action(cx.listener(|this, _: &ApproveRequest, _, cx| this.toggle_approval(cx)))
+        .on_action(cx.listener(|this, _: &SendDraftNow, _, cx| this.send_focused_draft(cx)))
         .on_action(cx.listener(|this, _: &ToggleSince, _, cx| this.toggle_since(cx)))
         .on_action(cx.listener(|this, _: &SwitchTo, _, cx| {
             if this.root.is_some() {

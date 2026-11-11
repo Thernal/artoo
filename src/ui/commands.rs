@@ -305,6 +305,10 @@ pub(super) fn own() -> Vec<Action> {
             .menu(Bar::View, "Actual Size")
             .at(1, 2),
         // F3 and ⌘F3 are macOS's Mission Control (#183).
+        // The pending comment ⌥N stands on, published alone (#199).
+        Action::new("requests.send-now", SendDraftNow)
+            .words("Send this pending comment now")
+            .order(at(59) + 8),
         Action::new("review.bookmark", ToggleBookmark)
             .words("Bookmark the line, or take it off")
             .order(at(59) + 7)

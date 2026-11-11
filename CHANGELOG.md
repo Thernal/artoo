@@ -6,6 +6,14 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **Discussions count the work left.** The window says `Discussions · 3 open`, each row ends with who moves —
+  `waiting on you` or `waiting on Ember` —, pending comments come first and resolved ones fold under `Resolved · 4`;
+  its icon counts open and pending, and ⇧N walks only the open ones. A general comment opens whole in the window,
+  every note, with Reply… and Resolve under it, and the reply is written right there; `Comment on the request…` in
+  its foot writes a comment on the whole request. A pending comment's right click and ⌘K offer Send now; ⌥⌘↵ sends a
+  reply and resolves its discussion. A comment to your agent goes away by its state: a draft is deleted with Undo, a
+  sent one withdrawn, one the agent read archived — never erased. Edit and Delete on your own note sit in its hover
+  bar beside ☺+.
 - **The diff keeps its room.** The narrow steps measure the diff, not only the window: when it would fall under 480
   px the side panel folds into the menu's column first, and only then does a tool window float. At 1 100 px with
   Discussions open that is about 590 px of diff instead of 305. The right stripe holds the windows you work in —

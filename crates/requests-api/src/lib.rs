@@ -300,6 +300,17 @@ pub enum Act {
     OpenSubmit { approve: bool },
     /// Pending comment `id` published alone (#138).
     SendNow(u64),
+    /// Pending comment `id`'s right click in the Discussions window: Send now, Delete (#199).
+    PendingMenu {
+        id: u64,
+        at: gpui::Point<gpui::Pixels>,
+    },
+    /// A reply to discussion `thread` begun — a general one's in the Discussions window (#199).
+    Reply(usize),
+    /// Discussion `thread` resolved, or opened again.
+    ToggleResolved(usize),
+    /// A comment on the request as a whole begun, in the Discussions window (#199).
+    CommentOnRequest,
     /// A right click on request `iid`'s line: its link and its number (#162).
     RequestContext {
         iid: u64,
@@ -536,6 +547,9 @@ pub trait DiscussionsHost {
     fn showing(&self, cx: &App) -> bool;
     /// What it is drawn with: whether the request's diff is on screen, and what the tab knows of its comments.
     fn listing(&self, cx: &App) -> Listing;
+    /// The composer while it writes in the window — a reply to a general discussion, or a comment on the request —,
+    /// and the discussion it answers (none: the request) (#199).
+    fn composer(&self, cx: &App) -> Option<(Option<usize>, gpui::AnyElement)>;
 }
 
 /// What the Discussions window is drawn with that the tab knows.

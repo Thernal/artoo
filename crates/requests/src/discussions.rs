@@ -11,11 +11,15 @@ use artoo_hosts_api::{Draft, Thread};
 use artoo_requests_api::{DISCUSSIONS, DiscussionsHost};
 use artoo_shell_api::{Badge, ListKey, Services, Tool};
 use artoo_ui_kit::controls::{comment_item, group_heading, skeleton, tool_foot};
-use artoo_ui_kit::format::{one_line, plural};
+use artoo_ui_kit::format::one_line;
 use artoo_ui_kit::hover::{self, Hover, Tip};
 use artoo_ui_kit::{ROW_RADIUS, px, theme};
-use gpui::{AnyElement, App, ClickEvent, Context, Entity, FontWeight, Window, div, prelude::*};
-use std::cell::Cell;
+use gpui::{
+    AnyElement, App, ClickEvent, Context, Entity, FontWeight, MouseButton, MouseDownEvent, Window,
+    div, prelude::*,
+};
+use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::rc::{Rc, Weak};
 
 pub use artoo_requests_api::Listing;
@@ -40,14 +44,16 @@ pub(crate) fn tool(
         host: host.clone(),
         services,
         acts: acts.clone(),
+        folds: Rc::new(RefCell::new(Folds::default())),
     });
-    // Asked while the tab draws its stripe and the window's title: the tab is not read.
+    // Asked while the tab draws its stripe and the window's title: the tab is not read. The work left: the open
+    // discussions and the pending comments (#199).
     let total = Rc::new(move |cx: &App| {
         let requests = requests.read(cx);
         if host.showing(cx) {
-            requests.threads.len() + requests.drafts.len()
+            (requests.open_threads(), requests.drafts.len())
         } else {
-            0
+            (0, 0)
         }
     });
     let counted = total.clone();
@@ -62,17 +68,17 @@ pub(crate) fn tool(
         // About the page: before the windows that are in every space.
         order: 10,
         badge: Some(Rc::new(move |cx| {
-            let n = total(cx);
+            let (open, pending) = total(cx);
             Badge {
-                count: n,
+                count: open + pending,
                 color: theme::accent(),
-                what: plural(n, "comment"),
+                what: work_left(open, pending),
                 under: None,
             }
         })),
         count: Some(Rc::new(move |cx| {
-            let n = counted(cx);
-            (n > 0).then(|| n.to_string())
+            let (open, _) = counted(cx);
+            (open > 0).then(|| format!("{open} open"))
         })),
         view: view.into(),
         opened: Rc::new(|_| {}),
@@ -99,7 +105,27 @@ struct DiscussionsView {
     /// The tab's, where the branches are.
     services: Weak<Services>,
     acts: Acts,
+    /// What is unfolded in it: the resolved ones, the general discussions read whole (#199).
+    folds: Rc<RefCell<Folds>>,
 }
+
+/// What the window has unfolded (#199).
+#[derive(Default)]
+pub struct Folds {
+    /// The resolved discussions, folded under `Resolved · N` until opened.
+    pub resolved: bool,
+    /// The general discussions read whole, by their ids.
+    pub general: HashSet<String>,
+}
+
+/// One fold of the window opened or closed.
+pub enum Fold {
+    Resolved,
+    General(String),
+}
+
+/// Opens or closes a fold, the window drawn again.
+pub type OnFold = Rc<dyn Fn(Fold, &mut App)>;
 
 impl Render for DiscussionsView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -108,7 +134,33 @@ impl Render for DiscussionsView {
             .and_then(|s| s.get::<Rc<dyn Branches>>())
             .and_then(|b| b.latest_version(cx))
             .map(|v| v.number);
-        let window = (self.requests.read(cx)).discussions_window(look, latest, self.acts.clone());
+        let composer = self.host.composer(cx);
+        let (folds, view) = (self.folds.clone(), cx.entity().downgrade());
+        let on_fold: OnFold = Rc::new(move |fold, cx| {
+            {
+                let mut folds = folds.borrow_mut();
+                match fold {
+                    Fold::Resolved => folds.resolved = !folds.resolved,
+                    Fold::General(id) => {
+                        if !folds.general.remove(&id) {
+                            folds.general.insert(id);
+                        }
+                    }
+                }
+            }
+            view.update(cx, |_, cx| cx.notify()).ok();
+        });
+        let folds = self.folds.borrow();
+        let window = (self.requests.read(cx)).discussions_window(
+            look,
+            latest,
+            self.acts.clone(),
+            Unfolded {
+                folds: &folds,
+                on_fold,
+                composer,
+            },
+        );
         div()
             .flex_1()
             .min_h_0()
@@ -119,28 +171,74 @@ impl Render for DiscussionsView {
     }
 }
 
+/// What the window is drawn with besides the request's comments: what is unfolded, and the composer writing in it.
+pub struct Unfolded<'a> {
+    pub folds: &'a Folds,
+    pub on_fold: OnFold,
+    pub composer: Option<(Option<usize>, AnyElement)>,
+}
+
+/// The stripe's tip: `3 open · 2 pending`.
+fn work_left(open: usize, pending: usize) -> String {
+    match (open, pending) {
+        (0, 0) => "Nothing open".to_owned(),
+        (open, 0) => format!("{open} open"),
+        (0, pending) => format!("{pending} pending"),
+        (open, pending) => format!("{open} open · {pending} pending"),
+    }
+}
+
+/// Who moves next in discussion `t`: `waiting on you` when the last word is someone else's, else `waiting on` the
+/// one you answered; none once resolved, or without knowing who you are (#199).
+pub fn waiting_on(t: &Thread, me: Option<&str>) -> Option<String> {
+    let me = me?;
+    // A plain comment is no work: nothing waits on it.
+    if t.resolved || !t.resolvable {
+        return None;
+    }
+    let last = t.notes.last()?;
+    if last.login != me {
+        return Some("waiting on you".to_owned());
+    }
+    let other = (t.notes.iter().rev()).find(|n| n.login != me)?;
+    let first = other
+        .author
+        .split_whitespace()
+        .next()
+        .unwrap_or(&other.author);
+    Some(format!("waiting on {first}"))
+}
+
 impl Requests {
-    /// The Discussions tool window: the request's discussions and pending notes — public ones only,
-    /// the agent's are the Agents window's (#76); a click shows one in the diff.
+    /// The discussions still open: resolvable and not resolved — the work left (#199).
+    pub fn open_threads(&self) -> usize {
+        (self.threads.iter())
+            .filter(|t| t.resolvable && !t.resolved)
+            .count()
+    }
+
+    /// The Discussions tool window: the request's pending notes, then its discussions — `3 open`, each saying who
+    /// moves —, the resolved ones folded under `Resolved · N` (#199), the outdated ones apart; public ones only, the
+    /// agent's are the Agents window's (#76). A click shows one in the diff; a general one opens whole, with Reply…
+    /// and Resolve under it.
     pub fn discussions_window(
         &self,
         look: Listing,
         latest: Option<usize>,
         acts: Acts,
+        unfolded: Unfolded,
     ) -> DiscussionsWindow {
+        let Unfolded {
+            folds,
+            on_fold,
+            composer,
+        } = unfolded;
         let (threads, drafts): (&[Thread], &[Draft]) = if look.showing {
             (&self.threads, &self.drafts)
         } else {
             (&[], &[])
         };
-        let theirs: Vec<(usize, &Thread)> = threads.iter().enumerate().collect();
         let pending = drafts.len();
-        // Public only: the agent's comments are the Agents window's (#76).
-        let discussions = theirs.len();
-        let total = discussions + pending;
-        // Group headings once there is more than one kind. Pending ones always have theirs: it is what
-        // says they are pending, and how to walk them.
-        let grouped = [discussions, pending].iter().filter(|&&n| n > 0).count() > 1;
         // Written on an earlier version: listed apart, grouped by that version (#46).
         let outdated = if look.showing {
             self.outdated_by_version()
@@ -148,11 +246,20 @@ impl Requests {
             Vec::new()
         };
         let old: Vec<usize> = outdated.iter().flat_map(|(_, l)| l.clone()).collect();
-        let theirs: Vec<(usize, &Thread)> = theirs
-            .into_iter()
+        let current: Vec<(usize, &Thread)> = (threads.iter().enumerate())
             .filter(|(ix, _)| !old.contains(ix))
             .collect();
-        let discussions = theirs.len();
+        let (resolved, open): (Vec<_>, Vec<_>) = current.into_iter().partition(|(_, t)| t.resolved);
+        let open_count = open.iter().filter(|(_, t)| t.resolvable).count();
+        let total = threads.len() + pending;
+        // A request comment's composer goes in the foot; a general discussion's under it.
+        let (mut reply_box, mut comment_box) = (None, None);
+        match composer {
+            Some((Some(ix), element)) => reply_box = Some((ix, element)),
+            Some((None, element)) => comment_box = Some(element),
+            None => {}
+        }
+        let me = self.login.as_deref();
         let mut outdated_items = Vec::new();
         for (version, list) in outdated {
             let items: Vec<gpui::AnyElement> = list
@@ -173,35 +280,117 @@ impl Requests {
                     .children(items),
             );
         }
-        let request_items = theirs.into_iter().map(|(ix, t)| {
+        let mut row = |ix: usize, t: &Thread| -> AnyElement {
             let target = t.path.clone().zip(t.new_line.or(t.old_line));
             let old = t.new_line.is_none();
+            let general = target.is_none();
+            let whole = general && folds.general.contains(&t.id);
             let where_ = match &target {
                 Some((p, n)) => format!("{}:{n}", p.rsplit('/').next().unwrap_or(p)),
-                None => "General".to_owned(),
+                None if whole => "General ▾".to_owned(),
+                None => "General ▸".to_owned(),
             };
             let first = &t.notes[0];
             // Faded while a change to it waits on the host (#139).
             let waits = self.thread_waits(&t.id).is_some()
                 || t.notes.iter().any(|n| self.note_time(n.id, n.created).1);
-            comment_item(
-                ("comment-mr", ix),
-                theme::warning(),
-                where_,
-                format!("{}: {}", first.author, one_line(&first.body, look.rich)),
-            )
-            .when(waits, |s| s.opacity(FADED))
-            .on_click({
-                let acts = acts.clone();
-                move |_: &ClickEvent, _, cx| {
-                    if let Some((path, line)) = target.clone() {
-                        acts(Act::JumpToLine { path, line, old }, cx)
+            let tone = if t.resolved {
+                theme::faint()
+            } else {
+                theme::warning()
+            };
+            let waiting = waiting_on(t, me);
+            let id = t.id.clone();
+            // Read whole, the row is its heading: who began it; the notes follow in full.
+            let line = if whole {
+                first.author.clone()
+            } else {
+                format!("{}: {}", first.author, one_line(&first.body, look.rich))
+            };
+            let item = comment_item(("comment-mr", ix), tone, where_, line)
+                .when(whole, |s| s.bg(theme::selected()))
+                .children(waiting.map(|w| {
+                    div()
+                        .pl(px(14.))
+                        .text_size(px(11.))
+                        .text_color(if w == "waiting on you" {
+                            theme::warning()
+                        } else {
+                            theme::faint()
+                        })
+                        .child(w)
+                }))
+                .when(waits, |s| s.opacity(FADED))
+                .on_click({
+                    let (acts, on_fold) = (acts.clone(), on_fold.clone());
+                    move |_: &ClickEvent, _, cx| match target.clone() {
+                        Some((path, line)) => acts(Act::JumpToLine { path, line, old }, cx),
+                        None => on_fold(Fold::General(id.clone()), cx),
                     }
-                }
-            })
-        });
+                });
+            if !whole {
+                return item.into_any_element();
+            }
+            // A general discussion read whole: every note, then Reply… and Resolve, or its composer (#199).
+            let notes = t.notes.iter().skip(1).map(|n| {
+                div()
+                    .pl(px(28.))
+                    .pr(px(14.))
+                    .py(px(3.))
+                    .text_size(px(12.))
+                    .text_color(theme::muted())
+                    .child(format!("{}: {}", n.author, n.body.trim()))
+            });
+            let replying = reply_box.as_ref().is_some_and(|(r, _)| *r == ix);
+            let composer = replying.then(|| reply_box.take().map(|(_, e)| e)).flatten();
+            let buttons = (!replying).then(|| {
+                let (reply, resolve) = (acts.clone(), acts.clone());
+                div()
+                    .pl(px(28.))
+                    .pr(px(14.))
+                    .py(px(4.))
+                    .flex()
+                    .gap(px(6.))
+                    .child(
+                        small_button(("general-reply", ix), "Reply…")
+                            .on_click(move |_: &ClickEvent, _, cx| reply(Act::Reply(ix), cx)),
+                    )
+                    .children(t.resolvable.then(|| {
+                        small_button(
+                            ("general-resolve", ix),
+                            if t.resolved { "Reopen" } else { "Resolve" },
+                        )
+                        .on_click(move |_: &ClickEvent, _, cx| resolve(Act::ToggleResolved(ix), cx))
+                    }))
+            });
+            div()
+                .flex()
+                .flex_col()
+                .pb(px(4.))
+                .child(item)
+                .child(
+                    div()
+                        .pl(px(28.))
+                        .pr(px(14.))
+                        .pb(px(3.))
+                        .text_size(px(12.))
+                        .text_color(theme::text())
+                        .child(first.body.trim().to_owned()),
+                )
+                .children(notes)
+                .children(buttons)
+                .children(composer.map(|c| div().px(px(8.)).py(px(4.)).child(c)))
+                .into_any_element()
+        };
+        let open_items: Vec<AnyElement> = open.iter().map(|(ix, t)| row(*ix, t)).collect();
+        let resolved_items: Vec<AnyElement> = if folds.resolved {
+            resolved.iter().map(|(ix, t)| row(*ix, t)).collect()
+        } else {
+            Vec::new()
+        };
         let draft_items = drafts.iter().enumerate().map(|(ix, d)| {
             let (where_, target, old) = self.draft_where(d);
+            let id = d.id;
             comment_item(
                 ("comment-draft", ix),
                 theme::warning(),
@@ -216,6 +405,14 @@ impl Requests {
                     .filter(|_| self.draft_waits(d.id).is_none() && !is_temp(d.id))
                     .map(|chip| chip.absolute().top(px(3.)).right(px(6.))),
             )
+            // Its right click: Send now, Delete (#199).
+            .on_mouse_down(MouseButton::Right, {
+                let acts = acts.clone();
+                move |e: &MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    acts(Act::PendingMenu { id, at: e.position }, cx)
+                }
+            })
             .on_click({
                 let acts = acts.clone();
                 move |_: &ClickEvent, _, cx| {
@@ -244,6 +441,35 @@ impl Requests {
                     move |_: &ClickEvent, _, cx| acts(Act::OpenSubmit { approve: false }, cx)
                 })
         });
+        // A comment on the request as a whole, from the foot (#199).
+        let comment = (look.showing && comment_box.is_none()).then(|| {
+            let acts = acts.clone();
+            small_button("comment-on-request", "Comment on the request…")
+                .on_click(move |_: &ClickEvent, _, cx| acts(Act::CommentOnRequest, cx))
+        });
+        let foot = match (comment_box, submit, comment) {
+            (Some(composer), submit, _) => Some(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .w_full()
+                    .child(composer)
+                    .children(submit)
+                    .into_any_element(),
+            ),
+            (None, None, None) => None,
+            (None, submit, comment) => Some(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .children(comment)
+                    .children(submit)
+                    .into_any_element(),
+            ),
+        };
+        let resolved_count = resolved.len();
         DiscussionsWindow {
             body: div()
                 .id("comments-list")
@@ -256,11 +482,31 @@ impl Requests {
                         .then(|| group_heading(format!("Pending · {pending}"), Some("⌥N"))),
                 )
                 .children(draft_items)
-                .children(
-                    (grouped && discussions > 0)
-                        .then(|| group_heading(format!("Discussions · {discussions}"), None)),
-                )
-                .children(request_items)
+                .children((!open_items.is_empty()).then(|| {
+                    group_heading(
+                        match open_count {
+                            0 => format!("Discussions · {}", open_items.len()),
+                            n => format!("Discussions · {n} open"),
+                        },
+                        Some("⇧N"),
+                    )
+                }))
+                .children(open_items)
+                .children((resolved_count > 0).then(|| {
+                    let on_fold = on_fold.clone();
+                    div()
+                        .id("resolved-fold")
+                        .cursor_pointer()
+                        .child(group_heading(
+                            format!(
+                                "{} Resolved · {resolved_count}",
+                                if folds.resolved { "▾" } else { "▸" }
+                            ),
+                            None,
+                        ))
+                        .on_click(move |_: &ClickEvent, _, cx| on_fold(Fold::Resolved, cx))
+                }))
+                .children(resolved_items)
                 .children((!old.is_empty()).then(|| {
                     div()
                         .px(px(14.))
@@ -294,7 +540,7 @@ impl Requests {
                         .child("No comments yet")
                 }))
                 .into_any_element(),
-            foot: submit.map(IntoElement::into_any_element),
+            foot,
         }
     }
 
@@ -368,6 +614,26 @@ impl Requests {
     }
 }
 
+/// A small bordered button in the window: Reply…, Resolve, Comment on the request.
+fn small_button(id: impl Into<gpui::ElementId>, label: &'static str) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .flex_none()
+        .px(px(8.))
+        .h(px(22.))
+        .flex()
+        .items_center()
+        .rounded(px(ROW_RADIUS))
+        .border_1()
+        .border_color(theme::island_border())
+        .bg(theme::panel())
+        .text_size(px(12.))
+        .text_color(theme::text())
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::hover()))
+        .child(label)
+}
+
 /// A pending comment in one line, an agent's after its name (#150).
 pub fn draft_line(d: &Draft, rich: bool, agent: Option<&str>) -> String {
     match agent {
@@ -413,4 +679,65 @@ pub fn send_now_chip(
                 acts(Act::SendNow(id), cx);
             })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use artoo_core::mr::Note;
+
+    fn note(login: &str, author: &str) -> Note {
+        Note {
+            id: 1,
+            author: author.to_owned(),
+            login: login.to_owned(),
+            body: String::new(),
+            created: 0,
+        }
+    }
+
+    fn thread(notes: Vec<Note>, resolvable: bool, resolved: bool) -> Thread {
+        Thread {
+            id: "d".to_owned(),
+            notes,
+            path: None,
+            new_line: None,
+            old_line: None,
+            resolved,
+            resolvable,
+            resolved_by: None,
+            resolved_at: 0,
+            commit: None,
+            outdated: false,
+        }
+    }
+
+    #[test]
+    fn a_discussion_says_who_moves_next() {
+        let theirs = thread(vec![note("ember", "Ember Lind")], true, false);
+        assert_eq!(
+            waiting_on(&theirs, Some("you")).as_deref(),
+            Some("waiting on you")
+        );
+        let answered = thread(
+            vec![note("ember", "Ember Lind"), note("you", "You")],
+            true,
+            false,
+        );
+        assert_eq!(
+            waiting_on(&answered, Some("you")).as_deref(),
+            Some("waiting on Ember")
+        );
+        // Resolved, a plain comment, or not knowing who you are: no word.
+        assert_eq!(
+            waiting_on(&thread(vec![note("ember", "E")], true, true), Some("you")),
+            None
+        );
+        assert_eq!(
+            waiting_on(&thread(vec![note("ember", "E")], false, false), Some("you")),
+            None
+        );
+        assert_eq!(waiting_on(&theirs, None), None);
+        assert_eq!(work_left(3, 2), "3 open · 2 pending");
+    }
 }

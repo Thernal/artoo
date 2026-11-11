@@ -165,6 +165,7 @@ actions!(
         CommentLine,
         SubmitReview,
         ApproveRequest,
+        SendDraftNow,
         ToggleSince,
         SwitchTo,
         NextDraft,

@@ -616,6 +616,8 @@ impl Workspace {
             .request_threads(cx)
             .iter()
             .enumerate()
+            // ⇧N walks the work left: the resolved ones are passed (#199).
+            .filter(|(_, t)| !t.resolved)
             .filter_map(|(ix, t)| {
                 let file = diff
                     .files
@@ -905,6 +907,38 @@ impl Workspace {
         }
     }
 
+    /// A pending comment's right click in Discussions: Send now, Delete (#199).
+    fn pending_menu(&mut self, id: u64, at: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
+        use super::menu::{Act, Entry};
+        let send = if self.sends_one_draft() {
+            Entry::new(
+                "Send now",
+                Act::new(move |this, _, cx| this.send_draft_now(id, cx)),
+            )
+        } else {
+            Entry::off("Send now: GitHub sends it with the review")
+        };
+        let delete = Entry::new(
+            "Delete",
+            Act::new(move |this, _, cx| this.discard_draft(id, cx)),
+        );
+        self.open_menu(at, vec![vec![send], vec![delete]], cx);
+    }
+
+    /// ⌘K's Send now: the pending comment ⌥N stands on, else the only one (#199).
+    pub(super) fn send_focused_draft(&mut self, cx: &mut Context<Self>) {
+        let drafts = self.request_drafts(cx);
+        let id = match self.draft_at.and_then(|ix| drafts.get(ix)) {
+            Some(d) => Some(d.id),
+            None if drafts.len() == 1 => Some(drafts[0].id),
+            None => None,
+        };
+        match id {
+            Some(id) => self.send_draft_now(id, cx),
+            None => self.toast_info("Step to a pending comment with ⌥N first".into(), cx),
+        }
+    }
+
     /// Send this now: pending comment `id` is published alone and becomes a discussion on its
     /// line; the others stay pending. A failure leaves it pending and says why (#138).
     pub(super) fn send_draft_now(&mut self, id: u64, cx: &mut Context<Self>) {
@@ -1167,6 +1201,20 @@ impl artoo_requests_api::DiscussionsHost for DiscussionsHost {
         self.1.get()
     }
 
+    fn composer(&self, cx: &App) -> Option<(Option<usize>, gpui::AnyElement)> {
+        let tab = self.0.upgrade()?;
+        let this = tab.read(cx);
+        let compose = this.compose.as_ref()?;
+        let which = match compose.target {
+            // A general discussion's reply: no line in the diff holds it (#199).
+            super::composer::Target::Reply(ix) if compose.path.is_empty() => Some(ix),
+            super::composer::Target::InboxReply if !this.at_inbox() => None,
+            _ => return None,
+        };
+        let boxed = this.compose_box(self.0.clone(), cx)?;
+        Some((which, boxed.into_any_element()))
+    }
+
     fn listing(&self, cx: &App) -> Listing {
         let Some(tab) = self.0.upgrade() else {
             return Listing {
@@ -1202,6 +1250,10 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
                 }
             }
             Act::ThreadNote(thread) => this.start_thread_note(thread, cx),
+            Act::Reply(thread) => this.start_reply(thread, cx),
+            Act::ToggleResolved(thread) => this.toggle_resolved(thread, cx),
+            Act::CommentOnRequest => this.start_request_comment(cx),
+            Act::PendingMenu { id, at } => this.pending_menu(id, at, cx),
             Act::ReplyMentioning { thread, login } => this.reply_mentioning(thread, &login, cx),
             Act::CompareSince(ix) => this.compare_since(ix, cx),
             Act::JumpToLine { path, line, old } => this.jump_to_line(&path, line, old, cx),

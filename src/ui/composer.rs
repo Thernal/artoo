@@ -541,6 +541,13 @@ impl Workspace {
             if target == Some(Target::Agent) && (m.shift || m.alt) {
                 return self.add_and_send(m.alt, cx);
             }
+            // A reply: ⌥⌘↵ sends it and resolves its discussion, or opens it again when resolved (#199).
+            if m.alt
+                && let Some(Target::Reply(ix)) = target
+            {
+                self.post_reply(ix, cx);
+                return self.toggle_resolved(ix, cx);
+            }
             return self.add_comment(cx);
         }
         if let Some((at, choices)) = self.compose_completion(cx)
@@ -745,6 +752,11 @@ impl Workspace {
         let compose = self.compose.as_ref()?;
         let audience = match compose.target {
             Target::Request(iid) => format!("Everyone on !{iid}"),
+            // A reply in the Inbox, or a comment on the request from Discussions (#199).
+            Target::InboxReply => match self.inbox_reply(cx) {
+                Some((iid, _)) => format!("Everyone on !{iid}"),
+                None => "Everyone on the request".to_owned(),
+            },
             // The chat it will go to, by its page's branch (#77).
             Target::Agent => match self.route_of(self.page_branch(cx).as_deref(), cx) {
                 Some(chat) if !chat.title.is_empty() => format!("To: {}", chat.title),

@@ -200,6 +200,29 @@ impl Workspace {
         cx.notify();
     }
 
+    /// The comment's own way out (#199): a draft deleted, `Comment deleted · Undo`; one sent withdrawn; one read
+    /// archived.
+    pub(super) fn erase_comment(&mut self, id: u64, erase: Erase, cx: &mut Context<Self>) {
+        match erase {
+            Erase::Delete => {
+                let kept = self.comments(cx).iter().find(|c| c.id == id).cloned();
+                self.delete_comment(id, cx);
+                if let Some(comment) = kept {
+                    let agents = self.agents.clone();
+                    let undo = std::rc::Rc::new(move |cx: &mut App| {
+                        agents.restore_comment(comment.clone(), cx)
+                    });
+                    self.toasts
+                        .update(cx, |t, cx| t.show_with("Comment deleted", "Undo", undo, cx));
+                }
+            }
+            Erase::Withdraw => self.agents.withdraw(id, cx),
+            Erase::Archive => self.agents.archive(id, true, cx),
+        }
+        self.copied = false;
+        cx.notify();
+    }
+
     /// The reviewer's comments to agents, as they are now (`Agents::comments`).
     pub(super) fn comments<'a>(&self, cx: &'a App) -> &'a [Comment] {
         self.agents.comments(cx)
@@ -325,14 +348,22 @@ impl Workspace {
                     })
                 }),
             )
-            .child(
+            // By its state (#199): a draft is deleted (with Undo), one sent and not answered withdrawn, one the
+            // agent has read put away — never erased.
+            .child({
+                let (icon, label, kind) = match erase_of(comment) {
+                    Erase::Delete => ("trash", "Delete", Kind::Danger),
+                    Erase::Withdraw => ("rotate-ccw", "Withdraw", Kind::Plain),
+                    Erase::Archive => ("inbox", "Archive", Kind::Plain),
+                };
+                let erase = erase_of(comment);
                 discussion::icon_button(
                     ("delete-comment", id),
-                    "trash",
-                    "Delete",
+                    icon,
+                    label,
                     None,
                     None,
-                    Kind::Danger,
+                    kind,
                     self.tight(cx),
                 )
                 .h(px(24.))
@@ -340,10 +371,10 @@ impl Workspace {
                 .on_click(move |_, _, cx| {
                     cx.stop_propagation();
                     delete
-                        .update(cx, |this, cx| this.delete_comment(id, cx))
+                        .update(cx, |this, cx| this.erase_comment(id, erase, cx))
                         .ok();
-                }),
-            )
+                })
+            })
             // A double click folds or opens it once, as one click does.
             .on_click(move |e: &gpui::ClickEvent, _, cx| {
                 if e.click_count() > 1 {
@@ -463,5 +494,44 @@ impl Workspace {
                     )),
             )
             .into_any_element()
+    }
+}
+
+/// How a comment to an agent goes away, by its state (#199).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Erase {
+    /// Not sent yet: deleted, with Undo.
+    Delete,
+    /// Sent, the agent not answered yet: taken back.
+    Withdraw,
+    /// The agent read it (answered, done, resolved): put away, kept.
+    Archive,
+}
+
+/// `comment`'s way out.
+pub(super) fn erase_of(comment: &Comment) -> Erase {
+    match comment.state {
+        State::Draft => Erase::Delete,
+        State::Sent if comment.replies.is_empty() => Erase::Withdraw,
+        _ => Erase::Archive,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_comment_goes_away_by_its_state() {
+        let mut c = Comment::default();
+        assert_eq!(erase_of(&c), Erase::Delete);
+        c.state = State::Sent;
+        assert_eq!(erase_of(&c), Erase::Withdraw);
+        // The agent answered: it is read, kept and put away, never erased.
+        c.replies.push(Default::default());
+        assert_eq!(erase_of(&c), Erase::Archive);
+        c.replies.clear();
+        c.state = State::Addressed;
+        assert_eq!(erase_of(&c), Erase::Archive);
     }
 }

@@ -18,10 +18,12 @@ impl Workspace {
         else {
             return;
         };
-        let (Some(path), Some(line)) = (t.path.clone(), t.new_line.or(t.old_line)) else {
-            return;
-        };
-        let old = t.new_line.is_none();
+        // A general discussion has no line: its reply is written in the Discussions window (#199).
+        let (path, line) = (
+            t.path.clone().unwrap_or_default(),
+            t.new_line.or(t.old_line).unwrap_or(0),
+        );
+        let old = t.new_line.is_none() && t.path.is_some();
         self.compose = Some(Compose {
             path,
             old,
@@ -88,6 +90,13 @@ impl Workspace {
         self.reset_field_edit();
         self.set_inbox_reply(Some((iid, discussion)), cx);
         cx.notify();
+    }
+
+    /// Discussions' foot: a comment on the request on screen as a whole, written in the window (#199).
+    pub(super) fn start_request_comment(&mut self, cx: &mut Context<Self>) {
+        if let Some(iid) = self.current_request(cx) {
+            self.start_inbox_reply(iid, None, None, cx);
+        }
     }
 
     /// Posts the Inbox's reply: to its discussion, or as a comment on the request.

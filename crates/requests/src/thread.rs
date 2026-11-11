@@ -141,6 +141,11 @@ pub fn render_thread(
             let can_act = can_act && !is_temp(note.id);
             let editable = can_act && !look.composing && own && !note_waits;
             let pills = rq.reaction_pills(note.id, look.marks, acts.clone());
+            // Edit and Delete on one's own note sit in its hover bar, beside ☺+ (#199): shown while it is pointed
+            // at, while `e` would edit it, or while its delete asks.
+            let reveal = look.hovered == Some(note.id)
+                || (focused && look.mine == Some(note.id))
+                || look.confirm == Some(note.id);
             let at = Hovered {
                 thread: ix,
                 note: note.id,
@@ -172,7 +177,7 @@ pub fn render_thread(
                     .children(pills)
                     .into_any_element(),
                 n == last && !replying,
-                (bar.is_some() || editable).then(|| {
+                (bar.is_some() || (editable && reveal)).then(|| {
                     // `e` edits the last of one's notes in the discussion with the keyboard.
                     let key = (focused && look.mine == Some(note_id)).then_some("e");
                     let edit = on.clone();
@@ -181,7 +186,7 @@ pub fn render_thread(
                         .items_center()
                         .gap_2()
                         .children(bar)
-                        .children(editable.then(|| {
+                        .children((editable && reveal).then(|| {
                             icon_button(
                                 ("edit-note", note_id as usize),
                                 "pencil",
@@ -199,7 +204,7 @@ pub fn render_thread(
                             })
                         }))
                         // One's own note goes from GitLab too, after a confirm (#76).
-                        .children(editable.then(|| {
+                        .children((editable && reveal).then(|| {
                             delete_button(note_id, look.confirm == Some(note_id), tight, on.clone())
                         }))
                         .into_any_element()
