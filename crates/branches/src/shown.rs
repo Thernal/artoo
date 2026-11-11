@@ -187,6 +187,8 @@ impl History {
         review.clear(cx);
         self.message_open = false;
         self.selection = Selection::Versions { from, to };
+        // What changed since the version you read counts what it left as it was (#187).
+        self.read_whole();
         review.open(Source::Versions { from: a, to: b }, keep, cx);
         true
     }

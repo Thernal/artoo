@@ -24,27 +24,31 @@ const COMPARE_ROWS: usize = 8;
 const COMPARE_ROW: f32 = 28.;
 
 /// The versions, newest first, for the side panel's Versions section; those from `new_from` on arrived since the
-/// user last looked.
-pub fn version_rows(h: &History, new_from: Option<usize>, acts: &Acts) -> Div {
+/// user last looked, `read` the one you read when a push came after it (#187).
+pub fn version_rows(h: &History, new_from: Option<usize>, read: Option<usize>, acts: &Acts) -> Div {
     let latest = h.versions.len() - 1;
     let (from, to) = match h.selection {
         Selection::Versions { from, to } => (Some(from), Some(to)),
         _ => (None, None),
     };
+    // What changed since the version you read: its two ends say what they are, not from and to (Design A1).
+    let since = read.is_some() && from == read && to == Some(latest);
     // Who made a version is only worth a line when more than one person did.
     let several = h.versions.iter().any(|v| v.author != h.versions[0].author);
     div()
         .flex()
         .flex_col()
         .children(h.versions.iter().enumerate().rev().map(|(ix, v)| {
-            let role = if Some(ix) == from {
+            let role = if since {
+                None
+            } else if Some(ix) == from {
                 Some("from")
             } else if Some(ix) == to {
                 Some("to")
             } else {
                 None
             };
-            let chosen = role.is_some();
+            let chosen = role.is_some() || (since && (Some(ix) == from || Some(ix) == to));
             let kind = match format::reason(&v.reason) {
                 "fetch" => "fetched",
                 "unknown" => "version",
@@ -159,6 +163,9 @@ pub fn version_rows(h: &History, new_from: Option<usize>, acts: &Acts) -> Div {
                                 .children(role.map(|r| tag(r, theme::accent())))
                                 .when(ix == latest && role.is_none(), |s| {
                                     s.child(tag("latest", theme::faint()))
+                                })
+                                .when(Some(ix) == read && role.is_none(), |s| {
+                                    s.child(tag("you read", theme::faint()))
                                 })
                                 .when(new_from.is_some_and(|from| ix >= from), |s| {
                                     s.child(tag("new", theme::accent()))

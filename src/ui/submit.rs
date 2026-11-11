@@ -10,7 +10,7 @@ use gpui::{App, Context, KeyDownEvent, prelude::*};
 impl Workspace {
     /// ⇧⌘↵ or "Submit review": the card, on Comment.
     pub(super) fn open_submit(&mut self, cx: &mut Context<Self>) {
-        if !self.showing_request(cx) || !self.requests_api().is_some_and(|r| r.open_submit(cx)) {
+        if !self.on_request_changes(cx) || !self.requests_api().is_some_and(|r| r.open_submit(cx)) {
             return;
         }
         self.take_keyboard(Input::Submit, cx);

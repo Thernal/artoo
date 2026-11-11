@@ -198,6 +198,8 @@ pub(super) fn own() -> Vec<Action> {
             .menu(Bar::View, "Fold the Menu to Icons")
             .at(0, 3),
         Action::new("requests.approve", ApproveRequest).key("a", NOT_TYPING),
+        // A request's Changes: All and Since the version you read, in turn (#187).
+        Action::new("requests.since-read", ToggleSince).key("s", NOT_TYPING),
         Action::new("requests.next-draft", NextDraft).key("alt-n", NOT_TYPING),
         Action::new("requests.previous-draft", PreviousDraft).key("alt-p", NOT_TYPING),
         Action::new("shell.shortcuts", ShowShortcuts)

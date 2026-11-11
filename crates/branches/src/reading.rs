@@ -119,6 +119,8 @@ impl History {
     ) -> Option<RequestSides> {
         let sides = self.pending_request.take()?;
         self.open_request = Some(sides.clone());
+        // Opened anew: the version you read is taken again (#187).
+        self.kept_read = None;
         self.show_request_commits(&sides.0, &sides.1);
         self.show_request_versions(versions);
         Some(sides)

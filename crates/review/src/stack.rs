@@ -269,15 +269,22 @@ impl Review {
                             )),
                     )
                     .child(artoo_ui_kit::icons::file_icon(file.path(), 16.))
-                    .child(
-                        artoo_ui_kit::hover::path(("file-path", ix), path)
-                            .flex_1()
+                    .map(|s| {
+                        let path = artoo_ui_kit::hover::path(("file-path", ix), path)
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(crate::diff_view::change_color(
                                 file,
                                 state == Some(State::Done),
-                            )),
-                    )
+                            ));
+                        // Changed since the version you read: said beside the path (#187).
+                        match self.since_chip(ix) {
+                            Some(chip) => s
+                                .child(path.flex_shrink(1.).min_w_0())
+                                .child(chip)
+                                .child(div().flex_1()),
+                            None => s.child(path.flex_1()),
+                        }
+                    })
                     // The working tree's part it is (#22): staged, not staged, untracked.
                     .children(crate::diff_view::file_tag(
                         self.diff.as_ref().and_then(|d| d.tags.word(ix)),

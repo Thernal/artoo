@@ -82,6 +82,10 @@ pub struct Review {
     pub tight: bool,
     /// Where the toolbar's View ▾ was last drawn: its menu hangs from it.
     pub view_button: Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
+    /// The toolbar's widths as last drawn: what folds into View ▾ (#187).
+    pub tools: Rc<crate::toolbar::ToolRoom>,
+    /// The diff is what changed since the version you read of a request, as the tab said (#187).
+    pub since: Option<artoo_review_api::SinceRead>,
     /// The line number being typed for a quick comment.
     pub goline: Option<String>,
     /// The diff row the `c` marker stands on.
@@ -180,6 +184,8 @@ impl Review {
             notes: Vec::new(),
             images: Default::default(),
             view_button: Default::default(),
+            tools: Default::default(),
+            since: None,
             page: Default::default(),
             viewers: vec![crate::md_page::viewer(), crate::image_view::viewer()],
             annotate: false,

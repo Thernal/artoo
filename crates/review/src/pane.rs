@@ -7,6 +7,8 @@
 use crate::diff_view::{change_color, file_tag};
 use crate::review::{Host, PaneEvent, Review};
 use crate::reviewed::State;
+use crate::toolbar::ToolRoom;
+use artoo_review_api::ToolbarFold;
 use artoo_review_api::viewers::Drawing;
 use artoo_ui_kit::controls::{chip, group};
 use artoo_ui_kit::format::plural;
@@ -156,11 +158,18 @@ impl Review {
                     .border_b_1()
                     .border_color(theme::island_border())
                     .child(icons::file_icon(f.path(), 16.))
-                    .child(
-                        hover::path("file-path", path)
-                            .flex_1()
-                            .text_color(change_color(f, false)),
-                    )
+                    .map(|s| {
+                        let path =
+                            hover::path("file-path", path).text_color(change_color(f, false));
+                        // Changed since the version you read: said beside the path (#187).
+                        match self.since_chip(self.file) {
+                            Some(chip) => s
+                                .child(path.flex_shrink(1.).min_w_0())
+                                .child(chip)
+                                .child(div().flex_1()),
+                            None => s.child(path.flex_1()),
+                        }
+                    })
                     // The working tree's part it is (#22): staged, not staged, untracked; with
                     // every file in one scroll the card's own header has it.
                     .children(
@@ -302,8 +311,9 @@ impl Review {
     }
 
     /// How the diff is drawn, the toolbar's right: Split · Unified, Expand all or Collapse all with every file in
-    /// one scroll, View ▾ (`menu_open` while its menu is); the same toggles live in the View menu.
-    pub fn render_options(&self, menu_open: bool, host: Rc<dyn Host>) -> Div {
+    /// one scroll, View ▾ (`menu_open` while its menu is); the same toggles live in the View menu, and what `fold`
+    /// folds is only there (#187). Each is measured as drawn.
+    pub fn render_options(&self, menu_open: bool, fold: ToolbarFold, host: Rc<dyn Host>) -> Div {
         let event = |event: PaneEvent| {
             let host = host.clone();
             move |_: &ClickEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
@@ -315,58 +325,83 @@ impl Review {
         // What is on screen is marked (#186): a diff too narrow to split is drawn unified, and says so; Split
         // chosen there still splits once the diff has the room.
         let unified = o.unified || self.narrow;
+        let tools = self.tools.clone();
+        let measured = move |part: fn(&ToolRoom) -> &std::cell::Cell<f32>, el: AnyElement| {
+            let tools = tools.clone();
+            div()
+                .relative()
+                .flex_none()
+                .child(el)
+                .child(crate::toolbar::measure(move |w| {
+                    part(&tools).replace(w) != w
+                }))
+        };
         div()
             .flex_none()
             .flex()
             .items_center()
             .gap_2()
-            .child(
+            .when(fold < ToolbarFold::Layout, |s| {
+                s.child(measured(
+                    |t| &t.layout,
+                    group()
+                        .child(
+                            chip("split", "Split", !unified)
+                                .when(self.narrow, |c| {
+                                    use artoo_ui_kit::hover::Hover;
+                                    c.opacity(0.45).tip(format!(
+                                        "Split needs {} px",
+                                        artoo_review_api::SPLIT_WIDTH as u32
+                                    ))
+                                })
+                                .on_click(event(PaneEvent::Unified(false))),
+                        )
+                        .child(
+                            chip("unified", "Unified", unified)
+                                .on_click(event(PaneEvent::Unified(true))),
+                        )
+                        .into_any_element(),
+                ))
+            })
+            .children(
+                (self.stack.is_some() && fold < ToolbarFold::Collapse).then(|| {
+                    let folded = self.any_folded();
+                    measured(
+                        |t| &t.collapse,
+                        group()
+                            .child(
+                                chip(
+                                    "expand-all",
+                                    if folded { "Expand all" } else { "Collapse all" },
+                                    false,
+                                )
+                                .on_click(event(PaneEvent::ExpandAll { folded })),
+                            )
+                            .into_any_element(),
+                    )
+                }),
+            )
+            .child(measured(
+                |t| &t.view,
                 group()
                     .child(
-                        chip("split", "Split", !unified)
-                            .when(self.narrow, |c| {
-                                use artoo_ui_kit::hover::Hover;
-                                c.opacity(0.45).tip(format!(
-                                    "Split needs {} px",
-                                    artoo_review_api::SPLIT_WIDTH as u32
-                                ))
+                        chip("view", "View ▾", menu_open)
+                            .relative()
+                            .child({
+                                let bounds = bounds.clone();
+                                canvas(move |b, _, _| bounds.set(Some(b)), |_, _, _, _| {})
+                                    .absolute()
+                                    .size_full()
                             })
-                            .on_click(event(PaneEvent::Unified(false))),
+                            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                                // The menu hangs from the button.
+                                if let Some(under) = bounds.get() {
+                                    menu.pane(PaneEvent::ViewMenu { under }, cx)
+                                }
+                            }),
                     )
-                    .child(
-                        chip("unified", "Unified", unified)
-                            .on_click(event(PaneEvent::Unified(true))),
-                    ),
-            )
-            .children(self.stack.is_some().then(|| {
-                let folded = self.any_folded();
-                group().child(
-                    chip(
-                        "expand-all",
-                        if folded { "Expand all" } else { "Collapse all" },
-                        false,
-                    )
-                    .on_click(event(PaneEvent::ExpandAll { folded })),
-                )
-            }))
-            .child(
-                group().child(
-                    chip("view", "View ▾", menu_open)
-                        .relative()
-                        .child({
-                            let bounds = bounds.clone();
-                            canvas(move |b, _, _| bounds.set(Some(b)), |_, _, _, _| {})
-                                .absolute()
-                                .size_full()
-                        })
-                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                            // The menu hangs from the button.
-                            if let Some(under) = bounds.get() {
-                                menu.pane(PaneEvent::ViewMenu { under }, cx)
-                            }
-                        }),
-                ),
-            )
+                    .into_any_element(),
+            ))
     }
 
     /// The chip on the file's line: mark file `ix` read, and the key; none where nothing is marked.

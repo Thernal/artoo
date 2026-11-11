@@ -621,6 +621,25 @@ impl Repo {
         Some(paths)
     }
 
+    /// The paths `head` changed since it left `base` (`base...head`), without reading file contents: what a
+    /// request's whole diff lists (#187).
+    pub fn paths_since(&self, base: Oid, head: Oid) -> Result<Vec<String>> {
+        let start = self.start_of(base, head);
+        let old = self.inner.find_commit(start)?.tree()?;
+        let new = self.inner.find_commit(head)?.tree()?;
+        let mut opts = git2::DiffOptions::new();
+        opts.context_lines(0).skip_binary_check(true);
+        let mut diff = self
+            .inner
+            .diff_tree_to_tree(Some(&old), Some(&new), Some(&mut opts))?;
+        diff.find_similar(None)?;
+        Ok(diff
+            .deltas()
+            .filter_map(|d| d.new_file().path().or(d.old_file().path()))
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect())
+    }
+
     /// The paths each of `ids` touched against its first parent, without reading file contents.
     pub fn changed_paths(&self, ids: &[Oid]) -> Vec<(Oid, Vec<String>)> {
         let mut opts = git2::DiffOptions::new();

@@ -6,6 +6,12 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **Coming back after a push shows what changed since you read.** A request you read before its last push opens on
+  `Since v2`: only the files that push changed, each marked `↻ v2`, `3 files` beside the switch and `5 unchanged` at
+  the foot of the list. `All · Since v2 · Commits` takes you to the whole request or one commit at a time, and `s`
+  goes between All and Since. Versions tags v2 `you read`. The request's compare sides moved into View ▾.
+- **The diff's toolbar and the page bar fold instead of cutting.** As the window narrows, Submit review keeps only its
+  icon and Approve drops its key; Collapse all, then Split · Unified, go into View ▾.
 - **A toast says who sent it, and you can hold it or turn it off.** It reads top to bottom: `GitLab · Ember Lind
   mentioned you`, the request under it, then `Open ⌥↵` and `⋯`; a plugin's starts with its name, `Jira · Assigned to
   you`. A bar shows the time left and stops while the pointer is on the toast. `⋯` turns that kind's toasts off —

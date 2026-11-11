@@ -292,6 +292,14 @@ impl Nav {
         self.at = self.time.len() - 1;
     }
 
+    /// The moment before the one now forgotten when it was `page`: what is on screen took its place (#187).
+    pub(super) fn forget_before(&mut self, page: &Route) {
+        if self.at > 0 && self.time[self.at - 1].page.as_ref() == Some(page) {
+            self.time.remove(self.at - 1);
+            self.at -= 1;
+        }
+    }
+
     pub(super) fn opened(&self, item: &Route) -> Option<&Opened> {
         self.open.iter().find(|o| &o.item == item)
     }

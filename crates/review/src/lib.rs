@@ -29,6 +29,7 @@ mod review;
 mod reviewed;
 mod select;
 mod stack;
+mod toolbar;
 mod zen;
 
 use artoo_shell_api::{Frame, Parts};

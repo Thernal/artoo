@@ -18,24 +18,33 @@ const LEFT: f32 = 140.;
 const MORE: f32 = 28.;
 const ACTIONS_GAP: f32 = 8.;
 
-/// Which of `actions` fold into `⋯`, by the widths the bar was last drawn at: the last that can fold first, until
-/// what stays fits beside the left and the view (#186). Nothing folds before the bar was measured.
-fn folded(actions: &[BarAction], room: &BarRoom) -> Vec<bool> {
+/// Whether `actions` are drawn short, and which fold into `⋯`, by the widths the bar was last drawn at: labels
+/// shorten first (#187), then the last that can fold goes first, until what stays fits beside the left and the view
+/// (#186). Nothing shortens or folds before the bar was measured.
+fn folded(actions: &[BarAction], room: &BarRoom) -> (bool, Vec<bool>) {
     let mut folded = vec![false; actions.len()];
     let width = room.width.get();
     if width <= 0. {
-        return folded;
+        return (false, folded);
     }
-    let widths = room.actions.borrow();
+    let (widths, shorts) = (room.actions.borrow(), room.shorts.borrow());
     let unknown = f32::from(px(100.));
     let left = f32::from(px(LEFT));
     let left = room.left_whole.get().map_or(left, |whole| whole.min(left));
     // The island's padding (14 + 8) and its gaps around the left, the view, the spacer and the actions.
     let room_left = width - f32::from(px(22. + 12. * 3.)) - left - room.view.get();
-    let need = |folded: &[bool]| {
+    // A short form not measured yet is taken as wide as the whole.
+    let wide = |a: &BarAction, short: bool| {
+        let whole = widths.get(a.id).copied().unwrap_or(unknown);
+        match (short, &a.short) {
+            (true, Some(_)) => shorts.get(a.id).copied().unwrap_or(whole),
+            _ => whole,
+        }
+    };
+    let need = |short: bool, folded: &[bool]| {
         let kept: Vec<f32> = (actions.iter().zip(folded))
             .filter(|(_, f)| !**f)
-            .map(|(a, _)| widths.get(a.id).copied().unwrap_or(unknown))
+            .map(|(a, _)| wide(a, short))
             .collect();
         let more = if folded.contains(&true) {
             f32::from(px(MORE + ACTIONS_GAP))
@@ -46,13 +55,16 @@ fn folded(actions: &[BarAction], room: &BarRoom) -> Vec<bool> {
             + f32::from(px(ACTIONS_GAP)) * kept.len().saturating_sub(1) as f32
             + more
     };
+    if need(false, &folded) <= room_left {
+        return (false, folded);
+    }
     for at in (0..actions.len()).rev() {
-        if need(&folded) <= room_left {
+        if need(true, &folded) <= room_left {
             break;
         }
         folded[at] = actions[at].fold.is_some();
     }
-    folded
+    (true, folded)
 }
 
 /// A canvas over its parent that keeps the parent's width in `keep`, which says whether it changed: the bar is drawn
@@ -140,24 +152,42 @@ fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
     if bar.view.is_none() {
         room.view.set(0.);
     }
-    let folds = folded(&bar.actions, &room);
+    let (short, folds) = folded(&bar.actions, &room);
     let (mut items, mut shown, mut folded) = (Vec::new(), Vec::new(), Vec::new());
     for (action, fold) in bar.actions.into_iter().zip(folds) {
-        let (keep, id) = (room.clone(), action.id);
-        let drawn = div()
-            .relative()
-            .flex_none()
-            .child(action.element)
-            .child(measure(move |w| {
-                keep.actions.borrow_mut().insert(id, w) != Some(w)
-            }));
+        let id = action.id;
+        let drawn = |element: AnyElement, short: bool| {
+            let keep = room.clone();
+            div()
+                .relative()
+                .flex_none()
+                .child(element)
+                .child(measure(move |w| {
+                    let widths = if short { &keep.shorts } else { &keep.actions };
+                    widths.borrow_mut().insert(id, w) != Some(w)
+                }))
+        };
+        let whole = drawn(action.element, false);
+        let narrow = action.short.map(|element| drawn(element, true));
         match (fold, action.fold) {
             // Still measured, out of sight, so it comes back when its width fits — narrow, an icon.
             (true, Some(item)) => {
                 items.push(item);
-                folded.push(drawn);
+                folded.push(whole);
+                folded.extend(narrow);
             }
-            (_, _) => shown.push(drawn),
+            // The form not shown measured out of sight too: the whole comes back when it fits.
+            (_, _) => match narrow {
+                Some(narrow) if short => {
+                    shown.push(narrow);
+                    folded.push(whole);
+                }
+                Some(narrow) => {
+                    shown.push(whole);
+                    folded.push(narrow);
+                }
+                None => shown.push(whole),
+            },
         }
     }
     let more_button = (!items.is_empty()).then(|| {
@@ -277,9 +307,11 @@ fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
                 .children(more_button),
         )
         .child(measure(move |w| whole.width.replace(w) != w))
-        // The folded actions, measured: nothing shows of them and they take no pointer, clipped to nothing.
+        // The folded actions and the forms not shown, measured: nothing shows of them and they take no pointer,
+        // clipped to nothing; apart by their own id, the same action's two forms never meet.
         .child(
             div()
+                .id("bar-measured")
                 .absolute()
                 .top_0()
                 .left_0()

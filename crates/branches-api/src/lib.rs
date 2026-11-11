@@ -150,6 +150,23 @@ pub enum VersionTab {
     Commits,
 }
 
+/// What a request's Changes shows of it (#187, Design A1): its whole diff, what changed since the version you read
+/// (`Since v2`: that version against the latest), or one commit at a time.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Range {
+    All,
+    Since,
+    Commits,
+}
+
+/// The range a request's page shows (`Branches::range`), and the version of it you read — its number — when a push
+/// came after it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RangeOn {
+    pub on: Range,
+    pub read: Option<usize>,
+}
+
 /// A section of the panel the history's.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Fold {
@@ -206,6 +223,8 @@ pub enum Act {
         since: bool,
         request: Option<u64>,
     },
+    /// A request's range on its Changes: All, Since the version you read, Commits.
+    Range(Range),
     /// Versions `from` and `to` compared: an interdiff's way back to their commits.
     Versions { from: usize, to: usize },
     /// The version comparison's tab: its files, or its commits paired.
@@ -460,6 +479,22 @@ pub trait Branches {
 
     /// The version comparison shows the files that changed (not its commits paired).
     fn show_version_files(&self, cx: &mut App);
+
+    /// What the request open shows of itself on `route`, its page, one under its Changes or a commit under its
+    /// Commits: the range, and the version you read (#187). None on any other page, or while it is not loaded.
+    fn range(&self, route: Option<&Route>, cx: &App) -> Option<RangeOn>;
+
+    /// What range `range` of the request open shows: `Since` the version you read against the latest, `Commits` its
+    /// first commit after that version, else its first. None for `All` (its page) and where there is nothing to show.
+    fn range_pick(&self, range: Range, cx: &App) -> Option<Selection>;
+
+    /// How many files of the request open its whole diff leaves as they were since the version you read, when the
+    /// diff shown is what changed since it (`unchanged` of `files` listed): the foot of its Changes.
+    fn unchanged(&self, files: usize, cx: &App) -> Option<usize>;
+
+    /// The request open opened anew: the version of it you read is taken now and kept while it stays open, so
+    /// reading what changed since does not take its `Since` away (#187).
+    fn keep_read(&self, cx: &mut App);
 
     /// The Commits section folded; the commit's message open over its diff; newer commits or versions waiting
     /// to be shown; a branch being read.

@@ -5,8 +5,9 @@
 
 use crate::pane::PaneLook;
 use crate::review::{Host, Review};
-use crate::{find, goline};
+use crate::{find, goline, toolbar};
 pub use artoo_review_api::ColumnLook;
+use artoo_review_api::ToolbarFold;
 use artoo_shell_api::input_box;
 use artoo_ui_kit::{island, motion, px, theme};
 use gpui::{AnyElement, Context, Div, div, prelude::*};
@@ -113,10 +114,21 @@ impl Review {
             .into_any_element()
     }
 
-    /// The diff's toolbar, read left to right: what is shown (`bar`), then how it is drawn.
+    /// What of the toolbar is in View ▾ for want of room, as it was last measured (#187).
+    pub fn toolbar_fold(&self) -> ToolbarFold {
+        self.tools.fold(self.stack.is_some())
+    }
+
+    /// The diff's toolbar, read left to right: what is shown (`bar`), then how it is drawn. What has no room folds
+    /// into View ▾ (`toolbar_fold`); narrower still it wraps, how it is drawn under what is shown, never out of view.
     fn render_toolbar(&self, bar: Option<AnyElement>, menu_open: bool, host: Rc<dyn Host>) -> Div {
-        // A narrow diff wraps it: how it is drawn goes under what is shown, never out of view.
+        let fold = self.toolbar_fold();
+        if bar.is_none() {
+            self.tools.left.set(0.);
+        }
+        let (left, whole) = (self.tools.clone(), self.tools.clone());
         div()
+            .relative()
             .flex_none()
             .flex()
             .flex_wrap()
@@ -127,8 +139,18 @@ impl Review {
             .py(px(6.))
             .border_b_1()
             .border_color(theme::island_border())
-            .children(bar)
+            .children(bar.map(|bar| {
+                // Measured with its count: without it, the width it comes back at stays.
+                div()
+                    .relative()
+                    .flex_none()
+                    .child(bar)
+                    .child(toolbar::measure(move |w| {
+                        fold < ToolbarFold::Count && left.left.replace(w) != w
+                    }))
+            }))
             .child(div().flex_1())
-            .child(self.render_options(menu_open, host))
+            .child(self.render_options(menu_open, fold, host))
+            .child(toolbar::measure(move |w| whole.width.replace(w) != w))
     }
 }

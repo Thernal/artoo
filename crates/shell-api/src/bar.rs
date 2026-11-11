@@ -8,11 +8,14 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-/// An action on the bar (#186): what it draws, and its row in the bar's `⋯` when the bar has no room for it.
+/// An action on the bar (#186): what it draws, its shorter form, and its row in the bar's `⋯` when the bar has no
+/// room for it. Labels shorten first, then actions fold (#187).
 pub struct BarAction {
     /// Its name among the page's actions: the width it was drawn at is kept by it.
     pub id: &'static str,
     pub element: AnyElement,
+    /// Narrower, what it says in its tooltip: `Submit review` its icon, `Approve 1/2` without its key.
+    pub short: Option<AnyElement>,
     /// Its row in `⋯`; `None` for one that never folds.
     pub fold: Option<MenuItem>,
 }
@@ -23,7 +26,16 @@ impl BarAction {
         Self {
             id,
             element: element.into_any_element(),
+            short: None,
             fold: None,
+        }
+    }
+
+    /// Its shorter form, drawn before anything folds when the bar has no room for every label.
+    pub fn short(self, element: impl IntoElement) -> Self {
+        Self {
+            short: Some(element.into_any_element()),
+            ..self
         }
     }
 
@@ -44,8 +56,9 @@ pub struct BarRoom {
     pub width: Cell<f32>,
     /// The page's view switch.
     pub view: Cell<f32>,
-    /// Each action by its id, as last drawn on the bar.
+    /// Each action by its id, as last drawn on the bar; and its shorter form.
     pub actions: RefCell<HashMap<&'static str, f32>>,
+    pub shorts: RefCell<HashMap<&'static str, f32>>,
     /// The left — the path and the title — as last drawn, and as wide as it is whole, once seen with room to spare;
     /// shorter than the room kept for it, the actions have the rest.
     pub left: Cell<f32>,

@@ -81,6 +81,10 @@ pub struct History {
     pub pick_to: Option<git2::Oid>,
     /// Its lists' widths: the Commits section's (`side-commits`), the Commits page's (`commits`).
     pub widths: artoo_ui_kit::room::Widths,
+    /// The version you read of the request open, kept while it stays open (#187).
+    pub kept_read: Option<crate::since::KeptRead>,
+    /// How many files the request open's whole diff lists, read once for its sides (base, head) (#187).
+    pub whole: Option<((git2::Oid, git2::Oid), usize)>,
 }
 
 pub use artoo_branches_api::Event;
@@ -193,6 +197,8 @@ impl Default for History {
             pick: None,
             pick_to: None,
             widths: Default::default(),
+            kept_read: None,
+            whole: None,
         }
     }
 }
@@ -688,6 +694,32 @@ impl artoo_branches_api::Branches for Handle {
         if let Some(h) = self.0.upgrade() {
             h.update(cx, |h, _| h.version_tab = VersionTab::Files);
         }
+    }
+
+    fn range(
+        &self,
+        route: Option<&artoo_core::route::Route>,
+        cx: &gpui::App,
+    ) -> Option<artoo_branches_api::RangeOn> {
+        let review = self.review()?;
+        self.0.upgrade()?.read(cx).range_on(route?, &*review, cx)
+    }
+
+    fn range_pick(&self, range: artoo_branches_api::Range, cx: &gpui::App) -> Option<Selection> {
+        let review = self.review()?;
+        self.0.upgrade()?.read(cx).range_pick(range, &*review, cx)
+    }
+
+    fn unchanged(&self, files: usize, cx: &gpui::App) -> Option<usize> {
+        let review = self.review()?;
+        self.0.upgrade()?.read(cx).unchanged(files, &*review, cx)
+    }
+
+    fn keep_read(&self, cx: &mut gpui::App) {
+        let (Some(h), Some(review)) = (self.0.upgrade(), self.review()) else {
+            return;
+        };
+        h.update(cx, |h, cx| h.keep_read(&*review, cx));
     }
 
     fn commits_folded(&self, cx: &gpui::App) -> bool {

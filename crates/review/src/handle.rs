@@ -229,6 +229,19 @@ impl artoo_review_api::Review for Handle {
         self.read(cx, |rv, _| rv.shown_head())
     }
 
+    fn toolbar_fold(&self, cx: &App) -> artoo_review_api::ToolbarFold {
+        self.read(cx, |rv, _| rv.toolbar_fold())
+    }
+
+    fn set_since(&self, since: Option<artoo_review_api::SinceRead>, cx: &mut App) {
+        self.with(cx, |rv, cx| {
+            if rv.since != since {
+                rv.since = since;
+                cx.notify();
+            }
+        })
+    }
+
     fn working_changed(&self, cx: &mut App) {
         self.with(cx, |rv, _| rv.blames.working_changed())
     }

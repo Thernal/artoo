@@ -136,7 +136,11 @@ impl Render for Panel {
         // its pages the panel holds the changes — a request's with its versions — and on a commit
         // only the commit's (#73, #74).
         if shows.versions {
-            sections.push(self.history.read(cx).versions_section(&acts));
+            let h = self.history.read(cx);
+            // The version you read, tagged (#187).
+            let read = (services.get::<Rc<dyn artoo_review_api::Review>>())
+                .and_then(|review| h.read_version(&*review, cx));
+            sections.push(h.versions_section(read, &acts));
         }
 
         if shows.commits {
@@ -261,7 +265,7 @@ impl History {
 
     /// The Versions section: its rows under its header, folded or open; those from `new_from` on arrived since the
     /// user last looked.
-    pub fn versions_section(&self, acts: &Acts) -> AnyElement {
+    pub fn versions_section(&self, read: Option<usize>, acts: &Acts) -> AnyElement {
         let folded = self.sections.versions;
         let summary = match self.selection {
             Selection::Versions { from, to } => format!(
@@ -297,7 +301,7 @@ impl History {
                     .child(
                         div()
                             .pb(px(6.))
-                            .child(version_rows(self, self.new_from, acts)),
+                            .child(version_rows(self, self.new_from, read, acts)),
                     ),
             ))
             .into_any_element()

@@ -198,7 +198,26 @@ impl Review {
                 .pb(px(6.))
                 .into_any_element()
             })
+            .children(self.render_unchanged())
             .into_any_element()
+    }
+
+    /// Under what changed since the version you read: how many of the request's files it leaves as they were (#187).
+    fn render_unchanged(&self) -> Option<gpui::Stateful<gpui::Div>> {
+        use artoo_ui_kit::hover::Hover;
+        let since = self.since?;
+        let n = since.unchanged.filter(|&n| n > 0)?;
+        Some(
+            div()
+                .id("changes-unchanged")
+                .flex_none()
+                .px(px(14.))
+                .pb(px(8.))
+                .text_size(px(11.))
+                .text_color(theme::faint())
+                .child(format!("{n} unchanged"))
+                .tip(format!("Not changed since v{}", since.version)),
+        )
     }
 
     /// Over the files: how many, and their lines' total in the column of each file's own + and −
@@ -283,14 +302,21 @@ impl Review {
                             .when(done, |s| s.text_color(theme::muted()))
                             .children(self.review_box(ix, host, cx))
                             .child(icons::file_icon(file.path(), 16.))
-                            .child(
-                                div()
-                                    .flex_1()
+                            .map(|s| {
+                                let name = div()
                                     .min_w_0()
                                     .name_in_tip()
                                     .text_color(change_color(file, done))
-                                    .child(name),
-                            )
+                                    .child(name);
+                                // Changed since the version you read: said beside the name (#187).
+                                match self.since_chip(ix) {
+                                    Some(chip) => s
+                                        .child(name.flex_shrink(1.))
+                                        .child(chip)
+                                        .child(div().flex_1()),
+                                    None => s.child(name.flex_1()),
+                                }
+                            })
                             .children(draft_mark(file.path(), draft))
                             .children(generated_tag(file))
                             .children(file_tag(diff.tags.row_word(ix)))
@@ -489,6 +515,7 @@ impl Review {
                             .child(d)
                     })),
             )
+            .children(self.since_chip(ix))
             .children(draft_mark(path, draft))
             .children(generated_tag(file))
             .children(file_tag(tag))

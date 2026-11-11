@@ -69,6 +69,7 @@ mod share;
 mod shell;
 mod shortcuts;
 mod side;
+mod since;
 mod spaces;
 mod stack;
 mod submit;
@@ -163,6 +164,7 @@ actions!(
         CommentLine,
         SubmitReview,
         ApproveRequest,
+        ToggleSince,
         SwitchTo,
         NextDraft,
         PreviousDraft,
@@ -1272,6 +1274,9 @@ pub struct Workspace {
     /// A notification opened on a comment: once its line's history is in, an outdated one opens
     /// on the diff since it (request, note).
     since_on_open: Option<(u64, u64)>,
+    /// A request opened anew: once its diff and versions are in, it shows what changed since the version you read,
+    /// when a push came after it (#187).
+    since_offer: Option<u64>,
     /// Merge requests agents drafted (#152), with who did: the last one for each branch, until
     /// the reviewer creates it.
     agent_requests: Vec<(String, crate::bus::RequestDraft)>,
@@ -1427,6 +1432,7 @@ impl Workspace {
             toggled_agent: HashSet::new(),
             thread_at: None,
             since_on_open: None,
+            since_offer: None,
             agent_requests: Vec::new(),
             create_waiting: None,
             drafts_unseen: HashSet::new(),
@@ -1925,6 +1931,11 @@ impl Workspace {
                     self.select_file(ix, cx);
                 }
                 self.resolve_spot(false, cx);
+                // What changed since the version you read says so on its files (#187); a request read before a
+                // push opens on it.
+                let since = self.since_read(cx);
+                self.rv().set_since(since, cx);
+                self.offer_since(cx);
             }
             ReviewEvent::Failed(err) => self.error = Some(err.clone().into()),
             ReviewEvent::FileBuilt => {
@@ -2024,7 +2035,8 @@ impl Workspace {
     fn view_menu(&self, cx: &App) -> Vec<(Option<&'static str>, Vec<Entry>)> {
         let o = self.view_options(cx);
         let tool = self.tool();
-        vec![
+        let mut lead = self.view_menu_lead(cx);
+        lead.extend([
             (
                 Some("Changes"),
                 DiffMode::ALL
@@ -2118,7 +2130,80 @@ impl Workspace {
                     .checked(tool == Some(artoo_agents_api::view::WINDOW)),
                 ],
             ),
-        ]
+        ]);
+        lead
+    }
+
+    /// What View ▾ holds first (#187): what the toolbar folded into it for want of room — Collapse all, then Split
+    /// and Unified —, and a comparison's sides, which a request's range took the toolbar's place of.
+    fn view_menu_lead(&self, cx: &App) -> Vec<(Option<&'static str>, Vec<Entry>)> {
+        use artoo_review_api::ToolbarFold;
+        let fold = self.rv().toolbar_fold(cx);
+        let o = self.view_options(cx);
+        let mut lead = Vec::new();
+        if fold >= ToolbarFold::Collapse && self.rv().stacked(cx) {
+            let open = self.rv().any_folded(cx);
+            lead.push((
+                None,
+                vec![
+                    Entry::new(
+                        if open { "Expand all" } else { "Collapse all" },
+                        Act::new(move |this, _, cx| this.expand_all(open, cx)),
+                    )
+                    .key("⌥⇧A"),
+                ],
+            ));
+        }
+        if fold >= ToolbarFold::Layout {
+            let unified = o.unified || self.rv().narrow(cx);
+            lead.push((
+                Some("Layout"),
+                vec![
+                    Entry::new(
+                        "Split",
+                        Act::new(|this, _, cx| this.set_option(Opt::Unified, false, cx)),
+                    )
+                    .checked(!unified),
+                    Entry::new(
+                        "Unified",
+                        Act::new(|this, _, cx| this.set_option(Opt::Unified, true, cx)),
+                    )
+                    .checked(unified),
+                ],
+            ));
+        }
+        let sides = self.shown_diff(cx).and_then(|d| match &d.header {
+            Header::Compare {
+                base,
+                head,
+                since_merge_base,
+                request: request @ Some(_),
+                ..
+            } => Some((base.clone(), head.clone(), *since_merge_base, *request)),
+            _ => None,
+        });
+        if let Some((base, head, since_merge_base, request)) = sides {
+            let compare = move |base: &(String, git2::Oid),
+                                head: &(String, git2::Oid),
+                                since: bool,
+                                request: Option<u64>| {
+                let (base, head) = (base.clone(), head.clone());
+                Act::new(move |this, _, cx| {
+                    this.run_compare(base.clone(), head.clone(), since, request, cx)
+                })
+            };
+            lead.push((
+                Some("Compare"),
+                vec![
+                    Entry::new("Since merge base", compare(&base, &head, true, request))
+                        .checked(since_merge_base),
+                    Entry::new("Direct", compare(&base, &head, false, request))
+                        .checked(!since_merge_base),
+                    Entry::new("⇄ Swap", compare(&head, &base, since_merge_base, None)),
+                ],
+            ));
+        }
+        lead
     }
 
     // ---- selecting and context menus ---------------------------------------------------

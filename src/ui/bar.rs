@@ -329,19 +329,28 @@ impl Workspace {
                     );
                 }
             }
-            (REQUESTS, Some(Page::Request(_))) if self.showing_request(cx) => {
+            (REQUESTS, Some(Page::Request(_) | Page::RequestVersions(..)))
+                if self.on_request_changes(cx) =>
+            {
                 let pending = self.request_drafts(cx).len();
                 let label = match pending {
                     0 => "Submit review".to_owned(),
                     n => format!("Submit review · {n}"),
                 };
+                // Its icon alone when the bar has no room for its label (#187).
+                let tip = format!("{}  ⇧⌘↵", words::say(&label));
                 out.push(
                     BarAction::new(
                         "submit",
-                        self.bar_action("bar-submit", "send", &label, "⇧⌘↵")
+                        artoo_ui_kit::controls::bar_button("bar-submit", &label, "⇧⌘↵", false)
                             .on_click(
                                 cx.listener(|this, _: &ClickEvent, _, cx| this.open_submit(cx)),
                             ),
+                    )
+                    .short(
+                        bar_icon("bar-submit", "send", tip).on_click(
+                            cx.listener(|this, _: &ClickEvent, _, cx| this.open_submit(cx)),
+                        ),
                     )
                     .folds(
                         MenuItem::new(label, on_tab(&tab, |this, cx| this.open_submit(cx)))
@@ -357,11 +366,15 @@ impl Workspace {
                 if state == crate::mr::MrState::Opened
                     && let Some(requests) = self.requests_api()
                 {
-                    // The approval is the request's state: it never folds.
-                    out.extend(
-                        (requests.approval_chip(self.compact(), cx))
-                            .map(|chip| BarAction::new("approval", chip)),
-                    );
+                    // The approval is the request's state: it never folds; short, its key goes to its tooltip.
+                    let short = requests.approval_chip(true, cx);
+                    out.extend((requests.approval_chip(false, cx)).map(|chip| {
+                        let action = BarAction::new("approval", chip);
+                        match short {
+                            Some(short) => action.short(short),
+                            None => action,
+                        }
+                    }));
                     let stand = requests.merge_stand(cx);
                     out.extend(
                         (requests.merge_control(self.compact(), self.on_github(), cx)).map(

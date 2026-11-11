@@ -532,6 +532,30 @@ impl Review {
         }
     }
 
+    /// `↻ v2` beside file `ix`'s name while the diff is what changed since the version you read (#187, Design A1):
+    /// the icon and the version, no word; it goes once the file is read again.
+    pub fn since_chip(&self, ix: usize) -> Option<gpui::Stateful<gpui::Div>> {
+        use artoo_ui_kit::hover::Hover;
+        use artoo_ui_kit::{px, theme};
+        use gpui::{ParentElement, Styled, div, prelude::*};
+        let n = self.since?.version;
+        (self.review_state(ix) != Some(State::Done)).then(|| {
+            div()
+                .id(("since-chip", ix))
+                .flex_none()
+                .px(px(6.))
+                .h(px(18.))
+                .flex()
+                .items_center()
+                .rounded_full()
+                .bg(theme::warning_bg())
+                .text_size(px(11.))
+                .text_color(theme::warning())
+                .child(format!("↻ v{n}"))
+                .tip(format!("Changed since v{n}, the version you read"))
+        })
+    }
+
     /// How many files are marked read, of how many.
     pub fn review_progress(&self) -> Option<(usize, usize)> {
         self.review_scope.as_ref()?;
@@ -669,6 +693,8 @@ impl Review {
         };
         self.crossed = self.crossings();
         self.done_card = false;
+        // Another diff, another range on the toolbar's left: measured anew (#187).
+        self.tools.left.set(0.);
     }
 
     /// Marks file `ix` read (`done`) or unmarks it; false when the diff keeps no marks.

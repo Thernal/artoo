@@ -113,6 +113,7 @@ impl Workspace {
                 // Two versions of it waited for them (#71).
                 self.finish_pending(cx);
                 self.compute_histories(cx);
+                self.offer_since(cx);
             }
             Event::Histories => {
                 self.refresh_rows(cx);
@@ -223,7 +224,9 @@ impl Workspace {
             return;
         };
         self.error = None;
-        // Its page now, before the branch it is read from replaces what is loaded (#71).
+        // Its page now, before the branch it is read from replaces what is loaded (#71); what changed since the
+        // version you read once its diff is in (#187).
+        self.since_offer = Some(iid);
         self.arrive(super::nav::Page::Request(iid).route(), cx);
         if let Some(sides) = sides
             && let Some(branches) = self.branches()
@@ -790,7 +793,7 @@ impl Workspace {
         ) else {
             return;
         };
-        if !self.showing_request(cx) {
+        if !self.on_request_changes(cx) {
             return;
         }
         if a.mine {

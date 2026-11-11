@@ -6,9 +6,10 @@
 
 use crate::compare::only_pill;
 use crate::history::{Act, Acts, History, Selection, VersionTab};
+use artoo_branches_api::{Range, RangeOn};
 use artoo_core::git::WebRemote;
-use artoo_review_api::Review;
 use artoo_review_api::diff::{Diff, Header};
+use artoo_review_api::{Review, ToolbarFold};
 use artoo_shell_api::{Piece, Services, Slot};
 use artoo_ui_kit::controls::{chip, group};
 use artoo_ui_kit::format::{self, plural};
@@ -49,12 +50,26 @@ pub fn bar_piece(history: Entity<History>, services: Rc<Services>) -> Piece {
         id: "branches.what",
         slot: Slot::DiffBar,
         draw: Rc::new(move |route, _, cx| {
-            let diff = services.get::<Rc<dyn Review>>()?.shown(cx)?;
+            let review = services.get::<Rc<dyn Review>>()?;
+            let diff = review.shown(cx)?;
             let acts = services.get::<Acts>()?;
             let h = history.read(cx);
             let narrowed = h
                 .compare_of(route)
                 .is_some_and(|c| c.picked.is_some() && h.selection == Selection::None);
+            // A request's own range takes the first place (#187); the count goes last, for want of room.
+            if let Some(on) = h.range_on(route, &*review, cx) {
+                let count = (review.toolbar_fold(cx) < ToolbarFold::Count).then(|| match on.on {
+                    Range::Commits => match h.selection {
+                        Selection::Commit(ix) if ix < h.commits.len() => {
+                            format!("Commit {} of {}", h.commits.len() - ix, h.commits.len())
+                        }
+                        _ => plural(diff.files.len(), "file"),
+                    },
+                    _ => plural(diff.files.len(), "file"),
+                });
+                return Some(range_switch(on, count, &acts));
+            }
             Some(what(&diff, h, narrowed, &acts))
         }),
     }
@@ -77,6 +92,53 @@ pub type Selectable<'a> = &'a dyn Fn(String, &str) -> AnyElement;
 fn asks(acts: &Acts, act: Act) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
     let acts = acts.clone();
     move |_, _, cx| acts(act.clone(), cx)
+}
+
+/// A request's range on its Changes (#187, Design A1): `All · Since v2 · Commits`, Since only when a push came after
+/// the version you read, its tooltip saying so; then `count`, the files shown or the commit of how many.
+fn range_switch(on: RangeOn, count: Option<String>, acts: &Acts) -> AnyElement {
+    let range = |id: &'static str, label: String, range: Range, tip: String| {
+        chip(id, label, on.on == range)
+            .tip(tip)
+            .on_click(asks(acts, Act::Range(range)))
+    };
+    let key = if on.read.is_some() { "  s" } else { "" };
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(
+            group()
+                .child(range(
+                    "range-all",
+                    "All".into(),
+                    Range::All,
+                    format!("All changes{key}"),
+                ))
+                .children(on.read.map(|n| {
+                    range(
+                        "range-since",
+                        format!("Since v{n}"),
+                        Range::Since,
+                        format!("Since v{n}, the version you read{key}"),
+                    )
+                }))
+                .child(range(
+                    "range-commits",
+                    "Commits".into(),
+                    Range::Commits,
+                    "One commit at a time".into(),
+                )),
+        )
+        .children(count.map(|count| {
+            div()
+                .flex_none()
+                .text_size(px(12.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::muted())
+                .child(count)
+        }))
+        .into_any_element()
 }
 
 /// The left of the diff's toolbar: which range is shown, as the page offers it. A comparison `narrowed` to a run of
@@ -107,6 +169,10 @@ pub fn what(diff: &Diff, history: &History, narrowed: bool, acts: &Acts) -> AnyE
             .and_then(|c| only_pill(c, acts))
             .map(IntoElement::into_any_element)
             .unwrap_or_else(|| div().into_any_element()),
+        // A request's whole diff away from its page: its sides are in View ▾ (#187).
+        Header::Compare {
+            request: Some(_), ..
+        } => div().into_any_element(),
         Header::Compare {
             base,
             head,

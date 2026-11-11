@@ -12,6 +12,25 @@
 /// says why (#186). The diff's width decides it, never the window's.
 pub const SPLIT_WIDTH: f32 = 700.;
 
+/// What of the diff's toolbar went into View ▾ for want of room (#187), each with those before it: Collapse all, then
+/// Split · Unified, then the count beside the range goes. The range itself never folds.
+#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum ToolbarFold {
+    #[default]
+    None,
+    Collapse,
+    Layout,
+    Count,
+}
+
+/// What a request's Changes says when it shows what changed since the version you read (#187): that version's
+/// number — each file it lists carries `↻ v2` —, and how many of the request's files are as they were then.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SinceRead {
+    pub version: usize,
+    pub unchanged: Option<usize>,
+}
+
 pub mod decorations;
 pub mod diff;
 pub mod viewers;
@@ -132,6 +151,13 @@ pub trait Review {
 
     /// The diff's head: the commit its new side is at.
     fn shown_head(&self, cx: &App) -> Option<Oid>;
+
+    /// What of the diff's toolbar is in View ▾ for want of room, as the toolbar was last measured (#187).
+    fn toolbar_fold(&self, cx: &App) -> ToolbarFold;
+
+    /// The diff shown is what changed since the version you read of a request, as the tab says once it is in
+    /// (#187): its files carry `↻ v2`, its Changes say what they leave out. None for any other diff.
+    fn set_since(&self, since: Option<SinceRead>, cx: &mut App);
 
     /// The working tree changed: what blame read of it goes.
     fn working_changed(&self, cx: &mut App);

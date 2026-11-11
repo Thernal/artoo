@@ -239,8 +239,20 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
 - **A bar never clips** (#186): what does not fit the page bar folds into its `⋯`, the last action first, never cut
   off at the edge. Each action is a `bar::BarAction` with its row in `⋯` (`folds`; the approval never folds), a page's
   rows only `⋯` holds are `PageBar::more` (a request's Open in GitLab, Copy link); the frame measures the bar as drawn
-  (`BarRoom`) and decides at the next frame. The title bar's status shortens before the search and the gear go
-  (`Fetch failed · Retry`).
+  (`BarRoom`) and decides at the next frame. Labels shorten before anything folds (#187): an action's short form
+  (`BarAction::short` — Submit review its icon, Approve without its key) is measured beside its whole, out of sight,
+  so the whole comes back when it fits. The diff's toolbar folds the same way into View ▾ (`artoo_review::toolbar`,
+  `Review::toolbar_fold`): Collapse all first, then Split · Unified, then the count beside the range; the range never
+  folds. The title bar's status shortens before the search and the gear go (`Fetch failed · Retry`).
+- **Coming back after a push opens on what changed since you read** (#187): a request whose newest mark is at an
+  earlier version (`Seen::Earlier`) opens its Changes on `Since v2` — that version against the latest, the page's
+  `RequestVersions` put in the place of its whole diff, so Back goes where it was opened from (`ui/since.rs`,
+  `offer_since`). The switch `All · Since v2 · Commits` (`Act::Range`, `s` toggles All and Since) sits first in the
+  diff's toolbar, the request's compare sides in View ▾; what each range shows and the version you read are the
+  branches' (`Branches::range`, `range_pick`, kept while the request stays open, `keep_read`). A file changed since
+  carries `↻ v2` on its tree row and card (`Reviewed::since_chip`, the review told by `Review::set_since`), the tree's
+  foot `5 unchanged`; Versions tags the version `you read`. The request's bar, `a` and ⇧⌘↵ stay on Since
+  (`on_request_changes`).
 - **The Inbox files a row by what happened, and names its source** (#197): a kind is declared under one of a fixed
   set (`Kind::why`, `artoo_core::notice::Why`: Mentions, Review requests, Asks you, Failures; none, under All only),
   so a new source adds no filter; the sources are one `Source: All ▾`, a list filtered by typing, each with its new
