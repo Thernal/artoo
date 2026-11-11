@@ -88,6 +88,8 @@ pub struct Review {
     pub since: Option<artoo_review_api::SinceRead>,
     /// The line number being typed for a quick comment.
     pub goline: Option<String>,
+    /// The line a range after `c` started at (⇧↑↓, #191): the marker's line is its other end.
+    pub goline_anchor: Option<u32>,
     /// The diff row the `c` marker stands on.
     pub goline_row: Option<usize>,
     pub jump_line: Option<(u32, bool)>,
@@ -205,6 +207,7 @@ impl Review {
             narrow: false,
             tight: false,
             goline: None,
+            goline_anchor: None,
             goline_row: None,
             jump_line: None,
             jump_whole: false,
@@ -328,7 +331,9 @@ impl Review {
             ) {
                 return host.pin(row, active, indent, cx);
             }
-            let marked = active && review.goline.is_some() && review.goline_row == Some(ix);
+            let marked = active
+                && review.goline.is_some()
+                && (review.goline_row == Some(ix) || review.in_goline_range(&row));
             let send = {
                 let host = host.clone();
                 move |event, cx: &mut App| host.line(file_ix, active, event, cx)

@@ -268,6 +268,11 @@ impl Workspace {
         self.toasts.update(cx, |t, cx| t.press_newest(cx))
     }
 
+    /// ⌘Z: the newest toast's Undo (#191).
+    pub(super) fn undo_toast(&mut self, cx: &mut Context<Self>) -> bool {
+        self.toasts.update(cx, |t, cx| t.press_undo(cx))
+    }
+
     /// The stack, over everything else, under the page bar's right end.
     pub(super) fn render_toasts(&self, cx: &App) -> Option<impl IntoElement + use<>> {
         (!self.toasts.read(cx).is_empty()).then(|| self.toasts.clone())

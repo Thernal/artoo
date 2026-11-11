@@ -193,17 +193,7 @@ impl Requests {
         let mut shown: Vec<&Mr> = list
             .iter()
             .filter(|m| past || self.in_scope(m, self.scope))
-            .filter(|m| {
-                let hay = format!(
-                    "{} {} {} {}",
-                    words::number(m.iid),
-                    m.title,
-                    m.author,
-                    m.source
-                )
-                .to_lowercase();
-                terms.iter().all(|w| rank::word_matches(w, &hay))
-            })
+            .filter(|m| filter_lets(m, &terms))
             .collect();
         if !past {
             let size = |m: &Mr| self.size_of(m.iid).map_or(0, |(_, a, r, _)| a + r);
@@ -943,8 +933,65 @@ fn tag(text: &'static str, color: gpui::Rgba) -> Div {
 /// A part of a row's second line.
 enum Part {
     Text(String, gpui::Rgba),
+    /// The number or the author: muted, the filter's hits marked (#191).
+    Found(String),
     /// Files, lines added, lines removed.
     Size(usize, usize, usize),
+}
+
+/// Whether a request passes the list's filter, typed as `terms` (lower case): each matches its number, title,
+/// author (name or username) or source branch (#191).
+pub(crate) fn filter_lets(m: &Mr, terms: &[&str]) -> bool {
+    let hay = format!(
+        "{} {} {} {} {}",
+        words::number(m.iid),
+        m.title,
+        m.author,
+        m.author_login,
+        m.source
+    )
+    .to_lowercase();
+    terms.iter().all(|w| rank::word_matches(w, &hay))
+}
+
+/// Where the filter's words are found in `text`, in order and apart: the stretches a row marks (#191). A word
+/// matched by its initials only is not marked.
+fn hits(text: &str, filter: &str) -> Vec<std::ops::Range<usize>> {
+    let lower = text.to_lowercase();
+    // A text whose lower case changes its length is not marked.
+    if lower.len() != text.len() {
+        return Vec::new();
+    }
+    let mut found: Vec<std::ops::Range<usize>> = filter
+        .to_lowercase()
+        .split_whitespace()
+        .flat_map(|w| {
+            lower
+                .match_indices(w)
+                .map(|(at, w)| at..at + w.len())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    found.sort_by_key(|r| r.start);
+    let mut merged: Vec<std::ops::Range<usize>> = Vec::new();
+    for r in found {
+        match merged.last_mut() {
+            Some(last) if r.start <= last.end => last.end = last.end.max(r.end),
+            _ => merged.push(r),
+        }
+    }
+    merged
+}
+
+/// `text` with the filter's hits marked as find marks them.
+fn marked(text: String, filter: &str) -> gpui::StyledText {
+    let ranges = hits(&text, filter);
+    let mark = gpui::HighlightStyle {
+        color: Some(theme::text().into()),
+        background_color: Some(theme::warning_bg().into()),
+        ..Default::default()
+    };
+    gpui::StyledText::new(text).with_highlights(ranges.into_iter().map(|r| (r, mark)))
 }
 
 /// About how wide `text` is drawn at 12 px.
@@ -956,7 +1003,7 @@ impl Part {
     /// About how wide it is drawn.
     fn estimate(&self) -> f32 {
         match self {
-            Part::Text(text, _) => estimate(text),
+            Part::Text(text, _) | Part::Found(text) => estimate(text),
             Part::Size(files, added, removed) => {
                 estimate(&format!("{} +{added} −{removed}", plural(*files, "file")))
             }
@@ -976,7 +1023,7 @@ impl Part {
     }
 
     /// Drawn whole, or — the line's last — cut when the row has no room, saying so.
-    fn drawn(self, last: bool) -> AnyElement {
+    fn drawn(self, last: bool, filter: &str) -> AnyElement {
         let cut = |text: String, color| {
             div()
                 .min_w_0()
@@ -986,6 +1033,15 @@ impl Part {
                 .into_any_element()
         };
         match self {
+            Part::Found(text) if last => div()
+                .min_w_0()
+                .cut_in_tip()
+                .child(marked(text, filter))
+                .into_any_element(),
+            Part::Found(text) => div()
+                .flex_none()
+                .child(marked(text, filter))
+                .into_any_element(),
             Part::Text(text, color) if last => cut(text, color),
             Part::Text(text, color) => div()
                 .flex_none()
@@ -1054,15 +1110,12 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
     ];
     // Each part whole, but the last, which is cut and says so (#184).
     let mut parts: Vec<Part> = vec![
-        Part::Text(words::number(iid), theme::muted()),
-        Part::Text(
-            if mine {
-                "You".to_owned()
-            } else {
-                m.author.clone()
-            },
-            theme::muted(),
-        ),
+        Part::Found(words::number(iid)),
+        Part::Found(if mine {
+            "You".to_owned()
+        } else {
+            m.author.clone()
+        }),
     ];
     if let Some(p) = facts.and_then(|f| f.pipeline.as_ref()) {
         let (glyph, short, color) = crate::bar::pipeline_short(p);
@@ -1145,7 +1198,7 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
                     .into_any_element(),
             );
         }
-        line2.push(part.drawn(n == last));
+        line2.push(part.drawn(n == last, look.filter));
     }
     let compact = look.compact;
     let (context, acts) = (acts.clone(), acts.clone());
@@ -1191,7 +1244,7 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
                                     .min_w_0()
                                     .cut_in_tip()
                                     .when(m.draft, |s| s.text_color(theme::muted()))
-                                    .child(m.title.clone()),
+                                    .child(marked(m.title.clone(), look.filter)),
                             )
                             .when(new_to_you, |s| s.child(tag("New", theme::accent())))
                             .when(m.draft, |s| s.child(tag("Draft", theme::muted())))
@@ -1753,5 +1806,27 @@ mod tests {
         // 0 needs review, 1 current, 2 reviewed, 3 new to you: on down to 3, not back up to 0
         // (#136).
         assert_eq!(next_to_review(&[true, true, false, true], Some(1)), Some(3));
+    }
+
+    #[test]
+    fn the_filter_finds_the_author_by_username_and_marks_where_it_matched() {
+        let m = Mr {
+            iid: 398,
+            title: "Refactor the login screen".into(),
+            author: "Juniper Hale".into(),
+            author_login: "jhale".into(),
+            source: "feature/login-state".into(),
+            ..Default::default()
+        };
+        assert!(filter_lets(&m, &["jhale"]));
+        assert!(filter_lets(&m, &["juniper", "login"]));
+        assert!(!filter_lets(&m, &["ember"]));
+        // Each word's hits, in order, those that touch made one.
+        assert_eq!(
+            hits("Refactor the login screen", "LOG the"),
+            vec![9..12, 13..16]
+        );
+        assert_eq!(hits("aaa", "aa a"), vec![0..3]);
+        assert!(hits("Juniper Hale", "").is_empty());
     }
 }

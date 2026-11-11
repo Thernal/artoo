@@ -68,24 +68,51 @@ impl Review {
         }
     }
 
-    /// The side and line the typed number stands for; with nothing typed, the first change.
+    /// The side and line the typed number stands for; with nothing typed, the change you are at (#191), else the
+    /// first.
     pub fn goline_target(&self) -> Option<(bool, u32)> {
         let text = self.goline.as_deref()?;
         if text.trim().is_empty() {
-            let first = self
-                .changes
-                .first()
-                .and_then(|&row| self.rows.get(row))
-                .copied();
-            return match first {
-                Some(Row::Split { right: Some(c), .. }) => Some((false, c.line)),
-                Some(Row::Split { left: Some(c), .. }) => Some((true, c.line)),
-                Some(Row::Unified { cell, old, .. }) => Some((old, cell.line)),
-                _ => None,
-            };
+            return self.change_line(self.change_at.unwrap_or(0));
         }
         let n = text.trim_start_matches('-').parse::<u32>().ok()?;
         Some((text.starts_with('-'), n))
+    }
+
+    /// The side and line change `at` of the open file starts on.
+    pub fn change_line(&self, at: usize) -> Option<(bool, u32)> {
+        let row = self.changes.get(at).and_then(|&row| self.rows.get(row))?;
+        match *row {
+            Row::Split { right: Some(c), .. } => Some((false, c.line)),
+            Row::Split { left: Some(c), .. } => Some((true, c.line)),
+            Row::Unified { cell, old, .. } => Some((old, cell.line)),
+            _ => None,
+        }
+    }
+
+    /// The lines after `c`, first and last, on their side: one line, or a range made with ⇧↑↓ (#191).
+    pub fn goline_range(&self) -> Option<(bool, u32, u32)> {
+        let (old, line) = self.goline_target()?;
+        Some(match self.goline_anchor {
+            Some(anchor) => (old, anchor.min(line), anchor.max(line)),
+            None => (old, line, line),
+        })
+    }
+
+    /// Row `row` shows a line of the range after `c` (a range only: the marked line alone is `goline_row`).
+    pub fn in_goline_range(&self, row: &Row) -> bool {
+        if self.goline_anchor.is_none() {
+            return false;
+        }
+        let Some((old, first, last)) = self.goline_range() else {
+            return false;
+        };
+        let line = match *row {
+            Row::Split { left, right } => (if old { left } else { right }).map(|c| c.line),
+            Row::Unified { cell, old: o, .. } if o == old => Some(cell.line),
+            _ => None,
+        };
+        line.is_some_and(|l| (first..=last).contains(&l))
     }
 
     /// The row of the folded run of unchanged lines that holds `line`.

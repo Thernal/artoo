@@ -222,7 +222,17 @@ pub(super) fn own() -> Vec<Action> {
         Action::new("requests.overview", ShowOverview)
             .words("Show the request's overview")
             .order(at(16))
+            .key("alt-1", NOT_TYPING)
             .key("cmd-i", NOT_TYPING),
+        // A request's sections by number (#191).
+        Action::new("requests.commits", ShowCommits)
+            .words("Show the commits of the request or branch")
+            .order(at(16) + 1)
+            .key("alt-2", NOT_TYPING),
+        Action::new("requests.changes", ShowChanges)
+            .words("Show the changes of the request or branch")
+            .order(at(16) + 2)
+            .key("alt-3", NOT_TYPING),
         Action::new("shell.next-section", NextSection)
             .words("Next section of the request")
             .order(at(17))
@@ -402,6 +412,11 @@ pub(super) fn own() -> Vec<Action> {
             .words("Copy link to this page")
             .order(at(6))
             .key("cmd-alt-shift-c", TAB),
+        // A toast's Undo from the keys (#191): a resolve, a deleted draft, toasts turned off.
+        Action::new("shell.undo-toast", UndoToast)
+            .words("Undo what the newest notification says")
+            .order(at(15) + 1)
+            .key("cmd-z", NOT_TYPING),
         // A toast's button from the keys (#198); a field with a caret keeps ⌥↵.
         Action::new("shell.open-toast", OpenToast)
             .words("Open the newest notification")

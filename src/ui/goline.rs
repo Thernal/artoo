@@ -66,6 +66,7 @@ impl Workspace {
         match done {
             GoLineKey::Moved => self.move_marker(cx),
             GoLineKey::Finish => self.finish_goline(cx),
+            GoLineKey::Carry { forward } => self.carry_goline(forward, cx),
             GoLineKey::Close => self.refresh_rows(cx),
             GoLineKey::Kept => {}
         }
@@ -87,8 +88,12 @@ impl Workspace {
                 self.error = Some(why.into());
                 cx.notify();
             }
-            Some(Ok((_, line))) if file => self.start_file_comment(line, cx),
-            Some(Ok((old, line))) => {
+            Some(Ok((_, line, _))) if file => self.start_file_comment(line, cx),
+            Some(Ok((old, first, last))) if first != last => {
+                self.reveal_line(last, old, cx);
+                self.start_comment_on(old, Some(first), last, cx);
+            }
+            Some(Ok((old, line, _))) => {
                 self.reveal_line(line, old, cx);
                 self.start_comment(old, line, cx);
                 if let Some(at) = self.rv().row_of_line(line, old, cx) {
@@ -96,6 +101,21 @@ impl Workspace {
                 }
             }
         }
+    }
+
+    /// `n` past the file's last change (`p` before its first): the next (or the previous) file, the marker on its
+    /// first change (its last) (#191). The last file keeps it where it is.
+    fn carry_goline(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let file = self.diff_file(cx);
+        self.step_file(forward, cx);
+        if self.diff_file(cx) == file {
+            return;
+        }
+        self.rv().step_change(forward, cx);
+        self.rv().open_goline(cx);
+        self.take_keyboard(Input::Part(artoo_review_api::GOLINE_INPUT), cx);
+        self.move_marker(cx);
+        cx.notify();
     }
 
     /// Opens the collapsed run of unchanged lines that holds `line`, if there is one.

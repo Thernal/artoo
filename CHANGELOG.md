@@ -6,6 +6,12 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **The keyboard goes further in a request.** `c` with nothing typed stands on the change you are at — `Comment on line
+  47`, ↵ writes there —, ⇧↑ ⇧↓ stretch it over lines, and `n` `p` (and F7) carry on into the next file. The discussion
+  the keys act on wears a ring: a click or ⇧N gives it, esc lets it go, and `x` on it says `Resolved ·
+  LoginViewModel.kt:47` with Undo — ⌘Z undoes the newest toast's. ⌥1 ⌥2 ⌥3 go to Overview, Commits and Changes. On the
+  merge requests list ⌃⇥ steps All · To review · Mine, whose counts follow the filter, and in the Inbox its kinds; the filter finds an author by
+  username too and marks what it matched.
 - **A request's Overview shows what is in the way.** `In the way of merging` lists each reason under the facts —
   `Approvals 1 of 2, one more needed`, `Pipeline lint failed  Pipeline →` — without opening Merge. The author and the
   branches are said once, beside the title; `Your review 0 of 8 files` replaces "Reviewed", and the facts end with

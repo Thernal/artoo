@@ -225,7 +225,7 @@ impl Workspace {
     }
 
     /// A click in the Inbox (`InboxHost::act`).
-    fn inbox_act(&mut self, event: InboxEvent, cx: &mut Context<Self>) {
+    pub(super) fn inbox_act(&mut self, event: InboxEvent, cx: &mut Context<Self>) {
         match event {
             InboxEvent::Filter(f) => {
                 if let Some(requests) = self.requests_api() {

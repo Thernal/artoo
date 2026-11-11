@@ -1,5 +1,7 @@
-//! Going to a line (#7): the line typed after `c` — digits, a minus first for a removed line, ↑ ↓ stepping it —,
-//! the marker on its row, the run of unchanged lines that holds it opened, where ↵ writes, and the prompt drawn:
+//! Going to a line (#7): the line typed after `c` — digits, a minus first for a removed line, ↑ ↓ stepping it, ⇧↑ ⇧↓
+//! making a range, `n` `p` the next or the previous change, carried into the next file at the last (#191) —; with
+//! nothing typed, the change you are at; the marker on its row, the run of unchanged lines that holds it opened,
+//! where ↵ writes, and the prompt drawn:
 //! under the marked line, or over the diff while the line is on no row. Its field is one of the tab's inputs
 //! (`input`); the tab lays the rows out and opens the composer (`ReviewEvent::GoLine`).
 
@@ -17,16 +19,22 @@ pub use artoo_review_api::GoLineKey;
 pub const INPUT: &str = artoo_review_api::GOLINE_INPUT;
 
 impl Review {
-    /// The line after `c` starts empty: it stands for the first change.
+    /// The line after `c` starts empty: it stands for the change you are at (#191), the first when none; the card's
+    /// header counts it, `change 1 of 5`.
     pub fn open_goline(&mut self) {
         self.goline_area = Area::default();
         self.goline = Some(String::new());
+        self.goline_anchor = None;
+        if !self.changes.is_empty() {
+            self.change_at.get_or_insert(0);
+        }
     }
 
     /// The marker goes, nothing written.
     pub fn close_goline(&mut self) {
         self.goline = None;
         self.goline_row = None;
+        self.goline_anchor = None;
     }
 
     /// Key `key` on the line typed.
@@ -39,8 +47,39 @@ impl Review {
             let Some((old, line)) = self.goline_target() else {
                 return GoLineKey::Kept;
             };
+            // ⇧ makes a range from where the marker was; a plain step leaves it.
+            self.goline_anchor = match key.modifiers.shift {
+                true => Some(self.goline_anchor.unwrap_or(line)),
+                false => None,
+            };
             let next = (i64::from(line) + step).max(1);
             self.goline = Some(format!("{}{next}", if old { "-" } else { "" }));
+            return GoLineKey::Moved;
+        }
+        // `n` `p`: the next or the previous change; past the file's last, the next file's first (#191).
+        let plain = !key.modifiers.shift
+            && !key.modifiers.control
+            && !key.modifiers.alt
+            && !key.modifiers.platform;
+        if plain && matches!(key.key.as_str(), "n" | "p") {
+            let forward = key.key == "n";
+            let n = self.changes.len();
+            let at = self.change_at;
+            let next = match (at, forward) {
+                (None, true) => Some(0),
+                (Some(at), true) => (at + 1 < n).then_some(at + 1),
+                (None, false) => n.checked_sub(1),
+                (Some(at), false) => at.checked_sub(1),
+            };
+            let Some(next) = next.filter(|&next| next < n) else {
+                return GoLineKey::Carry { forward };
+            };
+            self.change_at = Some(next);
+            self.goline_anchor = None;
+            if let Some((old, line)) = self.change_line(next) {
+                self.goline = Some(format!("{}{line}", if old { "-" } else { "" }));
+                self.goline_area = Area::default();
+            }
             return GoLineKey::Moved;
         }
         let edit = &mut self.goline_area.edit;
@@ -93,7 +132,7 @@ impl Review {
 
     /// Where ↵ on the line typed writes — a line of the file read in Code (`file`), else a side's line of the
     /// diff's file —, the marker gone; why not when there is no such line; None with no file laid out.
-    pub fn goline_at(&mut self, file: bool) -> Option<Result<(bool, u32), String>> {
+    pub fn goline_at(&mut self, file: bool) -> Option<Result<(bool, u32, u32), String>> {
         if file {
             let line = self
                 .goline
@@ -105,17 +144,17 @@ impl Review {
                 return Some(Err(format!("This file has {count} lines.")));
             }
             self.goline = None;
-            return Some(Ok((false, line)));
+            return Some(Ok((false, line, line)));
         }
         let data = self.data.clone()?;
-        let (old, line) = self.goline_target()?;
+        let (old, first, last) = self.goline_range()?;
         let count = data.side(old).count();
-        if line == 0 || line > count {
+        if first == 0 || last > count {
             let side = if old { "old" } else { "new" };
             return Some(Err(format!("This file has {count} {side} lines.")));
         }
         self.close_goline();
-        Some(Ok((old, line)))
+        Some(Ok((old, first, last)))
     }
 
     /// The collapsed run of unchanged lines that holds `line` opened, unless the line shows: whether there was one
@@ -146,7 +185,7 @@ impl Review {
         self.goline_area.field_of(
             text,
             active,
-            "first change",
+            "",
             false,
             |rv: &mut Review| Some(&mut rv.goline_area),
             this,
@@ -161,14 +200,26 @@ impl Review {
         active: bool,
         this: WeakEntity<Review>,
     ) -> Option<Div> {
-        let field = self.goline_field(self.goline.as_ref()?, active, this);
+        let text = self.goline.as_ref()?;
+        // With nothing typed the line is the change you are at, said; a range says its ends (#191).
+        let (label, said) = match (self.goline_anchor, self.goline_range()) {
+            (Some(_), Some((_, first, last))) if first != last => {
+                (format!("Comment on lines {first}–{last}"), None)
+            }
+            (_, Some((_, line, _))) if text.is_empty() => {
+                ("Comment on line".to_owned(), Some(line.to_string()))
+            }
+            _ => ("Comment on line".to_owned(), None),
+        };
+        let ranged = label.starts_with("Comment on lines");
+        let field = (!ranged).then(|| self.goline_field(text, active, this));
         Some(
             div().w_full().pl(px(indent)).pr(px(12.)).py(px(4.)).child(
                 div()
                     .max_w(px(640.))
                     .flex()
                     .items_center()
-                    .gap_3()
+                    .gap_2()
                     .px_3()
                     .py(px(6.))
                     .rounded(px(ROW_RADIUS))
@@ -177,18 +228,24 @@ impl Review {
                     .bg(theme::panel())
                     .font_family(theme::ui_font())
                     .text_size(px(12.))
-                    .child(div().text_color(theme::muted()).child("Comment on line"))
-                    .child(
+                    .child(div().text_color(theme::text()).child(label))
+                    .children(said.map(|line| {
                         div()
-                            .min_w(px(56.))
                             .font_family(theme::code_font())
-                            .child(field),
-                    )
+                            .text_color(theme::text())
+                            .child(line)
+                    }))
+                    .children(field.map(|field| {
+                        div()
+                            .min_w(px(24.))
+                            .font_family(theme::code_font())
+                            .child(field)
+                    }))
                     .child(
                         div()
                             .text_size(px(11.))
                             .text_color(theme::faint())
-                            .child("↵ write · ↑↓ step · −12 a removed line · esc"),
+                            .child("· ↵ write · ↑↓ step · ⇧↑↓ range · esc"),
                     ),
             ),
         )

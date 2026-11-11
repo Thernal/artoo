@@ -1079,6 +1079,12 @@ impl artoo_requests_api::Requests for Handle {
         }
     }
 
+    fn inbox_filter(&self, cx: &App) -> InboxFilter {
+        self.inbox()
+            .map(|view| view.read(cx).filter)
+            .unwrap_or_default()
+    }
+
     fn inbox_filters(&self, on: OnInbox, compact: bool, cx: &App) -> AnyElement {
         let (Some(view), Some(notices)) = (self.inbox(), self.notices()) else {
             return gpui::div().into_any_element();
@@ -1185,20 +1191,33 @@ impl artoo_requests_api::Requests for Handle {
         });
     }
 
-    fn scope_count(&self, scope: Scope, cx: &App) -> String {
+    fn scope_count(&self, scope: Scope, filter: &str, cx: &App) -> String {
         let Some(requests) = self.0.upgrade() else {
             return String::new();
         };
         let rq = requests.read(cx);
-        // The merged or the closed: as many as the host says, or counted as far as read (#114, #169).
+        let filter = filter.to_lowercase();
+        let terms: Vec<&str> = filter.split_whitespace().collect();
+        let lets = |m: &&Mr| crate::list::filter_lets(m, &terms);
         if rq.view == mr::MrState::Opened {
-            let n = rq.list.iter().filter(|m| rq.in_scope(m, scope)).count();
+            let n = rq
+                .list
+                .iter()
+                .filter(|m| rq.in_scope(m, scope))
+                .filter(lets)
+                .count();
             return n.to_string();
         }
+        // The merged or the closed: as many as the host says, or counted as far as read (#114, #169); filtered,
+        // as many of those read as the filter leaves (#191).
         let pages = rq.past.of_scope(scope);
+        let more = if pages.more { "+" } else { "" };
         match pages.total {
+            _ if !terms.is_empty() => {
+                format!("{}{more}", pages.list.iter().filter(lets).count())
+            }
             Some(total) => total.to_string(),
-            None => format!("{}{}", pages.list.len(), if pages.more { "+" } else { "" }),
+            None => format!("{}{more}", pages.list.len()),
         }
     }
 

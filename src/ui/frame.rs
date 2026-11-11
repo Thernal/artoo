@@ -409,6 +409,16 @@ impl Render for Workspace {
         .on_action(cx.listener(|this, _: &ShowOverview, _, cx| {
             this.show_section(nav::Section::Overview, cx)
         }))
+        .on_action(
+            cx.listener(|this, _: &ShowCommits, _, cx| {
+                this.show_section(nav::Section::Commits, cx)
+            }),
+        )
+        .on_action(
+            cx.listener(|this, _: &ShowChanges, _, cx| {
+                this.show_section(nav::Section::Changes, cx)
+            }),
+        )
         .on_action(cx.listener(|this, _: &NextSection, _, cx| this.step_section(true, cx)))
         .on_action(cx.listener(|this, _: &PreviousSection, _, cx| this.step_section(false, cx)))
         .on_action(cx.listener(|this, _: &NextOpenItem, _, cx| this.step_open_item(true, cx)))
@@ -500,6 +510,7 @@ impl Render for Workspace {
         .on_action(cx.listener(Self::compare_action))
         .on_action(cx.listener(Self::copy_link_action))
         .on_action(cx.listener(Self::open_toast_action))
+        .on_action(cx.listener(Self::undo_toast_action))
         .on_action(cx.listener(Self::pin_tab_action))
         .on_action(cx.listener(Self::palette_up))
         .on_action(cx.listener(Self::palette_down))

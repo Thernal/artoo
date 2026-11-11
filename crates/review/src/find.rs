@@ -213,17 +213,18 @@ impl Review {
         true
     }
 
-    /// The open file's next (or previous) change comes into view; false when it has none.
+    /// The open file's next (or previous) change comes into view; false when it has none, or none past the one it
+    /// is at: the tab goes on to the next file then (#191).
     pub fn step_change(&mut self, forward: bool) -> bool {
         let n = self.changes.len();
-        if n == 0 {
-            return false;
-        }
         let at = match (self.change_at, forward) {
-            (None, true) => 0,
-            (None, false) => n - 1,
-            (Some(at), true) => (at + 1) % n,
-            (Some(at), false) => (at + n - 1) % n,
+            (None, true) => Some(0),
+            (None, false) => n.checked_sub(1),
+            (Some(at), true) => Some(at + 1),
+            (Some(at), false) => at.checked_sub(1),
+        };
+        let Some(at) = at.filter(|&at| at < n) else {
+            return false;
         };
         self.change_at = Some(at);
         self.scroll_to_row(self.changes[at]);

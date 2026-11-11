@@ -309,9 +309,28 @@ impl<A: Clone + PartialEq + 'static> Toasts<A> {
             .map(|t| t.id)
     }
 
+    /// The newest toast with an Undo button still showing: what `⌘Z` presses (#191).
+    fn newest_undo(&self) -> Option<u64> {
+        (self.list.iter().rev())
+            .find(|t| {
+                !t.leaving
+                    && matches!(&t.button, Some(Button::Run(label, _)) if label.starts_with("Undo"))
+            })
+            .map(|t| t.id)
+    }
+
     /// `⌥↵`: the newest toast's button, pressed; false when no toast has one.
     pub fn press_newest(&mut self, cx: &mut Context<Self>) -> bool {
         let Some(id) = self.newest_button() else {
+            return false;
+        };
+        self.press(id, cx);
+        true
+    }
+
+    /// `⌘Z`: the newest toast whose button undoes (`Undo …`), pressed; false when none shows (#191).
+    pub fn press_undo(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(id) = self.newest_undo() else {
             return false;
         };
         self.press(id, cx);
@@ -342,7 +361,7 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
     /// The stack, over everything else, under the page bar's right end, clear of the right stripe (#198).
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let label = self.label;
-        let newest = self.newest_button();
+        let (newest, undo) = (self.newest_button(), self.newest_undo());
         // The bars move while any toast's time runs.
         if !artoo_core::storage::snapshot_run()
             && self.list.iter().any(|t| t.since.is_some() && !t.leaving)
@@ -396,13 +415,21 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
                             .cursor_pointer()
                             .hover(|s| s.bg(theme::hover()))
                             .child(label)
-                            .children((newest == Some(id)).then(|| {
-                                div()
-                                    .text_size(px(11.))
-                                    .font_weight(gpui::FontWeight::NORMAL)
-                                    .text_color(theme::faint())
-                                    .child(keys::text("⌥↵").into_owned())
-                            }))
+                            .children(
+                                // Its key: ⌘Z on the newest Undo (#191), else ⌥↵ on the newest button.
+                                (if undo == Some(id) {
+                                    Some("⌘Z")
+                                } else {
+                                    (newest == Some(id)).then_some("⌥↵")
+                                })
+                                .map(|key| {
+                                    div()
+                                        .text_size(px(11.))
+                                        .font_weight(gpui::FontWeight::NORMAL)
+                                        .text_color(theme::faint())
+                                        .child(keys::text(key).into_owned())
+                                }),
+                            )
                             .on_click(
                                 cx.listener(move |this, _: &ClickEvent, _, cx| this.press(id, cx)),
                             )

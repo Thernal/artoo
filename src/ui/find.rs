@@ -50,6 +50,13 @@ impl Workspace {
             return;
         }
         if self.rv().step_change(forward, cx) {
+            return cx.notify();
+        }
+        // Past the file's last change, the next file's first (#191).
+        let file = self.diff_file(cx);
+        self.step_file(forward, cx);
+        if self.diff_file(cx) != file {
+            self.rv().step_change(forward, cx);
             cx.notify();
         }
     }
@@ -125,6 +132,10 @@ impl Workspace {
                 self.settings_open = false;
                 cx.notify();
             } else if self.note_sel.take().is_some() || self.rv().clear_sel(cx) {
+                cx.notify();
+            } else if self.thread_at.take().is_some() {
+                // The ringed discussion lets go (#191).
+                self.refresh_rows(cx);
                 cx.notify();
             } else if self.tool().is_some() && self.zone == super::zones::Zone::Tool {
                 self.set_tool(None, cx);

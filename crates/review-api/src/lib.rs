@@ -370,7 +370,8 @@ pub trait Review {
     /// Row `row` of the file shown comes into view.
     fn scroll_to_row(&self, row: usize, cx: &mut App);
 
-    /// The keyboard steps to the next change (or the one before): true when it moved.
+    /// The keyboard steps to the next change (or the one before): true when it moved; false past the file's last (or
+    /// before its first), where the tab goes on to the next file (#191).
     fn step_change(&self, forward: bool, cx: &mut App) -> bool;
 
     /// The card saying every file is reviewed shows.
@@ -487,8 +488,9 @@ pub trait Review {
     /// The marker on the typed line's row, in view.
     fn place_marker(&self, cx: &mut App);
 
-    /// The line the marker is on (`file`: of the file Code reads), or why there is none; it closes.
-    fn goline_at(&self, file: bool, cx: &mut App) -> Option<Result<(bool, u32), String>>;
+    /// The lines the marker is on, first and last on their side (`file`: of the file Code reads), or why there are
+    /// none; it closes.
+    fn goline_at(&self, file: bool, cx: &mut App) -> Option<Result<(bool, u32, u32), String>>;
 
     /// The row of line `line` of a side in the file shown.
     fn row_of_line(&self, line: u32, old: bool, cx: &App) -> Option<usize>;
@@ -835,6 +837,9 @@ pub enum GoLineKey {
     Moved,
     /// ↵: the comment opens there (`goline_at`).
     Finish,
+    /// `n` past the file's last change, or `p` before its first (#191): the marker goes on in the next (or the
+    /// previous) file.
+    Carry { forward: bool },
     /// Nothing for the marker.
     Kept,
 }

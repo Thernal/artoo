@@ -659,20 +659,29 @@ impl Workspace {
         cx.notify();
     }
 
-    /// The discussion `r` `x` `o` act on: the one with the keyboard (a click or ⇧N gave it), else
-    /// the first open one from the top of the view.
-    pub(super) fn acting_thread(&self, cx: &App) -> Option<usize> {
-        self.thread_at.or_else(|| {
-            let top = self.rv().local_top(cx);
-            self.rv()
-                .rows(cx)
-                .iter()
-                .skip(top)
-                .find_map(|row| match row {
-                    super::rows::Row::Request(ix) if self.mr_open(*ix, cx) => Some(*ix),
-                    _ => None,
-                })
-        })
+    /// The discussion `r` `x` `o` act on: the ringed one (a click or ⇧N gave it the ring) alone (#191). With none
+    /// ringed, a key rings the first open one from the top of the view and does nothing else, so a key never acts
+    /// on a discussion nothing marks.
+    pub(super) fn acting_thread(&mut self, cx: &mut Context<Self>) -> Option<usize> {
+        if self.thread_at.is_some() {
+            return self.thread_at;
+        }
+        let top = self.rv().local_top(cx);
+        let first = self
+            .rv()
+            .rows(cx)
+            .iter()
+            .skip(top)
+            .find_map(|row| match row {
+                super::rows::Row::Request(ix) if self.mr_open(*ix, cx) => Some(*ix),
+                _ => None,
+            });
+        if first.is_some() {
+            self.thread_at = first;
+            self.refresh_rows(cx);
+            cx.notify();
+        }
+        None
     }
 
     pub(super) fn reply_focused(&mut self, cx: &mut Context<Self>) {
@@ -689,13 +698,37 @@ impl Workspace {
         }
     }
 
+    /// `x`: the ringed discussion resolved (or opened again) at once, said with Undo ⌘Z (#191).
     pub(super) fn resolve_focused(&mut self, cx: &mut Context<Self>) {
         if let Some(ix) = self
             .acting_thread(cx)
             .filter(|_| self.request_target(cx).is_some())
         {
             self.thread_at = Some(ix);
+            let said = self.request_thread(ix, cx).map(|t| {
+                let place = t
+                    .path
+                    .as_deref()
+                    .map(|p| {
+                        let name = p.rsplit('/').next().unwrap_or(p);
+                        match t.new_line.or(t.old_line) {
+                            Some(line) => format!(" · {name}:{line}"),
+                            None => format!(" · {name}"),
+                        }
+                    })
+                    .unwrap_or_default();
+                let word = if t.resolved { "Reopened" } else { "Resolved" };
+                format!("{word}{place}")
+            });
             self.toggle_resolved(ix, cx);
+            if let Some(text) = said {
+                let tab = cx.weak_entity();
+                let undo = Rc::new(move |cx: &mut App| {
+                    tab.update(cx, |this, cx| this.toggle_resolved(ix, cx)).ok();
+                });
+                self.toasts
+                    .update(cx, |t, cx| t.show_with(text, "Undo", undo, cx));
+            }
         }
     }
 
@@ -916,13 +949,18 @@ impl Workspace {
         let requests = self.requests_api()?;
         let view = requests.view(cx);
         let past = view != mr::MrState::Opened;
-        let count = |scope: Scope| requests.scope_count(scope, cx);
+        // What the filter leaves, counted (#191).
+        let count = |scope: Scope| requests.scope_count(scope, &self.bfilter, cx);
         let filter = |scope: Scope, id: &'static str, name: &'static str| {
             artoo_ui_kit::controls::chip(
                 id,
                 format!("{name} {}", count(scope)),
                 requests.scope(cx) == scope,
             )
+            .tooltip(|_, cx| {
+                cx.new(|_| super::TipOwned("Next tab ⌃⇥ · back ⌃⇧⇥".into()))
+                    .into()
+            })
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 if let Some(requests) = this.requests_api() {
                     requests.set_scope(scope, cx);

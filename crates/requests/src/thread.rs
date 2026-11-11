@@ -52,7 +52,7 @@ pub fn render_thread(
         .and_then(|iid| rq.find(iid))
         .map(|m| m.author.clone());
     let rich_notes = t.notes.iter().any(|n| markdown::has_markdown(&n.body));
-    let (fold, raw) = (on.clone(), on.clone());
+    let (fold, raw, fold_button) = (on.clone(), on.clone(), on.clone());
     let bar = discussion::bar(("thread-bar", ix), open)
         .child(discussion::source_pill(Source::GitLab))
         .children((!open).then(|| {
@@ -269,7 +269,8 @@ pub fn render_thread(
                         .cursor_text()
                         .hover(|s| s.border_color(theme::muted()))
                         .child(div().flex_1().child("Reply…"))
-                        .children((!tight).then(|| keys::caps("r", keys::On::Plain)))
+                        // Keys show on the ringed discussion alone (#191): the others' act by click.
+                        .children((!tight && focused).then(|| keys::caps("r", keys::On::Plain)))
                         .on_click(move |_, _, cx| reply(ThreadEvent::Reply, cx)),
                 )
                 .children(t.resolvable.then(|| {
@@ -282,7 +283,7 @@ pub fn render_thread(
                         ("thread-resolve", ix),
                         icon,
                         label,
-                        Some("x"),
+                        focused.then_some("x"),
                         None,
                         Kind::Plain,
                         tight,
@@ -290,6 +291,20 @@ pub fn render_thread(
                     .h(px(34.))
                     .on_click(move |_, _, cx| resolve(ThreadEvent::Resolve, cx))
                 }))
+                .child({
+                    let fold = fold_button.clone();
+                    icon_button(
+                        ("thread-fold", ix),
+                        "chevron",
+                        "Fold",
+                        focused.then_some("o"),
+                        None,
+                        Kind::Plain,
+                        tight,
+                    )
+                    .h(px(34.))
+                    .on_click(move |_, _, cx| fold(ThreadEvent::Fold(false), cx))
+                })
         }),
     };
     let pick = on;

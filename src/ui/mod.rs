@@ -174,11 +174,14 @@ actions!(
         RevealInFinder,
         CopyLink,
         OpenToast,
+        UndoToast,
         PinTab,
         ShowShortcuts,
         NameProject,
         ToggleThread,
         ShowOverview,
+        ShowCommits,
+        ShowChanges,
         NextSection,
         PreviousSection,
         NextOpenItem,
@@ -2655,6 +2658,13 @@ impl Workspace {
 
     fn copy_link_action(&mut self, _: &CopyLink, _: &mut Window, cx: &mut Context<Self>) {
         self.copy_page_link(cx);
+    }
+
+    /// ⌘Z: the newest toast's Undo (#191); with none, the key goes on.
+    fn undo_toast_action(&mut self, _: &UndoToast, _: &mut Window, cx: &mut Context<Self>) {
+        if !self.undo_toast(cx) {
+            cx.propagate();
+        }
     }
 
     /// ⌥↵: the newest toast's button (#198); with none, the key goes on.

@@ -820,6 +820,7 @@ pub trait Requests {
     /// The code the selected notice's discussion is on, read once, in the background.
     fn read_excerpt(&self, cx: &mut App);
     fn set_inbox_filter(&self, filter: InboxFilter, cx: &mut App);
+    fn inbox_filter(&self, cx: &App) -> InboxFilter;
     /// The Inbox's filters, in its page bar: what happened, and `Source ▾` (#197); `compact` in a narrow window,
     /// what happened as one menu.
     fn inbox_filters(&self, on: OnInbox, compact: bool, cx: &App) -> AnyElement;
@@ -845,11 +846,11 @@ pub trait Requests {
     fn shown(&self, filter: &str, cx: &App) -> Vec<Mr>;
     fn next_request(&self, filter: &str, cx: &App) -> Option<Mr>;
     fn group_of(&self, m: &Mr, cx: &App) -> Group;
-    /// The state the list shows (Open ▾); the scope (All · To review · Mine) set; how many scope `scope` has, as
-    /// its chip says it ("12", "20+").
+    /// The state the list shows (Open ▾); the scope (All · To review · Mine) set; how many of scope `scope` the
+    /// list's `filter` leaves, as its chip says it ("12", "20+").
     fn view(&self, cx: &App) -> MrState;
     fn set_scope(&self, scope: Scope, cx: &mut App);
-    fn scope_count(&self, scope: Scope, cx: &App) -> String;
+    fn scope_count(&self, scope: Scope, filter: &str, cx: &App) -> String;
     /// The list's group `group` folded or unfolded: the key its motion goes by.
     fn toggle_group(&self, group: Group, cx: &mut App) -> String;
     /// The row picked in the list (by a click, ↑ ↓); it scrolled into sight; a group folded (unless `filtering`);

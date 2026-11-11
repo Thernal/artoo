@@ -35,7 +35,8 @@ pub fn keys(mac: &str) -> String {
 /// macOS keys in Windows and Linux terms: `cmd-` is `ctrl-`, except ⌘1…⌘9 (the tabs), which are
 /// `alt-1`…`alt-9`, as browsers there have them: `ctrl-1`…`ctrl-4` move between zones. ⌃⌘ (the
 /// spaces) is Ctrl+Shift, since Ctrl is already ⌘'s. ⌥⌘→ ⌥⌘← (the open items) are Ctrl+PageDown
-/// and Ctrl+PageUp, the browsers' there: Ctrl+Alt+arrows switch workspaces on Linux.
+/// and Ctrl+PageUp, the browsers' there: Ctrl+Alt+arrows switch workspaces on Linux. ⌥1…⌥9 (a request's
+/// sections) are Alt+Shift+1…9, Alt+1…9 being the tabs' there (#191).
 pub fn pc_keys(mac: &str) -> String {
     mac.split(' ')
         .map(|stroke| {
@@ -46,6 +47,12 @@ pub fn pc_keys(mac: &str) -> String {
             }
             if let Some(key) = stroke.strip_prefix("ctrl-cmd-") {
                 return format!("ctrl-shift-{key}");
+            }
+            if let Some(digit) = stroke
+                .strip_prefix("alt-")
+                .filter(|k| k.len() == 1 && k.as_bytes()[0].is_ascii_digit())
+            {
+                return format!("alt-shift-{digit}");
             }
             let tab = stroke
                 .strip_prefix("cmd-")
@@ -271,6 +278,7 @@ mod tests {
         assert_eq!(pc_keys("cmd--"), "ctrl--");
         assert_eq!(pc_keys("ctrl-2"), "ctrl-2");
         assert_eq!(pc_keys("ctrl-cmd-4"), "ctrl-shift-4");
+        assert_eq!(pc_keys("alt-2"), "alt-shift-2");
         assert_eq!(pc_keys("g g"), "g g");
     }
 

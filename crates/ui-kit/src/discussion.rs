@@ -47,7 +47,10 @@ impl Source {
 /// selected is a rail on its left edge in the source's colour, bending with the card's corners —
 /// never a ring, since an outline means only "you are typing here".
 pub fn frame(source: Source, selected: bool) -> Div {
-    const RAIL: f32 = 3.;
+    // The one the keys act on wears a ring (#191, Design K2); it takes its width out of the padding, so the text
+    // does not move.
+    const RING: f32 = 2.;
+    let _ = source;
     div()
         .relative()
         .w_full()
@@ -56,16 +59,17 @@ pub fn frame(source: Source, selected: bool) -> Div {
         .flex_col()
         .rounded(px(10.))
         .bg(theme::panel())
-        // The rail takes its width out of the padding, so the text does not move.
         .when(selected, |s| {
-            s.border_l(px(RAIL))
-                .border_color(source.color())
-                .pl(px(14. - RAIL))
+            s.border(px(RING))
+                .border_color(theme::focus())
+                .pl(px(14. - RING))
+                .pr(px(14. - RING))
+                .pt(px(10. - RING))
+                .pb(px(12. - RING))
         })
-        .when(!selected, |s| s.pl(px(14.)))
-        .pr(px(14.))
-        .pt(px(10.))
-        .pb(px(12.))
+        .when(!selected, |s| {
+            s.pl(px(14.)).pr(px(14.)).pt(px(10.)).pb(px(12.))
+        })
         .font_family(theme::ui_font())
         .text_size(px(13.))
         .line_height(px(20.))

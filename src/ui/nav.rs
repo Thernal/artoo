@@ -699,6 +699,40 @@ impl Workspace {
         if self.nav.space == CODE {
             return self.step_code_tab(forward, cx);
         }
+        // In the Inbox they walk what happened, All · Mentions · Reviews · Asks · Failures (#191).
+        if self.at_inbox()
+            && let Some(requests) = self.requests_api()
+        {
+            use artoo_core::notice::Why;
+            let shown = requests.inbox_filter(cx);
+            let whys: Vec<Option<Why>> = std::iter::once(None).chain(Why::ALL.map(Some)).collect();
+            let at = whys.iter().position(|w| *w == shown.why).unwrap_or(0);
+            let n = whys.len();
+            let why = whys[(at + if forward { 1 } else { n - 1 }) % n];
+            return self.inbox_act(
+                artoo_requests_api::InboxEvent::Filter(artoo_requests_api::InboxFilter {
+                    why,
+                    ..shown
+                }),
+                cx,
+            );
+        }
+        // On the merge requests' list they walk its tabs, All · To review · Mine (#191).
+        if self.nav.space == REQUESTS
+            && self.at_root_list()
+            && self.requests_available(cx)
+            && let Some(requests) = self.requests_api()
+        {
+            use artoo_requests_api::Scope;
+            let scopes = [Scope::All, Scope::ReviewMe, Scope::Mine];
+            let at = scopes
+                .iter()
+                .position(|s| *s == requests.scope(cx))
+                .unwrap_or(0);
+            let n = scopes.len();
+            requests.set_scope(scopes[(at + if forward { 1 } else { n - 1 }) % n], cx);
+            return cx.notify();
+        }
         let (sections, Some(at)) = (self.item_sections(cx), self.page_section(cx)) else {
             return;
         };

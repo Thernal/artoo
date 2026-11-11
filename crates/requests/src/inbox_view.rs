@@ -12,7 +12,7 @@ use artoo_shell_api::notices::Why;
 use artoo_ui_kit::controls::{self, bar_button, chip, skeleton};
 use artoo_ui_kit::discussion::{self, Kind as Button, Source};
 use artoo_ui_kit::excerpt::excerpt_view;
-use artoo_ui_kit::hover::{self, CutInTip, RowTip};
+use artoo_ui_kit::hover::{self, CutInTip, RowTip, Tip};
 use artoo_ui_kit::keys::{self, On};
 use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::{ROW_RADIUS, format, gap, icons, island, px, theme, words};
@@ -84,11 +84,11 @@ pub fn filters(
                     Some(Why::Asks) => "inbox-asks",
                     Some(Why::Failures) => "inbox-failures",
                 };
-                chip(id, counted(name, new), shown.why == why).on_click(
-                    move |_: &ClickEvent, _, cx| {
+                chip(id, counted(name, new), shown.why == why)
+                    .tooltip(|_, cx| cx.new(|_| Tip("Next tab ⌃⇥ · back ⌃⇧⇥")).into())
+                    .on_click(move |_: &ClickEvent, _, cx| {
                         on(InboxEvent::Filter(InboxFilter { why, ..shown }), cx)
-                    },
-                )
+                    })
             }))
             .into_any_element()
     };

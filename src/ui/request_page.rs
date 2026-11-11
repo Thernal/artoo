@@ -36,12 +36,19 @@ impl Workspace {
                     Some(n) => format!("{} {n}", section.label()),
                     None => section.label().to_owned(),
                 };
+                // Their keys (#191); ⌃⇥ walks them all.
+                let tip = match section {
+                    Section::Overview => "Overview ⌥1 · ⌘I",
+                    Section::Commits => "Commits ⌥2",
+                    Section::Changes => "Changes ⌥3",
+                };
                 group.child(
                     artoo_ui_kit::controls::chip(
                         SharedString::from(format!("section-{}", section.label())),
                         label,
                         section == at,
                     )
+                    .tooltip(move |_, cx| cx.new(|_| artoo_ui_kit::hover::Tip(tip)).into())
                     .on_click(cx.listener(
                         move |this, _: &ClickEvent, _, cx| this.show_section(section, cx),
                     )),

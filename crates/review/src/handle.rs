@@ -725,7 +725,7 @@ impl artoo_review_api::Review for Handle {
         self.with(cx, |rv, _| rv.place_marker())
     }
 
-    fn goline_at(&self, file: bool, cx: &mut App) -> Option<Result<(bool, u32), String>> {
+    fn goline_at(&self, file: bool, cx: &mut App) -> Option<Result<(bool, u32, u32), String>> {
         self.with(cx, |rv, _| rv.goline_at(file))
     }
 
