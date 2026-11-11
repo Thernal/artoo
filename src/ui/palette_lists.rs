@@ -13,7 +13,7 @@ use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-pub(super) const RECENT: &str = "recent";
+pub(super) const RECENT: &str = artoo_shell_api::search::RECENT;
 pub(super) const BOOKMARKS: &str = "bookmarks";
 pub(super) const STRUCTURE: &str = "structure";
 pub(super) const SWITCH: &str = "switch";
@@ -154,12 +154,24 @@ fn recent(tab: WeakEntity<Workspace>) -> Finds {
     reading(tab, move |this, ask, _| {
         let words = words(ask.text);
         (this.recents.iter())
-            .filter(|r| matches(&words, &format!("{} {}", r.label, r.detail)))
+            .filter(|r| {
+                let path = match &r.key {
+                    super::recents::Key::File { path, .. } => path.as_str(),
+                    _ => "",
+                };
+                matches(&words, &format!("{} {} {path}", r.label, r.detail))
+            })
             .take(14)
             .map(|r| {
-                let key = r.key.clone();
-                let open = doing(&picks, move |this, cx| this.open_recent(key.clone(), cx));
-                Find::new("Recent", r.label.clone(), r.detail.clone(), open)
+                let (key, line) = (r.key.clone(), r.line);
+                let open = doing(&picks, move |this, cx| {
+                    this.open_recent(key.clone(), line, cx)
+                });
+                let find = Find::new("Recent", r.label.clone(), r.detail.clone(), open);
+                match &r.key {
+                    super::recents::Key::File { path, .. } => find.file(path.clone()),
+                    _ => find,
+                }
             })
             .collect()
     })
@@ -177,6 +189,7 @@ fn bookmarks(tab: WeakEntity<Workspace>) -> Finds {
                 let label = format!("{name}:{}", m.line);
                 let (path, line) = (m.path.clone(), m.line);
                 let open = doing(&picks, move |this, cx| {
+                    this.remember_file(&path, Some(line), cx);
                     this.jump_to_line(&path, line, false, cx)
                 });
                 Find::new("Bookmarks", label, m.text, open)
@@ -202,6 +215,7 @@ fn structure(tab: WeakEntity<Workspace>) -> Finds {
                 let (old, line) = (s.old, s.line);
                 let open = doing(&picks, move |this, cx| {
                     if let Some(path) = this.current_path(cx) {
+                        this.remember_file(&path, (!old).then_some(line), cx);
                         this.jump_to_line(&path, line, old, cx);
                     }
                 });

@@ -169,8 +169,15 @@ pub(super) fn own() -> Vec<Action> {
         Action::new("branches.or-requests", ToggleRequests)
             .words("Branches or merge requests")
             .order(at(51)),
-        Action::new("review.comment-line", CommentLine).key("c", NOT_TYPING),
-        Action::new("requests.submit", SubmitReview).key("cmd-shift-enter", NOT_TYPING),
+        // The acts are in ⌘K too (#192); keys that only move stay out.
+        Action::new("review.comment-line", CommentLine)
+            .words("Comment on a line…")
+            .order(at(58))
+            .key("c", NOT_TYPING),
+        Action::new("requests.submit", SubmitReview)
+            .words("Submit review")
+            .order(at(58) + 2)
+            .key("cmd-shift-enter", NOT_TYPING),
         // ⌘K's Create merge request… opens the form, the one way in (#190: the quick way is gone).
         Action::new("requests.create", CreateRequest)
             .words("Create merge request…")
@@ -200,9 +207,15 @@ pub(super) fn own() -> Vec<Action> {
             .key("cmd-b", NOT_TYPING)
             .menu(Bar::View, "Fold the Menu to Icons")
             .at(0, 3),
-        Action::new("requests.approve", ApproveRequest).key("a", NOT_TYPING),
+        Action::new("requests.approve", ApproveRequest)
+            .words("Approve this merge request")
+            .order(at(58) + 1)
+            .key("a", NOT_TYPING),
         // A request's Changes: All and Since the version you read, in turn (#187).
-        Action::new("requests.since-read", ToggleSince).key("s", NOT_TYPING),
+        Action::new("requests.since-read", ToggleSince)
+            .words("Since the version you read, or all changes")
+            .order(at(59))
+            .key("s", NOT_TYPING),
         Action::new("requests.next-draft", NextDraft).key("alt-n", NOT_TYPING),
         Action::new("requests.previous-draft", PreviousDraft).key("alt-p", NOT_TYPING),
         Action::new("shell.shortcuts", ShowShortcuts)
@@ -214,11 +227,26 @@ pub(super) fn own() -> Vec<Action> {
             .at(0, 1),
         Action::new("requests.next-thread", NextThread).key("shift-n", NOT_TYPING),
         Action::new("requests.previous-thread", PreviousThread).key("shift-p", NOT_TYPING),
-        Action::new("requests.reply", ReplyThread).key("r", NOT_TYPING),
-        Action::new("requests.resolve", ResolveThread).key("x", NOT_TYPING),
-        Action::new("requests.edit", EditComment).key("e", NOT_TYPING),
-        Action::new("requests.react", ReactNote).key("shift-e", NOT_TYPING),
-        Action::new("requests.fold-thread", ToggleThread).key("o", NOT_TYPING),
+        Action::new("requests.reply", ReplyThread)
+            .words("Reply to the discussion")
+            .order(at(59) + 1)
+            .key("r", NOT_TYPING),
+        Action::new("requests.resolve", ResolveThread)
+            .words("Resolve the discussion, or reopen it")
+            .order(at(59) + 2)
+            .key("x", NOT_TYPING),
+        Action::new("requests.edit", EditComment)
+            .words("Edit your last comment in the discussion")
+            .order(at(59) + 3)
+            .key("e", NOT_TYPING),
+        Action::new("requests.react", ReactNote)
+            .words("React to the comment…")
+            .order(at(59) + 4)
+            .key("shift-e", NOT_TYPING),
+        Action::new("requests.fold-thread", ToggleThread)
+            .words("Fold the discussion, or open it")
+            .order(at(59) + 5)
+            .key("o", NOT_TYPING),
         Action::new("requests.overview", ShowOverview)
             .words("Show the request's overview")
             .order(at(16))
@@ -247,7 +275,10 @@ pub(super) fn own() -> Vec<Action> {
             .key("cmd-alt-left", NOT_TYPING)
             .menu(Bar::Go, "Previous Open Item")
             .at(3, 1),
-        Action::new("review.mark-reviewed", MarkReviewed).key("v", NOT_TYPING),
+        Action::new("review.mark-reviewed", MarkReviewed)
+            .words("Mark the file reviewed, go to the next")
+            .order(at(59) + 6)
+            .key("v", NOT_TYPING),
         Action::new("shell.recent", OpenRecent)
             .words("Recent places")
             .order(at(21))
@@ -274,7 +305,10 @@ pub(super) fn own() -> Vec<Action> {
             .menu(Bar::View, "Actual Size")
             .at(1, 2),
         // F3 and ⌘F3 are macOS's Mission Control (#183).
-        Action::new("review.bookmark", ToggleBookmark).key("b", NOT_TYPING),
+        Action::new("review.bookmark", ToggleBookmark)
+            .words("Bookmark the line, or take it off")
+            .order(at(59) + 7)
+            .key("b", NOT_TYPING),
         Action::new("review.bookmarks", ShowBookmarks)
             .words("Bookmarks")
             .order(at(23))

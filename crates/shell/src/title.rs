@@ -112,7 +112,7 @@ fn title_bar(bar: TitleBar, host: Rc<dyn TitleHost>) -> impl IntoElement {
                 })
                 // Narrow, search is its icon (#80).
                 .children((bar.open && bar.compact).then(|| {
-                    icon_button("title-search-icon", "search", "Search or run a command  ⌘K")
+                    icon_button("title-search-icon", "search", "Search or run an action  ⌘K")
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_click(move |_, window, cx| search.search(window, cx))
                 }))
@@ -141,7 +141,7 @@ fn title_bar(bar: TitleBar, host: Rc<dyn TitleHost>) -> impl IntoElement {
                                 .size(px(14.))
                                 .text_color(theme::faint()),
                         )
-                        .child(hover::cut("search-hint", "Search or run a command").flex_1())
+                        .child(hover::cut("search-hint", "Search or run an action").flex_1())
                         .child(keys::caps("⌘K", keys::On::Plain))
                         // A double click here is not the bar's: the window keeps its size.
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

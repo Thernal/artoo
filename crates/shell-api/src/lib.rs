@@ -310,6 +310,10 @@ pub trait Frame {
     /// naming what is on screen, Pin tab saying Unpin on a pinned one.
     fn command_words(&self, id: &'static str, cx: &App) -> Option<String>;
 
+    /// The commands of the page on screen by their ids (`Action::id`), its acts first: what ⌘K lists as `Here`
+    /// before anything is typed (#192). Empty: ⌘K's first commands.
+    fn here(&self, cx: &App) -> Vec<&'static str>;
+
     /// Route `route` kept first among the places opened lately (⌘K lists them).
     fn remember(&self, route: Route, cx: &mut App);
 

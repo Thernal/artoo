@@ -19,6 +19,7 @@ impl Workspace {
         }
         let shown = self.shown_diff(cx);
         if let Some(ix) = shown.and_then(|d| d.files.iter().position(|f| f.path() == path)) {
+            self.remember_file(&path, None, cx);
             self.select_file(ix, cx);
             self.follow_loaded(cx);
         }
@@ -132,7 +133,7 @@ impl Host for CodeHost {
             .recents
             .iter()
             .filter_map(|e| match &e.key {
-                super::recents::Key::File(path) => Some(path.clone()),
+                super::recents::Key::File { path, .. } => Some(path.clone()),
                 _ => None,
             })
             .take(8)

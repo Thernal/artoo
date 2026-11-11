@@ -1826,9 +1826,6 @@ impl Workspace {
         if settled.follow {
             self.record(cx);
         }
-        for commit in &settled.commits {
-            self.remember_commit(commit);
-        }
         self.follow_pending_link(cx);
         self.open_waiting_draft(cx);
         cx.notify();
@@ -1959,11 +1956,6 @@ impl Workspace {
         else {
             return;
         };
-        self.remember_place(
-            recents::Key::File(file.path().to_owned()),
-            file.path().to_owned(),
-            "file".to_owned(),
-        );
         if self.wants_stack(cx) {
             return self.stack_select(ix, cx);
         }
@@ -2995,8 +2987,15 @@ impl artoo_review_api::Host for TabHost {
                 }
                 ChangesEvent::ReviewAll => this.toggle_all_reviewed(cx),
                 ChangesEvent::Pick(ix) => {
-                    // Picked in the drawer, it goes and the file is on screen (#80).
+                    // Picked in the drawer, it goes and the file is on screen (#80); chosen, it is kept among the
+                    // places opened lately (#192).
                     this.close_drawer(cx);
+                    if let Some(path) = this
+                        .shown_diff(cx)
+                        .and_then(|d| Some(d.files.get(ix)?.path().to_owned()))
+                    {
+                        this.remember_file(&path, None, cx);
+                    }
                     this.select_file(ix, cx)
                 }
                 ChangesEvent::Menu { ix, at } => this.file_context(ix, at, cx),

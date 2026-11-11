@@ -19,6 +19,8 @@ use std::rc::Rc;
 pub const ALL: &str = "shell.all";
 /// The Actions tab's id, the window's own: every command offered with words.
 pub const ACTIONS: &str = "shell.actions";
+/// The list of the places opened lately, the tab's: empty, ⌘K's All shows its first under `Here` (#192).
+pub const RECENT: &str = "recent";
 
 /// ⌘K's window in a tab, the shell's (`Services`). It never asks the tab while it is changed: what a scope or a list
 /// finds and does runs once no entity is.

@@ -487,8 +487,42 @@ impl Machine {
         }
     }
 
-    /// The All tab: a few of every kind, what a scope All shows alone (a pasted link, one place), `#` `@` narrowing.
+    /// The All tab with nothing typed (#192): `Here`, the page's commands with their keys (`Frame::here`; else ⌘K's
+    /// first five), then `Recent`, the places last opened, each with its owner.
+    fn here_items(&self, cx: &App) -> Vec<Item> {
+        let ids = (self.frame.upgrade()).map_or_else(Vec::new, |f| f.here(cx));
+        let mut items: Vec<Item> = if ids.is_empty() {
+            self.command_items("Here", &[], cx)
+                .into_iter()
+                .take(5)
+                .collect()
+        } else {
+            let all = self.command_items("Here", &[], cx);
+            ids.iter()
+                .filter_map(|id| {
+                    let ix = self.commands.iter().position(|c| c.id == *id)?;
+                    all.iter()
+                        .find(|i| matches!(i.pick, Pick::Command(c) if c == ix))
+                        .cloned()
+                })
+                .collect()
+        };
+        if let Some(recent) = self.offered_list(search::RECENT) {
+            let ask = Ask {
+                text: "",
+                all: true,
+            };
+            items.extend(found_items((recent.find)(ask, cx)).into_iter().take(5));
+        }
+        items
+    }
+
+    /// The All tab: a few of every kind, what a scope All shows alone (a pasted link, one place), `#` `@` narrowing;
+    /// nothing typed, `Here` (`here_items`).
     fn all_items(&self, query: &str, cx: &App) -> Vec<Item> {
+        if query.is_empty() {
+            return self.here_items(cx);
+        }
         let whole = Ask {
             text: query,
             all: true,
@@ -534,10 +568,7 @@ impl Machine {
                 _ => {}
             }
         }
-        // Jumping to what was typed beats the commands when something real matched.
-        if scope.is_none() && !words.is_empty() {
-            items.sort_by_key(|i| (i.group.as_ref() == "Commands") as u8);
-        }
+        // A command whose words match ranks above what shares its word (#192): the commands come first.
         items
     }
 

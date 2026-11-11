@@ -3,7 +3,6 @@
 //! ask.
 
 use super::menu::{Act, Entry};
-use super::recents::Key;
 use super::spaces::Space;
 use super::zones::Zone;
 use super::{Workspace, motion, px};
@@ -187,6 +186,13 @@ impl Frame for TabFrame {
         self.0.upgrade()?.read(cx).command_words(id, cx)
     }
 
+    fn here(&self, cx: &App) -> Vec<&'static str> {
+        self.0
+            .upgrade()
+            .map(|tab| tab.read(cx).here_commands())
+            .unwrap_or_default()
+    }
+
     fn services(&self) -> Rc<Services> {
         self.1.clone()
     }
@@ -281,9 +287,9 @@ impl Frame for TabFrame {
     }
 
     fn remember(&self, route: Route, cx: &mut App) {
-        self.later(cx, move |this, _| {
+        self.later(cx, move |this, cx| {
             if let Some(FileRoute { path }) = FileRoute::from_route(&route) {
-                this.remember_place(Key::File(path.clone()), path, "file".to_owned());
+                this.remember_file(&path, None, cx);
             }
         });
     }

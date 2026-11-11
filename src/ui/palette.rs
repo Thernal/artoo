@@ -85,6 +85,54 @@ impl Workspace {
         }
     }
 
+    /// The page's commands, its acts first (`Frame::here`, #192): on a request what it asks of you — the
+    /// discussion's when one is ringed —, on a list what starts one, in Code what reads the file.
+    pub(super) fn here_commands(&self) -> Vec<&'static str> {
+        use super::nav::Page;
+        use super::spaces::{BRANCHES, CODE, INBOX, REQUESTS};
+        if self.settings_open {
+            return Vec::new();
+        }
+        let page = self
+            .nav_page()
+            .and_then(|p| self.item_of(p))
+            .and_then(|p| Page::from_route(&p));
+        match (self.nav.space, page) {
+            (_, Some(Page::Request(_))) => {
+                let mut here = Vec::new();
+                if self.thread_at.is_some() {
+                    here.extend(["requests.reply", "requests.resolve"]);
+                }
+                here.extend([
+                    "requests.approve",
+                    "requests.submit",
+                    "requests.merge",
+                    "shell.copy-link",
+                    "requests.next",
+                ]);
+                here
+            }
+            (_, Some(Page::Branch(_))) => vec![
+                "agents.send",
+                "requests.create",
+                "branches.compare",
+                "shell.copy-link",
+                "shell.open-in",
+            ],
+            (INBOX, _) => vec!["requests.reply", "shell.copy-link", "shell.open-toast"],
+            (REQUESTS, _) => vec!["requests.create", "shell.switch", "shell.recent"],
+            (BRANCHES, _) => vec!["shell.switch", "branches.compare", "requests.create"],
+            (CODE, _) => vec![
+                "review.find-in-files",
+                "review.structure",
+                "review.bookmarks",
+                "shell.open-in",
+                "shell.copy-link",
+            ],
+            _ => Vec::new(),
+        }
+    }
+
     /// The words a command says in ⌘K as the tab stands, when not its own (`Frame::command_words`): Copy link names
     /// what is on screen, Pin tab says Unpin on a pinned one.
     pub(super) fn command_words(&self, id: &str, cx: &App) -> Option<String> {
