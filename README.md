@@ -82,11 +82,14 @@ Comments for your agent are purple and stay on your machine; comments on a merge
 GitLab or GitHub. Several chats can work at once, each in its own worktree — a note goes to the chat working on
 its branch.
 
-## Merge requests, by what they need from you
+## Merge requests, by whose turn it is
 
-| 🔵 Needs your review | 🟠 Updated since your review | ⚪ New | 🟢 Reviewed | 👤 Yours |
-|---|---|---|---|---|
-| you are asked to review it, or started | pushed since you marked its files — see only what changed | not asked of you, not read yet | its head is reviewed | opened by you |
+| 🔵 Waiting on you | ⏳ Waiting on others | 👤 Yours | 🟢 Done |
+|---|---|---|---|
+| asked of you, or pushed or answered since you wrote | you commented, or someone else is still to review | opened by you: who it waits on | you approved it |
+
+Each row says why in one line — the pipeline, approvals, size, open threads, conflicts — and whose turn it is.
+Display ▾ groups by author instead, or not at all, and sorts by size.
 
 ⌥↓ opens the next one waiting for you. Merged and closed requests are a click away.
 

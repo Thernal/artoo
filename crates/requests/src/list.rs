@@ -1,17 +1,18 @@
-//! The requests list (#72, #81): grouped by what each needs from you, a group's band folding its rows; the folds and
-//! the requests you have opened kept per project; the picked one's pipeline, approvals and what changed since your
-//! review read for its preview. Its views draw the rows under their bands, the preview, why none is listed and the
-//! banner while the list cannot be read; the tab puts them in the root's frame (`ListLook`, `Body`).
+//! The requests list (#72, #81, #189): grouped by whose turn each request is (or its author, or not at all, as
+//! `Display ▾` says), a group's band folding its rows; the folds, the display and when you last read each request
+//! kept per project; every row's pipeline, approvals, discussions, pushes and size read in the background, the
+//! picked one's merge state and what changed since your review for its preview. Its views draw the rows under their
+//! bands, the preview, why none is listed and the banner while the list cannot be read; the tab puts them in the
+//! root's frame (`ListLook`, `Body`).
 
-use crate::group::{Band, Group};
+use crate::group::{Band, Group, GroupBy, SortBy};
 use crate::requests::{Act, Acts, Requests, Scope};
+use crate::turn::{self, Turn};
 use artoo_core::git::{DiffSettings, Repo};
 use artoo_core::{markdown, rank, storage};
-use artoo_hosts_api::{Approvals, Host, Mr, MrState, Pipeline, Thread};
+use artoo_hosts_api::{Approvals, Host, MergeState, Mr, MrState, Pipeline, Thread};
 use artoo_review_api::Seen;
-use artoo_ui_kit::controls::{
-    empty_state, outline_button, pill, primary_button, progress_badge, unread_dot,
-};
+use artoo_ui_kit::controls::{empty_state, outline_button, primary_button, unread_dot};
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, CutInTip, Hover, RowTip};
 use artoo_ui_kit::room::Widths;
@@ -19,43 +20,53 @@ use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, discussion, flat, icons, motion, p
 use gpui::{AnyElement, ClickEvent, Context, Div, FontWeight, SharedString, Task, div, prelude::*};
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// What the requests list keeps per project (`<repo>\t<folded groups>\t<requests opened>`, both
-/// comma-separated, then `folds` once a group was folded or unfolded by hand) (#81). Every group
-/// starts open (the developer, 2026-10-23); a line written before the folds were yours carries the
-/// old default (Reviewed folded), and is read as nothing folded.
+/// What the requests list keeps per project (`<repo>\t<folded groups>\t<requests read>\t<folds>\t<display>`, the
+/// first two comma-separated, a request read as `<iid>@<its update then>`; `folds` once a group was folded or
+/// unfolded by hand; the display as `group::display_key` writes it) (#81, #189). Every group starts open (the
+/// developer, 2026-10-23); a line written before the folds were yours carries the old default, read as nothing
+/// folded.
 const LIST_FILE: &str = "requests-list.txt";
 
 /// The height of a group's band in the requests list.
 pub const BAND: f32 = 28.;
 
-/// Where request `seen` sits: yours first of all, then by how far your review got.
-pub fn group(mine: bool, asks: bool, seen: Seen) -> Group {
-    match seen {
-        _ if mine => Group::Yours,
-        Seen::Done => Group::Reviewed,
-        Seen::Earlier => Group::Updated,
-        Seen::Started => Group::Asks,
-        Seen::Never if asks => Group::Asks,
-        Seen::Never => Group::New,
-    }
-}
+/// A request's size: files, lines added, lines removed, commits.
+pub type Size = (usize, usize, usize, usize);
 
-/// A request's pipeline and approvals, read for its preview, with its `updated` then.
-pub struct Preview {
+/// What a request's row says, read for every request listed (#189): its pipeline, approvals, discussions, when it
+/// was pushed and how large it is, with its `updated` then.
+#[derive(Default)]
+pub struct Facts {
     updated: i64,
     pub pipeline: Option<Pipeline>,
     pub approvals: Option<Approvals>,
+    pub threads: Vec<Thread>,
+    pub pushes: Vec<i64>,
+    pub size: Option<Size>,
+}
+
+/// The picked request's preview, beyond its row: where merging it stands and what changed since your review, with
+/// its `updated` then.
+pub struct Preview {
+    updated: i64,
+    pub merge: Option<MergeState>,
     /// Pushed since your review: the version you viewed, and how many files changed since then
     /// (X22).
     pub since: Option<(usize, usize)>,
 }
 
-/// The list's rows: their previews, its scroll, the groups folded and the requests opened.
+/// The list's rows: their facts and previews, its scroll, the groups folded, how they are displayed and when each
+/// request was read.
 #[derive(Default)]
 pub struct Rows {
+    facts: HashMap<u64, Facts>,
+    reading: HashSet<u64>,
+    facts_task: Option<Task<()>>,
+    /// The project's default branch: a row names its target only when it is another (#189).
+    pub main_line: Option<String>,
     previews: HashMap<u64, Preview>,
     preview_task: Option<Task<()>>,
     /// The requests list's scroll, and whether the next frame brings the picked row into view
@@ -64,23 +75,29 @@ pub struct Rows {
     pub reveal: Cell<bool>,
     /// The request picked, previewed: by a click, by ↑ ↓, or the one open as you came back.
     pub picked: Option<u64>,
-    /// Project `kept_of`'s requests list: the groups folded, and the requests you have opened —
-    /// a row's dot is gone once you have (#81).
+    /// Project `kept_of`'s requests list: the groups folded, the requests read and their update then — a row's dot
+    /// says something new since (#189).
     folded: HashSet<Group>,
-    opened: HashSet<u64>,
+    read: HashMap<u64, i64>,
     /// A group was folded or unfolded by hand: the folds are kept.
     chosen: bool,
+    /// `Display ▾`: how the rows are grouped and ordered.
+    pub display: (GroupBy, SortBy),
     kept_of: Option<String>,
 }
 
+/// A request read before its update was kept: nothing it has is new.
+const READ_BEFORE: i64 = i64::MAX;
+
 impl Rows {
-    /// Project `repo`'s folds and opened requests, unless they are the ones held.
+    /// Project `repo`'s folds, display and requests read, unless they are the ones held.
     pub fn load(&mut self, repo: &str) {
         if self.kept_of.as_deref() == Some(repo) {
             return;
         }
-        (self.folded, self.opened, self.chosen) =
-            kept_list(&storage::read(LIST_FILE), repo).unwrap_or_default();
+        let kept = kept_list(&storage::read(LIST_FILE), repo).unwrap_or_default();
+        (self.folded, self.read, self.chosen, self.display) =
+            (kept.folded, kept.read, kept.chosen, kept.display);
         self.kept_of = Some(repo.to_owned());
     }
 
@@ -89,14 +106,23 @@ impl Rows {
             let text = storage::read(LIST_FILE);
             storage::save(
                 LIST_FILE,
-                with_kept_list(&text, repo, &self.folded, &self.opened, self.chosen),
+                with_kept_list(
+                    &text,
+                    repo,
+                    &Kept {
+                        folded: self.folded.clone(),
+                        read: self.read.clone(),
+                        chosen: self.chosen,
+                        display: self.display,
+                    },
+                ),
             );
         }
     }
 
     /// Whether group `g`'s rows are folded away; a filter typed (`filtering`) opens every group.
-    pub fn folds(&self, g: Group, filtering: bool) -> bool {
-        !filtering && self.folded.contains(&g)
+    pub fn folds(&self, g: &Group, filtering: bool) -> bool {
+        !filtering && self.folded.contains(g)
     }
 
     /// Group `g` folded or unfolded by hand.
@@ -108,23 +134,54 @@ impl Rows {
         self.keep();
     }
 
-    /// Whether request `iid` was opened here (#81).
-    pub fn opened(&self, iid: u64) -> bool {
-        self.opened.contains(&iid)
+    /// `Display ▾` changed.
+    pub fn set_display(&mut self, group: Option<GroupBy>, sort: Option<SortBy>) {
+        self.display = (
+            group.unwrap_or(self.display.0),
+            sort.unwrap_or(self.display.1),
+        );
+        self.keep();
     }
 
-    /// Request `iid`'s pipeline and approvals, when they were read.
+    /// Whether request `iid` was opened here (#81).
+    pub fn opened(&self, iid: u64) -> bool {
+        self.read.contains_key(&iid)
+    }
+
+    /// Something new on request `m` since you last read it: it was updated after (#189).
+    pub fn news(&self, m: &Mr) -> bool {
+        self.read.get(&m.iid).is_some_and(|&at| m.updated > at)
+    }
+
+    /// Request `iid`'s facts, once read.
+    pub fn facts(&self, iid: u64) -> Option<&Facts> {
+        self.facts.get(&iid)
+    }
+
+    /// Request `iid`'s merge state and what changed since your review, when they were read.
     pub fn preview(&self, iid: u64) -> Option<&Preview> {
         self.previews.get(&iid)
+    }
+}
+
+/// The order requests `a` and `b` come in under a band, by `sort`: a draft after the others (#189).
+fn order(sort: SortBy, size: &dyn Fn(&Mr) -> usize) -> impl Fn(&Mr) -> (bool, i64) + '_ {
+    move |m| {
+        let key = match sort {
+            SortBy::Updated => -m.updated,
+            SortBy::Oldest => m.updated,
+            SortBy::Size => -(size(m) as i64),
+        };
+        (m.draft, key)
     }
 }
 
 impl Requests {
     /// The requests the scope and `filter` let through, in the order the list shows them: the
     /// merged or the closed as read, newest first, the host having picked the scope's (#114,
-    /// #169); the open by what they need from you (`seen`, how far your review of each got), the
-    /// latest activity first. Copied: a row is drawn with the tab's context.
-    pub fn shown(&self, filter: &str, seen: &dyn Fn(&Mr) -> Seen) -> Vec<Mr> {
+    /// #169); the open under their groups (`group_of`), ordered as `Display ▾` says, a draft last in its group.
+    /// Copied: a row is drawn with the tab's context.
+    pub fn shown(&self, filter: &str) -> Vec<Mr> {
         let filter = filter.to_lowercase();
         let terms: Vec<&str> = filter.split_whitespace().collect();
         let past = self.view != MrState::Opened;
@@ -149,74 +206,163 @@ impl Requests {
             })
             .collect();
         if !past {
-            shown.sort_by_key(|m| (self.group_of(m, seen(m)), std::cmp::Reverse(m.updated)));
+            let size = |m: &Mr| self.size_of(m.iid).map_or(0, |(_, a, r, _)| a + r);
+            let order = order(self.rows.display.1, &size);
+            shown.sort_by_key(|m| (self.group_of(m), order(m)));
         }
         shown.into_iter().cloned().collect()
     }
 
-    /// The next request to review below the open one, going round the list once: the first that is not reviewed
-    /// at its head and not yours (#81). Counted from where the open one was when it was opened — reviewed to the
-    /// end, it has moved down to Reviewed (#136). `filter` the list's, `seen` as `shown`'s.
-    pub fn next_request(&self, filter: &str, seen: &dyn Fn(&Mr) -> Seen) -> Option<Mr> {
-        let mut shown = self.shown(filter, seen);
-        let walk = self.walk.filter(|(iid, _)| Some(*iid) == self.current);
+    /// The next request to review below the open one, going round the list once: the first whose turn is yours or
+    /// someone else's, not one you approved, not yours (#81, #189). Counted from where the open one was when it was
+    /// opened. `filter` the list's.
+    pub fn next_request(&self, filter: &str) -> Option<Mr> {
+        let mut shown = self.shown(filter);
+        let walk = self
+            .walk
+            .clone()
+            .filter(|(iid, _)| Some(*iid) == self.current);
         if let Some((walked, was)) = walk
             && self.view == MrState::Opened
         {
+            let size = |m: &Mr| self.size_of(m.iid).map_or(0, |(_, a, r, _)| a + r);
+            let order = order(self.rows.display.1, &size);
             shown.sort_by_key(|m| {
                 let group = if m.iid == walked {
-                    was
+                    was.clone()
                 } else {
-                    self.group_of(m, seen(m))
+                    self.group_of(m)
                 };
-                (group, std::cmp::Reverse(m.updated))
+                (group, order(m))
             });
         }
         let at = shown.iter().position(|m| Some(m.iid) == self.current);
         let open: Vec<bool> = shown
             .iter()
-            .map(|m| {
-                matches!(
-                    self.group_of(m, seen(m)),
-                    Group::Asks | Group::Updated | Group::New
-                )
-            })
+            .map(|m| matches!(self.turn_group(m), Group::You | Group::Others))
             .collect();
         next_to_review(&open, at).map(|ix| shown[ix].clone())
     }
 
-    /// Request `m`'s group in the list, `seen` how far your review of it got.
-    pub fn group_of(&self, m: &Mr, seen: Seen) -> Group {
+    /// Request `m`'s group in the list, as `Display ▾` groups it.
+    pub fn group_of(&self, m: &Mr) -> Group {
+        match self.rows.display.0 {
+            GroupBy::Turn => self.turn_group(m),
+            GroupBy::Author => Group::Author(m.author.clone()),
+            GroupBy::None => Group::All,
+        }
+    }
+
+    /// Request `m`'s group by whose turn it is: yours, else as its facts say; until they are read, yours when you
+    /// are asked to review it, else someone else's.
+    pub fn turn_group(&self, m: &Mr) -> Group {
         let me = self.login.as_deref().unwrap_or_default();
-        group(
-            !me.is_empty() && m.author_login == me,
-            !me.is_empty() && m.reviewers.iter().any(|r| r == me),
-            seen,
-        )
+        let mine = !me.is_empty() && m.author_login == me;
+        match self.turn_of(m) {
+            Some(t) => t.group(mine),
+            None if mine => Group::Yours,
+            None if !me.is_empty() && m.reviewers.iter().any(|r| r == me) => Group::You,
+            None => Group::Others,
+        }
+    }
+
+    /// Whose turn request `m` is, once its facts are read.
+    pub fn turn_of(&self, m: &Mr) -> Option<Turn> {
+        let me = self.login.as_deref().unwrap_or_default();
+        let f = self.rows.facts(m.iid)?;
+        Some(turn::turn(
+            me,
+            m,
+            f.approvals.as_ref(),
+            &f.threads,
+            &f.pushes,
+        ))
+    }
+
+    /// Request `iid`'s size, once read.
+    pub fn size_of(&self, iid: u64) -> Option<Size> {
+        self.rows.facts(iid).and_then(|f| f.size)
     }
 
     /// Of a request's `threads`, those waiting for you, its author (`waiting`).
     pub fn waiting_for_me<'a>(&self, threads: &'a [Thread]) -> Vec<&'a Thread> {
-        waiting(self.login.as_deref().unwrap_or_default(), threads)
+        turn::waiting_on(self.login.as_deref().unwrap_or_default(), threads)
     }
 
-    /// Request `iid` opened: its row's dot goes for good. Requests no longer open are forgotten.
+    /// Request `iid` opened: read as it is now; its row's dot goes until it is updated again (#189). Requests no
+    /// longer open are forgotten.
     pub fn mark_opened(&mut self, iid: u64) {
-        if self.rows.opened.contains(&iid) {
+        let updated = self.find(iid).map_or(0, |m| m.updated);
+        if self.rows.read.get(&iid).is_some_and(|&at| at >= updated) {
             return;
         }
         if !self.list.is_empty() {
             let list = &self.list;
             self.rows
-                .opened
-                .retain(|i| list.iter().any(|m| m.iid == *i));
+                .read
+                .retain(|i, _| list.iter().any(|m| m.iid == *i));
         }
-        self.rows.opened.insert(iid);
+        self.rows.read.insert(iid, updated);
         self.rows.keep();
     }
 
-    /// Request `m`, picked in the list: its pipeline and approvals, once per update of it; with
-    /// `viewed` (its head now, and the one you reviewed it at), how many files changed since.
+    /// Every listed request's facts not read at its update yet, read in the background, each shown as it comes
+    /// (#189): its pipeline, approvals, discussions and pushes from `host`, its size from the clone.
+    pub fn read_facts(&mut self, host: Arc<dyn Host>, cx: &mut Context<Self>) {
+        let wanted: Vec<Mr> = self
+            .list
+            .iter()
+            .filter(|m| m.state == MrState::Opened)
+            .filter(|m| !self.rows.reading.contains(&m.iid))
+            .filter(|m| {
+                self.rows
+                    .facts
+                    .get(&m.iid)
+                    .is_none_or(|f| f.updated != m.updated)
+            })
+            .cloned()
+            .collect();
+        if wanted.is_empty() {
+            return;
+        }
+        let root = self.root.clone();
+        self.rows.reading.extend(wanted.iter().map(|m| m.iid));
+        let first = self.rows.main_line.is_none();
+        let task = cx.spawn(async move |this, cx| {
+            if first && let Some(root) = root.clone() {
+                let main = cx
+                    .background_executor()
+                    .spawn(async move { Repo::open(&root).ok().and_then(|r| r.default_branch()) })
+                    .await;
+                this.update(cx, |rq, _| rq.rows.main_line = main).ok();
+            }
+            // Read side by side; each shown once it is in.
+            let jobs: Vec<_> = wanted
+                .into_iter()
+                .map(|m| {
+                    let (host, root) = (host.clone(), root.clone());
+                    let iid = m.iid;
+                    let job = cx
+                        .background_executor()
+                        .spawn(async move { facts_of(&*host, root.as_deref(), &m) });
+                    (iid, job)
+                })
+                .collect();
+            for (iid, job) in jobs {
+                let facts = job.await;
+                this.update(cx, |rq, cx| {
+                    rq.rows.reading.remove(&iid);
+                    rq.rows.facts.insert(iid, facts);
+                    cx.notify();
+                })
+                .ok();
+            }
+        });
+        self.rows.facts_task = Some(task);
+    }
+
+    /// Request `m`, picked in the list: where merging it stands, once per update of it; with `viewed` (its head now,
+    /// and the one you reviewed it at), how many files changed since.
     pub fn read_preview(
         &mut self,
         m: &Mr,
@@ -236,7 +382,7 @@ impl Requests {
             return;
         }
         self.rows.preview_task = Some(cx.spawn(async move |this, cx| {
-            let (pipeline, approvals, since) = cx
+            let (merge, since) = cx
                 .background_executor()
                 .spawn(async move {
                     let since = viewed.and_then(|(head, viewed)| {
@@ -259,11 +405,7 @@ impl Requests {
                         let diff = repo.version_diff(from, to, settings).ok()?;
                         Some((from.number, diff.files.len()))
                     });
-                    (
-                        host.pipeline(iid).ok().flatten(),
-                        host.approvals(iid).ok(),
-                        since,
-                    )
+                    (host.merge_state(iid).ok(), since)
                 })
                 .await;
             this.update(cx, |rq, cx| {
@@ -271,8 +413,7 @@ impl Requests {
                     iid,
                     Preview {
                         updated,
-                        pipeline,
-                        approvals,
+                        merge,
                         since,
                     },
                 );
@@ -283,42 +424,100 @@ impl Requests {
     }
 }
 
-/// Repository `repo`'s line of `requests-list.txt`: its folded groups (none unless folded by
-/// hand), the requests opened, and whether the folds are yours; none when it has no line.
-fn kept_list(text: &str, repo: &str) -> Option<(HashSet<Group>, HashSet<u64>, bool)> {
+/// Request `m`'s facts, read now: from `host`, and its size from the clone at `root` when its head is there.
+fn facts_of(host: &dyn Host, root: Option<&Path>, m: &Mr) -> Facts {
+    let size = root.and_then(|root| {
+        let repo = Repo::open(root).ok()?;
+        let head = git2::Oid::from_str(&m.head)
+            .ok()
+            .filter(|h| repo.has_commit(*h))?;
+        let base = repo
+            .resolve(&format!("origin/{}", m.target))
+            .or_else(|_| repo.resolve(&m.target))
+            .ok()?;
+        repo.range_stat(base, head)
+            .ok()
+            .filter(|(files, ..)| *files > 0)
+    });
+    Facts {
+        updated: m.updated,
+        pipeline: host.pipeline(m.iid).ok().flatten(),
+        approvals: host.approvals(m.iid).ok(),
+        threads: host.threads(m.iid).unwrap_or_default(),
+        pushes: host
+            .versions(m.iid)
+            .unwrap_or_default()
+            .iter()
+            .map(|p| p.created)
+            .collect(),
+        size,
+    }
+}
+
+/// What the list keeps of a project.
+#[derive(Default, Debug, PartialEq)]
+struct Kept {
+    folded: HashSet<Group>,
+    read: HashMap<u64, i64>,
+    chosen: bool,
+    display: (GroupBy, SortBy),
+}
+
+/// Repository `repo`'s line of `requests-list.txt`: its folded groups (none unless folded by hand), the requests
+/// read, whether the folds are yours and the display; none when it has no line.
+fn kept_list(text: &str, repo: &str) -> Option<Kept> {
     let line = text.lines().find(|l| l.split('\t').next() == Some(repo))?;
     let parts: Vec<&str> = line.split('\t').skip(1).collect();
-    let field = |n: usize| parts.get(n).copied().unwrap_or_default().split(',');
+    let field = |n: usize| {
+        parts
+            .get(n)
+            .copied()
+            .unwrap_or_default()
+            .split(',')
+            .filter(|f| !f.is_empty())
+    };
     let chosen = parts.get(2) == Some(&"folds");
     let folded = field(0)
         .filter_map(crate::group::parse)
         .filter(|_| chosen)
         .collect();
-    let opened = field(1).filter_map(|iid| iid.parse().ok()).collect();
-    Some((folded, opened, chosen))
+    // Read before its update was kept: nothing it has is new.
+    let read = field(1)
+        .filter_map(|r| match r.split_once('@') {
+            Some((iid, at)) => Some((iid.parse().ok()?, at.parse().ok()?)),
+            None => Some((r.parse().ok()?, READ_BEFORE)),
+        })
+        .collect();
+    let display = parts
+        .get(3)
+        .map_or_else(Default::default, |d| crate::group::parse_display(d));
+    Some(Kept {
+        folded,
+        read,
+        chosen,
+        display,
+    })
 }
 
 /// `text` with repository `repo`'s line written anew; other repositories' kept.
-fn with_kept_list(
-    text: &str,
-    repo: &str,
-    folded: &HashSet<Group>,
-    opened: &HashSet<u64>,
-    chosen: bool,
-) -> String {
-    let mut folded: Vec<Group> = folded.iter().copied().collect();
+fn with_kept_list(text: &str, repo: &str, kept: &Kept) -> String {
+    let mut folded: Vec<String> = kept.folded.iter().map(Band::key).collect();
     folded.sort();
-    let mut opened: Vec<u64> = opened.iter().copied().collect();
-    opened.sort();
+    let mut read: Vec<(u64, i64)> = kept.read.iter().map(|(&i, &a)| (i, a)).collect();
+    read.sort();
     let line = format!(
-        "{repo}\t{}\t{}{}",
-        folded.iter().map(|g| g.key()).collect::<Vec<_>>().join(","),
-        opened
-            .iter()
-            .map(u64::to_string)
+        "{repo}\t{}\t{}\t{}\t{}",
+        folded.join(","),
+        read.iter()
+            .map(|(iid, at)| if *at == READ_BEFORE {
+                iid.to_string()
+            } else {
+                format!("{iid}@{at}")
+            })
             .collect::<Vec<_>>()
             .join(","),
-        if chosen { "\tfolds" } else { "" }
+        if kept.chosen { "folds" } else { "" },
+        crate::group::display_key(kept.display.0, kept.display.1),
     );
     let mut lines: Vec<String> = text
         .lines()
@@ -341,35 +540,6 @@ pub fn held_band(tops: &[f32], top: f32) -> Option<(usize, f32)> {
     Some((at, push))
 }
 
-/// Of a request's `threads`, those waiting for `me`, its author: the last word not mine, and —
-/// a discussion — still open, or — a plain comment, which cannot be resolved (X21, the developer,
-/// 2026-10-23) — written after anything I wrote on the request.
-fn waiting<'a>(me: &str, threads: &'a [Thread]) -> Vec<&'a Thread> {
-    if me.is_empty() {
-        return Vec::new();
-    }
-    let my_last = threads
-        .iter()
-        .flat_map(|t| &t.notes)
-        .filter(|n| n.login == me)
-        .map(|n| n.created)
-        .max()
-        .unwrap_or(0);
-    threads
-        .iter()
-        .filter(|t| match t.notes.last() {
-            Some(last) if last.login != me => {
-                if t.resolvable {
-                    !t.resolved
-                } else {
-                    last.created > my_last
-                }
-            }
-            _ => false,
-        })
-        .collect()
-}
-
 // ---- the views ------------------------------------------------------------------------------
 
 /// What the list draws that the tab knows.
@@ -390,8 +560,6 @@ pub struct ListLook<'a> {
     /// at its head (done, total).
     pub seen: HashMap<u64, Seen>,
     pub parts: HashMap<u64, (u32, u32)>,
-    /// A request's discussions, as the notifications read them.
-    pub threads: &'a dyn Fn(u64) -> Option<&'a [Thread]>,
     /// A row folding with its group (#110): by its key, its group's motion and whether it is
     /// open; `None` once it is shut.
     pub fold: &'a dyn Fn(String, &str, bool, AnyElement) -> Option<AnyElement>,
@@ -446,13 +614,11 @@ pub fn list(rq: &Requests, look: &ListLook, acts: &Acts) -> Body {
         return Body::Empty(empty(rq, look, acts));
     }
     let groups: Vec<Group> = match past {
-        Some(_) => vec![Group::New; shown.len()],
-        None => shown
-            .iter()
-            .map(|m| rq.group_of(m, look.seen(m.iid)))
-            .collect(),
+        Some(_) => vec![Group::All; shown.len()],
+        None => shown.iter().map(|m| rq.group_of(m)).collect(),
     };
-    let folds = |g: Group| rq.rows.folds(g, look.filtering());
+    // Not grouped (`Display ▾`): one list, no band, nothing to fold.
+    let folds = |g: &Group| *g != Group::All && rq.rows.folds(g, look.filtering());
     let picked = look
         .picked
         .and_then(|iid| shown.iter().find(|m| m.iid == iid))
@@ -460,26 +626,26 @@ pub fn list(rq: &Requests, look: &ListLook, acts: &Acts) -> Body {
             shown
                 .iter()
                 .zip(&groups)
-                .find(|(_, g)| past.is_some() || !folds(**g))
+                .find(|(_, g)| past.is_some() || !folds(g))
                 .map(|(m, _)| m)
         });
     // Each group a band, its rows under it unless it is folded (#81).
     let mut rows: Vec<AnyElement> = Vec::new();
     let mut bands: Vec<(usize, Group, usize)> = Vec::new();
     let mut picked_row = None;
-    for (n, (m, &g)) in shown.iter().zip(&groups).enumerate() {
-        if past.is_some() {
+    for (n, (m, g)) in shown.iter().zip(&groups).enumerate() {
+        if past.is_some() || *g == Group::All {
             if picked.is_some_and(|p| p.iid == m.iid) {
                 picked_row = Some(rows.len());
             }
-            rows.push(row(m, g, rq, look, acts).into_any_element());
+            rows.push(row(m, rq, look, acts).into_any_element());
             continue;
         }
-        if n == 0 || groups[n - 1] != g {
-            let count = groups.iter().filter(|&&o| o == g).count();
-            bands.push((rows.len(), g, count));
+        if n == 0 || groups[n - 1] != *g {
+            let count = groups.iter().filter(|o| *o == g).count();
+            bands.push((rows.len(), g.clone(), count));
             let top = rows.is_empty();
-            rows.push(band(g, count, false, top, rq, look, acts).into_any_element());
+            rows.push(band(g.clone(), count, false, top, rq, look, acts).into_any_element());
         }
         let is_picked = picked.is_some_and(|p| p.iid == m.iid);
         // Each row folds with its group, in size and alpha (#110): the group opens and shuts as
@@ -488,7 +654,7 @@ pub fn list(rq: &Requests, look: &ListLook, acts: &Acts) -> Body {
             format!("request-row-{}", m.iid),
             &format!("group-{}", g.key()),
             !folds(g) || is_picked,
-            row(m, g, rq, look, acts).into_any_element(),
+            row(m, rq, look, acts).into_any_element(),
         ) else {
             continue;
         };
@@ -560,7 +726,7 @@ pub fn list(rq: &Requests, look: &ListLook, acts: &Acts) -> Body {
         .then(|| held_band(&tops, top))
         .flatten()
         .map(|(at, push)| {
-            let (_, g, count) = bands[at];
+            let (_, g, count) = bands[at].clone();
             div()
                 .absolute()
                 .top(px(push))
@@ -691,10 +857,14 @@ fn band(
     // is its top edge.
     let corner = if flat() { 0. } else { ISLAND_RADIUS - 1. };
     let foldable = !look.filtering();
-    let folded = rq.rows.folds(g, look.filtering());
+    let folded = rq.rows.folds(&g, look.filtering());
     let acts = acts.clone();
     div()
-        .id((if held { "group-held" } else { "group-band" }, g as usize))
+        .id(SharedString::from(format!(
+            "{}-{}",
+            if held { "group-held" } else { "group-band" },
+            g.key()
+        )))
         .h(px(BAND))
         .flex_none()
         .flex()
@@ -738,102 +908,234 @@ fn band(
                     // A double click folds or opens it once, as one click does.
                     move |e: &ClickEvent, _, cx| {
                         if e.click_count() < 2 {
-                            acts(Act::ToggleGroup(g), cx)
+                            acts(Act::ToggleGroup(g.clone()), cx)
                         }
                     },
                 )
         })
 }
 
-/// A request's row: unread dot, number and title, when; who, the pipeline, its discussions.
-fn row(m: &Mr, g: Group, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement + use<> {
-    let iid = m.iid;
-    let picked = look.picked == Some(iid);
-    let part = look.parts.get(&iid).copied();
-    let pipeline = rq.rows.preview(iid).and_then(|p| p.pipeline.as_ref());
-    let threads = (look.threads)(iid);
-    let waiting = (g == Group::Yours).then(|| rq.waiting_for_me(threads.unwrap_or_default()).len());
-    let threads = threads.map(<[Thread]>::len);
-    // A dot: a row of yours a thread waits on, another you have never opened; how far your review
-    // is, its group says (#81).
-    let unread = m.state == MrState::Opened
-        && match waiting {
-            Some(n) => n > 0,
-            None => !opened_before(rq, iid, look.seen(iid)),
-        };
-    // Its anatomy (#79): the number, the title and the pipeline's verdict always; who (or what
-    // waits for you) and when while the list has 260 px; the threads and how far your review is
-    // under 360 px leave first. The tooltip holds it all.
-    let room = look.widths.room("requests");
-    let who = match waiting {
-        Some(n) if n > 0 => Some((
-            format!(
-                "{} for you",
-                if n == 1 {
-                    "1 thread waits".to_owned()
-                } else {
-                    format!("{n} threads wait")
-                }
-            ),
-            theme::warning(),
-        )),
-        _ => Some((
-            if m.draft {
-                format!("draft · {}", m.author)
-            } else {
-                m.author.clone()
-            },
-            theme::muted(),
-        )),
-    };
-    let verdict = pipeline.map(crate::bar::pipeline_word);
-    let threads = threads.filter(|&n| n > 0 && waiting.is_none_or(|w| w == 0));
-    let mut tip = vec![
-        format!("{} {}", words::number(iid), m.title),
-        format!("{} · {} → {}", m.author, m.source, m.target),
-    ];
-    if let Some((glyph, word, _)) = &verdict {
-        tip.push(format!("pipeline {glyph} {word}"));
+/// The colour whose turn a request is said in: yours the accent, approved green, someone else's muted.
+fn turn_color(t: &Turn) -> gpui::Rgba {
+    match t {
+        Turn::You { .. } => theme::accent(),
+        Turn::Approved => theme::added(),
+        Turn::Them { .. } => theme::muted(),
     }
-    if let Some(n) = threads {
-        tip.push(plural(n, "thread"));
+}
+
+/// A small outlined tag after a title: `New`, `Draft`.
+fn tag(text: &'static str, color: gpui::Rgba) -> Div {
+    div()
+        .flex_none()
+        .px(px(6.))
+        .h(px(18.))
+        .flex()
+        .items_center()
+        .rounded_full()
+        .border_1()
+        .border_color(color)
+        .text_size(px(11.))
+        .text_color(color)
+        .child(text)
+}
+
+/// A part of a row's second line.
+enum Part {
+    Text(String, gpui::Rgba),
+    /// Files, lines added, lines removed.
+    Size(usize, usize, usize),
+}
+
+/// About how wide `text` is drawn at 12 px.
+fn estimate(text: &str) -> f32 {
+    text.chars().count() as f32 * 6.1
+}
+
+impl Part {
+    /// About how wide it is drawn.
+    fn estimate(&self) -> f32 {
+        match self {
+            Part::Text(text, _) => estimate(text),
+            Part::Size(files, added, removed) => {
+                estimate(&format!("{} +{added} −{removed}", plural(*files, "file")))
+            }
+        }
     }
-    if let Some((text, _)) = who.as_ref().filter(|_| waiting.is_some_and(|w| w > 0)) {
-        tip.push(text.clone());
+
+    /// How much it is worth keeping when the row is narrow: the number, author and pipeline most; a conflict; the
+    /// approvals; then the size, the discussions, the target.
+    fn keep(&self) -> u8 {
+        match self {
+            Part::Text(text, _) if text.starts_with('→') => 0,
+            Part::Text(text, _) if text.ends_with(" open") => 1,
+            Part::Size(..) => 2,
+            Part::Text(text, _) if text.starts_with('⚠') => 4,
+            _ => 3,
+        }
     }
-    tip.push(format!("updated {}", hover::full_date(m.updated)));
-    let mut meta: Vec<AnyElement> = Vec::new();
-    if let Some((text, color)) = who.filter(|_| room.second()) {
-        meta.push(
+
+    /// Drawn whole, or — the line's last — cut when the row has no room, saying so.
+    fn drawn(self, last: bool) -> AnyElement {
+        let cut = |text: String, color| {
             div()
                 .min_w_0()
                 .cut_in_tip()
                 .text_color(color)
                 .child(text)
-                .into_any_element(),
-        );
-    }
-    if let Some((glyph, word, color)) = verdict {
-        meta.push(
-            div()
-                .min_w_0()
-                .cut_in_tip()
+                .into_any_element()
+        };
+        match self {
+            Part::Text(text, color) if last => cut(text, color),
+            Part::Text(text, color) => div()
+                .flex_none()
                 .text_color(color)
-                .child(format!("{glyph} {word}"))
+                .child(text)
                 .into_any_element(),
-        );
-    }
-    if let Some(n) = threads.filter(|_| room.third()) {
-        meta.push(
-            div()
-                .min_w_0()
-                .cut_in_tip()
-                .child(plural(n, "thread"))
+            Part::Size(files, added, removed) if last => cut(
+                format!("{} +{added} −{removed}", plural(files, "file")),
+                theme::muted(),
+            ),
+            Part::Size(files, added, removed) => div()
+                .flex_none()
+                .flex()
+                .gap(px(4.))
+                .child(plural(files, "file"))
+                .child(div().text_color(theme::added()).child(format!("+{added}")))
+                .child(
+                    div()
+                        .text_color(theme::removed())
+                        .child(format!("−{removed}")),
+                )
                 .into_any_element(),
-        );
+        }
     }
+}
+
+/// Approvals as a row and the preview say them: `1 of 2`, or how many approved where no rule asks.
+fn approvals_words(a: &Approvals) -> Option<String> {
+    if a.required > 0 {
+        Some(format!(
+            "{} of {}",
+            a.required - a.left.min(a.required),
+            a.required
+        ))
+    } else {
+        (!a.by.is_empty()).then(|| format!("{} approved", a.by.len()))
+    }
+}
+
+/// Of a request's `threads`, those open (resolvable, not resolved) and those resolved.
+fn discussions(threads: &[Thread]) -> (usize, usize) {
+    let resolvable = threads.iter().filter(|t| t.resolvable);
+    let open = resolvable.clone().filter(|t| !t.resolved).count();
+    (open, resolvable.count() - open)
+}
+
+/// A request's row (#189, Design L1): its title — muted for a draft, tagged `New` or `Draft` — and when; under it
+/// its number, author, pipeline, approvals, size and open discussions, a conflict, a target that is not the
+/// default branch; at its end whose turn it is. The dot: something new since you read it.
+fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement + use<> {
+    let iid = m.iid;
+    let picked = look.picked == Some(iid);
+    let open = m.state == MrState::Opened;
+    let facts = rq.rows.facts(iid);
+    let me = rq.login.as_deref().unwrap_or_default();
+    let mine = !me.is_empty() && m.author_login == me;
+    let new_to_you = open && !opened_before(rq, iid, look.seen(iid));
+    let unread = open && !new_to_you && rq.rows.news(m);
+    let turn = if open { rq.turn_of(m) } else { None };
+    // Its anatomy (#79): the title and when always; the size, discussions and target leave first as the list
+    // narrows, then whose turn; the tooltip holds it all.
+    let room = look.widths.room("requests");
+    let mut tip = vec![
+        format!("{} {}", words::number(iid), m.title),
+        format!("{} · {} → {}", m.author, m.source, m.target),
+    ];
+    // Each part whole, but the last, which is cut and says so (#184).
+    let mut parts: Vec<Part> = vec![
+        Part::Text(words::number(iid), theme::muted()),
+        Part::Text(
+            if mine {
+                "You".to_owned()
+            } else {
+                m.author.clone()
+            },
+            theme::muted(),
+        ),
+    ];
+    if let Some(p) = facts.and_then(|f| f.pipeline.as_ref()) {
+        let (glyph, short, color) = crate::bar::pipeline_short(p);
+        tip.push(format!(
+            "Pipeline {glyph} {}",
+            crate::bar::pipeline_word(p).1
+        ));
+        parts.push(Part::Text(format!("{glyph} {short}"), color));
+    }
+    if let Some(said) = facts
+        .and_then(|f| f.approvals.as_ref())
+        .and_then(approvals_words)
+    {
+        tip.push(format!("Approvals {said}"));
+        parts.push(Part::Text(said, theme::muted()));
+    }
+    if let Some((files, added, removed, _)) = facts.and_then(|f| f.size) {
+        tip.push(format!("{} +{added} −{removed}", plural(files, "file")));
+        if room.third() {
+            parts.push(Part::Size(files, added, removed));
+        }
+    }
+    let (open_threads, _) = facts.map(|f| discussions(&f.threads)).unwrap_or_default();
+    if open_threads > 0 {
+        tip.push(format!("{open_threads} open"));
+        if room.third() {
+            parts.push(Part::Text(format!("{open_threads} open"), theme::muted()));
+        }
+    }
+    if m.conflicts {
+        tip.push("Conflicts with its target".into());
+        parts.push(Part::Text("⚠ conflicts".into(), theme::warning()));
+    }
+    if rq
+        .rows
+        .main_line
+        .as_deref()
+        .is_some_and(|main| main != m.target)
+    {
+        tip.push(format!("Into {}", m.target));
+        if room.third() {
+            parts.push(Part::Text(format!("→ {}", m.target), theme::muted()));
+        }
+    }
+    if let Some(t) = &turn {
+        tip.push(t.words(mine));
+    }
+    tip.push(format!("updated {}", hover::full_date(m.updated)));
+    // What the row has room for, as the list was last measured: the parts of least use leave whole — the target,
+    // the open discussions, the size —, the last one left cut when even the rest does not fit.
+    let width = look.widths.width("requests");
+    if width > 0. {
+        let turn_width = turn.as_ref().map_or(0., |t| estimate(&t.words(mine)) + 8.);
+        let budget = width - 52. - turn_width;
+        let needs = |parts: &[Part]| {
+            parts.iter().map(Part::estimate).sum::<f32>() + 14. * parts.len() as f32
+        };
+        while parts.len() > 3 && needs(&parts) > budget {
+            let least = parts
+                .iter()
+                .enumerate()
+                .skip(3)
+                .min_by_key(|(n, p)| (p.keep(), std::cmp::Reverse(*n)))
+                .map(|(n, _)| n);
+            match least {
+                Some(n) => parts.remove(n),
+                None => break,
+            };
+        }
+    }
+    let last = parts.len().saturating_sub(1);
     let mut line2: Vec<AnyElement> = Vec::new();
-    for (n, part) in meta.into_iter().enumerate() {
+    for (n, part) in parts.into_iter().enumerate() {
         if n > 0 {
             line2.push(
                 div()
@@ -843,7 +1145,7 @@ fn row(m: &Mr, g: Group, rq: &Requests, look: &ListLook, acts: &Acts) -> impl In
                     .into_any_element(),
             );
         }
-        line2.push(part);
+        line2.push(part.drawn(n == last));
     }
     let compact = look.compact;
     let (context, acts) = (acts.clone(), acts.clone());
@@ -886,15 +1188,14 @@ fn row(m: &Mr, g: Group, rq: &Requests, look: &ListLook, acts: &Acts) -> impl In
                             .gap(px(8.))
                             .child(
                                 div()
-                                    .flex_none()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(words::number(iid)),
+                                    .min_w_0()
+                                    .cut_in_tip()
+                                    .when(m.draft, |s| s.text_color(theme::muted()))
+                                    .child(m.title.clone()),
                             )
-                            .child(div().flex_1().min_w_0().cut_in_tip().child(m.title.clone()))
-                            .children(
-                                part.filter(|_| room.third())
-                                    .map(|(done, total)| progress_badge(done, total)),
-                            )
+                            .when(new_to_you, |s| s.child(tag("New", theme::accent())))
+                            .when(m.draft, |s| s.child(tag("Draft", theme::muted())))
+                            .child(div().flex_1())
                             .children(room.second().then(|| {
                                 div()
                                     .flex_none()
@@ -903,19 +1204,30 @@ fn row(m: &Mr, g: Group, rq: &Requests, look: &ListLook, acts: &Acts) -> impl In
                                     .child(format::ago(m.updated))
                             })),
                     )
-                    .when(!line2.is_empty(), |s| {
-                        s.child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(5.))
-                                .min_w_0()
-                                .overflow_hidden()
-                                .text_size(px(12.))
-                                .text_color(theme::muted())
-                                .children(line2),
-                        )
-                    }),
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .text_size(px(12.))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(5.))
+                                    .overflow_hidden()
+                                    .text_color(theme::muted())
+                                    .children(line2),
+                            )
+                            .children(turn.filter(|_| room.second()).map(|t| {
+                                div()
+                                    .flex_none()
+                                    .text_color(turn_color(&t))
+                                    .child(t.words(mine))
+                            })),
+                    ),
             )
             .row_tip(picked, tip.join("\n"))
             .on_click(move |event: &ClickEvent, _, cx| {
@@ -930,113 +1242,212 @@ fn row(m: &Mr, g: Group, rq: &Requests, look: &ListLook, acts: &Acts) -> impl In
     )
 }
 
-/// The request picked: who and where, its title and description, how far your review is, and
-/// Open; for one of yours, the discussions waiting for you first.
+/// The request picked (#189, Design L3): its number and branches, whose turn it is; its title; labelled rows —
+/// Size, Pipeline, Approvals, Reviewers, In the way, Discussions, Your review —; for one of yours the discussions
+/// waiting for you; the description; Open.
 fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
     let iid = m.iid;
     let me = rq.login.as_deref().unwrap_or_default();
     let mine = !me.is_empty() && m.author_login == me;
-    let preview = rq.rows.preview(iid);
-    let mut pills: Vec<AnyElement> = Vec::new();
-    if let Some(p) = preview.and_then(|p| p.pipeline.as_ref()) {
-        let (glyph, word, color) = crate::bar::pipeline_word(p);
-        pills.push(pill(format!("{glyph} {word}"), color).into_any_element());
-    }
-    if let Some(a) = preview.and_then(|p| p.approvals.as_ref()) {
-        let said = if a.required > 0 {
-            Some(format!(
-                "{}/{} approved",
-                a.required - a.left.min(a.required),
-                a.required
-            ))
-        } else {
-            (!a.by.is_empty()).then(|| format!("{} approved", a.by.len()))
-        };
-        pills.extend(said.map(|s| {
-            pill(
-                s,
-                if a.left == 0 && !a.by.is_empty() {
-                    theme::added()
-                } else {
-                    theme::muted()
-                },
-            )
-            .into_any_element()
-        }));
-    }
-    let props = div()
+    let open = m.state == MrState::Opened;
+    let facts = rq.rows.facts(iid);
+    let turn = if open { rq.turn_of(m) } else { None };
+    let id_line = div()
         .flex()
-        .flex_wrap()
         .items_center()
         .gap(px(8.))
         .text_size(px(12.))
         .text_color(theme::muted())
         .child(
             div()
+                .flex_none()
                 .font_family(theme::code_font())
                 .text_color(theme::accent())
                 .child(words::number(iid)),
         )
-        .child(discussion::avatar(&m.author, mine, 18.))
         .child(
-            div()
-                .flex()
+            hover::branches("preview-branches", &m.source, &m.target)
                 .min_w_0()
-                .gap(px(6.))
-                .child(div().flex_none().child(if mine {
-                    "yours".to_owned()
-                } else {
-                    m.author.clone()
-                }))
-                .child(div().flex_none().text_color(theme::faint()).child("·"))
-                .child(
-                    hover::branches("preview-branches", &m.source, &m.target)
-                        .font_family(theme::code_font()),
-                ),
+                .font_family(theme::code_font()),
         )
         .child(div().flex_1())
-        .children(pills);
+        .children(turn.as_ref().map(|t| {
+            div()
+                .flex_none()
+                .text_color(turn_color(t))
+                .child(t.words(mine))
+        }))
+        // A merged or closed one: what became of it, and when (#114).
+        .children((!open).then(|| {
+            div()
+                .flex_none()
+                .child(format!("{} {}", m.state.word(), format::ago(m.updated)))
+        }));
     let title = div()
         .text_size(px(19.))
         .line_height(px(26.))
         .font_weight(FontWeight::SEMIBOLD)
+        .when(m.draft, |s| s.text_color(theme::muted()))
         .child(m.title.clone());
-    let description = markdown::plain(&m.description);
-    let description = description.trim();
-    // How far your review is, and what is open.
-    let mut facts: Vec<String> = Vec::new();
-    match (look.seen(iid), look.parts.get(&iid).copied()) {
-        (Seen::Done, _) => facts.push("Reviewed at this push".to_owned()),
-        (Seen::Earlier, _) => facts.push(match preview.and_then(|p| p.since) {
+    let rule = || div().h(px(1.)).bg(theme::island_border());
+    // The labelled rows.
+    let mut facts_rows: Vec<(&'static str, AnyElement)> = Vec::new();
+    let text = |t: String| div().child(t).into_any_element();
+    if let Some((files, added, removed, commits)) = facts.and_then(|f| f.size) {
+        facts_rows.push((
+            "Size",
+            div()
+                .flex()
+                .flex_wrap()
+                .gap(px(6.))
+                .child(plural(files, "file"))
+                .child(div().text_color(theme::faint()).child("·"))
+                .child(div().text_color(theme::added()).child(format!("+{added}")))
+                .child(
+                    div()
+                        .text_color(theme::removed())
+                        .child(format!("−{removed}")),
+                )
+                .child(div().text_color(theme::faint()).child("·"))
+                .child(plural(commits, "commit"))
+                .into_any_element(),
+        ));
+    }
+    if let Some(p) = facts.and_then(|f| f.pipeline.as_ref()) {
+        let (glyph, word, color) = crate::bar::pipeline_word(p);
+        facts_rows.push((
+            "Pipeline",
+            div()
+                .text_color(color)
+                .child(format!("{glyph} {word}"))
+                .into_any_element(),
+        ));
+    }
+    let approvals = facts.and_then(|f| f.approvals.as_ref());
+    if let Some(a) = approvals {
+        let mut said: Vec<String> = approvals_words(a).into_iter().collect();
+        said.extend(a.by.iter().map(|by| format!("{by} ✓")));
+        if !said.is_empty() {
+            facts_rows.push(("Approvals", text(said.join(" · "))));
+        }
+    }
+    let threads: &[Thread] = facts.map_or(&[], |f| f.threads.as_slice());
+    if !m.reviewers.is_empty() {
+        let name_of = |login: &str| {
+            if login == me {
+                return "You".to_owned();
+            }
+            threads
+                .iter()
+                .flat_map(|t| &t.notes)
+                .find(|n| n.login == login)
+                .map(|n| n.author.clone())
+                .unwrap_or_else(|| login.to_owned())
+        };
+        let people = m.reviewers.iter().map(|login| {
+            let name = name_of(login);
+            let approved = approvals
+                .is_some_and(|a| a.by.contains(&name) || (login == me && a.mine));
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .child(discussion::avatar(&name, login == me, 16.))
+                .child(name)
+                .child(if approved {
+                    div().text_color(theme::added()).child("✓ approved")
+                } else {
+                    div().text_color(theme::faint()).child("reviewing")
+                })
+        });
+        facts_rows.push((
+            "Reviewers",
+            div()
+                .flex()
+                .flex_wrap()
+                .gap_x(px(14.))
+                .gap_y(px(4.))
+                .children(people)
+                .into_any_element(),
+        ));
+    }
+    let preview = rq.rows.preview(iid);
+    if let Some(host) = preview.and_then(|p| p.merge.as_ref()).filter(|_| open) {
+        let (open_threads, _) = discussions(threads);
+        let stand = crate::merge::stand(
+            host,
+            &crate::merge::Known {
+                draft: m.draft,
+                approvals,
+                open_threads,
+                pipeline: facts.and_then(|f| f.pipeline.as_ref()),
+                url: &m.url,
+                target: &m.target,
+            },
+        );
+        if let crate::merge::Stand::InTheWay(blocks) = stand {
+            facts_rows.push((
+                "In the way",
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .children(
+                        blocks
+                            .iter()
+                            .map(|b| div().child(format!("{}: {}", b.what, b.detail))),
+                    )
+                    .into_any_element(),
+            ));
+        }
+    }
+    let (open_threads, resolved) = discussions(threads);
+    if open_threads + resolved > 0 {
+        facts_rows.push((
+            "Discussions",
+            text(format!("{open_threads} open · {resolved} resolved")),
+        ));
+    }
+    let review = match (look.seen(iid), look.parts.get(&iid).copied()) {
+        (Seen::Done, _) => Some("Reviewed at this push".to_owned()),
+        (Seen::Earlier, _) => Some(match preview.and_then(|p| p.since) {
             Some((viewed, 0)) => format!("Pushed since you viewed v{viewed}, no file changed"),
             Some((viewed, n)) => {
                 format!("{} changed since you viewed v{viewed}", plural(n, "file"))
             }
             None => "Pushed since your review".to_owned(),
         }),
-        (_, Some((done, total))) => facts.push(format!("{done} of {total} files reviewed")),
-        (Seen::Started | Seen::Never, None) => {}
+        (_, Some((done, total))) => Some(format!("{done} of {}", plural(total as usize, "file"))),
+        (_, None) => facts
+            .and_then(|f| f.size)
+            .map(|(files, ..)| format!("0 of {}", plural(files, "file"))),
+    };
+    if let Some(review) = review.filter(|_| open && !mine) {
+        facts_rows.push(("Your review", text(review)));
     }
-    let threads = (look.threads)(iid);
-    if let Some(threads) = threads {
-        let open = threads
-            .iter()
-            .filter(|t| t.resolvable && !t.resolved)
-            .count();
-        if open > 0 {
-            facts.push(format!("{} open", plural(open, "discussion")));
-        }
-    }
-    if m.draft {
-        facts.push("Draft".to_owned());
-    }
-    // A merged or closed one: when it was (its last update, as the list gives it, #114).
-    facts.push(match m.state {
-        MrState::Opened => format!("updated {}", format::ago(m.updated)),
-        s => format!("{} {}", s.word().to_lowercase(), format::ago(m.updated)),
-    });
+    let labelled = div()
+        .flex()
+        .flex_col()
+        .gap(px(8.))
+        .text_size(px(12.))
+        .children(facts_rows.into_iter().map(|(label, value)| {
+            div()
+                .flex()
+                .items_start()
+                .gap(px(12.))
+                .child(
+                    div()
+                        .w(px(108.))
+                        .flex_none()
+                        .text_color(theme::muted())
+                        .child(label),
+                )
+                .child(div().flex_1().min_w_0().child(value))
+        }));
+    let description = markdown::plain(&m.description);
+    let description = description.trim();
     let waiting = if mine {
-        rq.waiting_for_me(threads.unwrap_or_default())
+        rq.waiting_for_me(threads)
     } else {
         Vec::new()
     };
@@ -1121,8 +1532,11 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
         .px(px(28.))
         .py(px(22.))
         .max_w(px(820.))
-        .child(props)
+        .child(id_line)
         .child(title)
+        .child(rule())
+        .child(labelled)
+        .child(rule())
         .children(waits)
         .children((!description.is_empty()).then(|| {
             hover::cut_to(
@@ -1134,15 +1548,6 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
             .line_height(px(20.))
             .text_color(theme::muted())
         }))
-        .child(
-            div()
-                .flex()
-                .flex_wrap()
-                .gap(px(14.))
-                .text_size(px(12.))
-                .text_color(theme::muted())
-                .children(facts.into_iter().map(|f| div().child(f))),
-        )
         .child(
             div().flex().items_center().gap(px(12.)).child(
                 primary_button("request-open", open_label, "↵")
@@ -1231,44 +1636,48 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_request_is_grouped_by_what_it_needs_from_you() {
-        assert_eq!(group(true, true, Seen::Done), Group::Yours);
-        assert_eq!(group(false, true, Seen::Never), Group::Asks);
-        assert_eq!(group(false, false, Seen::Never), Group::New);
-        assert_eq!(group(false, false, Seen::Started), Group::Asks);
-        assert_eq!(group(false, true, Seen::Earlier), Group::Updated);
-        assert_eq!(group(false, true, Seen::Done), Group::Reviewed);
-        // What changed, then what is new, then what is reviewed; yours last.
-        assert!(Group::Asks < Group::Updated && Group::Updated < Group::New);
-        assert!(Group::New < Group::Reviewed && Group::Reviewed < Group::Yours);
+    fn a_projects_folds_reads_and_display_are_kept_on_its_own_line() {
+        let kept = Kept {
+            folded: HashSet::from([Group::Others, Group::Done]),
+            read: HashMap::from([(415, 1_700), (398, READ_BEFORE)]),
+            chosen: true,
+            display: (GroupBy::Author, SortBy::Oldest),
+        };
+        let text = with_kept_list("b\tyou\t7\tfolds\n", "a", &kept);
+        assert_eq!(
+            text,
+            "a\tdone,others\t398,415@1700\tfolds\tauthor/oldest\nb\tyou\t7\tfolds\n"
+        );
+        assert_eq!(kept_list(&text, "a"), Some(kept));
+        // A line from before the display: the defaults; a request read before its update was kept is not new.
+        let b = kept_list(&text, "b").unwrap();
+        assert_eq!(b.folded, HashSet::from([Group::You]));
+        assert_eq!(b.read, HashMap::from([(7, READ_BEFORE)]));
+        assert_eq!(b.display, (GroupBy::Turn, SortBy::Updated));
+        assert_eq!(kept_list(&text, "c"), None);
+        // A line from before the folds were yours: its fold was the old default, so none.
+        assert_eq!(
+            kept_list("a\treviewed\t398\n", "a").map(|k| k.folded),
+            Some(HashSet::new())
+        );
     }
 
     #[test]
-    fn a_projects_folds_and_opened_requests_are_kept_on_its_own_line() {
-        let folded = HashSet::from([Group::New, Group::Reviewed]);
-        let opened = HashSet::from([415, 398]);
-        let text = with_kept_list("b\tasks\t7\tfolds\n", "a", &folded, &opened, true);
-        assert_eq!(
-            text,
-            "a\tothers,reviewed\t398,415\tfolds\nb\tasks\t7\tfolds\n"
-        );
-        assert_eq!(kept_list(&text, "a"), Some((folded, opened, true)));
-        assert_eq!(
-            kept_list(&text, "b"),
-            Some((HashSet::from([Group::Asks]), HashSet::from([7]), true))
-        );
-        // Every group unfolded by hand, nothing opened: a line still.
-        let none = with_kept_list(&text, "a", &HashSet::new(), &HashSet::new(), true);
-        assert_eq!(
-            kept_list(&none, "a"),
-            Some((HashSet::new(), HashSet::new(), true))
-        );
-        assert_eq!(kept_list(&none, "c"), None);
-        // A line from before the folds were yours: its fold was the old default, so none.
-        assert_eq!(
-            kept_list("a\treviewed\t398\n", "a"),
-            Some((HashSet::new(), HashSet::from([398]), false))
-        );
+    fn a_draft_comes_last_and_the_sort_orders_the_rest() {
+        let m = |iid: u64, updated: i64, draft: bool| Mr {
+            iid,
+            updated,
+            draft,
+            ..Default::default()
+        };
+        let mut list = [m(1, 10, false), m(2, 30, true), m(3, 20, false)];
+        let size = |m: &Mr| m.iid as usize;
+        list.sort_by_key(order(SortBy::Updated, &size));
+        assert_eq!(list.iter().map(|m| m.iid).collect::<Vec<_>>(), [3, 1, 2]);
+        list.sort_by_key(order(SortBy::Oldest, &size));
+        assert_eq!(list.iter().map(|m| m.iid).collect::<Vec<_>>(), [1, 3, 2]);
+        list.sort_by_key(order(SortBy::Size, &size));
+        assert_eq!(list.iter().map(|m| m.iid).collect::<Vec<_>>(), [3, 1, 2]);
     }
 
     #[test]
@@ -1306,12 +1715,12 @@ mod tests {
             // My own last word.
             thread(vec![note("ember", 5), note("me", 8)], true, false),
         ];
-        let waits: Vec<i64> = waiting("me", &threads)
+        let waits: Vec<i64> = crate::turn::waiting_on("me", &threads)
             .iter()
             .map(|t| t.notes.last().unwrap().created)
             .collect();
         assert_eq!(waits, [2, 9]);
-        assert!(waiting("", &threads).is_empty());
+        assert!(crate::turn::waiting_on("", &threads).is_empty());
     }
 
     #[test]

@@ -6,6 +6,14 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **The merge requests list says whose turn each one is.** Groups are `Waiting on you`, `Waiting on others`, `Yours`
+  and `Done`, from what happened on the request: a comment hands it to the author, a push or a reply brings it back,
+  approving ends it. Each row ends with the turn — `Waiting on you · 1 reply`, `Waiting on Juniper · 1 thread`, `You
+  approved` — and its second line reads `!398 · Juniper Hale · ✗ lint · 1 of 2 · +120 −34 · 2 open · ⚠ conflicts`, a
+  target other than the main line last; a narrow list drops the least needed parts whole. `New` marks a request you
+  never opened, `Draft` a draft, which sorts last. The preview shows Size, Pipeline, Approvals, Reviewers, In the way,
+  Discussions and Your review as labelled rows. `Display ▾` groups by author or not at all, and sorts by oldest or
+  by size.
 - **A request's Changes is one bar, one toolbar row, then the files.** The title sits in the page bar after `!398`, with
   the failed job (`✗ lint`) beside Submit review; the row over the diff and the file row are gone. The current file's
   header holds `1 change ↑ ↓`, Open in Zed and Mark reviewed, and stays at the top while you scroll through it.

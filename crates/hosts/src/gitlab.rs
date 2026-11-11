@@ -1691,6 +1691,10 @@ pub fn parse_mrs(value: &Value) -> Vec<Mr> {
                     .find_map(|k| m.get(*k).and_then(Value::as_str))
                     .filter(|s| !s.is_empty())
                     .map(str::to_owned),
+                conflicts: m
+                    .get("has_conflicts")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
             })
         })
         .collect()

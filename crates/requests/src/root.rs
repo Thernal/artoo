@@ -7,7 +7,6 @@
 //! the tab an `Act`.
 
 use crate::list::{self, ListLook};
-use crate::notices::Notices;
 use crate::requests::{Acts, Requests};
 use crate::tabs::Tabs;
 use artoo_branches_api::Branches;
@@ -170,7 +169,7 @@ impl RootPage {
         let (banner, body) = {
             let cx: &App = cx;
             let rq = self.requests.read(cx);
-            let shown = rq.shown(&filter, &|m| seen_of(m, cx));
+            let shown = rq.shown(&filter);
             // How far your review of each got, as the review has it.
             let seen = shown.iter().map(|m| (m.iid, seen_of(m, cx))).collect();
             let parts = shown
@@ -180,10 +179,6 @@ impl RootPage {
                     Some((m.iid, review.as_ref()?.head_part(head, cx)?))
                 })
                 .collect();
-            // Each one's discussions, as the notifications read them.
-            let notices = services.get::<Entity<Notices>>();
-            let notices = notices.as_ref().map(|n| n.read(cx));
-            let threads = |iid| notices?.threads_of(iid);
             let fold = |key, moving: &str, open, row| host.fold(key, moving, open, row, cx);
             let look = ListLook {
                 shown: &shown,
@@ -194,7 +189,6 @@ impl RootPage {
                 widths: &self.widths,
                 seen,
                 parts,
-                threads: &threads,
                 fold: &fold,
             };
             (list::banner(rq, &acts), list::list(rq, &look, &acts))

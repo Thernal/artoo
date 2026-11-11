@@ -353,13 +353,6 @@ impl Handle {
         self.1.upgrade()?.get()
     }
 
-    /// How far you reviewed request `m` (the review's word).
-    fn seen(&self, m: &Mr, cx: &App) -> artoo_review_api::Seen {
-        self.review().map_or(artoo_review_api::Seen::Never, |r| {
-            r.request_seen(m.iid, git2::Oid::from_str(&m.head).ok(), cx)
-        })
-    }
-
     /// The tab's review and its branches, from its services.
     fn review(&self) -> Option<Rc<dyn artoo_review_api::Review>> {
         self.1.upgrade()?.get()
@@ -1137,7 +1130,7 @@ impl artoo_requests_api::Requests for Handle {
             }
             rq.current = number;
             if let Some(iid) = number {
-                if rq.walk.is_none_or(|(walked, _)| walked != iid)
+                if rq.walk.as_ref().is_none_or(|(walked, _)| *walked != iid)
                     && let Some(group) = group
                 {
                     rq.walk = Some((iid, group));
@@ -1168,24 +1161,20 @@ impl artoo_requests_api::Requests for Handle {
     }
 
     fn shown(&self, filter: &str, cx: &App) -> Vec<Mr> {
-        let Some(requests) = self.0.upgrade() else {
-            return Vec::new();
-        };
-        requests.read(cx).shown(filter, &|m| self.seen(m, cx))
+        self.0
+            .upgrade()
+            .map(|r| r.read(cx).shown(filter))
+            .unwrap_or_default()
     }
 
     fn next_request(&self, filter: &str, cx: &App) -> Option<Mr> {
-        self.0
-            .upgrade()?
-            .read(cx)
-            .next_request(filter, &|m| self.seen(m, cx))
+        self.0.upgrade()?.read(cx).next_request(filter)
     }
 
     fn group_of(&self, m: &Mr, cx: &App) -> Group {
-        let seen = self.seen(m, cx);
         self.0
             .upgrade()
-            .map_or(Group::New, |r| r.read(cx).group_of(m, seen))
+            .map_or(Group::Others, |r| r.read(cx).group_of(m))
     }
 
     fn view(&self, cx: &App) -> mr::MrState {
@@ -1221,11 +1210,12 @@ impl artoo_requests_api::Requests for Handle {
 
     fn toggle_group(&self, group: Group, cx: &mut App) -> String {
         use crate::group::Band;
+        let key = format!("group-{}", group.key());
         self.update(cx, |rq, cx| {
             rq.rows.toggle(group);
             cx.notify();
         });
-        format!("group-{}", group.key())
+        key
     }
 
     fn pick_row(&self, number: Option<u64>, cx: &mut App) {
@@ -1238,10 +1228,29 @@ impl artoo_requests_api::Requests for Handle {
         }
     }
 
-    fn folds(&self, group: Group, filtering: bool, cx: &App) -> bool {
+    fn folds(&self, group: &Group, filtering: bool, cx: &App) -> bool {
         self.0
             .upgrade()
             .is_some_and(|r| r.read(cx).rows.folds(group, filtering))
+    }
+
+    fn display(&self, cx: &App) -> (crate::group::GroupBy, crate::group::SortBy) {
+        self.0
+            .upgrade()
+            .map(|r| r.read(cx).rows.display)
+            .unwrap_or_default()
+    }
+
+    fn set_display(
+        &self,
+        group: Option<crate::group::GroupBy>,
+        sort: Option<crate::group::SortBy>,
+        cx: &mut App,
+    ) {
+        self.update(cx, |rq, cx| {
+            rq.rows.set_display(group, sort);
+            cx.notify();
+        });
     }
 
     fn row_opened(&self, number: u64, cx: &App) -> bool {

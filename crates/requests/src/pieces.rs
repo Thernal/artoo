@@ -116,10 +116,7 @@ pub fn done(requests: Entity<Requests>, services: Rc<Services>) -> Piece {
             let acts = services.get::<Acts>()?;
             let cx: &App = cx;
             let rq = requests.read(cx);
-            let seen = |m: &artoo_hosts_api::Mr| {
-                review.request_seen(m.iid, git2::Oid::from_str(&m.head).ok(), cx)
-            };
-            let next = rq.next_request(&drawing.filter, &seen);
+            let next = rq.next_request(&drawing.filter);
             // Submit review while there is something to send: comments pending, or an approval you may give.
             let pending = rq.drafts.len();
             let may_approve = rq.approvals.as_ref().is_some_and(|a| a.can && !a.mine);

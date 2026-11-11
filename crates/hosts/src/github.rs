@@ -669,6 +669,7 @@ fn parse_pull(p: &Value) -> Option<Mr> {
             .as_str()
             .filter(|s| !s.is_empty() && p["merged_at"].is_string())
             .map(str::to_owned),
+        conflicts: false,
     })
 }
 

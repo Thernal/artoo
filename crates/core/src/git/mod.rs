@@ -927,6 +927,26 @@ impl Repo {
         })
     }
 
+    /// What `head` adds to `base` since they parted: (files, lines added, lines removed, commits) (#189).
+    pub fn range_stat(&self, base: Oid, head: Oid) -> Result<(usize, usize, usize, usize)> {
+        let start = self.start_of(base, head);
+        let old = self.inner.find_commit(start)?.tree()?;
+        let new = self.inner.find_commit(head)?.tree()?;
+        let stats = self
+            .inner
+            .diff_tree_to_tree(Some(&old), Some(&new), None)?
+            .stats()?;
+        let mut walk = self.inner.revwalk()?;
+        walk.push(head)?;
+        walk.hide(start)?;
+        Ok((
+            stats.files_changed(),
+            stats.insertions(),
+            stats.deletions(),
+            walk.count(),
+        ))
+    }
+
     /// Commits `a` has that `b` has not, and the other way round.
     pub fn ahead_behind(&self, a: Oid, b: Oid) -> Option<(usize, usize)> {
         self.inner.graph_ahead_behind(a, b).ok()

@@ -16,12 +16,8 @@ impl Requests {
     /// every job that failed, in its long hover; a click opens it.
     pub fn render_pipeline_chip(&self) -> Option<impl IntoElement + use<>> {
         let p = self.pipeline.clone()?;
-        let (glyph, word, color) = pipeline_word(&p);
-        let short = match (p.status.as_str(), p.failed.as_slice()) {
-            ("failed", [(job, _)]) => job.clone(),
-            ("failed", [(job, _), rest @ ..]) => format!("{job} +{}", rest.len()),
-            _ => word.clone(),
-        };
+        let (_, word, _) = pipeline_word(&p);
+        let (glyph, short, color) = pipeline_short(&p);
         let url = pipeline_page(&p);
         let host = words::say("GitLab").into_owned();
         let when = if p.updated > 0 {
@@ -278,6 +274,17 @@ pub fn pipeline_page(p: &Pipeline) -> String {
         .map(|(_, u)| u.clone())
         .filter(|u| !u.is_empty())
         .unwrap_or_else(|| p.url.clone())
+}
+
+/// A pipeline as a bar or a row says it (#188, #189): the job that failed, `✗ lint`, else its state, `✓ passed`.
+pub fn pipeline_short(p: &Pipeline) -> (&'static str, String, gpui::Rgba) {
+    let (glyph, word, color) = pipeline_word(p);
+    let short = match (p.status.as_str(), p.failed.as_slice()) {
+        ("failed", [(job, _)]) => job.clone(),
+        ("failed", [(job, _), rest @ ..]) => format!("{job} +{}", rest.len()),
+        _ => word,
+    };
+    (glyph, short, color)
 }
 
 /// A pipeline as a glyph, a word and its colour: "✗ lint failed" in red.

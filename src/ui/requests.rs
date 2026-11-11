@@ -950,6 +950,60 @@ impl Workspace {
                     .collect();
                     this.open_menu(e.position(), vec![entries], cx);
                 }));
+        // How the rows are grouped and ordered (#189): by whose turn, author or not at all; by update, the oldest
+        // first or size. Shown while the open ones are listed.
+        let (by, sort) = requests.display(cx);
+        let display = (!past).then(|| {
+            artoo_ui_kit::controls::chip("request-display", "Display ▾".to_owned(), false).on_click(
+                cx.listener(move |this, e: &ClickEvent, _, cx| {
+                    use super::menu::{Act, Entry};
+                    use artoo_requests_api::{GroupBy, SortBy};
+                    let group = [
+                        (GroupBy::Turn, "Whose turn"),
+                        (GroupBy::Author, "Author"),
+                        (GroupBy::None, "None"),
+                    ]
+                    .into_iter()
+                    .map(|(g, name)| {
+                        Entry::new(
+                            name,
+                            Act::new(move |this, _, cx| {
+                                if let Some(requests) = this.requests_api() {
+                                    requests.set_display(Some(g), None, cx);
+                                }
+                                cx.notify();
+                            }),
+                        )
+                        .checked(g == by)
+                    })
+                    .collect();
+                    let order = [
+                        (SortBy::Updated, "Updated"),
+                        (SortBy::Oldest, "Oldest first"),
+                        (SortBy::Size, "Size"),
+                    ]
+                    .into_iter()
+                    .map(|(o, name)| {
+                        Entry::new(
+                            name,
+                            Act::new(move |this, _, cx| {
+                                if let Some(requests) = this.requests_api() {
+                                    requests.set_display(None, Some(o), cx);
+                                }
+                                cx.notify();
+                            }),
+                        )
+                        .checked(o == sort)
+                    })
+                    .collect();
+                    this.open_titled(
+                        e.position(),
+                        vec![(Some("Group by"), group), (Some("Sort by"), order)],
+                        cx,
+                    );
+                }),
+            )
+        });
         Some(
             div()
                 .flex()
@@ -961,7 +1015,8 @@ impl Workspace {
                         .child(filter(Scope::ReviewMe, "scope-review", "To review"))
                         .child(filter(Scope::Mine, "scope-mine", "Mine")),
                 )
-                .child(state),
+                .child(state)
+                .children(display),
         )
     }
 

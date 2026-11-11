@@ -373,19 +373,43 @@ pub enum CreateKey {
 /// The New merge request form's field among the tab's inputs.
 pub const INPUT: &str = "requests.create";
 
-/// What a request needs from you: the list's groups, in their order.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+/// The list's groups, in their order (#189): whose turn a request is — yours, someone else's, one of yours, one you
+/// approved; by its author; or one list without bands (`GroupBy`).
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Group {
-    /// You are asked to review it, or started at its head.
-    Asks,
-    /// You marked files of it, and it was pushed since.
-    Updated,
-    /// Not asked of you, and nothing of it reviewed yet: new to you; after what changed, before
-    /// what is reviewed.
-    New,
-    /// Its head is reviewed.
-    Reviewed,
+    /// Your turn: asked to review, pushed or answered since you last wrote.
+    You,
+    /// Someone else's turn.
+    Others,
+    /// Yours.
     Yours,
+    /// You approved it.
+    Done,
+    /// Grouped by author: theirs.
+    Author(String),
+    /// Not grouped: one list, no band.
+    All,
+}
+
+/// How the list groups its requests (`Display ▾`, #189).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum GroupBy {
+    #[default]
+    Turn,
+    Author,
+    None,
+}
+
+/// How the list orders the requests in a group (`Display ▾`, #189).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SortBy {
+    /// The latest activity first.
+    #[default]
+    Updated,
+    /// The one waiting longest first.
+    Oldest,
+    /// The largest first.
+    Size,
 }
 
 /// What a discussion is drawn with that the tab knows.
@@ -832,7 +856,10 @@ pub trait Requests {
     /// request `number` opened before; the list's folds and opened requests read for project `key`.
     fn pick_row(&self, number: Option<u64>, cx: &mut App);
     fn reveal_row(&self, cx: &mut App);
-    fn folds(&self, group: Group, filtering: bool, cx: &App) -> bool;
+    fn folds(&self, group: &Group, filtering: bool, cx: &App) -> bool;
+    /// How the list groups and orders its rows (`Display ▾`); either changed, and kept.
+    fn display(&self, cx: &App) -> (GroupBy, SortBy);
+    fn set_display(&self, group: Option<GroupBy>, sort: Option<SortBy>, cx: &mut App);
     fn row_opened(&self, number: u64, cx: &App) -> bool;
     fn load_rows(&self, key: &str, cx: &mut App);
 

@@ -1,63 +1,98 @@
-//! The requests list's groups: what a request needs from you, in their order, as a band says it and the list's file
-//! keeps it.
+//! The requests list's groups: whose turn each request is (#189), or its author, in their order, as a band says it
+//! and the list's file keeps it.
 
 use artoo_ui_kit::theme;
 use gpui::Rgba;
 
-pub use artoo_requests_api::Group;
+pub use artoo_requests_api::{Group, GroupBy, SortBy};
 
 /// How a group's band says it, and how the list's file keeps it.
 pub trait Band {
-    fn heading(self) -> &'static str;
-    fn icon(self) -> (&'static str, Rgba);
-    fn key(self) -> &'static str;
+    fn heading(&self) -> String;
+    fn icon(&self) -> (&'static str, Rgba);
+    fn key(&self) -> String;
 }
 
 impl Band for Group {
-    fn heading(self) -> &'static str {
+    fn heading(&self) -> String {
         match self {
-            Group::Asks => "Needs your review",
-            Group::Updated => "Updated since your review",
-            Group::New => "New",
-            Group::Reviewed => "Reviewed, nothing new",
-            Group::Yours => "Yours",
+            Group::You => "Waiting on you".into(),
+            Group::Others => "Waiting on others".into(),
+            Group::Yours => "Yours".into(),
+            Group::Done => "Done".into(),
+            Group::Author(name) => name.clone(),
+            Group::All => "All".into(),
         }
     }
 
-    /// The icon and colour its band opens with: the group says how far your review is, its rows
-    /// do not (#81).
-    fn icon(self) -> (&'static str, Rgba) {
+    /// The icon and colour its band opens with.
+    fn icon(&self) -> (&'static str, Rgba) {
         match self {
-            Group::Asks => ("eye", theme::accent()),
-            Group::Updated => ("refresh", theme::warning()),
-            Group::New => ("pull-request", theme::muted()),
-            Group::Reviewed => ("check", theme::added()),
+            Group::You => ("eye", theme::accent()),
+            Group::Others => ("clock", theme::muted()),
             Group::Yours => ("user", theme::faint()),
+            Group::Done => ("check", theme::added()),
+            Group::Author(_) => ("user", theme::faint()),
+            Group::All => ("pull-request", theme::muted()),
         }
     }
 
     /// As `requests-list.txt` writes it.
-    fn key(self) -> &'static str {
+    fn key(&self) -> String {
         match self {
-            Group::Asks => "asks",
-            Group::Updated => "updated",
-            // "others", its name before.
-            Group::New => "others",
-            Group::Reviewed => "reviewed",
-            Group::Yours => "yours",
+            Group::You => "you".into(),
+            Group::Others => "others".into(),
+            Group::Yours => "yours".into(),
+            Group::Done => "done".into(),
+            // A name has no tab, no comma.
+            Group::Author(name) => format!("author:{}", name.replace([',', '\t'], " ")),
+            Group::All => "all".into(),
         }
     }
 }
 
 /// The group the list's file names `key`.
 pub fn parse(key: &str) -> Option<Group> {
-    [
-        Group::Asks,
-        Group::Updated,
-        Group::New,
-        Group::Reviewed,
-        Group::Yours,
-    ]
-    .into_iter()
-    .find(|g| g.key() == key)
+    match key {
+        "you" => Some(Group::You),
+        "others" => Some(Group::Others),
+        "yours" => Some(Group::Yours),
+        "done" => Some(Group::Done),
+        "all" => Some(Group::All),
+        _ => key
+            .strip_prefix("author:")
+            .map(|n| Group::Author(n.to_owned())),
+    }
+}
+
+/// `Display ▾`'s choices as the list's file keeps them: `turn`, `author`, `none`; `updated`, `oldest`, `size`.
+pub fn display_key(group: GroupBy, sort: SortBy) -> String {
+    let g = match group {
+        GroupBy::Turn => "turn",
+        GroupBy::Author => "author",
+        GroupBy::None => "none",
+    };
+    let s = match sort {
+        SortBy::Updated => "updated",
+        SortBy::Oldest => "oldest",
+        SortBy::Size => "size",
+    };
+    format!("{g}/{s}")
+}
+
+/// `display_key` read back; the defaults for what it does not say.
+pub fn parse_display(key: &str) -> (GroupBy, SortBy) {
+    let (g, s) = key.split_once('/').unwrap_or((key, ""));
+    (
+        match g {
+            "author" => GroupBy::Author,
+            "none" => GroupBy::None,
+            _ => GroupBy::Turn,
+        },
+        match s {
+            "oldest" => SortBy::Oldest,
+            "size" => SortBy::Size,
+            _ => SortBy::Updated,
+        },
+    )
 }

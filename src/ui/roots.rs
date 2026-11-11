@@ -111,7 +111,7 @@ impl Workspace {
     /// Request `m`'s group in the list.
     pub(super) fn group_of(&self, m: &Mr, cx: &App) -> Group {
         self.requests_api()
-            .map_or(Group::New, |r| r.group_of(m, cx))
+            .map_or(Group::Others, |r| r.group_of(m, cx))
     }
 
     /// The discussions of request `iid` waiting for its author (`waiting`). Read with the
@@ -168,7 +168,7 @@ impl Workspace {
     }
 
     /// Whether group `g`'s rows are folded away; a filter typed opens every group.
-    fn folds(&self, g: Group, cx: &App) -> bool {
+    fn folds(&self, g: &Group, cx: &App) -> bool {
         let filtering = !self.bfilter.trim().is_empty();
         self.requests_api()
             .is_some_and(|r| r.folds(g, filtering, cx))
@@ -183,7 +183,7 @@ impl Workspace {
         let picked = self.requests_api().and_then(|r| r.picked_row(cx));
         self.shown_requests(cx)
             .into_iter()
-            .filter(|m| past || picked == Some(m.iid) || !self.folds(self.group_of(m, cx), cx))
+            .filter(|m| past || picked == Some(m.iid) || !self.folds(&self.group_of(m, cx), cx))
             .collect()
     }
 

@@ -18,6 +18,7 @@ impl Requests {
     pub fn read_list(&mut self, host: Arc<dyn Host>, cx: &mut Context<Self>) {
         self.loading = true;
         let known = self.login.is_some();
+        let facts_host = host.clone();
         self.task = Some(cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
@@ -42,6 +43,8 @@ impl Requests {
                         if login.is_some() {
                             rq.login = login;
                         }
+                        // Every row's pipeline, approvals, discussions and size (#189).
+                        rq.read_facts(facts_host, cx);
                     }
                     Err(e) => rq.error = Some(format!("{e:#}")),
                 }
