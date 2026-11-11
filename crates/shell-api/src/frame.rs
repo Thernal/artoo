@@ -13,6 +13,8 @@ pub type OnDown = Rc<dyn Fn(&MouseDownEvent, &mut Window, &mut App)>;
 /// A pane boundary that can be dragged.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Split {
+    /// The menu of spaces' right edge, while it is open (#186).
+    Menu,
     Sidebar,
     /// The tool window's left edge: dragging left widens it.
     Tool,
@@ -28,6 +30,7 @@ impl Split {
     /// The least and the most it is wide.
     pub fn bounds(self) -> (f32, f32) {
         match self {
+            Split::Menu => (216., 360.),
             Split::Sidebar => (220., 720.),
             Split::Tool => (260., 640.),
             Split::List => (300., 900.),
@@ -46,6 +49,7 @@ impl Split {
     /// The hover group its handle draws in.
     pub fn group(self) -> &'static str {
         match self {
+            Split::Menu => "split-menu",
             Split::Sidebar => "split-sidebar",
             Split::Tool => "split-tool",
             Split::List => "split-list",

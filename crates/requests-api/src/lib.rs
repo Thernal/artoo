@@ -662,8 +662,8 @@ pub trait Requests {
     /// The row picked in the list.
     fn picked_row(&self, cx: &App) -> Option<u64>;
 
-    /// The request open's approval chip and Merge's control, on its bar.
-    fn approval_chip(&self, cx: &mut App) -> Option<AnyElement>;
+    /// The request open's approval chip and Merge's control, on its bar; `compact` in a narrow window.
+    fn approval_chip(&self, compact: bool, cx: &mut App) -> Option<AnyElement>;
     fn merge_control(&self, compact: bool, github: bool, cx: &mut App) -> Option<AnyElement>;
 
     /// The repository open and its remote's web address: what the requests read and ask their host.

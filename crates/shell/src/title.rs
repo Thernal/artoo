@@ -97,7 +97,8 @@ fn title_bar(bar: TitleBar, host: Rc<dyn TitleHost>) -> impl IntoElement {
             div()
                 .id("title-bar")
                 .flex_1()
-                .min_w_0()
+                // Search's icon at least: the status beside it gives way first (#186).
+                .min_w(px(if bar.open { 36. } else { 0. }))
                 .overflow_hidden()
                 .h_full()
                 .flex()
@@ -147,18 +148,28 @@ fn title_bar(bar: TitleBar, host: Rc<dyn TitleHost>) -> impl IntoElement {
                         .on_click(move |_, window, cx| host.search(window, cx))
                 })),
         )
-        // The right end never gives way.
+        // The right end: its items give way (the fetch status cut, #186), the gear never does.
         .child(
             div()
-                .flex_none()
-                .min_w(px(if tabbed { 0. } else { 180. }))
+                .flex_shrink(1.)
+                .min_w_0()
                 .flex()
                 .items_center()
                 .justify_end()
                 .gap_3()
-                .children(bar.items)
+                .child(
+                    div()
+                        .flex_shrink(1.)
+                        .min_w(px(if tabbed { 0. } else { 140. }))
+                        .flex()
+                        .items_center()
+                        .justify_end()
+                        .gap_3()
+                        .children(bar.items),
+                )
                 .child(
                     icon_button("settings-open", "settings", "Settings  ⌘,")
+                        .flex_none()
                         .on_click(move |_, window, cx| settings.settings(window, cx)),
                 ),
         )

@@ -1,6 +1,7 @@
 //! Narrow windows (#80): the diff's room comes first, and what folds comes back from the edge it
 //! went into, never in the content. Under 1280 px the menu folds to icons (◧ and ⌘B still open
-//! it) and the diff is unified. Under 1100 the side panel folds into the same left column — this
+//! it). A diff under 700 px is unified, whatever the window (#186). Under 1100 the side panel
+//! folds into the same left column — this
 //! page's panels as icons under a line, a click or ⌃3 opening it as a drawer over the content,
 //! docked again when there is room — a list's preview goes, the bar's path is ‹ and the id,
 //! secondary actions keep their icon and search its icon. Under 1000 a tool window floats over the
@@ -24,7 +25,7 @@ impl Workspace {
         self.narrowed.follow(self.design_width());
     }
 
-    /// Under 1280 px: the menu folds, unless opened here, and the diff is unified.
+    /// Under 1280 px: the menu folds, unless opened here.
     pub(super) fn menu_narrow(&self) -> bool {
         self.design_width() < MENU
     }

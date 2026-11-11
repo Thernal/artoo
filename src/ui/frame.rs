@@ -40,6 +40,7 @@ impl Workspace {
 
     pub(super) fn size(&mut self, split: Split) -> &mut f32 {
         match split {
+            Split::Menu => &mut self.layout.menu,
             Split::Sidebar => &mut self.layout.sidebar,
             Split::Tool => &mut self.layout.tool_width,
             Split::List => &mut self.layout.list,
@@ -55,6 +56,7 @@ impl Workspace {
         cx.stop_propagation();
         if event.click_count == 2 {
             *self.size(split) = match split {
+                Split::Menu => Layout::default().menu,
                 Split::Sidebar => Layout::default().sidebar,
                 Split::Tool => Layout::default().tool_width,
                 Split::List => Layout::default().list,
@@ -246,8 +248,8 @@ impl Render for Workspace {
             self.zone = zones::Zone::Diff;
         }
         let body = self.rv().body_width(cx);
-        // Under 1280 px of window too (#80).
-        let narrow = (body > 0. && body < 700.) || self.menu_narrow();
+        // The diff's width alone decides Split, whatever the window (#186).
+        let narrow = body > 0. && body < f32::from(px(artoo_review_api::SPLIT_WIDTH));
         // At the interface size chosen: 600 px of the design is more at 150 %.
         let tight = body > 0. && body < f32::from(px(600.));
         if narrow != self.diff_narrow(cx) || tight != self.tight(cx) {

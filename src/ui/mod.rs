@@ -1123,9 +1123,12 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                 .ok();
         }
         wait(midway.unwrap_or(800)).await;
-        // `update_window` leaves the root view free for the draw to render.
+        // `update_window` leaves the root view free for the draw to render. What a draw measures is used by the next
+        // (the page bar's folds, #186), which a shown window gets on its next frame: two more draws before the saved one.
         let saved = cx.update_window(window.into(), |_, window, cx| {
-            window.draw(cx).clear(cx);
+            for _ in 0..3 {
+                window.draw(cx).clear(cx);
+            }
             window
                 .render_to_image()
                 .and_then(|image| Ok(image.save(&out)?))
@@ -1305,6 +1308,8 @@ pub struct Workspace {
     tree_opened: Option<(String, usize)>,
     /// What a narrow window folded, for the session (#80).
     narrowed: narrow::Narrowed,
+    /// The page bar's widths as last drawn: which of its actions fold into `⋯` (#186).
+    bar_room: Rc<artoo_shell_api::bar::BarRoom>,
     /// Which input has the keyboard (#168).
     keyboard: typing::Keyboard,
     /// A file of Code being read and the line to show once it is in (a note from the Agents
@@ -1428,6 +1433,7 @@ impl Workspace {
             frame: frame.clone(),
             tree_opened: None,
             narrowed: Default::default(),
+            bar_room: Default::default(),
             keyboard: Default::default(),
             file_jump: None,
             on_screen: Rc::new(Shared::new(true)),

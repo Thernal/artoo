@@ -312,6 +312,9 @@ impl Review {
         };
         let o = self.options;
         let (bounds, menu) = (self.view_button.clone(), host.clone());
+        // What is on screen is marked (#186): a diff too narrow to split is drawn unified, and says so; Split
+        // chosen there still splits once the diff has the room.
+        let unified = o.unified || self.narrow;
         div()
             .flex_none()
             .flex()
@@ -320,11 +323,18 @@ impl Review {
             .child(
                 group()
                     .child(
-                        chip("split", "Split", !o.unified)
+                        chip("split", "Split", !unified)
+                            .when(self.narrow, |c| {
+                                use artoo_ui_kit::hover::Hover;
+                                c.opacity(0.45).tip(format!(
+                                    "Split needs {} px",
+                                    artoo_review_api::SPLIT_WIDTH as u32
+                                ))
+                            })
                             .on_click(event(PaneEvent::Unified(false))),
                     )
                     .child(
-                        chip("unified", "Unified", o.unified)
+                        chip("unified", "Unified", unified)
                             .on_click(event(PaneEvent::Unified(true))),
                     ),
             )

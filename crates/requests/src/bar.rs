@@ -65,8 +65,12 @@ impl Requests {
         })
     }
 
-    /// Approve, or who approved: `a` toggles one's approval.
-    pub fn render_approval_chip(&self, acts: Acts) -> Option<impl IntoElement + use<>> {
+    /// Approve, or who approved: `a` toggles one's approval; `compact`, its key in the tip alone (#186).
+    pub fn render_approval_chip(
+        &self,
+        compact: bool,
+        acts: Acts,
+    ) -> Option<impl IntoElement + use<>> {
         let waits = self.approval_waits();
         self.approvals.clone().map(|a| {
             let count = if a.required > 0 {
@@ -143,7 +147,7 @@ impl Requests {
                 // Counted at once, faded until the host answers (#139).
                 .when(waits, |s| s.opacity(FADED))
                 .child(format!("{label}{count}"))
-                .when(a.can && !a.mine, |s| {
+                .when(a.can && !a.mine && !compact, |s| {
                     s.child(keys::caps("a", keys::On::Plain))
                 })
                 .tooltip_show_delay(hover::LONG)

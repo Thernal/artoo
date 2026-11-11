@@ -16,8 +16,7 @@ use gpui::{
 };
 use std::rc::Rc;
 
-/// The menu's width, open and folded to icons.
-const OPEN: f32 = 216.;
+/// The menu's width folded to icons; open, it is the reader's, its edge dragged (#186).
 const ICONS: f32 = 52.;
 /// The menu's side padding, folded or open.
 const EDGE: f32 = 6.;
@@ -76,6 +75,7 @@ impl SpacesRenderer for Renderer {
 /// The menu.
 fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
     let folded = menu.folded;
+    let (open, edge) = (menu.width, menu.edge);
     // Folding or unfolding: the names fade while the menu narrows or widens, and the icons
     // stay where they are (#56, 2).
     let moving = menu.moving;
@@ -545,15 +545,30 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
         !folded,
         false,
         motion::BASE,
-        |menu, v| menu.w(px(motion::mix(ICONS, OPEN, v))),
+        move |menu, v| menu.w(px(motion::mix(ICONS, open, v))),
     );
     motion::toward(
-        div().flex_none().flex().overflow_hidden().child(list),
+        div()
+            .relative()
+            .flex_none()
+            .flex()
+            .overflow_hidden()
+            .child(list)
+            // Its edge drags it, from 216 to 360 px, over its own right side (#186).
+            .children(edge.map(|edge| {
+                div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .right_0()
+                    .flex()
+                    .child(edge)
+            })),
         "places-zen",
         !menu.zen,
         menu.zen_moving,
         motion::BASE,
-        |menu, v| menu.max_w(px(OPEN * v)).opacity(v),
+        move |menu, v| menu.max_w(px(open * v)).opacity(v),
     )
     .into_any_element()
 }

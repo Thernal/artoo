@@ -138,6 +138,10 @@ pub struct SpaceRow {
 pub struct SpacesMenu<'a> {
     /// Folded to icons.
     pub folded: bool,
+    /// Its width open, dragged by `edge` (#186).
+    pub width: f32,
+    /// Its right edge, which drags it while it is open.
+    pub edge: Option<AnyElement>,
     /// Folding or unfolding.
     pub moving: bool,
     /// The space on screen.

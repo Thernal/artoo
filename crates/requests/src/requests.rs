@@ -569,9 +569,13 @@ impl artoo_requests_api::Requests for Handle {
         self.0.upgrade()?.read(cx).rows.picked
     }
 
-    fn approval_chip(&self, cx: &mut App) -> Option<gpui::AnyElement> {
+    fn approval_chip(&self, compact: bool, cx: &mut App) -> Option<gpui::AnyElement> {
         let acts = self.acts();
-        let chip = self.0.upgrade()?.read(cx).render_approval_chip(acts)?;
+        let chip = self
+            .0
+            .upgrade()?
+            .read(cx)
+            .render_approval_chip(compact, acts)?;
         Some(gpui::IntoElement::into_any_element(chip))
     }
 

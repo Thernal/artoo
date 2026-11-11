@@ -109,6 +109,10 @@ impl Workspace {
             return None;
         }
         let (text, color) = match (&self.fetch.error, self.fetch.running, self.fetch.last) {
+            // Narrow, the status gives way first: its words short, the whole in its tip (#186).
+            (Some(_), _, _) if self.compact() => {
+                ("Fetch failed  ·  Retry".to_owned(), theme::removed())
+            }
             (Some(e), _, _) => (format!("Fetch failed: {e}  ·  Retry"), theme::removed()),
             (None, true, _) => ("Fetching…".to_owned(), theme::muted()),
             (None, false, Some(t)) => (format!("Fetched {}", format::ago(t)), theme::muted()),
@@ -135,7 +139,9 @@ impl Workspace {
         Some(
             div()
                 .id("fetch-status")
-                .flex_none()
+                // It gives way before search and the gear, cut with an ellipsis (#186).
+                .flex_shrink(1.)
+                .min_w_0()
                 .max_w(px(420.))
                 .cut_in_tip()
                 .h(px(24.))

@@ -6,6 +6,11 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **Nothing in a narrow window is cut off.** At 700 px the title bar keeps its search and its gear, its fetch status
+  shortened to `Fetch failed · Retry`; what the page bar has no room for goes into its `⋯` — Merge, Open in GitLab,
+  Copy link —, and `Approve 1/2` drops its key. Split is marked only while the diff is split: a diff under 700 px is
+  unified, Split dimmed with its tip `Split needs 700 px`, and a diff that wide splits whatever the window. The menu's
+  edge drags, from 216 to 360 px.
 - **A list that could not be read says so.** It reads `Couldn't read the merge requests` instead of "No merge requests
   yet", under `Can't reach gitlab.example.com · list from 14:32`. An empty list is its state and its button —
   `Nothing to review`, `No mentions`, `No open merge requests` — without a sentence on what it is for; a filter that

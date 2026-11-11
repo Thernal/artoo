@@ -491,6 +491,7 @@ impl From<String> for Toast {
 }
 
 /// An item of a menu a part opens (`Frame::menu`).
+#[derive(Clone)]
 pub struct MenuItem {
     pub label: String,
     /// Its keys, said at its end (`⌘W`).

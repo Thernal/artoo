@@ -3,11 +3,75 @@
 //! request's bar carries the public orange along its top. What the path is and what a click does are the tab's
 //! (`artoo_shell_api::bar`, its contract).
 
-use artoo_shell_api::bar::{BarHost, BarRenderer, PageBar};
+use artoo_shell_api::bar::{BarAction, BarHost, BarRenderer, BarRoom, PageBar};
 use artoo_ui_kit::hover::{self, Tip};
-use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, flat, island, px, theme, words};
-use gpui::{AnyElement, ClickEvent, MouseButton, MouseDownEvent, SharedString, div, prelude::*};
+use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, flat, icons, island, px, theme, words};
+use gpui::{
+    AnyElement, ClickEvent, MouseButton, MouseDownEvent, SharedString, canvas, div, prelude::*,
+};
 use std::rc::Rc;
+
+/// The room kept for the bar's left — the path cut to it — before an action folds; less when the left is shorter
+/// whole, `‹ !398` (#186).
+const LEFT: f32 = 140.;
+/// `⋯`'s width, and the gap between actions.
+const MORE: f32 = 28.;
+const ACTIONS_GAP: f32 = 8.;
+
+/// Which of `actions` fold into `⋯`, by the widths the bar was last drawn at: the last that can fold first, until
+/// what stays fits beside the left and the view (#186). Nothing folds before the bar was measured.
+fn folded(actions: &[BarAction], room: &BarRoom) -> Vec<bool> {
+    let mut folded = vec![false; actions.len()];
+    let width = room.width.get();
+    if width <= 0. {
+        return folded;
+    }
+    let widths = room.actions.borrow();
+    let unknown = f32::from(px(100.));
+    let left = f32::from(px(LEFT));
+    let left = room.left_whole.get().map_or(left, |whole| whole.min(left));
+    // The island's padding (14 + 8) and its gaps around the left, the view, the spacer and the actions.
+    let room_left = width - f32::from(px(22. + 12. * 3.)) - left - room.view.get();
+    let need = |folded: &[bool]| {
+        let kept: Vec<f32> = (actions.iter().zip(folded))
+            .filter(|(_, f)| !**f)
+            .map(|(a, _)| widths.get(a.id).copied().unwrap_or(unknown))
+            .collect();
+        let more = if folded.contains(&true) {
+            f32::from(px(MORE + ACTIONS_GAP))
+        } else {
+            0.
+        };
+        kept.iter().sum::<f32>()
+            + f32::from(px(ACTIONS_GAP)) * kept.len().saturating_sub(1) as f32
+            + more
+    };
+    for at in (0..actions.len()).rev() {
+        if need(&folded) <= room_left {
+            break;
+        }
+        folded[at] = actions[at].fold.is_some();
+    }
+    folded
+}
+
+/// A canvas over its parent that keeps the parent's width in `keep`, which says whether it changed: the bar is drawn
+/// again on the next frame then (a refresh while drawing is dropped), as what folds was decided by the width before.
+/// It draws nothing and takes no pointer.
+fn measure(keep: impl Fn(f32) -> bool + 'static) -> impl IntoElement {
+    canvas(
+        move |bounds, window, _| {
+            if keep(f32::from(bounds.size.width)) {
+                window.request_animation_frame();
+            }
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
+}
 
 /// The bar's renderer, installed by `install`.
 pub(crate) struct Renderer;
@@ -70,8 +134,63 @@ fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
             )
             .child(div().flex_none().text_color(theme::faint()).child("›"))
     });
-    let (back, up) = (host.clone(), host.clone());
-    // clip: the bar as a whole; its crumbs cut with an ellipsis, and what does not fit is #186's to fold.
+    let (back, up, more) = (host.clone(), host.clone(), host.clone());
+    // What the bar has no room for folds into ⋯, the last first, never clipped (#186).
+    let room = bar.room.clone();
+    if bar.view.is_none() {
+        room.view.set(0.);
+    }
+    let folds = folded(&bar.actions, &room);
+    let (mut items, mut shown, mut folded) = (Vec::new(), Vec::new(), Vec::new());
+    for (action, fold) in bar.actions.into_iter().zip(folds) {
+        let (keep, id) = (room.clone(), action.id);
+        let drawn = div()
+            .relative()
+            .flex_none()
+            .child(action.element)
+            .child(measure(move |w| {
+                keep.actions.borrow_mut().insert(id, w) != Some(w)
+            }));
+        match (fold, action.fold) {
+            // Still measured, out of sight, so it comes back when its width fits — narrow, an icon.
+            (true, Some(item)) => {
+                items.push(item);
+                folded.push(drawn);
+            }
+            (_, _) => shown.push(drawn),
+        }
+    }
+    let more_button = (!items.is_empty()).then(|| {
+        let groups: Vec<_> = [items, bar.more]
+            .into_iter()
+            .filter(|g| !g.is_empty())
+            .collect();
+        div()
+            .id("bar-more")
+            .flex_none()
+            .size(px(MORE))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(ROW_RADIUS))
+            .border_1()
+            .border_color(theme::island_border())
+            .cursor_pointer()
+            .hover(|s| s.bg(theme::hover()))
+            // As the bar's other icon buttons (`bar_icon`): an svg takes no colour from its parent.
+            .child(
+                icons::icon("ellipsis")
+                    .size(px(16.))
+                    .text_color(theme::muted()),
+            )
+            .tooltip_show_delay(hover::LONG)
+            .tooltip(|_, cx| cx.new(|_| Tip("More actions")).into())
+            .on_click(move |e: &ClickEvent, window, cx| {
+                more.menu(e.position(), groups.clone(), window, cx)
+            })
+    });
+    let (whole, view, left, spare) = (room.clone(), room.clone(), room.clone(), room.clone());
+    // clip: the bar's edge; its crumbs cut with an ellipsis and its actions fold into ⋯ (#186), so nothing reaches it.
     let island = island()
         .relative()
         .overflow_hidden()
@@ -101,12 +220,17 @@ fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
         }))
         .child(
             div()
+                .relative()
                 .min_w_0()
                 .flex()
                 .items_center()
                 .gap(px(6.))
                 .overflow_hidden()
                 .text_color(theme::muted())
+                .child(measure(move |w| {
+                    left.left.set(w);
+                    false
+                }))
                 .children(bar.up.then(|| {
                     div()
                         .id("crumb-up")
@@ -131,15 +255,38 @@ fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
                         .child(n)
                 })),
         )
-        .children(bar.view)
-        .child(div().flex_1().min_w_0())
+        .children(bar.view.map(|v| {
+            div()
+                .relative()
+                .flex_none()
+                .child(v)
+                .child(measure(move |w| view.view.replace(w) != w))
+        }))
+        // Room to spare: the left is whole, as wide as it was just drawn (its measure comes first).
+        .child(div().relative().flex_1().min_w_0().child(measure(move |w| {
+            let whole = Some(spare.left.get());
+            w > 0. && spare.left_whole.replace(whole) != whole
+        })))
         .child(
             div()
                 .flex_none()
                 .flex()
                 .items_center()
-                .gap(px(8.))
-                .children(bar.actions),
+                .gap(px(ACTIONS_GAP))
+                .children(shown)
+                .children(more_button),
+        )
+        .child(measure(move |w| whole.width.replace(w) != w))
+        // The folded actions, measured: nothing shows of them and they take no pointer, clipped to nothing.
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_0()
+                .overflow_hidden()
+                .flex()
+                .children(folded),
         )
         // Public: what is done here is seen on GitLab (#71).
         // Over the island's own border, its top edge turning down with its round corners (a

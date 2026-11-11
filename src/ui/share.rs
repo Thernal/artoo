@@ -24,7 +24,7 @@ pub(super) fn copied(link: Link) -> Act {
 impl Workspace {
     /// Route `route` on the host — with `diff`, where the host shows its diff — as the pages drawing it say; why
     /// not when nothing has one. Asked inside the tab's update: a route's owner reads its own state.
-    fn route_link(&self, route: &Route, diff: bool, cx: &App) -> Result<Link, String> {
+    pub(super) fn route_link(&self, route: &Route, diff: bool, cx: &App) -> Result<Link, String> {
         let web = self.web.as_ref().ok_or_else(|| NO_HOST.to_owned())?;
         let pages = (self.parts.iter())
             .filter_map(|p| p.pages.as_ref())

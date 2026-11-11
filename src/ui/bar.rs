@@ -6,8 +6,10 @@
 use super::nav::Page;
 use super::spaces::{BRANCHES, CODE, INBOX, REQUESTS, Space};
 use super::{Workspace, px, theme, words};
-use artoo_core::route::Route;
-use artoo_shell_api::{NameHover, PagePath, PathUp, bar};
+use artoo_core::route::{Place, Route};
+use artoo_requests_api::{RequestRoute, Stand};
+use artoo_shell_api::bar::BarAction;
+use artoo_shell_api::{MenuItem, NameHover, PagePath, PathUp, bar};
 use gpui::{
     AnyElement, App, ClickEvent, Context, FontWeight, Pixels, Point, WeakEntity, Window, div,
     prelude::*,
@@ -70,6 +72,13 @@ impl Workspace {
                 }
             })
             .collect();
+        // Another page's left is another width (#186).
+        self.bar_room.page(format!(
+            "{}|{}|{}|{name}",
+            space.id(),
+            up.is_some(),
+            links.len()
+        ));
         let host = Rc::new(BarGlue {
             tab: cx.weak_entity(),
             space,
@@ -86,6 +95,8 @@ impl Workspace {
                 count,
                 view: self.view_of(space, page.as_ref(), cx),
                 actions: self.actions_of(space, page.as_ref(), cx),
+                more: self.more_of(page.as_ref(), cx),
+                room: self.bar_room.clone(),
                 public,
             },
             host,
@@ -187,38 +198,60 @@ impl Workspace {
         }
     }
 
-    /// The page's actions, its primary one last; a list's filter (#72).
+    /// The page's actions, its primary one last; a list's filter (#72). Each but a filter and the approval has its row
+    /// in `⋯`, where it goes when the bar has no room for it (#186).
     fn actions_of(
         &self,
         space: Space,
         page: Option<&Page>,
         cx: &mut Context<Self>,
-    ) -> Vec<AnyElement> {
+    ) -> Vec<BarAction> {
+        let tab = cx.weak_entity();
         let mut out = Vec::new();
         match (space, page) {
             (REQUESTS, None) if self.requests_available(cx) => {
-                out.push(self.bar_filter("Filter", cx))
+                out.push(BarAction::new("filter", self.bar_filter("Filter", cx)))
             }
-            (BRANCHES, None) => out.push(self.bar_filter("Filter branches", cx)),
+            (BRANCHES, None) => out.push(BarAction::new(
+                "filter",
+                self.bar_filter("Filter branches", cx),
+            )),
             (INBOX, _) if self.inbox_unread(cx) > 0 => out.push(
-                self.bar_action("bar-read-all", "check", "Mark all read", "")
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.read_all_notices(cx)))
-                    .into_any_element(),
+                BarAction::new(
+                    "read-all",
+                    self.bar_action("bar-read-all", "check", "Mark all read", "")
+                        .on_click(
+                            cx.listener(|this, _: &ClickEvent, _, cx| this.read_all_notices(cx)),
+                        ),
+                )
+                .folds(MenuItem::new(
+                    "Mark all read",
+                    on_tab(&tab, |this, cx| this.read_all_notices(cx)),
+                )),
             ),
             // A folder's page: a note for your agent on it (#97), then Open in.
             (CODE, Some(Page::Folder(path))) => {
-                let folder = path.clone();
+                let (folder, again) = (path.clone(), path.clone());
                 out.push(
-                    self.bar_action("bar-folder-note", "bot", "Note for your agent", "C")
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.start_folder_comment(&folder, cx)
-                        }))
-                        .into_any_element(),
+                    BarAction::new(
+                        "folder-note",
+                        self.bar_action("bar-folder-note", "bot", "Note for your agent", "C")
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.start_folder_comment(&folder, cx)
+                            })),
+                    )
+                    .folds(
+                        MenuItem::new(
+                            "Note for your agent",
+                            on_tab(&tab, move |this, cx| this.start_folder_comment(&again, cx)),
+                        )
+                        .key("C"),
+                    ),
                 );
-                out.extend(self.open_in_button(cx));
+                out.extend(self.open_in_action(&tab, cx));
             }
             // The file or the project's folder in the app it belongs to, named (#78).
-            (CODE, _) => out.extend(self.open_in_button(cx)),
+            (CODE, _) => out.extend(self.open_in_action(&tab, cx)),
             (BRANCHES, Some(Page::Branch(refname))) => {
                 let ix = self
                     .branch_list(cx)
@@ -226,45 +259,69 @@ impl Workspace {
                     .position(|b| &b.refname == refname);
                 match ix.and_then(|ix| self.request_of_branch(ix, cx).map(|m| m.iid)) {
                     // Its request has a page of its own: the way there.
-                    Some(iid) => out.push(
-                        self.bar_action(
-                            "bar-request",
-                            "pull-request",
-                            &format!("{} →", words::number(iid)),
-                            "",
+                    Some(iid) => {
+                        let label = format!("{} →", words::number(iid));
+                        out.push(
+                            BarAction::new(
+                                "request",
+                                self.bar_action("bar-request", "pull-request", &label, "")
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                        this.open_request(iid, cx)
+                                    })),
+                            )
+                            .folds(MenuItem::new(
+                                label,
+                                on_tab(&tab, move |this, cx| this.open_request(iid, cx)),
+                            )),
                         )
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.open_request(iid, cx)
-                        }))
-                        .into_any_element(),
-                    ),
+                    }
                     // Not while one is being written: its own Create is the primary then.
                     None if self.requests_available(cx) && !self.creating(cx) => out.push(
-                        bar_button("bar-create", "Create merge request", "⌥⌘M", true)
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.open_create(ix, cx)
-                            }))
-                            .into_any_element(),
+                        BarAction::new(
+                            "create",
+                            bar_button("bar-create", "Create merge request", "⌥⌘M", true).on_click(
+                                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    this.open_create(ix, cx)
+                                }),
+                            ),
+                        )
+                        .folds(
+                            MenuItem::new(
+                                "Create merge request",
+                                on_tab(&tab, move |this, cx| this.open_create(ix, cx)),
+                            )
+                            .key("⌥⌘M"),
+                        ),
                     ),
                     None => {}
                 }
             }
             (REQUESTS, Some(Page::RequestCommit(..)))
             | (BRANCHES, Some(Page::BranchCommit(..))) => {
-                out.push(
-                    self.bar_action("bar-previous-commit", "back", "Previous", "[")
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.step_item_commit(false, cx);
-                        }))
-                        .into_any_element(),
-                );
-                out.push(
-                    self.bar_action("bar-next-commit", "forward", "Next", "]")
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.step_item_commit(true, cx);
-                        }))
-                        .into_any_element(),
-                );
+                for (id, icon, label, key, next) in [
+                    ("bar-previous-commit", "back", "Previous", "[", false),
+                    ("bar-next-commit", "forward", "Next", "]", true),
+                ] {
+                    out.push(
+                        BarAction::new(
+                            id,
+                            self.bar_action(id, icon, label, key).on_click(cx.listener(
+                                move |this, _: &ClickEvent, _, cx| {
+                                    this.step_item_commit(next, cx);
+                                },
+                            )),
+                        )
+                        .folds(
+                            MenuItem::new(
+                                format!("{label} commit"),
+                                on_tab(&tab, move |this, cx| {
+                                    this.step_item_commit(next, cx);
+                                }),
+                            )
+                            .key(key),
+                        ),
+                    );
+                }
             }
             (REQUESTS, Some(Page::Request(_))) if self.showing_request(cx) => {
                 let pending = self.request_drafts(cx).len();
@@ -273,9 +330,17 @@ impl Workspace {
                     n => format!("Submit review · {n}"),
                 };
                 out.push(
-                    self.bar_action("bar-submit", "send", &label, "⇧⌘↵")
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_submit(cx)))
-                        .into_any_element(),
+                    BarAction::new(
+                        "submit",
+                        self.bar_action("bar-submit", "send", &label, "⇧⌘↵")
+                            .on_click(
+                                cx.listener(|this, _: &ClickEvent, _, cx| this.open_submit(cx)),
+                            ),
+                    )
+                    .folds(
+                        MenuItem::new(label, on_tab(&tab, |this, cx| this.open_submit(cx)))
+                            .key("⇧⌘↵"),
+                    ),
                 );
                 // A merged or closed one says so where its approval would be (#114).
                 let state = self
@@ -286,15 +351,31 @@ impl Workspace {
                 if state == crate::mr::MrState::Opened
                     && let Some(requests) = self.requests_api()
                 {
-                    out.extend(requests.approval_chip(cx));
-                    out.extend(requests.merge_control(self.compact(), self.on_github(), cx));
+                    // The approval is the request's state: it never folds.
+                    out.extend(
+                        (requests.approval_chip(self.compact(), cx))
+                            .map(|chip| BarAction::new("approval", chip)),
+                    );
+                    let stand = requests.merge_stand(cx);
+                    out.extend(
+                        (requests.merge_control(self.compact(), self.on_github(), cx)).map(
+                            |control| {
+                                let action = BarAction::new("merge", control);
+                                match merge_row(stand, &tab) {
+                                    Some(row) => action.folds(row),
+                                    None => action,
+                                }
+                            },
+                        ),
+                    );
                 } else {
                     let color = if state == crate::mr::MrState::Merged {
                         theme::accent()
                     } else {
                         theme::removed()
                     };
-                    out.push(
+                    out.push(BarAction::new(
+                        "state",
                         div()
                             .flex_none()
                             .px(px(8.))
@@ -306,14 +387,87 @@ impl Workspace {
                             .border_color(color)
                             .text_size(px(12.))
                             .text_color(color)
-                            .child(state.word())
-                            .into_any_element(),
-                    );
+                            .child(state.word()),
+                    ));
                 }
             }
             _ => {}
         }
         out
+    }
+
+    /// Open in, and its row in `⋯`.
+    fn open_in_action(&self, tab: &WeakEntity<Self>, cx: &mut Context<Self>) -> Option<BarAction> {
+        let label = (self.open_target(cx))
+            .and_then(|(path, _)| self.open_app(&path, cx))
+            .map_or("Open in…".to_owned(), |app| {
+                format!("Open in {}", app.name())
+            });
+        let button = self.open_in_button(cx)?;
+        Some(
+            BarAction::new("open-in", button)
+                .folds(MenuItem::new(label, on_tab(tab, |this, cx| this.open_in(cx))).key("⌥⌘O")),
+        )
+    }
+
+    /// The rows only `⋯` holds, after the actions folded into it: a request's page on its host and its link (#186).
+    fn more_of(&self, page: Option<&Page>, cx: &mut Context<Self>) -> Vec<MenuItem> {
+        let Some(Page::Request(iid)) = page else {
+            return Vec::new();
+        };
+        let tab = cx.weak_entity();
+        let mut rows = Vec::new();
+        if let (Some(web), Ok(link)) = (
+            self.web.as_ref(),
+            self.route_link(&RequestRoute { number: *iid }.route(), false, cx),
+        ) {
+            let url = link.url;
+            rows.push(MenuItem::new(
+                format!("Open in {} ↗", web.name()),
+                move |_, cx| cx.open_url(&url),
+            ));
+        }
+        rows.push(
+            MenuItem::new(
+                "Copy link",
+                on_tab(&tab, |this, cx| this.copy_page_link(cx)),
+            )
+            .key("⌥⇧⌘C"),
+        );
+        rows
+    }
+}
+
+/// Merge's row in `⋯`, by where merging stands: what is in the way said, dimmed; Rebase; Merge…; Cancel auto-merge.
+fn merge_row(stand: Option<Stand>, tab: &WeakEntity<Workspace>) -> Option<MenuItem> {
+    Some(match stand? {
+        Stand::InTheWay(blocks) => MenuItem::off(match blocks.first() {
+            Some(block) => format!("Merge · {}", block.detail),
+            None => "Merge".to_owned(),
+        }),
+        Stand::Checking => MenuItem::off("Merge · checking"),
+        Stand::Rebase(behind) => MenuItem::new(
+            format!("Rebase · {behind} behind"),
+            on_tab(tab, |this, cx| this.rebase_request(cx)),
+        ),
+        Stand::Running | Stand::Ready => {
+            MenuItem::new("Merge…", on_tab(tab, |this, cx| this.open_merge(cx)))
+        }
+        Stand::Auto => MenuItem::new(
+            "Cancel auto-merge",
+            on_tab(tab, |this, cx| this.cancel_auto_merge(cx)),
+        ),
+    })
+}
+
+/// A row of `⋯` that runs `act` on the tab.
+fn on_tab(
+    tab: &WeakEntity<Workspace>,
+    act: impl Fn(&mut Workspace, &mut Context<Workspace>) + 'static,
+) -> impl Fn(&mut Window, &mut App) + 'static {
+    let tab = tab.clone();
+    move |_, cx| {
+        tab.update(cx, |this, cx| act(this, cx)).ok();
     }
 }
 
@@ -370,6 +524,13 @@ impl bar::BarHost for BarGlue {
             self.tab
                 .update(cx, |this, cx| this.crumb_menu(folder, at, cx))
                 .ok();
+        }
+    }
+
+    fn menu(&self, at: Point<Pixels>, groups: Vec<Vec<MenuItem>>, _: &mut Window, cx: &mut App) {
+        // The frame's menu, asked once the tab is read: it opens on the tab.
+        if let Some(frame) = (self.tab.upgrade()).map(|tab| tab.read(cx).frame.clone()) {
+            frame.menu(at, groups, cx);
         }
     }
 }

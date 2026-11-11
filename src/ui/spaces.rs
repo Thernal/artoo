@@ -279,6 +279,9 @@ impl Workspace {
         Some(spaces::menu(
             SpacesMenu {
                 folded: self.menu_folded(),
+                width: self.layout.menu,
+                edge: (!self.menu_folded())
+                    .then(|| self.handle(super::Split::Menu, cx).into_any_element()),
                 moving: self.motion.recent("places-fold"),
                 here: self.space(),
                 rows,

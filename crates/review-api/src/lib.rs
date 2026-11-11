@@ -8,6 +8,10 @@
 //! The tab's review offers it as `Rc<dyn FileView>` in the tab's services (`Frame::services`). What it changes is
 //! changed at once: ask it from anywhere but the review's own update.
 
+/// The diff's least width, in the design's pixels, for Split to be drawn split; narrower it is unified and Split
+/// says why (#186). The diff's width decides it, never the window's.
+pub const SPLIT_WIDTH: f32 = 700.;
+
 pub mod decorations;
 pub mod diff;
 pub mod viewers;

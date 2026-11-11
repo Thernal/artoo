@@ -147,6 +147,8 @@ pub struct Layout {
     pub show_sidebar: bool,
     /// The menu of spaces is folded to icons.
     pub fold_places: bool,
+    /// Its width open, its edge dragged (#186).
+    pub menu: f32,
     /// The tool window open on the right (`discussions`, `agents`, `notifications`), empty for none.
     pub tool: String,
     /// Its width.
@@ -165,6 +167,7 @@ impl Default for Layout {
             branches: 180.,
             show_sidebar: true,
             fold_places: false,
+            menu: 216.,
             tool: String::new(),
             tool_width: 320.,
             list: 460.,
@@ -200,6 +203,7 @@ impl Layout {
             match key {
                 "sidebar" => layout.sidebar = value,
                 "branches" => layout.branches = value,
+                "menu" => layout.menu = value,
                 "tool_width" => layout.tool_width = value,
                 "list" => layout.list = value,
                 _ => {}
@@ -215,6 +219,7 @@ impl std::fmt::Display for Layout {
         writeln!(f, "branches={}", self.branches)?;
         writeln!(f, "show_sidebar={}", self.show_sidebar)?;
         writeln!(f, "fold_places={}", self.fold_places)?;
+        writeln!(f, "menu={}", self.menu)?;
         writeln!(f, "tool={}", self.tool)?;
         writeln!(f, "tool_width={}", self.tool_width)?;
         writeln!(f, "list={}", self.list)?;
@@ -637,6 +642,7 @@ mod tests {
             branches: 120.,
             show_sidebar: false,
             fold_places: true,
+            menu: 300.,
             tool: "agents".into(),
             tool_width: 300.,
             list: 380.,

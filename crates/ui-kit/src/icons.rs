@@ -17,6 +17,15 @@ macro_rules! lucide {
 }
 
 const ICONS: &[(&str, &str)] = &[
+    // `⋯`: what a bar had no room for (#186).
+    (
+        "ellipsis",
+        lucide!(
+            r#"<circle cx="12" cy="12" r="1"/>"#
+            r#"<circle cx="19" cy="12" r="1"/>"#
+            r#"<circle cx="5" cy="12" r="1"/>"#
+        ),
+    ),
     (
         "update",
         lucide!(
