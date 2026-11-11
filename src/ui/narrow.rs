@@ -4,8 +4,9 @@
 //! folds into the same left column — this
 //! page's panels as icons under a line, a click or ⌃3 opening it as a drawer over the content,
 //! docked again when there is room — a list's preview goes, the bar's path is ‹ and the id,
-//! secondary actions keep their icon and search its icon. Under 1000 a tool window floats over the
-//! diff, and a drawer and a floating tool window are never open together. The steps are the
+//! secondary actions keep their icon and search its icon. The steps measure the diff too (#195): when it would keep
+//! under 480 px the side panel folds first, and still under 480 a tool window floats over the diff; a drawer and a
+//! floating tool window are never open together. The steps are the
 //! design's pixels, so at a larger interface size they come sooner (#24): at 115 % the menu folds
 //! under 1472.
 
@@ -57,14 +58,37 @@ impl Workspace {
         cx.notify();
     }
 
-    /// The side panel docked beside the page: shown, and the window wide enough.
-    pub(super) fn side_docked(&self) -> bool {
-        self.layout.show_sidebar && !self.compact()
+    /// The diff's width in the design's pixels, with the side panel beside it or not and the tool window docked or not:
+    /// what the window leaves once the rail, the menu, the stripe and the gaps are taken (#195).
+    pub(super) fn diff_room(&self, side: bool, tool: bool) -> f32 {
+        let menu = if self.menu_folded() {
+            MENU_ICONS
+        } else {
+            self.layout.menu
+        };
+        let side = if side { self.layout.sidebar } else { 0. };
+        let tool = if tool && self.tool().is_some() {
+            self.layout.tool_width
+        } else {
+            0.
+        };
+        self.design_width() - FRAME - menu - side - tool
     }
 
-    /// The side panel as a drawer over the content: the window narrow, and it opened.
+    /// The side panel folded into the menu's column: the window under 1 100 px, or the diff under 480 px with it
+    /// beside (#195) — it folds before the tool window floats.
+    pub(super) fn side_folded(&self) -> bool {
+        self.compact() || (self.layout.show_sidebar && self.diff_room(true, true) < ROOM)
+    }
+
+    /// The side panel docked beside the page: shown, and room for it.
+    pub(super) fn side_docked(&self) -> bool {
+        self.layout.show_sidebar && !self.side_folded()
+    }
+
+    /// The side panel as a drawer over the content: folded, and it opened.
     pub(super) fn side_drawer(&self) -> bool {
-        self.compact() && self.narrowed.drawer
+        self.side_folded() && self.narrowed.drawer
     }
 
     /// A panel's icon or ⌃3: the drawer opens with the keyboard in `zone`; again, it closes. A
@@ -87,7 +111,7 @@ impl Workspace {
     /// ⌃2 ⌃3: the keyboard to a section of the side panel; while it is folded, its drawer opens
     /// there, or closes when it is open.
     pub(super) fn focus_panel(&mut self, zone: Zone, cx: &mut Context<Self>) {
-        if self.compact() && !self.side_icons(cx).is_empty() {
+        if self.side_folded() && !self.side_icons(cx).is_empty() {
             return self.toggle_drawer(Some(zone), cx);
         }
         self.set_zone(zone, cx)
@@ -107,7 +131,7 @@ impl Workspace {
     /// with ⌘J (a click brings it back), so a hidden panel is not lost (the developer,
     /// 2026-10-23). Icons in the folded menu; named in the open one.
     pub(super) fn render_panel_icons(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let narrow = self.compact();
+        let narrow = self.side_folded();
         if !narrow && self.layout.show_sidebar {
             return None;
         }
@@ -224,8 +248,13 @@ impl Workspace {
 pub const MENU: f32 = 1280.;
 /// Under it the side panel folds into the menu's column, and the page is compact.
 pub const SIDE: f32 = 1100.;
-/// Under it a tool window floats over the diff.
-pub const FLOAT: f32 = 1000.;
+/// The least the diff keeps: under it the side panel folds, then the tool window floats (#195).
+pub const ROOM: f32 = 480.;
+/// The menu folded to icons.
+const MENU_ICONS: f32 = 52.;
+/// What the frame takes besides the menu, the side panel and the tool window — the rail, the stripe, the gaps: at
+/// 1 100 px a 300 px side panel and a 320 px tool window left the diff 305 px, the menu folded.
+const FRAME: f32 = 123.;
 
 /// The menu folded in a window `width` px wide: as `set` from 1280 px, else folded unless
 /// `chosen` there.

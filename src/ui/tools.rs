@@ -106,9 +106,11 @@ impl Workspace {
         })
     }
 
-    /// Under 1 000 px the tool window floats over the diff instead of taking its width (#80).
+    /// The tool window floats over the diff instead of taking its width when, the side panel folded first, the diff
+    /// would still fall under 480 px beside it (#80, #195).
     pub(super) fn tool_floats(&self) -> bool {
-        self.design_width() < super::narrow::FLOAT
+        let side = self.layout.show_sidebar && !self.side_folded();
+        self.diff_room(side, true) < super::narrow::ROOM
     }
 
     pub(super) fn toggle_tool(&mut self, tool: &'static str, cx: &mut Context<Self>) {
@@ -119,7 +121,8 @@ impl Workspace {
     /// The icon stripe on the right edge.
     pub(super) fn render_stripe(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         let zen = self.zen.is_some() && !self.motion.recent("zen");
-        if self.root.is_none() || zen || self.settings_open {
+        // The Inbox has none: the page takes its width (#195).
+        if self.root.is_none() || zen || self.settings_open || self.at_inbox() {
             return None;
         }
         let open = self.tool();
@@ -128,7 +131,8 @@ impl Workspace {
             .space_tools()
             .into_iter()
             .filter_map(|id| {
-                let tool = self.part_tool(id)?;
+                // Only the windows you work in (#195).
+                let tool = self.part_tool(id).filter(|t| t.stripe)?;
                 // What its badge says, and what is under it: the Agents window's dot per chat
                 // that listens, on its own hue (#77).
                 let (badge, what, under) = match &tool.badge {

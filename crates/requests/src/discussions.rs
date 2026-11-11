@@ -58,6 +58,7 @@ pub(crate) fn tool(
         title: "Discussions",
         spaces: &[artoo_requests_api::SPACE],
         on_pages: true,
+        stripe: true,
         // About the page: before the windows that are in every space.
         order: 10,
         badge: Some(Rc::new(move |cx| {

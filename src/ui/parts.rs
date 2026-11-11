@@ -341,7 +341,8 @@ impl Workspace {
     /// side panel —, the tool window after them. Narrow, the panel opens over the page (#80).
     pub(super) fn render_pages(&self, pages: &Pages, cx: &mut Context<Self>) -> Div {
         let width = self.layout.sidebar;
-        let beside = !self.compact() && (self.layout.show_sidebar || self.motion.recent("side"));
+        let beside =
+            !self.side_folded() && (self.layout.show_sidebar || self.motion.recent("side"));
         let route = self.nav_page().cloned();
         // An item's Overview or Commits is a page of its own, nothing beside it (#73, #74).
         let tab_page = self.item_tab(cx).is_some();

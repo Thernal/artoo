@@ -6,6 +6,10 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **The diff keeps its room.** The narrow steps measure the diff, not only the window: when it would fall under 480
+  px the side panel folds into the menu's column first, and only then does a tool window float. At 1 100 px with
+  Discussions open that is about 590 px of diff instead of 305. The right stripe holds the windows you work in —
+  Discussions, Agents, Outline —; Report a Problem… is in Help, ⌘K and ⌥⌘/, and the Inbox has no stripe at all.
 - **Back goes where you jumped.** A file picked, ⌘P or a line gone to is a stop of its own, so ⌘[ after a jump in a
   long review scrolls back to where you were instead of leaving the request; scrolling is not a stop. ‹ says where it
   goes — `Back to !415` — and its right click lists the last places. ⌘E lists what is open first, the latest first

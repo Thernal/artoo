@@ -2532,8 +2532,8 @@ impl Workspace {
     }
 
     fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {
-        // A narrow window has it folded into the menu: it opens as the drawer (#80).
-        if self.compact() && !self.side_icons(cx).is_empty() {
+        // Folded into the menu, narrow or for the diff's room: it opens as the drawer (#80, #195).
+        if self.side_folded() && !self.side_icons(cx).is_empty() {
             return self.toggle_drawer(None, cx);
         }
         self.layout.show_sidebar = !self.layout.show_sidebar;

@@ -39,6 +39,8 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
             title: "Report a problem",
             spaces: &[],
             on_pages: false,
+            // Not a window you work in: Help → Report a Problem…, ⌘K and ⌥⌘/ open it (#195).
+            stripe: false,
             // The stripe's last.
             order: 30,
             badge: None,

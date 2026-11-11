@@ -604,6 +604,9 @@ pub struct Tool {
     pub spaces: &'static [&'static str],
     /// Only while a page is on screen, not on its space's own page (a request's Discussions).
     pub on_pages: bool,
+    /// Its icon in the stripe: a window you work in (Discussions, Agents). Off, it opens by its action alone (Help →
+    /// Report a Problem…, ⌘K, #195).
+    pub stripe: bool,
     /// Where its icon stands in the stripe: the lowest first, those of one order as their features were
     /// installed. What is about the page (Outline, Discussions) comes before what is in every space.
     pub order: u16,

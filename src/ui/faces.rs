@@ -1,7 +1,7 @@
 //! Settings → Appearance → Fonts and size's helpers (#24 A, `fonts.rs`): the faces a face's menu offers, a face's name and
 //! family, and the line saying where the narrow layout folds at an interface size (`narrow`: the steps grow with it).
 
-use super::narrow::{FLOAT, MENU, SIDE};
+use super::narrow::{MENU, ROOM, SIDE};
 use artoo_ui_kit::theme;
 
 /// Faces a face's menu offers when they are installed; Other… lists every one.
@@ -20,10 +20,10 @@ pub const CODE_FACES: [&str; 5] = [
     "Courier New",
 ];
 
-/// Where the menu folds, the side panel becomes a drawer and a tool window floats, in window
-/// pixels, at interface size `ui_zoom` (%).
+/// Where the menu folds, the side panel becomes a drawer, and the least the diff keeps before the side panel folds and
+/// a tool window floats (#195), in window pixels, at interface size `ui_zoom` (%).
 pub fn fold_widths(ui_zoom: u16) -> [u32; 3] {
-    [MENU, SIDE, FLOAT].map(|w| (w * f32::from(ui_zoom) / 100.).round() as u32)
+    [MENU, SIDE, ROOM].map(|w| (w * f32::from(ui_zoom) / 100.).round() as u32)
 }
 
 /// `1472` as `1 472`.
@@ -36,13 +36,13 @@ pub fn grouped(n: u32) -> String {
 
 /// The line under the rows: where the layout folds at this size.
 pub fn fold_line(ui_zoom: u16) -> String {
-    let [menu, side, float] = fold_widths(ui_zoom).map(grouped);
+    let [menu, side, room] = fold_widths(ui_zoom).map(grouped);
     match ui_zoom {
         100 => format!(
-            "At 100 % the menu folds under {menu} px, the side panel under {side}, a tool window floats under {float}; at a larger size they come sooner."
+            "At 100 % the menu folds under {menu} px, the side panel under {side} or when the diff would keep less than {room}, then a tool window floats; at a larger size they come sooner."
         ),
         _ => format!(
-            "At {ui_zoom} % the narrow layout comes {}, as the text needs {} room: the menu folds under {menu} px (1 280 at 100 %), the side panel under {side}, a tool window floats under {float}.",
+            "At {ui_zoom} % the narrow layout comes {}, as the text needs {} room: the menu folds under {menu} px (1 280 at 100 %), the side panel under {side} or when the diff would keep less than {room}, then a tool window floats.",
             if ui_zoom > 100 { "sooner" } else { "later" },
             if ui_zoom > 100 { "more" } else { "less" },
         ),
@@ -103,8 +103,8 @@ mod tests {
 
     #[test]
     fn the_layout_folds_sooner_at_a_larger_interface_size() {
-        assert_eq!(fold_widths(100), [1280, 1100, 1000]);
-        assert_eq!(fold_widths(115), [1472, 1265, 1150]);
+        assert_eq!(fold_widths(100), [1280, 1100, 480]);
+        assert_eq!(fold_widths(115), [1472, 1265, 552]);
         assert!(fold_line(115).contains("under 1 472 px (1 280 at 100 %)"));
         assert!(fold_line(115).contains("the side panel under 1 265"));
         assert!(fold_line(90).contains("comes later"));

@@ -84,6 +84,7 @@ pub fn tool(
         title: "Agents",
         spaces: &["code", "branches", "requests"],
         on_pages: false,
+        stripe: true,
         // After what is about the page, before Report a problem.
         order: 20,
         badge: Some(Rc::new(move |cx| badge(&chats, &comments, cx))),
