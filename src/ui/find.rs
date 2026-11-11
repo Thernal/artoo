@@ -151,7 +151,7 @@ impl Workspace {
             self.rv().clear_path_filter(cx);
             return true;
         }
-        if !self.bfilter.is_empty() && self.at_root_list() {
+        if !self.bfilter.is_empty() && (self.at_root_list() || self.at_inbox()) {
             self.bfilter.clear();
             return true;
         }

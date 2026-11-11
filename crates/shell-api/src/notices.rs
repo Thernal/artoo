@@ -10,6 +10,7 @@
 //! A plugin's source is known by the loader, never by what it says (`guest`): its id is the plugin's, three kinds at
 //! most, and its System is off until the person turns it on.
 
+pub use artoo_core::notice::Why;
 use artoo_core::{applog, storage};
 use gpui::{App, Global};
 use std::collections::HashMap;
@@ -59,6 +60,8 @@ pub struct Kind {
     pub inbox: Option<bool>,
     pub toast: bool,
     pub system: bool,
+    /// What happened, the Inbox's filter it is listed under (#197); none: under All only.
+    pub why: Option<Why>,
 }
 
 impl Kind {
@@ -70,6 +73,7 @@ impl Kind {
             inbox: Some(true),
             toast: false,
             system: false,
+            why: None,
         }
     }
 
@@ -81,6 +85,7 @@ impl Kind {
             inbox: None,
             toast: false,
             system: false,
+            why: None,
         }
     }
 
@@ -96,6 +101,14 @@ impl Kind {
     pub const fn system(self) -> Self {
         Self {
             system: true,
+            ..self
+        }
+    }
+
+    /// Listed in the Inbox under `why` (#197).
+    pub const fn why(self, why: Why) -> Self {
+        Self {
+            why: Some(why),
             ..self
         }
     }

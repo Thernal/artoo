@@ -15,6 +15,7 @@ pub mod links;
 pub mod markdown;
 pub mod mddiff;
 pub mod mr;
+pub mod notice;
 pub mod platform;
 pub mod rank;
 pub mod route;

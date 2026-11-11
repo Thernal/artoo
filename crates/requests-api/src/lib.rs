@@ -138,15 +138,12 @@ pub struct Moved {
     pub drafts: Vec<Option<usize>>,
 }
 
-/// Which notifications the Inbox lists.
+/// Which notifications the Inbox lists (#197): what happened, and whose — none, every one.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
-pub enum InboxFilter {
-    #[default]
-    All,
-    Mentions,
-    /// What your agents answered (#116).
-    Agents,
-    Reviews,
+pub struct InboxFilter {
+    pub why: Option<artoo_core::notice::Why>,
+    /// A source's id (`requests`, `agents`, a plugin's).
+    pub source: Option<&'static str>,
 }
 
 /// A row of the Inbox: a notice from the host, or a note of yours an agent answered (#116), by its comment's id.
@@ -158,9 +155,8 @@ pub enum InboxRow {
     Part(u64),
 }
 
-/// Your notes an agent answered that wait for you (#116): each note's id, when the agent last wrote, and the key that
-/// is read once looked at (a new answer is new again).
-pub type Answers<'a> = &'a [(u64, i64, String)];
+/// Your notes an agent answered that wait for you (#116).
+pub type Answers<'a> = &'a [artoo_core::notice::Answer];
 
 /// How a row of the Inbox looks.
 pub struct RowLook {
@@ -176,6 +172,8 @@ pub struct RowLook {
 pub enum InboxEvent {
     /// A filter chosen: its first row is selected.
     Filter(InboxFilter),
+    /// Every row again: the filters and the text in Filter cleared.
+    ShowAll,
     /// Notice `0`'s row clicked: selected, or opened where the tab is narrow (#80).
     Pick(usize),
     /// Notice `0`'s request opened.
@@ -774,18 +772,19 @@ pub trait Requests {
     /// The discussions of request `number` waiting for its author, as the notifications read them.
     fn waiting_threads(&self, number: u64, cx: &App) -> Vec<Thread>;
 
-    /// What the Inbox lists under its filter, newest first, with the agents' `answers`; the row selected; the row
-    /// after it or before it (j k).
-    fn inbox_rows(&self, answers: Answers, cx: &App) -> Vec<InboxRow>;
+    /// What the Inbox lists under its filters and the text in Filter (`query`), new first, then newest first, with
+    /// the agents' `answers`; the row selected; the row after it or before it (j k).
+    fn inbox_rows(&self, answers: Answers, query: &str, cx: &App) -> Vec<InboxRow>;
     fn inbox_current(&self, answers: Answers, cx: &App) -> Option<InboxRow>;
-    fn inbox_step(&self, answers: Answers, down: bool, cx: &App) -> Option<InboxRow>;
+    fn inbox_step(&self, answers: Answers, query: &str, down: bool, cx: &App) -> Option<InboxRow>;
     /// Row `row` selected (none: the first notice).
     fn inbox_pick(&self, row: Option<InboxRow>, cx: &mut App);
     /// The code the selected notice's discussion is on, read once, in the background.
     fn read_excerpt(&self, cx: &mut App);
     fn set_inbox_filter(&self, filter: InboxFilter, cx: &mut App);
-    /// The Inbox's filters, in its page bar.
-    fn inbox_filters(&self, on: OnInbox, cx: &App) -> AnyElement;
+    /// The Inbox's filters, in its page bar: what happened, and `Source ▾` (#197); `compact` in a narrow window,
+    /// what happened as one menu.
+    fn inbox_filters(&self, on: OnInbox, compact: bool, cx: &App) -> AnyElement;
     /// What the notice selected is answered with: its request, its discussion (none: a comment on the request)
     /// and where that is on the code; none for a review request or a to-do.
     fn inbox_reply_to(&self, cx: &App) -> Option<ReplyTo>;

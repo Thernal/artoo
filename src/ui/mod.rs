@@ -2587,7 +2587,7 @@ impl Workspace {
     /// ⌘F filters a space's list (#72), finds in the open diff, and with none open searches the
     /// commits.
     fn find_action(&mut self, _: &Find, _: &mut Window, cx: &mut Context<Self>) {
-        if self.at_root_list() && !self.settings_open {
+        if (self.at_root_list() || self.at_inbox()) && !self.settings_open {
             self.start_field(lists::Field::Branches, cx);
         } else if self.shown_diff(cx).is_some() && !self.settings_open {
             self.start_dfind(cx);

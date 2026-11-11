@@ -102,12 +102,13 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
                                 .child(div().min_w_0().cut_in_tip().child(agent))
                                 .child(div().flex_none().text_color(theme::agent()).child(verb)),
                         )
+                        // Its source before the time, as every row of the Inbox (#197).
                         .children(wide.then(|| {
                             div()
                                 .flex_none()
                                 .text_size(px(11.))
                                 .text_color(theme::faint())
-                                .child(format::ago(at))
+                                .child(format!("Agents · {}", format::ago(at)))
                         })),
                 )
                 .child(

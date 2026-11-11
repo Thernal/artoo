@@ -1519,6 +1519,7 @@ pub fn parse_notifications(value: &Value, base: &str) -> Vec<Todo> {
                 action: match s(&n["reason"]).as_str() {
                     "mention" | "team_mention" => "mentioned".to_owned(),
                     "review_requested" => "review_requested".to_owned(),
+                    "assign" => "assigned".to_owned(),
                     other => other.to_owned(),
                 },
                 iid: number,

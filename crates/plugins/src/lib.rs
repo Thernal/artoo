@@ -7,6 +7,7 @@ mod crash;
 mod file;
 mod load;
 mod market;
+mod sample;
 mod settings;
 
 use gpui::App;
@@ -16,6 +17,8 @@ use gpui::App;
 /// installs.
 pub fn install(cx: &mut App) {
     let (plugins, crash) = load::load(cx);
+    // A snapshot's sample plugins' notices, offered as a plugin's are (#197).
+    sample::install(cx);
     // The plugins have installed: a source of notices is offered as one installs, never after (#196).
     artoo_shell_api::notices::close(cx);
     settings::install(plugins, crash, cx);

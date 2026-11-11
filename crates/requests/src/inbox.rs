@@ -2,7 +2,7 @@
 //! yours an agent answered (#116) —, what it keeps of the one selected (`InboxView`), and the code a notice's
 //! discussion is on, read from the repository (`excerpt`). The tab draws it for now.
 
-use crate::notices::{Kind, Notices};
+use crate::notices::Notices;
 use crate::requests::Requests;
 use artoo_core::git::{DiffLine, DiffSettings, LineKind, Repo};
 use artoo_requests_api::ReplyTo;
@@ -17,28 +17,244 @@ const BELOW: usize = 2;
 
 pub use artoo_requests_api::{Answers, InboxFilter, InboxRow};
 
-/// Whether `filter` lists a notice of kind `kind`.
-fn lets(filter: InboxFilter, kind: Kind) -> bool {
-    match filter {
-        InboxFilter::All => true,
-        InboxFilter::Mentions => kind == Kind::Mention,
-        InboxFilter::Agents => false,
-        InboxFilter::Reviews => kind == Kind::Review,
+use artoo_shell_api::notices::Why;
+/// The parts' rows (`artoo_shell_api::notices::Listed`).
+pub use artoo_shell_api::notices::{Listed, row_id};
+
+/// A row the Inbox may list, with what its filters read of it (#197).
+struct Item {
+    row: InboxRow,
+    at: i64,
+    /// Its source's id: `requests`, `agents`, a plugin's.
+    source: &'static str,
+    why: Option<Why>,
+    /// Not read yet.
+    fresh: bool,
+    /// What Filter looks in: what happened, what it is about, what was written.
+    text: String,
+}
+
+/// Every row the Inbox may list: the `notices` of a kind whose Inbox is on (#196), the agents' `answers`, the parts'
+/// rows; each under its source and what happened, as its kind was declared.
+fn items(notices: &Notices, answers: Answers, parts: &[Listed], cx: &App) -> Vec<Item> {
+    use artoo_agents_api::notices::{ASKS, DONE};
+    let kind = |id: &str| artoo_shell_api::notices::kind(cx, id);
+    let mut out: Vec<Item> = (notices.list.iter().enumerate())
+        .filter(|(_, n)| n.listed(cx))
+        .map(|(ix, n)| Item {
+            row: InboxRow::Notice(ix),
+            at: n.created,
+            source: SOURCE,
+            why: kind(n.kind.id()).and_then(|(k, _)| k.why),
+            fresh: notices.unread_at(ix),
+            text: format!(
+                "{}\n{} {}\n{}",
+                n.says(),
+                artoo_ui_kit::words::number(n.iid),
+                n.title,
+                n.text
+            ),
+        })
+        .collect();
+    out.extend(answers.iter().map(|a| {
+        let declared = kind(if a.asks { ASKS } else { DONE });
+        Item {
+            row: InboxRow::Agent(a.id),
+            at: a.at,
+            source: declared.as_ref().map_or("agents", |(_, s)| s.id),
+            why: declared.and_then(|(k, _)| k.why),
+            fresh: !notices.is_read(&a.key),
+            text: a.text.clone(),
+        }
+    }));
+    out.extend(parts.iter().filter_map(|r| {
+        let (k, s) = kind(r.kind)?;
+        Some(Item {
+            row: InboxRow::Part(row_id(&r.key)),
+            at: r.at,
+            source: s.id,
+            why: k.why,
+            fresh: !notices.is_read(&r.key),
+            text: format!("{}\n{}\n{}", r.says, r.about, r.text),
+        })
+    }));
+    out
+}
+
+/// The requests' own source of notices (`crate::notices::source`).
+pub const SOURCE: &str = "requests";
+
+/// What the Inbox counts as new (#197): under each of what happened and in all, within the source chosen; in each
+/// source and in all of them, whatever happened.
+#[derive(Default, Debug, PartialEq, Eq)]
+pub struct Counts {
+    pub why: [usize; 4],
+    pub all: usize,
+    pub sources: Vec<(&'static str, usize)>,
+    pub everywhere: usize,
+}
+
+impl Counts {
+    pub fn of(&self, why: Why) -> usize {
+        Why::ALL
+            .iter()
+            .position(|w| *w == why)
+            .map_or(0, |at| self.why[at])
+    }
+
+    pub fn source(&self, id: &str) -> usize {
+        (self.sources.iter())
+            .find(|(s, _)| *s == id)
+            .map_or(0, |(_, n)| *n)
     }
 }
 
-/// Whether `filter` lists the agents' answers.
-fn lets_agents(filter: InboxFilter) -> bool {
-    matches!(filter, InboxFilter::All | InboxFilter::Agents)
+/// A source of the Inbox's rows, as Source ▾ lists it (#197).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceRow {
+    pub id: &'static str,
+    pub name: String,
+    /// Its rows not read yet.
+    pub new: usize,
 }
 
-/// Whether `filter` lists the parts' rows (a plugin's, #196): All, until the filters name sources (#197).
-fn lets_parts(filter: InboxFilter) -> bool {
-    filter == InboxFilter::All
+/// The sources whose kinds wait in the Inbox, in Settings' order, the requests' named by their `host` (`GitLab`).
+pub fn sources(host: Option<&'static str>, counts: &Counts, cx: &App) -> Vec<SourceRow> {
+    (artoo_shell_api::notices::sources(cx).into_iter())
+        .filter(|s| s.kinds.iter().any(|k| k.inbox.is_some()))
+        .map(|s| SourceRow {
+            id: s.id,
+            name: source_name(&s, host),
+            new: counts.source(s.id),
+        })
+        .collect()
 }
 
-/// The parts' rows (`artoo_shell_api::notices::Listed`).
-pub use artoo_shell_api::notices::{Listed, row_id};
+/// A source's name in the Inbox: the requests' is their host's.
+pub fn source_name(
+    source: &artoo_shell_api::notices::Source,
+    host: Option<&'static str>,
+) -> String {
+    match host {
+        Some(host) if source.id == SOURCE => host.to_owned(),
+        _ => source.name.to_owned(),
+    }
+}
+
+/// The rows of Source ▾ its field's `text` leaves: the sources with something new first, then the rest, their
+/// names holding the text; with no text, All sources first (`None`).
+pub fn picked_sources(sources: &[SourceRow], text: &str) -> Vec<Option<&'static str>> {
+    let text = text.trim().to_lowercase();
+    let hit = |s: &&SourceRow| text.is_empty() || s.name.to_lowercase().contains(&text);
+    let all = text.is_empty().then_some(None);
+    let live = sources.iter().filter(hit).filter(|s| s.new > 0);
+    let quiet = sources.iter().filter(hit).filter(|s| s.new == 0);
+    all.into_iter()
+        .chain(live.chain(quiet).map(|s| Some(s.id)))
+        .collect()
+}
+
+/// Source ▾'s field, one of the tab's inputs (`sources_input`).
+pub const SOURCES: &str = "requests.inbox-sources";
+
+/// Source ▾ open (#197): what is typed in its field, its caret, the row the keys point at, and its rows as last drawn
+/// (`picked_sources`), for ↑ ↓ ↵.
+#[derive(Default)]
+pub struct SourcePick {
+    pub text: String,
+    pub area: artoo_ui_kit::input::Area,
+    pub at: usize,
+    pub rows: std::rc::Rc<std::cell::RefCell<Vec<Option<&'static str>>>>,
+}
+
+/// Source ▾'s field as the tab's input: typing narrows its list, ↑ ↓ move along it, ↵ picks — the first row of that
+/// source selected, as a click does —, esc closes it; it closes as the keyboard leaves.
+pub fn sources_input(
+    view: Entity<InboxView>,
+    services: std::rc::Weak<artoo_shell_api::Services>,
+) -> artoo_shell_api::Input {
+    use artoo_shell_api::{Input, Typed};
+    let (open, key, left, selected) = (
+        view.downgrade(),
+        view.downgrade(),
+        view.downgrade(),
+        view.downgrade(),
+    );
+    Input {
+        id: SOURCES,
+        open: std::rc::Rc::new(move |cx| {
+            open.upgrade().is_some_and(|v| v.read(cx).sources.is_some())
+        }),
+        key: std::rc::Rc::new(move |event, _, cx| {
+            let Some(view) = key.upgrade() else {
+                return Typed::Kept;
+            };
+            let picked = view.update(cx, |v, cx| {
+                let shown = v.filter;
+                let pick = v.sources.as_mut()?;
+                let rows = pick.rows.borrow().clone();
+                cx.notify();
+                match event.keystroke.key.as_str() {
+                    "down" => pick.at = (pick.at + 1).min(rows.len().saturating_sub(1)),
+                    "up" => pick.at = pick.at.saturating_sub(1),
+                    _ => match artoo_ui_kit::input::edit(
+                        &mut pick.text,
+                        &mut pick.area.edit,
+                        &event.keystroke,
+                        cx,
+                    ) {
+                        artoo_ui_kit::input::Edit::Changed => pick.at = 0,
+                        artoo_ui_kit::input::Edit::Enter { .. } => {
+                            let source = *rows.get(pick.at)?;
+                            v.sources = None;
+                            return Some(Some(InboxFilter { source, ..shown }));
+                        }
+                        artoo_ui_kit::input::Edit::Escape => {
+                            v.sources = None;
+                            return Some(None);
+                        }
+                        _ => {}
+                    },
+                }
+                None
+            });
+            match picked {
+                Some(Some(filter)) => {
+                    // Picked: the tab selects its first row once its own update is over.
+                    let host = (services.upgrade())
+                        .and_then(|s| s.get::<std::rc::Rc<dyn artoo_requests_api::InboxHost>>());
+                    if let Some(host) = host {
+                        cx.defer(move |cx| {
+                            host.act(artoo_requests_api::InboxEvent::Filter(filter), cx)
+                        });
+                    }
+                    Typed::Leave
+                }
+                Some(None) => Typed::Leave,
+                None => Typed::Kept,
+            }
+        }),
+        left: std::rc::Rc::new(move |cx| {
+            left.update(cx, |v, cx| {
+                if v.sources.take().is_some() {
+                    cx.notify();
+                }
+            })
+            .ok();
+        }),
+        selected: std::rc::Rc::new(move |cx| {
+            let v = selected.upgrade()?;
+            let v = v.read(cx);
+            v.sources
+                .as_ref()?
+                .area
+                .edit
+                .selected_text()
+                .map(str::to_owned)
+        }),
+        caret: std::rc::Rc::new(|_| true),
+    }
+}
 
 /// What the Inbox keeps of the notice selected and the code read for it.
 #[derive(Default)]
@@ -55,38 +271,86 @@ pub struct InboxView {
     pub agent: Option<u64>,
     /// A part's row selected, by its key's id (#196).
     pub part: Option<u64>,
+    /// The row picked while it was new: it stays under New, read, until another is picked, so a click moves nothing.
+    pub kept: Option<InboxRow>,
+    /// Source ▾, while it is open, and where it was drawn: its list opens under it.
+    pub sources: Option<SourcePick>,
+    pub source_at: std::rc::Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
+    /// The tab's frame: Source ▾ takes the keyboard through it, and the filters' menu opens on it.
+    pub frame: Option<std::rc::Weak<dyn artoo_shell_api::Frame>>,
 }
 
 impl InboxView {
-    /// What the Inbox lists under its filter, newest first: the `notices` of a kind it lists (#196), and the agents'
-    /// `answers`.
+    /// What the Inbox lists under its filters and the text in Filter (`query`): new first, then read, each newest
+    /// first.
     pub fn rows(
         &self,
         notices: &Notices,
         answers: Answers,
         parts: &[Listed],
+        query: &str,
         cx: &App,
     ) -> Vec<InboxRow> {
-        let filter = self.filter;
-        let mut rows: Vec<(i64, InboxRow)> = notices
-            .list
-            .iter()
-            .enumerate()
-            .filter(|(_, n)| lets(filter, n.kind) && n.listed(cx))
-            .map(|(ix, n)| (n.created, InboxRow::Notice(ix)))
+        let InboxFilter { why, source } = self.filter;
+        let query = query.trim().to_lowercase();
+        let mut rows: Vec<(bool, i64, InboxRow)> = items(notices, answers, parts, cx)
+            .into_iter()
+            .filter(|i| why.is_none_or(|w| i.why == Some(w)))
+            .filter(|i| source.is_none_or(|s| i.source == s))
+            .filter(|i| query.is_empty() || i.text.to_lowercase().contains(&query))
+            .map(|i| (!(i.fresh || self.kept == Some(i.row)), i.at, i.row))
             .collect();
-        if lets_agents(filter) {
-            rows.extend(
-                answers
-                    .iter()
-                    .map(|(id, at, _)| (*at, InboxRow::Agent(*id))),
-            );
+        rows.sort_by_key(|(read, at, _)| (*read, std::cmp::Reverse(*at)));
+        rows.into_iter().map(|(_, _, row)| row).collect()
+    }
+
+    /// Whether `row` is listed under New: not read, or picked while it was.
+    pub fn is_new(
+        &self,
+        row: InboxRow,
+        notices: &Notices,
+        answers: Answers,
+        parts: &[Listed],
+    ) -> bool {
+        self.kept == Some(row)
+            || match row {
+                InboxRow::Notice(ix) => notices.unread_at(ix),
+                InboxRow::Agent(id) => {
+                    (answers.iter()).any(|a| a.id == id && !notices.is_read(&a.key))
+                }
+                InboxRow::Part(id) => {
+                    (parts.iter()).any(|r| row_id(&r.key) == id && !notices.is_read(&r.key))
+                }
+            }
+    }
+
+    /// What is new, under each filter (`Counts`).
+    pub fn counts(
+        &self,
+        notices: &Notices,
+        answers: Answers,
+        parts: &[Listed],
+        cx: &App,
+    ) -> Counts {
+        let mut counts = Counts::default();
+        for i in items(notices, answers, parts, cx)
+            .into_iter()
+            .filter(|i| i.fresh)
+        {
+            counts.everywhere += 1;
+            match counts.sources.iter_mut().find(|(s, _)| *s == i.source) {
+                Some((_, n)) => *n += 1,
+                None => counts.sources.push((i.source, 1)),
+            }
+            if self.filter.source.is_some_and(|s| s != i.source) {
+                continue;
+            }
+            counts.all += 1;
+            if let Some(at) = i.why.and_then(|w| Why::ALL.iter().position(|o| *o == w)) {
+                counts.why[at] += 1;
+            }
         }
-        if lets_parts(filter) {
-            rows.extend(parts.iter().map(|r| (r.at, InboxRow::Part(row_id(&r.key)))));
-        }
-        rows.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
-        rows.into_iter().map(|(_, row)| row).collect()
+        counts
     }
 
     /// The selected row: an agent's answer while it waits for you, else the notice — the first listed when the one
@@ -105,7 +369,7 @@ impl InboxView {
             return Some(InboxRow::Part(id));
         }
         match self.agent {
-            Some(id) if answers.iter().any(|(i, ..)| *i == id) => Some(InboxRow::Agent(id)),
+            Some(id) if answers.iter().any(|a| a.id == id) => Some(InboxRow::Agent(id)),
             _ => match notices.list.get(notices.at) {
                 Some(n) if n.listed(cx) => Some(InboxRow::Notice(notices.at)),
                 _ => (notices.list.iter().position(|n| n.listed(cx)))
@@ -121,10 +385,11 @@ impl InboxView {
         notices: &Notices,
         answers: Answers,
         parts: &[Listed],
+        query: &str,
         down: bool,
         cx: &App,
     ) -> Option<InboxRow> {
-        let rows = self.rows(notices, answers, parts, cx);
+        let rows = self.rows(notices, answers, parts, query, cx);
         if rows.is_empty() {
             return None;
         }
@@ -343,9 +608,11 @@ mod tests {
         assert_eq!(position(&lines, Some(9), None), None);
     }
 
-    #[test]
-    fn the_rows_are_newest_first_and_a_step_stops_at_the_ends() {
-        let notice = |created: i64, kind: Kind| crate::notices::Notice {
+    use crate::notices::{Kind, Notice};
+    use artoo_core::notice::Answer;
+
+    fn notice(created: i64, kind: Kind) -> Notice {
+        Notice {
             key: format!("todo:{created}"),
             kind,
             iid: 1,
@@ -356,14 +623,28 @@ mod tests {
             note: None,
             todo: None,
             resolved: None,
-        };
+        }
+    }
+
+    fn answer(id: u64, at: i64, asks: bool, text: &str) -> Answer {
+        Answer {
+            id,
+            at,
+            key: format!("agent:{id}:1"),
+            asks,
+            text: text.into(),
+        }
+    }
+
+    #[test]
+    fn the_rows_are_newest_first_and_a_step_stops_at_the_ends() {
         let mut notices = Notices::default();
         notices.list = vec![notice(30, Kind::Review), notice(10, Kind::Mention)];
-        let answers = [(7, 20, "agent:7:1".to_owned())];
+        let answers = [answer(7, 20, true, "")];
         let mut view = InboxView::default();
         gpui::TestAppContext::single().update(|cx| {
             artoo_shell_api::notices::add_source(cx, crate::notices::source());
-            let rows = view.rows(&notices, &answers, &[], cx);
+            let rows = view.rows(&notices, &answers, &[], "", cx);
             assert_eq!(
                 rows,
                 [InboxRow::Notice(0), InboxRow::Agent(7), InboxRow::Notice(1)]
@@ -373,12 +654,12 @@ mod tests {
                 Some(InboxRow::Notice(0))
             );
             assert_eq!(
-                view.step(&notices, &answers, &[], false, cx),
+                view.step(&notices, &answers, &[], "", false, cx),
                 Some(InboxRow::Notice(0))
             );
             view.agent = Some(7);
             assert_eq!(
-                view.step(&notices, &answers, &[], true, cx),
+                view.step(&notices, &answers, &[], "", true, cx),
                 Some(InboxRow::Notice(1))
             );
             // An answer no longer waiting is not selected.
@@ -386,18 +667,18 @@ mod tests {
                 view.current(&notices, &[], &[], cx),
                 Some(InboxRow::Notice(0))
             );
-            view.filter = InboxFilter::Mentions;
+            view.filter.why = Some(Why::Mentions);
             assert_eq!(
-                view.rows(&notices, &answers, &[], cx),
+                view.rows(&notices, &answers, &[], "", cx),
                 [InboxRow::Notice(1)]
             );
             // Review requests turned off in the Inbox (#196): neither listed nor selected.
-            view.filter = InboxFilter::All;
+            view.filter = InboxFilter::default();
             view.agent = None;
             let off = artoo_shell_api::notices::Channel::Inbox;
             artoo_shell_api::notices::set(cx, "requests.review", off, false);
             assert_eq!(
-                view.rows(&notices, &answers, &[], cx),
+                view.rows(&notices, &answers, &[], "", cx),
                 [InboxRow::Agent(7), InboxRow::Notice(1)]
             );
             assert_eq!(
@@ -406,6 +687,103 @@ mod tests {
             );
             assert_eq!(notices.unread(cx), 1);
         });
+    }
+
+    #[test]
+    fn new_rows_come_first_and_the_filters_count_what_is_new() {
+        let mut notices = Notices::default();
+        notices.list = vec![
+            notice(50, Kind::Mention),
+            notice(40, Kind::Failed),
+            notice(30, Kind::Review),
+            notice(20, Kind::Failed),
+        ];
+        // The newest is read: it goes under Read, below every new row.
+        notices.mark_read("todo:50".into());
+        let answers = [answer(7, 35, true, "Which rounding mode?")];
+        let mut view = InboxView::default();
+        gpui::TestAppContext::single().update(|cx| {
+            artoo_shell_api::notices::add_source(cx, crate::notices::source());
+            assert_eq!(
+                view.rows(&notices, &answers, &[], "", cx),
+                [
+                    InboxRow::Notice(1),
+                    InboxRow::Agent(7),
+                    InboxRow::Notice(2),
+                    InboxRow::Notice(3),
+                    InboxRow::Notice(0),
+                ]
+            );
+            let counts = view.counts(&notices, &answers, &[], cx);
+            assert_eq!(counts.all, 4);
+            assert_eq!(counts.of(Why::Failures), 2);
+            assert_eq!(counts.of(Why::Reviews), 1);
+            assert_eq!(counts.of(Why::Mentions), 0);
+            assert_eq!(counts.source(SOURCE), 3);
+            assert_eq!(counts.source("agents"), 1);
+            assert_eq!(counts.everywhere, 4);
+            // A source chosen: the kinds count within it, the sources still each their own.
+            view.filter.source = Some("agents");
+            let counts = view.counts(&notices, &answers, &[], cx);
+            assert_eq!((counts.all, counts.of(Why::Failures)), (1, 0));
+            assert_eq!((counts.source(SOURCE), counts.everywhere), (3, 4));
+            assert_eq!(
+                view.rows(&notices, &answers, &[], "", cx),
+                [InboxRow::Agent(7)]
+            );
+            // Picked while new, a row stays under New once read.
+            view.filter = InboxFilter::default();
+            notices.mark_read("todo:40".into());
+            view.kept = Some(InboxRow::Notice(1));
+            assert_eq!(
+                view.rows(&notices, &answers, &[], "", cx)[0],
+                InboxRow::Notice(1)
+            );
+            assert!(view.is_new(InboxRow::Notice(1), &notices, &answers, &[]));
+        });
+    }
+
+    #[test]
+    fn filter_looks_in_what_happened_and_what_was_written() {
+        let mut notices = Notices::default();
+        let mut refund = notice(30, Kind::Mention);
+        refund.who = "Kestrel Okafor".into();
+        refund.title = "Refund rounds down".into();
+        notices.list = vec![refund, notice(20, Kind::Failed)];
+        let answers = [answer(7, 10, false, "Rounded half-even now")];
+        let view = InboxView::default();
+        gpui::TestAppContext::single().update(|cx| {
+            artoo_shell_api::notices::add_source(cx, crate::notices::source());
+            let rows = |q: &str| view.rows(&notices, &answers, &[], q, cx);
+            assert_eq!(rows("kestrel"), [InboxRow::Notice(0)]);
+            assert_eq!(rows(" REFUND "), [InboxRow::Notice(0)]);
+            assert_eq!(rows("pipeline failed"), [InboxRow::Notice(1)]);
+            assert_eq!(rows("half-even"), [InboxRow::Agent(7)]);
+            assert!(rows("nothing like it").is_empty());
+        });
+    }
+
+    #[test]
+    fn source_lists_what_has_news_first_and_narrows_by_name() {
+        let row = |id, name: &str, new| SourceRow {
+            id,
+            name: name.into(),
+            new,
+        };
+        let sources = [
+            row("requests", "GitLab", 2),
+            row("sentry", "Sentry", 0),
+            row("agents", "Agents", 1),
+        ];
+        assert_eq!(
+            picked_sources(&sources, ""),
+            [None, Some("requests"), Some("agents"), Some("sentry")]
+        );
+        assert_eq!(
+            picked_sources(&sources, "en"),
+            [Some("agents"), Some("sentry")]
+        );
+        assert!(picked_sources(&sources, "jira").is_empty());
     }
 
     #[test]

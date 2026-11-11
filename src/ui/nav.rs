@@ -438,6 +438,11 @@ impl Workspace {
         self.screen() == artoo_shell_api::Screen::List
     }
 
+    /// At the Inbox's list: its Filter in the bar, as a list's (#197).
+    pub(super) fn at_inbox(&self) -> bool {
+        self.nav.space == INBOX && self.nav_page().is_none()
+    }
+
     /// What is loaded, as a page of Branches or Merge requests (`History::loaded_route`).
     pub(super) fn loaded_page(&self, cx: &App) -> Option<Route> {
         self.branches()?

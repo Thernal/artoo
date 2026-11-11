@@ -168,11 +168,14 @@ fn inbox_parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
         return Parts::default();
     };
     let goes = frame.clone();
+    // Source ▾ takes the keyboard and opens its menus through the frame (#197).
+    view.update(cx, |v, _| v.frame = Some(Rc::downgrade(&frame)));
     Parts {
         actions: vec![(
             Box::new(GoToInbox),
             Rc::new(move |_, cx| goes.go_space(artoo_requests_api::INBOX, cx)),
         )],
+        inputs: vec![inbox::sources_input(view.clone(), Rc::downgrade(&services))],
         pages: Some(inbox_page::pages(notices, view, requests, frame, cx)),
         ..Default::default()
     }

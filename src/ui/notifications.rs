@@ -63,11 +63,7 @@ impl Workspace {
 
     /// Everything listed counts as read.
     pub(super) fn read_all_notices(&mut self, cx: &mut Context<Self>) {
-        let agents = self
-            .agents
-            .inbox_answers(cx)
-            .into_iter()
-            .map(|(_, _, key)| key);
+        let agents = self.agents.inbox_answers(cx).into_iter().map(|a| a.key);
         // The parts' rows too (a plugin's, #196).
         let parts = artoo_shell_api::notices::Listers::of(&self.services)
             .rows(cx)

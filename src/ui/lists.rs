@@ -102,6 +102,14 @@ impl Workspace {
             self.step_pick(event.keystroke.key == "down", cx);
             return true;
         }
+        // The Inbox's too, its rows (#197).
+        if field == Field::Branches
+            && self.at_inbox()
+            && matches!(event.keystroke.key.as_str(), "up" | "down")
+        {
+            self.inbox_step(event.keystroke.key == "down", cx);
+            return true;
+        }
         // Typed, the keyboard filter matches by words again.
         if field == Field::Keys {
             self.keys_exact = false;
@@ -119,6 +127,11 @@ impl Workspace {
                 self.open_pick(cx);
                 return true;
             }
+            Edit::Enter { .. } if field == Field::Branches && self.at_inbox() => {
+                self.inbox_open(cx);
+                return true;
+            }
+            Edit::Changed if field == Field::Branches && self.at_inbox() => self.inbox_refilter(cx),
             Edit::Changed | Edit::Selected | Edit::Enter { .. } | Edit::Ignored => {}
         }
         cx.notify();

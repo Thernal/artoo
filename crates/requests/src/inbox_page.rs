@@ -1,23 +1,23 @@
 //! The Inbox, a place of the menu (#49), as the requests' page (Design L4, STYLE.md: "notifications listed, the
-//! selected one previewed and answerable"): the notifications on the left under Today and Earlier, the one selected
-//! on the right (`inbox_view`), a banner over them while the host cannot be read (#72). Among them your notes an
+//! selected one previewed and answerable"): the notifications on the left under New and Read (#197), each naming its
+//! source, the one selected on the right (`inbox_view`), a banner over them while the host cannot be read (#72);
+//! Source ▾'s list over it while open. Among them your notes an
 //! agent answered (#116): which they are the agents say (`Agents::inbox_answers`, in the tab's services); their rows
 //! and previews, the composer and the answers to the clicks come through the tab's `InboxHost`.
 
 use crate::inbox::{InboxRow, InboxView};
-use crate::inbox_view::{
-    self, NoticeLook, OnInbox, RowLook, foot_keys, notice_preview, notice_row,
-};
+use crate::inbox_view::{self, NoticeLook, OnInbox, RowLook, notice_preview, notice_row};
 use crate::list;
 use crate::notices::Notices;
 use crate::requests::{Acts, Requests};
-use artoo_agents_api::comment::State;
 use artoo_agents_api::tab::Agents;
 use artoo_shell_api::{Frame, Pages, Screen};
-use artoo_ui_kit::format::{self, now};
 use artoo_ui_kit::room::Widths;
 use artoo_ui_kit::{gap, island, px, theme};
-use gpui::{AnyElement, App, Context, Entity, Render, Window, div, prelude::*};
+use gpui::{
+    AnyElement, App, Context, Entity, MouseButton, Render, Window, anchored, deferred, div, point,
+    prelude::*,
+};
 use std::rc::Rc;
 
 pub use artoo_requests_api::InboxHost;
@@ -77,7 +77,7 @@ pub fn pages(
 }
 
 impl Render for InboxPage {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // A column: the page is stretched across to its width, whatever its content's least width.
         div()
             .flex_1()
@@ -86,6 +86,7 @@ impl Render for InboxPage {
             .flex()
             .flex_col()
             .child(self.page(cx))
+            .children(self.sources(window, cx))
     }
 }
 
@@ -111,7 +112,9 @@ impl InboxPage {
             .unwrap_or_default();
         let parts = artoo_shell_api::notices::Listers::of(&services).rows(cx);
         let (notices, view) = (self.notices.read(cx), self.view.read(cx));
-        let rows = view.rows(notices, &answers, &parts, cx);
+        // The text in the bar's Filter (#197).
+        let query = self.frame.filter(cx);
+        let rows = view.rows(notices, &answers, &parts, &query, cx);
         // Nothing listed because a read failed is never "nothing" (#185): the banner says why.
         let failed = if self.requests.read(cx).error.is_some() {
             Some("Couldn't read the merge requests")
@@ -124,7 +127,12 @@ impl InboxPage {
             inbox_view::failed(failed)
         } else if rows.is_empty() {
             let others = !notices.list.is_empty() || !answers.is_empty() || !parts.is_empty();
-            inbox_view::empty(view.filter, others, &on)
+            let source = (view.filter.source)
+                .and_then(|id| {
+                    (artoo_shell_api::notices::sources(cx).into_iter()).find(|s| s.id == id)
+                })
+                .map(|s| crate::inbox::source_name(&s, self.host(cx)));
+            inbox_view::empty(view.filter, source.as_deref(), &query, others, &on)
         } else {
             self.panes(&rows, &answers, &parts, &host, &on, handle, cx)
         };
@@ -139,11 +147,67 @@ impl InboxPage {
             .into_any_element()
     }
 
-    /// The agent says it is done with your note `id`: E resolves it.
-    fn agent_done(&self, id: u64, cx: &App) -> bool {
-        (self.frame.services().get::<Rc<dyn Agents>>()).is_some_and(|a| {
-            (a.comments(cx).iter()).any(|c| c.id == id && c.state == State::Addressed)
-        })
+    /// The host's name, the requests' notices' source: `GitLab`.
+    fn host(&self, cx: &App) -> Option<&'static str> {
+        self.requests.read(cx).web.as_ref().map(|w| w.name())
+    }
+
+    /// Source ▾'s list while it is open, under it (#197), over a backdrop a press on closes it.
+    fn sources(&self, window: &Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let services = self.frame.services();
+        let Some(host) = services.get::<Rc<dyn InboxHost>>() else {
+            return Vec::new();
+        };
+        let cx: &App = cx;
+        let view = self.view.read(cx);
+        let (Some(pick), Some(at)) = (view.sources.as_ref(), view.source_at.get()) else {
+            return Vec::new();
+        };
+        let on: OnInbox = Rc::new(move |event, cx| host.act(event, cx));
+        let answers = (services.get::<Rc<dyn Agents>>())
+            .map(|a| a.inbox_answers(cx))
+            .unwrap_or_default();
+        let parts = artoo_shell_api::notices::Listers::of(&services).rows(cx);
+        let counts = view.counts(self.notices.read(cx), &answers, &parts, cx);
+        let sources = crate::inbox::sources(self.host(cx), &counts, cx);
+        let card = inbox_view::source_picker(
+            &self.view,
+            pick,
+            &sources,
+            view.filter,
+            counts.everywhere,
+            &on,
+        );
+        let size = window.viewport_size();
+        let close = self.view.clone();
+        vec![
+            deferred(
+                anchored()
+                    .position(point(gpui::px(0.), gpui::px(0.)))
+                    .child(
+                        div()
+                            .id("inbox-sources-backdrop")
+                            .w(size.width)
+                            .h(size.height)
+                            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                                inbox_view::close_sources(&close, cx)
+                            }),
+                    ),
+            )
+            .into_any_element(),
+            deferred(
+                anchored()
+                    .position(point(at.left(), at.bottom() + px(4.)))
+                    .snap_to_window_with_margin(px(8.))
+                    .child(artoo_shell_api::input_box(
+                        div().occlude().child(card),
+                        crate::inbox::SOURCES,
+                        &self.frame,
+                    )),
+            )
+            .with_priority(1)
+            .into_any_element(),
+        ]
     }
 
     /// The list, and the row selected previewed and answerable.
@@ -151,7 +215,7 @@ impl InboxPage {
     fn panes(
         &self,
         rows: &[InboxRow],
-        answers: &[(u64, i64, String)],
+        answers: &[artoo_core::notice::Answer],
         parts: &[artoo_shell_api::notices::Listed],
         host: &Rc<dyn InboxHost>,
         on: &OnInbox,
@@ -167,26 +231,22 @@ impl InboxPage {
             artoo_shell_api::notices::kind(cx, r.kind).map_or("", |(_, s)| s.name)
         };
         let wide = self.widths.room("inbox").second();
-        let today = format::date(now());
+        // The requests' notices' source is their host (`GitLab`).
+        let named = self.host(cx).unwrap_or("Merge requests");
         let mut list: Vec<AnyElement> = Vec::new();
+        // New first, then Read (#197): the rows come grouped.
+        let new = |row: InboxRow| view.is_new(row, notices, answers, parts);
+        let news = rows.iter().filter(|&&r| new(r)).count();
         let mut group = None;
         for &row in rows {
-            let at = match row {
-                InboxRow::Notice(ix) => notices.list[ix].created,
-                InboxRow::Agent(id) => answers
-                    .iter()
-                    .find(|(i, ..)| *i == id)
-                    .map_or(0, |(_, at, _)| *at),
-                InboxRow::Part(id) => part(id).map_or(0, |r| r.at),
-            };
-            let heading = if format::date(at) == today {
-                "Today"
-            } else {
-                "Earlier"
-            };
-            if group != Some(heading) {
-                group = Some(heading);
-                list.push(inbox_view::heading(heading));
+            let fresh_group = new(row);
+            if group != Some(fresh_group) {
+                group = Some(fresh_group);
+                list.push(inbox_view::heading(if fresh_group {
+                    format!("New {news}")
+                } else {
+                    "Read".to_owned()
+                }));
             }
             let picked = current == Some(row);
             list.push(match row {
@@ -196,13 +256,11 @@ impl InboxPage {
                         on: picked,
                         wide,
                     };
-                    notice_row(&notices.list[ix], ix, look, on).into_any_element()
+                    notice_row(&notices.list[ix], ix, named, look, on).into_any_element()
                 }
                 InboxRow::Agent(id) => {
                     let look = RowLook {
-                        fresh: answers
-                            .iter()
-                            .any(|(i, _, key)| *i == id && !notices.is_read(key)),
+                        fresh: (answers.iter()).any(|a| a.id == id && !notices.is_read(&a.key)),
                         on: picked,
                         wide,
                     };
@@ -256,10 +314,6 @@ impl InboxPage {
                     .into_any_element()
             });
         let narrow = handle.is_none();
-        let agent = match current {
-            Some(InboxRow::Agent(id)) => Some(self.agent_done(id, cx)),
-            _ => None,
-        };
         div()
             .flex_1()
             .min_h_0()
@@ -286,19 +340,14 @@ impl InboxPage {
             // the list, kept for every list page (the developer, 2026-10-23); a double click sets it back.
             .children(handle)
             .children((!narrow).then(|| {
-                island()
-                    .flex_1()
-                    .min_w_0()
-                    .bg(theme::editor())
-                    .child(
-                        div()
-                            .id("inbox-preview")
-                            .flex_1()
-                            .min_h_0()
-                            .overflow_y_scroll()
-                            .child(preview),
-                    )
-                    .child(foot_keys(agent, matches!(current, Some(InboxRow::Part(_)))))
+                island().flex_1().min_w_0().bg(theme::editor()).child(
+                    div()
+                        .id("inbox-preview")
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scroll()
+                        .child(preview),
+                )
             }))
             .into_any_element()
     }

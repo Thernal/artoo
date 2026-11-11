@@ -291,19 +291,27 @@ impl AgentComments {
         &self,
         alive: &dyn Fn(&str) -> bool,
         lists: &dyn Fn(&str) -> bool,
-    ) -> Vec<(u64, i64, String)> {
+    ) -> Vec<artoo_core::notice::Answer> {
         use artoo_agents_api::notices::{ASKS, DONE};
         (self.list.iter())
             .filter(|c| !c.archived)
-            .filter(|c| match kind_of(c, alive) {
-                Kind::Asks => lists(ASKS),
-                Kind::Addressed => lists(DONE),
-                Kind::Draft => c.answer.is_some() && !c.replies.is_empty() && lists(ASKS),
-                _ => false,
-            })
             .filter_map(|c| {
-                let at = c.replies.last()?.at;
-                Some((c.id, at, format!("agent:{}:{}", c.id, c.replies.len())))
+                let asks = match kind_of(c, alive) {
+                    Kind::Asks => lists(ASKS).then_some(true),
+                    Kind::Addressed => lists(DONE).then_some(false),
+                    Kind::Draft => {
+                        (c.answer.is_some() && !c.replies.is_empty() && lists(ASKS)).then_some(true)
+                    }
+                    _ => None,
+                }?;
+                let last = c.replies.last()?;
+                Some(artoo_core::notice::Answer {
+                    id: c.id,
+                    at: last.at,
+                    key: format!("agent:{}:{}", c.id, c.replies.len()),
+                    asks,
+                    text: format!("{}\n{}", c.body, last.body),
+                })
             })
             .collect()
     }
@@ -498,10 +506,17 @@ mod tests {
         c.list[0].replies[0].at = 40;
         let listening = |_: &str| true;
         let all = |_: &str| true;
+        let answers = c.inbox_answers(&listening, &all);
         assert_eq!(
-            c.inbox_answers(&listening, &all),
-            [(7, 40, "agent:7:1".to_owned())]
+            (
+                answers.len(),
+                answers[0].id,
+                answers[0].at,
+                answers[0].key.as_str()
+            ),
+            (1, 7, 40, "agent:7:1")
         );
+        assert!(answers[0].asks, "it asks you: Asks you's (#197)");
         assert!(c.pick(7, Some(0)), "its answer picked: a draft again");
         assert_eq!(
             c.inbox_answers(&listening, &all).len(),
@@ -510,8 +525,12 @@ mod tests {
         );
         c.list[0].state = State::Addressed;
         c.list[0].replies.push(Default::default());
+        assert!(
+            !c.inbox_answers(&listening, &all)[0].asks,
+            "done: no longer asks"
+        );
         assert_eq!(
-            c.inbox_answers(&listening, &all)[0].2,
+            c.inbox_answers(&listening, &all)[0].key,
             "agent:7:2",
             "a new answer is new again"
         );

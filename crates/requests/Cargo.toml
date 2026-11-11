@@ -25,5 +25,7 @@ git2.workspace = true
 gpui.workspace = true
 
 [dev-dependencies]
+# A test writes none of the user's files: a choice of notices, the notices read (`platform::sandboxed`).
+artoo-core = { path = "../core", features = ["sandbox"] }
 # A test app the kinds of notice are offered in (`inbox`).
 gpui = { workspace = true, features = ["test-support"] }

@@ -6,6 +6,12 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **The Inbox says what happened, and from where.** Its filters are what happened — `All 7 · Mentions 1 · Review
+  requests 1 · Asks you 1 · Failures 3` — whichever source it came from, and `Source: All ▾` lists every source, a
+  plugin's too, each with what is new in it; type to find one. Each row names its source before its time
+  (`GitLab · 6 min ago`), a failed pipeline reads `Pipeline failed` and an assignment `Juniper Hale assigned you`
+  instead of both "has a to-do for you", and a row from GitHub no longer starts with a blank. New rows come first under
+  `New 7`, then `Read`. ⌘F filters the Inbox by its words.
 - **Nothing in a narrow window is cut off.** At 700 px the title bar keeps its search and its gear, its fetch status
   shortened to `Fetch failed · Retry`; what the page bar has no room for goes into its `⋯` — Merge, Open in GitLab,
   Copy link —, and `Approve 1/2` drops its key. Split is marked only while the diff is split: a diff under 700 px is

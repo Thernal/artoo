@@ -294,7 +294,7 @@ impl Agents for TabAgents {
             .detach();
     }
 
-    fn inbox_answers(&self, cx: &App) -> Vec<(u64, i64, String)> {
+    fn inbox_answers(&self, cx: &App) -> Vec<artoo_core::notice::Answer> {
         let on = self.chats.read(cx).listening();
         let lists = |kind: &str| {
             artoo_shell_api::notices::is_on(cx, kind, artoo_shell_api::notices::Channel::Inbox)

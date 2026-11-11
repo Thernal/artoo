@@ -21,7 +21,7 @@ impl Workspace {
     pub(super) fn inbox_rows(&self, cx: &App) -> Vec<InboxRow> {
         let answers = self.agents.inbox_answers(cx);
         self.requests_api()
-            .map(|r| r.inbox_rows(&answers, cx))
+            .map(|r| r.inbox_rows(&answers, &self.bfilter, cx))
             .unwrap_or_default()
     }
 
@@ -69,7 +69,7 @@ impl Workspace {
         let answers = self.agents.inbox_answers(cx);
         let next = self
             .requests_api()
-            .and_then(|r| r.inbox_step(&answers, down, cx));
+            .and_then(|r| r.inbox_step(&answers, &self.bfilter, down, cx));
         if let Some(next) = next {
             self.inbox_select(next, cx);
         }
@@ -88,13 +88,8 @@ impl Workspace {
             InboxRow::Notice(_) => requests.read_excerpt(cx),
             InboxRow::Agent(id) => {
                 // Looked at: read, until the agent writes again.
-                if let Some((_, _, key)) = self
-                    .agents
-                    .inbox_answers(cx)
-                    .into_iter()
-                    .find(|(i, ..)| *i == id)
-                {
-                    requests.mark_read(key, cx);
+                if let Some(a) = (self.agents.inbox_answers(cx).into_iter()).find(|a| a.id == id) {
+                    requests.mark_read(a.key, cx);
                 }
             }
             // A part's row is read as the requests pick it (#196).
@@ -218,12 +213,37 @@ impl Workspace {
         self.send_change(iid, change, Self::say_refused, cx);
     }
 
+    /// The first row listed selected, when the one selected is no longer listed (a filter changed, #197).
+    pub(super) fn inbox_refilter(&mut self, cx: &mut Context<Self>) {
+        let rows = self.inbox_rows(cx);
+        if self.inbox_current(cx).is_some_and(|r| rows.contains(&r)) {
+            return;
+        }
+        if let Some(&first) = rows.first() {
+            self.inbox_select(first, cx);
+        }
+    }
+
     /// A click in the Inbox (`InboxHost::act`).
     fn inbox_act(&mut self, event: InboxEvent, cx: &mut Context<Self>) {
         match event {
             InboxEvent::Filter(f) => {
                 if let Some(requests) = self.requests_api() {
                     requests.set_inbox_filter(f, cx);
+                }
+                if let Some(&first) = self.inbox_rows(cx).first() {
+                    self.inbox_select(first, cx);
+                }
+                cx.notify();
+            }
+            // Every row again: no kind, no source, nothing typed in Filter.
+            InboxEvent::ShowAll => {
+                if let Some(requests) = self.requests_api() {
+                    requests.set_inbox_filter(Default::default(), cx);
+                }
+                self.bfilter.clear();
+                if self.field == Some(super::lists::Field::Branches) {
+                    self.leave_input(cx);
                 }
                 if let Some(&first) = self.inbox_rows(cx).first() {
                     self.inbox_select(first, cx);
@@ -262,7 +282,7 @@ impl Workspace {
             this.update(cx, |this, cx| this.inbox_act(event, cx)).ok();
         });
         self.requests_api()
-            .map(|r| r.inbox_filters(on, cx))
+            .map(|r| r.inbox_filters(on, self.compact(), cx))
             .unwrap_or_else(|| div().into_any_element())
     }
 

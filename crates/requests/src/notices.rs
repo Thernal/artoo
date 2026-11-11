@@ -27,7 +27,11 @@ const MOST_REQUESTS: usize = 40;
 pub enum Kind {
     Mention,
     Review,
-    /// Another to-do (assigned, approval required, …).
+    /// Assigned to you (GitLab's `assigned`, GitHub's `assign`).
+    Assigned,
+    /// Your approval asked (GitLab's `approval_required`).
+    Approval,
+    /// Another to-do.
     Todo,
     /// A comment in a discussion the user wrote in.
     Reply,
@@ -46,6 +50,8 @@ impl Kind {
         match self {
             Kind::Mention => "mentioned you",
             Kind::Review => "asked for your review",
+            Kind::Assigned => "assigned you",
+            Kind::Approval => "asked for your approval",
             Kind::Todo => "has a to-do for you",
             Kind::Reply => "replied",
             Kind::OnYours => "commented on your request",
@@ -64,7 +70,23 @@ impl Kind {
             Kind::Reply | Kind::OnYours => COMMENT,
             Kind::Resolved => RESOLVED,
             Kind::Failed | Kind::Unmergeable => FAILED,
-            Kind::Todo => TODO,
+            Kind::Assigned | Kind::Approval | Kind::Todo => TODO,
+        }
+    }
+
+    /// What happened, with nobody named (a host that names no one, GitHub's notifications).
+    fn alone(self) -> &'static str {
+        match self {
+            Kind::Mention => "Mentioned you",
+            Kind::Review => "You were asked to review",
+            Kind::Assigned => "Assigned to you",
+            Kind::Approval => "Your approval is asked",
+            Kind::Todo => "A to-do for you",
+            Kind::Reply => "A reply",
+            Kind::OnYours => "A comment on your request",
+            Kind::Resolved => "Your discussion was resolved",
+            Kind::Failed => "Pipeline failed",
+            Kind::Unmergeable => "It can't merge",
         }
     }
 
@@ -72,7 +94,12 @@ impl Kind {
     pub fn answerable(self) -> bool {
         !matches!(
             self,
-            Kind::Review | Kind::Todo | Kind::Failed | Kind::Unmergeable
+            Kind::Review
+                | Kind::Assigned
+                | Kind::Approval
+                | Kind::Todo
+                | Kind::Failed
+                | Kind::Unmergeable
         )
     }
 }
@@ -86,16 +113,20 @@ const TODO: &str = "requests.todo";
 
 /// The requests' kinds of notice, as Settings → Notifications lists them (#196, Design round 6, M4).
 pub fn source() -> artoo_shell_api::notices::Source {
-    use artoo_shell_api::notices::{Kind as K, Source};
+    use artoo_shell_api::notices::{Kind as K, Source, Why};
     Source::new(
         "requests",
         "Merge requests",
         vec![
-            K::listed(REVIEW, "Review requests").system(),
-            K::listed(MENTION, "Mentions").system(),
+            K::listed(REVIEW, "Review requests")
+                .system()
+                .why(Why::Reviews),
+            K::listed(MENTION, "Mentions").system().why(Why::Mentions),
             K::listed(COMMENT, "Comments").system(),
             K::listed(RESOLVED, "Discussions resolved"),
-            K::listed(FAILED, "Pipeline failed, can't merge").system(),
+            K::listed(FAILED, "Pipeline failed, can't merge")
+                .system()
+                .why(Why::Failures),
             K::listed(TODO, "Other to-dos"),
         ],
     )
@@ -161,6 +192,16 @@ impl Notice {
 
     pub fn kind_verb(&self) -> &'static str {
         self.kind.verb()
+    }
+
+    /// What happened, whole (#197): `Ember Lind mentioned you`; a pipeline's and a request that can't merge with no
+    /// one in it; `Mentioned you` when the host names nobody.
+    pub fn says(&self) -> String {
+        match self.kind {
+            Kind::Failed | Kind::Unmergeable => self.kind.alone().to_owned(),
+            _ if self.who.trim().is_empty() => self.kind.alone().to_owned(),
+            _ => format!("{} {}", self.who, self.kind.verb()),
+        }
     }
 }
 
@@ -247,15 +288,12 @@ impl Notices {
     /// rows not looked at (#196).
     pub fn unread_with(
         &self,
-        answers: &[(u64, i64, String)],
+        answers: &[artoo_core::notice::Answer],
         parts: &[artoo_shell_api::notices::Listed],
         cx: &App,
     ) -> usize {
         self.unread(cx)
-            + answers
-                .iter()
-                .filter(|(_, _, key)| !self.is_read(key))
-                .count()
+            + answers.iter().filter(|a| !self.is_read(&a.key)).count()
             + parts.iter().filter(|r| !self.is_read(&r.key)).count()
     }
 
@@ -540,6 +578,8 @@ fn from_todo(t: &Todo) -> Notice {
         kind: match t.action.as_str() {
             "mentioned" | "directly_addressed" => Kind::Mention,
             "review_requested" => Kind::Review,
+            "assigned" => Kind::Assigned,
+            "approval_required" => Kind::Approval,
             "build_failed" => Kind::Failed,
             "unmergeable" => Kind::Unmergeable,
             _ => Kind::Todo,
@@ -909,6 +949,39 @@ mod tests {
         let list = [notice("todo:1"), notice("todo:2"), notice("todo:3")];
         assert_eq!(keys(notices.news(&list, false)), ["todo:2"]);
         assert!(notices.news(&list, false).is_empty());
+    }
+
+    #[test]
+    fn a_notice_says_what_happened_and_names_who_did_it() {
+        let todo = |action: &str, author: &str| Todo {
+            id: 1,
+            action: action.into(),
+            iid: 412,
+            title: String::new(),
+            author: author.into(),
+            body: String::new(),
+            url: String::new(),
+            created: 0,
+        };
+        let says = |action, author| from_todo(&todo(action, author)).says();
+        assert_eq!(
+            says("assigned", "Juniper Hale"),
+            "Juniper Hale assigned you"
+        );
+        assert_eq!(
+            says("approval_required", "Juniper Hale"),
+            "Juniper Hale asked for your approval"
+        );
+        // Nobody named (GitHub's notifications): what happened alone, never a blank before a verb.
+        assert_eq!(says("review_requested", ""), "You were asked to review");
+        // A pipeline is nobody's doing.
+        assert_eq!(says("build_failed", "Juniper Hale"), "Pipeline failed");
+        assert_eq!(says("unmergeable", "Juniper Hale"), "It can't merge");
+        // An assignment and a failure are no longer the same words.
+        assert_ne!(
+            from_todo(&todo("assigned", "")).kind,
+            from_todo(&todo("build_failed", "")).kind
+        );
     }
 
     #[test]

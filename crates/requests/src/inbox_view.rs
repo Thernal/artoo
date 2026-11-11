@@ -1,13 +1,14 @@
-//! The Inbox drawn (#49, Design L4): its filters, the rows loading before the first read or one message when nothing
-//! is listed, a notice's row and the notice selected previewed — its request, the code its discussion is on, the
-//! whole discussion, the reply — and the keys along the preview's foot. What the tab keeps comes in a look; a click
-//! asks it an `InboxEvent`.
+//! The Inbox drawn (#49, Design L4): its filters — what happened, and Source ▾ (#197) —, the rows loading before the
+//! first read or one message when nothing is listed, a notice's row and the notice selected previewed — its request,
+//! the code its discussion is on, the whole discussion, the reply. What the tab keeps comes in a look; a click asks
+//! it an `InboxEvent`.
 
-use crate::inbox::{InboxFilter, InboxView};
+use crate::inbox::{Counts, InboxFilter, InboxView, SourcePick, SourceRow, picked_sources};
 use crate::notices::Notice;
 use crate::waiting::{FADED, Waiting};
 use artoo_core::markdown::plain;
 use artoo_hosts_api::{Mr, Thread};
+use artoo_shell_api::notices::Why;
 use artoo_ui_kit::controls::{self, bar_button, chip, skeleton};
 use artoo_ui_kit::discussion::{self, Kind as Button, Source};
 use artoo_ui_kit::excerpt::excerpt_view;
@@ -16,30 +17,285 @@ use artoo_ui_kit::keys::{self, On};
 use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::{ROW_RADIUS, format, gap, icons, island, px, theme, words};
 use gpui::{
-    AnyElement, App, ClickEvent, Div, FontWeight, MouseButton, MouseDownEvent, Stateful, div,
-    prelude::*,
+    AnyElement, App, Bounds, ClickEvent, Div, Entity, FontWeight, MouseButton, MouseDownEvent,
+    Pixels, Stateful, canvas, div, prelude::*,
 };
+use std::cell::Cell;
+use std::rc::Rc;
 
 pub use artoo_requests_api::{InboxEvent, OnInbox, RowLook};
 
-/// The Inbox's filters, in its page bar (#71).
-pub fn filters(shown: InboxFilter, on: &OnInbox) -> Div {
-    let filter = |f: InboxFilter, label: &'static str| {
-        let id = match f {
-            InboxFilter::All => "inbox-all",
-            InboxFilter::Mentions => "inbox-mentions",
-            InboxFilter::Agents => "inbox-agents",
-            InboxFilter::Reviews => "inbox-reviews",
-        };
-        let on = on.clone();
-        chip(id, label, shown == f)
-            .on_click(move |_: &ClickEvent, _, cx| on(InboxEvent::Filter(f), cx))
+/// A filter's name with what is new under it: `Failures 3`, `Mentions` when nothing is.
+fn counted(name: &str, new: usize) -> String {
+    if new > 0 {
+        format!("{name} {new}")
+    } else {
+        name.to_owned()
+    }
+}
+
+/// The Inbox's filters in its page bar (#71, #197): what happened, each with what is new under it — in a narrow
+/// window one menu —, then `Source: All ▾`. `at` keeps where Source ▾ was drawn, for its list to open under it.
+pub fn filters(
+    view: &Entity<InboxView>,
+    at: Rc<Cell<Option<Bounds<Pixels>>>>,
+    shown: InboxFilter,
+    counts: &Counts,
+    sources: &[SourceRow],
+    compact: bool,
+    on: &OnInbox,
+) -> Div {
+    let whys: Vec<(Option<Why>, &'static str, usize)> = std::iter::once((None, "All", counts.all))
+        .chain(Why::ALL.iter().map(|w| (Some(*w), w.name(), counts.of(*w))))
+        .collect();
+    let what = if compact {
+        let (name, new) = (whys.iter())
+            .find(|(why, ..)| *why == shown.why)
+            .map_or(("All", 0), |(_, name, new)| (*name, *new));
+        let (view, on) = (view.clone(), on.clone());
+        chip(
+            "inbox-why",
+            format!("{} ▾", counted(name, new)),
+            shown.why.is_some(),
+        )
+        .on_click(move |e: &ClickEvent, _, cx| {
+            let items = (whys.iter())
+                .map(|&(why, name, new)| {
+                    let on = on.clone();
+                    artoo_shell_api::MenuItem::new(counted(name, new), move |_, cx| {
+                        on(InboxEvent::Filter(InboxFilter { why, ..shown }), cx)
+                    })
+                    .checked(why == shown.why)
+                })
+                .collect();
+            if let Some(frame) = view.read(cx).frame.as_ref().and_then(|f| f.upgrade()) {
+                frame.menu(e.position(), vec![items], cx);
+            }
+        })
+        .into_any_element()
+    } else {
+        controls::group()
+            .children(whys.into_iter().map(|(why, name, new)| {
+                let on = on.clone();
+                let id = match why {
+                    None => "inbox-all",
+                    Some(Why::Mentions) => "inbox-mentions",
+                    Some(Why::Reviews) => "inbox-reviews",
+                    Some(Why::Asks) => "inbox-asks",
+                    Some(Why::Failures) => "inbox-failures",
+                };
+                chip(id, counted(name, new), shown.why == why).on_click(
+                    move |_: &ClickEvent, _, cx| {
+                        on(InboxEvent::Filter(InboxFilter { why, ..shown }), cx)
+                    },
+                )
+            }))
+            .into_any_element()
     };
-    controls::group()
-        .child(filter(InboxFilter::All, "All"))
-        .child(filter(InboxFilter::Mentions, "Mentions"))
-        .child(filter(InboxFilter::Agents, "Agents"))
-        .child(filter(InboxFilter::Reviews, "Reviews"))
+    let name = (sources.iter())
+        .find(|s| Some(s.id) == shown.source)
+        .map_or("All", |s| s.name.as_str());
+    let view = view.clone();
+    let source = chip(
+        "inbox-source",
+        format!("Source: {name} ▾"),
+        shown.source.is_some(),
+    )
+    .relative()
+    .child(
+        canvas(move |bounds, _, _| at.set(Some(bounds)), |_, _, _, _| {})
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full(),
+    )
+    .on_click(move |_: &ClickEvent, _, cx| open_sources(&view, cx));
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(what)
+        .child(source)
+}
+
+/// Source ▾ opened, its field with the keyboard; again, it closes.
+fn open_sources(view: &Entity<InboxView>, cx: &mut App) {
+    let open = view.read(cx).sources.is_none();
+    let frame = view.update(cx, |v, cx| {
+        v.sources = open.then(SourcePick::default);
+        cx.notify();
+        v.frame.as_ref().and_then(|f| f.upgrade())
+    });
+    if let Some(frame) = frame {
+        if open {
+            frame.take_keyboard(crate::inbox::SOURCES, cx);
+        } else {
+            frame.leave_keyboard(crate::inbox::SOURCES, cx);
+        }
+    }
+}
+
+/// Source ▾ closed: a press outside it, a source picked.
+pub fn close_sources(view: &Entity<InboxView>, cx: &mut App) {
+    let frame = view.update(cx, |v, cx| {
+        v.sources = None;
+        cx.notify();
+        v.frame.as_ref().and_then(|f| f.upgrade())
+    });
+    if let Some(frame) = frame {
+        frame.leave_keyboard(crate::inbox::SOURCES, cx);
+    }
+}
+
+/// Source ▾ open (#197): its field, then `All sources` with what is new in all, the sources with something new, the
+/// rest dimmed under `Nothing new`; the source chosen checked, the row the keys point at lit. A click picks one as
+/// ↵ does.
+pub fn source_picker(
+    view: &Entity<InboxView>,
+    pick: &SourcePick,
+    sources: &[SourceRow],
+    shown: InboxFilter,
+    everywhere: usize,
+    on: &OnInbox,
+) -> AnyElement {
+    let rows = picked_sources(sources, &pick.text);
+    pick.rows.replace(rows.clone());
+    let row = |n: usize, id: Option<&'static str>| {
+        let (name, new) = match id {
+            None => ("All sources".to_owned(), everywhere),
+            Some(id) => (sources.iter())
+                .find(|s| s.id == id)
+                .map_or((String::new(), 0), |s| (s.name.clone(), s.new)),
+        };
+        let (view, on) = (view.clone(), on.clone());
+        div()
+            .id(("inbox-source-row", n))
+            .h(px(28.))
+            .px(px(8.))
+            .flex()
+            .items_center()
+            .gap_2()
+            .rounded(px(ROW_RADIUS))
+            .cursor_pointer()
+            .when(n == pick.at, |s| s.bg(theme::hover()))
+            .hover(|s| s.bg(theme::hover()))
+            .when(id.is_some() && new == 0, |s| s.text_color(theme::muted()))
+            .child(
+                div()
+                    .flex_none()
+                    .w(px(14.))
+                    .children((shown.source == id).then(|| {
+                        icons::icon("check")
+                            .size(px(13.))
+                            .text_color(theme::accent())
+                    })),
+            )
+            .child(div().flex_1().min_w_0().cut_in_tip().child(name))
+            .children((new > 0).then(|| {
+                div()
+                    .flex_none()
+                    .text_size(px(12.))
+                    .text_color(theme::muted())
+                    .child(new.to_string())
+            }))
+            .on_click(move |_: &ClickEvent, _, cx| {
+                close_sources(&view, cx);
+                on(
+                    InboxEvent::Filter(InboxFilter {
+                        source: id,
+                        ..shown
+                    }),
+                    cx,
+                )
+            })
+            .into_any_element()
+    };
+    let heading = |text: &'static str| {
+        div()
+            .px(px(8.))
+            .pt(px(6.))
+            .pb(px(2.))
+            .text_size(px(11.))
+            .text_color(theme::faint())
+            .child(text)
+            .into_any_element()
+    };
+    let mut list: Vec<AnyElement> = Vec::new();
+    let quiet = |id: &Option<&'static str>| {
+        id.is_some_and(|id| sources.iter().any(|s| s.id == id && s.new == 0))
+    };
+    let mut said_quiet = false;
+    for (n, id) in rows.iter().enumerate() {
+        if quiet(id) && !said_quiet {
+            said_quiet = true;
+            list.push(heading("Nothing new"));
+        }
+        list.push(row(n, *id));
+        if id.is_none() {
+            list.push(
+                div()
+                    .mx(px(8.))
+                    .my(px(4.))
+                    .h(px(1.))
+                    .bg(theme::island_border())
+                    .into_any_element(),
+            );
+        }
+    }
+    if rows.is_empty() {
+        list.push(heading("No source matches"));
+    }
+    let field = pick.area.field_of(
+        &pick.text,
+        true,
+        "Filter sources",
+        false,
+        |v: &mut InboxView| v.sources.as_mut().map(|p| &mut p.area),
+        view.downgrade(),
+    );
+    div()
+        .w(px(260.))
+        .p(px(6.))
+        .rounded(px(10.))
+        .border_1()
+        .border_color(theme::island_border())
+        .bg(theme::panel())
+        .shadow_lg()
+        .flex()
+        .flex_col()
+        .gap(px(2.))
+        .text_size(px(13.))
+        .child(
+            div()
+                .h(px(30.))
+                .mb(px(4.))
+                .px(px(8.))
+                .flex()
+                .items_center()
+                .gap_2()
+                .rounded(px(ROW_RADIUS))
+                .border_2()
+                .border_color(theme::focus())
+                .bg(theme::base())
+                .cursor_text()
+                .child(
+                    icons::icon("search")
+                        .size(px(14.))
+                        .text_color(theme::faint()),
+                )
+                .child(field),
+        )
+        .child(
+            div()
+                .id("inbox-sources")
+                .max_h(px(360.))
+                .overflow_y_scroll()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .children(list),
+        )
+        .into_any_element()
 }
 
 /// Rows loading before the first read, in a list `width` wide, and the preview's.
@@ -82,19 +338,47 @@ pub fn failed(what: &str) -> AnyElement {
 }
 
 /// Nothing listed under `filter`, a state word (#185); `others`: something is under another, and Show all goes there.
-pub fn empty(filter: InboxFilter, others: bool, on: &OnInbox) -> AnyElement {
-    let title = match filter {
-        InboxFilter::All => "Nothing needs you",
-        InboxFilter::Mentions => "No mentions",
-        InboxFilter::Agents => "Nothing from your agents",
-        InboxFilter::Reviews => "No review requests",
+pub fn empty(
+    filter: InboxFilter,
+    source: Option<&str>,
+    query: &str,
+    others: bool,
+    on: &OnInbox,
+) -> AnyElement {
+    let query = query.trim();
+    let filtered = filter != InboxFilter::default() || !query.is_empty();
+    let title = if !query.is_empty() {
+        format!("Nothing matches “{query}”")
+    } else {
+        let what = match filter.why {
+            None if filter.source.is_none() => "Nothing needs you",
+            None => "Nothing new",
+            Some(Why::Mentions) => "No mentions",
+            Some(Why::Reviews) => "No review requests",
+            Some(Why::Asks) => "Nothing asks you",
+            Some(Why::Failures) => "No failures",
+        };
+        match source {
+            Some(source) => format!("{what} from {source}"),
+            None => what.to_owned(),
+        }
     };
-    let all = (filter != InboxFilter::All && others).then(|| {
+    // Where Filter looks, the one line that changes what you do next (#185).
+    let reach = if query.is_empty() {
+        String::new()
+    } else {
+        "Looks in what happened, what it is about and what was written.".to_owned()
+    };
+    let all = (filtered && others).then(|| {
         let on = on.clone();
         div()
             .id("inbox-show-all")
-            .child(controls::outline_button("Show all"))
-            .on_click(move |_: &ClickEvent, _, cx| on(InboxEvent::Filter(InboxFilter::All), cx))
+            .child(controls::outline_button(if query.is_empty() {
+                "Show all"
+            } else {
+                "Clear the filter"
+            }))
+            .on_click(move |_: &ClickEvent, _, cx| on(InboxEvent::ShowAll, cx))
             .into_any_element()
     });
     island()
@@ -103,28 +387,34 @@ pub fn empty(filter: InboxFilter, others: bool, on: &OnInbox) -> AnyElement {
         // Its button's room kept when there is none, so switching the filter moves nothing.
         .child(controls::empty_state(
             "inbox",
-            title.to_owned(),
-            String::new(),
+            title,
+            reach,
             Some(all.unwrap_or_else(|| div().h(px(28.)).into_any_element())),
         ))
         .into_any_element()
 }
 
-/// A group's heading in the list: Today, Earlier.
-pub fn heading(text: &'static str) -> AnyElement {
+/// A group's heading in the list: `New 7`, `Read` (#197).
+pub fn heading(text: impl Into<gpui::SharedString>) -> AnyElement {
     div()
         .px(px(16.))
         .pt(px(10.))
         .pb(px(4.))
         .text_size(px(11.))
         .text_color(theme::faint())
-        .child(text)
+        .child(text.into())
         .into_any_element()
 }
 
-/// Notice `ix`: unread dot, who did what, the request always; when, and the start of what was written, while the
-/// list is `wide`; all of it in its tooltip.
-pub fn notice_row(n: &Notice, ix: usize, look: RowLook, on: &OnInbox) -> Stateful<Div> {
+/// Notice `ix`: unread dot, what happened, the request always; its `source` (`GitLab`) and when, and the start of
+/// what was written, while the list is `wide` (#197); all of it in its tooltip.
+pub fn notice_row(
+    n: &Notice,
+    ix: usize,
+    source: &str,
+    look: RowLook,
+    on: &OnInbox,
+) -> Stateful<Div> {
     let RowLook {
         fresh,
         on: picked,
@@ -137,7 +427,7 @@ pub fn notice_row(n: &Notice, ix: usize, look: RowLook, on: &OnInbox) -> Statefu
         .unwrap_or("")
         .trim();
     let mut tip = vec![
-        format!("{} {}", n.who, n.kind_verb()),
+        format!("{source} · {}", n.says()),
         format!("{} {}", words::number(n.iid), n.title),
         hover::full_date(n.created),
     ];
@@ -192,14 +482,14 @@ pub fn notice_row(n: &Notice, ix: usize, look: RowLook, on: &OnInbox) -> Statefu
                                 .min_w_0()
                                 .cut_in_tip()
                                 .when(fresh, |s| s.font_weight(FontWeight::SEMIBOLD))
-                                .child(format!("{} {}", n.who, n.kind_verb())),
+                                .child(n.says()),
                         )
                         .children(wide.then(|| {
                             div()
                                 .flex_none()
                                 .text_size(px(11.))
                                 .text_color(theme::faint())
-                                .child(format::ago(n.created))
+                                .child(format!("{source} · {}", format::ago(n.created)))
                         })),
                 )
                 .child(
@@ -423,12 +713,7 @@ pub fn notice_preview(n: &Notice, look: NoticeLook, on: &OnInbox, cx: &App) -> D
                 .child(hover::branches("inbox-branches", &m.source, &m.target))
         }))
         .child(div().flex_1())
-        .child(format!(
-            "{} {} · {}",
-            n.who,
-            n.kind_verb(),
-            format::ago(n.created)
-        ));
+        .child(format!("{} · {}", n.says(), format::ago(n.created)));
     let title = div()
         .text_size(px(19.))
         .line_height(px(26.))
@@ -579,51 +864,4 @@ pub fn notice_preview(n: &Notice, look: NoticeLook, on: &OnInbox, cx: &App) -> D
         .child(talk)
         .children(composer)
         .child(actions)
-}
-
-/// The keys of the Inbox, along the preview's foot; `agent`: an agent's answer is selected, and whether it says it is
-/// done.
-/// `part`: a part's row selected (a plugin's, #196): it opens and is done, and has nothing to reply to.
-pub fn foot_keys(agent: Option<bool>, part: bool) -> Div {
-    let key = |caps: &[&str], what: &'static str| {
-        div()
-            .flex()
-            .items_center()
-            .gap(px(4.))
-            .children(caps.iter().map(|c| keys::caps(c, On::Plain)))
-            .child(div().pl(px(2.)).child(what))
-    };
-    div()
-        .flex_none()
-        .flex()
-        .gap_4()
-        .px(px(16.))
-        .py(px(8.))
-        .border_t_1()
-        .border_color(theme::island_border())
-        .text_size(px(12.))
-        .text_color(theme::muted())
-        .child(key(&["J", "K"], "move"))
-        .child(key(
-            &["↵"],
-            match (agent.is_some(), part) {
-                (true, _) => "open at the line",
-                (_, true) => "open",
-                _ => "open request",
-            },
-        ))
-        .child(key(
-            &["E"],
-            match agent {
-                Some(true) => "resolve",
-                Some(false) => "later",
-                None => "done",
-            },
-        ))
-        .when(!part, |s| {
-            s.child(key(
-                &["R"],
-                if agent.is_some() { "answer" } else { "reply" },
-            ))
-        })
 }

@@ -48,14 +48,17 @@ gpui::actions!(
 pub fn install(cx: &mut gpui::App) {
     {
         use artoo_agents_api::notices::{ASKS, DONE, PRESENCE, SHOWS};
-        use artoo_shell_api::notices::{Kind, Source, add_source};
+        use artoo_shell_api::notices::{Kind, Source, Why, add_source};
         add_source(
             cx,
             Source::new(
                 "agents",
                 "Agents",
                 vec![
-                    Kind::listed(ASKS, "An agent asks you").toast().system(),
+                    Kind::listed(ASKS, "An agent asks you")
+                        .toast()
+                        .system()
+                        .why(Why::Asks),
                     Kind::listed(DONE, "An agent finished").system(),
                     Kind::homed(SHOWS, "An agent shows you something")
                         .toast()

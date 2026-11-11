@@ -216,19 +216,25 @@ impl Workspace {
                 "filter",
                 self.bar_filter("Filter branches", cx),
             )),
-            (INBOX, _) if self.inbox_unread(cx) > 0 => out.push(
-                BarAction::new(
-                    "read-all",
-                    self.bar_action("bar-read-all", "check", "Mark all read", "")
-                        .on_click(
-                            cx.listener(|this, _: &ClickEvent, _, cx| this.read_all_notices(cx)),
-                        ),
-                )
-                .folds(MenuItem::new(
-                    "Mark all read",
-                    on_tab(&tab, |this, cx| this.read_all_notices(cx)),
-                )),
-            ),
+            // The Inbox's Filter, as a list's (#197); Mark all read while anything is new.
+            (INBOX, _) => {
+                out.push(BarAction::new("filter", self.bar_filter("Filter", cx)));
+                if self.inbox_unread(cx) > 0 {
+                    out.push(
+                        BarAction::new(
+                            "read-all",
+                            self.bar_action("bar-read-all", "check", "Mark all read", "")
+                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                    this.read_all_notices(cx)
+                                })),
+                        )
+                        .folds(MenuItem::new(
+                            "Mark all read",
+                            on_tab(&tab, |this, cx| this.read_all_notices(cx)),
+                        )),
+                    );
+                }
+            }
             // A folder's page: a note for your agent on it (#97), then Open in.
             (CODE, Some(Page::Folder(path))) => {
                 let (folder, again) = (path.clone(), path.clone());

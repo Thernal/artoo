@@ -376,6 +376,21 @@ impl Handle {
         self.1.upgrade()?.get()
     }
 
+    /// The agents' answers the Inbox lists now (#116).
+    fn answers(&self, cx: &App) -> Vec<artoo_core::notice::Answer> {
+        (self.1.upgrade())
+            .and_then(|s| s.get::<Rc<dyn artoo_agents_api::tab::Agents>>())
+            .map(|a| a.inbox_answers(cx))
+            .unwrap_or_default()
+    }
+
+    /// The host's name, the requests' notices' source in the Inbox: `GitLab`.
+    fn host_name(&self, cx: &App) -> Option<&'static str> {
+        let requests = self.0.upgrade()?;
+        let web = requests.read(cx).web.as_ref()?;
+        Some(web.name())
+    }
+
     /// The parts' rows the Inbox lists now (#196).
     fn parts(&self, cx: &App) -> Vec<artoo_shell_api::notices::Listed> {
         (self.1.upgrade())
@@ -977,12 +992,18 @@ impl artoo_requests_api::Requests for Handle {
         .unwrap_or_default()
     }
 
-    fn inbox_rows(&self, answers: artoo_requests_api::Answers, cx: &App) -> Vec<InboxRow> {
+    fn inbox_rows(
+        &self,
+        answers: artoo_requests_api::Answers,
+        query: &str,
+        cx: &App,
+    ) -> Vec<InboxRow> {
         let (Some(view), Some(notices)) = (self.inbox(), self.notices()) else {
             return Vec::new();
         };
         let parts = self.parts(cx);
-        view.read(cx).rows(notices.read(cx), answers, &parts, cx)
+        view.read(cx)
+            .rows(notices.read(cx), answers, &parts, query, cx)
     }
 
     fn inbox_current(&self, answers: artoo_requests_api::Answers, cx: &App) -> Option<InboxRow> {
@@ -995,19 +1016,24 @@ impl artoo_requests_api::Requests for Handle {
     fn inbox_step(
         &self,
         answers: artoo_requests_api::Answers,
+        query: &str,
         down: bool,
         cx: &App,
     ) -> Option<InboxRow> {
         let parts = self.parts(cx);
         self.inbox()?
             .read(cx)
-            .step(self.notices()?.read(cx), answers, &parts, down, cx)
+            .step(self.notices()?.read(cx), answers, &parts, query, down, cx)
     }
 
     fn inbox_pick(&self, row: Option<InboxRow>, cx: &mut App) {
         let (Some(view), Some(notices)) = (self.inbox(), self.notices()) else {
             return;
         };
+        // Picked while new, it stays under New until another is (#197).
+        let parts = self.parts(cx);
+        let answers = self.answers(cx);
+        let kept = row.filter(|&r| view.read(cx).is_new(r, notices.read(cx), &answers, &parts));
         // A part's row looked at: read, until its key changes (#196).
         let part = match row {
             Some(InboxRow::Part(id)) => (self.parts(cx).into_iter())
@@ -1016,6 +1042,7 @@ impl artoo_requests_api::Requests for Handle {
             _ => None,
         };
         view.update(cx, |v, cx| {
+            v.kept = kept;
             notices.update(cx, |n, _| {
                 crate::inbox::pick(row, v, n);
                 if let Some(key) = part {
@@ -1038,9 +1065,24 @@ impl artoo_requests_api::Requests for Handle {
         }
     }
 
-    fn inbox_filters(&self, on: OnInbox, cx: &App) -> AnyElement {
-        let filter = self.inbox().map(|v| v.read(cx).filter).unwrap_or_default();
-        crate::inbox_view::filters(filter, &on).into_any_element()
+    fn inbox_filters(&self, on: OnInbox, compact: bool, cx: &App) -> AnyElement {
+        let (Some(view), Some(notices)) = (self.inbox(), self.notices()) else {
+            return gpui::div().into_any_element();
+        };
+        let (parts, answers) = (self.parts(cx), self.answers(cx));
+        let v = view.read(cx);
+        let counts = v.counts(notices.read(cx), &answers, &parts, cx);
+        let sources = crate::inbox::sources(self.host_name(cx), &counts, cx);
+        crate::inbox_view::filters(
+            &view,
+            v.source_at.clone(),
+            v.filter,
+            &counts,
+            &sources,
+            compact,
+            &on,
+        )
+        .into_any_element()
     }
 
     fn inbox_reply_to(&self, cx: &App) -> Option<artoo_requests_api::ReplyTo> {
