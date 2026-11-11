@@ -232,6 +232,12 @@ pub trait Discussions: Send + Sync {
     fn publish_draft(&self, iid: u64, id: u64) -> Result<()>;
 
     fn delete_draft(&self, iid: u64, id: u64) -> Result<()>;
+
+    /// Adds a pending reply to discussion `discussion` of request `iid`: sent with the review (#200).
+    fn reply_draft(&self, iid: u64, discussion: &str, body: &str) -> Result<()>;
+
+    /// Writes pending comment `id` of request `iid` again, before the review is sent (#200).
+    fn edit_draft(&self, iid: u64, id: u64, body: &str) -> Result<()>;
 }
 
 /// Approving a request and submitting a review.

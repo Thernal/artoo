@@ -33,6 +33,14 @@ impl Workspace {
 
     /// Adds the agent comment being written to the drafts, then sends it alone or with all.
     pub(super) fn add_and_send(&mut self, only: bool, cx: &mut Context<Self>) {
+        // A chat picked in the `To:` list takes them, else each goes to its route (#200).
+        let chosen = self.compose_chat.take().and_then(|s| {
+            self.agents
+                .chats(cx)
+                .iter()
+                .find(|c| c.session == s)
+                .cloned()
+        });
         let Some(new) = self.add_agent_comment(cx) else {
             return;
         };
@@ -41,7 +49,10 @@ impl Workspace {
         } else {
             self.agent_drafts(cx)
         };
-        self.send_agent(ids, cx);
+        match chosen {
+            Some(chat) => self.send_to(ids, chat.session, chat.title, cx),
+            None => self.send_agent(ids, cx),
+        }
     }
 
     /// Adds the agent comment being written; its id, when it was added.

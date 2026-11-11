@@ -1356,6 +1356,50 @@ pub fn cancel_auto_merge(remote: &WebRemote, number: u64, node: &str) -> Result<
     Ok(())
 }
 
+/// A pending reply in thread `thread`, sent with the review (#200): the pending review is made when there is none.
+/// A conversation comment takes no pending reply on GitHub.
+pub fn reply_draft(remote: &WebRemote, number: u64, thread: &str, body: &str) -> Result<()> {
+    if crate::fixture::record(format!("reply-draft {number} {thread} {body}"))? {
+        return Ok(());
+    }
+    let node = match thread_ids(thread) {
+        ("issue", _) => bail!("GitHub keeps no pending reply to a conversation comment"),
+        (node, _) => node.to_owned(),
+    };
+    let (pr, review) = pending_review(remote, number)?;
+    let review = match review {
+        Some(id) => id,
+        None => {
+            let data = graphql(
+                remote,
+                "mutation($pr: ID!) { addPullRequestReview(input: { pullRequestId: $pr }) { pullRequestReview { id } } }",
+                json!({ "pr": pr }),
+            )?;
+            s(&data["addPullRequestReview"]["pullRequestReview"]["id"])
+        }
+    };
+    graphql(
+        remote,
+        "mutation($review: ID!, $thread: ID!, $body: String!) { addPullRequestReviewThreadReply(input: { pullRequestReviewId: $review, pullRequestReviewThreadId: $thread, body: $body }) { comment { databaseId } } }",
+        json!({ "review": review, "thread": node, "body": body }),
+    )?;
+    Ok(())
+}
+
+/// Pending comment `id` written again (#200).
+pub fn edit_draft(remote: &WebRemote, number: u64, id: u64, body: &str) -> Result<()> {
+    if crate::fixture::record(format!("edit-draft {number} {id} {body}"))? {
+        return Ok(());
+    }
+    rest(
+        remote,
+        "PATCH",
+        &format!("pulls/comments/{id}"),
+        Some(&json!({ "body": body })),
+    )?;
+    Ok(())
+}
+
 pub fn delete_draft(remote: &WebRemote, number: u64, id: u64) -> Result<()> {
     if crate::fixture::record(format!("delete-draft {number} {id}"))? {
         return Ok(());

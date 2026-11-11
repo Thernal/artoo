@@ -155,7 +155,6 @@ impl Workspace {
         let Some((new_path, old_path)) = file else {
             return;
         };
-        self.last_request_target = Some(iid);
         let (old_line, new_line) =
             pair.unwrap_or_else(|| self.rv().line_pair(compose.line, compose.old, cx));
         let range = compose.first.and_then(|first| {
@@ -177,6 +176,22 @@ impl Workspace {
             draft,
         };
         self.submit_compose(iid, change, cx);
+    }
+
+    /// ⇧⌘↵ or Add to review in a reply: kept pending with the review, sent when it is (#200).
+    pub(super) fn reply_to_review(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let (Some(compose), Some(thread), Some(iid)) = (
+            self.compose.as_ref(),
+            self.request_thread(ix, cx),
+            self.current_request(cx),
+        ) else {
+            return;
+        };
+        let (body, id) = (compose.edit.text().trim().to_owned(), thread.id.clone());
+        if body.is_empty() || self.is_temp_thread(&id) {
+            return;
+        }
+        self.submit_compose(iid, Change::ReplyDraft { thread: id, body }, cx);
     }
 
     /// Writes the reply being composed to the discussion it answers.

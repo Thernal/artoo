@@ -1026,29 +1026,21 @@ pub fn post_discussion(
 /// A pending comment kept in the fixture's `drafts-<iid>.json`, as GitLab would list it, so the app
 /// shows what was written (#150); its id, after the ones there.
 fn fixture_draft(dir: &std::path::Path, iid: u64, place: &Place<'_>, body: &str) -> Result<u64> {
-    let file = dir.join(format!("drafts-{iid}.json"));
-    let mut drafts: Vec<Value> = std::fs::read_to_string(&file)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
-    let id = drafts
-        .iter()
-        .filter_map(|d| d.get("id").and_then(Value::as_u64))
-        .max()
-        .unwrap_or(9000)
-        + 1;
-    drafts.push(serde_json::json!({
-        "id": id,
-        "note": body,
-        "position": {
-            "new_path": place.path,
-            "old_path": place.old_path,
-            "new_line": place.new_line,
-            "old_line": place.old_line,
-        },
-    }));
-    std::fs::write(file, serde_json::to_string_pretty(&drafts)?)?;
-    Ok(id)
+    let mut made = 0;
+    fixture_drafts(dir, iid, |drafts| {
+        made = next_draft(drafts);
+        drafts.push(serde_json::json!({
+            "id": made,
+            "note": body,
+            "position": {
+                "new_path": place.path,
+                "old_path": place.old_path,
+                "new_line": place.new_line,
+                "old_line": place.old_line,
+            },
+        }));
+    })?;
+    Ok(made)
 }
 
 /// Opens a merge request from `source` into `target`. The branch must already be on the remote.
@@ -1588,6 +1580,75 @@ pub fn delete_draft(remote: &WebRemote, iid: u64, id: u64) -> Result<()> {
         &[],
     )?;
     Ok(())
+}
+
+/// A pending reply in discussion `discussion`, sent with the review (#200); in the fixture, kept in its
+/// `drafts-<iid>.json` as GitLab would list it.
+pub fn reply_draft(remote: &WebRemote, iid: u64, discussion: &str, body: &str) -> Result<()> {
+    if let Some(dir) = fixture() {
+        record(format!("reply-draft {iid} {discussion} {body}"))?;
+        return fixture_drafts(&dir, iid, |drafts| {
+            let id = next_draft(drafts);
+            drafts.push(serde_json::json!({ "id": id, "note": body, "discussion_id": discussion }));
+        });
+    }
+    call(
+        remote,
+        &format!("merge_requests/{iid}/draft_notes"),
+        "POST",
+        &[
+            ("note", body.to_owned()),
+            ("in_reply_to_discussion_id", discussion.to_owned()),
+        ],
+    )?;
+    Ok(())
+}
+
+/// Pending comment `id` written again (#200).
+pub fn edit_draft(remote: &WebRemote, iid: u64, id: u64, body: &str) -> Result<()> {
+    if let Some(dir) = fixture() {
+        record(format!("edit-draft {iid} {id} {body}"))?;
+        return fixture_drafts(&dir, iid, |drafts| {
+            for d in drafts.iter_mut() {
+                if d.get("id").and_then(Value::as_u64) == Some(id) {
+                    d["note"] = Value::String(body.to_owned());
+                }
+            }
+        });
+    }
+    call(
+        remote,
+        &format!("merge_requests/{iid}/draft_notes/{id}"),
+        "PUT",
+        &[("note", body.to_owned())],
+    )?;
+    Ok(())
+}
+
+/// The fixture's pending comments of request `iid` changed by `change`, and written back.
+fn fixture_drafts(
+    dir: &std::path::Path,
+    iid: u64,
+    change: impl FnOnce(&mut Vec<Value>),
+) -> Result<()> {
+    let file = dir.join(format!("drafts-{iid}.json"));
+    let mut drafts: Vec<Value> = std::fs::read_to_string(&file)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    change(&mut drafts);
+    std::fs::write(file, serde_json::to_string_pretty(&drafts)?)?;
+    Ok(())
+}
+
+/// The id a new pending comment of the fixture takes, after the ones there.
+fn next_draft(drafts: &[Value]) -> u64 {
+    drafts
+        .iter()
+        .filter_map(|d| d.get("id").and_then(Value::as_u64))
+        .max()
+        .unwrap_or(9000)
+        + 1
 }
 
 pub fn parse_drafts(value: &Value) -> Vec<Draft> {

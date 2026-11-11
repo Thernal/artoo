@@ -16,8 +16,8 @@ use crate::comment::{Comment, State};
 use crate::markdown::Helper;
 use crate::textedit::TextEdit;
 pub(super) use artoo_ui_kit::composer::{
-    Change, Compose, ComposeAct, ComposeActs, FootEvent, FootLook, Look, Room, Short, Target,
-    Typed, room_for,
+    Audience, Change, Compose, ComposeAct, ComposeActs, FootEvent, FootLook, Look, Room, Short,
+    Target, Typed, room_for,
 };
 use gpui::{App, Context, KeyDownEvent, WeakEntity, div, prelude::*};
 
@@ -90,13 +90,121 @@ impl Workspace {
         }
     }
 
-    /// Who a new comment is for: a run of comments to one merge request does not have to pick it
-    /// every time.
-    fn comment_target(&self, cx: &App) -> Target {
+    /// Who a new comment is for: on a merge request's diff it opens public, for everyone on it (#200); ⇥ or its
+    /// `To:` chip makes it a note for an agent's chat.
+    fn comment_target(&mut self, cx: &App) -> Target {
+        self.compose_chat = None;
         match self.request_target(cx) {
-            Some(iid) if self.last_request_target == Some(iid) => Target::Request(iid),
-            _ => Target::Agent,
+            Some(iid) => Target::Request(iid),
+            None => Target::Agent,
         }
+    }
+
+    /// The chat a note being written goes to: the one picked in its `To:` list, else the page's branch's (#77,
+    /// #200).
+    pub(super) fn compose_chat_of(&self, cx: &App) -> Option<artoo_agents_api::bus::Chat> {
+        match &self.compose_chat {
+            Some(session) => (self.agents.chats(cx).iter())
+                .find(|c| &c.session == session)
+                .cloned(),
+            None => self.route_of(self.page_branch(cx).as_deref(), cx),
+        }
+    }
+
+    /// A chat as the `To:` chip and its list name it: the agent's first word and the chat's task
+    /// (`Claude · fix the login state`).
+    fn chat_words(chat: &artoo_agents_api::bus::Chat) -> String {
+        let agent = chat.agent.split_whitespace().next().unwrap_or("Agent");
+        match chat.title.trim() {
+            "" => agent.to_owned(),
+            title => format!("{agent} · {}", format::one_line(title, false)),
+        }
+    }
+
+    /// The `To:` chip's ▾ (#200): everyone on the request, then the project's agent chats — each with its letter, hue,
+    /// branch and state, a gone one dimmed, the branch's own marked ⇥.
+    fn audience_menu(&mut self, at: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
+        use super::menu::{Act, Entry};
+        let Some(iid) = self.compose_request(cx) else {
+            return;
+        };
+        let target = self.compose.as_ref().map(|c| c.target);
+        let host = if self.web.as_ref().is_some_and(|w| w.github) {
+            "GitHub · public"
+        } else {
+            "GitLab · public"
+        };
+        let everyone = Entry::new(
+            format!("Everyone on !{iid}"),
+            Act::new(move |this, _, cx| this.set_audience(Some(iid), None, cx)),
+        )
+        .checked(matches!(target, Some(Target::Request(_))))
+        .detail(host);
+        let routed = self
+            .route_of(self.page_branch(cx).as_deref(), cx)
+            .map(|c| c.session);
+        let current = self.compose_chat_of(cx).map(|c| c.session);
+        let listening = self.agents.listening(cx);
+        let chats: Vec<Entry> = (self.agents.chats(cx).iter())
+            .map(|c| {
+                let (words, session) = (Self::chat_words(c), c.session.clone());
+                let alive = listening.contains(&c.session);
+                let state = if alive { "listening" } else { "gone" };
+                let branch = if c.branch.is_empty() {
+                    "—"
+                } else {
+                    &c.branch
+                };
+                let entry = if alive {
+                    Entry::new(
+                        words,
+                        Act::new(move |this, _, cx| {
+                            this.set_audience(None, Some(session.clone()), cx)
+                        }),
+                    )
+                    .checked(target == Some(Target::Agent) && current.as_ref() == Some(&c.session))
+                } else {
+                    Entry::off(words)
+                };
+                let entry = entry.detail(format!("{branch} · {state}"));
+                if routed.as_ref() == Some(&c.session) {
+                    entry.key("⇥")
+                } else {
+                    entry
+                }
+            })
+            .collect();
+        let mut groups = vec![vec![everyone]];
+        if chats.is_empty() {
+            // No chat here yet: the note is kept on this Mac for the agent.
+            groups.push(vec![
+                Entry::new(
+                    "Your agent",
+                    Act::new(|this, _, cx| this.set_audience(None, None, cx)),
+                )
+                .checked(target == Some(Target::Agent))
+                .detail("no chat listens yet"),
+            ]);
+        } else {
+            groups.push(chats);
+        }
+        self.open_menu(at, groups, cx);
+    }
+
+    /// Who the comment being written goes to, picked in its `To:` list: everyone on request `iid`, or chat
+    /// `session`.
+    fn set_audience(&mut self, iid: Option<u64>, session: Option<String>, cx: &mut Context<Self>) {
+        let Some(compose) = self.compose.as_mut() else {
+            return;
+        };
+        compose.target = match iid {
+            Some(iid) => Target::Request(iid),
+            None => Target::Agent,
+        };
+        compose.error = None;
+        self.compose_chat = session;
+        self.take_keyboard(Input::Compose, cx);
+        cx.notify();
     }
 
     /// A comment on a block of the document file `ix` read as a page: on the source line `line`
@@ -291,6 +399,21 @@ impl Workspace {
                 }
                 (c.path.clone(), c.old, c.line, c.body.clone())
             }
+            // One's pending comment, before the review is sent (#200).
+            Change::Draft(id) => {
+                let Some(d) = (self.request_drafts(cx).iter())
+                    .find(|d| d.id == id && !self.is_temp(id))
+                    .cloned()
+                else {
+                    return;
+                };
+                (
+                    d.path.clone().unwrap_or_default(),
+                    d.new_line.is_none(),
+                    d.new_line.or(d.old_line).unwrap_or(0),
+                    d.body.clone(),
+                )
+            }
             Change::Note { thread, note } => {
                 let Some(t) = self.request_thread(thread, cx) else {
                     return;
@@ -381,6 +504,12 @@ impl Workspace {
                 let change = artoo_requests_api::Change::Edit { thread, note, body };
                 self.submit_compose(iid, change, cx);
             }
+            Change::Draft(id) => {
+                if let Some(iid) = self.current_request(cx) {
+                    let change = artoo_requests_api::Change::EditDraft { id, body };
+                    self.submit_compose(iid, change, cx);
+                }
+            }
         }
     }
 
@@ -405,7 +534,8 @@ impl Workspace {
         Some(self.open_input(
             compose,
             compose.source().color(),
-            "The comment…",
+            "The comment…".into(),
+            None,
             None,
             &[
                 Helper::Bold,
@@ -456,6 +586,8 @@ impl Workspace {
                 _ => Target::Agent,
             };
             compose.error = None;
+            // ⇥ goes to the branch's own chat, and back to everyone (#200).
+            self.compose_chat = None;
             cx.notify();
         }
     }
@@ -486,7 +618,6 @@ impl Workspace {
             self.compose = Some(compose);
             return;
         }
-        self.last_request_target = None;
         let above = match (compose.first, &self.diff_data(cx), self.rv().file_read(cx)) {
             // On a file read in Code: its own lines, whatever diff is loaded (#104).
             (Some(first), _, Some(_)) if compose.file.is_some() => (first..compose.line)
@@ -536,6 +667,12 @@ impl Workspace {
                 && let Some(Target::Request(iid)) = target
             {
                 return self.post_comment(iid, true, cx);
+            }
+            // ⇧⌘↵ in a reply keeps it pending with the review, as on a line (#200).
+            if m.shift
+                && let Some(Target::Reply(ix)) = target
+            {
+                return self.reply_to_review(ix, cx);
             }
             // An agent comment: ⇧⌘↵ adds it and sends all drafts, ⌥⌘↵ sends this one only.
             if target == Some(Target::Agent) && (m.shift || m.alt) {
@@ -747,47 +884,64 @@ impl Workspace {
             .into_any_element()
     }
 
-    /// The new comment's input: the one input component (variant D) with who sees it on its edge.
+    /// The new comment's input: the one input component (variant D), who reads it in its `To:` chip over the text,
+    /// its outline in their colour (#200).
     pub(super) fn compose_box(&self, this: WeakEntity<Self>, cx: &gpui::App) -> Option<gpui::Div> {
         let compose = self.compose.as_ref()?;
-        let audience = match compose.target {
+        let chat = match compose.target {
+            Target::Agent => self.compose_chat_of(cx),
+            _ => None,
+        };
+        let words = match compose.target {
             Target::Request(iid) => format!("Everyone on !{iid}"),
             // A reply in the Inbox, or a comment on the request from Discussions (#199).
             Target::InboxReply => match self.inbox_reply(cx) {
                 Some((iid, _)) => format!("Everyone on !{iid}"),
                 None => "Everyone on the request".to_owned(),
             },
-            // The chat it will go to, by its page's branch (#77).
-            Target::Agent => match self.route_of(self.page_branch(cx).as_deref(), cx) {
-                Some(chat) if !chat.title.is_empty() => format!("To: {}", chat.title),
-                Some(chat) => format!("To: {}", chat.agent),
-                None => "Your agent".to_owned(),
-            },
+            // The chat it will go to: the one picked, else its page's branch's (#77).
+            Target::Agent => chat
+                .as_ref()
+                .map_or_else(|| "Your agent".to_owned(), Self::chat_words),
             _ => "Your agent".to_owned(),
         };
+        let mark = chat.as_ref().map(|c| self.agents.mark(&c.session, cx));
+        let audience = Audience {
+            words,
+            mark,
+            list: self.compose_request(cx).is_some(),
+        };
+        let on = this.clone();
+        let on: artoo_ui_kit::composer::OnFoot = std::rc::Rc::new(move |event, cx| {
+            on.update(cx, |this, cx| this.foot_event(event, cx)).ok();
+        });
+        let head = compose.audience_chip(&audience, on.clone());
         let look = FootLook {
             audience,
-            switchable: self.compose_request(cx).is_some(),
             narrow: self.compose_narrow(cx),
             room: self.compose_room(cx),
             drafts: self.agent_drafts(cx).len(),
         };
-        let on = this.clone();
-        let (chip, tail) = compose.foot(
-            look,
-            std::rc::Rc::new(move |event, cx| {
-                on.update(cx, |this, cx| this.foot_event(event, cx)).ok();
-            }),
-        );
-        let placeholder = match compose.target {
-            Target::Agent => "Note for your agent",
-            _ => "Comment",
+        let tail = compose.foot(look, on);
+        let placeholder: gpui::SharedString = match (compose.target, &chat) {
+            (Target::Agent, Some(c)) => format!(
+                "Note for {}",
+                c.agent.split_whitespace().next().unwrap_or("your agent")
+            )
+            .into(),
+            (Target::Agent, None) => "Note for your agent".into(),
+            (Target::Request(_), _) if compose.first.is_some() => "Comment on these lines".into(),
+            (Target::Request(_), _) => "Comment on this line".into(),
+            _ => "Comment".into(),
         };
+        // The outline takes the audience's colour: the chat's hue, or the request's (#200).
+        let tone = mark.map_or(compose.source().color(), |(_, hue)| hue);
         let input = self.open_input(
             compose,
-            compose.source().color(),
+            tone,
             placeholder,
-            Some(chip),
+            Some(head),
+            None,
             &[Helper::Bold, Helper::Code, Helper::Link, Helper::Bullet],
             tail,
             this,
@@ -807,8 +961,12 @@ impl Workspace {
         };
         match event {
             FootEvent::Cancel => self.cancel_comment(cx),
-            FootEvent::Switch => self.toggle_target(cx),
-            FootEvent::AddToReview(iid) => self.post_comment(iid, true, cx),
+            FootEvent::Audience(at) => self.audience_menu(at, cx),
+            FootEvent::AddToReview => match self.compose.as_ref().map(|c| c.target) {
+                Some(Target::Request(iid)) => self.post_comment(iid, true, cx),
+                Some(Target::Reply(ix)) => self.reply_to_review(ix, cx),
+                _ => {}
+            },
             FootEvent::SendAll => self.add_and_send(false, cx),
             FootEvent::Add => self.add_comment(cx),
             // ▾: Send this only, the chat it goes to, Copy as markdown (#50 F).
@@ -886,7 +1044,8 @@ impl Workspace {
         Some(self.open_input(
             compose,
             compose.source().color(),
-            placeholder,
+            placeholder.into(),
+            None,
             lead,
             &[
                 Helper::Bold,
@@ -910,7 +1069,8 @@ impl Workspace {
         &self,
         compose: &Compose,
         tone: gpui::Rgba,
-        placeholder: &'static str,
+        placeholder: gpui::SharedString,
+        head: Option<gpui::AnyElement>,
         lead: Option<gpui::AnyElement>,
         tools: &[Helper],
         tail: Vec<gpui::AnyElement>,
@@ -924,6 +1084,7 @@ impl Workspace {
         let look = Look {
             tone,
             placeholder,
+            head,
             lead,
             tools: tools.to_vec(),
             tail,

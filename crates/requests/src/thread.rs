@@ -431,10 +431,11 @@ pub fn render_draft(
         return div().into_any_element();
     };
     let id = d.id;
-    let (delete, raw, send) = (on.clone(), on.clone(), on);
+    let (delete, raw, edit, send) = (on.clone(), on.clone(), on.clone(), on);
+    let editing = look.edit.is_some();
     // Waiting on the host: faded, saying what for, nothing to act on (#139).
     let waits = rq.draft_waits(id);
-    let acts = waits.is_none() && !is_temp(id);
+    let acts = waits.is_none() && !is_temp(id) && !editing;
     let one = look.one;
     // GitHub publishes a pending comment only with its review: there it says so (#138).
     let send = icon_button(
@@ -483,6 +484,21 @@ pub fn render_draft(
             discussion::rich_switch(("draft-rich", ix), look.rich)
                 .on_click(move |_, _, cx| raw(DraftEvent::ToggleRich, cx))
         }))
+        // It can be written again before the review is sent (#200).
+        .children(acts.then(|| {
+            icon_button(
+                ("draft-edit", ix),
+                "pencil",
+                "Edit",
+                None,
+                None,
+                Kind::Quiet,
+                look.tight,
+            )
+            .h(px(24.))
+            .px(px(8.))
+            .on_click(move |_, _, cx| edit(DraftEvent::Edit, cx))
+        }))
         .children(acts.then_some(send))
         .children(acts.then(|| {
             icon_button(
@@ -507,23 +523,26 @@ pub fn render_draft(
             discussion::frame(Source::Pending, look.focused)
                 .when(waits.is_some(), |s| s.opacity(FADED))
                 .child(bar)
-                .child(div().child(discussion::note(
-                    look.me,
-                    true,
-                    None,
-                    waits.unwrap_or_default().to_owned(),
-                    markdown::body(
-                        &d.body,
-                        look.rich,
-                        format!("md-draft-{ix}"),
-                        look.link_base,
-                        Some(look.selecting),
-                        cx,
-                    ),
-                    true,
-                    None,
-                    None,
-                ))),
+                .children(look.edit.map(|e| div().px(px(10.)).pb(px(8.)).child(e)))
+                .when(!editing, |s| {
+                    s.child(div().child(discussion::note(
+                        look.me,
+                        true,
+                        None,
+                        waits.unwrap_or_default().to_owned(),
+                        markdown::body(
+                            &d.body,
+                            look.rich,
+                            format!("md-draft-{ix}"),
+                            look.link_base,
+                            Some(look.selecting),
+                            cx,
+                        ),
+                        true,
+                        None,
+                        None,
+                    )))
+                }),
         )
         .into_any_element()
 }

@@ -259,6 +259,14 @@ impl Discussions for GitLab {
     fn delete_draft(&self, iid: u64, id: u64) -> Result<()> {
         gitlab::delete_draft(&self.remote, iid, id)
     }
+
+    fn reply_draft(&self, iid: u64, discussion: &str, body: &str) -> Result<()> {
+        gitlab::reply_draft(&self.remote, iid, discussion, body)
+    }
+
+    fn edit_draft(&self, iid: u64, id: u64, body: &str) -> Result<()> {
+        gitlab::edit_draft(&self.remote, iid, id, body)
+    }
 }
 
 impl Reviews for GitLab {
@@ -490,6 +498,14 @@ impl Discussions for GitHub {
 
     fn delete_draft(&self, iid: u64, id: u64) -> Result<()> {
         github::delete_draft(&self.remote, iid, id)
+    }
+
+    fn reply_draft(&self, iid: u64, discussion: &str, body: &str) -> Result<()> {
+        github::reply_draft(&self.remote, iid, discussion, body)
+    }
+
+    fn edit_draft(&self, iid: u64, id: u64, body: &str) -> Result<()> {
+        github::edit_draft(&self.remote, iid, id, body)
     }
 }
 

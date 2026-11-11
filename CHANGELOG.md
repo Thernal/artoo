@@ -6,6 +6,11 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **The composer opens public on a merge request.** A comment on a line of a request's diff starts orange, for
+  everyone on it — `To: Everyone on !398` over the text, `Comment on this line`, and `Add to review` beside a filled
+  `Comment`. ⇥ turns it into a note for the chat working on this branch and back; the chip's ▾ lists everyone on the
+  request and every agent chat of the project, and the note goes to the chat picked. ⇧⌘↵ in a reply keeps it pending
+  with your review instead of posting it, and a pending comment can be edited before the review is sent.
 - **Discussions count the work left.** The window says `Discussions · 3 open`, each row ends with who moves —
   `waiting on you` or `waiting on Ember` —, pending comments come first and resolved ones fold under `Resolved · 4`;
   its icon counts open and pending, and ⇧N walks only the open ones. A general comment opens whole in the window,

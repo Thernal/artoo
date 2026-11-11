@@ -173,7 +173,13 @@ impl Workspace {
     }
 
     /// `ids` sent to chat `session`, picked on the card: "" a new chat, opened in a terminal (`Agents::send_to`).
-    fn send_to(&mut self, ids: Vec<u64>, session: String, title: String, cx: &mut Context<Self>) {
+    pub(super) fn send_to(
+        &mut self,
+        ids: Vec<u64>,
+        session: String,
+        title: String,
+        cx: &mut Context<Self>,
+    ) {
         let Some(root) = self.root.clone() else {
             return;
         };

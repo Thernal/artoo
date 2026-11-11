@@ -783,12 +783,23 @@ impl Workspace {
             one: self.sends_one_draft(),
             agent: self.draft_agent(id, cx),
             me: &self.me,
+            // Being written again: the editor in place of its text (#200).
+            edit: match self.compose.as_ref().map(|c| c.target) {
+                Some(super::composer::Target::Edit(change @ super::composer::Change::Draft(d)))
+                    if d == id =>
+                {
+                    self.edit_box(change, this.clone(), cx)
+                        .map(|b| b.into_any_element())
+                }
+                _ => None,
+            },
         };
         let on: OnDraft = Rc::new(move |event, cx| {
             this.update(cx, |this, cx| match event {
                 DraftEvent::Send => this.send_draft_now(id, cx),
                 DraftEvent::ToggleRich => this.toggle_rich_comments(cx),
                 DraftEvent::Delete => this.discard_draft(id, cx),
+                DraftEvent::Edit => this.start_edit(super::composer::Change::Draft(id), cx),
             })
             .ok();
         });

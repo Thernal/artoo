@@ -47,6 +47,11 @@ pub enum Op {
     },
     /// A pending comment written.
     Draft(Draft),
+    /// Pending comment `id` written again (#200).
+    EditDraft {
+        id: u64,
+        body: String,
+    },
     /// A pending comment deleted: it stays, faded, until the host has taken it away.
     DropDraft(u64),
     /// Pending comments published (Send this now, Submit review): each, by its id, becomes a
@@ -238,6 +243,11 @@ impl Waiting {
                         drafts.push(d.clone());
                     }
                 }
+                Op::EditDraft { id, body } => {
+                    if let Some(d) = drafts.iter_mut().find(|d| d.id == *id) {
+                        d.body.clone_from(body);
+                    }
+                }
                 Op::Publish(sent) => {
                     for (id, thread, n) in sent {
                         if let Some(ix) = drafts.iter().position(|d| d.id == *id) {
@@ -299,6 +309,7 @@ impl Waiting {
     pub fn draft(&self, iid: u64, from: u64, id: u64) -> Option<&'static str> {
         self.on(iid, from).rev().find_map(|(op, _)| match op {
             Op::Draft(d) if d.id == id => Some("Saving…"),
+            Op::EditDraft { id: d, .. } if *d == id => Some("Saving…"),
             Op::DropDraft(d) if *d == id => Some("Deleting…"),
             _ => None,
         })
@@ -415,6 +426,24 @@ impl Requests {
                 };
                 (vec![op], Box::new(work))
             }
+            Change::ReplyDraft { thread, body } => (
+                vec![Op::Draft(Draft {
+                    id: w.temp(),
+                    body: body.clone(),
+                    path: None,
+                    new_line: None,
+                    old_line: None,
+                    reply_to: Some(thread.clone()),
+                })],
+                Box::new(move |host: Arc<dyn Host>| host.reply_draft(iid, &thread, &body)),
+            ),
+            Change::EditDraft { id, body } => (
+                vec![Op::EditDraft {
+                    id,
+                    body: body.clone(),
+                }],
+                Box::new(move |host: Arc<dyn Host>| host.edit_draft(iid, id, &body)),
+            ),
             Change::Edit { thread, note, body } => (
                 vec![Op::Edit {
                     note,
@@ -685,5 +714,26 @@ mod tests {
         let a = a.unwrap();
         assert!(a.mine && a.left == 0 && a.by == ["Ann", "Me"]);
         assert!(w.approving(1, 0));
+    }
+
+    #[test]
+    fn a_pending_comment_is_written_again_in_place() {
+        let mut w = Waiting::default();
+        w.send(
+            1,
+            vec![Op::EditDraft {
+                id: 20,
+                body: "again".into(),
+            }],
+            0,
+        );
+        let (mut t, mut d, mut a) = (Vec::new(), vec![draft(20), draft(21)], None);
+        w.apply(1, 0, ME, &mut t, &mut d, &mut a);
+        assert_eq!(
+            d.iter().map(|d| d.body.as_str()).collect::<Vec<_>>(),
+            ["again", "draft 21"]
+        );
+        assert_eq!(w.draft(1, 0, 20), Some("Saving…"));
+        assert_eq!(w.draft(1, 0, 21), None);
     }
 }

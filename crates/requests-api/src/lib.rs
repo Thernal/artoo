@@ -88,6 +88,16 @@ pub enum Change {
         thread: String,
         body: String,
     },
+    /// A reply in discussion `thread` kept pending, sent with the review (#200).
+    ReplyDraft {
+        thread: String,
+        body: String,
+    },
+    /// Pending comment `id` written again before the review is sent (#200).
+    EditDraft {
+        id: u64,
+        body: String,
+    },
     /// A comment on the request.
     Comment {
         body: String,
@@ -510,6 +520,8 @@ pub struct DraftLook<'a> {
     /// The agent that wrote it, when one did (#150).
     pub agent: Option<&'a str>,
     pub me: &'a str,
+    /// Being written again: the editor, in place of its text (#200).
+    pub edit: Option<AnyElement>,
 }
 
 /// A click on a pending comment.
@@ -519,6 +531,8 @@ pub enum DraftEvent {
     Send,
     ToggleRich,
     Delete,
+    /// Written again before the review is sent (#200).
+    Edit,
 }
 
 /// What answers a pending comment's clicks.

@@ -41,6 +41,8 @@ pub enum Change {
     Agent(u64),
     /// Note `note` of discussion number `thread` of the open merge request.
     Note { thread: usize, note: u64 },
+    /// One's pending comment `0` on the open merge request, before the review is sent (#200).
+    Draft(u64),
 }
 
 /// A comment being written.
@@ -228,7 +230,9 @@ pub type ComposeActs = Rc<dyn Fn(ComposeAct, &mut App)>;
 pub struct Look {
     /// The outline, in the audience's colour.
     pub tone: Rgba,
-    pub placeholder: &'static str,
+    pub placeholder: SharedString,
+    /// Who reads it, a row over the text (#200: the `To:` chip).
+    pub head: Option<AnyElement>,
     /// Who sees it, first along the bottom edge.
     pub lead: Option<AnyElement>,
     /// The markdown helpers, after `lead`.
@@ -257,6 +261,7 @@ impl Compose {
         let Look {
             tone,
             placeholder,
+            head,
             lead,
             tools,
             tail,
@@ -411,6 +416,15 @@ impl Compose {
             .text_color(theme::text())
             // Its own width decides its buttons' (the tab's `compose_narrow`).
             .child(measure)
+            .children(head.map(|head| {
+                div()
+                    .flex()
+                    .items_center()
+                    .min_w_0()
+                    .px(px(6.))
+                    .pt(px(6.))
+                    .child(head)
+            }))
             .child(text)
             .children(completion)
             .children(compose.error.clone().map(|e| {
@@ -428,7 +442,7 @@ impl Compose {
     /// caret drawn where the text's layout puts it; a click places the caret, a drag selects.
     fn render_text(
         &self,
-        placeholder: &'static str,
+        placeholder: SharedString,
         compact: bool,
         focused: bool,
         lines: Option<input::Lines>,
@@ -533,13 +547,21 @@ impl Compose {
     }
 }
 
+/// Who reads a new comment, as its `To:` chip says it (#200).
+pub struct Audience {
+    /// In words: `Everyone on !398`, a chat's name, `Your agent`.
+    pub words: String,
+    /// A chat's letter on its hue; `None`, the request's icon (everyone on it) or the agent's purple.
+    pub mark: Option<(char, Rgba)>,
+    /// A request's page: ▾ lists who can read it, ⇥ switches to the branch's chat and back.
+    pub list: bool,
+}
+
 /// What a comment's foot is drawn with that the tab knows.
 pub struct FootLook {
-    /// Who it goes to, in words: everyone on a request, the agent's chat.
-    pub audience: String,
-    /// A request's page: Tab switches who sees it.
-    pub switchable: bool,
-    /// The diff narrow: the secondary buttons are their icons, the audience its dot (`compose_narrow`).
+    /// Who reads it: the `To:` chip over the text (#200).
+    pub audience: Audience,
+    /// The diff narrow: the secondary buttons are their icons (`compose_narrow`).
     pub narrow: bool,
     /// The box's room (#129).
     pub room: Room,
@@ -551,10 +573,10 @@ pub struct FootLook {
 #[derive(Clone, Copy)]
 pub enum FootEvent {
     Cancel,
-    /// Tab: who sees it switched.
-    Switch,
-    /// Added to the review of request `0`, pending until it is submitted.
-    AddToReview(u64),
+    /// The `To:` chip's ▾ at a point: who can read it (#200).
+    Audience(Point<Pixels>),
+    /// Added to the review, pending until it is submitted: a comment on a line, a reply (#200).
+    AddToReview,
     /// Added for the agent, and every draft sent.
     SendAll,
     /// The agent's ▾ at a point: Send this only, the chat, Copy (#50 F).
@@ -579,50 +601,89 @@ impl Compose {
             | Target::AnswerValue(_) => Source::Agent,
             Target::Request(_)
             | Target::Reply(_)
-            | Target::Edit(Change::Note { .. })
+            | Target::Edit(Change::Note { .. } | Change::Draft(_))
             | Target::InboxReply => Source::GitLab,
         }
     }
 
-    /// A new comment's foot by its room (Design shell round 6, #129): who sees it (its chip, first), then
-    /// Cancel, the other ways to send and the primary. At S "Add to drafts" is "Add" (named in full in its
-    /// tooltip), and the other ways to send fold into its own ▾.
-    pub fn foot(&self, look: FootLook, on: OnFoot) -> (AnyElement, Vec<AnyElement>) {
-        let source = self.source();
-        let tone = source.color();
-        let narrow = look.narrow;
-        // Narrow, who it goes to is its colour's dot, the words in the tooltip.
-        let said: SharedString = if look.switchable {
-            format!("{} — Tab switches who sees it", look.audience).into()
+    /// The `To:` chip over a new comment's text (#200): who reads it in words at every width, a chat's letter on its
+    /// hue or the request's icon before them, ▾ for the list of who can.
+    pub fn audience_chip(&self, audience: &Audience, on: OnFoot) -> AnyElement {
+        let tone = self.source().color();
+        let hue = audience.mark.map_or(tone, |(_, hue)| hue);
+        let said: SharedString = if audience.list {
+            format!("Who reads it: {}  ·  ⇥ switches", audience.words).into()
         } else {
-            look.audience.clone().into()
+            format!("Who reads it: {}", audience.words).into()
         };
-        let switch = on.clone();
-        let chip = div()
+        let list = audience.list;
+        div()
             .id("compose-audience")
-            .h(px(26.))
+            .h(px(24.))
+            .max_w_full()
+            .min_w_0()
             .px(px(8.))
             .flex()
-            .flex_none()
             .items_center()
             .gap(px(6.))
             .rounded(px(6.))
-            .bg(match source {
-                Source::Agent => theme::agent_bg(),
-                _ => theme::warning_bg(),
-            })
+            .border_1()
+            .border_color(theme::selected())
             .text_size(px(12.))
-            .text_color(tone)
             .whitespace_nowrap()
-            .child(div().size(px(7.)).rounded_full().bg(tone))
-            .when(!narrow, |s| s.child(look.audience))
+            .child(div().flex_none().text_color(theme::muted()).child("To:"))
+            .child(match audience.mark {
+                Some((letter, hue)) => div()
+                    .flex_none()
+                    .size(px(16.))
+                    .rounded(px(4.))
+                    .bg(hue)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(10.))
+                    .font_weight(gpui::FontWeight::BOLD)
+                    .text_color(theme::base())
+                    .child(letter.to_string())
+                    .into_any_element(),
+                None => icons::icon(match self.source() {
+                    Source::Agent => "bot",
+                    _ => "pull-request",
+                })
+                .size(px(13.))
+                .flex_none()
+                .text_color(hue)
+                .into_any_element(),
+            })
+            .child(
+                hover::cut("compose-audience-words", audience.words.clone())
+                    .min_w_0()
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(theme::text()),
+            )
             .tooltip_show_delay(hover::LONG)
             .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(said.clone())).into())
-            .when(look.switchable, |s| {
+            .when(list, |s| {
                 s.cursor_pointer()
-                    .child(icons::icon("chevron").size(px(12.)).text_color(tone))
-                    .on_click(move |_, _, cx| switch(FootEvent::Switch, cx))
-            });
+                    .hover(|s| s.bg(theme::hover()))
+                    .child(
+                        icons::icon("chevron")
+                            .size(px(12.))
+                            .flex_none()
+                            .text_color(theme::muted()),
+                    )
+                    .on_click(move |event, _, cx| on(FootEvent::Audience(event.position()), cx))
+            })
+            .into_any_element()
+    }
+
+    /// A new comment's foot by its room (Design shell round 6, #129): Cancel, the other ways to send and the
+    /// primary; who reads it is the `To:` chip over the text (#200, `audience_chip`). At S "Add to drafts" is "Add"
+    /// (named in full in its tooltip), and the other ways to send fold into its own ▾.
+    pub fn foot(&self, look: FootLook, on: OnFoot) -> Vec<AnyElement> {
+        let source = self.source();
+        let tone = source.color();
+        let narrow = look.narrow;
         let folded = look.room == Room::S;
         let primary = match &self.target {
             Target::Agent if folded => "Add",
@@ -666,21 +727,22 @@ impl Compose {
         ];
         // The secondary buttons are one weight, bare as Cancel and ▾ are; only the primary is
         // filled.
-        if let Some(iid) = request.filter(|_| !folded) {
+        if request.is_some() && !folded {
             let review = on.clone();
             tail.push(
+                // Beside Comment in words wherever it is not folded (#200).
                 discussion::icon_button(
                     "compose-review",
                     "layers",
                     "Add to review",
-                    Some("⇧⌘↵"),
+                    (!narrow).then_some("⇧⌘↵"),
                     Some("Pending until you submit the review"),
                     Kind::Quiet,
-                    narrow,
+                    false,
                 )
                 .h(px(28.))
                 .px(pad)
-                .on_click(move |_, _, cx| review(FootEvent::AddToReview(iid), cx))
+                .on_click(move |_, _, cx| review(FootEvent::AddToReview, cx))
                 .into_any_element(),
             );
         }
@@ -773,7 +835,7 @@ impl Compose {
                 )
                 .into_any_element()
         });
-        (chip.into_any_element(), tail)
+        tail
     }
 
     /// A reply's foot, the same as a new comment's (#129) at `room`: which of the two it writes on a discussion,
@@ -788,10 +850,10 @@ impl Compose {
         // ⇥ turned it into a note for the agent: purple, and it stays on this Mac (#50 G).
         let agent = self.source() == Source::Agent;
         let tone = self.source().color();
-        let cancel = on.clone();
-        // Narrow, Cancel is its ×, who sees it its dot.
+        let (cancel, review) = (on.clone(), on.clone());
+        // Narrow, Cancel is its ×.
         let narrow = room != Room::L;
-        let tail = vec![
+        let mut tail = vec![
             if narrow {
                 discussion::icon_button(
                     "reply-cancel",
@@ -811,6 +873,26 @@ impl Compose {
             .px(px(if narrow { 6. } else { 10. }))
             .on_click(move |_, _, cx| cancel(FootEvent::Cancel, cx))
             .into_any_element(),
+        ];
+        // A reply on the request can wait for the review too (#200): ⇧⌘↵.
+        if matches!(self.target, Target::Reply(_)) && !inbox {
+            tail.push(
+                discussion::icon_button(
+                    "reply-review",
+                    "layers",
+                    "Add to review",
+                    Some("⇧⌘↵"),
+                    Some("Pending until you submit the review"),
+                    Kind::Quiet,
+                    narrow,
+                )
+                .h(px(28.))
+                .px(px(if narrow { 6. } else { 10. }))
+                .on_click(move |_, _, cx| review(FootEvent::AddToReview, cx))
+                .into_any_element(),
+            );
+        }
+        tail.push(
             discussion::button(
                 "reply-send",
                 if agent && inbox && matches!(self.target, Target::Answer(_)) {
@@ -827,12 +909,14 @@ impl Compose {
             .px(px(10.))
             .on_click(move |_, _, cx| on(FootEvent::Add, cx))
             .into_any_element(),
-        ];
+        );
+        // Who reads it, in words at every width (#200): shorter when narrow.
         let lead = matches!(self.target, Target::Reply(_) | Target::ThreadNote(_)).then(|| {
-            let said = if agent {
-                "🔒 For your agent"
-            } else {
-                "Reply on the merge request"
+            let said = match (agent, narrow) {
+                (true, false) => "🔒 For your agent",
+                (true, true) => "🔒 Agent",
+                (false, false) => "Reply on the merge request",
+                (false, true) => "Everyone",
             };
             div()
                 .id("reply-audience")
@@ -851,17 +935,15 @@ impl Compose {
                 .text_size(px(12.))
                 .text_color(tone)
                 .whitespace_nowrap()
+                .child(said)
                 .map(|s| {
                     if narrow {
-                        // Narrow, its colour's dot; the words and ⇥ in the tooltip.
-                        s.child(div().size(px(7.)).rounded_full().bg(tone))
-                            .tooltip_show_delay(hover::LONG)
-                            .tooltip(move |_, cx| {
-                                cx.new(|_| hover::TipOwned(format!("{said} — ⇥ switches").into()))
-                                    .into()
-                            })
+                        s.tooltip_show_delay(hover::LONG).tooltip(move |_, cx| {
+                            cx.new(|_| hover::TipOwned(format!("{said} — ⇥ switches").into()))
+                                .into()
+                        })
                     } else {
-                        s.child(said).child(keys::caps("⇥", keys::On::Plain))
+                        s.child(keys::caps("⇥", keys::On::Plain))
                     }
                 })
                 .into_any_element()
