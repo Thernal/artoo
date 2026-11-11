@@ -48,14 +48,16 @@ pub fn render_done_card(look: DoneLook, on: OnDone) -> AnyElement {
             .when(!primary, |s| s.bg(theme::hover()).text_color(theme::text()))
             .hover(|s| s.opacity(0.85))
             .child(hover::cut("label", label))
-            .child(keys::caps(
-                key,
-                if primary {
-                    keys::On::Filled
-                } else {
-                    keys::On::Plain
-                },
-            ))
+            .when(!key.is_empty(), |s| {
+                s.child(keys::caps(
+                    key,
+                    if primary {
+                        keys::On::Filled
+                    } else {
+                        keys::On::Plain
+                    },
+                ))
+            })
     };
     let current = look.request;
     let (close, approve, next, leave) = (on.clone(), on.clone(), on.clone(), on);
@@ -113,7 +115,7 @@ pub fn render_done_card(look: DoneLook, on: OnDone) -> AnyElement {
                 .on_click(move |_: &ClickEvent, _, cx| next(DoneEvent::Next, cx))
         }))
         .children(current.map(|_| {
-            button("done-leave", "Back to your branch".to_owned(), "⌥⌘L", false)
+            button("done-leave", "Back to your branch".to_owned(), "", false)
                 .on_click(move |_: &ClickEvent, _, cx| leave(DoneEvent::Leave, cx))
         }))
         .children(look.next.is_none().then(|| {

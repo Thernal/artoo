@@ -168,8 +168,7 @@ pub(super) fn own() -> Vec<Action> {
             .at(0, 1),
         Action::new("branches.or-requests", ToggleRequests)
             .words("Branches or merge requests")
-            .order(at(51))
-            .key("cmd-alt-3", TAB),
+            .order(at(51)),
         Action::new("review.comment-line", CommentLine).key("c", NOT_TYPING),
         Action::new("requests.submit", SubmitReview).key("cmd-shift-enter", NOT_TYPING),
         Action::new("requests.create", CreateRequest)
@@ -259,11 +258,12 @@ pub(super) fn own() -> Vec<Action> {
             .key("cmd-0", TAB)
             .menu(Bar::View, "Actual Size")
             .at(1, 2),
-        Action::new("review.bookmark", ToggleBookmark).key("f3", NOT_TYPING),
+        // F3 and ⌘F3 are macOS's Mission Control (#183).
+        Action::new("review.bookmark", ToggleBookmark).key("b", NOT_TYPING),
         Action::new("review.bookmarks", ShowBookmarks)
             .words("Bookmarks")
             .order(at(23))
-            .key("cmd-f3", TAB),
+            .key("shift-b", NOT_TYPING),
         Action::new("review.structure", ShowStructure)
             .words("Changes in this file — functions and types")
             .order(at(22))
@@ -397,7 +397,7 @@ pub(super) fn own() -> Vec<Action> {
         Action::new("review.cycle-mode", CycleMode)
             .words("Cycle lines, words, structural")
             .order(at(36))
-            .key("alt-d", TAB)
+            .key("alt-d", NOT_TYPING)
             .key("w", NOT_TYPING),
         Action::new("review.rendered", ToggleRendered)
             .words("Markdown files rendered, or their source")
@@ -406,7 +406,7 @@ pub(super) fn own() -> Vec<Action> {
         Action::new("review.unified", ToggleUnified)
             .words("Toggle split / unified")
             .order(at(35))
-            .key("alt-u", TAB)
+            .key("alt-u", NOT_TYPING)
             .menu(Bar::View, "Unified Diff")
             .at(2, 0)
             .checked(|cx| front(cx).unified),
@@ -425,43 +425,42 @@ pub(super) fn own() -> Vec<Action> {
         Action::new("review.wrap", ToggleWrap)
             .words("Toggle wrap")
             .order(at(39))
-            .key("alt-z", TAB)
+            .key("alt-z", NOT_TYPING)
             .menu(Bar::View, "Wrap Long Lines")
             .at(3, 0)
             .checked(|cx| front(cx).wrap),
         Action::new("review.full-context", ToggleFullContext)
             .words("Toggle full file")
             .order(at(40))
-            .key("alt-e", TAB)
+            .key("alt-e", NOT_TYPING)
             .menu(Bar::View, "Show All Lines")
             .at(3, 1)
             .checked(|cx| front(cx).full_context),
         Action::new("review.whitespace", ToggleWhitespace)
             .words("Toggle ignore whitespace")
             .order(at(41))
-            .key("alt-w", TAB)
+            .key("alt-w", NOT_TYPING)
             .menu(Bar::View, "Hide Whitespace Changes")
             .at(3, 2)
             .checked(|cx| front(cx).ignore_whitespace),
         Action::new("review.one-file", ToggleOneFile)
             .words("All files in one scroll, or one file at a time")
             .order(at(42))
-            .key("alt-a", TAB)
+            .key("alt-a", NOT_TYPING)
             .menu(Bar::View, "One File at a Time")
             .at(3, 3)
             .checked(|cx| front(cx).one_file),
         Action::new("review.expand-all", ToggleExpandAll)
             .words("Expand all files, or collapse them all")
             .order(at(43))
-            .key("alt-shift-a", TAB),
+            .key("alt-shift-a", NOT_TYPING),
         Action::new("review.rich-comments", ToggleRichComments)
             .words("Comments as markdown or raw text")
             .order(at(44))
             .key("alt-m", NOT_TYPING),
         Action::new("requests.leave", LeaveRequest)
             .words("Leave the merge request — back to your branch")
-            .order(at(45))
-            .key("cmd-alt-l", TAB),
+            .order(at(45)),
         Action::new("review.all-reviewed", ToggleAllReviewed)
             .words("Mark all files reviewed, or unmark all")
             .order(at(46))

@@ -2418,7 +2418,7 @@ impl Workspace {
         self.fold_changes(cx);
     }
 
-    /// ⌥⌘3: the Merge requests space, as ⌃⌘4 (#71).
+    /// The Merge requests space, as ⌃⌘4 (#71).
     fn toggle_requests(&mut self, _: &ToggleRequests, _: &mut Window, cx: &mut Context<Self>) {
         self.go_space(spaces::REQUESTS, cx);
     }
@@ -2937,6 +2937,30 @@ mod tests {
                     ]
                 ),
             ]
+        );
+    }
+
+    /// ⌥ and a letter types a character in a field (#183): no command takes one where a field types.
+    #[test]
+    fn an_alt_letter_key_never_fires_in_a_field() {
+        let typing = installed(|cx| {
+            (artoo_shell_api::actions(cx).iter())
+                .flat_map(|a| a.keys.iter().map(move |k| (a.id, k.keys, k.when)))
+                .filter(|(_, keys, when)| {
+                    let parts: Vec<&str> = keys.split('-').collect();
+                    let letter = parts.last().is_some_and(|l| l.len() == 1);
+                    let alt_only = parts[..parts.len() - 1]
+                        .iter()
+                        .all(|m| *m == "alt" || *m == "shift")
+                        && parts.contains(&"alt");
+                    letter && alt_only && !when.contains("!Typing")
+                })
+                .map(|(id, keys, _)| format!("{id} {keys}"))
+                .collect::<Vec<_>>()
+        });
+        assert!(
+            typing.is_empty(),
+            "⌥-letter keys that fire while typing: {typing:?}"
         );
     }
 

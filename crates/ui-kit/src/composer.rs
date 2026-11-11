@@ -719,15 +719,17 @@ impl Compose {
             );
         }
         let add = on.clone();
+        // ⌘↵ is the composer's: its primary says so wherever there is room for it, the smallest box its tooltip (#183).
+        let small = look.room == Room::S;
         let add_button = discussion::button(
             "compose-add",
             primary,
-            (!narrow).then_some("⌘↵"),
+            (!small).then_some("⌘↵"),
             Kind::Primary(tone),
         )
         .h(px(28.))
         .px(px(10.))
-        .when(narrow, |s| {
+        .when(small, |s| {
             s.tooltip_show_delay(hover::LONG).tooltip(move |_, cx| {
                 cx.new(|_| {
                     hover::Tip(if agent {
@@ -818,7 +820,7 @@ impl Compose {
                 } else {
                     "Reply"
                 },
-                (!narrow).then_some("⌘↵"),
+                (room != Room::S).then_some("⌘↵"),
                 Kind::Primary(tone),
             )
             .h(px(28.))

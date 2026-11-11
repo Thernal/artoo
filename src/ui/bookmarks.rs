@@ -1,4 +1,4 @@
-//! Bookmarks for the first pass (F3): a mark on a line, a list of them (⌘F3), a click on the mark
+//! Bookmarks for the first pass (B, #183): a mark on a line, a list of them (⇧B), a click on the mark
 //! takes it off. For "look at this again" without writing a comment. Kept per commit, range or
 //! merge request on this Mac. Designed in `../Design/mockups/ide-ideas/a-ideas.html` (8).
 
@@ -97,7 +97,7 @@ impl Workspace {
             .collect()
     }
 
-    /// F3: the line under the last click gets a mark, or loses it.
+    /// B: the line under the last click gets a mark, or loses it.
     pub(super) fn toggle_bookmark(&mut self, cx: &mut Context<Self>) {
         let line = (self.rv().sel(cx))
             .filter(|s| !s.old)

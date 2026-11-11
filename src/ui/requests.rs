@@ -281,7 +281,7 @@ impl Workspace {
         .detach();
     }
 
-    /// ⌥⌘L: closes the request on screen, back to the list (as ⌘W on it does).
+    /// Leave the merge request (⌘K): closes the request on screen, back to the list (as ⌘W on it does).
     pub(super) fn leave_request(&mut self, cx: &mut Context<Self>) {
         if let Some(iid) = self.current_request(cx) {
             self.close_open(&super::nav::Page::Request(iid).route(), cx);

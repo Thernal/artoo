@@ -80,8 +80,6 @@ pub fn install(cx: &mut App) {
             .words("Inbox")
             .order(0)
             .key("ctrl-cmd-1", when::TAB)
-            // The Inbox's older key, from when the bell opened a window (#72).
-            .key("cmd-shift-n", when::TAB)
             .menu(Menu::Go, "Inbox")
             .at(0, 0),
     );

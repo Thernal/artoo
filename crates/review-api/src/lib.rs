@@ -901,7 +901,7 @@ pub enum NoteTone {
     Draft,
     /// A comment kept for the agent.
     Agent,
-    /// A line marked with F3.
+    /// A line marked with B (a bookmark).
     Bookmark,
     /// A decorator's mark, in its colour (`0xRRGGBB`, `decorations::Mark`).
     Marked(u32),

@@ -6,6 +6,13 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **Keys that no longer misfire.** ⌥ and a letter type a character in a comment instead of changing the diff; the
+  composer's button shows ⌘↵; bookmarks are B and ⇧B, leaving F3 to macOS; ⌥⌘3, ⇧⌘N and ⌥⌘L are gone (⌃⌘1 is the
+  Inbox, ⌘K leaves a merge request).
+- **A file you read counts wherever you read it.** A file marked in Since v2, in a comparison of the same change or in
+  every commit touching it counts in the merge request; a rebase that leaves a file's change alone keeps its mark,
+  and a file changed by a push says the version you read it at, `↻ v2`.
+
 - **Settings → Notifications.** Each kind of news — six from merge requests, four from agents, and a plugin's — has
   its own switches for the Inbox, a toast and the system's notifications. System notifications moved here from
   General, and say so when macOS has them off for Artoo, with a way to its settings. The Dock's icon counts what

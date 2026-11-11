@@ -1,5 +1,5 @@
 //! The lists the tab shows alone in ⌘K's window, offered as a feature offers its own (`artoo_shell_api::search::List`,
-//! D18): the places opened lately (⌘E), the lines marked with F3 (⌘F3), the functions and types the open file changes
+//! D18): the places opened lately (⌘E), the lines marked with B (⇧B), the functions and types the open file changes
 //! (⌘⇧O), switching to a branch or a merge request (⌘B), opening a repository (⌘T, the rail's +), a face for the
 //! interface or the code (#24, a face's Other…); and a link of a host's pasted in All, one place to go. Their finds
 //! read the tab, which the window lets them: it finds them outside the tab's update.
@@ -72,8 +72,8 @@ pub(super) fn lists(tab: WeakEntity<Workspace>) -> Vec<List> {
             BOOKMARKS,
             bookmarks(tab.clone()),
             says(
-                "Bookmarks — lines marked with F3",
-                "No bookmarks yet: click a line and press F3.",
+                "Bookmarks — lines marked with B",
+                "No bookmarks yet: click a line and press B.",
             ),
         ),
         list(
