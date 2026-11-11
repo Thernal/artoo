@@ -210,11 +210,7 @@ impl Workspace {
                     fold,
                 ))
                 .child(item("Mark reviewed as I scroll past", "", scrolled))
-                .child(item(
-                    "Format comments as markdown",
-                    "⌥M, or Raw / Rich beside a comment, switches it.",
-                    rich,
-                ))
+                .child(item("Format comments as markdown", "", rich))
                 .into_any_element(),
             GENERAL => column()
                 .child(item(
@@ -251,7 +247,7 @@ impl Workspace {
                 .child(item("Refresh when the repository changes", "", refresh))
                 .child(item(
                     "Fetch in the background",
-                    "Every 5 minutes and when the window comes back · this repository only.",
+                    "Every 5 minutes and when the window comes back",
                     fetch,
                 ))
                 .into_any_element(),

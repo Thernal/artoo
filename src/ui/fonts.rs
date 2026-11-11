@@ -29,21 +29,8 @@ impl Workspace {
             .flex()
             .flex_col()
             .gap(px(10.))
-            .child(artoo_ui_kit::controls::subhead(
-                "Fonts and size",
-                "The interface and the code each have their own face. Every face installed can be chosen.",
-            ))
+            .child(artoo_ui_kit::controls::subhead("Fonts and size", ""))
             .child(div().flex().flex_col().children(self.font_rows(cx)))
-            .child(
-                div()
-                    .px(px(12.))
-                    .py(px(10.))
-                    .rounded(px(ROW_RADIUS))
-                    .bg(theme::info_bg())
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .child(fold_line(self.settings.ui_zoom)),
-            )
             .into_any_element()
     }
 
@@ -70,6 +57,13 @@ impl Workspace {
                 .child(chip("ui-zoom-in", "+", false).on_click(
                     cx.listener(|this, _: &ClickEvent, window, cx| this.ui_zoom_by(1, window, cx)),
                 ));
+        // When the layout narrows at this size: the size's tooltip, not a paragraph (#202).
+        let folds: gpui::SharedString = fold_line(s.ui_zoom).into();
+        let ui_zoom = div()
+            .id("ui-zoom")
+            .child(ui_zoom)
+            .tooltip_show_delay(super::hover::LONG)
+            .tooltip(move |_, cx| cx.new(|_| super::TipOwned(folds.clone())).into());
         let points = code_points(s.zoom);
         let code_size = group()
             .child(chip("code-size-down", "−", false).on_click(cx.listener(

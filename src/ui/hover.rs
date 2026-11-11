@@ -504,4 +504,27 @@ mod tests {
             "clipped with no ellipsis and no `// clip:` reason: {silent:#?}"
         );
     }
+
+    /// Every tooltip opens after the same delay, `hover::LONG` (800 ms, #202): a `.tooltip(` with no
+    /// `tooltip_show_delay` on its own chain, within the four lines above it.
+    #[test]
+    fn every_tooltip_waits_the_same_delay() {
+        let mut quick = Vec::new();
+        for (path, text) in views() {
+            let lines: Vec<&str> = text.lines().collect();
+            for (n, line) in lines.iter().enumerate() {
+                if !line.contains(".tooltip(") || line.contains("fn tooltip") {
+                    continue;
+                }
+                let back = &lines[n.saturating_sub(4)..=n];
+                if !back.iter().any(|l| l.contains("tooltip_show_delay")) {
+                    quick.push(format!("{}:{}", path.display(), n + 1));
+                }
+            }
+        }
+        assert!(
+            quick.is_empty(),
+            "a tooltip without the shared delay: {quick:#?}"
+        );
+    }
 }

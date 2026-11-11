@@ -181,8 +181,5 @@ fn body(
                 .text_color(theme::muted())
                 .child(said)
         }))
-        .child(div().text_size(px(12.)).text_color(theme::muted()).child(
-            "A comment you write for an agent goes to its chat; its answers come back on the line.",
-        ))
         .into_any_element()
 }

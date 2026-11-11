@@ -1231,16 +1231,13 @@ impl Panel {
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(host),
                 )
-                .child(
+                // A token set where Artoo started is the one fact to say here (#202).
+                .children(env.then(|| {
                     div()
                         .text_size(px(12.))
                         .text_color(theme::muted())
-                        .child(if env {
-                            "How Artoo signs in to this host. A token set where Artoo started is used: the ways below wait until it is not."
-                        } else {
-                            "How Artoo signs in to this host. The way in use is tagged; pick another to change it."
-                        }),
-                )
+                        .child("A token set where Artoo started is in use: the ways below wait until it is not.")
+                }))
                 .child(card)
                 .children(go)
                 .children(status.map(|(text, color)| {
@@ -1322,7 +1319,9 @@ fn capital(text: &str) -> String {
 /// `button` with `tip` shown when hovered.
 fn tipped(button: Stateful<Div>, tip: String) -> Stateful<Div> {
     let tip = SharedString::from(tip);
-    button.tooltip(move |_, cx| cx.new(|_| hover::TipOwned(tip.clone())).into())
+    button
+        .tooltip_show_delay(artoo_ui_kit::hover::LONG)
+        .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(tip.clone())).into())
 }
 
 impl Panel {

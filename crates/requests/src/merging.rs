@@ -188,6 +188,9 @@ impl Requests {
                     .cursor_pointer()
                     .hover(|s| s.bg(theme::hover()))
                     .child(icons::icon("x").size(px(14.)).text_color(theme::muted()))
+                    // Every icon-only button is named (#202).
+                    .tooltip_show_delay(artoo_ui_kit::hover::LONG)
+                    .tooltip(|_, cx| cx.new(|_| artoo_ui_kit::hover::Tip("Cancel  esc")).into())
                     .on_click(cx.listener(|rq, _: &ClickEvent, _, cx| rq.close_merge(cx))),
             );
         let route = div()
@@ -451,9 +454,7 @@ impl Requests {
                     .min_w_0()
                     .text_size(px(12.))
                     .text_color(theme::faint())
-                    .child(format!(
-                        "Everyone sees it, and it cannot be undone. A push after {after} makes it refuse."
-                    )),
+                    .child(format!("A push after {after} makes it refuse.")),
             )
             .child(
                 button("merge-cancel", "Cancel", Some("esc"), Kind::Quiet)

@@ -6,6 +6,11 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **A failed fetch reads as a fact.** The title bar says `Can't reach origin · fetched 14:32` beside an amber dot, with
+  `Retry` as its own button, instead of a red sentence; its tooltip names the host, the likely cause and the last
+  fetch. Sentences that described a page went — how Artoo signs in, the faces, Raw / Rich's key, Merge's warning, the
+  Agents setup line, the Inbox preview repeating its row — and the layout's fold widths moved to the interface size's
+  tooltip. Every tooltip now opens after the same 800 ms, and the merge card's × is named.
 - **The Agents window is grouped by what you owe.** `Needs you`, `Working` and `Done` replace the filters; a row is
   the agent's own last words — `One sealed class, or a sealed class and a separate error type?` — with where and how
   long ago under them, and one button for the one thing to do (`Answer`, `Send`); the rest is in its right click. The

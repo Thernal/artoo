@@ -1220,7 +1220,8 @@ impl CodeSpace {
                                     .text_color(theme::faint()),
                             )
                             .when(pinned, |s| {
-                                s.tooltip(|_, cx| cx.new(|_| Tip("Unpin")).into())
+                                s.tooltip_show_delay(artoo_ui_kit::hover::LONG)
+                                    .tooltip(|_, cx| cx.new(|_| Tip("Unpin")).into())
                             })
                             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 cx.stop_propagation();

@@ -48,6 +48,7 @@ impl Workspace {
                         label,
                         section == at,
                     )
+                    .tooltip_show_delay(artoo_ui_kit::hover::LONG)
                     .tooltip(move |_, cx| cx.new(|_| artoo_ui_kit::hover::Tip(tip)).into())
                     .on_click(cx.listener(
                         move |this, _: &ClickEvent, _, cx| this.show_section(section, cx),

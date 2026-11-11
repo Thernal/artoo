@@ -103,60 +103,115 @@ impl Workspace {
         .detach();
     }
 
-    /// The title bar's word on the fetch: when it last ran, or why it failed.
+    /// The title bar's word on the fetch, as a fact (#202): when it last ran; a failure an amber dot and
+    /// `Can't reach origin · fetched 14:32` (any other `Fetch failed · fetched 14:32`), Retry its own small button.
+    /// Its tip keeps the host, the guess and the last fetch.
     pub(super) fn render_fetch(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         if !self.fetch.enabled {
             return None;
         }
-        let (text, color) = match (&self.fetch.error, self.fetch.running, self.fetch.last) {
-            // Narrow, the status gives way first: its words short, the whole in its tip (#186).
-            (Some(_), _, _) if self.compact() => {
-                ("Fetch failed  ·  Retry".to_owned(), theme::removed())
+        let failed = self.fetch.error.as_deref();
+        let fetched = self
+            .fetch
+            .last
+            .map(|t| format!("fetched {}", fetched_at(t)));
+        let text = match (failed, self.fetch.running, self.fetch.last) {
+            (Some(e), _, _) => {
+                let head = if unreachable(e) {
+                    "Can't reach origin"
+                } else {
+                    "Fetch failed"
+                };
+                match (&fetched, self.compact()) {
+                    (Some(f), false) => format!("{head} · {f}"),
+                    _ => head.to_owned(),
+                }
             }
-            (Some(e), _, _) => (format!("Fetch failed: {e}  ·  Retry"), theme::removed()),
-            (None, true, _) => ("Fetching…".to_owned(), theme::muted()),
-            (None, false, Some(t)) => (format!("Fetched {}", format::ago(t)), theme::muted()),
-            (None, false, None) => ("Fetch waiting".to_owned(), theme::muted()),
+            (None, true, _) => "Fetching…".to_owned(),
+            (None, false, Some(t)) => format!("Fetched {}", format::ago(t)),
+            (None, false, None) => "Fetch waiting".to_owned(),
         };
-        // A long hover: the whole message, when it last fetched and from where (X59).
+        // A long hover: the host, the guess, the last fetch.
         let mut lines: Vec<String> = Vec::new();
-        if let Some(e) = &self.fetch.error {
-            lines.push(format!("Fetch failed: {e}"));
+        if let Some(w) = &self.web {
+            lines.push(format!("origin · {}", w.base));
         }
-        lines.push(match self.fetch.last {
-            Some(t) => format!("Last fetched {}", super::hover::full_date(t)),
-            None => "Not fetched yet".to_owned(),
-        });
-        lines.push(match &self.web {
-            Some(w) => format!(
-                "git fetch --all --prune: every remote, origin at {}",
-                w.base
-            ),
-            None => "git fetch --all --prune: every remote".to_owned(),
-        });
-        lines.push("Every 5 minutes and when the window comes back · a click fetches now".into());
+        if let Some(e) = failed {
+            lines.push(e.to_owned());
+        }
+        if let Some(t) = self.fetch.last {
+            lines.push(format!("Last fetched {}", super::hover::full_date(t)));
+        }
+        lines.push("A click fetches now".into());
         let tip: gpui::SharedString = lines.join("\n").into();
-        Some(
+        let status = div()
+            .id("fetch-status")
+            // It gives way before search and the gear, cut with an ellipsis (#186).
+            .flex_shrink(1.)
+            .min_w_0()
+            .max_w(px(420.))
+            .h(px(24.))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .px_2()
+            .rounded(px(super::ROW_RADIUS))
+            .text_size(px(11.))
+            .text_color(theme::muted())
+            .cursor_pointer()
+            .hover(|s| s.bg(theme::hover()))
+            .tooltip_show_delay(super::hover::LONG)
+            .tooltip(move |_, cx| cx.new(|_| super::TipOwned(tip.clone())).into())
+            .children(failed.map(|_| {
+                div()
+                    .flex_none()
+                    .size(px(7.))
+                    .rounded_full()
+                    .bg(theme::warning())
+            }))
+            .child(div().min_w_0().cut_in_tip().child(text))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.fetch_now(cx)));
+        let retry = failed.map(|_| {
             div()
-                .id("fetch-status")
-                // It gives way before search and the gear, cut with an ellipsis (#186).
-                .flex_shrink(1.)
-                .min_w_0()
-                .max_w(px(420.))
-                .cut_in_tip()
-                .h(px(24.))
+                .id("fetch-retry")
+                .flex_none()
+                .h(px(20.))
+                .px(px(6.))
                 .flex()
                 .items_center()
-                .px_2()
-                .rounded(px(super::ROW_RADIUS))
+                .rounded(px(5.))
+                .border_1()
+                .border_color(theme::island_border())
                 .text_size(px(11.))
-                .text_color(color)
+                .text_color(theme::text())
                 .cursor_pointer()
                 .hover(|s| s.bg(theme::hover()))
-                .tooltip_show_delay(super::hover::LONG)
-                .tooltip(move |_, cx| cx.new(|_| super::TipOwned(tip.clone())).into())
-                .child(text)
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.fetch_now(cx))),
+                .child("Retry")
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.fetch_now(cx)))
+        });
+        Some(
+            div()
+                .flex_shrink(1.)
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .child(status)
+                .children(retry),
         )
+    }
+}
+
+/// A failure that is the remote not answering: the network, the VPN.
+fn unreachable(error: &str) -> bool {
+    error.contains("reach") || error.contains("did not answer")
+}
+
+/// When the last fetch was: its time today, else its date and time.
+fn fetched_at(t: i64) -> String {
+    if format::date(t) == format::date(now()) {
+        format::clock(t)
+    } else {
+        format!("{} {}", format::date(t), format::clock(t))
     }
 }

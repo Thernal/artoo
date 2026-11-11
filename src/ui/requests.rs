@@ -1002,6 +1002,7 @@ impl Workspace {
                 format!("{name} {}", count(scope)),
                 requests.scope(cx) == scope,
             )
+            .tooltip_show_delay(artoo_ui_kit::hover::LONG)
             .tooltip(|_, cx| {
                 cx.new(|_| super::TipOwned("Next tab ⌃⇥ · back ⌃⇧⇥".into()))
                     .into()

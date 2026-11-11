@@ -85,6 +85,7 @@ pub fn filters(
                     Some(Why::Failures) => "inbox-failures",
                 };
                 chip(id, counted(name, new), shown.why == why)
+                    .tooltip_show_delay(artoo_ui_kit::hover::LONG)
                     .tooltip(|_, cx| cx.new(|_| Tip("Next tab ⌃⇥ · back ⌃⇧⇥")).into())
                     .on_click(move |_: &ClickEvent, _, cx| {
                         on(InboxEvent::Filter(InboxFilter { why, ..shown }), cx)
@@ -712,8 +713,8 @@ pub fn notice_preview(n: &Notice, look: NoticeLook, on: &OnInbox, cx: &App) -> D
                 .child(div().flex_none().child(format!("{} ·", m.author)))
                 .child(hover::branches("inbox-branches", &m.source, &m.target))
         }))
-        .child(div().flex_1())
-        .child(format!("{} · {}", n.says(), format::ago(n.created)));
+        // What happened and when are the row's; the preview does not repeat them (#202).
+        .child(div().flex_1());
     let title = div()
         .text_size(px(19.))
         .line_height(px(26.))

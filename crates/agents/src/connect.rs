@@ -98,7 +98,8 @@ impl Render for AgentsSettings {
                         .text_color(theme::muted())
                         .child(label)
                         .when_some(tip, |d, tip| {
-                            d.tooltip(move |_, cx| cx.new(|_| hover::Tip(tip)).into())
+                            d.tooltip_show_delay(artoo_ui_kit::hover::LONG)
+                                .tooltip(move |_, cx| cx.new(|_| hover::Tip(tip)).into())
                         }),
                 )
                 .child(
@@ -188,7 +189,8 @@ impl Render for AgentsSettings {
                         .hover(|s| s.bg(theme::hover()))
                         .child("Copy the command")
                         .when_some(limits, |d, tip| {
-                            d.tooltip(move |_, cx| cx.new(|_| hover::Tip(tip)).into())
+                            d.tooltip_show_delay(artoo_ui_kit::hover::LONG)
+                                .tooltip(move |_, cx| cx.new(|_| hover::Tip(tip)).into())
                         })
                         .on_click(move |_, _, cx| {
                             cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
