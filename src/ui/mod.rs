@@ -189,6 +189,7 @@ actions!(
         ToggleBookmark,
         ShowBookmarks,
         ShowStructure,
+        ShowWhole,
         ToggleAnnotate,
         FindInFiles,
         ToggleReviewed,
@@ -1211,6 +1212,8 @@ pub struct Workspace {
     recents: Vec<recents::Entry>,
     /// A mention in comment text under the pointer, and its card (X62).
     mention_hover: Option<hover::MentionHover>,
+    /// The whole text of the row picked last, open at the row (F1, #184).
+    whole: Option<hover::Whole>,
     /// When panes last opened or closed, to draw them coming and going (#56).
     motion: motion::Marks,
     /// The rows decorators put under the lines laid out last, by their row's id (`Row::Decoration`, `pins.rs`).
@@ -1380,6 +1383,7 @@ impl Workspace {
             bookmarks: bookmarks::Store::load(),
             recents: Vec::new(),
             mention_hover: None,
+            whole: None,
             open_with: open_in::load(artoo_shell_api::editors(cx)),
             open_cache: Default::default(),
             discussions_showing: Default::default(),
@@ -1566,6 +1570,13 @@ impl Workspace {
             if window.is_window_active() {
                 this.window_activated(cx);
             }
+        })
+        .detach();
+        // The whole text open at a row hears every key first (#184).
+        let tab = cx.weak_entity();
+        cx.intercept_keystrokes(move |event, _, cx| {
+            tab.update(cx, |this, cx| this.whole_key(&event.keystroke, cx))
+                .ok();
         })
         .detach();
         this

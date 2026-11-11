@@ -7,7 +7,7 @@ use crate::roots::BranchRow;
 use artoo_core::git::{ChangeKind, RefKind};
 use artoo_ui_kit::controls::{empty_state, outline_button, primary_button, progress_badge};
 use artoo_ui_kit::format::{self, plural};
-use artoo_ui_kit::hover::{self, CutInTip, Hover};
+use artoo_ui_kit::hover::{self, CutInTip, Hover, RowTip};
 use artoo_ui_kit::room::Room;
 use artoo_ui_kit::{ROW_RADIUS, icons, px, theme, words};
 use gpui::{
@@ -230,7 +230,7 @@ fn branch_row(
                     .items_center()
                     .gap(px(8.))
                     .child(
-                        hover::cut(
+                        hover::name(
                             SharedString::from(format!("branch-name-{ix}")),
                             name.to_owned(),
                         )
@@ -367,7 +367,7 @@ fn branch_row(
                     ),
             )
             .when_some(card, |s, card| s.card(card))
-            .when_some(tree_tip, |s, tip| s.tip(tip))
+            .when_some(tree_tip, |s, tip| s.row_tip(picked, tip))
             .when_some(
                 match row {
                     BranchRow::Branch(ix) => Some(ix),
@@ -462,7 +462,7 @@ fn tree_preview(h: &History, changes: usize, acts: &Acts) -> Div {
                             .child(letter),
                     )
                     .child(
-                        hover::cut(SharedString::from(format!("wt-file-{}", f.path)), f.path)
+                        hover::path(SharedString::from(format!("wt-file-{}", f.path)), f.path)
                             .flex_1(),
                     )
                     .child(

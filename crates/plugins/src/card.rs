@@ -187,7 +187,7 @@ impl Render for Card {
                             .bg(theme::base())
                             .font_family(theme::code_font())
                             .text_size(px(12.))
-                            .line_clamp(4)
+                            // What went wrong is never cut (#184): it wraps whole.
                             .child(shown.crash.what.clone()),
                     )
                     .child(

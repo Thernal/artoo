@@ -65,20 +65,6 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
     (y, m, d)
 }
 
-/// `text` cut in the middle to `n` characters: long branch names keep both ends.
-pub fn mid(text: &str, n: usize) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    if chars.len() <= n || n < 5 {
-        return text.to_owned();
-    }
-    let head = n.div_ceil(2) - 1;
-    let tail = n - head - 1;
-    let mut out: String = chars[..head].iter().collect();
-    out.push('…');
-    out.extend(&chars[chars.len() - tail..]);
-    out
-}
-
 /// An object id cut to its first 7 characters, as git shows it (a `git2::Oid`, without the kit knowing git).
 pub fn short(id: impl std::fmt::Display) -> String {
     id.to_string()[..7].to_owned()
@@ -149,14 +135,6 @@ mod tests {
         assert_eq!(plural(3, "commit"), "3 commits");
         assert_eq!(plural(2, "reply"), "2 replies");
         assert_eq!(plural(2, "day"), "2 days");
-    }
-
-    #[test]
-    fn long_branch_names_keep_both_ends() {
-        assert_eq!(mid("main", 10), "main");
-        let cut = mid("feature/login-state-sealed-interface-and-error-text", 20);
-        assert_eq!(cut.chars().count(), 20);
-        assert!(cut.starts_with("feature/l") && cut.ends_with("-text") && cut.contains('…'));
     }
 
     #[test]

@@ -329,7 +329,7 @@ impl Review {
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme::faint())
                         .child(
-                            hover::cut(("hit-path", ix), diff.files[hit.file].path().to_owned())
+                            hover::path(("hit-path", ix), diff.files[hit.file].path().to_owned())
                                 .flex_1(),
                         )
                         .child(count.to_string())

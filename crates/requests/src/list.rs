@@ -13,7 +13,7 @@ use artoo_ui_kit::controls::{
     empty_state, outline_button, pill, primary_button, progress_badge, unread_dot,
 };
 use artoo_ui_kit::format::{self, plural};
-use artoo_ui_kit::hover::{self, CutInTip, Hover};
+use artoo_ui_kit::hover::{self, CutInTip, Hover, RowTip};
 use artoo_ui_kit::room::Widths;
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, discussion, flat, icons, motion, px, theme, words};
 use gpui::{AnyElement, ClickEvent, Context, Div, FontWeight, SharedString, Task, div, prelude::*};
@@ -837,24 +837,40 @@ fn row(m: &Mr, g: Group, rq: &Requests, look: &ListLook, acts: &Acts) -> impl In
     tip.push(format!("updated {}", hover::full_date(m.updated)));
     let mut meta: Vec<AnyElement> = Vec::new();
     if let Some((text, color)) = who.filter(|_| room.second()) {
-        meta.push(div().text_color(color).child(text).into_any_element());
+        meta.push(
+            div()
+                .min_w_0()
+                .cut_in_tip()
+                .text_color(color)
+                .child(text)
+                .into_any_element(),
+        );
     }
     if let Some((glyph, word, color)) = verdict {
         meta.push(
             div()
+                .min_w_0()
+                .cut_in_tip()
                 .text_color(color)
                 .child(format!("{glyph} {word}"))
                 .into_any_element(),
         );
     }
     if let Some(n) = threads.filter(|_| room.third()) {
-        meta.push(div().child(plural(n, "thread")).into_any_element());
+        meta.push(
+            div()
+                .min_w_0()
+                .cut_in_tip()
+                .child(plural(n, "thread"))
+                .into_any_element(),
+        );
     }
     let mut line2: Vec<AnyElement> = Vec::new();
     for (n, part) in meta.into_iter().enumerate() {
         if n > 0 {
             line2.push(
                 div()
+                    .flex_none()
                     .text_color(theme::faint())
                     .child("·")
                     .into_any_element(),
@@ -926,15 +942,15 @@ fn row(m: &Mr, g: Group, rq: &Requests, look: &ListLook, acts: &Acts) -> impl In
                                 .flex()
                                 .items_center()
                                 .gap(px(5.))
+                                .min_w_0()
                                 .overflow_hidden()
-                                .whitespace_nowrap()
                                 .text_size(px(12.))
                                 .text_color(theme::muted())
                                 .children(line2),
                         )
                     }),
             )
-            .tip(tip.join("\n"))
+            .row_tip(picked, tip.join("\n"))
             .on_click(move |event: &ClickEvent, _, cx| {
                 // A second click on the picked one opens it, as ↵ does; with no preview beside the
                 // list, the first (#80).
@@ -998,17 +1014,17 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
         .child(
             div()
                 .flex()
+                .min_w_0()
                 .gap(px(6.))
-                .child(if mine {
+                .child(div().flex_none().child(if mine {
                     "yours".to_owned()
                 } else {
                     m.author.clone()
-                })
-                .child(div().text_color(theme::faint()).child("·"))
+                }))
+                .child(div().flex_none().text_color(theme::faint()).child("·"))
                 .child(
-                    div()
-                        .font_family(theme::code_font())
-                        .child(format!("{} → {}", m.source, m.target)),
+                    hover::branches("preview-branches", &m.source, &m.target)
+                        .font_family(theme::code_font()),
                 ),
         )
         .child(div().flex_1())

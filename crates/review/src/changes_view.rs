@@ -12,7 +12,7 @@ use artoo_core::git::{ChangeKind, FileDiff};
 use artoo_core::storage;
 use artoo_ui_kit::controls::{self, chip};
 use artoo_ui_kit::format::{self, plural};
-use artoo_ui_kit::hover::{self, CutInTip, Hover, LONG, Tip, TipOwned};
+use artoo_ui_kit::hover::{self, CutInTip, LONG, RowTip, Tip, TipOwned};
 use artoo_ui_kit::panel::{self, Head, count, open_share};
 use artoo_ui_kit::{icons, motion, px, row, theme};
 use gpui::{
@@ -287,7 +287,7 @@ impl Review {
                                 div()
                                     .flex_1()
                                     .min_w_0()
-                                    .cut_in_tip()
+                                    .name_in_tip()
                                     .text_color(change_color(file, done))
                                     .child(name),
                             )
@@ -295,7 +295,7 @@ impl Review {
                             .children(generated_tag(file))
                             .children(file_tag(diff.tags.row_word(ix)))
                             .when(counts, |s| s.child(stats(file)))
-                            .tip(change_tip(file))
+                            .row_tip(self.file == ix, change_tip(file))
                             .on_mouse_down(
                                 MouseButton::Right,
                                 move |event: &MouseDownEvent, _, cx| {
@@ -352,7 +352,7 @@ impl Review {
                         )
                         .child(icons::folder_icon(folder_of(path), 16.))
                         .child(
-                            hover::cut(
+                            hover::path(
                                 gpui::SharedString::from(format!("dir-name-{path}")),
                                 name.clone(),
                             )
@@ -477,13 +477,13 @@ impl Review {
                     .flex_col()
                     .child(
                         div()
-                            .cut_in_tip()
+                            .name_in_tip()
                             .text_color(change_color(file, done))
                             .child(name),
                     )
                     .children(dir.map(|d| {
                         div()
-                            .cut_in_tip()
+                            .path_in_tip()
                             .text_size(px(11.))
                             .text_color(theme::faint())
                             .child(d)
@@ -493,7 +493,7 @@ impl Review {
             .children(generated_tag(file))
             .children(file_tag(tag))
             .when(counts, |s| s.child(stats(file)))
-            .tip(change_tip(file))
+            .row_tip(self.file == ix, change_tip(file))
             .on_mouse_down(MouseButton::Right, move |event: &MouseDownEvent, _, cx| {
                 menu.changes(
                     ChangesEvent::Menu {

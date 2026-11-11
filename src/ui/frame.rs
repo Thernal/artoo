@@ -386,6 +386,7 @@ impl Render for Workspace {
         .on_action(cx.listener(|this, _: &ZoomIn, window, cx| this.ui_zoom_by(1, window, cx)))
         .on_action(cx.listener(|this, _: &ZoomOut, window, cx| this.ui_zoom_by(-1, window, cx)))
         .on_action(cx.listener(|this, _: &ZoomReset, window, cx| this.set_ui_zoom(100, window, cx)))
+        .on_action(cx.listener(|this, _: &ShowWhole, window, cx| this.show_whole(window, cx)))
         .on_action(cx.listener(|this, _: &ShowStructure, _, cx| {
             if this.palette_open(cx) {
                 this.close_palette(cx);
@@ -569,6 +570,7 @@ impl Render for Workspace {
                 .then(|| self.ctx_menu.clone()),
         )
         .children(self.render_mention_card(cx))
+        .children(self.render_whole(cx))
         .children(self.rv().render_blame_tip(cx))
         .children(self.render_find_files(cx))
         .children(self.render_open_ask(cx))

@@ -46,7 +46,7 @@ impl Review {
                         .child(name),
                 )
                 .child(
-                    hover::cut("header-dir", dir)
+                    hover::path("header-dir", dir)
                         .flex_1()
                         .text_size(px(12.))
                         .text_color(theme::muted()),
@@ -78,7 +78,7 @@ impl Review {
                     .font_weight(FontWeight::SEMIBOLD),
             )
             .children(file.map(|f| {
-                hover::cut("header-file", f)
+                hover::path("header-file", f)
                     .flex_1()
                     .font_family(theme::code_font())
                     .text_size(px(12.))

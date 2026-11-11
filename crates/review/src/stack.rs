@@ -270,7 +270,7 @@ impl Review {
                     )
                     .child(artoo_ui_kit::icons::file_icon(file.path(), 16.))
                     .child(
-                        artoo_ui_kit::hover::cut(("file-path", ix), path)
+                        artoo_ui_kit::hover::path(("file-path", ix), path)
                             .flex_1()
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(crate::diff_view::change_color(

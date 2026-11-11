@@ -338,6 +338,7 @@ pub fn text_body(
     .left_0()
     .size_full();
     let (down, drag) = (place.clone(), place);
+    // clip: a field scrolls its text with the caret; what is typed is never cut with an ellipsis.
     div()
         .relative()
         .flex_1()

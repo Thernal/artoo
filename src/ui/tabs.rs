@@ -284,7 +284,9 @@ impl<T: Tab> Tabs<T> {
 }
 
 impl<T: Tab> Render for Tabs<T> {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A new drawing: the rows picked in it say where they are (F1, #184).
+        artoo_ui_kit::hover::drawing(window, cx);
         let infos = self
             .tabs
             .iter()

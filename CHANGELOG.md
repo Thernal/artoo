@@ -6,6 +6,11 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **Cut text keeps what tells it apart.** A path is cut at its front, so its file name always shows
+  (`…/viewmodel/impl/LoginViewModelImpl.kt`), and a name too long alone loses its middle; two branches that start
+  alike keep their endings. Every cut ends in `…`, two-line text too, and F1 (or ⌘K's Show the whole text) opens the
+  whole text of the row picked at the row, where ⌘C copies it. An agent's form options wrap instead of being
+  clipped, and a plugin's crash reads whole.
 - **Keys that no longer misfire.** ⌥ and a letter type a character in a comment instead of changing the diff; the
   composer's button shows ⌘↵; bookmarks are B and ⇧B, leaving F3 to macOS; ⌥⌘3, ⇧⌘N and ⌥⌘L are gone (⌃⌘1 is the
   Inbox, ⌘K leaves a merge request).

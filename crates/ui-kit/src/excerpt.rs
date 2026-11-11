@@ -38,7 +38,7 @@ pub fn excerpt_view(path: &str, line: u32, ex: Option<Option<&Excerpt>>) -> Div 
                 .size(px(14.))
                 .text_color(theme::muted()),
         )
-        .child(hover::cut("excerpt-path", path.to_owned()).flex_1())
+        .child(hover::path("excerpt-path", path.to_owned()).flex_1())
         .child(format!("line {line}"));
     let body = match ex {
         None => div()
@@ -50,7 +50,7 @@ pub fn excerpt_view(path: &str, line: u32, ex: Option<Option<&Excerpt>>) -> Div 
             .pb(px(6.))
             .font_family(theme::code_font())
             .text_size(px(12.))
-            .children(ex.lines.iter().map(|l| {
+            .children(ex.lines.iter().enumerate().map(|(ix, l)| {
                 let number = |n: Option<u32>| {
                     div()
                         .w(px(36.))
@@ -84,13 +84,9 @@ pub fn excerpt_view(path: &str, line: u32, ex: Option<Option<&Excerpt>>) -> Div 
                     .child(number(l.new))
                     .child(div().w(px(16.)).flex_none().child(sign))
                     .child(
-                        div()
+                        hover::cut(("excerpt-line", ix), l.text.clone())
                             .flex_1()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_color(theme::code_text())
-                            .child(l.text.clone()),
+                            .text_color(theme::code_text()),
                     )
             })),
         Some(None) => div()

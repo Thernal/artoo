@@ -10,7 +10,7 @@ use artoo_core::git::WebRemote;
 use artoo_ui_kit::controls::skeleton;
 use artoo_ui_kit::controls::{section_chip, tag};
 use artoo_ui_kit::format::{self, plural};
-use artoo_ui_kit::hover::{self, CutInTip, Hover};
+use artoo_ui_kit::hover::{self, CutInTip, Hover, RowTip};
 use artoo_ui_kit::room::{Room, Widths};
 use artoo_ui_kit::{icons, keys, px, row, theme};
 use gpui::{
@@ -110,17 +110,20 @@ pub fn version_rows(h: &History, new_from: Option<usize>, acts: &Acts) -> Div {
             let acts = acts.clone();
             let item = row(("version", ix), chosen)
                 // A long hover: who pushed it, exactly when, and what moved the branch (#53).
-                .tip(format!(
-                    "v{} · {} · {} · {}",
-                    v.number,
-                    v.author,
-                    hover::full_date(v.time),
-                    if v.reason.is_empty() {
-                        kind
-                    } else {
-                        v.reason.as_str()
-                    }
-                ))
+                .row_tip(
+                    chosen,
+                    format!(
+                        "v{} · {} · {} · {}",
+                        v.number,
+                        v.author,
+                        hover::full_date(v.time),
+                        if v.reason.is_empty() {
+                            kind
+                        } else {
+                            v.reason.as_str()
+                        }
+                    ),
+                )
                 .h(px(44.))
                 .items_start()
                 .gap_2()
@@ -281,6 +284,8 @@ pub fn commit_row(
     // its labels under 360 px leave first. Its card holds them all.
     let (menu, pick) = (acts.clone(), acts.clone());
     let item = row(("commit", ix), selected)
+        // Its card on a long hover; F1 opens its whole message (#184).
+        .row_whole(selected, commit.message.trim().to_owned())
         .h(px(62.))
         .flex_col()
         .items_start()

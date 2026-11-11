@@ -11,7 +11,7 @@ use artoo_hosts_api::{Mr, Thread};
 use artoo_ui_kit::controls::{self, bar_button, chip, skeleton};
 use artoo_ui_kit::discussion::{self, Kind as Button, Source};
 use artoo_ui_kit::excerpt::excerpt_view;
-use artoo_ui_kit::hover::{self, CutInTip, Hover};
+use artoo_ui_kit::hover::{self, CutInTip, RowTip};
 use artoo_ui_kit::keys::{self, On};
 use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::{ROW_RADIUS, format, gap, icons, island, px, theme, words};
@@ -215,7 +215,7 @@ pub fn notice_row(n: &Notice, ix: usize, look: RowLook, on: &OnInbox) -> Statefu
                         .child(gist.to_owned())
                 })),
         )
-        .tip(tip.join("\n"))
+        .row_tip(picked, tip.join("\n"))
         .on_click(move |_: &ClickEvent, _, cx| pick(InboxEvent::Pick(ix), cx))
 }
 
@@ -311,7 +311,7 @@ pub fn part_row(
                         .child(gist)
                 })),
         )
-        .tip(tip.join("\n"))
+        .row_tip(picked, tip.join("\n"))
         .on_click(move |_: &ClickEvent, _, cx| pick(InboxEvent::PickPart(id), cx))
 }
 
@@ -409,6 +409,7 @@ pub fn notice_preview(n: &Notice, look: NoticeLook, on: &OnInbox, cx: &App) -> D
         .children(request.map(|m| {
             div()
                 .flex()
+                .min_w_0()
                 .items_center()
                 .gap(px(6.))
                 .child(
@@ -416,7 +417,8 @@ pub fn notice_preview(n: &Notice, look: NoticeLook, on: &OnInbox, cx: &App) -> D
                         .size(px(14.))
                         .text_color(theme::muted()),
                 )
-                .child(format!("{} · {} → {}", m.author, m.source, m.target))
+                .child(div().flex_none().child(format!("{} ·", m.author)))
+                .child(hover::branches("inbox-branches", &m.source, &m.target))
         }))
         .child(div().flex_1())
         .child(format!(

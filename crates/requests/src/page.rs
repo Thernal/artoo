@@ -196,9 +196,9 @@ impl Requests {
                             .child(plural(facts.commits, "commit")),
                     )
                     .child("from")
-                    .child(mono(&m.source).text_color(theme::accent()))
+                    .child(name("overview-source", &m.source).text_color(theme::accent()))
                     .child("into")
-                    .child(mono(&m.target)),
+                    .child(name("overview-target", &m.target)),
             )
             .child(
                 div()
@@ -221,10 +221,11 @@ impl Requests {
                         "Branches",
                         div()
                             .flex()
+                            .min_w_0()
                             .gap(px(5.))
-                            .child(mono(&m.source).text_color(theme::accent()))
-                            .child(faint("→"))
-                            .child(mono(&m.target))
+                            .child(name("fact-source", &m.source).text_color(theme::accent()))
+                            .child(faint("→").flex_none())
+                            .child(name("fact-target", &m.target))
                             .into_any_element(),
                     ))
                     .child(fact("Pipeline", pipeline))
@@ -438,8 +439,9 @@ fn person(name: String, login: Option<String>, state: Option<(&'static str, Rgba
         .children(state.map(|(word, color)| div().text_color(color).child(word)))
 }
 
-fn mono(text: &str) -> Div {
-    div().font_family(theme::code_font()).child(text.to_owned())
+/// A branch, cut in its middle to its room (#184).
+fn name(id: &'static str, text: &str) -> gpui::Stateful<Div> {
+    hover::name(id, text.to_owned()).font_family(theme::code_font())
 }
 
 fn faint(text: &'static str) -> Div {

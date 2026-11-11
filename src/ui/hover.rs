@@ -10,6 +10,14 @@ use gpui::{
     WeakEntity, Window, div, prelude::*,
 };
 
+/// The whole text F1 opened at a row (#184): the row's tooltip, and where the row was drawn.
+pub(super) struct Whole {
+    text: gpui::SharedString,
+    at: gpui::Bounds<gpui::Pixels>,
+    /// A row low in the window has its whole text over it, not under it.
+    above: bool,
+}
+
 /// A person (#51): who they are here, and a way to mention them or open their page.
 pub struct PersonCard {
     pub name: String,
@@ -304,6 +312,74 @@ impl Workspace {
         )
     }
 
+    /// F1, ⌘K's `Show the whole text` (#184): the row picked last opens its whole text — its tooltip — at
+    /// the row; F1 again closes it.
+    pub(super) fn show_whole(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.whole = match self.whole.take() {
+            Some(_) => None,
+            None => picked_row(window, cx).map(|(text, at)| Whole {
+                text,
+                at,
+                above: at.bottom() > window.viewport_size().height * 0.6,
+            }),
+        };
+        cx.notify();
+    }
+
+    /// A key while the whole text is open, before anything else hears it: `⌘C` copies it, `esc` closes
+    /// it; F1 is its own action's; any other key closes it and does what it does (↓ picks the next row).
+    pub(super) fn whole_key(&mut self, key: &gpui::Keystroke, cx: &mut Context<Self>) {
+        let Some(whole) = &self.whole else {
+            return;
+        };
+        let m = &key.modifiers;
+        match key.key.as_str() {
+            "f1" | "shift" | "control" | "alt" | "platform" | "function" => {}
+            "c" if m.secondary() && !m.shift && !m.alt => {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(whole.text.to_string()));
+                cx.stop_propagation();
+            }
+            "escape" => {
+                self.whole = None;
+                cx.stop_propagation();
+                cx.notify();
+            }
+            _ => {
+                self.whole = None;
+                cx.notify();
+            }
+        }
+    }
+
+    /// The whole text F1 opened, under its row.
+    pub(super) fn render_whole(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        let whole = self.whole.as_ref()?;
+        let left = whole.at.left() + px(8.);
+        let place = if whole.above {
+            gpui::anchored()
+                .anchor(gpui::Anchor::BottomLeft)
+                .position(gpui::point(left, whole.at.top() - px(8.)))
+        } else {
+            gpui::anchored().position(gpui::point(left, whole.at.bottom()))
+        };
+        Some(
+            gpui::deferred(
+                place.snap_to_window_with_margin(px(8.)).child(
+                    div()
+                        .id("whole-text")
+                        .occlude()
+                        .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                            this.whole = None;
+                            cx.notify();
+                        }))
+                        .child(whole_card(&whole.text)),
+                ),
+            )
+            .with_priority(2)
+            .into_any_element(),
+        )
+    }
+
     /// `@login ` into the comment being written, or onto the clipboard when none is.
     pub(super) fn mention(&mut self, login: &str, cx: &mut Context<Self>) {
         let tag = format!("@{login} ");
@@ -317,29 +393,115 @@ impl Workspace {
 
 #[cfg(test)]
 mod tests {
-    /// Every text cut short gives the whole on a long hover (#161): views cut through this file's
-    /// helpers (the kit's `hover`), never with a bare `truncate`, `line_clamp` or `text_ellipsis`.
+    /// Every `.rs` file under `dir`, at any depth.
+    fn sources(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                sources(&path, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+
+    /// The app's sources and every crate's, the helpers left out: the kit's `hover.rs` and this
+    /// file, which names the cuts it looks for.
+    fn views() -> Vec<(std::path::PathBuf, String)> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut files = Vec::new();
+        sources(&root.join("src"), &mut files);
+        for krate in std::fs::read_dir(root.join("crates")).unwrap().flatten() {
+            sources(&krate.path().join("src"), &mut files);
+        }
+        let helpers = [
+            root.join("crates/ui-kit/src/hover.rs"),
+            root.join("src/ui/hover.rs"),
+        ];
+        files.sort();
+        files
+            .into_iter()
+            .filter(|p| !helpers.contains(p))
+            .map(|p| {
+                let text = std::fs::read_to_string(&p).unwrap_or_default();
+                (p.strip_prefix(root).unwrap_or(&p).to_path_buf(), text)
+            })
+            .collect()
+    }
+
+    /// Every text cut short gives the whole on a long hover (#161) and says it was cut with an
+    /// ellipsis at the side that matters (#184): views cut through the kit's `hover` helpers, never
+    /// with a bare `truncate`, `line_clamp` or `text_ellipsis…`.
     #[test]
     fn text_is_cut_only_through_the_helpers() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let cuts = [
+            ".truncate()",
+            ".line_clamp(",
+            ".text_ellipsis()",
+            ".text_ellipsis_start()",
+            ".text_ellipsis_middle()",
+        ];
         let mut bare = Vec::new();
-        let dirs = [root.join("src/ui"), root.join("crates/ui-kit/src")];
-        for entry in dirs.iter().flat_map(|d| std::fs::read_dir(d).unwrap()) {
-            let path = entry.unwrap().path();
-            // The helpers (the kit's) and this test's own list of cuts.
-            if path.file_name().is_some_and(|n| n == "hover.rs") {
-                continue;
-            }
-            let text = std::fs::read_to_string(&path).unwrap_or_default();
+        for (path, text) in views() {
             for (n, line) in text.lines().enumerate() {
-                if [".truncate()", ".line_clamp(", ".text_ellipsis()"]
-                    .iter()
-                    .any(|cut| line.contains(cut))
-                {
+                if cuts.iter().any(|cut| line.contains(cut)) {
                     bare.push(format!("{}:{}", path.display(), n + 1));
                 }
             }
         }
         assert!(bare.is_empty(), "cut without hover::cut: {bare:#?}");
+    }
+
+    /// Text is never clipped without an ellipsis (#184): an element chain holding both
+    /// `overflow_hidden` and `whitespace_nowrap` cuts what does not fit with nothing to say so.
+    /// One that means it (a field scrolling with its caret) says why in a `// clip:` comment above
+    /// its head or inside it.
+    #[test]
+    fn text_is_never_clipped_without_saying_so() {
+        let (hidden, nowrap) = (".overflow_hidden()", ".whitespace_nowrap()");
+        let mut silent = Vec::new();
+        for (path, text) in views() {
+            let lines: Vec<&str> = text.lines().collect();
+            let mut n = 0;
+            while n < lines.len() {
+                if !lines[n].trim_start().starts_with('.') {
+                    let line = lines[n];
+                    if line.contains(hidden) && line.contains(nowrap) && !line.contains("// clip:")
+                    {
+                        silent.push(format!("{}:{}", path.display(), n + 1));
+                    }
+                    n += 1;
+                    continue;
+                }
+                // A run of `.method()` lines: one chain, or the part of it between two children.
+                let start = n;
+                while n < lines.len() && lines[n].trim_start().starts_with('.') {
+                    n += 1;
+                }
+                let run = &lines[start..n];
+                if !(run.iter().any(|l| l.contains(hidden))
+                    && run.iter().any(|l| l.contains(nowrap)))
+                {
+                    continue;
+                }
+                // The head (`div()`), then the comment lines right above it.
+                let above = lines[..start]
+                    .iter()
+                    .rev()
+                    .enumerate()
+                    .take_while(|(k, l)| *k == 0 || l.trim_start().starts_with("//"));
+                let said = above
+                    .map(|(_, l)| l)
+                    .chain(run)
+                    .any(|l| l.contains("// clip:"));
+                if !said {
+                    silent.push(format!("{}:{}", path.display(), start + 1));
+                }
+            }
+        }
+        assert!(
+            silent.is_empty(),
+            "clipped with no ellipsis and no `// clip:` reason: {silent:#?}"
+        );
     }
 }

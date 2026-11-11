@@ -7,7 +7,7 @@ use artoo_core::git::LineKind;
 use artoo_core::markdown::plain;
 use artoo_ui_kit::controls::bar_button;
 use artoo_ui_kit::excerpt::{Excerpt, ExcerptLine, excerpt_view};
-use artoo_ui_kit::hover::{self, CutInTip, Hover};
+use artoo_ui_kit::hover::{self, CutInTip, RowTip};
 use artoo_ui_kit::{ROW_RADIUS, format, icons, px, theme};
 use gpui::{AnyElement, ClickEvent, Div, FontWeight, Stateful, div, prelude::*};
 
@@ -97,11 +97,10 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
                                 .min_w_0()
                                 .flex()
                                 .gap(px(5.))
-                                .overflow_hidden()
-                                .whitespace_nowrap()
                                 .when(fresh, |s| s.font_weight(FontWeight::SEMIBOLD))
-                                .child(agent)
-                                .child(div().text_color(theme::agent()).child(verb)),
+                                // The agent's name gives way; what it did stays whole.
+                                .child(div().min_w_0().cut_in_tip().child(agent))
+                                .child(div().flex_none().text_color(theme::agent()).child(verb)),
                         )
                         .children(wide.then(|| {
                             div()
@@ -127,7 +126,7 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
                         .child(gist)
                 })),
         )
-        .tip(tip.join("\n"))
+        .row_tip(picked, tip.join("\n"))
         .on_click(move |_: &ClickEvent, _, cx| on(AnswerEvent::Pick(id), cx))
 }
 

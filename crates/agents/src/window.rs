@@ -15,7 +15,7 @@ pub use artoo_agents_api::view::{Act, AgentsHost};
 use artoo_shell_api::{Badge, Frame, ListKey, MenuItem, Tool};
 use artoo_ui_kit::controls::{self, group_heading, tool_foot};
 use artoo_ui_kit::format::{self, plural};
-use artoo_ui_kit::hover::{self, CutInTip, Hover};
+use artoo_ui_kit::hover::{self, CutInTip, Hover, RowTip};
 use artoo_ui_kit::motion::{self, Folds, Marks};
 use artoo_ui_kit::room::{Heights, Widths};
 use artoo_ui_kit::{ROW_RADIUS, icons, px, theme};
@@ -511,7 +511,7 @@ impl AgentsWindow {
                     })
                     .flatten(),
             )
-            .tip(tip.join("\n"))
+            .row_tip(picked, tip.join("\n"))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.mark_motion("agent-row", cx);
                 this.row = Some(id);

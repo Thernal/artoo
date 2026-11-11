@@ -20,7 +20,7 @@ use artoo_hosts_api::{Host, Label, Milestone, NewOptions};
 use artoo_shell_api::{Input, Services, Typed};
 use artoo_ui_kit::complete::{list_key, render_list};
 use artoo_ui_kit::controls::chip;
-use artoo_ui_kit::format::{mid, plural};
+use artoo_ui_kit::format::plural;
 use artoo_ui_kit::input::Area;
 use artoo_ui_kit::input::{self, Edit};
 use artoo_ui_kit::markdown::{self, Selecting};
@@ -952,14 +952,10 @@ impl Requests {
                                 .child(words::say("New merge request").into_owned()),
                         )
                         .child(
-                            hover::shortened(
-                                "create-branches",
-                                format!("{} → {}", mid(&n.source, 52), n.target),
-                                format!("{} → {}", n.source, n.target),
-                            )
-                            .font_family(theme::code_font())
-                            .text_size(px(12.))
-                            .text_color(theme::muted()),
+                            hover::branches("create-branches", &n.source, &n.target)
+                                .font_family(theme::code_font())
+                                .text_size(px(12.))
+                                .text_color(theme::muted()),
                         ),
                 )
                 .children(self.render_create_totals(totals))
@@ -1447,7 +1443,7 @@ impl Requests {
                     .when(i == n.target_at, |s| s.bg(theme::selected()))
                     .hover(|s| s.bg(theme::hover()))
                     .child(
-                        hover::mid(("create-target-name", i), &name, 48)
+                        hover::name(("create-target-name", i), name.clone())
                             .flex_1()
                             .font_family(theme::code_font()),
                     )
@@ -1729,6 +1725,7 @@ impl Requests {
                                     // Typed, it scrolls with the caret; shown, its whole in a
                                     // long hover.
                                     if n.focus == Focus::Source {
+                                        // clip: a field being typed in scrolls with its caret.
                                         div()
                                             .overflow_hidden()
                                             .whitespace_nowrap()
@@ -1738,7 +1735,7 @@ impl Requests {
                                             ))
                                             .into_any_element()
                                     } else {
-                                        hover::mid("create-source-name", &n.source, 36)
+                                        hover::name("create-source-name", n.source.clone())
                                             .font_family(theme::code_font())
                                             .into_any_element()
                                     },
@@ -2031,7 +2028,7 @@ impl Requests {
                                 .when(i == n.target_at, |s| s.bg(theme::selected()))
                                 .hover(|s| s.bg(theme::hover()))
                                 .child(
-                                    hover::mid(("quick-target-name", i), &name, 56)
+                                    hover::name(("quick-target-name", i), name.clone())
                                         .flex_1()
                                         .font_family(theme::code_font()),
                                 )
@@ -2073,13 +2070,9 @@ impl Requests {
                             .text_size(px(12.))
                             .text_color(theme::muted())
                             .child(
-                                hover::shortened(
-                                    "quick-branches",
-                                    format!("{} → {}", mid(&n.source, 44), n.target),
-                                    format!("{} → {}", n.source, n.target),
-                                )
-                                .flex_1()
-                                .font_family(theme::code_font()),
+                                hover::branches("quick-branches", &n.source, &n.target)
+                                    .flex_1()
+                                    .font_family(theme::code_font()),
                             )
                             .children(self.render_create_totals(look.totals)),
                     )
@@ -2173,12 +2166,12 @@ impl Requests {
             .text_color(theme::muted())
             .child(
                 match n.focus {
-                    Focus::Target => hover::shortened(
-                        "quick-hint",
-                        format!("From {}", mid(&n.source, 34)),
-                        format!("From {}", n.source),
-                    ),
-                    _ => hover::cut("quick-hint", "⇥ reviewers, draft, labels…"),
+                    Focus::Target => div()
+                        .flex()
+                        .min_w_0()
+                        .child(div().flex_none().child("From "))
+                        .child(hover::name("quick-hint", n.source.clone())),
+                    _ => div().child(hover::cut("quick-hint", "⇥ reviewers, draft, labels…")),
                 }
                 .flex_1(),
             )

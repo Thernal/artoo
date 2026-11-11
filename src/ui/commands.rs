@@ -268,6 +268,10 @@ pub(super) fn own() -> Vec<Action> {
             .words("Changes in this file — functions and types")
             .order(at(22))
             .key("cmd-shift-o", TAB),
+        Action::new("shell.whole-text", ShowWhole)
+            .words("Show the whole text — on the focused row")
+            .order(at(38))
+            .key("f1", TAB),
         Action::new("review.annotate", ToggleAnnotate)
             .words("Annotate — who wrote each line")
             .order(at(20))

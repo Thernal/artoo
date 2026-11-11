@@ -326,9 +326,9 @@ fn line_choices(
         Some(
             div()
                 .id(("form-line", n as usize))
-                .h(px(20.))
+                .min_h(px(20.))
                 .flex()
-                .items_center()
+                .items_start()
                 .gap(px(12.))
                 .px(px(8.))
                 .when(picked, |s| {
@@ -348,14 +348,8 @@ fn line_choices(
                         })
                         .child(n.to_string()),
                 )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .child(text),
-                )
+                // An option wraps to two lines, then ends in an ellipsis with the whole on hover (#184).
+                .child(hover::cut_to(("form-line-text", n as usize), text, 2).flex_1())
                 .children(picked.then(|| {
                     div()
                         .flex_none()
@@ -452,7 +446,7 @@ fn option_rows(
                                 .child((place + 1).to_string()),
                         )
                         .children((!order_kind).then(|| mark(on, many)))
-                        .child(div().flex_1().child(o.label.clone()))
+                        .child(div().flex_1().min_w_0().child(o.label.clone()))
                         .children((!o.detail.is_empty()).then(|| {
                             div()
                                 .text_size(px(12.))

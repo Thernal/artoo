@@ -913,7 +913,7 @@ impl CodeSpace {
         _n: usize,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        use artoo_ui_kit::hover::Hover;
+        use artoo_ui_kit::hover::RowTip;
         let selected = shown == Some(row.path.as_str());
         let preview = self.code.preview.as_deref() == Some(row.path.as_str());
         let path = row.path.clone();
@@ -921,7 +921,7 @@ impl CodeSpace {
         let noted = row.folder.is_some() && self.note_waits(&row.path, cx);
         artoo_ui_kit::row(SharedString::from(format!("tree-{}", row.path)), selected)
             // Its whole path, whatever the depth (#79).
-            .tip(row.path.clone())
+            .row_tip(selected, row.path.clone())
             .h(px(26.))
             .pl(px(8. + row.depth as f32 * 14.))
             .gap(px(6.))
@@ -1367,7 +1367,7 @@ impl CodeSpace {
                 } else {
                     icons::file_icon(&to, 16.)
                 })
-                .child(artoo_ui_kit::hover::cut("name", name).flex_1())
+                .child(artoo_ui_kit::hover::name("name", name).flex_1())
                 .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
                     if folder {
                         this.open_folder(to.clone(), cx)
@@ -1618,7 +1618,7 @@ impl CodeSpace {
                             .h(px(28.))
                             .gap_2()
                             .child(icons::file_icon(&path, 16.))
-                            .child(artoo_ui_kit::hover::cut("path", path).flex_1())
+                            .child(artoo_ui_kit::hover::path("path", path).flex_1())
                             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 this.frame
                                     .open(FileRoute { path: open.clone() }.route(), cx)

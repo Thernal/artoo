@@ -4,10 +4,11 @@
 
 use super::{ROW_RADIUS, format, keys, motion, px, theme};
 use gpui::{
-    AnyView, App, Context, ElementId, IntoElement, Render, SharedString,
-    StatefulInteractiveElement, Window, canvas, div, prelude::*,
+    AnyView, App, Bounds, Context, ElementId, Global, IntoElement, Pixels, Render, SharedString,
+    StatefulInteractiveElement, Window, WindowId, canvas, div, prelude::*,
 };
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -31,6 +32,135 @@ pub trait Hover: StatefulInteractiveElement + Sized {
 
 impl<E: StatefulInteractiveElement> Hover for E {}
 
+/// A row's tooltip that F1 also opens, at the row, while the row is picked (#184): "Show the whole text".
+pub trait RowTip: Hover + ParentElement {
+    /// The tooltip `text`; while `picked`, the row says where it is drawn, so F1 finds it.
+    fn row_tip(self, picked: bool, text: impl Into<SharedString>) -> Self {
+        let text: SharedString = text.into();
+        self.tip(text.clone()).row_whole(picked, text)
+    }
+
+    /// What F1 opens while the row is `picked`, for a row whose long hover is a card (a commit's).
+    fn row_whole(self, picked: bool, text: impl Into<SharedString>) -> Self {
+        if !picked {
+            return self;
+        }
+        let text: SharedString = text.into();
+        // Over the row and the row's size; it draws nothing and takes no pointer.
+        self.child(
+            canvas(
+                move |bounds, window, cx| picked_drawn(text, bounds, window, cx),
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full(),
+        )
+    }
+}
+
+impl<E: Hover + ParentElement> RowTip for E {}
+
+/// The rows drawn picked, by window (#184): each list has its own, and the one picked last is the one
+/// the keyboard or a click is on.
+#[derive(Default)]
+struct Picked(HashMap<WindowId, Drawn>);
+
+impl Global for Picked {}
+
+#[derive(Default)]
+struct Drawn {
+    /// The window's drawings, counted (`drawing`).
+    draw: u64,
+    rows: Vec<PickedRow>,
+}
+
+struct PickedRow {
+    text: SharedString,
+    bounds: Bounds<Pixels>,
+    /// The drawing it was first picked in, and the last it was drawn in.
+    since: u64,
+    seen: u64,
+}
+
+/// A new drawing of `window` begins: its root calls this first, so the rows picked are counted per
+/// drawing.
+pub fn drawing(window: &Window, cx: &mut App) {
+    let drawn = cx
+        .default_global::<Picked>()
+        .0
+        .entry(window.window_handle().window_id())
+        .or_default();
+    drawn.draw += 1;
+    let draw = drawn.draw;
+    drawn.rows.retain(|r| r.seen + 1 >= draw);
+}
+
+fn picked_drawn(text: SharedString, bounds: Bounds<Pixels>, window: &Window, cx: &mut App) {
+    let drawn = cx
+        .default_global::<Picked>()
+        .0
+        .entry(window.window_handle().window_id())
+        .or_default();
+    let draw = drawn.draw;
+    match drawn.rows.iter_mut().find(|r| r.text == text) {
+        Some(row) => {
+            // Not drawn picked last time: picked again now.
+            if row.seen + 1 < draw {
+                row.since = draw;
+            }
+            row.seen = draw;
+            row.bounds = bounds;
+        }
+        None => drawn.rows.push(PickedRow {
+            text,
+            bounds,
+            since: draw,
+            seen: draw,
+        }),
+    }
+}
+
+/// The whole text of the row picked last of those on screen, and where it is: what F1 opens.
+pub fn picked_row(window: &Window, cx: &App) -> Option<(SharedString, Bounds<Pixels>)> {
+    let drawn = cx
+        .try_global::<Picked>()?
+        .0
+        .get(&window.window_handle().window_id())?;
+    drawn
+        .rows
+        .iter()
+        .filter(|r| r.seen == drawn.draw)
+        .max_by_key(|r| r.since)
+        .map(|r| (r.text.clone(), r.bounds))
+}
+
+/// The whole text F1 opens at a row (#184): wrapped, every line of it, `⌘C` copies it and `esc` closes.
+pub fn whole_card(text: &str) -> gpui::Div {
+    card_frame()
+        .mt(px(2.))
+        .w(px(440.))
+        .gap(px(4.))
+        .children(
+            text.lines()
+                .map(|line| div().child(SharedString::from(line.to_owned()))),
+        )
+        .child(
+            div()
+                .mt(px(4.))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .text_size(px(11.))
+                .text_color(theme::faint())
+                .child(keys::caps("⌘C", keys::On::Plain))
+                .child("copy")
+                .child(div().flex_1())
+                .child(keys::caps("esc", keys::On::Plain)),
+        )
+}
+
 /// A tooltip with nothing to say draws nothing.
 pub struct NoTip;
 
@@ -40,20 +170,30 @@ impl Render for NoTip {
     }
 }
 
+/// Where a text one line long loses its characters when the room is short (#184): prose at its end, a
+/// name (a branch, a file alone) in its middle, a path at its front so its file name stays.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CutAt {
+    End,
+    Middle,
+    /// The text cuts itself: `shown` is laid out in parts, each with its own cut (`path`).
+    Parts,
+}
+
 /// Text cut to its room with an ellipsis, whose long hover gives the whole of it — only when it is
 /// cut this time (X60): a canvas over it measures the text against the room it has.
 pub fn cut(id: impl Into<ElementId>, text: impl Into<SharedString>) -> gpui::Stateful<gpui::Div> {
     cut_to(id, text, 1)
 }
 
-/// The same for text clamped to `lines` lines.
+/// The same for text clamped to `lines` lines, its last line ending in an ellipsis.
 pub fn cut_to(
     id: impl Into<ElementId>,
     text: impl Into<SharedString>,
     lines: usize,
 ) -> gpui::Stateful<gpui::Div> {
     let text: SharedString = text.into();
-    cut_shown(id, text.clone(), text.clone(), text, lines)
+    cut_shown(id, text.clone(), text.clone(), text, lines, CutAt::End)
 }
 
 /// `shown` — text drawn its own way, such as selectable — cut to its room, measured as `text`.
@@ -63,7 +203,66 @@ pub fn cut_with(
     shown: impl IntoElement,
 ) -> gpui::Stateful<gpui::Div> {
     let text: SharedString = text.into();
-    cut_shown(id, shown, text.clone(), text, 1)
+    cut_shown(id, shown, text.clone(), text, 1, CutAt::End)
+}
+
+/// A name — a branch, a file without its folders — cut in its middle to its room, so names that start
+/// alike keep the endings they differ by: `feature/AND-2041-log…ogin-state` (#184).
+pub fn name(id: impl Into<ElementId>, text: impl Into<SharedString>) -> gpui::Stateful<gpui::Div> {
+    let text: SharedString = text.into();
+    cut_shown(id, text.clone(), text.clone(), text, 1, CutAt::Middle)
+}
+
+/// A request's branches, `source → target`: the source cut in its middle (`name`), so two that start alike
+/// keep their endings, and the target whole (#184).
+pub fn branches(id: impl Into<ElementId>, source: &str, target: &str) -> gpui::Div {
+    div()
+        .flex()
+        .min_w_0()
+        .child(name(id, source.to_owned()))
+        .child(div().flex_none().child(format!(" → {target}")))
+}
+
+/// A file's path cut to its room at its front, so its file name stays:
+/// `…/presentation/viewmodel/impl/LoginViewModelImpl.kt`; a file name longer than the room alone is cut
+/// in its middle, its extension kept: `LoginStateViewMo…grationTest.kt` (#184).
+pub fn path(id: impl Into<ElementId>, path: impl Into<SharedString>) -> gpui::Stateful<gpui::Div> {
+    let whole: SharedString = path.into();
+    // A folder (`core/network/`) is all front; a file's name follows its last slash.
+    let (folder, file) = match whole.rfind('/') {
+        Some(at) => (&whole[..=at], &whole[at + 1..]),
+        None => ("", &whole[..]),
+    };
+    let parts = div()
+        .flex()
+        .min_w_0()
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .when(!folder.is_empty(), |d| {
+            d.child(
+                div()
+                    .flex_shrink(1.)
+                    .min_w_0()
+                    .overflow_hidden()
+                    // Cut at its front, what is left of the room goes before the ellipsis, never
+                    // between the folder and the name.
+                    .text_right()
+                    .text_ellipsis_start()
+                    .child(SharedString::from(folder.to_owned())),
+            )
+        })
+        .when(!file.is_empty(), |d| {
+            d.child(
+                div()
+                    .flex_none()
+                    .max_w_full()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .text_ellipsis_middle()
+                    .child(SharedString::from(file.to_owned())),
+            )
+        });
+    cut_shown(id, parts, whole.clone(), whole, 1, CutAt::Parts)
 }
 
 /// `shown` cut to its room, measured as `text`; `whole` in its long hover when the room cut it or
@@ -74,6 +273,7 @@ fn cut_shown(
     text: SharedString,
     whole: SharedString,
     lines: usize,
+    from: CutAt,
 ) -> gpui::Stateful<gpui::Div> {
     let shortened = text != whole;
     let is_cut = Rc::new(Cell::new(shortened));
@@ -85,9 +285,16 @@ fn cut_shown(
         .min_w_0()
         .overflow_hidden()
         .child(if lines > 1 {
-            shown.line_clamp(lines)
+            shown.line_clamp(lines).text_ellipsis()
         } else {
-            shown.truncate()
+            match from {
+                CutAt::End => shown.truncate(),
+                CutAt::Middle => shown
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis_middle(),
+                CutAt::Parts => shown.min_w_0().overflow_hidden(),
+            }
         })
         .child(
             canvas(
@@ -131,13 +338,7 @@ fn cut_shown(
         })
 }
 
-/// Text cut in the middle to `n` characters (`format::mid`), so a long branch name keeps both
-/// ends, then to its room: its long hover gives the whole when either cut it.
-pub fn mid(id: impl Into<ElementId>, text: &str, n: usize) -> gpui::Stateful<gpui::Div> {
-    shortened(id, format::mid(text, n), text.to_owned())
-}
-
-/// `shown`, a shortened `whole` (a name cut in the middle within a line), cut to its room: its
+/// `shown`, a shortened `whole` (a name cut by hand within a line), cut to its room: its
 /// long hover gives `whole` when they differ or the room cut it.
 pub fn shortened(
     id: impl Into<ElementId>,
@@ -145,20 +346,34 @@ pub fn shortened(
     whole: impl Into<SharedString>,
 ) -> gpui::Stateful<gpui::Div> {
     let shown: SharedString = shown.into();
-    cut_shown(id, shown.clone(), shown, whole.into(), 1)
+    cut_shown(id, shown.clone(), shown, whole.into(), 1, CutAt::End)
 }
 
 /// Text cut to its room inside an element whose own long hover already gives the whole of it (a
 /// row's tooltip): a tooltip of its own, even an empty one, would hide that one. Everything else
-/// is cut with `cut`, `cut_to`, `mid` or `shortened` (#161).
+/// is cut with `cut`, `cut_to`, `name`, `path`, `cut_with` or `shortened` (#161, #184).
 pub trait CutInTip: Styled + Sized {
     fn cut_in_tip(self) -> Self {
         self.truncate()
     }
 
-    /// The same for text clamped to `lines` lines.
+    /// A name (a branch, a file alone) cut in its middle (`name`).
+    fn name_in_tip(self) -> Self {
+        self.overflow_hidden()
+            .whitespace_nowrap()
+            .text_ellipsis_middle()
+    }
+
+    /// A folder or a path cut at its front, its end kept (`path`).
+    fn path_in_tip(self) -> Self {
+        self.overflow_hidden()
+            .whitespace_nowrap()
+            .text_ellipsis_start()
+    }
+
+    /// The same for text clamped to `lines` lines, its last line ending in an ellipsis.
     fn clamp_in_tip(self, lines: usize) -> Self {
-        self.overflow_hidden().line_clamp(lines)
+        self.overflow_hidden().line_clamp(lines).text_ellipsis()
     }
 }
 

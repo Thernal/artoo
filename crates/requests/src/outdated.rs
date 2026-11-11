@@ -296,7 +296,10 @@ impl Requests {
         let t = self.threads.get(ix)?;
         let h = self.histories.get(&t.id)?.clone();
         let changed = h.changed();
-        let row = |tag: String, who: String, text: Option<AnyElement>, struck: bool| {
+        // A version's line, its plain text measured and its marked words shown: cut with an ellipsis, the
+        // whole line on a long hover (#184).
+        let row = |tag: String, who: String, text: Option<(String, AnyElement)>, struck: bool| {
+            let id = gpui::SharedString::from(format!("outdated-{ix}-{tag}"));
             div()
                 .flex()
                 .items_start()
@@ -317,7 +320,7 @@ impl Requests {
                         .flex_col()
                         .gap(px(2.))
                         .child(div().text_color(theme::muted()).child(who))
-                        .children(text.map(|t| {
+                        .children(text.map(|(plain, shown)| {
                             div()
                                 .px(px(8.))
                                 .py(px(2.))
@@ -330,9 +333,7 @@ impl Requests {
                                 .font_family(theme::code_font())
                                 .text_size(px(12.))
                                 .text_color(theme::text())
-                                .overflow_hidden()
-                                .whitespace_nowrap()
-                                .child(t)
+                                .child(artoo_ui_kit::hover::cut_with(id.clone(), plain, shown))
                         })),
                 )
         };
@@ -348,7 +349,7 @@ impl Requests {
             row(
                 format!("v{}", h.written),
                 who,
-                Some(h.then.clone().into_any_element()),
+                Some((h.then.clone(), h.then.clone().into_any_element())),
                 changed,
             )
             .into_any_element(),
@@ -360,9 +361,9 @@ impl Requests {
                 Some(now) => {
                     let marked = word_line(&before, now);
                     before = now.clone();
-                    marked
+                    (now.clone(), marked)
                 }
-                None => "(removed)".into_any_element(),
+                None => ("(removed)".to_owned(), "(removed)".into_any_element()),
             };
             rows.push(
                 row(

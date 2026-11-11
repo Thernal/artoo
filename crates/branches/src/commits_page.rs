@@ -6,7 +6,7 @@ use crate::history::{Act, Acts, History};
 use artoo_core::route::Route;
 use artoo_shell_api::Frame;
 use artoo_ui_kit::format::{self, plural};
-use artoo_ui_kit::hover::{self, CutInTip, Hover};
+use artoo_ui_kit::hover::{self, CutInTip, Hover, RowTip};
 use artoo_ui_kit::{gap, icons, island, px, row, theme};
 use gpui::{
     AnyElement, App, ClickEvent, Context, Entity, MouseButton, MouseDownEvent, Render, Window, div,
@@ -215,7 +215,7 @@ impl History {
                                 .child(format::ago(c.time)),
                         )
                     })
-                    .tip(tip.join("\n"))
+                    .row_tip(selected, tip.join("\n"))
                     // Its SHA, its message, its link (#162).
                     .on_mouse_down(MouseButton::Right, move |e: &MouseDownEvent, _, cx| {
                         menu(Act::CommitMenu { ix, at: e.position }, cx)

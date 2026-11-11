@@ -157,7 +157,7 @@ impl Review {
                     .border_color(theme::island_border())
                     .child(icons::file_icon(f.path(), 16.))
                     .child(
-                        hover::cut("file-path", path)
+                        hover::path("file-path", path)
                             .flex_1()
                             .text_color(change_color(f, false)),
                     )

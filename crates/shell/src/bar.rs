@@ -22,7 +22,15 @@ impl BarRenderer for Renderer {
 fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
     let crumbs = bar.crumbs.into_iter().enumerate().map(|(n, crumb)| {
         let (link, folder, menu) = (host.clone(), host.clone(), host.clone());
+        // A crumb too long for the bar is cut, a branch or a path in its middle, never clipped (#184).
+        let label = words::say(&crumb.label).into_owned();
+        let label = if crumb.mono {
+            hover::name(SharedString::from(format!("crumb-label-{n}")), label)
+        } else {
+            hover::cut(SharedString::from(format!("crumb-label-{n}")), label)
+        };
         div()
+            .min_w_0()
             .flex()
             .items_center()
             .gap(px(6.))
@@ -30,12 +38,13 @@ fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
                 div()
                     .id(SharedString::from(format!("crumb-{n}")))
                     .relative()
+                    .min_w_0()
                     .flex()
                     .items_center()
                     .gap(px(4.))
                     .when(crumb.mono, |s| s.font_family(theme::code_font()))
                     .when(crumb.open, |s| s.text_color(theme::accent()))
-                    .child(words::say(&crumb.label).into_owned())
+                    .child(label)
                     .when(crumb.noted, |s| {
                         s.child(div().size(px(6.)).rounded_full().bg(theme::agent()))
                     })
@@ -59,9 +68,10 @@ fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
                     })
                     .children(crumb.list),
             )
-            .child(div().text_color(theme::faint()).child("›"))
+            .child(div().flex_none().text_color(theme::faint()).child("›"))
     });
     let (back, up) = (host.clone(), host.clone());
+    // clip: the bar as a whole; its crumbs cut with an ellipsis, and what does not fit is #186's to fold.
     let island = island()
         .relative()
         .overflow_hidden()
