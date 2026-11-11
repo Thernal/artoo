@@ -6,6 +6,11 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **A toast says who sent it, and you can hold it or turn it off.** It reads top to bottom: `GitLab · Ember Lind
+  mentioned you`, the request under it, then `Open ⌥↵` and `⋯`; a plugin's starts with its name, `Jira · Assigned to
+  you`. A bar shows the time left and stops while the pointer is on the toast. `⋯` turns that kind's toasts off —
+  `Toasts for Mentions are off · Undo` — or opens Settings → Notifications. Toasts sit under the page bar, no longer
+  over its buttons.
 - **The Inbox says what happened, and from where.** Its filters are what happened — `All 7 · Mentions 1 · Review
   requests 1 · Asks you 1 · Failures 3` — whichever source it came from, and `Source: All ▾` lists every source, a
   plugin's too, each with what is new in it; type to find one. Each row names its source before its time

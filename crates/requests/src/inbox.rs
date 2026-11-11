@@ -82,7 +82,7 @@ fn items(notices: &Notices, answers: Answers, parts: &[Listed], cx: &App) -> Vec
 }
 
 /// The requests' own source of notices (`crate::notices::source`).
-pub const SOURCE: &str = "requests";
+pub const SOURCE: &str = artoo_requests_api::NOTICES;
 
 /// What the Inbox counts as new (#197): under each of what happened and in all, within the source chosen; in each
 /// source and in all of them, whatever happened.

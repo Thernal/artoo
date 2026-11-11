@@ -5,7 +5,8 @@
 
 use super::Workspace;
 use artoo_shell_api::Toast;
-use artoo_ui_kit::toast::Toasts;
+use artoo_ui_kit::menu::WIDTH;
+use artoo_ui_kit::toast::{More, Toasts, Words};
 use gpui::{Action, App, Context, Entity, SharedString, prelude::*};
 use std::cell::Cell;
 use std::rc::Rc;
@@ -63,55 +64,138 @@ impl Workspace {
     /// still showing goes, its count added to this one's, and the toast words the sum (#150).
     ///
     /// A notice (a toast with a kind, #196) shows and goes to the system as its kind's switches say,
-    /// a plugin's words starting with its name; a kind no source offered is refused.
+    /// its words after its source's name, `⋯` turning its kind's toasts off (#198); a kind no source
+    /// offered is refused.
     pub(super) fn show_toast(&mut self, toast: Toast, cx: &mut Context<Self>) {
+        self.raise(toast, true, cx);
+    }
+
+    /// A notice's toast alone: what goes to the system is said apart (the Inbox's news, the agents'
+    /// answers, grouped).
+    pub(super) fn show_notice_toast(&mut self, toast: Toast, cx: &mut Context<Self>) {
+        self.raise(toast, false, cx);
+    }
+
+    fn raise(&mut self, toast: Toast, send: bool, cx: &mut Context<Self>) {
         use artoo_shell_api::notices::{self, Channel};
-        let (shows, sends, guest) = match toast.kind {
+        let (shows, sends, guest, words) = match toast.kind {
             Some(kind) => {
-                let Some((_, source)) = notices::kind(cx, kind) else {
+                let Some((declared, source)) = notices::kind(cx, kind) else {
                     crate::applog::line(&format!(
                         "a notice of kind {kind}, offered by none: refused"
                     ));
                     return;
                 };
-                let guest = source.guest.then_some(source.name);
-                let sends = notices::on(cx, kind, Channel::System);
-                (notices::on(cx, kind, Channel::Toast), sends, guest)
+                let sends = send && notices::on(cx, kind, Channel::System);
+                let shows = notices::on(cx, kind, Channel::Toast);
+                // A plugin's kind is named with its source: `Jira · Assigned to you`.
+                let name = match source.guest {
+                    true => format!("{} · {}", source.name, declared.name),
+                    false => declared.name.to_owned(),
+                };
+                let words = Words::default()
+                    .source(self.source_name(&source))
+                    .more(self.toast_more(kind, name, cx));
+                (shows, sends, source.guest.then_some(source.name), words)
             }
-            None => (true, toast.system.is_some(), None),
+            None => (true, send && toast.system.is_some(), None, Words::default()),
+        };
+        let words = Words {
+            about: toast.about.clone().map(Into::into),
+            ..words
         };
         let say = toast.say.clone();
-        let say = move |n: usize| match guest {
+        // The system's notification names a plugin first, as Artoo's own need not.
+        let said = move |n: usize| match guest {
             Some(name) => format!("{name} · {}", say(n)),
             None => say(n),
         };
         let tag = toast.system.clone().or(toast.kind.map(str::to_owned));
-        let Some((words, act)) = toast.button else {
-            let text = say(toast.count);
+        let Some((words_of_button, act)) = toast.button else {
             if sends && let Some(tag) = tag {
                 let project = self.tab_title();
                 let open = super::system_notes::Open::Here;
-                self.notify_system(tag, text.clone(), project, open, cx);
+                self.notify_system(tag, said(toast.count), project, open, cx);
             }
             if shows {
-                self.toast_info(text.into(), cx);
+                let words = Words {
+                    text: (toast.say)(toast.count).into(),
+                    ..words
+                };
+                self.toasts.update(cx, |t, cx| t.show(words, true, cx));
             }
             return;
         };
-        let press = Press { words, act };
+        let press = Press {
+            words: words_of_button,
+            act,
+        };
         let count = toast.count + self.toasts.update(cx, |t, _| t.take_count(&press));
-        let text = say(count);
         // An agent's news goes to the system's notifications too, the newer replacing the older
         // (#26).
         if sends && let Some(tag) = tag {
             let open = super::system_notes::Open::Act(press.clone());
             let project = self.tab_title();
-            self.notify_system(tag, text.clone(), project, open, cx);
+            self.notify_system(tag, said(count), project, open, cx);
         }
         if shows {
+            let words = Words {
+                text: (toast.say)(count).into(),
+                ..words
+            };
             self.toasts
-                .update(cx, |t, cx| t.show_act(text.into(), press, count, cx));
+                .update(cx, |t, cx| t.show_act(words, press, count, cx));
         }
+        cx.notify();
+    }
+
+    /// A source's name on its toasts: the requests' is their host's (`GitLab`).
+    fn source_name(&self, source: &artoo_shell_api::notices::Source) -> String {
+        match &self.web {
+            Some(web) if source.id == artoo_requests_api::NOTICES => web.name().to_owned(),
+            _ => source.name.to_owned(),
+        }
+    }
+
+    /// `⋯` on a notice's toast: its kind's toasts turned off, and Settings → Notifications; the
+    /// menu as wide as the kind's whole name.
+    fn toast_more(&self, kind: &'static str, name: String, cx: &mut Context<Self>) -> More {
+        use super::menu::{Act, Entry};
+        let tab = cx.weak_entity();
+        Rc::new(move |at, _, cx| {
+            let name = name.clone();
+            tab.update(cx, |this, cx| {
+                let off = format!("Turn off toasts for {name}");
+                let width = (off.chars().count() as f32 * 7.5 + 56.).clamp(WIDTH, 420.);
+                let entries = vec![
+                    Entry::new(
+                        off,
+                        Act::new(move |this, _, cx| this.toasts_off(kind, name.clone(), cx)),
+                    ),
+                    Entry::new(
+                        "Notification settings…",
+                        Act::new(|this, _, cx| {
+                            this.open_settings(cx);
+                            this.open_settings_section(super::notice_settings::NOTIFICATIONS, cx);
+                        }),
+                    ),
+                ];
+                this.ctx_menu
+                    .update(cx, |m, cx| m.open(at, vec![(None, entries)], width, cx));
+                cx.notify();
+            })
+            .ok();
+        })
+    }
+
+    /// Kind `kind`'s toasts off, said with Undo.
+    fn toasts_off(&mut self, kind: &'static str, name: String, cx: &mut Context<Self>) {
+        use artoo_shell_api::notices::{self, Channel};
+        notices::set(cx, kind, Channel::Toast, false);
+        let undo = Rc::new(move |cx: &mut App| notices::set(cx, kind, Channel::Toast, true));
+        let text = format!("Toasts for {name} are off");
+        self.toasts
+            .update(cx, |t, cx| t.show_with(text, "Undo", undo, cx));
         cx.notify();
     }
 
@@ -137,7 +221,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let name = comment.path.rsplit('/').next().unwrap_or(&comment.path);
-        let text = format!("Draft deleted · {name}:{}", comment.line).into();
+        let text = format!("Draft deleted · {name}:{}", comment.line);
         let (tab, comment) = (cx.weak_entity(), Cell::new(Some(comment)));
         let undo = Rc::new(move |cx: &mut App| {
             if let Some(comment) = comment.take() {
@@ -160,7 +244,10 @@ impl Workspace {
     /// to its action — the agents' while their code is the tab's, Settings' —, else the part's that
     /// runs it.
     pub(super) fn press(&mut self, act: &dyn Action, cx: &mut Context<Self>) {
-        if self.answer_agents(act, cx) || self.answer_settings(act, cx) {
+        if self.answer_agents(act, cx)
+            || self.answer_settings(act, cx)
+            || self.answer_notice(act, cx)
+        {
             return;
         }
         let run = self
@@ -176,13 +263,12 @@ impl Workspace {
         }
     }
 
-    /// The newest toast's button, pressed (the snapshot checks).
-    #[cfg(feature = "snapshot")]
-    pub(super) fn press_toast(&mut self, cx: &mut Context<Self>) {
-        self.toasts.update(cx, |t, cx| t.press_newest(cx));
+    /// ⌥↵: the newest toast's button, pressed (#198); the snapshot checks press it too.
+    pub(super) fn press_toast(&mut self, cx: &mut Context<Self>) -> bool {
+        self.toasts.update(cx, |t, cx| t.press_newest(cx))
     }
 
-    /// The stack, over everything else, under the title bar's right end.
+    /// The stack, over everything else, under the page bar's right end.
     pub(super) fn render_toasts(&self, cx: &App) -> Option<impl IntoElement + use<>> {
         (!self.toasts.read(cx).is_empty()).then(|| self.toasts.clone())
     }

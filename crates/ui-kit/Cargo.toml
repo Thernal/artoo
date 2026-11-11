@@ -20,3 +20,5 @@ snapshot = []
 
 [dev-dependencies]
 artoo-core = { path = "../core", features = ["sandbox"] }
+# A test app the toasts are made in (`toast`).
+gpui = { workspace = true, features = ["test-support"] }

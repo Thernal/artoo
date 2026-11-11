@@ -227,14 +227,14 @@ pub trait InboxHost {
 /// line when the discussion is on code.
 pub type ReplyTo = (u64, Option<String>, Option<(String, u32)>);
 
-/// A notification new since the last read, said to the system (#26): its key, its request and the request's title,
-/// who did it and what ("mentioned you").
+/// A notification new since the last read, said to the system (#26) and as a toast (#198): its key, its request and
+/// the request's title, what happened.
 pub struct News {
     pub key: String,
     pub iid: u64,
     pub title: String,
-    pub who: String,
-    pub verb: &'static str,
+    /// What happened, whole (#197): `Ember Lind mentioned you`, `Pipeline failed`.
+    pub says: String,
     /// Its kind of notice (#196): whether it goes to the system, and as a toast.
     pub kind: &'static str,
 }
@@ -489,6 +489,10 @@ pub type OnDraft = Rc<dyn Fn(DraftEvent, &mut App)>;
 
 /// The Merge requests space, by its id (`artoo_shell_api::spaces`): the requests offer it, their pages are in it.
 pub const SPACE: &str = "requests";
+
+/// The requests' source of notices (#196): shown under the repository's host's name (`GitLab`), in the Inbox (#197)
+/// and on a toast (#198).
+pub const NOTICES: &str = "requests";
 
 /// The Inbox space, by its id: the requests offer it with their notifications, its page is theirs.
 pub const INBOX: &str = "inbox";

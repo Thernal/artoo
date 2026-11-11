@@ -27,7 +27,8 @@ pub(crate) fn install(cx: &mut App) {
             "jira",
             "Jira",
             vec![
-                Kind::listed("jira.assigned", "Assigned to you"),
+                // Its toast on as declared (Design M1b).
+                Kind::listed("jira.assigned", "Assigned to you").toast(),
                 Kind::listed("jira.mention", "Mentions you").why(Why::Mentions),
                 Kind::listed("jira.changed", "Your issue changed"),
             ],

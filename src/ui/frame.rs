@@ -499,6 +499,7 @@ impl Render for Workspace {
         }))
         .on_action(cx.listener(Self::compare_action))
         .on_action(cx.listener(Self::copy_link_action))
+        .on_action(cx.listener(Self::open_toast_action))
         .on_action(cx.listener(Self::pin_tab_action))
         .on_action(cx.listener(Self::palette_up))
         .on_action(cx.listener(Self::palette_down))
@@ -564,12 +565,12 @@ impl Render for Workspace {
                 cx,
             ),
         })
-        // Last, so it paints over everything.
+        // Over everything, the toasts too: a toast's `⋯` opens it (#198).
         .children(
             self.ctx_menu
                 .read(cx)
                 .shows()
-                .then(|| self.ctx_menu.clone()),
+                .then(|| gpui::deferred(self.ctx_menu.clone()).with_priority(3)),
         )
         .children(self.render_mention_card(cx))
         .children(self.render_whole(cx))

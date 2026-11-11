@@ -431,9 +431,11 @@ pub struct Toast {
     /// With a button, the tag it also goes to the system's notifications under while no window of Artoo's is in
     /// front, the newer replacing the older; a click there runs the button.
     pub system: Option<String>,
-    /// A notice's kind (`notices`, #196): its switches say whether it shows as a toast and goes to the system; a
-    /// plugin's says its name first. None: feedback, shown as it is.
+    /// A notice's kind (`notices`, #196): its switches say whether it shows as a toast and goes to the system, and
+    /// it says its source's name first (#198). None: feedback, shown as it is.
     pub kind: Option<&'static str>,
+    /// What it is about, under what happened (#198): `PAY-412 Refund rounds down on partial captures`.
+    pub about: Option<String>,
 }
 
 /// Which toasts go (`Frame::drop_toasts`): those whose button runs an action it picks.
@@ -449,6 +451,7 @@ impl Toast {
             button: None,
             system: None,
             kind: None,
+            about: None,
         }
     }
 
@@ -474,6 +477,12 @@ impl Toast {
     /// A notice of kind `id` (`notices::Kind::id`): shown and sent as its switches say.
     pub fn kind(mut self, id: &'static str) -> Self {
         self.kind = Some(id);
+        self
+    }
+
+    /// About `item`, said under what happened.
+    pub fn about(mut self, item: impl Into<String>) -> Self {
+        self.about = Some(item.into());
         self
     }
 }

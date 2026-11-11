@@ -397,6 +397,11 @@ pub(super) fn own() -> Vec<Action> {
             .words("Copy link to this page")
             .order(at(6))
             .key("cmd-alt-shift-c", TAB),
+        // A toast's button from the keys (#198); a field with a caret keeps ⌥↵.
+        Action::new("shell.open-toast", OpenToast)
+            .words("Open the newest notification")
+            .order(at(15))
+            .key("alt-enter", NO_CARET),
         // ⌘K shows its first key: ⌥D, as it always did.
         Action::new("review.cycle-mode", CycleMode)
             .words("Cycle lines, words, structural")

@@ -172,6 +172,7 @@ actions!(
         OpenIn,
         RevealInFinder,
         CopyLink,
+        OpenToast,
         PinTab,
         ShowShortcuts,
         NameProject,
@@ -980,9 +981,30 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                 }
             }
         }
+        // A plugin's notice as its toast lands (#198), with the sample sources (`ARTOO_SNAPSHOT_SOURCES`): `Jira ·
+        // Assigned to you`, the issue under it, Open ⌥↵ and ⋯; and an error under it.
+        if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("toast-notice")) {
+            ws.update(cx, |this, cx| {
+                let open = system_notes::OpenNotice {
+                    key: "PAY-412:assigned".to_owned(),
+                };
+                let toast = artoo_shell_api::Toast::new("Assigned to you")
+                    .kind("jira.assigned")
+                    .about("PAY-412 Refund rounds down on partial captures")
+                    .button("Open", open);
+                this.show_toast(toast, cx);
+                if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("toast-error")) {
+                    this.error = Some("Couldn't save the draft: the disk is full".into());
+                    this.take_error(cx);
+                }
+            });
+            wait(1000).await;
+        }
         // The newest toast's button pressed: where an agent's news leads (#150).
         if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("toast-act")) {
-            ws.update(cx, |this, cx| this.press_toast(cx));
+            ws.update(cx, |this, cx| {
+                this.press_toast(cx);
+            });
             wait(2500).await;
         }
         // Changes sent on the request open, to see them waiting or refused (#139).
@@ -1022,10 +1044,15 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         }
         // The pointer resting at `x,y` (window points) long enough for a tooltip or a card (#53).
         // A click at a point of the window, after the keys: what only the mouse opens (an image whole, #211).
-        if let Ok(at) = std::env::var("ARTOO_SNAPSHOT_CLICK")
-            && let Some((x, y)) = at.split_once(',')
-            && let (Ok(x), Ok(y)) = (x.trim().parse::<f32>(), y.trim().parse::<f32>())
-        {
+        // `x,y`, or several clicks one after another: `x,y;x,y` (a menu opened, then an item of it picked).
+        let clicks = std::env::var("ARTOO_SNAPSHOT_CLICK").unwrap_or_default();
+        for at in clicks.split(';').filter(|c| !c.trim().is_empty()) {
+            let Some((x, y)) = at.split_once(',') else {
+                continue;
+            };
+            let (Ok(x), Ok(y)) = (x.trim().parse::<f32>(), y.trim().parse::<f32>()) else {
+                continue;
+            };
             let position = gpui::point(gpui::px(x), gpui::px(y));
             cx.update_window(window.into(), |_, window, cx| window.draw(cx).clear(cx))
                 .ok();
@@ -2548,6 +2575,13 @@ impl Workspace {
 
     fn copy_link_action(&mut self, _: &CopyLink, _: &mut Window, cx: &mut Context<Self>) {
         self.copy_page_link(cx);
+    }
+
+    /// ⌥↵: the newest toast's button (#198); with none, the key goes on.
+    fn open_toast_action(&mut self, _: &OpenToast, _: &mut Window, cx: &mut Context<Self>) {
+        if !self.press_toast(cx) {
+            cx.propagate();
+        }
     }
 
     fn compare_action(&mut self, _: &Compare, _: &mut Window, cx: &mut Context<Self>) {

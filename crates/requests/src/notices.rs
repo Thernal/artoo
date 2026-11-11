@@ -115,7 +115,7 @@ const TODO: &str = "requests.todo";
 pub fn source() -> artoo_shell_api::notices::Source {
     use artoo_shell_api::notices::{Kind as K, Source, Why};
     Source::new(
-        "requests",
+        artoo_requests_api::NOTICES,
         "Merge requests",
         vec![
             K::listed(REVIEW, "Review requests")
@@ -188,10 +188,6 @@ impl Notice {
             self.kind.id(),
             artoo_shell_api::notices::Channel::Inbox,
         )
-    }
-
-    pub fn kind_verb(&self) -> &'static str {
-        self.kind.verb()
     }
 
     /// What happened, whole (#197): `Ember Lind mentioned you`; a pipeline's and a request that can't merge with no
@@ -808,12 +804,11 @@ impl Requests {
 /// A notice new since the last read, as the tab says it to the system.
 fn told(n: Notice) -> News {
     News {
-        verb: n.kind_verb(),
+        says: n.says(),
         kind: n.kind.id(),
         key: n.key,
         iid: n.iid,
         title: n.title,
-        who: n.who,
     }
 }
 

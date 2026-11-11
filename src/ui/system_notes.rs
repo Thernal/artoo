@@ -17,6 +17,13 @@ pub const IDENTITY: &str = "io.github.thernal.artoo";
 /// More than this many at once are said as one: "5 new in payments-service".
 const MOST_APART: usize = 3;
 
+/// Open on a notice's toast (#198): the Inbox's notice with this key, its request at its comment.
+#[derive(Clone, PartialEq, Debug, gpui::Action)]
+#[action(namespace = notices, no_json, no_register)]
+pub(super) struct OpenNotice {
+    pub key: String,
+}
+
 /// What a click on one opens.
 #[derive(Clone, Debug)]
 pub(super) enum Open {
@@ -135,12 +142,13 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         use artoo_shell_api::notices::{Channel, on};
-        let toasts: Vec<_> = (fresh.iter())
-            .filter(|n| on(cx, n.kind, Channel::Toast))
-            .map(|n| format!("{} {} · {}", n.who, n.verb, super::words::number(n.iid)))
-            .collect();
-        for text in toasts {
-            self.toast_info(text.into(), cx);
+        // Each as its toast (#198): `GitLab · Ember Lind mentioned you`, the request under it, Open.
+        for n in fresh {
+            let toast = artoo_shell_api::Toast::new(n.says.clone())
+                .kind(n.kind)
+                .about(format!("{} {}", super::words::number(n.iid), n.title))
+                .button("Open", OpenNotice { key: n.key.clone() });
+            self.show_notice_toast(toast, cx);
         }
         let fresh: Vec<_> = fresh
             .iter()
@@ -155,13 +163,13 @@ impl Workspace {
             let body = fresh
                 .iter()
                 .take(MOST_APART)
-                .map(|n| format!("{} {}", n.who, n.verb))
+                .map(|n| n.says.clone())
                 .collect::<Vec<_>>()
                 .join(" · ");
             return self.notify_system("inbox".to_owned(), title, body, Open::Inbox, cx);
         }
         for n in fresh {
-            let title = format!("{} {} · {}", n.who, n.verb, super::words::number(n.iid));
+            let title = format!("{} · {}", n.says, super::words::number(n.iid));
             let body = format!("{}\n{project}", n.title);
             self.notify_system(n.key.clone(), title, body, Open::Notice(n.key.clone()), cx);
         }
@@ -205,14 +213,25 @@ impl Workspace {
                 (false, 1) => format!("{agent} answered your comment"),
                 (false, n) => format!("{agent} answered {n} of your comments"),
             };
-            if on(cx, kind, Channel::Toast) {
-                self.toast_info(title.clone().into(), cx);
-            }
+            // Its toast (#198): `Agents · Claude finished your comment`, the project under it.
+            let toast = artoo_shell_api::Toast::new(title.clone())
+                .kind(kind)
+                .about(project.clone());
+            self.show_notice_toast(toast, cx);
             if on(cx, kind, Channel::System) {
                 let tag = format!("answers:{agent}:{kind}");
                 self.notify_system(tag, title, project.clone(), Open::Agents, cx);
             }
         }
+    }
+
+    /// A notice's toast's Open, answered; false for another's.
+    pub(super) fn answer_notice(&mut self, act: &dyn gpui::Action, cx: &mut Context<Self>) -> bool {
+        let Some(open) = act.as_any().downcast_ref::<OpenNotice>() else {
+            return false;
+        };
+        self.open_system_note(Open::Notice(open.key.clone()), cx);
+        true
     }
 
     /// What a click on one opens, its tab on screen.
