@@ -1019,6 +1019,45 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             wait(600).await;
         }
         // The pointer resting at `x,y` (window points) long enough for a tooltip or a card (#53).
+        // A click at a point of the window, after the keys: what only the mouse opens (an image whole, #211).
+        if let Ok(at) = std::env::var("ARTOO_SNAPSHOT_CLICK")
+            && let Some((x, y)) = at.split_once(',')
+            && let (Ok(x), Ok(y)) = (x.trim().parse::<f32>(), y.trim().parse::<f32>())
+        {
+            let position = gpui::point(gpui::px(x), gpui::px(y));
+            cx.update_window(window.into(), |_, window, cx| window.draw(cx).clear(cx))
+                .ok();
+            let events = [
+                gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                    position,
+                    pressed_button: None,
+                    modifiers: Default::default(),
+                }),
+                gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
+                    button: gpui::MouseButton::Left,
+                    position,
+                    modifiers: Default::default(),
+                    click_count: 1,
+                    first_mouse: false,
+                }),
+                gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
+                    button: gpui::MouseButton::Left,
+                    position,
+                    modifiers: Default::default(),
+                    click_count: 1,
+                }),
+            ];
+            for event in events {
+                cx.update_window(window.into(), |_, window, cx| {
+                    window.dispatch_event(event, cx);
+                    // A hidden window draws only by hand: what the event did is known after a frame.
+                    window.draw(cx).clear(cx);
+                })
+                .ok();
+                wait(100).await;
+            }
+            wait(500).await;
+        }
         if let Ok(at) = std::env::var("ARTOO_SNAPSHOT_HOVER")
             && let Some((x, y)) = at.split_once(',')
             && let (Ok(x), Ok(y)) = (x.trim().parse::<f32>(), y.trim().parse::<f32>())

@@ -8,6 +8,7 @@ mod complete;
 mod create;
 mod discussions;
 mod group;
+mod images;
 mod inbox;
 mod inbox_page;
 mod inbox_view;
@@ -111,7 +112,11 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     let Some(tab) = services.get::<artoo_requests_api::TabActs>() else {
         return Parts::default();
     };
-    let requests = cx.new(|_| requests::Requests::default());
+    let requests = cx.new(|_| requests::Requests {
+        // The viewer an image opens in is read from them as it is clicked (#211).
+        services: Rc::downgrade(&services),
+        ..Default::default()
+    });
     services.set(requests.clone());
     services.set(cx.new(|_| notices::Notices::default()));
     services.set(cx.new(|_| inbox::InboxView::default()));

@@ -99,6 +99,7 @@ artoo-review-api = { path = "crates/review-api" }
 artoo-branches = { path = "crates/branches" }
 artoo-branches-api = { path = "crates/branches-api" }
 artoo-ui-kit = { path = "crates/ui-kit" }
+artoo-images = { path = "crates/images" }
 artoo-plugin-sdk = { path = "crates/plugin-sdk" }
 artoo-plugins = { path = "crates/plugins" }
 anyhow.workspace = true

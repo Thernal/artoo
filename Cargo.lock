@@ -214,6 +214,7 @@ dependencies = [
  "artoo-core",
  "artoo-hosts",
  "artoo-hosts-api",
+ "artoo-images",
  "artoo-plugin-sdk",
  "artoo-plugins",
  "artoo-reports",
@@ -424,6 +425,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "artoo-images"
+version = "2.0.0-rc.2"
+dependencies = [
+ "artoo-core",
+ "artoo-images-api",
+ "artoo-shell-api",
+ "artoo-ui-kit",
+ "gpui-pre",
+ "image",
+ "imagesize",
+ "tempfile",
+]
+
+[[package]]
+name = "artoo-images-api"
+version = "2.0.0-rc.2"
+dependencies = [
+ "gpui-pre",
+]
+
+[[package]]
 name = "artoo-plugin-api"
 version = "2.0.0-rc.2"
 dependencies = [
@@ -439,6 +461,7 @@ dependencies = [
  "artoo-code-api",
  "artoo-core",
  "artoo-hosts-api",
+ "artoo-images-api",
  "artoo-plugin-api",
  "artoo-requests-api",
  "artoo-review-api",
@@ -494,6 +517,7 @@ dependencies = [
  "artoo-branches-api",
  "artoo-core",
  "artoo-hosts-api",
+ "artoo-images-api",
  "artoo-requests-api",
  "artoo-review-api",
  "artoo-shell-api",
@@ -519,6 +543,7 @@ version = "2.0.0-rc.2"
 dependencies = [
  "anyhow",
  "artoo-core",
+ "artoo-images-api",
  "artoo-review-api",
  "artoo-shell-api",
  "artoo-ui-kit",

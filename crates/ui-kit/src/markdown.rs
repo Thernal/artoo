@@ -91,6 +91,9 @@ pub type OnLink = Rc<dyn Fn(&str, &mut App) -> bool>;
 /// workspace shows the person's card when the pointer rests there (#51, X62).
 pub type OnMention = Rc<dyn Fn(Option<(String, gpui::Bounds<gpui::Pixels>)>, &mut App)>;
 
+/// A picture from the web clicked, by its address as the text writes it: the page opens it whole (#211).
+pub type OnImage = Rc<dyn Fn(&str, &mut gpui::Window, &mut App)>;
+
 /// The links a text has without being written as links (a request's `!398`): each one's bytes and its address,
 /// in order and apart. The tab gives its features' (`artoo_shell_api::links`, #171).
 pub type FindLinks = Rc<dyn Fn(&str, &App) -> Vec<(Range<usize>, String)>>;
@@ -105,11 +108,15 @@ pub struct Selecting {
     pub mention: OnMention,
     /// The links found in its text, drawn and followed as the written ones are.
     pub find: FindLinks,
+    /// Where a picture's click goes, when its page opens it whole (#211); none, its address opens.
+    pub image: Option<OnImage>,
+    /// The picture open whole now, by its address as written: drawn marked where it stands.
+    pub shown: Option<String>,
 }
 
 /// Where relative links of a comment point: GitLab writes uploads as `/uploads/…`, relative to the
 /// project, and other pages relative to the host.
-fn resolve(url: &str, base: Option<&str>) -> String {
+pub fn resolve(url: &str, base: Option<&str>) -> String {
     let Some(base) = base.filter(|_| url.starts_with('/')) else {
         return url.to_owned();
     };
@@ -433,12 +440,33 @@ fn picture_row(images: &[(String, String)], ctx: &mut Ctx) -> Option<AnyElement>
         }
         ctx.next += 1;
         let url = resolve(src, ctx.base.as_deref());
+        let opens = ctx.sel.as_ref().and_then(|s| s.image.clone());
+        let marked = (ctx.sel.as_ref()).is_some_and(|s| s.shown.as_deref() == Some(src.as_str()));
+        let written = src.clone();
         row = row.child(
             div()
                 .id(ElementId::NamedInteger(ctx.key.clone(), ctx.next as u64))
+                .relative()
                 .cursor_pointer()
-                .on_click(move |_, _, cx| cx.open_url(&url))
-                .child(picture),
+                .on_click(move |_, window, cx| match &opens {
+                    Some(open) => open(&written, window, cx),
+                    None => cx.open_url(&url),
+                })
+                .child(picture)
+                // The one open whole stays marked while it is (#211), a ring that moves nothing.
+                .when(marked, |s| {
+                    s.child(
+                        div()
+                            .absolute()
+                            .top(px(-3.))
+                            .left(px(-3.))
+                            .right(px(-3.))
+                            .bottom(px(-3.))
+                            .rounded(px(6.))
+                            .border_2()
+                            .border_color(theme::accent()),
+                    )
+                }),
         );
     }
     Some(row.into_any_element())

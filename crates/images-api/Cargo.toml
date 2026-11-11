@@ -1,0 +1,11 @@
+[package]
+name = "artoo-images-api"
+description = "The image viewer's contract (#211): a page's images handed to the one viewer over the window, a plugin's too."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# A picture already decoded is GPUI's image.
+gpui.workspace = true

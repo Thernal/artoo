@@ -5,6 +5,7 @@
 
 use crate::review::{FileEvent, Host, PaneEvent, Review};
 use artoo_core::git::{ChangeKind, FileDiff, ImageKind, ImageSide};
+use artoo_images_api::{Image as ViewedImage, Picture, Viewer as ImageViewer};
 use artoo_review_api::viewers::{Drawing, Viewer};
 use artoo_ui_kit::controls::{chip, group};
 use artoo_ui_kit::{px, theme};
@@ -143,10 +144,10 @@ pub fn viewer() -> Viewer {
         id: ID,
         order: 20,
         claims: Rc::new(|f: &FileDiff| f.old_image.is_some() || f.new_image.is_some()),
-        draw: Rc::new(|d: &Drawing, _: &App| {
+        draw: Rc::new(|d: &Drawing, cx: &App| {
             let ix = d.ix;
             match d.review.downcast_ref::<Review>() {
-                Some(review) if d.alone => review.render_image(d.file, d.host.clone()),
+                Some(review) if d.alone => review.render_image(d.file, d.host.clone(), cx),
                 _ => {
                     let host = d.host.clone();
                     crate::stack::note_line("An image.".to_owned())
@@ -163,11 +164,80 @@ pub fn viewer() -> Viewer {
     }
 }
 
+/// What the viewer knows a side by: its file's path and which side.
+fn side_key(file: &FileDiff, old: bool) -> String {
+    let path = if old {
+        file.old_path.as_deref().or(file.new_path.as_deref())
+    } else {
+        file.new_path.as_deref().or(file.old_path.as_deref())
+    };
+    format!(
+        "{}#{}",
+        path.unwrap_or_default(),
+        if old { "old" } else { "new" }
+    )
+}
+
 impl Review {
-    /// The sides next to each other, each with its kind, size and weight.
-    pub fn render_two_up(&self, file: &FileDiff) -> impl IntoElement + use<> {
+    /// The diff's images as the viewer steps through them (#211): each image file's sides in the diff's order, its
+    /// old one first; who and when, the commit's when the diff is one.
+    pub fn diff_images(&self) -> Vec<ViewedImage> {
+        let Some(diff) = &self.diff else {
+            return Vec::new();
+        };
+        let added = match &diff.header {
+            artoo_review_api::diff::Header::Commit(c) => Some((c.author.clone(), c.time)),
+            _ => None,
+        };
+        let mut images = Vec::new();
+        for file in diff.files.iter() {
+            let both = file.old_image.is_some() && file.new_image.is_some();
+            for (old, side) in [(true, &file.old_image), (false, &file.new_image)] {
+                let Some(side) = side else { continue };
+                let path = if old { &file.old_path } else { &file.new_path };
+                let path = path
+                    .as_deref()
+                    .or(file.new_path.as_deref())
+                    .unwrap_or_default();
+                let name = path.rsplit('/').next().unwrap_or(path);
+                images.push(ViewedImage {
+                    key: side_key(file, old),
+                    name: match (both, old) {
+                        (true, true) => format!("{name} (before)"),
+                        (true, false) => format!("{name} (after)"),
+                        _ => name.to_owned(),
+                    },
+                    picture: Picture::Decoded(self.images.image(side)),
+                    added: added.clone(),
+                    source: None,
+                });
+            }
+        }
+        images
+    }
+
+    /// The tab's viewer, through the frame the review was made in.
+    fn viewer(&self) -> Option<Rc<dyn ImageViewer>> {
+        let frame = self.frame.as_ref()?.upgrade()?;
+        frame.services().get::<Rc<dyn ImageViewer>>()
+    }
+
+    /// The sides next to each other, each with its kind, size and weight; a click opens a side whole (#211).
+    pub fn render_two_up(&self, file: &FileDiff, cx: &App) -> impl IntoElement + use<> {
         let half = MAX_W / 2. + 40.;
+        let viewer = self.viewer();
+        let shown = viewer.as_ref().and_then(|v| v.shown(cx));
+        let images = Rc::new(self.diff_images());
         let side = |image: Option<&ImageSide>, before: bool| {
+            let key = side_key(file, before);
+            let marked = shown.as_deref() == Some(key.as_str());
+            let opens = viewer.clone().map(|viewer| {
+                let images = images.clone();
+                move |_: &ClickEvent, _: &mut gpui::Window, cx: &mut App| {
+                    let at = images.iter().position(|i| i.key == key).unwrap_or(0);
+                    viewer.open(images.to_vec(), at, cx);
+                }
+            });
             let tone = if before {
                 theme::removed()
             } else {
@@ -193,13 +263,20 @@ impl Review {
                 .child(match image {
                     Some(s) => {
                         let (w, h) = fit(s.size, half - 16., MAX_H);
-                        frame(tone)
+                        frame(if marked { theme::accent() } else { tone })
+                            .id(if before {
+                                "image-before"
+                            } else {
+                                "image-after"
+                            })
+                            .when(marked, |f| f.border_2())
                             .child(
                                 img(self.images.image(s))
                                     .w(px(w))
                                     .h(px(h))
                                     .object_fit(ObjectFit::Contain),
                             )
+                            .when_some(opens, |f, opens| f.cursor_pointer().on_click(opens))
                             .into_any_element()
                     }
                     None => div()
@@ -241,7 +318,7 @@ impl Review {
 
 impl Review {
     /// Changed image `file` with its toolbar: how it is looked at, an SVG's Image | Source, what changed.
-    pub fn render_image(&self, file: &FileDiff, host: Rc<dyn Host>) -> AnyElement {
+    pub fn render_image(&self, file: &FileDiff, host: Rc<dyn Host>, cx: &App) -> AnyElement {
         let both = file.old_image.is_some() && file.new_image.is_some();
         let mode = if both { self.images.mode } else { Mode::TwoUp };
         let event = |event: PaneEvent| {
@@ -293,7 +370,7 @@ impl Review {
             (Mode::Swipe | Mode::Onion, Some(old), Some(new)) => self
                 .render_overlay(mode, old, new, host.clone())
                 .into_any_element(),
-            _ => self.render_two_up(file).into_any_element(),
+            _ => self.render_two_up(file, cx).into_any_element(),
         };
         div()
             .flex_1()

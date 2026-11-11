@@ -6,6 +6,11 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **Images open whole.** A click on an image in a merge request's description or comments, or on an image in a diff,
+  opens it over the window with its name, size, who added it and when; ← → go through the page's other images,
+  Download saves it to Downloads, Open in GitLab (or GitHub) shows it there, esc closes. Plugins open their images
+  in the same viewer.
+
 - **Try a plugin you are writing.** Settings → Plugins → Local takes a plugin's project folder or its library, with
   no repository or release. After each build, Restart Artoo runs what you built, and its row says why if it was not
   loaded.

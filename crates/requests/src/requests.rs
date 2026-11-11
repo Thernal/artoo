@@ -58,6 +58,8 @@ pub use artoo_requests_api::{Act, Acts};
 
 #[derive(Default)]
 pub struct Requests {
+    /// The tab's services the requests were made in: the image viewer is asked there (#211).
+    pub services: std::rc::Weak<artoo_shell_api::Services>,
     /// The repository open and its remote's web address: what is read, and the host asked.
     pub root: Option<std::path::PathBuf>,
     pub web: Option<artoo_core::git::WebRemote>,

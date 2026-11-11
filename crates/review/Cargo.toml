@@ -10,6 +10,8 @@ publish = false
 artoo-core = { path = "../core" }
 # What it offers a page: the file Code reads.
 artoo-review-api = { path = "../review-api" }
+# A diff's images open whole in the tab's viewer (#211).
+artoo-images-api = { path = "../images-api" }
 # Its parts in every tab: the find bar's field.
 artoo-shell-api = { path = "../shell-api" }
 artoo-ui-kit = { path = "../ui-kit" }

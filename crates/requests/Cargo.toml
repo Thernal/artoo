@@ -11,6 +11,8 @@ artoo-core = { path = "../core" }
 # The New merge request form reads the branches listed.
 artoo-branches-api = { path = "../branches-api" }
 artoo-hosts-api = { path = "../hosts-api" }
+# A request's images open whole in the tab's viewer (#211).
+artoo-images-api = { path = "../images-api" }
 # The Inbox lists the agents' answers among the notices (`Agents::inbox_answers`).
 artoo-agents-api = { path = "../agents-api" }
 artoo-requests-api = { path = "../requests-api" }

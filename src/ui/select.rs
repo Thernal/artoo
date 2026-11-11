@@ -124,6 +124,9 @@ impl Workspace {
                     .update(cx, |this, cx| this.hover_mention(hit, cx))
                     .ok();
             }),
+            // A page whose images open whole sets these (#211).
+            image: None,
+            shown: None,
         }
     }
 

@@ -99,7 +99,9 @@ impl Tabs {
             (_, Some(latest)) => format!("v{latest}"),
             _ => "—".to_owned(),
         };
-        let selecting = frame.selecting(cx);
+        // A picture clicked opens the request's images whole (#211).
+        let selecting =
+            (frame.selecting(cx)).map(|s| crate::images::viewing(&self.requests, s, cx));
         let look = OverviewLook {
             title: markdown::body(
                 &m.title,

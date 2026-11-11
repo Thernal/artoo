@@ -22,6 +22,7 @@ artoo-agents-api = { path = "../agents-api" }
 artoo-branches-api = { path = "../branches-api" }
 artoo-code-api = { path = "../code-api" }
 artoo-hosts-api = { path = "../hosts-api" }
+artoo-images-api = { path = "../images-api" }
 artoo-requests-api = { path = "../requests-api" }
 artoo-review-api = { path = "../review-api" }
 artoo-plugin-api = { path = "../plugin-api" }

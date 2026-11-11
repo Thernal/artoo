@@ -30,6 +30,7 @@ pub use artoo_branches_api as branches;
 pub use artoo_code_api as code;
 pub use artoo_core as core;
 pub use artoo_hosts_api as hosts;
+pub use artoo_images_api as images;
 pub use artoo_requests_api as requests;
 pub use artoo_review_api as review;
 pub use artoo_shell_api as shell;

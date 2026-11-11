@@ -1,0 +1,22 @@
+[package]
+name = "artoo-images"
+description = "One viewer for any image in the app (#211): opened whole over the window with the page's images, a plugin's too."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+artoo-core = { path = "../core" }
+artoo-images-api = { path = "../images-api" }
+# The card over the window and its toasts: drawn with the kit, added to every tab through the shell's contract.
+artoo-shell-api = { path = "../shell-api" }
+artoo-ui-kit = { path = "../ui-kit" }
+gpui.workspace = true
+# The picture's size from its header, to fit it without drawing it larger than it is.
+imagesize.workspace = true
+# The snapshot's sample pictures.
+image.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

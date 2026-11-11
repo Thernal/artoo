@@ -25,6 +25,11 @@ pub fn render_thread(
     on: OnThread,
     cx: &App,
 ) -> AnyElement {
+    // A picture clicked opens the request's images whole (#211).
+    let look = ThreadLook {
+        selecting: crate::images::viewing(requests, look.selecting, cx),
+        ..look
+    };
     let rq = requests.read(cx);
     let Some(t) = rq.threads.get(ix) else {
         return div().into_any_element();

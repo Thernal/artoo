@@ -54,6 +54,7 @@ fn install(cx: &mut gpui::App) {
     // The requests' pieces of the item page before the branches': a request's identity over a branch's.
     artoo_requests::install(cx);
     artoo_branches::install(cx);
+    artoo_images::install(cx);
     // The plugins last: each finds what the features offer.
     artoo_plugins::install(cx);
 }
