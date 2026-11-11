@@ -5,7 +5,6 @@
 use crate::agents;
 use artoo_agents_api::provider::Provider;
 use artoo_shell_api::settings::Rows;
-use artoo_ui_kit::controls::setting;
 use artoo_ui_kit::{ROW_RADIUS, hover, px, theme};
 use gpui::{
     App, ClickEvent, ClipboardItem, Context, Entity, FontWeight, Render, SharedString, Window, div,
@@ -133,43 +132,140 @@ impl Render for AgentsSettings {
                         }),
                 )
         };
+        // One row an agent (#201): what is connected, as facts; Connect all while one is not; the by-hand command
+        // with a failure only; an agent connected by hand says its limit on its row.
+        let row = |id: String, name: String, facts: String, end: Option<gpui::AnyElement>| {
+            div()
+                .id(SharedString::from(id))
+                .flex()
+                .items_center()
+                .gap_4()
+                .py(px(10.))
+                .border_b_1()
+                .border_color(theme::island_border())
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(div().font_weight(FontWeight::SEMIBOLD).child(name))
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(theme::muted())
+                                .child(facts),
+                        ),
+                )
+                .children(end)
+        };
         let mut rows = div().flex().flex_col();
         for provider in artoo_agents_api::provider::all(cx) {
             let (name, word) = (provider.name(), word(provider.name()));
             let by_hand = provider.add_command(&server);
             let Some(about) = provider.connects() else {
-                let label = match provider.limits() {
-                    Some(_) => format!("{name} (limited):"),
-                    None => format!("{name}:"),
+                // Connected by hand (Codex): its limit on its row, the command to copy while it is not.
+                let on = word == "codex" && crate::codex::connected();
+                let facts = match (on, provider.limits()) {
+                    (true, _) => "connected".to_owned(),
+                    (false, Some(_)) => "limited · Only a Codex running in a terminal".to_owned(),
+                    (false, None) => "not yet".to_owned(),
                 };
-                rows = rows.child(command(
-                    format!("agents-cmd-{word}"),
-                    label,
-                    provider.limits(),
-                    by_hand,
+                let limits = provider.limits();
+                let copy = by_hand.clone();
+                let end = (!on).then(|| {
+                    div()
+                        .id(SharedString::from(format!("agents-copy-{word}")))
+                        .px_3()
+                        .h(px(28.))
+                        .flex()
+                        .items_center()
+                        .rounded(px(ROW_RADIUS))
+                        .border_1()
+                        .border_color(theme::island_border())
+                        .cursor_pointer()
+                        .hover(|s| s.bg(theme::hover()))
+                        .child("Copy the command")
+                        .when_some(limits, |d, tip| {
+                            d.tooltip(move |_, cx| cx.new(|_| hover::Tip(tip)).into())
+                        })
+                        .on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
+                        })
+                        .into_any_element()
+                });
+                rows = rows.child(row(
+                    format!("agents-row-{word}"),
+                    name.to_owned(),
+                    facts,
+                    end,
                 ));
                 continue;
             };
-            let found = provider.found();
+            // Claude Code: each profile, connected or not yet.
+            let profiles: Vec<(String, bool)> = if word == "claude" {
+                (crate::claude::profiles().iter())
+                    .map(|p| {
+                        let name = p
+                            .file_name()
+                            .map(|n| format!("~/{}", n.to_string_lossy()))
+                            .unwrap_or_default();
+                        (name, crate::claude::connected(p))
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let facts = if word != "claude" {
+                about.to_owned()
+            } else if profiles.is_empty() {
+                "No profile found (~/.claude)".to_owned()
+            } else {
+                (profiles.iter())
+                    .map(|(n, on)| format!("{n} {}", if *on { "connected" } else { "not yet" }))
+                    .collect::<Vec<_>>()
+                    .join(" · ")
+            };
+            let all_in = !profiles.is_empty() && profiles.iter().all(|(_, on)| *on);
             let to_connect = provider.clone();
-            let connect = div()
-                .id(SharedString::from(format!("agents-connect-{word}")))
-                .px_3()
-                .h(px(28.))
-                .flex()
-                .items_center()
-                .rounded(px(ROW_RADIUS))
-                .bg(theme::agent())
-                .text_color(theme::base())
-                .font_weight(FontWeight::SEMIBOLD)
-                .cursor_pointer()
-                .child(if busy { "Connecting…" } else { "Connect" })
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let provider = to_connect.clone();
-                    this.connect.update(cx, |c, cx| c.connect(provider, cx))
-                }));
+            let end = if all_in || (word == "claude" && profiles.is_empty()) {
+                None
+            } else {
+                Some(
+                    div()
+                        .id(SharedString::from(format!("agents-connect-{word}")))
+                        .px_3()
+                        .h(px(28.))
+                        .flex()
+                        .items_center()
+                        .rounded(px(ROW_RADIUS))
+                        .bg(theme::agent())
+                        .text_color(theme::base())
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .cursor_pointer()
+                        .child(match (busy, profiles.len()) {
+                            (true, _) => "Connecting…",
+                            (false, 0 | 1) => "Connect",
+                            (false, _) => "Connect all",
+                        })
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            let provider = to_connect.clone();
+                            this.connect.update(cx, |c, cx| c.connect(provider, cx))
+                        }))
+                        .into_any_element(),
+                )
+            };
+            let failed = said
+                .as_ref()
+                .filter(|(by, text)| *by == name && text.starts_with("Not connected"));
             rows = rows
-                .child(setting(name, about, connect))
+                .child(row(
+                    format!("agents-row-{word}"),
+                    name.to_owned(),
+                    facts,
+                    end,
+                ))
                 .children(
                     said.as_ref()
                         .filter(|(by, _)| *by == name)
@@ -181,19 +277,15 @@ impl Render for AgentsSettings {
                                 .child(text.clone())
                         }),
                 )
-                .children(found.map(|text| {
-                    div()
-                        .py(px(6.))
-                        .text_size(px(12.))
-                        .text_color(theme::faint())
-                        .child(text)
-                }))
-                .child(command(
-                    format!("agents-cmd-{word}"),
-                    "Or by hand, in a terminal:".into(),
-                    None,
-                    by_hand,
-                ));
+                // The command by hand comes with a failure only.
+                .children(failed.map(|_| {
+                    command(
+                        format!("agents-cmd-{word}"),
+                        "By hand, in a terminal:".into(),
+                        None,
+                        by_hand,
+                    )
+                }));
         }
         rows
     }

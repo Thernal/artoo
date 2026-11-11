@@ -6,6 +6,13 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **The Agents window is grouped by what you owe.** `Needs you`, `Working` and `Done` replace the filters; a row is
+  the agent's own last words — `One sealed class, or a sealed class and a separate error type?` — with where and how
+  long ago under them, and one button for the one thing to do (`Answer`, `Send`); the rest is in its right click. The
+  header names the chat your notes go to. The stripe counts what needs you, a tab behind another takes its agents'
+  answers too — the rail counts them and `Claude asks you` arrives as a notification —, and Settings → Agents says
+  which profiles are connected (`~/.claude connected · ~/.claude-work not yet`), showing the command by hand only
+  when connecting failed.
 - **The composer opens public on a merge request.** A comment on a line of a request's diff starts orange, for
   everyone on it — `To: Everyone on !398` over the text, `Comment on this line`, and `Add to review` beside a filled
   `Comment`. ⇥ turns it into a note for the chat working on this branch and back; the chip's ▾ lists everyone on the

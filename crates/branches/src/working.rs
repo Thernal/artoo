@@ -56,10 +56,14 @@ impl History {
                 let mut asked = Instant::now();
                 let mut first = true;
                 loop {
-                    // A tab behind another looks seldom; it looks again as it comes on screen.
+                    // A tab behind another looks seldom; it looks again as it comes on screen. What rides on the
+                    // beat — an agent's answer — still looks behind, so the rail and the stripe count it (#201).
                     if !shown.get() {
                         cx.background_executor().timer(BEHIND).await;
                         if !shown.get() {
+                            if this.update(cx, |_, cx| cx.emit(Event::Beat)).is_err() {
+                                return;
+                            }
                             continue;
                         }
                     }

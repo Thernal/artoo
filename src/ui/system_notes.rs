@@ -210,8 +210,9 @@ impl Workspace {
             let title = match (kind == DONE, n) {
                 (true, 1) => format!("{agent} finished your comment"),
                 (true, n) => format!("{agent} finished {n} of your comments"),
-                (false, 1) => format!("{agent} answered your comment"),
-                (false, n) => format!("{agent} answered {n} of your comments"),
+                // What it says is what you owe (#201): `Claude asks you`, the project under it.
+                (false, 1) => format!("{agent} asks you"),
+                (false, n) => format!("{agent} asks you about {n} comments"),
             };
             // Its toast (#198): `Agents · Claude finished your comment`, the project under it.
             let toast = artoo_shell_api::Toast::new(title.clone())
