@@ -106,6 +106,8 @@ pub struct Open {
     pub picked: bool,
     /// Agent comments not sent yet on its files.
     pub drafts: bool,
+    /// A request only looked at: italic, the next one opened takes its place (#194).
+    pub preview: bool,
     /// Notifications of it not read yet.
     pub news: bool,
     /// The agent that gathered it (#148): its badge, and how many of its pending comments wait.

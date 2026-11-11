@@ -66,6 +66,8 @@ struct OpenRow {
     on: bool,
     /// Agent comments not sent yet on its files.
     drafts: bool,
+    /// A request only looked at (#194).
+    preview: bool,
     /// Notifications of it not read yet.
     news: bool,
     /// The agent that gathered it (#148): its mark, and how many of its pending comments wait.
@@ -121,6 +123,7 @@ impl Workspace {
                 tip: row.tip,
                 on: here,
                 drafts: false,
+                preview: false,
                 news: row.news,
                 agent: None,
                 call: None,
@@ -174,12 +177,47 @@ impl Workspace {
                 tip,
                 on,
                 drafts,
+                preview: open.preview,
                 news: row.news,
                 agent,
                 call: self.agent_calls.get(&open.item).filter(|_| !on).cloned(),
             }
         }));
         rows
+    }
+
+    /// An open item's words for ⌘E (#194): its row's, and how far its review got, its drafts, what it is.
+    pub(super) fn open_words(&self, open: &super::nav::Opened, cx: &App) -> (String, String) {
+        let space = self.item_space(&open.item);
+        let pages = space.and_then(|s| self.space_pages(s));
+        let label = (pages.and_then(|p| (p.row)(&open.item, &open.page, cx)))
+            .map_or_else(|| open.page.kind.clone(), |row| row.label);
+        let drafts = (self.comments(cx).iter())
+            .any(|c| c.state == crate::comment::State::Draft && open.paths.contains(&c.path));
+        let mut detail = match Page::from_route(&open.item) {
+            Some(Page::Request(iid)) => {
+                let head = (self.requests_api())
+                    .and_then(|r| r.find(iid, cx))
+                    .and_then(|m| git2::Oid::from_str(&m.head).ok());
+                match head {
+                    Some(h) if self.rv().head_reviewed(h, cx) => "reviewed".to_owned(),
+                    Some(h) => match self.rv().head_part(h, cx) {
+                        Some((done, total)) => format!("{done} of {total} reviewed"),
+                        None => "not reviewed".to_owned(),
+                    },
+                    None => "merge request".to_owned(),
+                }
+            }
+            Some(Page::Branch(_)) => "branch".to_owned(),
+            _ => open.page.kind.clone(),
+        };
+        if open.preview {
+            detail.push_str(" · looked at");
+        }
+        if drafts {
+            detail.push_str(" · ● drafts");
+        }
+        (label, detail)
     }
 
     /// `from` dragged onto `to` in the menu: it takes `to`'s place, kept in `layout.txt`.
@@ -255,6 +293,7 @@ impl Workspace {
                     tip: open.tip,
                     on: open.on,
                     drafts: open.drafts,
+                    preview: open.preview,
                     news: open.news,
                     call: open.call,
                 })

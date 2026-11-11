@@ -27,6 +27,7 @@ impl Workspace {
     }
 
     pub(super) fn set_reviewed(&mut self, ix: usize, done: bool, cx: &mut Context<Self>) {
+        self.touch_shown(cx);
         if self.rv().set_reviewed(ix, done, cx) {
             cx.notify();
         }
@@ -34,8 +35,18 @@ impl Workspace {
 
     /// Marks or unmarks files `ixs` at once (all of them, a folder).
     pub(super) fn set_reviewed_many(&mut self, ixs: &[usize], done: bool, cx: &mut Context<Self>) {
+        self.touch_shown(cx);
         if self.rv().set_reviewed_many(ixs, done, cx) {
             cx.notify();
+        }
+    }
+
+    /// The request on screen touched: its open row stays (#194).
+    fn touch_shown(&mut self, cx: &App) {
+        if self.showing_request(cx)
+            && let Some(iid) = self.current_request(cx)
+        {
+            self.nav.touched(iid);
         }
     }
 

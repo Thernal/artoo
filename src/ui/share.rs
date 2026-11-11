@@ -64,11 +64,18 @@ impl Workspace {
 
     /// A request's right click, wherever its row is: its link, its number, the host.
     pub(super) fn request_context(&mut self, iid: u64, at: Point<Pixels>, cx: &mut Context<Self>) {
+        if let Some(groups) = self.request_groups(iid, cx) {
+            self.open_menu(at, groups, cx);
+        }
+    }
+
+    /// A request's menu: its link, its number, the host.
+    fn request_groups(&self, iid: u64, cx: &App) -> Option<Vec<Vec<Entry>>> {
         let (Some(web), Ok(link)) = (
             self.web.clone(),
             self.route_link(&RequestRoute { number: iid }.route(), false, cx),
         ) else {
-            return;
+            return None;
         };
         let number = link.what.clone();
         let url = link.url.clone();
@@ -85,33 +92,37 @@ impl Workspace {
                 Act::open_url(url),
             )],
         ];
+        Some(groups)
+    }
+
+    /// An open row's right click under Branches or Merge requests: its link, then closing it, the others, all of
+    /// them, the merged ones (#194).
+    pub(super) fn item_context(&mut self, item: &Route, at: Point<Pixels>, cx: &mut Context<Self>) {
+        let mut groups = self.item_groups(item, cx);
+        groups.push(self.close_entries(item, cx));
         self.open_menu(at, groups, cx);
     }
 
-    /// An open row's right click under Branches or Merge requests: its link.
-    pub(super) fn item_context(&mut self, item: &Route, at: Point<Pixels>, cx: &mut Context<Self>) {
+    /// An open row's link entries.
+    fn item_groups(&self, item: &Route, cx: &App) -> Vec<Vec<Entry>> {
         let link = match Page::from_route(item) {
-            Some(Page::Request(iid)) => return self.request_context(iid, at, cx),
+            Some(Page::Request(iid)) => return self.request_groups(iid, cx).unwrap_or_default(),
             Some(Page::Branch(refname)) => {
-                if let Some(ix) = self
-                    .branch_list(cx)
-                    .iter()
+                return (self.branch_list(cx).iter())
                     .position(|b| b.refname == refname)
-                {
-                    self.branch_context(ix, at, cx);
-                }
-                return;
+                    .and_then(|ix| self.branch_groups(ix, cx))
+                    .unwrap_or_default();
             }
-            Some(_) => return,
+            Some(_) => return Vec::new(),
             // A comparison: its link is its page's.
             None => match self.nav.opened(item).map(|o| o.page.clone()) {
                 Some(page) if matches!(Page::from_route(&page), Some(Page::Compare(..))) => {
                     self.route_link(&page, false, cx)
                 }
-                _ => return,
+                _ => return Vec::new(),
             },
         };
-        let groups = match (link, &self.web) {
+        match (link, &self.web) {
             (Ok(link), Some(web)) => {
                 let open = Entry::new(
                     format!("Open in {} ↗", web.name()),
@@ -123,9 +134,53 @@ impl Workspace {
                 ]
             }
             (Err(_), Some(_)) => vec![vec![Entry::off("No link: only on this Mac")]],
-            _ => return,
+            _ => Vec::new(),
+        }
+    }
+
+    /// Closing from an open row's menu: it (⌘W), the others under its space, all of them, the merged or closed
+    /// requests (#194).
+    fn close_entries(&self, item: &Route, cx: &App) -> Vec<Entry> {
+        let Some(space) = self.item_space(item) else {
+            return Vec::new();
         };
-        self.open_menu(at, groups, cx);
+        let items: Vec<Route> = (self.open_items(space).into_iter())
+            .map(|o| o.item.clone())
+            .collect();
+        let gone: Vec<Route> = (items.iter())
+            .filter(|i| match Page::from_route(i) {
+                Some(Page::Request(iid)) => (self.requests_api())
+                    .and_then(|r| r.find(iid, cx))
+                    .is_some_and(|m| m.state != artoo_core::mr::MrState::Opened),
+                _ => false,
+            })
+            .cloned()
+            .collect();
+        let others: Vec<Route> = items.iter().filter(|i| *i != item).cloned().collect();
+        let closing = |items: Vec<Route>| {
+            Act::new(move |this, _, cx| {
+                for item in &items {
+                    this.close_open(item, cx);
+                }
+            })
+        };
+        let mut entries = vec![
+            Entry::new("Close", closing(vec![item.clone()])).key("⌘W"),
+            if others.is_empty() {
+                Entry::off("Close others")
+            } else {
+                Entry::new("Close others", closing(others))
+            },
+            Entry::new("Close all", closing(items)),
+        ];
+        if space == super::spaces::REQUESTS {
+            entries.push(if gone.is_empty() {
+                Entry::off("Close merged")
+            } else {
+                Entry::new(format!("Close merged ({})", gone.len()), closing(gone))
+            });
+        }
+        entries
     }
 
     /// The link of file `path` in the diff on screen, where the host anchors its files.

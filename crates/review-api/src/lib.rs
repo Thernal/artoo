@@ -116,6 +116,10 @@ pub trait Review {
     /// The next diff shown opens at `place` (a page come back to), or at its top.
     fn restore_at(&self, place: Option<(String, gpui::ListOffset)>, cx: &mut App);
 
+    /// The diff shown scrolls back to `place` (⌘[ to where a jump left, #194); false when its file is not the one
+    /// shown alone, nor in the one scroll.
+    fn go_place(&self, place: (String, gpui::ListOffset), cx: &mut App) -> bool;
+
     /// How far your review of commit `tip` got, files done of all: once begun, until it is whole.
     fn head_part(&self, tip: Oid, cx: &App) -> Option<(u32, u32)>;
 

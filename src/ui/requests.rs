@@ -1138,19 +1138,22 @@ impl Workspace {
         old: bool,
         cx: &mut Context<Self>,
     ) {
-        self.rv().set_jump_line(Some((line, old)), cx);
-        if self.current_path(cx).as_deref() == Some(path) {
-            self.apply_jump(cx);
-            return;
-        }
-        let ix = self
-            .shown_diff(cx)
-            .as_ref()
-            .and_then(|d| d.files.iter().position(|f| f.path() == path));
-        match ix {
-            Some(ix) => self.select_file(ix, cx),
-            None => self.rv().set_jump_line(None, cx),
-        }
+        // A stop ⌘[ comes back to (#194).
+        self.jumping(cx, |this, cx| {
+            this.rv().set_jump_line(Some((line, old)), cx);
+            if this.current_path(cx).as_deref() == Some(path) {
+                this.apply_jump(cx);
+                return;
+            }
+            let ix = this
+                .shown_diff(cx)
+                .as_ref()
+                .and_then(|d| d.files.iter().position(|f| f.path() == path));
+            match ix {
+                Some(ix) => this.select_file(ix, cx),
+                None => this.rv().set_jump_line(None, cx),
+            }
+        })
     }
 }
 

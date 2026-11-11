@@ -161,6 +161,16 @@ impl artoo_review_api::Review for Handle {
         }
     }
 
+    fn go_place(&self, place: (String, gpui::ListOffset), cx: &mut App) -> bool {
+        self.0.upgrade().is_some_and(|rv| {
+            rv.update(cx, |rv, cx| {
+                let went = rv.go_place(&place.0, place.1);
+                cx.notify();
+                went
+            })
+        })
+    }
+
     fn settings(&self, cx: &App) -> artoo_core::git::DiffSettings {
         artoo_core::git::DiffSettings {
             ignore_whitespace: self

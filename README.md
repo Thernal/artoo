@@ -110,7 +110,9 @@ Four spaces in the menu on the left (⌃⌘1…4), each keeping the page it was 
 Several repositories at once — a rail of projects, tabs in the title bar or projects in the menu (⌘T, ⌘1…9);
 the session comes back on the next start, and a project can have its own name and colour. ⌘K searches
 everything (files ⌘P, commits ⌘⇧C, branches ⌘⇧B, requests ⌘⇧R, actions ⌘⇧P); a pasted GitLab or GitHub link
-opens in the app. ⌘[ ⌘] go back and forward through every page seen, esc goes one page up.
+opens in the app. ⌘[ ⌘] go back and forward through every page seen and every jump inside one (a file, ⌘P, a line), esc goes one
+page up; ⌘E lists what is open, then the places you chose. A request only looked at is one italic row the next one
+replaces.
 
 </details>
 

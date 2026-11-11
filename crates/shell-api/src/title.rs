@@ -18,6 +18,8 @@ pub struct TitleBar {
     /// Whether there is somewhere to go back and forward to.
     pub back: bool,
     pub forward: bool,
+    /// Where ‹ goes, for its tip (`Back to !415`, #194).
+    pub back_to: Option<String>,
     /// Narrow: search is its icon (#80).
     pub compact: bool,
     /// What features and the tab put before Settings: their items, the fetch, the refresh status.
@@ -28,6 +30,8 @@ pub struct TitleBar {
 pub trait TitleHost {
     fn fold(&self, window: &mut Window, cx: &mut App);
     fn back(&self, window: &mut Window, cx: &mut App);
+    /// ‹ right-clicked at `at`: the last places behind (#194).
+    fn back_menu(&self, at: Point<Pixels>, window: &mut Window, cx: &mut App);
     fn forward(&self, window: &mut Window, cx: &mut App);
     /// The project's right click, the rail's menu, at `at`.
     fn project_menu(&self, at: Point<Pixels>, window: &mut Window, cx: &mut App);

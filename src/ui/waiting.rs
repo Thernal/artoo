@@ -25,6 +25,8 @@ impl Workspace {
         let Some(requests) = self.requests_api() else {
             return;
         };
+        // Touched: its open row stays (#194).
+        self.nav.touched(iid);
         if requests.send(iid, change, self.answered(iid, refused, cx), cx) {
             self.show_waiting(iid, cx);
             cx.notify();

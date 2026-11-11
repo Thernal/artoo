@@ -6,6 +6,12 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **Back goes where you jumped.** A file picked, ⌘P or a line gone to is a stop of its own, so ⌘[ after a jump in a
+  long review scrolls back to where you were instead of leaving the request; scrolling is not a stop. ‹ says where it
+  goes — `Back to !415` — and its right click lists the last places. ⌘E lists what is open first, the latest first
+  (`!398 … 3 of 8 reviewed`), then the places you chose, and opens on the second row, so ⌘E ↵ returns you. A request
+  only looked at is one italic row in the menu that the next one replaces; marking a file, a comment or an approval
+  keeps it. An open row's right click closes it, the others, all of them or the merged ones.
 - **Hold ⌘ to see the keys.** Held a moment, ⌘ shows each repository's ⌘1…, and ⌘B ⌘[ ⌘] on the title bar's
   buttons; ⌃⌘ shows the spaces'. Settings → Keyboard turns these helpers off. Settings → Keyboard reads by headings —
   Move, Comment, Find, View, Requests, App — with the menu's names, Change on the row you point at, and a clash says

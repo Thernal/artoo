@@ -2331,9 +2331,14 @@ impl Workspace {
         at: Point<gpui::Pixels>,
         cx: &mut Context<Self>,
     ) {
-        let Some(branch) = self.branches().and_then(|b| b.list(cx).get(ix).cloned()) else {
-            return;
-        };
+        if let Some(groups) = self.branch_groups(ix, cx) {
+            self.open_menu(at, groups, cx);
+        }
+    }
+
+    /// Branch `ix`'s menu: its name, its link, a merge request from it, the host.
+    pub(super) fn branch_groups(&self, ix: usize, cx: &App) -> Option<Vec<Vec<Entry>>> {
+        let branch = self.branches().and_then(|b| b.list(cx).get(ix).cloned())?;
         let mut groups = vec![vec![Entry::new(
             "Copy branch name",
             Act::copy(branch.name.clone()),
@@ -2356,7 +2361,7 @@ impl Workspace {
                 Act::open_url(link.url),
             )]);
         }
-        self.open_menu(at, groups, cx);
+        Some(groups)
     }
 
     fn toggle(&mut self, opt: Opt, cx: &mut Context<Self>) {
@@ -3014,7 +3019,7 @@ impl artoo_review_api::Host for TabHost {
                     {
                         this.remember_file(&path, None, cx);
                     }
-                    this.select_file(ix, cx)
+                    this.jumping(cx, |this, cx| this.select_file(ix, cx))
                 }
                 ChangesEvent::Menu { ix, at } => this.file_context(ix, at, cx),
                 ChangesEvent::Fold(path) => this.toggle_dir(&path, cx),

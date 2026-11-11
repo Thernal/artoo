@@ -23,7 +23,8 @@ impl TitleRenderer for Renderer {
 /// The title bar: the project's own quiet words, the fetch and the refresh status before the gear.
 fn title_bar(bar: TitleBar, host: Rc<dyn TitleHost>) -> impl IntoElement {
     let tabbed = bar.tabs.is_some();
-    let (fold, back, forward, menu, projects, search, settings) = (
+    let (fold, back, back_menu, forward, menu, projects, search, settings) = (
+        host.clone(),
         host.clone(),
         host.clone(),
         host.clone(),
@@ -49,9 +50,9 @@ fn title_bar(bar: TitleBar, host: Rc<dyn TitleHost>) -> impl IntoElement {
                         "fold-places",
                         "sidebar",
                         if bar.folded {
-                            "Expand the menu  ⌘B"
+                            "Expand the menu  ⌘B".into()
                         } else {
-                            "Collapse the menu  ⌘B"
+                            "Collapse the menu  ⌘B".into()
                         },
                         true,
                     )
@@ -60,13 +61,23 @@ fn title_bar(bar: TitleBar, host: Rc<dyn TitleHost>) -> impl IntoElement {
                     .children(keys::held_cap("⌘B", keys::Held::Cmd))
                 }))
                 .child(
-                    nav_button("go-back", "back", "Back  ⌘[", bar.back)
-                        .on_click(move |_, window, cx| back.back(window, cx))
-                        .relative()
-                        .children(keys::held_cap("⌘[", keys::Held::Cmd)),
+                    // Its tip says where it goes, by name (#194).
+                    nav_button(
+                        "go-back",
+                        "back",
+                        format!("{}  ⌘[", bar.back_to.as_deref().unwrap_or("Back")).into(),
+                        bar.back,
+                    )
+                    .on_click(move |_, window, cx| back.back(window, cx))
+                    // Its right click: the last places behind.
+                    .on_mouse_down(MouseButton::Right, move |e: &MouseDownEvent, window, cx| {
+                        back_menu.back_menu(e.position, window, cx)
+                    })
+                    .relative()
+                    .children(keys::held_cap("⌘[", keys::Held::Cmd)),
                 )
                 .child(
-                    nav_button("go-forward", "forward", "Forward  ⌘]", bar.forward)
+                    nav_button("go-forward", "forward", "Forward  ⌘]".into(), bar.forward)
                         .on_click(move |_, window, cx| forward.forward(window, cx))
                         .relative()
                         .children(keys::held_cap("⌘]", keys::Held::Cmd)),
@@ -211,7 +222,7 @@ fn icon_button(
 fn nav_button(
     id: &'static str,
     icon: &'static str,
-    tip: &'static str,
+    tip: gpui::SharedString,
     enabled: bool,
 ) -> gpui::Stateful<gpui::Div> {
     let button = div()
@@ -238,7 +249,7 @@ fn nav_button(
             .cursor_pointer()
             .hover(|s| s.bg(theme::hover()))
             .tooltip_show_delay(hover::LONG)
-            .tooltip(move |_, cx| cx.new(|_| Tip(tip)).into())
+            .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(tip.clone())).into())
     } else {
         button.opacity(0.45)
     }

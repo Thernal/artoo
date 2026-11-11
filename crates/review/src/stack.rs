@@ -481,6 +481,33 @@ impl Review {
         ))
     }
 
+    /// Scrolls back to `offset` in file `path` (`scroll_place`'s): false when the file is not the one shown alone,
+    /// nor in the one scroll.
+    pub fn go_place(&mut self, path: &str, offset: ListOffset) -> bool {
+        let Some(ix) =
+            (self.diff.as_ref()).and_then(|d| d.files.iter().position(|f| f.path() == path))
+        else {
+            return false;
+        };
+        match self.stack.as_ref() {
+            Some(stack) => {
+                let Some(header) = stack.header(ix) else {
+                    return false;
+                };
+                self.diff_list.scroll_to(ListOffset {
+                    item_ix: header + offset.item_ix + 1,
+                    offset_in_item: offset.offset_in_item,
+                });
+                true
+            }
+            None if self.file == ix => {
+                self.diff_list.scroll_to(offset);
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn scroll_to_header(&mut self, ix: usize) {
         if let Some(at) = self.stack.as_ref().and_then(|s| s.header(ix)) {
             self.diff_list.scroll_to(ListOffset {

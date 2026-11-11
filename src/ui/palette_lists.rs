@@ -64,7 +64,7 @@ pub(super) fn lists(tab: WeakEntity<Workspace>) -> Vec<List> {
             RECENT,
             recent(tab.clone()),
             says(
-                "Recent places — files, commits, merge requests",
+                "Recent places — what is open, then files, commits, merge requests",
                 "Nothing opened yet.",
             ),
         ),
@@ -151,9 +151,30 @@ fn matches(words: &[String], hay: &str) -> bool {
 /// The places opened lately, newest first.
 fn recent(tab: WeakEntity<Workspace>) -> Finds {
     let picks = tab.clone();
-    reading(tab, move |this, ask, _| {
+    reading(tab, move |this, ask, cx| {
         let words = words(ask.text);
-        (this.recents.iter())
+        // What is open first, the latest on screen first (#194); then the places, without a request open already.
+        let mut opened: Vec<&super::nav::Opened> = this.nav.open.iter().collect();
+        opened.sort_by_key(|o| std::cmp::Reverse(o.seen));
+        let open_requests: Vec<u64> = (opened.iter())
+            .filter_map(|o| match super::nav::Page::from_route(&o.item) {
+                Some(super::nav::Page::Request(iid)) => Some(iid),
+                _ => None,
+            })
+            .collect();
+        let shown = this.nav_page().and_then(|p| this.item_of(p));
+        let first_shown = opened
+            .first()
+            .is_some_and(|o| Some(&o.item) == shown.as_ref());
+        let open = (opened.into_iter())
+            .map(|o| (o.item.clone(), this.open_words(o, cx)))
+            .filter(|(_, (label, detail))| matches(&words, &format!("{label} {detail}")))
+            .map(|(item, (label, detail))| {
+                let open = doing(&picks, move |this, cx| this.show_open(&item, cx));
+                Find::new("Open", label, detail, open)
+            });
+        let places = (this.recents.iter())
+            .filter(|r| !matches!(r.key, super::recents::Key::Request(iid) if open_requests.contains(&iid)))
             .filter(|r| {
                 let path = match &r.key {
                     super::recents::Key::File { path, .. } => path.as_str(),
@@ -172,8 +193,16 @@ fn recent(tab: WeakEntity<Workspace>) -> Finds {
                     super::recents::Key::File { path, .. } => find.file(path.clone()),
                     _ => find,
                 }
-            })
-            .collect()
+            });
+        let mut finds: Vec<Find> = open.chain(places).collect();
+        // The first row the page on screen: the list opens on the second, so ↵ goes back (#194).
+        if ask.text.trim().is_empty()
+            && first_shown
+            && let Some(find) = finds.get_mut(1)
+        {
+            find.current = true;
+        }
+        finds
     })
 }
 

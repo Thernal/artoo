@@ -351,6 +351,7 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                             .min_w_0()
                             .cut_in_tip()
                             .when(open.mono, |s| s.font_family(theme::code_font()))
+                            .when(open.preview, |s| s.italic())
                             .child(open.label),
                     )
                     .children(open.agent.map(|(badge, waiting)| {

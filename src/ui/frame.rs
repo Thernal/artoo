@@ -136,6 +136,7 @@ impl Workspace {
                 folded: self.menu_folded(),
                 back: self.nav.can_back(),
                 forward: self.nav.can_forward(),
+                back_to: self.back_tip(cx),
                 compact: self.compact(),
                 items,
             },
@@ -165,6 +166,10 @@ impl title::TitleHost for TitleGlue {
 
     fn forward(&self, _: &mut Window, cx: &mut App) {
         self.tab(cx, |this, cx| this.go_forward(cx));
+    }
+
+    fn back_menu(&self, at: Point<gpui::Pixels>, _: &mut Window, cx: &mut App) {
+        self.tab(cx, |this, cx| this.back_menu(at, cx));
     }
 
     fn project_menu(&self, at: Point<gpui::Pixels>, _: &mut Window, cx: &mut App) {

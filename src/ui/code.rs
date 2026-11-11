@@ -20,8 +20,11 @@ impl Workspace {
         let shown = self.shown_diff(cx);
         if let Some(ix) = shown.and_then(|d| d.files.iter().position(|f| f.path() == path)) {
             self.remember_file(&path, None, cx);
-            self.select_file(ix, cx);
-            self.follow_loaded(cx);
+            // A stop ⌘[ comes back to (#194).
+            self.jumping(cx, |this, cx| {
+                this.select_file(ix, cx);
+                this.follow_loaded(cx);
+            });
         }
     }
 

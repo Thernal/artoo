@@ -13,7 +13,8 @@
 use super::spaces::{BRANCHES, CODE, INBOX, KEPT, REQUESTS, Space};
 use super::{Selection, Workspace, recents, zones};
 use artoo_branches_api::Shows;
-use artoo_core::route::Route;
+use artoo_core::route::{Place, Route};
+use artoo_requests_api::RequestRoute;
 use artoo_ui_kit::format;
 use git2::Oid;
 use gpui::{App, Context, ListOffset};
@@ -214,6 +215,11 @@ pub struct Opened {
     pub paths: Vec<String>,
     /// A request's section tab (#73).
     pub section: Section,
+    /// A request only looked at: one italic row the next one opened replaces; touched — a file marked, a comment,
+    /// a reply, an approval —, it stays (#194).
+    pub preview: bool,
+    /// When it was last on screen, the latest the highest: ⌘E lists what is open by it (#194).
+    pub seen: u64,
 }
 
 /// What `nav.txt` keeps of a project.
@@ -225,11 +231,33 @@ struct Saved {
     open: Vec<(Route, Option<Route>)>,
 }
 
-/// A page seen: ⌘[ ⌘] come back to it.
-#[derive(Clone, PartialEq, Debug)]
+/// A page seen, or a place in it a jump left (a file, a line, a find, #194): ⌘[ ⌘] come back to it.
+#[derive(Clone, Debug)]
 struct Moment {
     space: Space,
     page: Option<Route>,
+    /// Where the diff was scrolled as it was left, for coming back to it on the same page.
+    place: Option<(String, ListOffset)>,
+    /// Pushed by a jump not landed yet: the page it lands on, when another, takes its place.
+    landing: bool,
+}
+
+impl Moment {
+    fn new(space: Space, page: Option<Route>) -> Self {
+        Self {
+            space,
+            page,
+            place: None,
+            landing: false,
+        }
+    }
+}
+
+/// Two moments are one when they are the same page: where in it is what a jump adds.
+impl PartialEq for Moment {
+    fn eq(&self, other: &Self) -> bool {
+        self.space == other.space && self.page == other.page
+    }
 }
 
 pub struct Nav {
@@ -249,6 +277,8 @@ pub struct Nav {
     pub picked: Vec<Route>,
     /// Loading what a page needs, or coming back to a moment: no new moment, no link.
     restoring: bool,
+    /// The clock of `Opened::seen`.
+    tick: u64,
 }
 
 impl Default for Nav {
@@ -264,6 +294,7 @@ impl Default for Nav {
             pending_show: None,
             picked: Vec::new(),
             restoring: false,
+            tick: 0,
         }
     }
 }
@@ -277,9 +308,16 @@ impl Nav {
         self.at + 1 < self.time.len()
     }
 
-    /// A new moment; the ones ahead of it are dropped, the same one twice is one.
+    /// A new moment; the ones ahead of it are dropped, the same one twice is one. A jump that lands on another page
+    /// is that page's moment.
     fn remember(&mut self, moment: Moment) {
         if self.time.get(self.at) == Some(&moment) {
+            return;
+        }
+        if let Some(now) = self.time.get_mut(self.at)
+            && now.landing
+        {
+            *now = moment;
             return;
         }
         let keep = (self.at + 1).min(self.time.len());
@@ -290,6 +328,40 @@ impl Nav {
             self.time.remove(0);
         }
         self.at = self.time.len() - 1;
+    }
+
+    /// A jump from `place` on the page on screen: where it leaves is a stop, and where it lands another (#194).
+    fn jump(&mut self, place: Option<(String, ListOffset)>) {
+        let Some(now) = self.time.get_mut(self.at) else {
+            return;
+        };
+        if now.landing {
+            return;
+        }
+        now.place = place;
+        let next = Moment {
+            place: None,
+            landing: true,
+            ..now.clone()
+        };
+        self.time.truncate(self.at + 1);
+        self.time.push(next);
+        if self.time.len() > 200 {
+            self.time.remove(0);
+        }
+        self.at = self.time.len() - 1;
+    }
+
+    /// The jump is over on the page it began on.
+    fn landed(&mut self) {
+        if let Some(now) = self.time.get_mut(self.at) {
+            now.landing = false;
+        }
+    }
+
+    /// The moments behind the one on screen, the nearest first, by their place in time (‹'s right click).
+    pub(super) fn behind(&self, n: usize) -> Vec<usize> {
+        (0..self.at).rev().take(n).collect()
     }
 
     /// The moment before the one now forgotten when it was `page`: what is on screen took its place (#187).
@@ -306,6 +378,23 @@ impl Nav {
 
     fn opened_mut(&mut self, item: &Route) -> Option<&mut Opened> {
         self.open.iter_mut().find(|o| &o.item == item)
+    }
+
+    /// `item` came on screen: ⌘E lists it first among what is open.
+    fn see(&mut self, item: &Route) {
+        self.tick += 1;
+        let tick = self.tick;
+        if let Some(open) = self.opened_mut(item) {
+            open.seen = tick;
+        }
+    }
+
+    /// Request `iid` was touched — a file marked, a comment, a reply, an approval —: no longer only looked at.
+    pub(super) fn touched(&mut self, iid: u64) {
+        let item = RequestRoute { number: iid }.route();
+        if let Some(open) = self.opened_mut(&item) {
+            open.preview = false;
+        }
     }
 
     /// `nav.txt`'s line for project `repo`: the space, each space's page, the open items, then the pages of any
@@ -756,12 +845,26 @@ impl Workspace {
                 Some(open) => open.page = page.clone(),
                 None => {
                     let section = self.first_section(&item, cx);
+                    // A request opened anew is looked at until touched: it takes the place of the one looked at
+                    // before (#194).
+                    let preview = !self.nav.restoring
+                        && matches!(Page::from_route(&item), Some(Page::Request(_)));
+                    if preview {
+                        let gone: Vec<Route> = (self.nav.open.iter())
+                            .filter(|o| o.preview)
+                            .map(|o| o.item.clone())
+                            .collect();
+                        self.nav.open.retain(|o| !o.preview);
+                        self.nav.picked.retain(|p| !gone.contains(p));
+                    }
                     self.nav.open.push(Opened {
                         item: item.clone(),
                         page: page.clone(),
                         place: None,
                         paths: Vec::new(),
                         section,
+                        preview,
+                        seen: 0,
                     })
                 }
             }
@@ -792,6 +895,7 @@ impl Workspace {
             {
                 open.section = section;
             }
+            self.nav.see(&item);
         }
         self.remember_moment();
         self.save_nav();
@@ -871,11 +975,77 @@ impl Workspace {
         if self.nav.restoring {
             return;
         }
-        let moment = Moment {
-            space: self.nav.space,
-            page: self.nav_page().cloned(),
-        };
+        let moment = Moment::new(self.nav.space, self.nav_page().cloned());
         self.nav.remember(moment);
+    }
+
+    /// `jump` — to a file, a line, a find — from where the diff on screen is: where it leaves is a stop ⌘[ comes
+    /// back to, and where it lands another (#194). Scrolling and ↑ ↓ are no jump.
+    pub(super) fn jumping(
+        &mut self,
+        cx: &mut Context<Self>,
+        jump: impl FnOnce(&mut Self, &mut Context<Self>),
+    ) {
+        if !self.nav.restoring {
+            let place = self.rv().place(cx);
+            self.nav.jump(place);
+        }
+        jump(self, cx);
+        self.nav.landed();
+    }
+
+    /// The moment on screen is left: where its diff is, kept for coming back to it.
+    fn leave_moment(&mut self, cx: &App) {
+        let page = self.nav_page().cloned();
+        let place = self.rv().place(cx);
+        if let Some(now) = self.nav.time.get_mut(self.nav.at) {
+            now.landing = false;
+            if now.page == page && place.is_some() {
+                now.place = place;
+            }
+        }
+    }
+
+    /// Back to `place` in the diff on screen: scrolled there, its file opened first when another is shown alone.
+    fn return_to(&mut self, place: (String, ListOffset), cx: &mut Context<Self>) {
+        if self.rv().go_place(place.clone(), cx) {
+            return;
+        }
+        let ix = (self.shown_diff(cx).as_ref())
+            .and_then(|d| d.files.iter().position(|f| f.path() == place.0));
+        if let Some(ix) = ix {
+            self.rv().restore_at(Some(place), cx);
+            self.select_file(ix, cx);
+        }
+    }
+
+    /// What moment `ix` is, for ‹'s tip and its menu: a place in a page by its file, a page by its name.
+    pub(super) fn moment_label(&self, ix: usize, cx: &App) -> Option<String> {
+        let moment = self.nav.time.get(ix)?;
+        let next = self.nav.time.get(ix + 1);
+        let page_name = || {
+            let page = moment.page.as_ref();
+            let pages = self.space_pages(moment.space);
+            let row = page.and_then(|p| {
+                let item = self.drawn().item(p).unwrap_or_else(|| p.clone());
+                pages.and_then(|ps| (ps.row)(&item, p, cx))
+            });
+            match row {
+                Some(row) => row.label,
+                None => (artoo_shell_api::spaces::all(cx).iter())
+                    .find(|s| s.space == moment.space)
+                    .map_or_else(|| moment.space.name().to_owned(), |s| s.label.to_owned()),
+            }
+        };
+        // A place: the next moment is the same page, a jump away.
+        let within = next.is_some_and(|n| n == moment);
+        Some(match (&moment.place, within) {
+            (Some((path, _)), true) => {
+                let name = path.rsplit('/').next().unwrap_or(path);
+                format!("{name} · place")
+            }
+            _ => format!("{} · page", page_name()),
+        })
     }
 
     /// Before the loaded request or branch makes way: where it was, for coming back to it.
@@ -923,6 +1093,9 @@ impl Workspace {
             Some(page) => self.load_page(page, false, cx),
         }
         self.nav.restoring = false;
+        if let Some(item) = (self.nav_page().cloned()).and_then(|p| self.drawn().item(&p)) {
+            self.nav.see(&item);
+        }
         self.remember_moment();
         self.save_nav();
         cx.notify();
@@ -1043,6 +1216,7 @@ impl Workspace {
     /// ⌘[ and ⌘]: the page seen before or after, in whatever space.
     pub(super) fn go_back(&mut self, cx: &mut Context<Self>) {
         if self.nav.can_back() {
+            self.leave_moment(cx);
             self.nav.at -= 1;
             self.travel(cx);
         }
@@ -1050,6 +1224,7 @@ impl Workspace {
 
     pub(super) fn go_forward(&mut self, cx: &mut Context<Self>) {
         if self.nav.can_forward() {
+            self.leave_moment(cx);
             self.nav.at += 1;
             self.travel(cx);
         }
@@ -1061,9 +1236,53 @@ impl Workspace {
         };
         let at = self.nav.at;
         self.nav.from = None;
+        // A place on the page on screen: the diff scrolls back to it (#194).
+        let here = !self.settings_open
+            && moment.space == self.nav.space
+            && moment.page.as_ref() == self.nav_page();
+        if here {
+            if let Some(place) = moment.place {
+                self.return_to(place, cx);
+            }
+            return cx.notify();
+        }
         self.show(moment.space, moment.page, cx);
         // Showing it is not a new moment.
         self.nav.at = at;
+    }
+
+    /// ‹ right-clicked: the last places behind, each gone back to at once (#194).
+    pub(super) fn back_menu(&mut self, at: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
+        let entries: Vec<super::menu::Entry> = (self.nav.behind(8).into_iter())
+            .filter_map(|ix| {
+                let label = self.moment_label(ix, cx)?;
+                Some(super::menu::Entry::new(
+                    label,
+                    super::menu::Act::new(move |this, _, cx| this.back_to(ix, cx)),
+                ))
+            })
+            .collect();
+        if !entries.is_empty() {
+            self.open_menu(at, vec![entries], cx);
+        }
+    }
+
+    /// Moment `ix` behind, from ‹'s menu.
+    pub(super) fn back_to(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if ix < self.nav.at {
+            self.leave_moment(cx);
+            self.nav.at = ix;
+            self.travel(cx);
+        }
+    }
+
+    /// ‹'s tip: where it goes.
+    pub(super) fn back_tip(&self, cx: &App) -> Option<String> {
+        let label = self.moment_label(self.nav.at.checked_sub(1)?, cx)?;
+        let name = label
+            .rsplit_once(" · ")
+            .map_or(label.as_str(), |(name, _)| name);
+        Some(format!("Back to {name}"))
     }
 
     /// A space's row or ⌃⌘1…4: the page it was left on; its row again, its root.
@@ -1117,6 +1336,8 @@ impl Workspace {
             place: None,
             paths: Vec::new(),
             section: Section::Changes,
+            preview: false,
+            seen: 0,
         });
         true
     }
@@ -1241,6 +1462,8 @@ impl Workspace {
                 place: None,
                 paths: Vec::new(),
                 section: Section::Changes,
+                preview: false,
+                seen: 0,
             });
         }
         let page = self.nav.pages.get(&space).cloned();
@@ -1320,7 +1543,7 @@ impl Workspace {
     }
 
     /// The space item `item` is open under: its page's.
-    fn item_space(&self, item: &Route) -> Option<Space> {
+    pub(super) fn item_space(&self, item: &Route) -> Option<Space> {
         let drawn = self.drawn();
         self.nav
             .opened(item)
@@ -1609,6 +1832,8 @@ mod tests {
                 place: None,
                 paths: Vec::new(),
                 section: Section::Changes,
+                preview: false,
+                seen: 0,
             });
         }
         let Saved {
@@ -1710,10 +1935,7 @@ mod tests {
     #[test]
     fn time_drops_what_was_ahead_and_keeps_one_of_a_kind() {
         let mut nav = Nav::default();
-        let at = |space, page: Option<Page>| Moment {
-            space,
-            page: page.map(|p| p.route()),
-        };
+        let at = |space, page: Option<Page>| Moment::new(space, page.map(|p| p.route()));
         nav.remember(at(INBOX, None));
         nav.remember(at(REQUESTS, Some(Page::Request(1))));
         nav.remember(at(REQUESTS, Some(Page::Request(1))));
@@ -1731,5 +1953,31 @@ mod tests {
         nav.remember(at(CODE, None));
         assert_eq!(nav.time.len(), 2);
         assert!(!nav.can_forward());
+    }
+
+    #[test]
+    fn a_jump_is_a_stop_and_one_landing_on_another_page_is_that_page() {
+        let mut nav = Nav::default();
+        let at = |space, page: Option<Page>| Moment::new(space, page.map(|p| p.route()));
+        let place = |path: &str| Some((path.to_owned(), ListOffset::default()));
+        nav.remember(at(REQUESTS, Some(Page::Request(1))));
+        // A line gone to in the same request: where it left is a stop, ⌘[ comes back to it.
+        nav.jump(place("a.kt"));
+        nav.landed();
+        assert_eq!(nav.time.len(), 2);
+        assert!(nav.can_back());
+        assert_eq!(
+            nav.time[0].place.as_ref().map(|(p, _)| p.as_str()),
+            Some("a.kt")
+        );
+        // The same page remembered again is no new moment.
+        nav.remember(at(REQUESTS, Some(Page::Request(1))));
+        assert_eq!(nav.time.len(), 2);
+        // A jump that lands on another page is that page's moment, not a second of this one.
+        nav.jump(place("b.kt"));
+        nav.remember(at(CODE, Some(Page::File("b.kt".into()))));
+        assert_eq!(nav.time.len(), 3);
+        assert_eq!(nav.time[2].page, Some(Page::File("b.kt".into()).route()));
+        assert!(!nav.time[2].landing);
     }
 }
