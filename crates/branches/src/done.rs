@@ -60,7 +60,7 @@ pub fn piece(history: Entity<History>, services: Rc<Services>) -> Piece {
             let look = DoneLook {
                 files,
                 request: None,
-                approve: None,
+                submit: None,
                 next: next.map(|ix| (format!("Next: {}", h.branches[ix].name), "")),
             };
             Some(render_done_card(

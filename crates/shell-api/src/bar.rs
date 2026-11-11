@@ -18,6 +18,8 @@ pub struct BarAction {
     pub short: Option<AnyElement>,
     /// Its row in `⋯`; `None` for one that never folds.
     pub fold: Option<MenuItem>,
+    /// When it folds among the others: lower first, the last first among the same (#188).
+    pub order: u8,
 }
 
 impl BarAction {
@@ -28,6 +30,7 @@ impl BarAction {
             element: element.into_any_element(),
             short: None,
             fold: None,
+            order: 0,
         }
     }
 
@@ -45,6 +48,11 @@ impl BarAction {
             fold: Some(item),
             ..self
         }
+    }
+
+    /// When it folds among the others (`order`): a request's Merge first, then its Description, then its pipeline.
+    pub fn fold_order(self, order: u8) -> Self {
+        Self { order, ..self }
     }
 }
 
@@ -103,6 +111,8 @@ pub struct PageBar {
     /// The page's title, with what its long hover says.
     pub title: AnyElement,
     pub count: Option<String>,
+    /// Actions on the left, after the title, folding into `⋯` as the others do: a request's Description ▾ (#188).
+    pub lead: Vec<BarAction>,
     pub view: Option<AnyElement>,
     pub actions: Vec<BarAction>,
     /// Rows only `⋯` holds, after the actions folded into it: Open in GitLab, Copy link. `⋯` shows only when an action

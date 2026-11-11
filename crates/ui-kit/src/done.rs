@@ -1,7 +1,7 @@
 //! The card that comes up when the last file of a diff is marked reviewed: what to do next, from the keyboard —
-//! approve the request, the next one to review (a request, or a branch), back to your branch. What the next is and
-//! what each does are the features': the requests' over a request's diff, the branches' over a branch's; each gives
-//! a `DoneLook` and answers a `DoneEvent`.
+//! send your review with what is pending (a request's, #188), the next one to review (a request, or a branch). What
+//! the next is and what each does are the features': the requests' over a request's diff, the branches' over a
+//! branch's; each gives a `DoneLook` and answers a `DoneEvent`.
 
 use crate::format::plural;
 use crate::{ISLAND_RADIUS, ROW_RADIUS, hover, keys, px, theme};
@@ -13,8 +13,8 @@ pub struct DoneLook {
     /// The files reviewed, and the request they are of.
     pub files: usize,
     pub request: Option<u64>,
-    /// "Approve !12", while you may and have not.
-    pub approve: Option<String>,
+    /// Submit review, with the comments pending: over a request while there is something to send (#188).
+    pub submit: Option<usize>,
     /// What is next to review, and its key.
     pub next: Option<(String, &'static str)>,
 }
@@ -23,10 +23,8 @@ pub struct DoneLook {
 #[derive(Clone, Copy)]
 pub enum DoneEvent {
     Close,
-    Approve,
+    Submit,
     Next,
-    /// Back to your branch, from a request.
-    Leave,
 }
 
 /// What answers the card's clicks.
@@ -60,7 +58,9 @@ pub fn render_done_card(look: DoneLook, on: OnDone) -> AnyElement {
             })
     };
     let current = look.request;
-    let (close, approve, next, leave) = (on.clone(), on.clone(), on.clone(), on);
+    let (close, submit, next) = (on.clone(), on.clone(), on);
+    // The first is green: Submit review while there is one, else what is next.
+    let next_green = look.submit.is_none();
     div()
         .absolute()
         .bottom(px(16.))
@@ -106,17 +106,17 @@ pub fn render_done_card(look: DoneLook, on: OnDone) -> AnyElement {
                         .on_click(move |_: &ClickEvent, _, cx| close(DoneEvent::Close, cx)),
                 ),
         )
-        .children(look.approve.map(|label| {
-            button("done-approve", label, "a", false)
-                .on_click(move |_: &ClickEvent, _, cx| approve(DoneEvent::Approve, cx))
+        .children(look.submit.map(|pending| {
+            let label = match pending {
+                0 => "Submit review".to_owned(),
+                n => format!("Submit review · {n}"),
+            };
+            button("done-submit", label, "⇧⌘↵", true)
+                .on_click(move |_: &ClickEvent, _, cx| submit(DoneEvent::Submit, cx))
         }))
         .children(look.next.clone().map(|(label, key)| {
-            button("done-next", label, key, true)
+            button("done-next", label, key, next_green)
                 .on_click(move |_: &ClickEvent, _, cx| next(DoneEvent::Next, cx))
-        }))
-        .children(current.map(|_| {
-            button("done-leave", "Back to your branch".to_owned(), "", false)
-                .on_click(move |_: &ClickEvent, _, cx| leave(DoneEvent::Leave, cx))
         }))
         .children(look.next.is_none().then(|| {
             div()

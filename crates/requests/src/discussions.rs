@@ -240,7 +240,7 @@ impl Requests {
                 .child(format!("Submit review · {pending}"))
                 .on_click({
                     let acts = acts.clone();
-                    move |_: &ClickEvent, _, cx| acts(Act::OpenSubmit, cx)
+                    move |_: &ClickEvent, _, cx| acts(Act::OpenSubmit { approve: false }, cx)
                 })
         });
         DiscussionsWindow {

@@ -95,6 +95,8 @@ impl Workspace {
             if self.rv().done_open(cx) {
                 self.rv().close_done(cx);
                 cx.notify();
+            } else if self.requests_api().is_some_and(|r| r.close_description(cx)) {
+                cx.notify();
             } else if self.label_edit.is_some() {
                 self.close_label(cx);
             } else if self.overlay_open() {

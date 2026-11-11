@@ -19,9 +19,10 @@ const MORE: f32 = 28.;
 const ACTIONS_GAP: f32 = 8.;
 
 /// Whether `actions` are drawn short, and which fold into `⋯`, by the widths the bar was last drawn at: labels
-/// shorten first (#187), then the last that can fold goes first, until what stays fits beside the left and the view
-/// (#186). Nothing shortens or folds before the bar was measured.
-fn folded(actions: &[BarAction], room: &BarRoom) -> (bool, Vec<bool>) {
+/// shorten first (#187), then they fold by their `order`, the last first among the same (#186, #188), until what
+/// stays fits beside the left and the view. The first `lead` are drawn after the title. Nothing shortens or folds
+/// before the bar was measured.
+fn folded(actions: &[BarAction], lead: usize, room: &BarRoom) -> (bool, Vec<bool>) {
     let mut folded = vec![false; actions.len()];
     let width = room.width.get();
     if width <= 0. {
@@ -42,29 +43,45 @@ fn folded(actions: &[BarAction], room: &BarRoom) -> (bool, Vec<bool>) {
         }
     };
     let need = |short: bool, folded: &[bool]| {
-        let kept: Vec<f32> = (actions.iter().zip(folded))
-            .filter(|(_, f)| !**f)
-            .map(|(a, _)| wide(a, short))
-            .collect();
+        let kept = |range: std::ops::Range<usize>| -> Vec<f32> {
+            range
+                .filter(|&ix| !folded[ix])
+                .map(|ix| wide(&actions[ix], short))
+                .collect()
+        };
+        let sum = |kept: &[f32]| {
+            kept.iter().sum::<f32>()
+                + f32::from(px(ACTIONS_GAP)) * kept.len().saturating_sub(1) as f32
+        };
+        let (on_left, on_right) = (kept(0..lead), kept(lead..actions.len()));
         let more = if folded.contains(&true) {
             f32::from(px(MORE + ACTIONS_GAP))
         } else {
             0.
         };
-        kept.iter().sum::<f32>()
-            + f32::from(px(ACTIONS_GAP)) * kept.len().saturating_sub(1) as f32
-            + more
+        // The lead's group stands apart from the left by the island's gap.
+        let gap = if on_left.is_empty() { 0. } else { 12. };
+        sum(&on_left) + gap + sum(&on_right) + more
     };
     if need(false, &folded) <= room_left {
         return (false, folded);
     }
-    for at in (0..actions.len()).rev() {
+    for at in fold_sequence(actions) {
         if need(true, &folded) <= room_left {
             break;
         }
-        folded[at] = actions[at].fold.is_some();
+        folded[at] = true;
     }
     (true, folded)
+}
+
+/// The actions that can fold, in the order they do: by their `order`, the last first among the same.
+fn fold_sequence(actions: &[BarAction]) -> Vec<usize> {
+    let mut sequence: Vec<usize> = (0..actions.len())
+        .filter(|&ix| actions[ix].fold.is_some())
+        .collect();
+    sequence.sort_by_key(|&ix| (actions[ix].order, std::cmp::Reverse(ix)));
+    sequence
 }
 
 /// A canvas over its parent that keeps the parent's width in `keep`, which says whether it changed: the bar is drawn
@@ -152,10 +169,16 @@ fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
     if bar.view.is_none() {
         room.view.set(0.);
     }
-    let (short, folds) = folded(&bar.actions, &room);
-    let (mut items, mut shown, mut folded) = (Vec::new(), Vec::new(), Vec::new());
-    for (action, fold) in bar.actions.into_iter().zip(folds) {
+    let lead = bar.lead.len();
+    let actions: Vec<BarAction> = bar.lead.into_iter().chain(bar.actions).collect();
+    let (short, folds) = folded(&actions, lead, &room);
+    // `⋯` lists what folded in the order it folds.
+    let sequence = fold_sequence(&actions);
+    let (mut items, mut shown, mut leading, mut folded) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for (ix, (action, fold)) in actions.into_iter().zip(folds).enumerate() {
         let id = action.id;
+        let shown = if ix < lead { &mut leading } else { &mut shown };
         let drawn = |element: AnyElement, short: bool| {
             let keep = room.clone();
             div()
@@ -172,7 +195,7 @@ fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
         match (fold, action.fold) {
             // Still measured, out of sight, so it comes back when its width fits — narrow, an icon.
             (true, Some(item)) => {
-                items.push(item);
+                items.push((sequence.iter().position(|&at| at == ix), item));
                 folded.push(whole);
                 folded.extend(narrow);
             }
@@ -190,6 +213,8 @@ fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
             },
         }
     }
+    items.sort_by_key(|(at, _)| *at);
+    let items: Vec<_> = items.into_iter().map(|(_, item)| item).collect();
     let more_button = (!items.is_empty()).then(|| {
         let groups: Vec<_> = [items, bar.more]
             .into_iter()
@@ -285,6 +310,16 @@ fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
                         .child(n)
                 })),
         )
+        .when(!leading.is_empty(), |s| {
+            s.child(
+                div()
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(ACTIONS_GAP))
+                    .children(leading),
+            )
+        })
         .children(bar.view.map(|v| {
             div()
                 .relative()

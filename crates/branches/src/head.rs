@@ -20,15 +20,24 @@ use gpui::{AnyElement, App, ClickEvent, Entity, FontWeight, IntoElement, Window,
 use std::rc::Rc;
 
 /// The head over the diff shown (`Slot::Identity`), when no other part has said what the page is of: the diff the
-/// review's (`Review` in the tab's `services`), a click on it the tab's answer to the history's acts (`Acts`).
+/// review's (`Review` in the tab's `services`), a click on it the tab's answer to the history's acts (`Acts`). None
+/// over a request's own Changes (#188).
 pub fn piece(history: Entity<History>, services: Rc<Services>) -> Piece {
     Piece {
         id: "branches.head",
         slot: Slot::Identity,
         draw: Rc::new(move |route, drawing, cx| {
-            let diff = services.get::<Rc<dyn Review>>()?.shown(cx)?;
+            let review = services.get::<Rc<dyn Review>>()?;
+            let diff = review.shown(cx)?;
             let acts = services.get::<Acts>()?;
             let h = history.read(cx);
+            // A request's own Changes, whole or since you read: the page bar says what it is, the toolbar is the
+            // first row (#188). A commit of it keeps its head.
+            if h.range_on(route, &*review, cx)
+                .is_some_and(|r| r.on != Range::Commits)
+            {
+                return None;
+            }
             let look = HeadLook {
                 message_open: h.message_open,
                 web: drawing.web.as_ref(),
@@ -595,7 +604,7 @@ fn summary(diff: &Diff, look: &HeadLook, text: Selectable, acts: &Acts) -> gpui:
 }
 
 /// A `Key: value` line of the kind git calls a trailer.
-fn is_trailer(line: &str) -> bool {
+pub(crate) fn is_trailer(line: &str) -> bool {
     const KEYS: [&str; 7] = [
         "co-authored-by",
         "signed-off-by",

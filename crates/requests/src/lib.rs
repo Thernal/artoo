@@ -30,6 +30,7 @@ mod submit;
 mod tabs;
 mod thread;
 mod waiting;
+mod why;
 
 use artoo_shell_api::spaces::{self, Space, SpaceInfo};
 use artoo_shell_api::{Action, Frame, Menu, Parts, when};
@@ -144,7 +145,6 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
         // The request being written first: it is over whatever page it was opened on.
         pieces: vec![
             pieces::create_header(requests.clone(), services.clone()),
-            pieces::line(requests.clone(), services.clone()),
             pieces::create_switch(requests.clone(), services.clone()),
             pieces::create_form(requests.clone(), frame.clone()),
             outdated::since_piece(requests.clone(), services.clone()),

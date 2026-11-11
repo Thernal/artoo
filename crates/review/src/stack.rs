@@ -195,10 +195,15 @@ pub(crate) fn note_action(
 
 impl Review {
     /// A file's header in the list, the top of the file's card: a click folds or opens it, the
-    /// chip at the right marks it reviewed. Cards stand apart on the darker ground between them.
+    /// chip at the right marks it reviewed. Cards stand apart on the darker ground between them. The active card's
+    /// header has what the file's line had (#188, Design A3): its changes with ↑ ↓, Open in, `V` on its mark;
+    /// `stuck`, it is drawn over the rows while they scroll under it; `open_in`, the tab's, drawn before.
+    #[allow(clippy::too_many_arguments)]
     pub fn render_header(
         &self,
         ix: usize,
+        stuck: bool,
+        open_in: Option<gpui::AnyElement>,
         this: WeakEntity<Self>,
         host: &Rc<dyn Host>,
         cx: &App,
@@ -216,10 +221,12 @@ impl Review {
         let first = self.stack.as_ref().and_then(|s| s.block_of(ix)) == Some(0);
         let switch = self.switch_of(ix, true, this.clone());
         let (fold, mark) = (host.clone(), this);
+        // Drawn twice while stuck never: the list's own is above the rows then.
+        let id = |name: &'static str| (if stuck { "stuck-header" } else { name }, ix);
         div()
-            .id(("file-header", ix))
+            .id(id("file-header"))
             .w_full()
-            .pt(px(if first { 4. } else { CARD_GAP }))
+            .pt(px(if first || stuck { 4. } else { CARD_GAP }))
             .px(px(CARD_MARGIN))
             .child(
                 div()
@@ -233,7 +240,8 @@ impl Review {
                     .rounded_t(px(CARD_RADIUS))
                     .when(folded, |s| s.rounded_b(px(CARD_RADIUS)))
                     .border_1()
-                    .when(!folded, |s| s.border_b_0())
+                    .when(!folded && !stuck, |s| s.border_b_0())
+                    .when(stuck, |s| s.shadow_md())
                     .border_color(if active {
                         theme::focus()
                     } else {
@@ -310,9 +318,13 @@ impl Review {
                                     .child(format!("−{}", file.removed)),
                             ),
                     )
+                    // The file the keyboard works in: its changes and Open in, from the file's line (#188).
+                    .when(active, |s| {
+                        s.children(self.change_nav(host)).children(open_in)
+                    })
                     .children(state.map(|state| {
                         div()
-                            .id(("file-header-mark", ix))
+                            .id(id("file-header-mark"))
                             .flex_none()
                             .px_2()
                             .h(px(24.))
@@ -331,10 +343,18 @@ impl Review {
                                 FontWeight::NORMAL
                             })
                             .hover(|s| s.bg(theme::selected()).text_color(theme::text()))
+                            .gap(px(6.))
                             .child(match state {
                                 State::Done => "✓ Reviewed".to_owned(),
                                 State::Stale => self.stale_chip(ix, host, cx),
                                 State::Open => "Mark reviewed".to_owned(),
+                            })
+                            // Its key on the active card, as the file's line had it.
+                            .when(active, |s| {
+                                s.child(artoo_ui_kit::keys::caps(
+                                    if state == State::Done { "⇧V" } else { "V" },
+                                    artoo_ui_kit::keys::On::Plain,
+                                ))
                             })
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .on_click(move |_: &ClickEvent, _, cx| {

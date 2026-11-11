@@ -860,13 +860,15 @@ pub enum Screen {
 pub type PathOf = Rc<dyn Fn(&Route, &Drawing, &App) -> Option<PagePath>>;
 
 /// The page bar's words for a route (#71): the parts of the path above it, each a way up; its own name, the last;
-/// what a long hover on the name shows; the faint count after it.
+/// what a long hover on the name shows; the faint count after it; its title, after its id.
 pub struct PagePath {
     pub up: Vec<PathUp>,
     pub name: String,
     pub mono: bool,
     pub hover: Option<NameHover>,
     pub count: Option<String>,
+    /// Its title after its name, its id: a request's after `!398` (#188).
+    pub title: Option<String>,
 }
 
 /// A part of the path above a page: its words, and where a click on it goes up to — a page (`Some`), or the space's

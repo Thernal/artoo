@@ -4,7 +4,7 @@
 //! (`artoo_branches_api::Branches::commits_page`). Skeleton rows until the request is the one loaded.
 
 use crate::page::{Facts, OverviewLook};
-use crate::requests::{Acts, Requests};
+use crate::requests::Requests;
 use artoo_branches_api::Branches;
 use artoo_hosts_api::Mr;
 use artoo_review_api::Review;
@@ -122,19 +122,10 @@ impl Tabs {
         self.requests.read(cx).render_overview(m, look, cx)
     }
 
-    /// Commits: one line of identity, then the branch's commits, each with the version it came with.
-    fn commits(&self, m: &Mr, frame: &Rc<dyn Frame>, cx: &mut Context<Self>) -> AnyElement {
+    /// Commits: the branch's commits, each with the version it came with; the request's title is the page bar's
+    /// (#188).
+    fn commits(&self, _: &Mr, frame: &Rc<dyn Frame>, cx: &mut Context<Self>) -> AnyElement {
         let services = frame.services();
-        let title = markdown::body(
-            &m.title,
-            false,
-            format!("line-title-{}", m.iid),
-            None,
-            frame.selecting(cx),
-            cx,
-        );
-        let acts = services.get::<Acts>().unwrap_or_else(|| Rc::new(|_, _| {}));
-        let line = self.requests.read(cx).request_line(m, title, acts);
         let commits = services
             .get::<Rc<dyn Branches>>()
             .map(|b| b.commits_page(true, cx));
@@ -144,7 +135,6 @@ impl Tabs {
             .flex()
             .flex_col()
             .gap(px(gap()))
-            .child(line)
             .children(commits)
             .into_any_element()
     }

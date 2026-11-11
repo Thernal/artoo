@@ -367,6 +367,7 @@ fn path(route: &Route, drawing: &Drawing, services: &Services, cx: &App) -> Opti
         mono,
         hover,
         count: None,
+        title: None,
     })
 }
 

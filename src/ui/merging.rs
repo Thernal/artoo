@@ -54,13 +54,9 @@ impl Workspace {
                 .key(key)
             })
             .collect();
-        let title = if github {
-            "In the way · GitHub asks again on every push"
-        } else {
-            "In the way · GitLab asks again on every push"
-        };
+        // A list of facts under its heading (#188, Design A7).
         self.ctx_menu.update(cx, |m, cx| {
-            m.open(at, vec![(Some(title), entries)], REASONS_WIDTH, cx)
+            m.open(at, vec![(Some("In the way"), entries)], REASONS_WIDTH, cx)
         });
     }
 

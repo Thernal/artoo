@@ -2777,7 +2777,7 @@ impl Workspace {
         artoo_shell_api::Chrome {
             border: self.zone_border(zones::Zone::Diff),
             menu_open: self.ctx_menu.read(cx).is_open(),
-            open_in: self.open_in_chips(cx),
+            open_in: self.open_in_chips(cx.weak_entity(), cx),
             alone,
             zen_one: self.zen_one && self.zen.is_some(),
             typing: self.part_typing(cx),
@@ -2845,6 +2845,11 @@ impl artoo_review_api::Host for TabHost {
                 .child(format!("{name} is changing it"))
                 .into_any_element(),
         )
+    }
+
+    fn open_in(&self, cx: &App) -> Option<gpui::AnyElement> {
+        let workspace = self.0.upgrade()?;
+        workspace.read(cx).open_in_chips(self.0.clone(), cx)
     }
 
     fn page(&self, file: usize, cx: &App) -> gpui::AnyElement {

@@ -6,6 +6,16 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **A request's Changes is one bar, one toolbar row, then the files.** The title sits in the page bar after `!398`, with
+  the failed job (`✗ lint`) beside Submit review; the row over the diff and the file row are gone. The current file's
+  header holds `1 change ↑ ↓`, Open in Zed and Mark reviewed, and stays at the top while you scroll through it.
+- **The description is a click away.** `Description ▾` after the title opens it over the diff, with the issue it is
+  for above it (`PAY-123 ↗`). In Commits, a commit with a body shows its first line under the subject.
+- **Merge says what is in the way.** `Merge · needs 1 approval`, `· lint failed` or `· conflicts`; more than one reads
+  `Merge · 2 in the way`, and its list links each to its fix (`Pipeline →`).
+- **Done reviewing sends what is pending.** When every file is reviewed, the card's green `Submit review · 3 ⇧⌘↵`
+  sends your comments, with your approval when you may give it. `a` with comments pending opens Submit review on
+  Approve instead of approving without them.
 - **Coming back after a push shows what changed since you read.** A request you read before its last push opens on
   `Since v2`: only the files that push changed, each marked `↻ v2`, `3 files` beside the switch and `5 unchanged` at
   the foot of the list. `All · Since v2 · Commits` takes you to the whole request or one commit at a time, and `s`

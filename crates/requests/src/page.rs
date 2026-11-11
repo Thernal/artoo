@@ -1,13 +1,13 @@
 //! A merge request's page, the requests' side of it (#73): Overview — the identity and its facts, the
-//! description, a column of who reviews (#137) — and the one line of identity over Commits and Changes, with
-//! the request's identity in words for a long hover. The tab puts them under the request's bar.
+//! description, a column of who reviews (#137) — and the request's identity in words for a long hover. Commits and
+//! Changes have no line of their own over them: the title is in the page bar (#188).
 
 use crate::bar::pipeline_word;
-use crate::requests::{Act, Acts, Requests};
+use crate::requests::Requests;
 use crate::waiting::FADED;
 use artoo_hosts_api::{Details, Mr, MrState};
 use artoo_ui_kit::format::{self, plural};
-use artoo_ui_kit::hover::{self, CutInTip, Hover};
+use artoo_ui_kit::hover;
 use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::{discussion, island, px, theme, words};
 use gpui::{AnyElement, App, ClickEvent, Div, FontWeight, Rgba, div, prelude::*};
@@ -283,47 +283,6 @@ impl Requests {
             )
             .into_any_element(),
         ]
-    }
-
-    /// One line of a request's identity, over its Commits and its Changes: the title (`title`, as
-    /// the tab makes it selectable), its state, the pipeline (#73).
-    pub fn request_line(&self, m: &Mr, title: AnyElement, acts: Acts) -> Div {
-        let iid = m.iid;
-        island()
-            // Its link and its number (#162).
-            .on_mouse_down(gpui::MouseButton::Right, move |e, _, cx| {
-                acts(
-                    Act::RequestContext {
-                        iid,
-                        at: e.position,
-                    },
-                    cx,
-                )
-            })
-            .flex_none()
-            .flex_row()
-            .items_center()
-            .gap(px(10.))
-            .h(px(40.))
-            .px(px(14.))
-            // Its whole identity in a long hover: the line names no author (the developer,
-            // 2026-10-23).
-            .child({
-                match self.request_tip(m.iid) {
-                    Some(tip) => div()
-                        .id("request-line-title")
-                        .min_w_0()
-                        .cut_in_tip()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(title)
-                        .tip(tip),
-                    None => hover::cut_with("request-line-title", m.title.clone(), title)
-                        .font_weight(FontWeight::SEMIBOLD),
-                }
-            })
-            .child(state_chip(m))
-            .child(div().flex_1())
-            .children(self.render_pipeline_pill())
     }
 
     /// A request's identity in words, for a long hover: its number and title, whose it is and

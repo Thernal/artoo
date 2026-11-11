@@ -76,27 +76,46 @@ pub fn stand(host: &MergeState, known: &Known) -> Stand {
     let status = host.status.as_str();
     let page = || Fix::Page(known.url.to_owned());
     let mut blocks = Vec::new();
-    let mut block = |what, detail: String, fix| blocks.push(Block { what, detail, fix });
+    let mut block = |what, detail: String, fix, short: String| {
+        blocks.push(Block {
+            what,
+            detail,
+            fix,
+            short,
+        })
+    };
     if !host.can {
         block(
             "Permission",
             format!("you may not merge into {}", known.target),
             Fix::Nowhere,
+            "not yours to merge".into(),
         );
     }
     if known.draft || status == "draft_status" || (host.github && status == "draft") {
-        block("Draft", "marked as a draft: ready it first".into(), page());
+        block(
+            "Draft",
+            "marked as a draft: ready it first".into(),
+            page(),
+            "draft".into(),
+        );
     }
     if let Some(a) = known.approvals.filter(|a| a.left > 0) {
         let have = a.required.saturating_sub(a.left);
+        // Facts, as the list of what is in the way says them (#188): `1 of 2, one more needed`.
         let more = match a.left {
-            1 => "one more is needed".to_owned(),
-            n => format!("{n} more are needed"),
+            1 => "one more needed".to_owned(),
+            n => format!("{n} more needed"),
         };
         block(
             "Approvals",
-            format!("{have} of {}: {more}", a.required),
+            format!("{have} of {}, {more}", a.required),
             Fix::Nowhere,
+            format!(
+                "needs {} {}",
+                a.left,
+                if a.left == 1 { "approval" } else { "approvals" }
+            ),
         );
     }
     if status == "requested_changes" {
@@ -104,6 +123,7 @@ pub fn stand(host: &MergeState, known: &Known) -> Stand {
             "Changes requested",
             "a reviewer asked for changes".into(),
             Fix::Nowhere,
+            "changes requested".into(),
         );
     }
     if known.open_threads > 0
@@ -113,6 +133,7 @@ pub fn stand(host: &MergeState, known: &Known) -> Stand {
             "Discussions",
             format!("{} not resolved", known.open_threads),
             Fix::Discussions,
+            format!("{} unresolved", known.open_threads),
         );
     }
     if let Some(p) = known.pipeline
@@ -123,17 +144,14 @@ pub fn stand(host: &MergeState, known: &Known) -> Stand {
             ("failed", Some((job, _))) => format!("{job} failed"),
             (word, _) => word.to_owned(),
         };
-        block(
-            "Pipeline",
-            format!("{what}, and it must pass"),
-            Fix::Page(p.url.clone()),
-        );
+        block("Pipeline", what.clone(), Fix::Page(p.url.clone()), what);
     }
     if host.conflicts || status == "conflict" || (host.github && status == "dirty") {
         block(
             "Conflicts",
             format!("with {}: resolve them on the host", known.target),
             page(),
+            "conflicts".into(),
         );
     }
     if host.github && status == "behind" {
@@ -141,11 +159,12 @@ pub fn stand(host: &MergeState, known: &Known) -> Stand {
             "Behind",
             format!("{} moved on: update the branch", known.target),
             page(),
+            format!("behind {}", known.target),
         );
     }
     if !host.github && !status.is_empty() && !GITLAB_KNOWN.contains(&status) {
         let (what, detail) = gitlab_words(status);
-        block(what, detail, page());
+        block(what, detail, page(), what.to_lowercase());
     }
     let running = running(known.pipeline);
     // GitHub says only "blocked": a check still running, or a rule of the branch.
@@ -161,6 +180,7 @@ pub fn stand(host: &MergeState, known: &Known) -> Stand {
             what,
             detail,
             fix: page(),
+            short: what.to_lowercase(),
         });
     }
     if !blocks.is_empty() {
@@ -285,11 +305,14 @@ mod tests {
         assert_eq!(
             said,
             [
-                ("Approvals", "1 of 2: one more is needed"),
+                ("Approvals", "1 of 2, one more needed"),
                 ("Discussions", "2 not resolved"),
-                ("Pipeline", "lint failed, and it must pass"),
+                ("Pipeline", "lint failed"),
             ]
         );
+        // Merge names one by its few words (#188).
+        let short: Vec<&str> = blocks.iter().map(|b| b.short.as_str()).collect();
+        assert_eq!(short, ["needs 1 approval", "2 unresolved", "lint failed"]);
         assert_eq!(blocks[1].fix, Fix::Discussions);
         assert_eq!(blocks[2].fix, Fix::Page("https://ci/1".into()));
     }

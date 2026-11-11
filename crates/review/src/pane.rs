@@ -53,6 +53,12 @@ impl Review {
             alone,
         } = look;
         let file = diff.files.get(self.file);
+        // With every file in one scroll, Open in is the stuck header's: the tab drew it before the review is
+        // updated, and asking it now would read the review again (#188).
+        let (open_in, stuck_open_in) = match self.stack {
+            Some(_) => (None, open_in),
+            None => (open_in, None),
+        };
         let event = |event: fn() -> PaneEvent| {
             let host = host.clone();
             move |_: &ClickEvent, _: &mut gpui::Window, cx: &mut gpui::App| host.pane(event(), cx)
@@ -143,7 +149,9 @@ impl Review {
                 pressed.pane(PaneEvent::Pressed, cx)
             })
             .children(top)
-            .children(file.map(|f| {
+            // With every file in one scroll the file's line is gone: the card's own header has what it said, and
+            // sticks (#188, Design A3).
+            .children(file.filter(|_| self.stack.is_none()).map(|f| {
                 let path = match (&f.old_path, &f.new_path) {
                     (Some(old), Some(new)) if old != new => format!("{old} → {new}"),
                     _ => f.path().to_owned(),
@@ -213,35 +221,7 @@ impl Review {
                             .flatten()
                             .map(|n| div().text_color(theme::warning()).child(n)),
                     )
-                    .children((!self.changes.is_empty()).then(|| {
-                        div()
-                            .flex_none()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            // A diff under 600 px keeps the arrows (#80).
-                            .when(!self.tight, |s| {
-                                s.child(div().text_size(px(12.)).text_color(theme::muted()).child(
-                                    match self.change_at {
-                                        Some(at) => {
-                                            format!("change {} of {}", at + 1, self.changes.len())
-                                        }
-                                        None => plural(self.changes.len(), "change"),
-                                    },
-                                ))
-                            })
-                            .child(
-                                group()
-                                    .child(
-                                        chip("prev-change", "↑", false)
-                                            .on_click(event(|| PaneEvent::Step { forward: false })),
-                                    )
-                                    .child(
-                                        chip("next-change", "↓", false)
-                                            .on_click(event(|| PaneEvent::Step { forward: true })),
-                                    ),
-                            )
-                    }))
+                    .children(self.change_nav(&host))
                     // The file in the app it belongs to, at the change (#78); ▾ the others.
                     .children(open_in)
                     .children(mode_note.clone().map(|n| {
@@ -297,6 +277,7 @@ impl Review {
             }))
             .child(
                 div()
+                    .relative()
                     .flex_1()
                     .min_h_0()
                     .flex()
@@ -305,7 +286,8 @@ impl Review {
                     .when(self.stack.is_some(), |s| {
                         s.bg(theme::base()).rounded_b(px(ISLAND_RADIUS))
                     })
-                    .child(body),
+                    .child(body)
+                    .children(self.stuck_header(stuck_open_in, &host, cx)),
             )
             .into_any_element()
     }
@@ -402,6 +384,66 @@ impl Review {
                     )
                     .into_any_element(),
             ))
+    }
+
+    /// The file's changes and the way between them: `1 change ↑ ↓`, `change 2 of 3` once stepped; the words go in a
+    /// diff under 600 px (#80). On the file's line, or on the active card's header (#188).
+    pub(crate) fn change_nav(&self, host: &Rc<dyn Host>) -> Option<Div> {
+        let event = |forward: bool| {
+            let host = host.clone();
+            move |_: &ClickEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
+                cx.stop_propagation();
+                host.pane(PaneEvent::Step { forward }, cx)
+            }
+        };
+        (!self.changes.is_empty()).then(|| {
+            div()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap_2()
+                .when(!self.tight, |s| {
+                    s.child(div().text_size(px(12.)).text_color(theme::muted()).child(
+                        match self.change_at {
+                            Some(at) => format!("change {} of {}", at + 1, self.changes.len()),
+                            None => plural(self.changes.len(), "change"),
+                        },
+                    ))
+                })
+                .child(
+                    group()
+                        .child(chip("prev-change", "↑", false).on_click(event(false)))
+                        .child(chip("next-change", "↓", false).on_click(event(true))),
+                )
+        })
+    }
+
+    /// The header of the card at the top of the rows, kept there while its rows scroll under it (#188, Design A3):
+    /// once its own has scrolled past, unless it is folded.
+    fn stuck_header(
+        &self,
+        open_in: Option<AnyElement>,
+        host: &Rc<dyn Host>,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let stack = self.stack.as_ref()?;
+        let top = self.diff_list.logical_scroll_top();
+        let (b, inside) = stack.locate(top.item_ix);
+        let file = stack.blocks.get(b)?.file;
+        if inside == 0 || self.folded(file) {
+            return None;
+        }
+        let this = cx.entity().downgrade();
+        Some(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .right_0()
+                .bg(theme::base())
+                .child(self.render_header(file, true, open_in, this, host, cx))
+                .into_any_element(),
+        )
     }
 
     /// The chip on the file's line: mark file `ix` read, and the key; none where nothing is marked.

@@ -308,7 +308,8 @@ fn screen(route: Option<&Route>) -> Screen {
 
 /// The bar's path to a request's page: Merge requests, then the request a commit, a run or two versions are of (its
 /// page), Commits over a commit or a run (the request's page, where they are picked); the request's identity in the
-/// name's long hover, a commit's card over a commit.
+/// name's long hover, a commit's card over a commit. The request's own page, and what changed since you read it, are
+/// `!398` and its title, with nothing above (#188): the title's line over the diff is gone.
 fn path(
     route: &Route,
     drawing: &Drawing,
@@ -329,11 +330,19 @@ fn path(
         }
         up
     };
+    // The request's own page: its number, then its title.
+    let own = |number: u64| PagePath {
+        up: Vec::new(),
+        name: words::number(number),
+        mono: false,
+        hover: tip(number),
+        count: None,
+        title: requests.find(number).map(|m| m.title.clone()),
+    };
     let (up, name, mono, hover) = match route.kind.as_str() {
         RequestRoute::KIND => {
             let r = RequestRoute::from_route(route)?;
-            let up = vec![PathUp::new("Merge requests", None)];
-            (up, words::number(r.number), false, tip(r.number))
+            return Some(own(r.number));
         }
         // A commit is a level under the request's Commits (#73).
         RequestCommitRoute::KIND => {
@@ -355,6 +364,12 @@ fn path(
         }
         RequestVersionsRoute::KIND => {
             let r = RequestVersionsRoute::from_route(route)?;
+            // What changed since you read it is the request's own Changes (#187).
+            if (branches().and_then(|b| b.range(Some(route), cx)))
+                .is_some_and(|on| on.on == artoo_branches_api::Range::Since)
+            {
+                return Some(own(r.number));
+            }
             let version = |ix| branches()?.version(ix, cx);
             let name = match (version(r.from), version(r.to)) {
                 (Some(a), Some(b)) => format!("v{} → v{}", a.number, b.number),
@@ -370,6 +385,7 @@ fn path(
         mono,
         hover,
         count: None,
+        title: None,
     })
 }
 

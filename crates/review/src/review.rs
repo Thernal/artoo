@@ -279,7 +279,9 @@ impl Review {
                     let (b, inside) = stack.locate(ix);
                     let file = stack.blocks[b].file;
                     if inside == 0 {
-                        return review.render_header(file, this.clone(), host, cx);
+                        // Open in, asked of the tab here, while the review is only read (#188).
+                        let open_in = (file == review.file).then(|| host.open_in(cx)).flatten();
+                        return review.render_header(file, false, open_in, this.clone(), host, cx);
                     }
                     if review.body(b) != crate::stack::Body::Rows {
                         return review.render_note(b, file, this.clone(), host, cx);

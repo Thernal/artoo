@@ -739,6 +739,8 @@ pub trait Host {
     fn pin(&self, row: Row, active: bool, indent: f32, cx: &App) -> gpui::AnyElement;
     /// What is said beside file `path`'s name in its header: another chat changing it (#77).
     fn badge(&self, path: &str, cx: &App) -> Option<gpui::AnyElement>;
+    /// Open in, on the header of the card the keyboard works in (#188): the file in its app, ▾ the others.
+    fn open_in(&self, cx: &App) -> Option<gpui::AnyElement>;
     /// File `file`, a document, drawn as a page.
     fn page(&self, file: usize, cx: &App) -> gpui::AnyElement;
     /// File `file` just opened: its rows fade in (#56, 9).

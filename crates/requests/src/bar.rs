@@ -6,48 +6,37 @@ use crate::requests::{Act, Acts, Requests};
 use crate::waiting::FADED;
 use artoo_hosts_api::Pipeline;
 use artoo_ui_kit::controls::bar_button;
-use artoo_ui_kit::format::{self, plural};
+use artoo_ui_kit::format::plural;
 use artoo_ui_kit::hover::{self, TipOwned};
 use artoo_ui_kit::{ROW_RADIUS, icons, keys, px, theme, words};
 use gpui::{AnyElement, ClickEvent, Point, SharedString, div, prelude::*};
 
 impl Requests {
-    /// The pipeline's pill: its state, and the job that failed; a click opens it.
-    pub fn render_pipeline_pill(&self) -> Option<impl IntoElement + use<>> {
-        self.pipeline.clone().map(|p| {
-            let (glyph, word, color) = pipeline_word(&p);
-            // A failure opens the job that failed; the rest open the pipeline.
-            let url = p
-                .failed
-                .first()
-                .map(|(_, u)| u.clone())
-                .filter(|u| !u.is_empty())
-                .unwrap_or_else(|| p.url.clone());
-            let ago = (p.updated > 0).then(|| format::ago(p.updated));
-            // A long hover: every job that failed, and when (X59).
-            let host = words::say("GitLab").into_owned();
-            let tip: SharedString = {
-                let when = if p.updated > 0 {
-                    format!(" · {}", hover::full_date(p.updated))
-                } else {
-                    String::new()
-                };
-                let jobs: Vec<&str> = p.failed.iter().map(|(name, _)| name.as_str()).collect();
-                match (p.status.as_str(), jobs.is_empty()) {
-                    ("failed", false) => format!(
-                        "Pipeline failed{when}\nFailed: {}\nClick opens the first failed job on {host}",
-                        jobs.join(", ")
-                    ),
-                    _ => format!("Pipeline {word}{when}\nClick opens it on {host}"),
-                }
-            }
-            .into();
+    /// The pipeline on the request's bar (#188): its glyph and the job that failed, `✗ lint`, or its state; when, and
+    /// every job that failed, in its long hover; a click opens it.
+    pub fn render_pipeline_chip(&self) -> Option<impl IntoElement + use<>> {
+        let p = self.pipeline.clone()?;
+        let (glyph, word, color) = pipeline_word(&p);
+        let short = match (p.status.as_str(), p.failed.as_slice()) {
+            ("failed", [(job, _)]) => job.clone(),
+            ("failed", [(job, _), rest @ ..]) => format!("{job} +{}", rest.len()),
+            _ => word.clone(),
+        };
+        let url = pipeline_page(&p);
+        let host = words::say("GitLab").into_owned();
+        let when = if p.updated > 0 {
+            format!(" · {}", hover::full_date(p.updated))
+        } else {
+            String::new()
+        };
+        let tip: SharedString = format!("Pipeline {word}{when}\nClick opens it on {host}").into();
+        Some(
             div()
-                .id("pipeline-pill")
+                .id("bar-pipeline")
                 .flex_none()
                 .flex()
                 .items_center()
-                .gap(px(6.))
+                .gap(px(4.))
                 .px(px(8.))
                 .h(px(22.))
                 .rounded_full()
@@ -57,12 +46,11 @@ impl Requests {
                 .text_color(color)
                 .cursor_pointer()
                 .hover(|s| s.bg(theme::hover()))
+                .child(format!("{glyph} {short}"))
                 .tooltip_show_delay(hover::LONG)
                 .tooltip(move |_, cx| cx.new(|_| TipOwned(tip.clone())).into())
-                .child(format!("{glyph} {word}"))
-                .children(ago.map(|a| div().text_color(theme::faint()).child(a)))
-                .on_click(move |_: &ClickEvent, _, cx| cx.open_url(&url))
-        })
+                .on_click(move |_: &ClickEvent, _, cx| cx.open_url(&url)),
+        )
     }
 
     /// Approve, or who approved: `a` toggles one's approval; `compact`, its key in the tip alone (#186).
@@ -209,7 +197,14 @@ impl Requests {
                     .text_color(theme::muted())
                     .child(merge_icon(theme::muted()))
                     .child("Merge")
-                    .child(word(format!("{n} in the way"), theme::faint()))
+                    // One reason is named; more are counted (#188, Design A7).
+                    .child(word(
+                        match blocks.as_slice() {
+                            [one] => format!("· {}", one.short),
+                            _ => format!("· {n} in the way"),
+                        },
+                        theme::faint(),
+                    ))
                     .child(
                         icons::icon("chevron")
                             .size(px(13.))
@@ -274,6 +269,15 @@ impl Requests {
             }
         })
     }
+}
+
+/// Where a click on a pipeline goes: the first job that failed, else the pipeline.
+pub fn pipeline_page(p: &Pipeline) -> String {
+    p.failed
+        .first()
+        .map(|(_, u)| u.clone())
+        .filter(|u| !u.is_empty())
+        .unwrap_or_else(|| p.url.clone())
 }
 
 /// A pipeline as a glyph, a word and its colour: "✗ lint failed" in red.

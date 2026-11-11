@@ -79,11 +79,18 @@ pub struct Submission {
 
 impl Requests {
     /// ⇧⌘↵ or "Submit review": the card, on Comment; `false` with no request open.
-    pub fn open_submit_card(&mut self) -> bool {
+    /// Submit review's card, on Approve when `approve`: `a` with comments pending sends them with the approval
+    /// (#188).
+    pub fn open_submit_card(&mut self, approve: bool) -> bool {
         if self.current.is_none() {
             return false;
         }
-        self.submitting = Some(SubmitCard::new(String::new(), Verdict::Comment, None));
+        let verdict = if approve {
+            Verdict::Approve
+        } else {
+            Verdict::Comment
+        };
+        self.submitting = Some(SubmitCard::new(String::new(), verdict, None));
         true
     }
 

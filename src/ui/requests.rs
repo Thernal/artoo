@@ -798,6 +798,9 @@ impl Workspace {
         }
         if a.mine {
             self.request_action(Change::Unapprove, cx);
+        } else if a.can && !self.request_drafts(cx).is_empty() {
+            // Nothing is approved with comments unsent: they go with it (#188).
+            self.open_submit_on(true, cx);
         } else if a.can {
             let head = self
                 .find_request(iid, cx)
@@ -1107,7 +1110,7 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
             Act::CompareSince(ix) => this.compare_since(ix, cx),
             Act::JumpToLine { path, line, old } => this.jump_to_line(&path, line, old, cx),
             Act::StepThread { down } => this.step_thread(down, cx),
-            Act::OpenSubmit => this.open_submit(cx),
+            Act::OpenSubmit { approve } => this.open_submit_on(approve, cx),
             Act::RequestContext { iid, at } => this.request_context(iid, at, cx),
             Act::RunSubmit => this.run_submit(cx),
             Act::CreateGo => this.submit_create(cx),

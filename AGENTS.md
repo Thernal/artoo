@@ -236,8 +236,10 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   next: a filter's reach, what failed. A read that failed is never "none": `Couldn't read the merge requests`, the
   banner over it the facts (`Can't reach gitlab.example.com · list from 14:32`), the guess in its tip. A feature's
   `Set up…` opens its Settings section with `Frame::open_settings`.
-- **A bar never clips** (#186): what does not fit the page bar folds into its `⋯`, the last action first, never cut
-  off at the edge. Each action is a `bar::BarAction` with its row in `⋯` (`folds`; the approval never folds), a page's
+- **A bar never clips** (#186): what does not fit the page bar folds into its `⋯`, never cut off at the edge, in its
+  order (`BarAction::fold_order`, #188: a request's Merge, then its Description, then its pipeline; the last first
+  among the same), the title cut last. Each action is a `bar::BarAction` with its row in `⋯` (`folds`; the approval
+  never folds), those after the title `PageBar::lead`, a page's
   rows only `⋯` holds are `PageBar::more` (a request's Open in GitLab, Copy link); the frame measures the bar as drawn
   (`BarRoom`) and decides at the next frame. Labels shorten before anything folds (#187): an action's short form
   (`BarAction::short` — Submit review its icon, Approve without its key) is measured beside its whole, out of sight,
@@ -253,6 +255,21 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   carries `↻ v2` on its tree row and card (`Reviewed::since_chip`, the review told by `Review::set_since`), the tree's
   foot `5 unchanged`; Versions tags the version `you read`. The request's bar, `a` and ⇧⌘↵ stay on Since
   (`on_request_changes`).
+- **A request's Changes is its bar, one toolbar row, then the cards** (#188, Design A3–A7): the bar reads `!398 Refactor
+  the login screen state  Description ▾ | Overview Commits Changes | ✗ lint  Submit review  Approve 1/2  Merge · needs 1
+  approval ▾` — the title after the id (`PagePath::title`, on Since too), the pipeline the job that failed
+  (`render_pipeline_chip`, a click opens the job), ⇧⌘↵ in Submit review's tooltip. No line of identity over Commits and
+  Changes, no file row while the diff is a stack: the active card's header carries `1 change ↑ ↓ · Open in Zed · Mark
+  reviewed V` (`Pane::change_nav`, `Host::open_in`) and sticks while its card scrolls (`Pane::stuck_header`, its Open in
+  from the tab's `PaneLook` — nothing drawn inside the review's update asks the tab). Description ▾ (`PageBar::lead`)
+  opens the description over the toolbar, the issue it is for above it (`why::issue_of`: a Jira or host issue linked, a
+  closing `#12`, else a key like `PAY-123` in the title, branch or description); an empty description has none; esc
+  closes it. Merge names its one reason (`Block::short`: `needs 1 approval`, `lint failed`, `conflicts`) or counts them
+  (`2 in the way`); its list is headed `In the way`, a fact a row, a link where it has a fix (`Pipeline →`). The done
+  card is `All 8 files of !398 reviewed ✓`, then a green `Submit review · 3 ⇧⌘↵` while comments are pending or you may
+  approve (on Approve then), `Next: !415 …` a row under it. `a` never approves with comments pending: it opens Submit
+  review on Approve. A commit with a body shows its first line under the subject (`first_line_of_body`, trailers
+  skipped).
 - **The Inbox files a row by what happened, and names its source** (#197): a kind is declared under one of a fixed
   set (`Kind::why`, `artoo_core::notice::Why`: Mentions, Review requests, Asks you, Failures; none, under All only),
   so a new source adds no filter; the sources are one `Source: All ▾`, a list filtered by typing, each with its new

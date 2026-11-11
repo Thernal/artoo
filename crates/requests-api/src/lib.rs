@@ -38,12 +38,14 @@ pub enum Fix {
     Page(String),
 }
 
-/// One thing in the way: what, the words, where it is fixed.
+/// One thing in the way: what, the words, where it is fixed; the few words Merge names it by when it is the only
+/// one, `needs 1 approval`, `lint failed`, `conflicts` (#188).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Block {
     pub what: &'static str,
     pub detail: String,
     pub fix: Fix,
+    pub short: String,
 }
 
 /// Where merging stands.
@@ -294,8 +296,8 @@ pub enum Act {
     CompareSince(usize),
     /// The diff shows line `line` of file `path` (`old`: the removed side).
     JumpToLine { path: String, line: u32, old: bool },
-    /// Submit review's card.
-    OpenSubmit,
+    /// Submit review's card, on Approve when `approve` (the done card's, #188).
+    OpenSubmit { approve: bool },
     /// Pending comment `id` published alone (#138).
     SendNow(u64),
     /// A right click on request `iid`'s line: its link and its number (#162).
@@ -667,6 +669,14 @@ pub trait Requests {
     /// The request open's approval chip and Merge's control, on its bar; `compact` in a narrow window.
     fn approval_chip(&self, compact: bool, cx: &mut App) -> Option<AnyElement>;
     fn merge_control(&self, compact: bool, github: bool, cx: &mut App) -> Option<AnyElement>;
+    /// The request open's pipeline on its bar, `✗ lint` (#188); its words for its row in `⋯`, `Pipeline · lint
+    /// failed`, and its page.
+    fn pipeline_chip(&self, cx: &mut App) -> Option<AnyElement>;
+    fn pipeline_words(&self, cx: &App) -> Option<(String, String)>;
+    /// `Description ▾` after the request open's title, its card under it while open; none when it says nothing
+    /// (#188). Its card closed: `true` when it was open.
+    fn description_button(&self, selecting: Option<Selecting>, cx: &mut App) -> Option<AnyElement>;
+    fn close_description(&self, cx: &mut App) -> bool;
 
     /// The repository open and its remote's web address: what the requests read and ask their host.
     fn set_repository(&self, root: Option<PathBuf>, web: Option<WebRemote>, cx: &mut App);
@@ -833,9 +843,9 @@ pub trait Requests {
     /// replies to.
     fn drafts_in(&self, path: &str, cx: &App) -> Vec<(usize, bool, u32)>;
     fn draft_thread(&self, ix: usize, cx: &App) -> Option<usize>;
-    /// Submit review's card opened (`false` with no request open), closed; whether it is open; a key on it (`true`:
-    /// ⌘↵ submits); its body and foot, for the tool window.
-    fn open_submit(&self, cx: &mut App) -> bool;
+    /// Submit review's card opened (`false` with no request open) — on Approve when `approve` (#188) —, closed;
+    /// whether it is open; a key on it (`true`: ⌘↵ submits); its body and foot, for the tool window.
+    fn open_submit(&self, approve: bool, cx: &mut App) -> bool;
     fn close_submit(&self, cx: &mut App);
     fn submitting(&self, cx: &App) -> bool;
     fn submit_key(&self, event: &KeyDownEvent, cx: &mut App) -> bool;

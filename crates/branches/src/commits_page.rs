@@ -160,8 +160,11 @@ impl History {
                     tip.push(format!("came with v{v}"));
                 }
                 let (menu, open, this) = (acts.clone(), acts.clone(), this.clone());
+                // The why under the subject, its body's first line (#188, Design A5).
+                let why = first_line_of_body(&c.message);
                 row(("request-commit", ix), selected)
-                    .h(px(36.))
+                    .when(why.is_none(), |s| s.h(px(36.)))
+                    .when(why.is_some(), |s| s.py(px(6.)))
                     .gap(px(10.))
                     .px(px(10.))
                     .when(room.third(), |s| {
@@ -183,8 +186,17 @@ impl History {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .cut_in_tip()
-                            .child(c.summary.clone()),
+                            .flex()
+                            .flex_col()
+                            .child(div().min_w_0().cut_in_tip().child(c.summary.clone()))
+                            .children(why.map(|line| {
+                                div()
+                                    .min_w_0()
+                                    .cut_in_tip()
+                                    .text_size(px(12.))
+                                    .text_color(theme::muted())
+                                    .child(line)
+                            })),
                     )
                     .children((several && room.second()).then(|| {
                         div()
@@ -272,6 +284,15 @@ impl History {
     }
 }
 
+/// The first line of a commit's body, the explanation under its subject: none when it has none but trailers.
+fn first_line_of_body(message: &str) -> Option<String> {
+    let (_, body) = message.split_once('\n')?;
+    body.lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty() && !crate::head::is_trailer(l))
+        .map(str::to_owned)
+}
+
 /// Each commit's version, the commits newest first: the version whose tip it is, else the one of
 /// the commit above it — it came with that push. None above the first tip found (a push rewrote
 /// what the versions knew).
@@ -291,11 +312,26 @@ fn commit_versions(commits: &[git2::Oid], tips: &[(usize, git2::Oid)]) -> Vec<Op
 
 #[cfg(test)]
 mod tests {
-    use super::commit_versions;
+    use super::{commit_versions, first_line_of_body};
     use git2::Oid;
 
     fn id(n: u8) -> Oid {
         Oid::from_bytes(&[n; 20]).unwrap()
+    }
+
+    #[test]
+    fn a_commits_why_is_its_bodys_first_line() {
+        let message = "Keep the error in state\n\nThe view model threw the message away.\nMore.\n";
+        assert_eq!(
+            first_line_of_body(message).as_deref(),
+            Some("The view model threw the message away.")
+        );
+        // A subject alone, or trailers alone: none.
+        assert_eq!(first_line_of_body("Split the screen"), None);
+        assert_eq!(
+            first_line_of_body("Split\n\nCo-Authored-By: A <a@b>\n"),
+            None
+        );
     }
 
     #[test]

@@ -429,7 +429,11 @@ impl Workspace {
 
     /// The file's line's chips: the app the diff's file opens in, ▾ the others. A diff under 600 px
     /// keeps its ↗, the app in its tooltip (#80).
-    pub(super) fn open_in_chips(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(super) fn open_in_chips(
+        &self,
+        this: gpui::WeakEntity<Self>,
+        cx: &gpui::App,
+    ) -> Option<AnyElement> {
         let app = self
             .open_target(cx)
             .and_then(|(path, _)| self.open_app(&path, cx))?;
@@ -439,6 +443,7 @@ impl Workspace {
             format!("Open in {} ↗", app.name())
         };
         let tip: SharedString = format!("Open in {}  ⌥⌘O", app.name()).into();
+        let menu = this.clone();
         Some(
             div()
                 .flex()
@@ -447,13 +452,20 @@ impl Workspace {
                     chip("open-editor", label, false)
                         .tooltip_show_delay(hover::LONG)
                         .tooltip(move |_, cx| cx.new(|_| super::TipOwned(tip.clone())).into())
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_in(cx))),
+                        // On a card's header: not its fold.
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(move |_: &ClickEvent, _, cx| {
+                            cx.stop_propagation();
+                            this.update(cx, |this, cx| this.open_in(cx)).ok();
+                        }),
                 )
                 .child(chip("open-in-more", "▾", false).on_mouse_down(
                     MouseButton::Left,
-                    cx.listener(|this, e: &MouseDownEvent, _, cx| {
-                        this.open_in_menu(e.position, cx)
-                    }),
+                    move |e: &MouseDownEvent, _, cx| {
+                        cx.stop_propagation();
+                        let at = e.position;
+                        menu.update(cx, |this, cx| this.open_in_menu(at, cx)).ok();
+                    },
                 ))
                 .into_any_element(),
         )

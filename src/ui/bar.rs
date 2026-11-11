@@ -3,7 +3,7 @@
 //! page's view switch; its actions and one primary action. Nothing else: the item's facts are the
 //! first block of its content. A request's bar carries the public orange along its top.
 
-use super::nav::Page;
+use super::nav::{Page, Section};
 use super::spaces::{BRANCHES, CODE, INBOX, REQUESTS, Space};
 use super::{Workspace, px, theme, words};
 use artoo_core::route::{Place, Route};
@@ -39,6 +39,7 @@ impl Workspace {
             mono,
             hover,
             count,
+            title: called,
         } = self.path_of(space, cx);
         // Narrow, the path is ‹ — one level up — and the id (#80).
         let up = (self.compact())
@@ -91,8 +92,9 @@ impl Workspace {
                 from: from.map(|s| super::spaces::label(s, cx)),
                 up: up.is_some(),
                 crumbs,
-                title: title(words::say(&name).into_owned(), mono, hover),
+                title: title(words::say(&name).into_owned(), called, mono, hover),
                 count,
+                lead: self.lead_of(page.as_ref(), cx),
                 view: self.view_of(space, page.as_ref(), cx),
                 actions: self.actions_of(space, page.as_ref(), cx),
                 more: self.more_of(page.as_ref(), cx),
@@ -152,6 +154,7 @@ impl Workspace {
                 mono: false,
                 hover: None,
                 count: None,
+                title: None,
             }
         })
     }
@@ -332,21 +335,34 @@ impl Workspace {
             (REQUESTS, Some(Page::Request(_) | Page::RequestVersions(..)))
                 if self.on_request_changes(cx) =>
             {
+                // The pipeline joins the bar, `✗ lint` (#188); it folds after Merge and the description.
+                if let Some(requests) = self.requests_api()
+                    && let Some(chip) = requests.pipeline_chip(cx)
+                {
+                    let action = BarAction::new("pipeline", chip).fold_order(3);
+                    out.push(match requests.pipeline_words(cx) {
+                        Some((words, url)) => {
+                            action.folds(MenuItem::new(words, move |_, cx| cx.open_url(&url)))
+                        }
+                        None => action,
+                    });
+                }
                 let pending = self.request_drafts(cx).len();
                 let label = match pending {
                     0 => "Submit review".to_owned(),
                     n => format!("Submit review · {n}"),
                 };
-                // Its icon alone when the bar has no room for its label (#187).
+                // Its key in its tooltip (#188); its icon alone when the bar has no room for its label (#187).
                 let tip = format!("{}  ⇧⌘↵", words::say(&label));
                 out.push(
-                    BarAction::new(
-                        "submit",
-                        artoo_ui_kit::controls::bar_button("bar-submit", &label, "⇧⌘↵", false)
+                    BarAction::new("submit", {
+                        use super::hover::Hover;
+                        artoo_ui_kit::controls::bar_button("bar-submit", &label, "", false)
+                            .tip(tip.clone())
                             .on_click(
                                 cx.listener(|this, _: &ClickEvent, _, cx| this.open_submit(cx)),
-                            ),
-                    )
+                            )
+                    })
                     .short(
                         bar_icon("bar-submit", "send", tip).on_click(
                             cx.listener(|this, _: &ClickEvent, _, cx| this.open_submit(cx)),
@@ -355,7 +371,8 @@ impl Workspace {
                     .folds(
                         MenuItem::new(label, on_tab(&tab, |this, cx| this.open_submit(cx)))
                             .key("⇧⌘↵"),
-                    ),
+                    )
+                    .fold_order(4),
                 );
                 // A merged or closed one says so where its approval would be (#114).
                 let state = self
@@ -379,7 +396,8 @@ impl Workspace {
                     out.extend(
                         (requests.merge_control(self.compact(), self.on_github(), cx)).map(
                             |control| {
-                                let action = BarAction::new("merge", control);
+                                // Merge folds first (#188).
+                                let action = BarAction::new("merge", control).fold_order(1);
                                 match merge_row(stand, &tab) {
                                     Some(row) => action.folds(row),
                                     None => action,
@@ -413,6 +431,30 @@ impl Workspace {
             _ => {}
         }
         out
+    }
+
+    /// The actions after the title: a request's `Description ▾` on its Changes (#188), its row in `⋯` its Overview,
+    /// where the description is.
+    fn lead_of(&self, page: Option<&Page>, cx: &mut Context<Self>) -> Vec<BarAction> {
+        if !matches!(page, Some(Page::Request(_) | Page::RequestVersions(..)))
+            || !self.on_request_changes(cx)
+        {
+            return Vec::new();
+        }
+        let selecting = Some(self.selecting(cx.weak_entity()));
+        let tab = cx.weak_entity();
+        (self.requests_api())
+            .and_then(|r| r.description_button(selecting, cx))
+            .map(|button| {
+                BarAction::new("description", button)
+                    .folds(MenuItem::new(
+                        "Description",
+                        on_tab(&tab, |this, cx| this.show_section(Section::Overview, cx)),
+                    ))
+                    .fold_order(2)
+            })
+            .into_iter()
+            .collect()
     }
 
     /// Open in, and its row in `⋯`.
@@ -460,10 +502,14 @@ impl Workspace {
 /// Merge's row in `⋯`, by where merging stands: what is in the way said, dimmed; Rebase; Merge…; Cancel auto-merge.
 fn merge_row(stand: Option<Stand>, tab: &WeakEntity<Workspace>) -> Option<MenuItem> {
     Some(match stand? {
-        Stand::InTheWay(blocks) => MenuItem::off(match blocks.first() {
-            Some(block) => format!("Merge · {}", block.detail),
-            None => "Merge".to_owned(),
-        }),
+        // What is in the way as the button says it (#188); its list opens.
+        Stand::InTheWay(blocks) => MenuItem::new(
+            match blocks.as_slice() {
+                [one] => format!("Merge · {}", one.short),
+                _ => format!("Merge · {} in the way", blocks.len()),
+            },
+            on_tab(tab, |this, cx| this.open_merge(cx)),
+        ),
         Stand::Checking => MenuItem::off("Merge · checking"),
         Stand::Rebase(behind) => MenuItem::new(
             format!("Rebase · {behind} behind"),
@@ -556,8 +602,9 @@ impl bar::BarHost for BarGlue {
 
 /// The page's title with what a long hover on it says (the developer, 2026-10-23: the header names no author), its
 /// owner's (`NameHover`): a request's identity, a commit's or a branch's card, a file's or a folder's whole path.
-/// Without one, its own long hover gives the whole title when it is cut.
-fn title(text: String, mono: bool, hover: Option<NameHover>) -> AnyElement {
+/// Without one, its own long hover gives the whole title when it is cut. `called`, after it: a request's title after
+/// its number (#188), cut first.
+fn title(text: String, called: Option<String>, mono: bool, hover: Option<NameHover>) -> AnyElement {
     use super::hover::{CutInTip, Hover};
     let style = |title: gpui::Stateful<gpui::Div>| {
         title
@@ -574,12 +621,26 @@ fn title(text: String, mono: bool, hover: Option<NameHover>) -> AnyElement {
                 .child(text.clone()),
         )
     };
-    match hover {
+    let name = match hover {
         Some(NameHover::Tip(tip)) => title().tip(tip).into_any_element(),
         Some(NameHover::Card(card)) => title()
             .card(move |window, cx| card(window, cx))
             .into_any_element(),
         None => style(super::hover::cut("bar-title", text.clone())).into_any_element(),
+    };
+    match called {
+        Some(called) => div()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .child(div().flex_none().child(name))
+            .child(
+                super::hover::cut("bar-called", words::say(&called).into_owned())
+                    .text_color(theme::text()),
+            )
+            .into_any_element(),
+        None => name,
     }
 }
 

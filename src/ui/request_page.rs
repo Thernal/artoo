@@ -1,5 +1,5 @@
 //! A merge request's page (#73): the section tabs of its bar — Overview, Commits, Changes — and
-//! where the first two go; Changes is the diff, with one line of identity over it. Overview holds
+//! where the first two go; Changes is the diff, the title in the bar over it (#188). Overview holds
 //! what the Details tool window held (#8), as a page, and Commits the request's commits with the
 //! version each came with, the requests' view (`artoo_requests::tabs`). A request you have never
 //! been inside opens on Overview, later ones on Changes (`nav::first_section`). A commit opens as

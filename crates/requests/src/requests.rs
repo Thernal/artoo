@@ -60,6 +60,8 @@ pub use artoo_requests_api::{Act, Acts};
 pub struct Requests {
     /// The tab's services the requests were made in: the image viewer is asked there (#211).
     pub services: std::rc::Weak<artoo_shell_api::Services>,
+    /// The open request's description is open over its Changes (#188).
+    pub description_open: bool,
     /// The repository open and its remote's web address: what is read, and the host asked.
     pub root: Option<std::path::PathBuf>,
     pub web: Option<artoo_core::git::WebRemote>,
@@ -602,6 +604,31 @@ impl artoo_requests_api::Requests for Handle {
             .render_merge_control(compact, github, acts)
     }
 
+    fn pipeline_chip(&self, cx: &mut App) -> Option<gpui::AnyElement> {
+        let chip = self.0.upgrade()?.read(cx).render_pipeline_chip()?;
+        Some(gpui::IntoElement::into_any_element(chip))
+    }
+
+    fn pipeline_words(&self, cx: &App) -> Option<(String, String)> {
+        let rq = self.0.upgrade()?;
+        let p = rq.read(cx).pipeline.clone()?;
+        let (_, word, _) = crate::bar::pipeline_word(&p);
+        Some((format!("Pipeline · {word}"), crate::bar::pipeline_page(&p)))
+    }
+
+    fn description_button(
+        &self,
+        selecting: Option<artoo_ui_kit::markdown::Selecting>,
+        cx: &mut App,
+    ) -> Option<gpui::AnyElement> {
+        self.update(cx, |rq, cx| rq.render_description(selecting, cx))?
+    }
+
+    fn close_description(&self, cx: &mut App) -> bool {
+        self.update(cx, |rq, cx| rq.close_description(cx))
+            .unwrap_or(false)
+    }
+
     fn set_repository(
         &self,
         root: Option<std::path::PathBuf>,
@@ -1106,6 +1133,7 @@ impl artoo_requests_api::Requests for Handle {
         self.update(cx, |rq, _| {
             if number != rq.current {
                 rq.forget_open();
+                rq.description_open = false;
             }
             rq.current = number;
             if let Some(iid) = number {
@@ -1253,8 +1281,8 @@ impl artoo_requests_api::Requests for Handle {
         rq.draft_thread(rq.drafts.get(ix)?)
     }
 
-    fn open_submit(&self, cx: &mut App) -> bool {
-        self.update(cx, |rq, _| rq.open_submit_card())
+    fn open_submit(&self, approve: bool, cx: &mut App) -> bool {
+        self.update(cx, |rq, _| rq.open_submit_card(approve))
             .unwrap_or(false)
     }
 

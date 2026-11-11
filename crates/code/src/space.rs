@@ -407,6 +407,7 @@ impl CodeSpace {
             mono: false,
             hover: Some(NameHover::Tip(tip)),
             count,
+            title: None,
         })
     }
 
