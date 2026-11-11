@@ -112,8 +112,16 @@ impl InboxPage {
         let parts = artoo_shell_api::notices::Listers::of(&services).rows(cx);
         let (notices, view) = (self.notices.read(cx), self.view.read(cx));
         let rows = view.rows(notices, &answers, &parts, cx);
+        // Nothing listed because a read failed is never "nothing" (#185): the banner says why.
+        let failed = if self.requests.read(cx).error.is_some() {
+            Some("Couldn't read the merge requests")
+        } else {
+            notices.failed.then_some("Couldn't read the discussions")
+        };
         let body = if !notices.loaded && rows.is_empty() {
             inbox_view::loading(self.frame.list_width(cx))
+        } else if let Some(failed) = failed.filter(|_| rows.is_empty()) {
+            inbox_view::failed(failed)
         } else if rows.is_empty() {
             let others = !notices.list.is_empty() || !answers.is_empty() || !parts.is_empty();
             inbox_view::empty(view.filter, others, &on)

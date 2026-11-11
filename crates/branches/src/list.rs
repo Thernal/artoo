@@ -120,8 +120,8 @@ pub fn rows(h: &History, rows: &[BranchRow], look: &ListLook, acts: &Acts) -> Ve
     list
 }
 
-/// Beside the list: the row picked previewed, or, with one local branch and nothing to commit, what the list is
-/// for.
+/// Beside the list: the row picked previewed, or, with one local branch and nothing to commit, that state alone
+/// (#185).
 pub fn preview(h: &History, look: &ListLook, acts: &Acts) -> AnyElement {
     let mut local = h.branches.iter().filter(|b| b.kind == RefKind::Local);
     let alone = look.filter.is_empty() && local.clone().count() == 1 && look.changes == 0;
@@ -130,7 +130,7 @@ pub fn preview(h: &History, look: &ListLook, acts: &Acts) -> AnyElement {
         return empty_state(
             "branch",
             format!("Only {name}, nothing ahead"),
-            "Branches you make in your terminal or editor show up here, with what they hold and their request.".to_owned(),
+            String::new(),
             None,
         )
         .into_any_element();

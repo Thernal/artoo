@@ -6,6 +6,11 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **A list that could not be read says so.** It reads `Couldn't read the merge requests` instead of "No merge requests
+  yet", under `Can't reach gitlab.example.com · list from 14:32`. An empty list is its state and its button —
+  `Nothing to review`, `No mentions`, `No open merge requests` — without a sentence on what it is for; a filter that
+  finds nothing says where it looked and clears with a click. Agents says `No chat listens here` with `Set up…`.
+
 - **Cut text keeps what tells it apart.** A path is cut at its front, so its file name always shows
   (`…/viewmodel/impl/LoginViewModelImpl.kt`), and a name too long alone loses its middle; two branches that start
   alike keep their endings. Every cut ends in `…`, two-line text too, and F1 (or ⌘K's Show the whole text) opens the

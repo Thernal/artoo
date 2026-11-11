@@ -613,10 +613,7 @@ fn empty(rq: &Requests, look: &ListLook, acts: &Acts) -> Div {
         return empty_state(
             "search",
             format!("Nothing matches “{filter}”"),
-            words::say(
-                "The filter looks in the number, title, author and branch of each merge request.",
-            )
-            .into_owned(),
+            "Looks in number, title, author and branch.".to_owned(),
             Some(show_all("Clear the filter")),
         );
     }
@@ -628,7 +625,7 @@ fn empty(rq: &Requests, look: &ListLook, acts: &Acts) -> Div {
             let acts = acts.clone();
             return empty_state(
                 "pull-request",
-                words::say(&format!("The {word} merge requests could not be read")).into_owned(),
+                words::say(&format!("Couldn't read the {word} merge requests")).into_owned(),
                 error.clone(),
                 Some(
                     div()
@@ -640,72 +637,42 @@ fn empty(rq: &Requests, look: &ListLook, acts: &Acts) -> Div {
             );
         }
         let read = !rq.past.of_scope(Scope::All).list.is_empty();
-        return match rq.scope {
-            Scope::All => empty_state(
-                "pull-request",
+        let (title, more) = match rq.scope {
+            Scope::All => (
                 words::say(&format!("No {word} merge requests")).into_owned(),
-                words::say(&format!("Merge requests {word} in this project land here."))
-                    .into_owned(),
-                None,
+                false,
             ),
-            Scope::ReviewMe => empty_state(
-                "pull-request",
-                format!("None {word} asked for your review"),
-                words::say(&format!(
-                    "{} merge requests you were asked to review land here.",
-                    view.word()
-                ))
-                .into_owned(),
-                read.then(|| show_all("Show all")),
-            ),
-            Scope::Mine => empty_state(
-                "pull-request",
-                format!("None of yours is {word}"),
-                words::say(&format!(
-                    "The merge requests you opened land here once {word}."
-                ))
-                .into_owned(),
-                read.then(|| show_all("Show all")),
-            ),
+            Scope::ReviewMe => (format!("None {word} asked for your review"), read),
+            Scope::Mine => (format!("None of yours is {word}"), read),
         };
+        return empty_state(
+            "pull-request",
+            title,
+            String::new(),
+            more.then(|| show_all("Show all")),
+        );
     }
+    // A read that failed is never "none" (#185): the banner over the list says why, with Retry.
     if rq.error.is_some() && all == 0 {
         return empty_state(
             "pull-request",
-            words::say("No merge requests yet").into_owned(),
-            "They come when the list can be read again.".to_owned(),
+            words::say("Couldn't read the merge requests").into_owned(),
+            String::new(),
             None,
         );
     }
-    match rq.scope {
-        Scope::ReviewMe => empty_state(
-            "pull-request",
-            "Nothing to review".to_owned(),
-            format!(
-                "Requests that ask for your review land here. {} open under All.",
-                if all == 1 {
-                    "1 is".to_owned()
-                } else {
-                    format!("{all} are")
-                }
-            ),
-            (all > 0).then(|| show_all("Show all")),
-        ),
-        Scope::Mine => empty_state(
-            "pull-request",
-            "None of yours is open".to_owned(),
-            words::say("The merge requests you open land here, with what waits for you on each.")
-                .into_owned(),
-            (all > 0).then(|| show_all("Show all")),
-        ),
-        Scope::All => empty_state(
-            "pull-request",
-            words::say("No open merge requests").into_owned(),
-            words::say("When someone opens a merge request in this project, it lands here.")
-                .into_owned(),
-            None,
-        ),
-    }
+    // A state word and its way on, no sentence (#185).
+    let (title, more) = match rq.scope {
+        Scope::ReviewMe => ("Nothing to review".to_owned(), all > 0),
+        Scope::Mine => ("None of yours is open".to_owned(), all > 0),
+        Scope::All => (words::say("No open merge requests").into_owned(), false),
+    };
+    empty_state(
+        "pull-request",
+        title,
+        String::new(),
+        more.then(|| show_all("Show all")),
+    )
 }
 
 /// A group's band in the requests list: its icon, name and count, and the chevron that folds it
@@ -1193,15 +1160,18 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
 pub fn banner(rq: &Requests, acts: &Acts) -> Option<AnyElement> {
     let error = rq.error.as_ref()?;
     let offline = error.starts_with("Can't reach");
-    let since = rq
-        .listed_at
-        .map(|t| format!(" The list is from {}", format::clock(t)));
-    let text = match (offline, &since) {
-        (true, Some(since)) => format!("{error}{since} and refreshes when it is back."),
-        (true, None) => format!("{error} The list comes when it is back."),
-        (false, Some(since)) => format!("{error}.{since}."),
-        (false, None) => format!("{error}."),
+    // Facts on the banner, `Can't reach gitlab.example.com · list from 14:32`; the guess after the dash (the VPN)
+    // and the whole date in its tip (#185).
+    let fact = error.split_once(" — ").map_or(error.as_str(), |(f, _)| f);
+    let fact = fact.trim_end_matches('.');
+    let text = match rq.listed_at {
+        Some(t) => format!("{fact} · list from {}", format::clock(t)),
+        None => fact.to_owned(),
     };
+    let mut tip = vec![error.clone()];
+    if let Some(t) = rq.listed_at {
+        tip.push(format!("List from {}", hover::full_date(t)));
+    }
     let token = error.contains("token");
     let color = if offline {
         theme::accent()
@@ -1211,6 +1181,7 @@ pub fn banner(rq: &Requests, acts: &Acts) -> Option<AnyElement> {
     let acts = acts.clone();
     Some(
         div()
+            .id("requests-banner")
             .flex_none()
             .flex()
             .items_center()
@@ -1228,6 +1199,7 @@ pub fn banner(rq: &Requests, acts: &Acts) -> Option<AnyElement> {
                     .text_color(color),
             )
             .child(div().flex_1().min_w_0().child(text))
+            .tip(tip.join("\n"))
             .child(
                 div()
                     .id("banner-action")

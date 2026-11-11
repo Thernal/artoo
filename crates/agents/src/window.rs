@@ -896,13 +896,26 @@ impl Render for AgentsWindow {
             .children(chats)
             .children(more)
             .children(route)
+            // A state and its way on (#185): how a chat starts listening is Settings → Agents'.
             .children(chats_here.is_empty().then(|| {
+                let frame = self.frame.clone();
                 div()
                     .px(px(14.))
                     .py(px(4.))
+                    .flex()
+                    .items_center()
+                    .gap_2()
                     .text_size(px(12.))
                     .text_color(theme::muted())
-                    .child("No chat listens in this repository. Claude Code starts listening with Artoo agent-watch (Settings → Agents); a Codex session open here listens by itself.")
+                    .child(div().flex_1().min_w_0().child("No chat listens here"))
+                    .child(
+                        div()
+                            .id("agents-set-up")
+                            .child(controls::outline_button("Set up…"))
+                            .on_click(move |_: &ClickEvent, _, cx| {
+                                frame.open_settings(artoo_agents_api::view::SETTINGS, cx)
+                            }),
+                    )
             }))
             .child(div().px(px(10.)).pt(px(8.)).pb(px(6.)).child(filters))
             .children(rows)
@@ -915,7 +928,7 @@ impl Render for AgentsWindow {
                     .child(if comments.is_empty() {
                         "No comments for your agent"
                     } else {
-                        "Nothing here."
+                        "No comments match"
                     })
             }));
         let foot = div()

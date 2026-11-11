@@ -141,6 +141,8 @@ pub struct Notices {
     pub poll: Option<Task<()>>,
     /// A first read finished, whatever it found: before it the Inbox shows rows loading (#72).
     pub loaded: bool,
+    /// The last read failed: an Inbox with nothing listed says so rather than "nothing" (#185).
+    pub failed: bool,
     /// Notices already there or already said to the system's notifications: each is said once,
     /// and none of those listed at the first read (#26).
     told: HashSet<String>,
@@ -292,6 +294,7 @@ impl Notices {
     pub fn arrive(&mut self, found: anyhow::Result<Found>, tick: u64) -> Option<Arrived> {
         let first = !self.loaded;
         self.loaded = true;
+        self.failed = found.is_err();
         let found = found.ok()?;
         // What came since the last read, not read yet: to the system too (#26).
         let news = self.news(&found.list, first);

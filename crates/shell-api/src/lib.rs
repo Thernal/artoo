@@ -295,6 +295,9 @@ pub trait Frame {
     /// Space `space`'s own page opened (`code`: the project's).
     fn open_space(&self, space: &'static str, cx: &mut App);
 
+    /// Settings opened at section `id`, one offered with `add_settings_section` (an empty list's `Set up…`, #185).
+    fn open_settings(&self, id: &'static str, cx: &mut App);
+
     /// Space `space` gone to, as its row in the menu goes: the page it was left on, its own page when it is on
     /// screen already; what the project lacks for it said instead, when it lacks something.
     fn go_space(&self, space: &'static str, cx: &mut App);

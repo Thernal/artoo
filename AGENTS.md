@@ -230,6 +230,11 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   Tests over every crate fail on a bare `truncate`, `line_clamp` or `text_ellipsis…` outside the kit's `hover.rs`,
   and on a chain holding `overflow_hidden` and `whitespace_nowrap` (text clipped with no sign) unless a `// clip:`
   comment above it says why (a field scrolling with its caret).
+- **An empty list is a state word** (#185): `controls::empty_state` with a title (`Nothing to review`, `No mentions`)
+  and at most one button; no sentence on what the list is for. A line under it only where it changes what you do
+  next: a filter's reach, what failed. A read that failed is never "none": `Couldn't read the merge requests`, the
+  banner over it the facts (`Can't reach gitlab.example.com · list from 14:32`), the guess in its tip. A feature's
+  `Set up…` opens its Settings section with `Frame::open_settings`.
 - **Links** (#162; what a page is on the host, or why none, its owner's — `Pages::link`, `Pages::called`: a request's
   the requests', a branch's, a commit's and a comparison's the branches', a file's and a folder's Code's, the Inbox's
   its notice picked, #171 phase 8 —; the menus and ⌥⇧⌘C the tab's, `ui/share.rs`): what has a page on the host

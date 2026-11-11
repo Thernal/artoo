@@ -67,25 +67,27 @@ pub fn loading(width: f32) -> AnyElement {
         .into_any_element()
 }
 
-/// Nothing listed under `filter`; `others`: something is under another, and Show all goes there.
+/// Nothing listed because `what` could not be read (#185).
+pub fn failed(what: &str) -> AnyElement {
+    island()
+        .flex_1()
+        .bg(theme::editor())
+        .child(controls::empty_state(
+            "inbox",
+            words::say(what).into_owned(),
+            String::new(),
+            None,
+        ))
+        .into_any_element()
+}
+
+/// Nothing listed under `filter`, a state word (#185); `others`: something is under another, and Show all goes there.
 pub fn empty(filter: InboxFilter, others: bool, on: &OnInbox) -> AnyElement {
-    let (title, text) = match filter {
-        InboxFilter::All => (
-            "Nothing needs you",
-            "Review requests, mentions and replies in your discussions land here.",
-        ),
-        InboxFilter::Mentions => (
-            "No mentions",
-            "When someone mentions you in this project, it lands here.",
-        ),
-        InboxFilter::Agents => (
-            "Nothing from your agents",
-            "When an agent asks about one of your notes, or says it is done, it lands here.",
-        ),
-        InboxFilter::Reviews => (
-            "No review requests",
-            "When someone asks for your review, it lands here.",
-        ),
+    let title = match filter {
+        InboxFilter::All => "Nothing needs you",
+        InboxFilter::Mentions => "No mentions",
+        InboxFilter::Agents => "Nothing from your agents",
+        InboxFilter::Reviews => "No review requests",
     };
     let all = (filter != InboxFilter::All && others).then(|| {
         let on = on.clone();
@@ -102,7 +104,7 @@ pub fn empty(filter: InboxFilter, others: bool, on: &OnInbox) -> AnyElement {
         .child(controls::empty_state(
             "inbox",
             title.to_owned(),
-            text.to_owned(),
+            String::new(),
             Some(all.unwrap_or_else(|| div().h(px(28.)).into_any_element())),
         ))
         .into_any_element()

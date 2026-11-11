@@ -268,7 +268,8 @@ pub fn unread_dot(on: bool) -> Div {
         .when(on, |s| s.bg(theme::accent()))
 }
 
-/// One message centred in the content: an icon, what is the case, why, and the way on.
+/// One message centred in the content: an icon, what is the case, and the way on; `text` only where it changes what
+/// you do next (a filter's reach, what failed), none when empty (#185).
 pub fn empty_state(
     icon: &'static str,
     title: String,
@@ -293,16 +294,18 @@ pub fn empty_state(
         )
         // Room for three lines, so the box stays put as its words change (the developer,
         // 2026-10-23).
-        .child(
-            div()
-                .max_w(px(400.))
-                .min_h(px(19. * 3.))
-                .text_size(px(13.))
-                .line_height(px(19.))
-                .text_center()
-                .text_color(theme::muted())
-                .child(text),
-        )
+        .when(!text.is_empty(), |s| {
+            s.child(
+                div()
+                    .max_w(px(400.))
+                    .min_h(px(19. * 3.))
+                    .text_size(px(13.))
+                    .line_height(px(19.))
+                    .text_center()
+                    .text_color(theme::muted())
+                    .child(text),
+            )
+        })
         .children(action.map(|a| div().pt(px(6.)).child(a)))
 }
 

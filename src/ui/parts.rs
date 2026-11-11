@@ -155,6 +155,14 @@ impl Frame for TabFrame {
         });
     }
 
+    fn open_settings(&self, id: &'static str, cx: &mut App) {
+        self.later(cx, move |this, cx| {
+            this.open_settings(cx);
+            this.open_settings_section(id, cx);
+            cx.notify();
+        });
+    }
+
     fn open_space(&self, space: &'static str, cx: &mut App) {
         self.later(cx, move |this, cx| {
             let space = Space(space);
