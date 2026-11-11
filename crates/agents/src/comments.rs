@@ -285,12 +285,20 @@ impl AgentComments {
     /// Those an agent answered that wait for the reviewer, for the Inbox — one it asks on, one it says it did, a draft
     /// whose answer was picked again —, `alive` the sessions listening: each one's id, when the agent last wrote, and
     /// the key read once it is looked at (`agent:<id>:<replies>`: a new answer is new again).
-    pub fn inbox_answers(&self, alive: &dyn Fn(&str) -> bool) -> Vec<(u64, i64, String)> {
+    /// `lists` says whether a kind of notice is listed (#196): one it asks on is `agents.asks`, one it did
+    /// `agents.done`.
+    pub fn inbox_answers(
+        &self,
+        alive: &dyn Fn(&str) -> bool,
+        lists: &dyn Fn(&str) -> bool,
+    ) -> Vec<(u64, i64, String)> {
+        use artoo_agents_api::notices::{ASKS, DONE};
         (self.list.iter())
             .filter(|c| !c.archived)
             .filter(|c| match kind_of(c, alive) {
-                Kind::Asks | Kind::Addressed => true,
-                Kind::Draft => c.answer.is_some() && !c.replies.is_empty(),
+                Kind::Asks => lists(ASKS),
+                Kind::Addressed => lists(DONE),
+                Kind::Draft => c.answer.is_some() && !c.replies.is_empty() && lists(ASKS),
                 _ => false,
             })
             .filter_map(|c| {
@@ -489,25 +497,29 @@ mod tests {
         let mut c = asked(FormKind::One, &[false, false]);
         c.list[0].replies[0].at = 40;
         let listening = |_: &str| true;
+        let all = |_: &str| true;
         assert_eq!(
-            c.inbox_answers(&listening),
+            c.inbox_answers(&listening, &all),
             [(7, 40, "agent:7:1".to_owned())]
         );
         assert!(c.pick(7, Some(0)), "its answer picked: a draft again");
         assert_eq!(
-            c.inbox_answers(&listening).len(),
+            c.inbox_answers(&listening, &all).len(),
             1,
             "still waits for the send"
         );
         c.list[0].state = State::Addressed;
         c.list[0].replies.push(Default::default());
         assert_eq!(
-            c.inbox_answers(&listening)[0].2,
+            c.inbox_answers(&listening, &all)[0].2,
             "agent:7:2",
             "a new answer is new again"
         );
+        // An agent finished, its kind turned off in the Inbox (#196): not listed.
+        let no_done = |kind: &str| kind != artoo_agents_api::notices::DONE;
+        assert!(c.inbox_answers(&listening, &no_done).is_empty());
         c.list[0].archived = true;
-        assert!(c.inbox_answers(&listening).is_empty());
+        assert!(c.inbox_answers(&listening, &all).is_empty());
     }
 
     #[test]

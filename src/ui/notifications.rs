@@ -68,8 +68,13 @@ impl Workspace {
             .inbox_answers(cx)
             .into_iter()
             .map(|(_, _, key)| key);
+        // The parts' rows too (a plugin's, #196).
+        let parts = artoo_shell_api::notices::Listers::of(&self.services)
+            .rows(cx)
+            .into_iter()
+            .map(|r| r.key);
         if let Some(requests) = self.requests_api() {
-            requests.read_all_notices(agents.collect(), cx);
+            requests.read_all_notices(agents.chain(parts).collect(), cx);
         }
         cx.notify();
     }

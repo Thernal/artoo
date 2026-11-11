@@ -225,6 +225,23 @@ pub fn preview() -> Option<PathBuf> {
 /// The space the title bar leaves at its start for the window's own buttons.
 pub const TITLEBAR_INSET: f32 = os::TITLEBAR_INSET;
 
+/// The Dock's (macOS) count of what waits: none at zero, nothing where there is no Dock (#196).
+pub fn dock_badge(count: usize) {
+    os::dock_badge(count);
+}
+
+/// Whether the system lets Artoo post notifications: `Some(false)` refused, `None` not known (#196). It may wait for
+/// the system: off the window's thread.
+pub fn notifications_allowed() -> Option<bool> {
+    if sandboxed() {
+        return None;
+    }
+    os::notifications_allowed()
+}
+
+/// Where the system's notification settings open (macOS); empty where there is none.
+pub const NOTIFICATION_SETTINGS: &str = os::NOTIFICATION_SETTINGS;
+
 /// The first of `names` found in a folder of the PATH, trying `extensions` after each name.
 #[cfg(not(target_os = "macos"))]
 fn on_path(names: &[&str], extensions: &[String]) -> Option<PathBuf> {

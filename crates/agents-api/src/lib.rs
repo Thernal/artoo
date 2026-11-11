@@ -10,6 +10,7 @@
 pub mod bus;
 pub mod comment;
 pub mod notes;
+pub mod notices;
 pub mod provider;
 pub mod tab;
 pub mod view;

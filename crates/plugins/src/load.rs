@@ -356,8 +356,12 @@ pub(crate) fn load(cx: &mut App) -> (Vec<Plugin>, Option<Crash>) {
                 let name = path.file_name().unwrap_or_default().to_string_lossy();
                 crash::add_image(&id, &name, range);
             }
-            catch_unwind(AssertUnwindSafe(|| install(cx)))
-                .map_err(|panic| format!("stopped as it installed: {}", said(&*panic)))
+            // What it offers as it installs is known to be its own (the notices' sources, #196).
+            artoo_shell_api::notices::guest(cx, Some(id.clone()));
+            let installed = catch_unwind(AssertUnwindSafe(|| install(cx)))
+                .map_err(|panic| format!("stopped as it installed: {}", said(&*panic)));
+            artoo_shell_api::notices::guest(cx, None);
+            installed
         });
         starting.done(&id);
         if let Err(why) = installed {

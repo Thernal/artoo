@@ -154,6 +154,8 @@ pub enum InboxFilter {
 pub enum InboxRow {
     Notice(usize),
     Agent(u64),
+    /// A part's (a plugin's, #196), by its key's id (`artoo_shell_api::notices::row_id`).
+    Part(u64),
 }
 
 /// Your notes an agent answered that wait for you (#116): each note's id, when the agent last wrote, and the key that
@@ -180,6 +182,10 @@ pub enum InboxEvent {
     Open(usize),
     /// Done with notice `0`.
     Done(usize),
+    /// A part's row clicked: selected, or opened where the tab is narrow.
+    PickPart(u64),
+    /// A part's row opened.
+    OpenPart(u64),
     /// The composer under the notice selected.
     Reply,
     /// Discussion `id` of request `iid` resolved, or opened again.
@@ -231,6 +237,8 @@ pub struct News {
     pub title: String,
     pub who: String,
     pub verb: &'static str,
+    /// Its kind of notice (#196): whether it goes to the system, and as a toast.
+    pub kind: &'static str,
 }
 
 /// What the requests tell the tab after a read of their own (`reading`).

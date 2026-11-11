@@ -46,6 +46,26 @@ gpui::actions!(
 /// drawn — and their parts in every tab: the notes'
 /// summary over the diff, the Agents window, the card asking which chat, Settings → Agents, Set up's Agents.
 pub fn install(cx: &mut gpui::App) {
+    {
+        use artoo_agents_api::notices::{ASKS, DONE, PRESENCE, SHOWS};
+        use artoo_shell_api::notices::{Kind, Source, add_source};
+        add_source(
+            cx,
+            Source::new(
+                "agents",
+                "Agents",
+                vec![
+                    Kind::listed(ASKS, "An agent asks you").toast().system(),
+                    Kind::listed(DONE, "An agent finished").system(),
+                    Kind::homed(SHOWS, "An agent shows you something")
+                        .toast()
+                        .system(),
+                    Kind::homed(PRESENCE, "An agent comes or goes").toast(),
+                ],
+            )
+            .order(20),
+        );
+    }
     for (order, provider) in agents::providers() {
         artoo_agents_api::provider::add(cx, order, provider);
     }

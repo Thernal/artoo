@@ -35,6 +35,10 @@ pub enum Kind {
     OnYours,
     /// A discussion the user took part in, resolved by someone else.
     Resolved,
+    /// A to-do for a pipeline that failed (GitLab's `build_failed`).
+    Failed,
+    /// A to-do for a request that can't merge (GitLab's `unmergeable`).
+    Unmergeable,
 }
 
 impl Kind {
@@ -46,8 +50,56 @@ impl Kind {
             Kind::Reply => "replied",
             Kind::OnYours => "commented on your request",
             Kind::Resolved => "resolved your discussion",
+            Kind::Failed => "has a failed pipeline",
+            Kind::Unmergeable => "has a request that can't merge",
         }
     }
+
+    /// Its kind among the notices Settings switches (#196): a reply and a comment on yours are both Comments, a
+    /// failed pipeline and a request that can't merge one kind.
+    pub fn id(self) -> &'static str {
+        match self {
+            Kind::Review => REVIEW,
+            Kind::Mention => MENTION,
+            Kind::Reply | Kind::OnYours => COMMENT,
+            Kind::Resolved => RESOLVED,
+            Kind::Failed | Kind::Unmergeable => FAILED,
+            Kind::Todo => TODO,
+        }
+    }
+
+    /// Whether it is answered from the Inbox: a comment is, a request to look at or a to-do is only opened.
+    pub fn answerable(self) -> bool {
+        !matches!(
+            self,
+            Kind::Review | Kind::Todo | Kind::Failed | Kind::Unmergeable
+        )
+    }
+}
+
+const REVIEW: &str = "requests.review";
+const MENTION: &str = "requests.mention";
+const COMMENT: &str = "requests.comment";
+const RESOLVED: &str = "requests.resolved";
+const FAILED: &str = "requests.failed";
+const TODO: &str = "requests.todo";
+
+/// The requests' kinds of notice, as Settings → Notifications lists them (#196, Design round 6, M4).
+pub fn source() -> artoo_shell_api::notices::Source {
+    use artoo_shell_api::notices::{Kind as K, Source};
+    Source::new(
+        "requests",
+        "Merge requests",
+        vec![
+            K::listed(REVIEW, "Review requests").system(),
+            K::listed(MENTION, "Mentions").system(),
+            K::listed(COMMENT, "Comments").system(),
+            K::listed(RESOLVED, "Discussions resolved"),
+            K::listed(FAILED, "Pipeline failed, can't merge").system(),
+            K::listed(TODO, "Other to-dos"),
+        ],
+    )
+    .order(10)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -96,6 +148,15 @@ pub struct Notices {
 
 impl Notice {
     /// "mentioned you", "asked for your review", …
+    /// Whether the Inbox lists it: its kind's Inbox is on (#196).
+    pub fn listed(&self, cx: &App) -> bool {
+        artoo_shell_api::notices::is_on(
+            cx,
+            self.kind.id(),
+            artoo_shell_api::notices::Channel::Inbox,
+        )
+    }
+
     pub fn kind_verb(&self) -> &'static str {
         self.kind.verb()
     }
@@ -169,26 +230,36 @@ impl Notices {
         }
     }
 
-    pub fn unread(&self) -> usize {
-        self.list
-            .iter()
+    /// The notices listed: those of a kind whose Inbox is on (#196).
+    pub fn listed<'a>(&'a self, cx: &'a App) -> impl Iterator<Item = &'a Notice> + 'a {
+        self.list.iter().filter(|n| n.listed(cx))
+    }
+
+    pub fn unread(&self, cx: &App) -> usize {
+        self.listed(cx)
             .filter(|n| !self.read.contains(&n.key))
             .count()
     }
 
-    /// The Inbox's count: notices not read, and the agents' `answers` not looked at (keys last).
-    pub fn unread_with(&self, answers: &[(u64, i64, String)]) -> usize {
-        self.unread()
+    /// The Inbox's count: notices listed and not read, the agents' `answers` not looked at (keys last) and the parts'
+    /// rows not looked at (#196).
+    pub fn unread_with(
+        &self,
+        answers: &[(u64, i64, String)],
+        parts: &[artoo_shell_api::notices::Listed],
+        cx: &App,
+    ) -> usize {
+        self.unread(cx)
             + answers
                 .iter()
                 .filter(|(_, _, key)| !self.is_read(key))
                 .count()
+            + parts.iter().filter(|r| !self.is_read(&r.key)).count()
     }
 
-    /// Something about request `iid` is not read yet: the menu's blue dot on it (#71).
-    pub fn unread_of(&self, iid: u64) -> bool {
-        self.list
-            .iter()
+    /// Something listed about request `iid` is not read yet: the menu's blue dot on it (#71).
+    pub fn unread_of(&self, iid: u64, cx: &App) -> bool {
+        self.listed(cx)
             .any(|n| n.iid == iid && !self.read.contains(&n.key))
     }
 
@@ -466,6 +537,8 @@ fn from_todo(t: &Todo) -> Notice {
         kind: match t.action.as_str() {
             "mentioned" | "directly_addressed" => Kind::Mention,
             "review_requested" => Kind::Review,
+            "build_failed" => Kind::Failed,
+            "unmergeable" => Kind::Unmergeable,
             _ => Kind::Todo,
         },
         iid: t.iid,
@@ -693,6 +766,7 @@ impl Requests {
 fn told(n: Notice) -> News {
     News {
         verb: n.kind_verb(),
+        kind: n.kind.id(),
         key: n.key,
         iid: n.iid,
         title: n.title,

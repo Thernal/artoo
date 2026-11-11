@@ -23,3 +23,7 @@ artoo-ui-kit = { path = "../ui-kit" }
 anyhow.workspace = true
 git2.workspace = true
 gpui.workspace = true
+
+[dev-dependencies]
+# A test app the kinds of notice are offered in (`inbox`).
+gpui = { workspace = true, features = ["test-support"] }

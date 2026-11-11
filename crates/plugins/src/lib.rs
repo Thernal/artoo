@@ -16,6 +16,8 @@ use gpui::App;
 /// installs.
 pub fn install(cx: &mut App) {
     let (plugins, crash) = load::load(cx);
+    // The plugins have installed: a source of notices is offered as one installs, never after (#196).
+    artoo_shell_api::notices::close(cx);
     settings::install(plugins, crash, cx);
 }
 

@@ -37,6 +37,9 @@ impl Workspace {
     /// Section `section` of Settings on: its rows' owners read what they show anew (`Rows::opened`).
     pub(super) fn open_settings_section(&mut self, section: &'static str, cx: &mut Context<Self>) {
         self.settings_section = section;
+        if section == super::notice_settings::NOTIFICATIONS {
+            self.read_notices_allowed(cx);
+        }
         let opened: Vec<_> = (self.settings_rows(section).into_iter())
             .filter_map(|r| r.opened)
             .collect();
@@ -64,7 +67,11 @@ impl Workspace {
         self.rv().set_settings(self.settings.clone(), cx);
     }
 
-    fn change_settings(&mut self, change: impl FnOnce(&mut Self), cx: &mut Context<Self>) {
+    pub(super) fn change_settings(
+        &mut self,
+        change: impl FnOnce(&mut Self),
+        cx: &mut Context<Self>,
+    ) {
         change(self);
         self.save_settings(cx);
         super::share_settings(&self.settings);
@@ -174,24 +181,6 @@ impl Workspace {
             },
         ));
         let update_rows = self.settings_rows(GENERAL);
-        let system = switch("system-notifications", s.system_notifications).on_click(cx.listener(
-            |this, _: &ClickEvent, _, cx| {
-                let on = !this.settings.system_notifications;
-                this.change_settings(|this| this.settings.system_notifications = on, cx);
-                // Turned on: the system asks for permission where it has one (macOS), and says
-                // where they will come.
-                if on {
-                    super::system_notes::identify(cx);
-                    cx.show_system_notification(gpui::SystemNotification {
-                        tag: "system-notifications-on".into(),
-                        title: "Notifications are on".into(),
-                        body: "Artoo tells you here what comes while it is in the background."
-                            .into(),
-                        actions: Vec::new(),
-                    });
-                }
-            },
-        ));
 
         let section = self.settings_section;
         // Rows that fill the section take the page's height: the theme editor's tokens scroll beside a preview that
@@ -242,11 +231,6 @@ impl Workspace {
                     },
                 ))
                 .child(item("Open a repository in", "", open_in))
-                .child(item(
-                    "System notifications",
-                    "While Artoo is in the background: the Inbox's news, and an agent's.",
-                    system,
-                ))
                 .child(
                     div()
                         .flex()
@@ -272,6 +256,7 @@ impl Workspace {
                 ))
                 .into_any_element(),
             KEYBOARD => self.render_keyboard_settings(cx).into_any_element(),
+            super::notice_settings::NOTIFICATIONS => self.render_notice_settings(cx),
             // A feature's section: the parts' rows and the window root's in their places (Settings → Agents,
             // Appearance), or the rows that fill it now (the theme editor).
             other => {
@@ -366,6 +351,7 @@ pub(super) fn install(cx: &mut App) {
     for (id, title, order) in [
         (DIFF, "Diff", 10),
         (GENERAL, "General", 30),
+        (super::notice_settings::NOTIFICATIONS, "Notifications", 35),
         (REPOSITORY, "Repository", 40),
         (KEYBOARD, "Keyboard", 70),
     ] {

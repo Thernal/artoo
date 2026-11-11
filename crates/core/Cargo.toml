@@ -48,6 +48,8 @@ core-graphics.workspace = true
 objc2.workspace = true
 objc2-app-kit.workspace = true
 objc2-foundation.workspace = true
+objc2-user-notifications.workspace = true
+block2.workspace = true
 
 [features]
 # A snapshot run (the app's `snapshot`) never writes the user's state files.

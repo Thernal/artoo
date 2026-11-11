@@ -61,22 +61,57 @@ impl Workspace {
 
     /// A toast: news alone, or with a button, about `count` things — a toast with the same button
     /// still showing goes, its count added to this one's, and the toast words the sum (#150).
+    ///
+    /// A notice (a toast with a kind, #196) shows and goes to the system as its kind's switches say,
+    /// a plugin's words starting with its name; a kind no source offered is refused.
     pub(super) fn show_toast(&mut self, toast: Toast, cx: &mut Context<Self>) {
+        use artoo_shell_api::notices::{self, Channel};
+        let (shows, sends, guest) = match toast.kind {
+            Some(kind) => {
+                let Some((_, source)) = notices::kind(cx, kind) else {
+                    crate::applog::line(&format!(
+                        "a notice of kind {kind}, offered by none: refused"
+                    ));
+                    return;
+                };
+                let guest = source.guest.then_some(source.name);
+                let sends = notices::on(cx, kind, Channel::System);
+                (notices::on(cx, kind, Channel::Toast), sends, guest)
+            }
+            None => (true, toast.system.is_some(), None),
+        };
+        let say = toast.say.clone();
+        let say = move |n: usize| match guest {
+            Some(name) => format!("{name} · {}", say(n)),
+            None => say(n),
+        };
+        let tag = toast.system.clone().or(toast.kind.map(str::to_owned));
         let Some((words, act)) = toast.button else {
-            return self.toast_info((toast.say)(toast.count).into(), cx);
+            let text = say(toast.count);
+            if sends && let Some(tag) = tag {
+                let project = self.tab_title();
+                let open = super::system_notes::Open::Here;
+                self.notify_system(tag, text.clone(), project, open, cx);
+            }
+            if shows {
+                self.toast_info(text.into(), cx);
+            }
+            return;
         };
         let press = Press { words, act };
         let count = toast.count + self.toasts.update(cx, |t, _| t.take_count(&press));
-        let text = (toast.say)(count);
+        let text = say(count);
         // An agent's news goes to the system's notifications too, the newer replacing the older
         // (#26).
-        if let Some(tag) = toast.system {
+        if sends && let Some(tag) = tag {
             let open = super::system_notes::Open::Act(press.clone());
             let project = self.tab_title();
             self.notify_system(tag, text.clone(), project, open, cx);
         }
-        self.toasts
-            .update(cx, |t, cx| t.show_act(text.into(), press, count, cx));
+        if shows {
+            self.toasts
+                .update(cx, |t, cx| t.show_act(text.into(), press, count, cx));
+        }
         cx.notify();
     }
 

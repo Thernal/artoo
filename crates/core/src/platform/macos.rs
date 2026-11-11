@@ -25,6 +25,54 @@ pub fn set_icon() {
     }
 }
 
+/// The Dock icon's badge (#196): `count` when there is something, none at zero.
+pub fn dock_badge(count: usize) {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSApplication;
+    use objc2_foundation::NSString;
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let label = (count > 0).then(|| NSString::from_str(&count.to_string()));
+    NSApplication::sharedApplication(mtm)
+        .dockTile()
+        .setBadgeLabel(label.as_deref());
+}
+
+/// Whether macOS lets Artoo post notifications (#196): `Some(false)` when the person turned them off for it in System
+/// Settings, `Some(true)` when allowed, `None` when not asked yet or not known — a binary outside a bundle has no
+/// notification center (asking aborts, as GPUI's own guard says). It waits for macOS's answer: off the window's
+/// thread.
+pub fn notifications_allowed() -> Option<bool> {
+    use block2::RcBlock;
+    use objc2_foundation::NSBundle;
+    use objc2_user_notifications::{
+        UNAuthorizationStatus, UNNotificationSettings, UNUserNotificationCenter,
+    };
+    use std::ptr::NonNull;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    NSBundle::mainBundle().bundleIdentifier()?;
+    let (send, answer) = mpsc::channel();
+    let done = RcBlock::new(move |settings: NonNull<UNNotificationSettings>| {
+        // SAFETY: macOS hands a valid settings object for the call.
+        let status = unsafe { settings.as_ref() }.authorizationStatus();
+        let _ = send.send(status);
+    });
+    UNUserNotificationCenter::currentNotificationCenter()
+        .getNotificationSettingsWithCompletionHandler(&done);
+    match answer.recv_timeout(Duration::from_secs(2)).ok()? {
+        UNAuthorizationStatus::Denied => Some(false),
+        UNAuthorizationStatus::NotDetermined => None,
+        _ => Some(true),
+    }
+}
+
+/// System Settings → Notifications, at Artoo's own row where macOS can.
+pub const NOTIFICATION_SETTINGS: &str = "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=io.github.thernal.artoo";
+
 /// Whether System Settings → Accessibility → Display → Reduce motion is on (#56).
 pub fn reduce_motion() -> bool {
     objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion()

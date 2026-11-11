@@ -296,9 +296,12 @@ impl Agents for TabAgents {
 
     fn inbox_answers(&self, cx: &App) -> Vec<(u64, i64, String)> {
         let on = self.chats.read(cx).listening();
+        let lists = |kind: &str| {
+            artoo_shell_api::notices::is_on(cx, kind, artoo_shell_api::notices::Channel::Inbox)
+        };
         self.comments
             .read(cx)
-            .inbox_answers(&|session| on.contains(session))
+            .inbox_answers(&|session| on.contains(session), &lists)
     }
 
     fn take_answers(&self, cx: &mut App) -> Option<Vec<(u64, State, usize)>> {

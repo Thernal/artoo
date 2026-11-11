@@ -68,8 +68,11 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 # The key window's picture for a report, its own window only (#118; already in GPUI's graph).
 core-graphics = "0.24"
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSAccessibility", "NSApplication", "NSImage", "NSResponder", "NSWindow", "NSWorkspace"] }
-objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSString", "NSURL"] }
+objc2-app-kit = { version = "0.3", features = ["NSAccessibility", "NSApplication", "NSDockTile", "NSImage", "NSResponder", "NSWindow", "NSWorkspace"] }
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSBundle", "NSData", "NSString", "NSURL"] }
+# Whether macOS lets Artoo post notifications (#196; already in GPUI's graph).
+objc2-user-notifications = "0.3"
+block2 = "0.6"
 
 [package]
 name = "artoo"

@@ -6,6 +6,12 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **Settings → Notifications.** Each kind of news — six from merge requests, four from agents, and a plugin's — has
+  its own switches for the Inbox, a toast and the system's notifications. System notifications moved here from
+  General, and say so when macOS has them off for Artoo, with a way to its settings. The Dock's icon counts what
+  waits in the Inbox. A failed pipeline or a request that can't merge is its own kind, apart from other to-dos, and
+  an agent asking you something now shows a toast. Plugins add their kinds, and their own rows in the Inbox.
+
 - **Images open whole.** A click on an image in a merge request's description or comments, or on an image in a diff,
   opens it over the window with its name, size, who added it and when; ← → go through the page's other images,
   Download saves it to Downloads, Open in GitLab (or GitHub) shows it there, esc closes. Plugins open their images

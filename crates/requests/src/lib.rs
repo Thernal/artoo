@@ -52,6 +52,7 @@ gpui::actions!(
 /// parts in every tab: a request being written's header and a request's line on the item page, the space's own
 /// page, a request's Overview and Commits among the tab's services (`tabs`); and the Inbox's (`inbox_parts`).
 pub fn install(cx: &mut App) {
+    artoo_shell_api::notices::add_source(cx, notices::source());
     spaces::add(
         cx,
         SpaceInfo {

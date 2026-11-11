@@ -376,6 +376,13 @@ impl Handle {
         self.1.upgrade()?.get()
     }
 
+    /// The parts' rows the Inbox lists now (#196).
+    fn parts(&self, cx: &App) -> Vec<artoo_shell_api::notices::Listed> {
+        (self.1.upgrade())
+            .map(|s| artoo_shell_api::notices::Listers::of(&s).rows(cx))
+            .unwrap_or_default()
+    }
+
     /// Reads the notices.
     fn read_notices_with<R>(
         &self,
@@ -942,12 +949,13 @@ impl artoo_requests_api::Requests for Handle {
     }
 
     fn unread_of(&self, number: u64, cx: &App) -> bool {
-        self.read_notices_with(cx, |n| n.unread_of(number))
+        self.read_notices_with(cx, |n| n.unread_of(number, cx))
             .unwrap_or(false)
     }
 
     fn unread_with(&self, answers: artoo_requests_api::Answers, cx: &App) -> usize {
-        self.read_notices_with(cx, |n| n.unread_with(answers))
+        let parts = self.parts(cx);
+        self.read_notices_with(cx, |n| n.unread_with(answers, &parts, cx))
             .unwrap_or(0)
     }
 
@@ -969,13 +977,15 @@ impl artoo_requests_api::Requests for Handle {
         let (Some(view), Some(notices)) = (self.inbox(), self.notices()) else {
             return Vec::new();
         };
-        view.read(cx).rows(notices.read(cx), answers)
+        let parts = self.parts(cx);
+        view.read(cx).rows(notices.read(cx), answers, &parts, cx)
     }
 
     fn inbox_current(&self, answers: artoo_requests_api::Answers, cx: &App) -> Option<InboxRow> {
+        let parts = self.parts(cx);
         self.inbox()?
             .read(cx)
-            .current(self.notices()?.read(cx), answers)
+            .current(self.notices()?.read(cx), answers, &parts, cx)
     }
 
     fn inbox_step(
@@ -984,17 +994,30 @@ impl artoo_requests_api::Requests for Handle {
         down: bool,
         cx: &App,
     ) -> Option<InboxRow> {
+        let parts = self.parts(cx);
         self.inbox()?
             .read(cx)
-            .step(self.notices()?.read(cx), answers, down)
+            .step(self.notices()?.read(cx), answers, &parts, down, cx)
     }
 
     fn inbox_pick(&self, row: Option<InboxRow>, cx: &mut App) {
         let (Some(view), Some(notices)) = (self.inbox(), self.notices()) else {
             return;
         };
+        // A part's row looked at: read, until its key changes (#196).
+        let part = match row {
+            Some(InboxRow::Part(id)) => (self.parts(cx).into_iter())
+                .find(|r| artoo_shell_api::notices::row_id(&r.key) == id)
+                .map(|r| r.key),
+            _ => None,
+        };
         view.update(cx, |v, cx| {
-            notices.update(cx, |n, _| crate::inbox::pick(row, v, n))
+            notices.update(cx, |n, _| {
+                crate::inbox::pick(row, v, n);
+                if let Some(key) = part {
+                    n.mark_read(key);
+                }
+            })
         });
     }
 

@@ -257,7 +257,8 @@ impl Workspace {
         let toast = Toast::new("")
             .counted(count, say)
             .button(words, act)
-            .system(tag);
+            .system(tag)
+            .kind(artoo_agents_api::notices::SHOWS);
         self.show_toast(toast, cx);
     }
 

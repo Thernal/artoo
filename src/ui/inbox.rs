@@ -97,8 +97,30 @@ impl Workspace {
                     requests.mark_read(key, cx);
                 }
             }
+            // A part's row is read as the requests pick it (#196).
+            InboxRow::Part(_) => {}
         }
         cx.notify();
+    }
+
+    /// A part's row `id` (a plugin's, #196), with what lists it, while it is listed.
+    fn inbox_part(
+        &self,
+        id: u64,
+        cx: &App,
+    ) -> Option<(
+        artoo_shell_api::notices::Lister,
+        artoo_shell_api::notices::Listed,
+    )> {
+        artoo_shell_api::notices::Listers::of(&self.services).find(id, cx)
+    }
+
+    /// A part's row opened: its part shows what it is about.
+    fn open_inbox_part(&mut self, id: u64, cx: &mut Context<Self>) {
+        if let Some((lister, row)) = self.inbox_part(id, cx) {
+            self.inbox = false;
+            (lister.open)(&row.key, cx);
+        }
     }
 
     /// An empty reply goes when another notice is chosen; one with text stays until sent or
@@ -117,6 +139,7 @@ impl Workspace {
         match self.inbox_current(cx) {
             Some(InboxRow::Agent(id)) => self.open_agent_note(id, cx),
             Some(InboxRow::Notice(ix)) => self.open_notice(ix, cx),
+            Some(InboxRow::Part(id)) => self.open_inbox_part(id, cx),
             None => {}
         }
     }
@@ -136,6 +159,15 @@ impl Workspace {
                 self.inbox_step(true, cx);
             }
             Some(InboxRow::Notice(ix)) => self.dismiss_notice(ix, cx),
+            // Done at its source too, where its part says how; read already.
+            Some(InboxRow::Part(id)) => {
+                if let Some((lister, row)) = self.inbox_part(id, cx)
+                    && let Some(done) = lister.done
+                {
+                    done(&row.key, cx);
+                }
+                self.inbox_step(true, cx);
+            }
             None => {}
         }
     }
@@ -163,9 +195,11 @@ impl Workspace {
     /// r in the Inbox: the composer under the selected notice. A review request has nothing to
     /// answer.
     pub(super) fn reply_in_inbox(&mut self, cx: &mut Context<Self>) {
-        // An agent's question: your answer, in its thread.
-        if let Some(InboxRow::Agent(id)) = self.inbox_current(cx) {
-            return self.start_answer(id, cx);
+        // An agent's question: your answer, in its thread; a part's row has nothing to reply to.
+        match self.inbox_current(cx) {
+            Some(InboxRow::Agent(id)) => return self.start_answer(id, cx),
+            Some(InboxRow::Part(_)) => return,
+            _ => {}
         }
         let Some((iid, discussion, spot)) = self.requests_api().and_then(|r| r.inbox_reply_to(cx))
         else {
@@ -208,6 +242,13 @@ impl Workspace {
                 self.open_notice(ix, cx)
             }
             InboxEvent::Done(ix) => self.dismiss_notice(ix, cx),
+            InboxEvent::PickPart(id) => {
+                if self.compact() {
+                    return self.open_inbox_part(id, cx);
+                }
+                self.inbox_select(InboxRow::Part(id), cx)
+            }
+            InboxEvent::OpenPart(id) => self.open_inbox_part(id, cx),
             InboxEvent::Reply => self.reply_in_inbox(cx),
             InboxEvent::Resolve { iid, id, resolved } => self.inbox_resolve(iid, id, resolved, cx),
             InboxEvent::Menu { iid, at } => self.request_context(iid, at, cx),

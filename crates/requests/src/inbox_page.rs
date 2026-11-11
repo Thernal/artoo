@@ -9,7 +9,7 @@ use crate::inbox_view::{
     self, NoticeLook, OnInbox, RowLook, foot_keys, notice_preview, notice_row,
 };
 use crate::list;
-use crate::notices::{Kind, Notices};
+use crate::notices::Notices;
 use crate::requests::{Acts, Requests};
 use artoo_agents_api::comment::State;
 use artoo_agents_api::tab::Agents;
@@ -109,15 +109,16 @@ impl InboxPage {
         let answers = (services.get::<Rc<dyn Agents>>())
             .map(|a| a.inbox_answers(cx))
             .unwrap_or_default();
+        let parts = artoo_shell_api::notices::Listers::of(&services).rows(cx);
         let (notices, view) = (self.notices.read(cx), self.view.read(cx));
-        let rows = view.rows(notices, &answers);
+        let rows = view.rows(notices, &answers, &parts, cx);
         let body = if !notices.loaded && rows.is_empty() {
             inbox_view::loading(self.frame.list_width(cx))
         } else if rows.is_empty() {
-            let others = !notices.list.is_empty() || !answers.is_empty();
+            let others = !notices.list.is_empty() || !answers.is_empty() || !parts.is_empty();
             inbox_view::empty(view.filter, others, &on)
         } else {
-            self.panes(&rows, &answers, &host, &on, handle, cx)
+            self.panes(&rows, &answers, &parts, &host, &on, handle, cx)
         };
         div()
             .flex_1()
@@ -138,17 +139,25 @@ impl InboxPage {
     }
 
     /// The list, and the row selected previewed and answerable.
+    #[allow(clippy::too_many_arguments)]
     fn panes(
         &self,
         rows: &[InboxRow],
         answers: &[(u64, i64, String)],
+        parts: &[artoo_shell_api::notices::Listed],
         host: &Rc<dyn InboxHost>,
         on: &OnInbox,
         handle: Option<AnyElement>,
         cx: &App,
     ) -> AnyElement {
         let (notices, view) = (self.notices.read(cx), self.view.read(cx));
-        let current = view.current(notices, answers);
+        let current = view.current(notices, answers, parts, cx);
+        let part =
+            |id: u64| (parts.iter()).find(|r| artoo_shell_api::notices::row_id(&r.key) == id);
+        // A part's row names its source (`Jira`), as the registry has it.
+        let source = |r: &artoo_shell_api::notices::Listed| {
+            artoo_shell_api::notices::kind(cx, r.kind).map_or("", |(_, s)| s.name)
+        };
         let wide = self.widths.room("inbox").second();
         let today = format::date(now());
         let mut list: Vec<AnyElement> = Vec::new();
@@ -160,6 +169,7 @@ impl InboxPage {
                     .iter()
                     .find(|(i, ..)| *i == id)
                     .map_or(0, |(_, at, _)| *at),
+                InboxRow::Part(id) => part(id).map_or(0, |r| r.at),
             };
             let heading = if format::date(at) == today {
                 "Today"
@@ -190,6 +200,17 @@ impl InboxPage {
                     };
                     host.answer_row(id, look, cx)
                 }
+                InboxRow::Part(id) => match part(id) {
+                    Some(r) => {
+                        let look = RowLook {
+                            fresh: !notices.is_read(&r.key),
+                            on: picked,
+                            wide,
+                        };
+                        inbox_view::part_row(r, source(r), look, on).into_any_element()
+                    }
+                    None => div().into_any_element(),
+                },
             });
         }
         let preview = current
@@ -198,7 +219,7 @@ impl InboxPage {
                 InboxRow::Notice(ix) => {
                     let n = notices.list.get(ix)?;
                     // A review request has nothing to answer: no composer is drawn for it.
-                    let answerable = !matches!(n.kind, Kind::Review | Kind::Todo);
+                    let answerable = n.kind.answerable();
                     let rq = self.requests.read(cx);
                     let look = NoticeLook {
                         ix: notices.at,
@@ -214,6 +235,7 @@ impl InboxPage {
                     Some(notice_preview(n, look, on, cx).into_any_element())
                 }
                 InboxRow::Agent(id) => host.answer_preview(id, cx),
+                InboxRow::Part(id) => part(id).map(|r| inbox_view::part_preview(r, source(r), on)),
             })
             .unwrap_or_else(|| {
                 div()
@@ -268,7 +290,7 @@ impl InboxPage {
                             .overflow_y_scroll()
                             .child(preview),
                     )
-                    .child(foot_keys(agent))
+                    .child(foot_keys(agent, matches!(current, Some(InboxRow::Part(_)))))
             }))
             .into_any_element()
     }

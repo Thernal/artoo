@@ -43,6 +43,7 @@ mod merging;
 mod motion;
 mod narrow;
 mod nav;
+mod notice_settings;
 mod notifications;
 mod open_in;
 mod opening;
@@ -1252,6 +1253,8 @@ pub struct Workspace {
     tabs: shell::TabModel,
     settings: Settings,
     settings_open: bool,
+    /// What macOS says of Artoo's notifications (#196): `Some(false)` refused, `None` not known.
+    notices_allowed: Option<bool>,
     watch: watch::Watch,
     /// The review comment being written, and the Review island.
     compose: Option<composer::Compose>,
@@ -1395,6 +1398,7 @@ impl Workspace {
             tabs: Default::default(),
             settings,
             settings_open: false,
+            notices_allowed: None,
             watch: watch::Watch::default(),
             compose: None,
             last_request_target: None,
@@ -2890,6 +2894,52 @@ mod tests {
         installed(|cx| commands::bindings(artoo_shell_api::actions(cx), k))
     }
 
+    /// The app's kinds of notice (#196, Design round 6 M4): six of merge requests' then four of the agents', with the
+    /// defaults the board decided.
+    #[test]
+    fn the_apps_kinds_of_notice_are_listed_with_their_defaults() {
+        use artoo_shell_api::notices::{Channel, sources};
+        let table = installed(|cx| {
+            (sources(cx).into_iter())
+                .map(|s| {
+                    let kinds = (s.kinds.iter())
+                        .map(|k| {
+                            let on = |c| k.default_on(c);
+                            let inbox = k.inbox.map(|_| on(Channel::Inbox));
+                            (k.name, inbox, on(Channel::Toast), on(Channel::System))
+                        })
+                        .collect::<Vec<_>>();
+                    (s.name, kinds)
+                })
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(
+            table,
+            [
+                (
+                    "Merge requests",
+                    vec![
+                        ("Review requests", Some(true), false, true),
+                        ("Mentions", Some(true), false, true),
+                        ("Comments", Some(true), false, true),
+                        ("Discussions resolved", Some(true), false, false),
+                        ("Pipeline failed, can't merge", Some(true), false, true),
+                        ("Other to-dos", Some(true), false, false),
+                    ]
+                ),
+                (
+                    "Agents",
+                    vec![
+                        ("An agent asks you", Some(true), true, true),
+                        ("An agent finished", Some(true), false, true),
+                        ("An agent shows you something", None, true, true),
+                        ("An agent comes or goes", None, true, false),
+                    ]
+                ),
+            ]
+        );
+    }
+
     /// The contributions check (#171): with every feature installed, nothing was offered twice.
     #[test]
     fn every_feature_installed_offers_each_thing_once() {
@@ -2983,8 +3033,8 @@ mod tests {
         assert!(switch.is_some_and(|s| s > 30));
     }
 
-    /// Settings' left column: the window root's sections, the agents' between Merge requests and Keyboard, the
-    /// plugins' last.
+    /// Settings' left column: the window root's sections, Notifications after General (#196), the agents' between
+    /// Merge requests and Keyboard, the plugins' last.
     #[test]
     fn settings_lists_its_sections_in_their_places() {
         let titles = installed(|cx| {
@@ -2999,6 +3049,7 @@ mod tests {
                 "Diff",
                 "Appearance",
                 "General",
+                "Notifications",
                 "Repository",
                 "Merge requests",
                 "Agents",

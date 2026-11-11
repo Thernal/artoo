@@ -197,9 +197,13 @@ impl Workspace {
             self.project.clone().or(self.root.clone()),
             self.root.clone(),
         );
+        // The Dock counts what waits in every tab's Inbox (#196).
+        self.dock_count(cx);
         let (changed, said) = self.agents.beat(root.as_deref(), here, cx);
         for text in said {
-            self.toast_info(text.into(), cx);
+            let notice =
+                artoo_shell_api::Toast::new(text).kind(artoo_agents_api::notices::PRESENCE);
+            self.show_toast(notice, cx);
         }
         if changed {
             cx.notify();

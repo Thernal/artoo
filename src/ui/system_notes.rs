@@ -28,6 +28,8 @@ pub(super) enum Open {
     Act(Press),
     /// The Agents window, its answers in it.
     Agents,
+    /// The tab alone: a notice with no button (a plugin's).
+    Here,
 }
 
 /// The notifications posted, by tag: the tab each is about and what a click opens there.
@@ -125,12 +127,28 @@ impl Workspace {
         });
     }
 
-    /// New notices in the Inbox (#26): each said apart, or many as one.
+    /// New notices in the Inbox (#26): each said apart, or many as one — those of a kind whose
+    /// System is on; a toast for those whose Toast is (#196).
     pub(super) fn notify_notices(
         &mut self,
         fresh: &[artoo_requests_api::News],
         cx: &mut Context<Self>,
     ) {
+        use artoo_shell_api::notices::{Channel, on};
+        let toasts: Vec<_> = (fresh.iter())
+            .filter(|n| on(cx, n.kind, Channel::Toast))
+            .map(|n| format!("{} {} · {}", n.who, n.verb, super::words::number(n.iid)))
+            .collect();
+        for text in toasts {
+            self.toast_info(text.into(), cx);
+        }
+        let fresh: Vec<_> = fresh
+            .iter()
+            .filter(|n| on(cx, n.kind, Channel::System))
+            .collect();
+        if fresh.is_empty() {
+            return;
+        }
         let project = self.tab_title();
         if fresh.len() > MOST_APART {
             let title = format!("{} new in {project}", fresh.len());
@@ -150,14 +168,17 @@ impl Workspace {
     }
 
     /// An agent's answers (#26): comments it addressed or replied to since `before` (each one's
-    /// id, state and replies then), said by the agent that took them.
+    /// id, state and replies then), said by the agent that took them — one it finished
+    /// (`agents.done`) and one it asks on (`agents.asks`) each as its kind's switches say (#196).
     pub(super) fn notify_answers(
         &mut self,
         before: &[(u64, crate::comment::State, usize)],
         cx: &mut Context<Self>,
     ) {
         use crate::comment::State;
-        let mut by: HashMap<String, usize> = HashMap::new();
+        use artoo_agents_api::notices::{ASKS, DONE};
+        use artoo_shell_api::notices::{Channel, on};
+        let mut by: HashMap<(String, &'static str), usize> = HashMap::new();
         for c in self.comments(cx) {
             let Some(&(_, state, replies)) = before.iter().find(|(id, ..)| *id == c.id) else {
                 continue;
@@ -173,16 +194,24 @@ impl Workspace {
                 .iter()
                 .find(|chat| chat.session == session)
                 .map_or_else(|| "An agent".to_owned(), |chat| chat.agent.clone());
-            *by.entry(agent.to_owned()).or_default() += 1;
+            let kind = if addressed { DONE } else { ASKS };
+            *by.entry((agent.to_owned(), kind)).or_default() += 1;
         }
         let project = self.tab_title();
-        for (agent, n) in by {
-            let title = match n {
-                1 => format!("{agent} answered your comment"),
-                n => format!("{agent} answered {n} of your comments"),
+        for ((agent, kind), n) in by {
+            let title = match (kind == DONE, n) {
+                (true, 1) => format!("{agent} finished your comment"),
+                (true, n) => format!("{agent} finished {n} of your comments"),
+                (false, 1) => format!("{agent} answered your comment"),
+                (false, n) => format!("{agent} answered {n} of your comments"),
             };
-            let tag = format!("answers:{agent}");
-            self.notify_system(tag, title, project.clone(), Open::Agents, cx);
+            if on(cx, kind, Channel::Toast) {
+                self.toast_info(title.clone().into(), cx);
+            }
+            if on(cx, kind, Channel::System) {
+                let tag = format!("answers:{agent}:{kind}");
+                self.notify_system(tag, title, project.clone(), Open::Agents, cx);
+            }
         }
     }
 
@@ -203,6 +232,7 @@ impl Workspace {
                     self.toggle_tool(agents, cx);
                 }
             }
+            Open::Here => {}
         }
         cx.notify();
     }

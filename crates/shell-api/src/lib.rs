@@ -47,6 +47,7 @@ pub mod bar;
 pub mod frame;
 pub mod keys;
 pub mod links;
+pub mod notices;
 pub mod palette;
 pub mod render;
 pub mod search;
@@ -427,6 +428,9 @@ pub struct Toast {
     /// With a button, the tag it also goes to the system's notifications under while no window of Artoo's is in
     /// front, the newer replacing the older; a click there runs the button.
     pub system: Option<String>,
+    /// A notice's kind (`notices`, #196): its switches say whether it shows as a toast and goes to the system; a
+    /// plugin's says its name first. None: feedback, shown as it is.
+    pub kind: Option<&'static str>,
 }
 
 /// Which toasts go (`Frame::drop_toasts`): those whose button runs an action it picks.
@@ -441,6 +445,7 @@ impl Toast {
             count: 1,
             button: None,
             system: None,
+            kind: None,
         }
     }
 
@@ -460,6 +465,12 @@ impl Toast {
     /// To the system's notifications as well, under `tag`.
     pub fn system(mut self, tag: impl Into<String>) -> Self {
         self.system = Some(tag.into());
+        self
+    }
+
+    /// A notice of kind `id` (`notices::Kind::id`): shown and sent as its switches say.
+    pub fn kind(mut self, id: &'static str) -> Self {
+        self.kind = Some(id);
         self
     }
 }
@@ -979,6 +990,11 @@ pub fn add_action(cx: &mut App, action: Action) {
 fn refuse(registry: &mut Registry, what: String) {
     artoo_core::applog::line(&format!("{what} offered twice: the second refused"));
     registry.refused.push(what);
+}
+
+/// `what`, refused by a registry of its own (`notices`), listed with the rest.
+pub(crate) fn note_refused(cx: &mut App, what: String) {
+    cx.default_global::<Registry>().refused.push(what);
 }
 
 /// What was offered a second time and refused (the contributions check: none).

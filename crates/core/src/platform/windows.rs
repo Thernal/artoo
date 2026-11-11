@@ -7,6 +7,17 @@ pub const MAC: bool = false;
 pub const TRANSPARENT_TITLEBAR: bool = false;
 pub const TITLEBAR_INSET: f32 = 12.;
 
+/// No badge on the taskbar's icon here yet (#196).
+pub fn dock_badge(_count: usize) {}
+
+/// Not known here: the system has no answer Artoo reads (#196).
+pub fn notifications_allowed() -> Option<bool> {
+    None
+}
+
+/// No pane of the system's to open here.
+pub const NOTIFICATION_SETTINGS: &str = "";
+
 /// The executable carries no icon resource yet; the taskbar shows the default one.
 pub fn set_icon() {}
 

@@ -403,6 +403,8 @@ pub struct Settings {
     /// What the Inbox and the agents bring while Artoo is not in front goes to the system's
     /// notifications too (#26).
     pub system_notifications: bool,
+    /// The Dock's icon counts the Inbox's unread (#196).
+    pub dock_count: bool,
 }
 
 impl Default for Settings {
@@ -425,6 +427,7 @@ impl Default for Settings {
             animations: true,
             check_updates: true,
             system_notifications: false,
+            dock_count: true,
         }
     }
 }
@@ -464,6 +467,7 @@ impl Settings {
                 "animations" => settings.animations = value != "false",
                 "check_updates" => settings.check_updates = value != "false",
                 "system_notifications" => settings.system_notifications = value == "true",
+                "dock_count" => settings.dock_count = value != "false",
                 "ui_zoom" => {
                     settings.ui_zoom = value.parse().map_or(100, |z: u16| {
                         z.clamp(Settings::ZOOM_MIN, Settings::ZOOM_MAX)
@@ -498,6 +502,7 @@ impl std::fmt::Display for Settings {
         writeln!(f, "animations={}", self.animations)?;
         writeln!(f, "check_updates={}", self.check_updates)?;
         writeln!(f, "system_notifications={}", self.system_notifications)?;
+        writeln!(f, "dock_count={}", self.dock_count)?;
         writeln!(f, "zoom={}", self.zoom)?;
         writeln!(f, "ui_zoom={}", self.ui_zoom)?;
         if let Some(editor) = &self.editor {
@@ -614,6 +619,7 @@ mod tests {
             animations: false,
             check_updates: false,
             system_notifications: true,
+            dock_count: false,
         };
         assert_eq!(Settings::parse(&settings.to_string()), settings);
     }

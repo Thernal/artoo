@@ -89,7 +89,7 @@ pub(crate) fn inbox_link(web: &WebRemote, services: &Services, cx: &App) -> Resu
         .as_ref()
         .and_then(|r| match r.inbox_current(&answers, cx)? {
             InboxRow::Notice(ix) => r.notice_request(ix, cx),
-            InboxRow::Agent(_) => None,
+            InboxRow::Agent(_) | InboxRow::Part(_) => None,
         });
     match number {
         Some(number) => Ok(request(web, number, requests.as_deref(), cx)),

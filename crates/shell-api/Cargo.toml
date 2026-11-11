@@ -12,3 +12,7 @@ artoo-core = { path = "../core" }
 # A part draws with the kit: the text selection a frame hands it is the kit's markdown's.
 artoo-ui-kit = { path = "../ui-kit" }
 gpui.workspace = true
+
+[dev-dependencies]
+# A test app the registries are offered in (`notices`).
+gpui = { workspace = true, features = ["test-support"] }

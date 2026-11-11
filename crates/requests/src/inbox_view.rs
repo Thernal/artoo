@@ -4,7 +4,7 @@
 //! asks it an `InboxEvent`.
 
 use crate::inbox::{InboxFilter, InboxView};
-use crate::notices::{Kind, Notice};
+use crate::notices::Notice;
 use crate::waiting::{FADED, Waiting};
 use artoo_core::markdown::plain;
 use artoo_hosts_api::{Mr, Thread};
@@ -219,6 +219,147 @@ pub fn notice_row(n: &Notice, ix: usize, look: RowLook, on: &OnInbox) -> Statefu
         .on_click(move |_: &ClickEvent, _, cx| pick(InboxEvent::Pick(ix), cx))
 }
 
+/// A part's row (a plugin's, #196): its source and what happened, what it is about, the start of what was written;
+/// drawn as a notice's is, its source's name before the time.
+pub fn part_row(
+    r: &artoo_shell_api::notices::Listed,
+    source: &str,
+    look: RowLook,
+    on: &OnInbox,
+) -> Stateful<Div> {
+    let RowLook {
+        fresh,
+        on: picked,
+        wide,
+    } = look;
+    let id = artoo_shell_api::notices::row_id(&r.key);
+    let gist = r
+        .text
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("")
+        .trim()
+        .to_owned();
+    let mut tip = vec![
+        format!("{source} · {}", r.says),
+        r.about.clone(),
+        hover::full_date(r.at),
+    ];
+    if !gist.is_empty() {
+        tip.push(r.text.trim().to_owned());
+    }
+    let pick = on.clone();
+    div()
+        .id(("inbox-part", id))
+        .mx(px(6.))
+        .px(px(10.))
+        .py(px(8.))
+        .flex()
+        .items_start()
+        .gap(px(10.))
+        .rounded(px(ROW_RADIUS))
+        .cursor_pointer()
+        .when(picked, |s| s.bg(theme::selected()))
+        .hover(|s| s.bg(theme::hover()))
+        .child(
+            div()
+                .flex_none()
+                .mt(px(6.))
+                .size(px(7.))
+                .rounded_full()
+                .when(fresh, |s| s.bg(theme::accent())),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .child(
+                    div()
+                        .flex()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .cut_in_tip()
+                                .when(fresh, |s| s.font_weight(FontWeight::SEMIBOLD))
+                                .child(r.says.clone()),
+                        )
+                        .children(wide.then(|| {
+                            div()
+                                .flex_none()
+                                .text_size(px(11.))
+                                .text_color(theme::faint())
+                                .child(format!("{source} · {}", format::ago(r.at)))
+                        })),
+                )
+                .children((!r.about.is_empty()).then(|| {
+                    div()
+                        .cut_in_tip()
+                        .text_size(px(12.))
+                        .text_color(theme::accent())
+                        .child(r.about.clone())
+                }))
+                .children((wide && !gist.is_empty()).then(|| {
+                    div()
+                        .cut_in_tip()
+                        .text_size(px(12.))
+                        .text_color(theme::muted())
+                        .child(gist)
+                })),
+        )
+        .tip(tip.join("\n"))
+        .on_click(move |_: &ClickEvent, _, cx| pick(InboxEvent::PickPart(id), cx))
+}
+
+/// A part's row selected: its source and when, what happened, what it is about, what was written, and `Open ↵`.
+pub fn part_preview(
+    r: &artoo_shell_api::notices::Listed,
+    source: &str,
+    on: &OnInbox,
+) -> AnyElement {
+    let id = artoo_shell_api::notices::row_id(&r.key);
+    let open = on.clone();
+    div()
+        .p(px(20.))
+        .flex()
+        .flex_col()
+        .gap(px(10.))
+        .child(
+            div()
+                .flex()
+                .gap_2()
+                .text_size(px(12.))
+                .text_color(theme::muted())
+                .child(source.to_owned())
+                .child(div().flex_1())
+                .child(format::ago(r.at)),
+        )
+        .child(
+            div()
+                .text_size(px(15.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(r.about.clone()),
+        )
+        .child(div().text_color(theme::text()).child(r.says.clone()))
+        .children((!r.text.trim().is_empty()).then(|| {
+            div()
+                .text_size(px(13.))
+                .text_color(theme::muted())
+                .child(r.text.trim().to_owned())
+        }))
+        .child(
+            div().flex().pt(px(4.)).child(
+                artoo_ui_kit::controls::primary_button("inbox-part-open", "Open", "↵")
+                    .on_click(move |_: &ClickEvent, _, cx| open(InboxEvent::OpenPart(id), cx)),
+            ),
+        )
+        .into_any_element()
+}
+
 /// What the notice selected shows besides itself.
 pub struct NoticeLook<'a> {
     /// Its place in the list.
@@ -378,7 +519,7 @@ pub fn notice_preview(n: &Notice, look: NoticeLook, on: &OnInbox, cx: &App) -> D
             .into_any_element(),
         None => div().into_any_element(),
     };
-    let answerable = !matches!(n.kind, Kind::Review | Kind::Todo);
+    let answerable = n.kind.answerable();
     let composer = answerable.then(|| match writing {
         Some(editor) => editor,
         None => {
@@ -438,7 +579,8 @@ pub fn notice_preview(n: &Notice, look: NoticeLook, on: &OnInbox, cx: &App) -> D
 
 /// The keys of the Inbox, along the preview's foot; `agent`: an agent's answer is selected, and whether it says it is
 /// done.
-pub fn foot_keys(agent: Option<bool>) -> Div {
+/// `part`: a part's row selected (a plugin's, #196): it opens and is done, and has nothing to reply to.
+pub fn foot_keys(agent: Option<bool>, part: bool) -> Div {
     let key = |caps: &[&str], what: &'static str| {
         div()
             .flex()
@@ -460,10 +602,10 @@ pub fn foot_keys(agent: Option<bool>) -> Div {
         .child(key(&["J", "K"], "move"))
         .child(key(
             &["↵"],
-            if agent.is_some() {
-                "open at the line"
-            } else {
-                "open request"
+            match (agent.is_some(), part) {
+                (true, _) => "open at the line",
+                (_, true) => "open",
+                _ => "open request",
             },
         ))
         .child(key(
@@ -474,8 +616,10 @@ pub fn foot_keys(agent: Option<bool>) -> Div {
                 None => "done",
             },
         ))
-        .child(key(
-            &["R"],
-            if agent.is_some() { "answer" } else { "reply" },
-        ))
+        .when(!part, |s| {
+            s.child(key(
+                &["R"],
+                if agent.is_some() { "answer" } else { "reply" },
+            ))
+        })
 }

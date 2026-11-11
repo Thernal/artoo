@@ -7,7 +7,7 @@ use crate::requests::Requests;
 use artoo_core::git::{DiffLine, DiffSettings, LineKind, Repo};
 use artoo_requests_api::ReplyTo;
 use artoo_ui_kit::excerpt::{Excerpt, ExcerptLine};
-use gpui::{Context, Entity, Task};
+use gpui::{App, Context, Entity, Task};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -32,6 +32,14 @@ fn lets_agents(filter: InboxFilter) -> bool {
     matches!(filter, InboxFilter::All | InboxFilter::Agents)
 }
 
+/// Whether `filter` lists the parts' rows (a plugin's, #196): All, until the filters name sources (#197).
+fn lets_parts(filter: InboxFilter) -> bool {
+    filter == InboxFilter::All
+}
+
+/// The parts' rows (`artoo_shell_api::notices::Listed`).
+pub use artoo_shell_api::notices::{Listed, row_id};
+
 /// What the Inbox keeps of the notice selected and the code read for it.
 #[derive(Default)]
 pub struct InboxView {
@@ -45,17 +53,26 @@ pub struct InboxView {
     pub reply: Option<(u64, Option<String>)>,
     /// The agent's answer selected, by its comment's id; none: the notice at `notices.at`.
     pub agent: Option<u64>,
+    /// A part's row selected, by its key's id (#196).
+    pub part: Option<u64>,
 }
 
 impl InboxView {
-    /// What the Inbox lists under its filter, newest first: the `notices`, and the agents' `answers`.
-    pub fn rows(&self, notices: &Notices, answers: Answers) -> Vec<InboxRow> {
+    /// What the Inbox lists under its filter, newest first: the `notices` of a kind it lists (#196), and the agents'
+    /// `answers`.
+    pub fn rows(
+        &self,
+        notices: &Notices,
+        answers: Answers,
+        parts: &[Listed],
+        cx: &App,
+    ) -> Vec<InboxRow> {
         let filter = self.filter;
         let mut rows: Vec<(i64, InboxRow)> = notices
             .list
             .iter()
             .enumerate()
-            .filter(|(_, n)| lets(filter, n.kind))
+            .filter(|(_, n)| lets(filter, n.kind) && n.listed(cx))
             .map(|(ix, n)| (n.created, InboxRow::Notice(ix)))
             .collect();
         if lets_agents(filter) {
@@ -65,26 +82,54 @@ impl InboxView {
                     .map(|(id, at, _)| (*at, InboxRow::Agent(*id))),
             );
         }
+        if lets_parts(filter) {
+            rows.extend(parts.iter().map(|r| (r.at, InboxRow::Part(row_id(&r.key)))));
+        }
         rows.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
         rows.into_iter().map(|(_, row)| row).collect()
     }
 
-    /// The selected row: an agent's answer while it waits for you, else the notice.
-    pub fn current(&self, notices: &Notices, answers: Answers) -> Option<InboxRow> {
+    /// The selected row: an agent's answer while it waits for you, else the notice — the first listed when the one
+    /// selected is of a kind no longer listed.
+    pub fn current(
+        &self,
+        notices: &Notices,
+        answers: Answers,
+        parts: &[Listed],
+        cx: &App,
+    ) -> Option<InboxRow> {
+        if let Some(id) = self
+            .part
+            .filter(|id| parts.iter().any(|r| row_id(&r.key) == *id))
+        {
+            return Some(InboxRow::Part(id));
+        }
         match self.agent {
             Some(id) if answers.iter().any(|(i, ..)| *i == id) => Some(InboxRow::Agent(id)),
-            _ => (!notices.list.is_empty()).then_some(InboxRow::Notice(notices.at)),
+            _ => match notices.list.get(notices.at) {
+                Some(n) if n.listed(cx) => Some(InboxRow::Notice(notices.at)),
+                _ => (notices.list.iter().position(|n| n.listed(cx)))
+                    .map(InboxRow::Notice)
+                    .or_else(|| parts.first().map(|r| InboxRow::Part(row_id(&r.key)))),
+            },
         }
     }
 
     /// j k: the row listed after the selected one, or before it; the first when none is.
-    pub fn step(&self, notices: &Notices, answers: Answers, down: bool) -> Option<InboxRow> {
-        let rows = self.rows(notices, answers);
+    pub fn step(
+        &self,
+        notices: &Notices,
+        answers: Answers,
+        parts: &[Listed],
+        down: bool,
+        cx: &App,
+    ) -> Option<InboxRow> {
+        let rows = self.rows(notices, answers, parts, cx);
         if rows.is_empty() {
             return None;
         }
         let at = self
-            .current(notices, answers)
+            .current(notices, answers, parts, cx)
             .and_then(|r| rows.iter().position(|&o| o == r));
         let next = match (at, down) {
             (Some(i), true) => (i + 1).min(rows.len() - 1),
@@ -145,7 +190,7 @@ impl Requests {
 /// What the notice selected in `notices` is answered with; none for a review request or a to-do.
 pub(crate) fn reply_to(notices: &Notices) -> Option<ReplyTo> {
     let n = notices.list.get(notices.at)?;
-    if matches!(n.kind, Kind::Review | Kind::Todo) {
+    if !n.kind.answerable() {
         return None;
     }
     let thread = n.note.and_then(|note| notices.thread_of(n.iid, note));
@@ -162,10 +207,18 @@ pub(crate) fn reply_to(notices: &Notices) -> Option<ReplyTo> {
 /// Row `row` of the Inbox selected in `view` and `notices` (none: the first notice).
 pub(crate) fn pick(row: Option<InboxRow>, view: &mut InboxView, notices: &mut Notices) {
     match row {
-        Some(InboxRow::Agent(id)) => view.agent = Some(id),
+        Some(InboxRow::Agent(id)) => {
+            view.part = None;
+            view.agent = Some(id);
+        }
         Some(InboxRow::Notice(ix)) => {
             view.agent = None;
+            view.part = None;
             notices.at = ix;
+        }
+        Some(InboxRow::Part(id)) => {
+            view.agent = None;
+            view.part = Some(id);
         }
         None => notices.at = 0,
     }
@@ -308,25 +361,51 @@ mod tests {
         notices.list = vec![notice(30, Kind::Review), notice(10, Kind::Mention)];
         let answers = [(7, 20, "agent:7:1".to_owned())];
         let mut view = InboxView::default();
-        let rows = view.rows(&notices, &answers);
-        assert_eq!(
-            rows,
-            [InboxRow::Notice(0), InboxRow::Agent(7), InboxRow::Notice(1)]
-        );
-        assert_eq!(view.current(&notices, &answers), Some(InboxRow::Notice(0)));
-        assert_eq!(
-            view.step(&notices, &answers, false),
-            Some(InboxRow::Notice(0))
-        );
-        view.agent = Some(7);
-        assert_eq!(
-            view.step(&notices, &answers, true),
-            Some(InboxRow::Notice(1))
-        );
-        // An answer no longer waiting is not selected.
-        assert_eq!(view.current(&notices, &[]), Some(InboxRow::Notice(0)));
-        view.filter = InboxFilter::Mentions;
-        assert_eq!(view.rows(&notices, &answers), [InboxRow::Notice(1)]);
+        gpui::TestAppContext::single().update(|cx| {
+            artoo_shell_api::notices::add_source(cx, crate::notices::source());
+            let rows = view.rows(&notices, &answers, &[], cx);
+            assert_eq!(
+                rows,
+                [InboxRow::Notice(0), InboxRow::Agent(7), InboxRow::Notice(1)]
+            );
+            assert_eq!(
+                view.current(&notices, &answers, &[], cx),
+                Some(InboxRow::Notice(0))
+            );
+            assert_eq!(
+                view.step(&notices, &answers, &[], false, cx),
+                Some(InboxRow::Notice(0))
+            );
+            view.agent = Some(7);
+            assert_eq!(
+                view.step(&notices, &answers, &[], true, cx),
+                Some(InboxRow::Notice(1))
+            );
+            // An answer no longer waiting is not selected.
+            assert_eq!(
+                view.current(&notices, &[], &[], cx),
+                Some(InboxRow::Notice(0))
+            );
+            view.filter = InboxFilter::Mentions;
+            assert_eq!(
+                view.rows(&notices, &answers, &[], cx),
+                [InboxRow::Notice(1)]
+            );
+            // Review requests turned off in the Inbox (#196): neither listed nor selected.
+            view.filter = InboxFilter::All;
+            view.agent = None;
+            let off = artoo_shell_api::notices::Channel::Inbox;
+            artoo_shell_api::notices::set(cx, "requests.review", off, false);
+            assert_eq!(
+                view.rows(&notices, &answers, &[], cx),
+                [InboxRow::Agent(7), InboxRow::Notice(1)]
+            );
+            assert_eq!(
+                view.current(&notices, &answers, &[], cx),
+                Some(InboxRow::Notice(1))
+            );
+            assert_eq!(notices.unread(cx), 1);
+        });
     }
 
     #[test]
