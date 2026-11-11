@@ -69,6 +69,10 @@ pub struct Review {
     pub done_card: bool,
     pub review_scope: Option<String>,
     pub fps: Vec<u64>,
+    /// Each file's fingerprint as marks were made before #182: an older mark still counts.
+    pub legacy_fps: Vec<u64>,
+    /// Each file read in another reading of the same change (#182).
+    pub crossed: Vec<bool>,
     /// Generated files the reader asked to see in full.
     pub unfolded: HashSet<String>,
     /// The diff is narrower than 700 px: it is drawn unified whatever the option says.
@@ -189,6 +193,8 @@ impl Review {
             done_card: false,
             review_scope: None,
             fps: Vec::new(),
+            legacy_fps: Vec::new(),
+            crossed: Vec::new(),
             unfolded: HashSet::new(),
             narrow: false,
             tight: false,

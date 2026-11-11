@@ -195,7 +195,7 @@ impl Review {
                             .flatten(),
                     )
                     .children(
-                        self.review_chip(self.file)
+                        self.review_chip(self.file, &host, cx)
                             .map(|chip| chip.on_click(event(|| PaneEvent::Review))),
                     )
                     .children(
@@ -360,7 +360,7 @@ impl Review {
     }
 
     /// The chip on the file's line: mark file `ix` read, and the key; none where nothing is marked.
-    fn review_chip(&self, ix: usize) -> Option<Stateful<Div>> {
+    fn review_chip(&self, ix: usize, host: &Rc<dyn Host>, cx: &gpui::App) -> Option<Stateful<Div>> {
         let state = self.review_state(ix)?;
         Some(
             div()
@@ -381,9 +381,9 @@ impl Review {
                 .cursor_pointer()
                 .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
                 .child(match state {
-                    State::Done => "✓ Reviewed",
-                    State::Stale => "↻ Changed — mark again",
-                    State::Open => "Mark reviewed",
+                    State::Done => "✓ Reviewed".to_owned(),
+                    State::Stale => self.stale_chip(ix, host, cx),
+                    State::Open => "Mark reviewed".to_owned(),
                 })
                 .child(keys::caps(
                     if state == State::Done { "⇧V" } else { "V" },

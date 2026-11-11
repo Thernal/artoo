@@ -5,8 +5,10 @@ use crate::diff::Header;
 use crate::review::Review;
 use artoo_core::git::FileDiff;
 use artoo_core::storage;
-use artoo_review_api::Seen;
+use artoo_review_api::{Host, Seen};
+use gpui::App;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 pub use artoo_review_api::ReviewState as State;
 
@@ -45,6 +47,9 @@ fn cap<V, A: Ord>(map: &mut HashMap<String, V>, limit: usize, keep: &str, age: i
     }
 }
 
+/// Between the open paths of a head's progress (`reviewed-progress.txt`'s fourth column).
+const OPEN_SEP: &str = "\u{1f}";
+
 /// Every mark ever made: per scope, per path, the file when it was marked.
 #[derive(Default)]
 pub struct Store {
@@ -56,6 +61,9 @@ pub struct Store {
     /// `root|commit` → (files reviewed, files, order written) of the last whole diff read up to that
     /// head: how far a branch or request got, for the lists. Kept oldest first too.
     progress: HashMap<String, (u32, u32, u64)>,
+    /// `root|commit` → the paths of that whole diff left open: a mark made in another reading of the same
+    /// head (Since v2) moves its count without the whole diff open (#182).
+    open: HashMap<String, Vec<String>>,
     /// The order the next head or progress written takes.
     next: u64,
 }
@@ -76,7 +84,14 @@ impl Store {
                 let key = parts.next()?.to_owned();
                 let done = parts.next()?.parse().ok()?;
                 let total = parts.next()?.parse().ok()?;
-                Some((key, (done, total, order)))
+                Some((key, (done, total, order), parts.next().map(str::to_owned)))
+            })
+            .map(|(key, progress, open)| {
+                if let Some(open) = open.filter(|o| !o.is_empty()) {
+                    let paths = open.split(OPEN_SEP).map(str::to_owned).collect();
+                    store.open.insert(key.clone(), paths);
+                }
+                (key, progress)
             })
             .collect();
         store.next = store.heads.len().max(store.progress.len()) as u64;
@@ -95,25 +110,104 @@ impl Store {
             .map(|&(done, total, _)| (done, total))
     }
 
-    pub fn set_progress(&mut self, root: &str, head: git2::Oid, done: u32, total: u32) {
+    /// How far the whole diff up to `head` got, and its files left `open`.
+    pub fn set_progress(
+        &mut self,
+        root: &str,
+        head: git2::Oid,
+        done: u32,
+        total: u32,
+        open: Vec<String>,
+    ) {
         let key = Self::head_key(root, head);
-        if self.head_progress(root, head) == Some((done, total)) {
+        if self.head_progress(root, head) == Some((done, total))
+            && self.open.get(&key).is_some_and(|o| *o == open)
+        {
             return;
         }
         if done == 0 {
             self.progress.remove(&key);
+            self.open.remove(&key);
         } else {
             let order = self.tick();
             self.progress.insert(key.clone(), (done, total, order));
+            self.open.insert(key.clone(), open);
         }
         cap(&mut self.progress, 500, &key, |&(_, _, order)| order);
+        self.open.retain(|k, _| self.progress.contains_key(k));
+        self.save_progress();
+    }
+
+    fn save_progress(&self) {
         let mut rows: Vec<_> = self.progress.iter().collect();
         rows.sort_unstable_by_key(|(_, (_, _, order))| *order);
         let lines: Vec<String> = rows
             .into_iter()
-            .map(|(k, (d, t, _))| format!("{k}\t{d}\t{t}"))
+            .map(|(k, (d, t, _))| {
+                let open = self
+                    .open
+                    .get(k)
+                    .map(|o| o.join(OPEN_SEP))
+                    .unwrap_or_default();
+                format!("{k}\t{d}\t{t}\t{open}")
+            })
             .collect();
         storage::save("reviewed-progress.txt", lines.join("\n") + "\n");
+    }
+
+    /// File `path` read in another reading of the whole diff up to `head` (Since v2, #182): no longer open
+    /// there, its count one more, and the head reviewed once none is open. Whether it moved anything.
+    pub fn read_at(&mut self, root: &str, head: git2::Oid, path: &str) -> bool {
+        let key = Self::head_key(root, head);
+        let Some(open) = self.open.get_mut(&key) else {
+            return false;
+        };
+        let Some(at) = open.iter().position(|p| p == path) else {
+            return false;
+        };
+        open.remove(at);
+        let left = open.is_empty();
+        if let Some((done, total, _)) = self.progress.get(&key).copied() {
+            let order = self.tick();
+            self.progress
+                .insert(key, ((done + 1).min(total), total, order));
+        }
+        self.save_progress();
+        if left {
+            self.set_head(root, head, true);
+        }
+        true
+    }
+
+    /// Whether a reading of `root` marked `path` with fingerprint `fp`: the same change read anywhere — a
+    /// comparison of the same branch, a commit that is its only change (#182).
+    pub fn read_anywhere(&self, root: &str, path: &str, fp: u64) -> bool {
+        let prefix = format!("{root}|");
+        (self.marks.iter())
+            .filter(|(scope, _)| scope.starts_with(&prefix))
+            .any(|(_, files)| files.get(path).is_some_and(|m| m.fp == fp))
+    }
+
+    /// Whether `path` was read in a since view up to `head` (`Since v2`): what changed since a version read,
+    /// read to this head (#182).
+    pub fn read_since(&self, root: &str, path: &str, head: git2::Oid) -> bool {
+        let (prefix, suffix) = (format!("{root}|ver:"), format!("..{head}"));
+        (self.marks.iter())
+            .filter(|(scope, _)| scope.starts_with(&prefix) && scope.ends_with(&suffix))
+            .any(|(_, files)| files.contains_key(path))
+    }
+
+    /// Whether `path` was marked in commit `id`'s own diff.
+    pub fn read_in_commit(&self, root: &str, path: &str, id: git2::Oid) -> bool {
+        (self.marks.get(&format!("{root}|commit:{id}"))).is_some_and(|f| f.contains_key(path))
+    }
+
+    /// Whether `path` was marked in any commit of `root`: only then are a branch's commits asked.
+    pub fn read_in_commits(&self, root: &str, path: &str) -> bool {
+        let prefix = format!("{root}|commit:");
+        (self.marks.iter())
+            .filter(|(scope, _)| scope.starts_with(&prefix))
+            .any(|(_, files)| files.contains_key(path))
     }
 
     fn save_heads(&self) {
@@ -280,15 +374,56 @@ pub fn next_open(order: &[usize], now: usize, done: impl Fn(usize) -> bool) -> O
         .filter(|&ix| ix != now)
 }
 
-/// What a file is, for the purpose of "is it the same file I read": its kind of change, its
-/// lines and its contents, hashed (FNV-1a, which does not change between builds).
-pub fn fingerprint(file: &FileDiff) -> u64 {
-    fn feed(h: &mut u64, bytes: &[u8]) {
-        for b in bytes {
-            *h ^= u64::from(*b);
-            *h = h.wrapping_mul(0x100_0000_01b3);
-        }
+fn feed(h: &mut u64, bytes: &[u8]) {
+    for b in bytes {
+        *h ^= u64::from(*b);
+        *h = h.wrapping_mul(0x100_0000_01b3);
     }
+}
+
+/// What a file's change is, for the purpose of "is it the change I read" (#182, the spec's patch-id): its kind and the
+/// text of its added and removed lines, each with its whitespace squeezed, in order — no line numbers, nothing of the
+/// file around them, so a rebase that leaves the file's own change alone keeps its mark. An image's sides by their
+/// bytes. Hashed with FNV-1a, which does not change between builds.
+pub fn fingerprint(file: &FileDiff) -> u64 {
+    use artoo_core::git::LineKind;
+    fn lines(text: Option<&str>) -> Vec<&str> {
+        text.map(|t| t.lines().collect()).unwrap_or_default()
+    }
+    let (old, new) = (
+        lines(file.old_text.as_deref()),
+        lines(file.new_text.as_deref()),
+    );
+    let at = |side: &[&'_ str], n: Option<u32>| -> String {
+        let line = n
+            .and_then(|n| side.get((n as usize).checked_sub(1)?))
+            .copied();
+        line.unwrap_or_default()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    feed(&mut h, format!("{:?}", file.change).as_bytes());
+    for line in file.hunks.iter().flat_map(|hunk| &hunk.lines) {
+        let (sign, text) = match line.kind {
+            LineKind::Added => (b'+', at(&new, line.new_line)),
+            LineKind::Removed => (b'-', at(&old, line.old_line)),
+            _ => continue,
+        };
+        feed(&mut h, &[sign]);
+        feed(&mut h, text.as_bytes());
+        feed(&mut h, b"\n");
+    }
+    for side in [&file.old_image, &file.new_image].into_iter().flatten() {
+        feed(&mut h, &side.bytes);
+    }
+    h
+}
+
+/// The fingerprint marks were made with before #182 (the whole file, line numbers and all): a mark made then still
+/// counts while its file is as it was.
+pub fn legacy_fingerprint(file: &FileDiff) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     feed(
         &mut h,
@@ -317,11 +452,84 @@ impl Review {
     pub fn review_state(&self, ix: usize) -> Option<State> {
         let scope = self.review_scope.as_deref()?;
         let path = self.diff.as_ref()?.files.get(ix)?.path();
-        Some(match (self.reviewed.get(scope, path), self.fps.get(ix)) {
-            (Some(was), Some(now)) if was == *now => State::Done,
-            (Some(_), _) => State::Stale,
-            _ => State::Open,
+        let same =
+            |was: u64| self.fps.get(ix) == Some(&was) || self.legacy_fps.get(ix) == Some(&was);
+        Some(match self.reviewed.get(scope, path) {
+            Some(was) if same(was) => State::Done,
+            // Read in another reading of the same change (#182).
+            _ if self.crossed.get(ix).copied().unwrap_or(false) => State::Done,
+            Some(_) => State::Stale,
+            None => State::Open,
         })
+    }
+
+    /// Which files of the open diff were read in another reading (#182): the same change marked anywhere; on a
+    /// branch or request, what changed since a version read up to its head (`Since v2`), or every commit of it
+    /// that touches the file marked.
+    fn crossings(&self) -> Vec<bool> {
+        let (Some(root), Some(diff)) = (self.root.as_ref(), self.diff.as_ref()) else {
+            return Vec::new();
+        };
+        let root_key = root.display().to_string();
+        let whole = match &diff.header {
+            Header::Compare {
+                head,
+                start,
+                commits,
+                ..
+            } => Some((head.1, *start, *commits)),
+            _ => None,
+        };
+        // The branch's commits and what each touched, asked of git once and only when a commit was marked.
+        let mut touched: Option<Vec<(git2::Oid, Vec<String>)>> = None;
+        let mut commits_of = |path: &str| -> Option<Vec<git2::Oid>> {
+            let (head, start, count) = whole?;
+            let touched = touched.get_or_insert_with(|| {
+                let Ok(repo) = artoo_core::git::Repo::open(root) else {
+                    return Vec::new();
+                };
+                let ids: Vec<git2::Oid> = (repo.log(head, 0, count.max(1), Some(start)))
+                    .map(|log| {
+                        log.into_iter()
+                            .map(|c| c.id)
+                            .filter(|id| *id != start)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                repo.changed_paths(&ids)
+            });
+            let ids: Vec<git2::Oid> = (touched.iter())
+                .filter(|(_, paths)| paths.iter().any(|p| p == path))
+                .map(|(id, _)| *id)
+                .collect();
+            (!ids.is_empty()).then_some(ids)
+        };
+        (diff.files.iter().zip(&self.fps))
+            .map(|(file, &fp)| {
+                let path = file.path();
+                self.reviewed.read_anywhere(&root_key, path, fp)
+                    || whole
+                        .is_some_and(|(head, ..)| self.reviewed.read_since(&root_key, path, head))
+                    || (whole.is_some() && self.reviewed.read_in_commits(&root_key, path))
+                        && commits_of(path).is_some_and(|ids| {
+                            ids.iter()
+                                .all(|id| self.reviewed.read_in_commit(&root_key, path, *id))
+                        })
+            })
+            .collect()
+    }
+
+    /// What a file's chip says when its change moved since it was marked (#182, Design A1): `↻ v2`, the version
+    /// it was read at — the icon and the version, no word; `↻` alone where the version is not known.
+    pub fn stale_chip(&self, ix: usize, host: &Rc<dyn Host>, cx: &App) -> String {
+        let version = (self.review_scope.as_deref())
+            .zip(self.diff.as_ref().and_then(|d| d.files.get(ix)))
+            .and_then(|(scope, f)| self.reviewed.when(scope, f.path()))
+            .and_then(|(_, head)| host.version_of(head?, cx));
+        match version {
+            Some(n) => format!("↻ v{n}"),
+            None => "↻".to_owned(),
+        }
     }
 
     /// How many files are marked read, of how many.
@@ -381,11 +589,11 @@ impl Review {
         };
         let root = root.display().to_string();
         let done = self.all_reviewed();
-        // Only a whole branch or request (a compare, versions) makes its head count as reviewed;
-        // one commit read is not its branch read.
+        // Only a whole branch or request (a compare) makes its head count as reviewed; one commit read is not its
+        // branch read, nor what changed since a version (#182: its marks reach the whole diff through `read_at`).
         let whole = matches!(
             self.diff.as_ref().map(|d| &d.header),
-            Some(Header::Compare { .. } | Header::Versions { .. })
+            Some(Header::Compare { .. })
         );
         if done && !(whole && self.reviewed.head_done(&root, head)) {
             self.done_card = true;
@@ -396,8 +604,12 @@ impl Review {
         if whole {
             self.reviewed.set_head(&root, head, done);
             if let Some((reviewed, total)) = self.review_progress() {
+                let open: Vec<String> = (0..total)
+                    .filter(|&ix| self.review_state(ix) != Some(State::Done))
+                    .filter_map(|ix| Some(self.diff.as_ref()?.files.get(ix)?.path().to_owned()))
+                    .collect();
                 self.reviewed
-                    .set_progress(&root, head, reviewed as u32, total as u32);
+                    .set_progress(&root, head, reviewed as u32, total as u32, open);
             }
         }
     }
@@ -448,10 +660,14 @@ impl Review {
     /// Called when a diff arrives: its scope and the fingerprint of each file.
     pub fn index(&mut self) {
         self.review_scope = self.review_scope();
-        self.fps = match (&self.review_scope, &self.diff) {
-            (Some(_), Some(d)) => d.files.iter().map(fingerprint).collect(),
-            _ => Vec::new(),
+        (self.fps, self.legacy_fps) = match (&self.review_scope, &self.diff) {
+            (Some(_), Some(d)) => (
+                d.files.iter().map(fingerprint).collect(),
+                d.files.iter().map(legacy_fingerprint).collect(),
+            ),
+            _ => (Vec::new(), Vec::new()),
         };
+        self.crossed = self.crossings();
         self.done_card = false;
     }
 
@@ -471,12 +687,28 @@ impl Review {
         if done {
             let head = self.viewed_rev();
             self.reviewed.set(&scope, &path, fp, head);
+            self.read_through(&[path]);
         } else {
             self.reviewed.clear(&scope, &path);
         }
         self.review_changed(&[ix]);
         self.sync_complete();
         true
+    }
+
+    /// Files `paths` marked in a since view (`Since v2`): read in the whole diff up to the same head too, its
+    /// count moving without it open (#182).
+    fn read_through(&mut self, paths: &[String]) {
+        let (Some(root), Some(Header::Versions { to, .. })) = (
+            self.root.as_ref().map(|r| r.display().to_string()),
+            self.diff.as_ref().map(|d| &d.header),
+        ) else {
+            return;
+        };
+        let head = to.tip;
+        for path in paths {
+            self.reviewed.read_at(&root, head, path);
+        }
     }
 
     /// Marks or unmarks files `ixs` at once; false when the diff keeps no marks.
@@ -490,6 +722,10 @@ impl Review {
             .collect();
         let head = self.viewed_rev();
         self.reviewed.set_many(&scope, &files, done, head);
+        if done {
+            let paths: Vec<String> = files.iter().map(|(p, _)| p.clone()).collect();
+            self.read_through(&paths);
+        }
         self.review_changed(ixs);
         self.sync_complete();
         true
@@ -520,6 +756,116 @@ impl Review {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use artoo_core::git::{ChangeKind, DiffLine, Hunk, LineKind};
+
+    /// `path` whose line `at` (1-based) changes from `was` to `is` among `around`'s other lines.
+    fn changed(path: &str, around: &[&str], at: usize, was: &str, is: &str) -> FileDiff {
+        let side = |line: &str| {
+            let mut lines: Vec<&str> = around.to_vec();
+            lines.insert(at - 1, line);
+            lines.join("\n")
+        };
+        let line = |kind, old: Option<usize>, new: Option<usize>| DiffLine {
+            kind,
+            old_line: old.map(|n| n as u32),
+            new_line: new.map(|n| n as u32),
+        };
+        FileDiff {
+            old_path: Some(path.to_owned()),
+            new_path: Some(path.to_owned()),
+            change: ChangeKind::Modified,
+            added: 1,
+            removed: 1,
+            hunks: vec![Hunk {
+                lines: vec![
+                    line(LineKind::Removed, Some(at), None),
+                    line(LineKind::Added, None, Some(at)),
+                ],
+            }],
+            old_text: Some(side(was).into()),
+            new_text: Some(side(is).into()),
+            note: None,
+            old_image: None,
+            new_image: None,
+            pictures: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_rebase_that_keeps_a_files_change_keeps_its_fingerprint() {
+        let read = changed(
+            "a.rs",
+            &["fn a() {}", "fn b() {}"],
+            2,
+            "let x = 1;",
+            "let x = 2;",
+        );
+        // main grew the file above the change, elsewhere: the lines move, the change is the same.
+        let rebased = changed(
+            "a.rs",
+            &["// new header", "use std::fmt;", "fn a() {}", "fn b() {}"],
+            4,
+            "let x = 1;",
+            "let  x = 2;",
+        );
+        assert_eq!(fingerprint(&read), fingerprint(&rebased));
+        assert_ne!(legacy_fingerprint(&read), legacy_fingerprint(&rebased));
+        // A push that changes the hunk itself.
+        let pushed = changed(
+            "a.rs",
+            &["fn a() {}", "fn b() {}"],
+            2,
+            "let x = 1;",
+            "let x = 3;",
+        );
+        assert_ne!(fingerprint(&read), fingerprint(&pushed));
+    }
+
+    #[test]
+    fn a_mark_is_found_in_any_reading_of_the_same_change() {
+        let mut store = Store::default();
+        let (v2, v3, commit) = (
+            git2::Oid::from_bytes(&[2; 20]).unwrap(),
+            git2::Oid::from_bytes(&[3; 20]).unwrap(),
+            git2::Oid::from_bytes(&[9; 20]).unwrap(),
+        );
+        // In a comparison: the same change's fingerprint, read anywhere in the repository.
+        store.set("/r|range:a..b", "a.rs", 42, Some(v3));
+        assert!(store.read_anywhere("/r", "a.rs", 42));
+        assert!(!store.read_anywhere("/r", "a.rs", 43));
+        assert!(!store.read_anywhere("/other", "a.rs", 42));
+        // In Since v2, up to v3.
+        store.set(&format!("/r|ver:{v2}..{v3}"), "b.rs", 7, Some(v3));
+        assert!(store.read_since("/r", "b.rs", v3));
+        assert!(!store.read_since("/r", "b.rs", v2));
+        assert!(!store.read_since("/r", "a.rs", v3));
+        // In a commit.
+        assert!(!store.read_in_commits("/r", "c.rs"));
+        store.set(&format!("/r|commit:{commit}"), "c.rs", 1, Some(commit));
+        assert!(store.read_in_commits("/r", "c.rs"));
+        assert!(store.read_in_commit("/r", "c.rs", commit));
+        assert!(!store.read_in_commit("/r", "c.rs", v2));
+    }
+
+    #[test]
+    fn a_file_read_since_a_version_moves_the_whole_count_and_the_last_one_finishes_it() {
+        let mut store = Store::default();
+        let head = git2::Oid::from_bytes(&[3; 20]).unwrap();
+        let open = vec!["a.rs".to_owned(), "b.rs".to_owned()];
+        store.set_progress("/r", head, 6, 8, open);
+        // Read in the request already: nothing moves.
+        assert!(!store.read_at("/r", head, "c.rs"));
+        assert_eq!(store.head_progress("/r", head), Some((6, 8)));
+        assert!(store.read_at("/r", head, "a.rs"));
+        assert_eq!(store.head_progress("/r", head), Some((7, 8)));
+        assert!(!store.head_done("/r", head));
+        assert!(store.read_at("/r", head, "b.rs"));
+        assert_eq!(store.head_progress("/r", head), Some((8, 8)));
+        assert!(store.head_done("/r", head));
+        // Another head: its own count, untouched.
+        let other = git2::Oid::from_bytes(&[4; 20]).unwrap();
+        assert!(!store.read_at("/r", other, "a.rs"));
+    }
 
     #[test]
     fn marks_survive_a_round_trip() {
@@ -619,7 +965,7 @@ mod tests {
             |i: u32| git2::Oid::from_bytes(&[&[0; 16][..], &i.to_be_bytes()].concat()).unwrap();
         for i in 0..600 {
             store.set_head("/r", head(i), true);
-            store.set_progress("/r", head(i), 1, 2);
+            store.set_progress("/r", head(i), 1, 2, Vec::new());
             assert!(store.head_done("/r", head(i)));
             assert_eq!(store.head_progress("/r", head(i)), Some((1, 2)));
         }

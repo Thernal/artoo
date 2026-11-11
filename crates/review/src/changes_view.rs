@@ -585,10 +585,8 @@ impl Review {
             (State::Open, _) => "Mark as reviewed  ⇧V".into(),
             (State::Done, Some(at)) => format!("Reviewed{at} — click to unmark  ⇧V"),
             (State::Done, None) => "Reviewed — click to unmark  ⇧V".into(),
-            (State::Stale, Some(at)) => {
-                format!("Changed since you reviewed it{at} — mark again  ⇧V")
-            }
-            (State::Stale, None) => "Changed since you marked it — mark again  ⇧V".into(),
+            (State::Stale, Some(at)) => format!("Changed since you reviewed it{at}  V"),
+            (State::Stale, None) => "Changed since you marked it  V".into(),
         }
     }
 

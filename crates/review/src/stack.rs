@@ -325,9 +325,9 @@ impl Review {
                             })
                             .hover(|s| s.bg(theme::selected()).text_color(theme::text()))
                             .child(match state {
-                                State::Done => "✓ Reviewed",
-                                State::Stale => "↻ Changed — mark again",
-                                State::Open => "Mark reviewed",
+                                State::Done => "✓ Reviewed".to_owned(),
+                                State::Stale => self.stale_chip(ix, host, cx),
+                                State::Open => "Mark reviewed".to_owned(),
                             })
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .on_click(move |_: &ClickEvent, _, cx| {

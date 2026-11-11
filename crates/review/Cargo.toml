@@ -22,3 +22,5 @@ regex.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+# A test builds diffs by hand (`git::Hunk`) and touches no user data.
+artoo-core = { path = "../core", features = ["sandbox"] }
