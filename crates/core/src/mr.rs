@@ -23,6 +23,9 @@ impl MrState {
     }
 }
 
+/// A request's size: files, lines added, lines removed, commits.
+pub type Size = (usize, usize, usize, usize);
+
 /// Merged and closed requests come a page of this many at a time, as the list is scrolled.
 pub const PAST_PAGE: usize = 30;
 

@@ -11,7 +11,7 @@ use anyhow::{Result, anyhow, bail};
 use artoo_hosts_api::MergeState;
 use artoo_hosts_api::{
     Approvals, Award, Details, Draft, Label, Milestone, Mr, MrState, NewOptions, Note, PAST_PAGE,
-    PastPage, Pipeline, Place, Push, Thread, Todo, Verdict, Whose,
+    PastPage, Pipeline, Place, Push, Size, Thread, Todo, Verdict, Whose,
 };
 use serde_json::Value;
 use std::io::Write;
@@ -440,6 +440,44 @@ pub fn members(remote: &WebRemote) -> Result<Vec<(String, String)>> {
 }
 
 /// Request `iid`'s description, labels in their colours, milestone and assignees.
+/// How large request `iid` is as GitLab counts it (#189): its diff's files and lines, and its commits. The fixture's
+/// is `size-<iid>.json`, GraphQL's answer.
+pub fn size(remote: &WebRemote, iid: u64) -> Result<Option<Size>> {
+    const SIZE: &str = "query($path: ID!, $iid: String!) {
+  project(fullPath: $path) { mergeRequest(iid: $iid) {
+    commitCount diffStatsSummary { additions deletions fileCount }
+  } }
+}";
+    let value = match fixture() {
+        Some(dir) => match std::fs::read_to_string(dir.join(format!("size-{iid}.json"))) {
+            Ok(text) => serde_json::from_str(&text)?,
+            Err(_) => return Ok(None),
+        },
+        None => {
+            let (_, path) = api(remote)?;
+            graphql(
+                remote,
+                SIZE,
+                serde_json::json!({ "path": path.replace("%2F", "/"), "iid": iid.to_string() }),
+            )?
+        }
+    };
+    Ok(parse_size(&value["data"]["project"]["mergeRequest"]))
+}
+
+/// A request's size in GraphQL's answer; none when it counts no file.
+fn parse_size(mr: &Value) -> Option<Size> {
+    let stats = &mr["diffStatsSummary"];
+    let n = |v: &Value| v.as_u64().unwrap_or(0) as usize;
+    let size = (
+        n(&stats["fileCount"]),
+        n(&stats["additions"]),
+        n(&stats["deletions"]),
+        n(&mr["commitCount"]),
+    );
+    (size.0 > 0).then_some(size)
+}
+
 pub fn details(remote: &WebRemote, iid: u64) -> Result<Details> {
     let value = match fixture() {
         Some(dir) => match std::fs::read_to_string(dir.join(format!("mr-{iid}.json"))) {
@@ -1955,6 +1993,15 @@ mod tests {
                 (5, MrState::Closed, None),
             ]
         );
+    }
+
+    #[test]
+    fn a_requests_size_is_read_from_graphql() {
+        let mr = json!({ "commitCount": 3, "diffStatsSummary": { "additions": 120, "deletions": 34, "fileCount": 7 } });
+        assert_eq!(parse_size(&mr), Some((7, 120, 34, 3)));
+        let empty = json!({ "commitCount": 1, "diffStatsSummary": { "additions": 0, "deletions": 0, "fileCount": 0 } });
+        assert_eq!(parse_size(&empty), None);
+        assert_eq!(parse_size(&Value::Null), None);
     }
 
     #[test]

@@ -33,8 +33,7 @@ const LIST_FILE: &str = "requests-list.txt";
 /// The height of a group's band in the requests list.
 pub const BAND: f32 = 28.;
 
-/// A request's size: files, lines added, lines removed, commits.
-pub type Size = (usize, usize, usize, usize);
+pub use artoo_hosts_api::Size;
 
 /// What a request's row says, read for every request listed (#189): its pipeline, approvals, discussions, when it
 /// was pushed and how large it is, with its `updated` then. Kept between starts (`FACTS_FILE`).
@@ -500,9 +499,10 @@ impl Requests {
     }
 }
 
-/// Request `m`'s facts, read now: from `host`, and its size from the clone at `root` when its head is there.
+/// Request `m`'s facts, read now: from `host`, and its size from the clone at `root` when its head is there, else as
+/// the host counts it (#189).
 fn facts_of(host: &dyn Host, root: Option<&Path>, m: &Mr) -> Facts {
-    let size = root.and_then(|root| {
+    let fetched = root.and_then(|root| {
         let repo = Repo::open(root).ok()?;
         let head = git2::Oid::from_str(&m.head)
             .ok()
@@ -515,6 +515,7 @@ fn facts_of(host: &dyn Host, root: Option<&Path>, m: &Mr) -> Facts {
             .ok()
             .filter(|(files, ..)| *files > 0)
     });
+    let size = fetched.or_else(|| host.size(m.iid).ok().flatten());
     Facts {
         updated: m.updated,
         pipeline: host.pipeline(m.iid).ok().flatten(),

@@ -9,7 +9,8 @@
 use crate::git::{LineKind, WebRemote};
 use anyhow::{Result, anyhow, bail};
 use artoo_hosts_api::{
-    Approvals, Award, Details, Draft, Label, Mr, Note, Pipeline, Place, Push, Thread, Todo, Verdict,
+    Approvals, Award, Details, Draft, Label, Mr, Note, Pipeline, Place, Push, Size, Thread, Todo,
+    Verdict,
 };
 use serde_json::{Value, json};
 use std::io::Write;
@@ -639,6 +640,28 @@ pub fn details(remote: &WebRemote, number: u64) -> Result<Details> {
     let mut details = parse_details(&value);
     details.changes_requested = changes_requested(remote, number);
     Ok(details)
+}
+
+/// How large pull request `number` is as GitHub counts it (#189): its files, lines and commits, from the pull
+/// request itself (the fixture's `pull-<n>.json`, the one its details read).
+pub fn size(remote: &WebRemote, number: u64) -> Result<Option<Size>> {
+    let value = match read_fixture(&format!("pull-{number}.json")) {
+        Some(v) => v?,
+        None => get(remote, &format!("pulls/{number}"))?,
+    };
+    Ok(parse_size(&value))
+}
+
+/// A pull request's size; none when it counts no file.
+fn parse_size(p: &Value) -> Option<Size> {
+    let n = |v: &Value| v.as_u64().unwrap_or(0) as usize;
+    let size = (
+        n(&p["changed_files"]),
+        n(&p["additions"]),
+        n(&p["deletions"]),
+        n(&p["commits"]),
+    );
+    (size.0 > 0).then_some(size)
 }
 
 pub fn parse_details(p: &Value) -> Details {
@@ -1774,6 +1797,13 @@ mod tests {
             (p.reviewer_name("bob"), p.reviewer_name("cy")),
             (None, Some("Cy Moss"))
         );
+    }
+
+    #[test]
+    fn a_pulls_size_is_its_files_lines_and_commits() {
+        let p = json!({ "changed_files": 4, "additions": 50, "deletions": 9, "commits": 2 });
+        assert_eq!(parse_size(&p), Some((4, 50, 9, 2)));
+        assert_eq!(parse_size(&json!({ "changed_files": 0 })), None);
     }
 
     #[test]

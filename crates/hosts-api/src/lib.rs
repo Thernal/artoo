@@ -145,6 +145,10 @@ pub trait Requests: Send + Sync {
     /// Request `iid`'s description, labels in their colours, milestone and assignees.
     fn details(&self, iid: u64) -> Result<Details>;
 
+    /// How large request `iid` is, as the host counts it (#189): for a request whose head is not in the clone.
+    /// `None` when the host has no count, or counts no file.
+    fn size(&self, iid: u64) -> Result<Option<Size>>;
+
     /// The project's labels in their colours, for a new request.
     fn labels(&self) -> Result<Vec<Label>>;
 

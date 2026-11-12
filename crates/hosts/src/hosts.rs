@@ -156,6 +156,10 @@ impl Requests for GitLab {
         gitlab::details(&self.remote, iid)
     }
 
+    fn size(&self, iid: u64) -> Result<Option<Size>> {
+        gitlab::size(&self.remote, iid)
+    }
+
     fn labels(&self) -> Result<Vec<Label>> {
         gitlab::labels(&self.remote)
     }
@@ -394,6 +398,10 @@ impl Requests for GitHub {
 
     fn details(&self, iid: u64) -> Result<Details> {
         github::details(&self.remote, iid)
+    }
+
+    fn size(&self, iid: u64) -> Result<Option<Size>> {
+        github::size(&self.remote, iid)
     }
 
     fn labels(&self) -> Result<Vec<Label>> {
