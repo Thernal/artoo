@@ -106,7 +106,7 @@ pub fn pages(requests: Entity<Requests>, frame: Rc<dyn Frame>, cx: &mut App) -> 
 }
 
 impl Render for RootPage {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if let Some(route) = self.frame.route(cx) {
             return self.item(route, cx);
         }
@@ -117,7 +117,7 @@ impl Render for RootPage {
             .min_h_0()
             .flex()
             .flex_col()
-            .child(self.page(cx))
+            .child(self.page(window, cx))
             .into_any_element()
     }
 }
@@ -146,7 +146,7 @@ impl RootPage {
             .into_any_element()
     }
 
-    fn page(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn page(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let services = self.frame.services();
         let (Some(host), Some(acts)) = (services.get::<Rc<dyn RootHost>>(), services.get::<Acts>())
         else {
@@ -180,6 +180,18 @@ impl RootPage {
                 })
                 .collect();
             let fold = |key, moving: &str, open, row| host.fold(key, moving, open, row, cx);
+            // A row's second line, measured as the window draws it: 12 px of the interface's face, in `px` units.
+            let text_width = |text: &str| {
+                let mut style = window.text_style();
+                style.font_family = theme::ui_font();
+                let run = style.to_run(text.len());
+                let line = gpui::SharedString::from(text.to_owned());
+                let shaped = window
+                    .text_system()
+                    .shape_line(line, gpui::px(12.), &[run], None);
+                // Each text's box is laid out on whole pixels: rounded up, a part that fits is never cut.
+                f32::from(shaped.width).ceil()
+            };
             let look = ListLook {
                 shown: &shown,
                 picked: rq.rows.picked,
@@ -189,6 +201,7 @@ impl RootPage {
                 seen,
                 parts,
                 fold: &fold,
+                text_width: &text_width,
             };
             (list::banner(rq, &acts), list::list(rq, &look, &acts))
         };

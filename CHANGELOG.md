@@ -158,7 +158,8 @@ for someone using the app, not for someone reading the code; the commits follow 
   `Done`, from what happened on the request: a comment hands it to the author, a push or a reply brings it back,
   approving ends it until the next push. Each row ends with the turn — `Waiting on you · 1 reply`, `Waiting on Juniper ·
   1 thread`, `You approved` — and its second line reads `!398 · Juniper Hale · ✗ lint · 1 of 2 · +120 −34 · 2 open · ⚠
-  conflicts`, a target other than the main line last; a narrow list drops the least needed parts whole. `New` marks a
+  conflicts`, a target other than the main line last; a narrow list drops the least needed parts whole,
+  measured in the face you chose. `New` marks a
   request you never opened, `Draft` a draft, which sorts last. The preview shows Size, Pipeline, Approvals, Reviewers,
   In the way, Discussions and Your review as labelled rows. `Display ▾` groups by author or not at all, and sorts by the
   oldest opened (`opened 12 d ago`) or by size. A request's facts are read a few at a time, the one you pick first, and

@@ -662,6 +662,8 @@ pub struct ListLook<'a> {
     /// A row folding with its group (#110): by its key, its group's motion and whether it is
     /// open; `None` once it is shut.
     pub fold: &'a dyn Fn(String, &str, bool, AnyElement) -> Option<AnyElement>,
+    /// How wide a text is drawn on a row's second line, in `px` units: measured by the window (#189).
+    pub text_width: &'a dyn Fn(&str) -> f32,
 }
 
 impl ListLook<'_> {
@@ -1091,18 +1093,50 @@ fn marked(text: String, filter: &str) -> gpui::StyledText {
     gpui::StyledText::new(text).with_highlights(ranges.into_iter().map(|r| (r, mark)))
 }
 
-/// About how wide `text` is drawn at 12 px.
-fn estimate(text: &str) -> f32 {
-    text.chars().count() as f32 * 6.1
+/// What a row draws beside its second line, in `px` units (`row`): its margin and its padding on both sides, the
+/// unread dot and the gap after it.
+const ROW_CHROME: f32 = 2. * 6. + 2. * 10. + 7. + 10.;
+/// The gap between a row's parts and whose turn it is; on each side of the `·` between two parts; inside a size.
+const TURN_GAP: f32 = 8.;
+const PART_GAP: f32 = 5.;
+const SIZE_GAP: f32 = 4.;
+
+/// Of a row's `parts`, those of least use leave whole — the target, the open discussions, the size — while the rest
+/// need more than `budget`, each text as wide as `text_width` measures it; the first three always stay. What left,
+/// in the words the row's tip says it.
+fn fit(
+    parts: &mut Vec<(Part, Option<String>)>,
+    budget: f32,
+    text_width: &dyn Fn(&str) -> f32,
+) -> Vec<String> {
+    let between = text_width("·") + 2. * PART_GAP;
+    let needs = |parts: &[(Part, Option<String>)]| {
+        parts.iter().map(|(p, _)| p.width(text_width)).sum::<f32>()
+            + between * parts.len().saturating_sub(1) as f32
+    };
+    let mut left = Vec::new();
+    while parts.len() > 3 && needs(parts) > budget {
+        let least = (parts.iter().enumerate().skip(3))
+            .min_by_key(|(n, (p, _))| (p.keep(), std::cmp::Reverse(*n)))
+            .map(|(n, _)| n);
+        match least {
+            Some(n) => left.extend(parts.remove(n).1),
+            None => break,
+        }
+    }
+    left
 }
 
 impl Part {
-    /// About how wide it is drawn.
-    fn estimate(&self) -> f32 {
+    /// How wide it is drawn, its texts measured by `text_width`.
+    fn width(&self, text_width: &dyn Fn(&str) -> f32) -> f32 {
         match self {
-            Part::Text(text, _) | Part::Found(text) => estimate(text),
+            Part::Text(text, _) | Part::Found(text) => text_width(text),
             Part::Size(files, added, removed) => {
-                estimate(&format!("{} +{added} −{removed}", plural(*files, "file")))
+                text_width(&plural(*files, "file"))
+                    + text_width(&format!("+{added}"))
+                    + text_width(&format!("−{removed}"))
+                    + 2. * SIZE_GAP
             }
         }
     }
@@ -1148,7 +1182,7 @@ impl Part {
             Part::Size(files, added, removed) => div()
                 .flex_none()
                 .flex()
-                .gap(px(4.))
+                .gap(px(SIZE_GAP))
                 .child(plural(files, "file"))
                 .child(div().text_color(theme::added()).child(format!("+{added}")))
                 .child(
@@ -1272,27 +1306,16 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
     {
         parts.push((Part::Text(format!("→ {}", m.target), theme::muted()), None));
     }
-    // What the row has room for, as the list was last measured: the parts of least use leave whole — the target,
-    // the open discussions, the size —, the last one left cut when even the rest does not fit.
+    // What the row has room for, as the list was last measured and its texts as the window draws them (#189): the
+    // parts of least use leave whole, the last one left cut when even the rest does not fit.
     let width = look.widths.width("requests");
     if width > 0. {
-        let turn_width = turn.as_ref().map_or(0., |t| estimate(&t.words(mine)) + 8.);
-        let budget = width - 52. - turn_width;
-        let needs = |parts: &[(Part, Option<String>)]| {
-            parts.iter().map(|(p, _)| p.estimate()).sum::<f32>() + 14. * parts.len() as f32
-        };
-        while parts.len() > 3 && needs(&parts) > budget {
-            let least = parts
-                .iter()
-                .enumerate()
-                .skip(3)
-                .min_by_key(|(n, (p, _))| (p.keep(), std::cmp::Reverse(*n)))
-                .map(|(n, _)| n);
-            match least {
-                Some(n) => left.extend(parts.remove(n).1),
-                None => break,
-            };
-        }
+        let text_width = look.text_width;
+        // Whose turn, only where the row says it.
+        let turn_width = (turn.as_ref())
+            .filter(|_| room.second())
+            .map_or(0., |t| text_width(&t.words(mine)) + TURN_GAP);
+        left.extend(fit(&mut parts, width - ROW_CHROME - turn_width, text_width));
     }
     tip.extend(left);
     if let Some(t) = turn.as_ref().filter(|_| !room.second()) {
@@ -1388,7 +1411,7 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
                         div()
                             .flex()
                             .items_center()
-                            .gap(px(8.))
+                            .gap(px(TURN_GAP))
                             .text_size(px(12.))
                             .child(
                                 div()
@@ -1396,7 +1419,7 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
                                     .min_w_0()
                                     .flex()
                                     .items_center()
-                                    .gap(px(5.))
+                                    .gap(px(PART_GAP))
                                     .overflow_hidden()
                                     .text_color(theme::muted())
                                     .children(line2),
@@ -1739,6 +1762,37 @@ fn next_to_review(open: &[bool], at: Option<usize>) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rows_parts_leave_whole_by_their_use_until_the_rest_fit() {
+        // Ten px a character; the `·` between two parts and its gaps, twenty.
+        let width = |t: &str| t.chars().count() as f32 * 10.;
+        let said = |s: &str| Some(s.to_owned());
+        let parts = || {
+            vec![
+                (Part::Found("!398".into()), None),
+                (Part::Found("Ann".into()), None),
+                (
+                    Part::Text("✓ passed".into(), gpui::rgb(0)),
+                    said("Pipeline"),
+                ),
+                (Part::Text("1 of 2".into(), gpui::rgb(0)), said("Approvals")),
+                (Part::Size(3, 12, 4), said("Size")),
+                (Part::Text("2 open".into(), gpui::rgb(0)), said("Open")),
+            ]
+        };
+        // 40 + 30 + 80 + 60 + (70 + 30 + 20 + 8) + 60, and five `·`: 498.
+        let left = |budget| {
+            let mut p = parts();
+            let left = fit(&mut p, budget, &width);
+            (p.len(), left)
+        };
+        assert_eq!(left(498.), (6, vec![]));
+        assert_eq!(left(497.), (5, vec!["Open".to_owned()]));
+        assert_eq!(left(400.), (4, vec!["Open".to_owned(), "Size".to_owned()]));
+        let none = vec!["Open".to_owned(), "Size".to_owned(), "Approvals".to_owned()];
+        assert_eq!(left(10.), (3, none));
+    }
 
     #[test]
     fn a_projects_folds_reads_and_display_are_kept_on_its_own_line() {
