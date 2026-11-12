@@ -16,6 +16,8 @@ const FOCUS_AFTER: i64 = 60;
 #[derive(Default)]
 pub struct Fetch {
     pub enabled: bool,
+    /// The remote's own name, as the bar says it (`origin`, `upstream`): the one the project's links read.
+    remote: Option<String>,
     running: bool,
     /// Seconds since the epoch of the last successful fetch.
     last: Option<i64>,
@@ -33,16 +35,14 @@ impl Workspace {
     /// Called when a repository opens: reads whether it is turned off and starts the timer.
     pub(super) fn start_fetching(&mut self, cx: &mut Context<Self>) {
         // A plain folder, or a repository with no remote, has nothing to fetch.
-        let enabled = !self.plain
-            && self.root.as_deref().is_some_and(|root| {
-                storage::fetch_enabled(root)
-                    && crate::git::Repo::open(root)
-                        .ok()
-                        .and_then(|r| r.web_remote_name())
-                        .is_some()
-            });
+        let remote = (self.root.as_deref())
+            .filter(|root| !self.plain && storage::fetch_enabled(root))
+            .and_then(|root| crate::git::Repo::open(root).ok())
+            .and_then(|r| r.web_remote_name());
+        let enabled = remote.is_some();
         self.fetch = Fetch {
             enabled,
+            remote,
             ..Fetch::default()
         };
         if enabled {
@@ -104,8 +104,8 @@ impl Workspace {
     }
 
     /// The title bar's word on the fetch, as a fact (#202): when it last ran; a failure an amber dot and
-    /// `Can't reach origin · fetched 14:32` (any other `Fetch failed · fetched 14:32`), Retry its own small button.
-    /// Its tip keeps the host, the guess and the last fetch.
+    /// `Can't reach origin · fetched 14:32`, the remote by its own name (any other `Fetch failed · fetched 14:32`),
+    /// Retry its own small button. Its tip keeps the host, the guess and the last fetch.
     /// The fetch status's right click (#205): Retry, Stop fetching this repository.
     fn fetch_menu(&mut self, at: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
         use super::menu::{Act, Entry};
@@ -124,6 +124,7 @@ impl Workspace {
             return None;
         }
         let failed = self.fetch.error.as_deref();
+        let remote = self.fetch.remote.as_deref().unwrap_or("the remote");
         let fetched = self
             .fetch
             .last
@@ -131,13 +132,19 @@ impl Workspace {
         let text = match (failed, self.fetch.running, self.fetch.last) {
             (Some(e), _, _) => {
                 let head = if unreachable(e) {
-                    "Can't reach origin"
+                    // The remote git named, of several; else the project's.
+                    let named = e
+                        .strip_prefix("Can't reach ")
+                        .and_then(|rest| rest.split_once(" — "))
+                        .map(|(name, _)| name)
+                        .filter(|name| *name != "the remote");
+                    format!("Can't reach {}", named.unwrap_or(remote))
                 } else {
-                    "Fetch failed"
+                    "Fetch failed".to_owned()
                 };
                 match (&fetched, self.compact()) {
                     (Some(f), false) => format!("{head} · {f}"),
-                    _ => head.to_owned(),
+                    _ => head,
                 }
             }
             (None, true, _) => "Fetching…".to_owned(),
@@ -147,7 +154,7 @@ impl Workspace {
         // A long hover: the host, the guess, the last fetch.
         let mut lines: Vec<String> = Vec::new();
         if let Some(w) = &self.web {
-            lines.push(format!("origin · {}", w.base));
+            lines.push(format!("{remote} · {}", w.base));
         }
         if let Some(e) = failed {
             lines.push(e.to_owned());

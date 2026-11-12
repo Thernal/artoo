@@ -12,13 +12,13 @@ use artoo_shell_api::notices::Why;
 use artoo_ui_kit::controls::{self, bar_button, chip, skeleton};
 use artoo_ui_kit::discussion::{self, Kind as Button, Source};
 use artoo_ui_kit::excerpt::excerpt_view;
-use artoo_ui_kit::hover::{self, CutInTip, RowTip, Tip};
+use artoo_ui_kit::hover::{self, CutInTip, RowTip, Tip, WasCut};
 use artoo_ui_kit::keys::{self, On};
 use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::{ROW_RADIUS, format, gap, icons, island, px, theme, words};
 use gpui::{
     AnyElement, App, Bounds, ClickEvent, Div, Entity, FontWeight, MouseButton, MouseDownEvent,
-    Pixels, Stateful, canvas, div, prelude::*,
+    Pixels, SharedString, Stateful, canvas, div, prelude::*,
 };
 use std::cell::Cell;
 use std::rc::Rc;
@@ -407,8 +407,24 @@ pub fn heading(text: impl Into<gpui::SharedString>) -> AnyElement {
         .into_any_element()
 }
 
+/// A row's tooltip (#202): what it does not say — exactly when, and, while the list is narrow, the source and what was
+/// written, which the row then leaves out.
+fn tip_words(source: &str, at: i64, text: &str, wide: bool) -> String {
+    let when = hover::full_date(at);
+    let mut tip = vec![if wide {
+        when
+    } else {
+        format!("{source} · {when}")
+    }];
+    if !wide && !text.is_empty() {
+        tip.push(text.to_owned());
+    }
+    tip.join("\n")
+}
+
 /// Notice `ix`: unread dot, what happened, the request always; its `source` (`GitLab`) and when, and the start of
-/// what was written, while the list is `wide` (#197); all of it in its tooltip.
+/// what was written, while the list is `wide` (#197); in its tooltip what the row does not say (#202): exactly when,
+/// and the source and what was written when the list is narrow.
 pub fn notice_row(
     n: &Notice,
     ix: usize,
@@ -427,14 +443,18 @@ pub fn notice_row(
         .find(|l| !l.trim().is_empty())
         .unwrap_or("")
         .trim();
-    let mut tip = vec![
-        format!("{source} · {}", n.says()),
-        format!("{} {}", words::number(n.iid), n.title),
-        hover::full_date(n.created),
+    let tip = tip_words(source, n.created, text.trim(), wide);
+    // What happened, the request and the gist are cut to their room; the tip says them only when they were.
+    let [says_cut, about_cut, gist_cut] = [(); 3].map(|_| WasCut::default());
+    let about = format!("{} {}", words::number(n.iid), n.title);
+    let mut cut: Vec<(Option<WasCut>, SharedString)> = vec![
+        (Some(says_cut.clone()), n.says().into()),
+        (Some(about_cut.clone()), about.clone().into()),
     ];
-    if !text.trim().is_empty() {
-        tip.push(text.trim().to_owned());
+    if wide && !gist.is_empty() {
+        cut.push((Some(gist_cut.clone()), text.trim().to_owned().into()));
     }
+    cut.push((None, tip.into()));
     let iid = n.iid;
     let (menu, pick) = (on.clone(), on.clone());
     div()
@@ -478,12 +498,9 @@ pub fn notice_row(
                         .flex()
                         .gap_2()
                         .child(
-                            div()
+                            hover::cut_in_row(n.says(), n.says(), &says_cut)
                                 .flex_1()
-                                .min_w_0()
-                                .cut_in_tip()
-                                .when(fresh, |s| s.font_weight(FontWeight::SEMIBOLD))
-                                .child(n.says()),
+                                .when(fresh, |s| s.font_weight(FontWeight::SEMIBOLD)),
                         )
                         .children(wide.then(|| {
                             div()
@@ -494,21 +511,17 @@ pub fn notice_row(
                         })),
                 )
                 .child(
-                    div()
-                        .cut_in_tip()
+                    hover::cut_in_row(about.clone(), about, &about_cut)
                         .text_size(px(12.))
-                        .text_color(theme::accent())
-                        .child(format!("{} {}", words::number(n.iid), n.title)),
+                        .text_color(theme::accent()),
                 )
                 .children((wide && !gist.is_empty()).then(|| {
-                    div()
-                        .cut_in_tip()
+                    hover::cut_in_row(gist.to_owned(), gist.to_owned(), &gist_cut)
                         .text_size(px(12.))
                         .text_color(theme::muted())
-                        .child(gist.to_owned())
                 })),
         )
-        .row_tip(picked, tip.join("\n"))
+        .row_tip_cut(picked, cut)
         .on_click(move |_: &ClickEvent, _, cx| pick(InboxEvent::Pick(ix), cx))
 }
 
@@ -533,14 +546,17 @@ pub fn part_row(
         .unwrap_or("")
         .trim()
         .to_owned();
-    let mut tip = vec![
-        format!("{source} · {}", r.says),
-        r.about.clone(),
-        hover::full_date(r.at),
-    ];
-    if !gist.is_empty() {
-        tip.push(r.text.trim().to_owned());
+    let tip = tip_words(source, r.at, r.text.trim(), wide);
+    let [says_cut, about_cut, gist_cut] = [(); 3].map(|_| WasCut::default());
+    let mut cut: Vec<(Option<WasCut>, SharedString)> =
+        vec![(Some(says_cut.clone()), r.says.clone().into())];
+    if !r.about.is_empty() {
+        cut.push((Some(about_cut.clone()), r.about.clone().into()));
     }
+    if wide && !gist.is_empty() {
+        cut.push((Some(gist_cut.clone()), r.text.trim().to_owned().into()));
+    }
+    cut.push((None, tip.into()));
     let pick = on.clone();
     div()
         .id(("inbox-part", id))
@@ -574,12 +590,9 @@ pub fn part_row(
                         .flex()
                         .gap_2()
                         .child(
-                            div()
+                            hover::cut_in_row(r.says.clone(), r.says.clone(), &says_cut)
                                 .flex_1()
-                                .min_w_0()
-                                .cut_in_tip()
-                                .when(fresh, |s| s.font_weight(FontWeight::SEMIBOLD))
-                                .child(r.says.clone()),
+                                .when(fresh, |s| s.font_weight(FontWeight::SEMIBOLD)),
                         )
                         .children(wide.then(|| {
                             div()
@@ -590,21 +603,17 @@ pub fn part_row(
                         })),
                 )
                 .children((!r.about.is_empty()).then(|| {
-                    div()
-                        .cut_in_tip()
+                    hover::cut_in_row(r.about.clone(), r.about.clone(), &about_cut)
                         .text_size(px(12.))
                         .text_color(theme::accent())
-                        .child(r.about.clone())
                 }))
                 .children((wide && !gist.is_empty()).then(|| {
-                    div()
-                        .cut_in_tip()
+                    hover::cut_in_row(gist.clone(), gist, &gist_cut)
                         .text_size(px(12.))
                         .text_color(theme::muted())
-                        .child(gist)
                 })),
         )
-        .row_tip(picked, tip.join("\n"))
+        .row_tip_cut(picked, cut)
         .on_click(move |_: &ClickEvent, _, cx| pick(InboxEvent::PickPart(id), cx))
 }
 

@@ -58,9 +58,59 @@ pub trait RowTip: Hover + ParentElement {
             .size_full(),
         )
     }
+
+    /// A row's tooltip that says only what the row does not (#202): `lines` in order, one measured as the row drew it
+    /// (`cut_in_row`) said only when it was cut this time. F1 opens every line.
+    fn row_tip_cut(self, picked: bool, lines: Vec<(Option<WasCut>, SharedString)>) -> Self {
+        let said = move |all: bool| {
+            lines
+                .iter()
+                .filter(|(was, t)| !t.is_empty() && (all || was.as_ref().is_none_or(WasCut::get)))
+                .map(|(_, t)| t.as_ref())
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let whole = said(true);
+        self.tooltip_show_delay(LONG)
+            .tooltip(move |_, cx| {
+                let now = said(false);
+                if now.is_empty() {
+                    cx.new(|_| NoTip).into()
+                } else {
+                    cx.new(|_| TipOwned(now.into())).into()
+                }
+            })
+            .row_whole(picked, whole)
+    }
 }
 
 impl<E: Hover + ParentElement> RowTip for E {}
+
+/// Whether a text a row drew was cut this time (#202), measured as it is drawn (`cut_in_row`): the row's tooltip
+/// (`RowTip::row_tip_cut`) gives the text whole only then.
+#[derive(Clone, Default)]
+pub struct WasCut(Rc<Cell<bool>>);
+
+impl WasCut {
+    pub fn get(&self) -> bool {
+        self.0.get()
+    }
+}
+
+/// `shown`, a text in a row whose tooltip says only what the row does not, cut at its end to its room and
+/// measured as `text` into `was` (#202).
+pub fn cut_in_row(
+    text: impl Into<SharedString>,
+    shown: impl IntoElement,
+    was: &WasCut,
+) -> gpui::Div {
+    div()
+        .relative()
+        .min_w_0()
+        .overflow_hidden()
+        .child(div().truncate().child(shown))
+        .child(measured(text.into(), 1, was.0.clone(), false))
+}
 
 /// The rows drawn picked, by window (#184): each list has its own, and the one picked last is the one
 /// the keyboard or a click is on.
@@ -277,7 +327,6 @@ fn cut_shown(
 ) -> gpui::Stateful<gpui::Div> {
     let shortened = text != whole;
     let is_cut = Rc::new(Cell::new(shortened));
-    let measure = (is_cut.clone(), text);
     let shown = div().child(shown);
     div()
         .id(id)
@@ -296,38 +345,7 @@ fn cut_shown(
                 CutAt::Parts => shown.min_w_0().overflow_hidden(),
             }
         })
-        .child(
-            canvas(
-                move |bounds, window, _| {
-                    let (is_cut, text) = measure;
-                    let style = window.text_style();
-                    let size = style.font_size.to_pixels(window.rem_size());
-                    let room = bounds.size.width + gpui::px(0.5);
-                    let cut = if lines > 1 {
-                        let run = style.to_run(text.len());
-                        window
-                            .text_system()
-                            .shape_text(text, size, &[run], Some(room), None)
-                            .map(|l| l.iter().map(|l| l.wrap_boundaries.len() + 1).sum::<usize>())
-                            .is_ok_and(|n| n > lines)
-                    } else {
-                        let line = SharedString::from(text.replace('\n', " "));
-                        let run = style.to_run(line.len());
-                        window
-                            .text_system()
-                            .shape_line(line, size, &[run], None)
-                            .width
-                            > room
-                    };
-                    is_cut.set(shortened || cut);
-                },
-                |_, _, _, _| {},
-            )
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full(),
-        )
+        .child(measured(text, lines, is_cut.clone(), shortened))
         .tooltip_show_delay(LONG)
         .tooltip(move |_, cx| {
             if is_cut.get() {
@@ -336,6 +354,45 @@ fn cut_shown(
                 cx.new(|_| NoTip).into()
             }
         })
+}
+
+/// Over a text and its room, it draws nothing: it measures `text` against the room, `lines` lines of it, and
+/// sets `is_cut` (always, when `shortened` by hand).
+fn measured(
+    text: SharedString,
+    lines: usize,
+    is_cut: Rc<Cell<bool>>,
+    shortened: bool,
+) -> impl IntoElement {
+    canvas(
+        move |bounds, window, _| {
+            let style = window.text_style();
+            let size = style.font_size.to_pixels(window.rem_size());
+            let room = bounds.size.width + gpui::px(0.5);
+            let cut = if lines > 1 {
+                let run = style.to_run(text.len());
+                window
+                    .text_system()
+                    .shape_text(text, size, &[run], Some(room), None)
+                    .map(|l| l.iter().map(|l| l.wrap_boundaries.len() + 1).sum::<usize>())
+                    .is_ok_and(|n| n > lines)
+            } else {
+                let line = SharedString::from(text.replace('\n', " "));
+                let run = style.to_run(line.len());
+                window
+                    .text_system()
+                    .shape_line(line, size, &[run], None)
+                    .width
+                    > room
+            };
+            is_cut.set(shortened || cut);
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
 }
 
 /// `shown`, a shortened `whole` (a name cut by hand within a line), cut to its room: its

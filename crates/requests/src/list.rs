@@ -14,7 +14,7 @@ use artoo_hosts_api::{Approvals, Host, MergeState, Mr, MrState, Pipeline, Thread
 use artoo_review_api::Seen;
 use artoo_ui_kit::controls::{empty_state, outline_button, primary_button, unread_dot};
 use artoo_ui_kit::format::{self, plural};
-use artoo_ui_kit::hover::{self, CutInTip, Hover, RowTip};
+use artoo_ui_kit::hover::{self, Hover, RowTip};
 use artoo_ui_kit::room::Widths;
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, discussion, flat, icons, motion, px, theme, words};
 use gpui::{AnyElement, ClickEvent, Context, Div, FontWeight, SharedString, Task, div, prelude::*};
@@ -1119,21 +1119,17 @@ impl Part {
     }
 
     /// Drawn whole, or — the line's last — cut when the row has no room, saying so.
-    fn drawn(self, last: bool, filter: &str) -> AnyElement {
+    /// The part drawn; the `last` one cut to its room, measured into `was` for the row's tooltip (#202).
+    fn drawn(self, last: bool, filter: &str, was: &hover::WasCut) -> AnyElement {
         let cut = |text: String, color| {
-            div()
-                .min_w_0()
-                .cut_in_tip()
+            hover::cut_in_row(text.clone(), text, was)
                 .text_color(color)
-                .child(text)
                 .into_any_element()
         };
         match self {
-            Part::Found(text) if last => div()
-                .min_w_0()
-                .cut_in_tip()
-                .child(marked(text, filter))
-                .into_any_element(),
+            Part::Found(text) if last => {
+                hover::cut_in_row(text.clone(), marked(text, filter), was).into_any_element()
+            }
             Part::Found(text) => div()
                 .flex_none()
                 .child(marked(text, filter))
@@ -1198,7 +1194,7 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
     let unread = open && !new_to_you && rq.rows.news(m);
     let turn = if open { rq.turn_of(m) } else { None };
     // Its anatomy (#79): the title and when always; the size, discussions and target leave first as the list
-    // narrows, then whose turn; the tooltip holds it all.
+    // narrows, then whose turn; the tooltip holds what left.
     let room = look.widths.room("requests");
     // The row's date says what is sorted (L17): an open one's opening under Oldest first.
     let when = if open && rq.rows.display.1 == SortBy::Oldest {
@@ -1206,88 +1202,115 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
     } else {
         format::ago(m.updated)
     };
-    let mut tip = vec![
-        format!("{} {}", words::number(iid), m.title),
-        format!("{} · {} → {}", m.author, m.source, m.target),
+    // The tip holds what the row does not say (#202): who and where from, the parts the row has no room for, whose
+    // turn when it is not said, and when exactly; the title and the last part only when the row cut them.
+    let mut tip = vec![format!("{} · {} → {}", m.author, m.source, m.target)];
+    // Each part whole, but the last, which is cut and says so (#184); beside each, the tip's words for it should
+    // it leave.
+    let mut parts: Vec<(Part, Option<String>)> = vec![
+        (Part::Found(words::number(iid)), None),
+        (
+            Part::Found(if mine {
+                "You".to_owned()
+            } else {
+                m.author.clone()
+            }),
+            None,
+        ),
     ];
-    // Each part whole, but the last, which is cut and says so (#184).
-    let mut parts: Vec<Part> = vec![
-        Part::Found(words::number(iid)),
-        Part::Found(if mine {
-            "You".to_owned()
-        } else {
-            m.author.clone()
-        }),
-    ];
+    let mut left: Vec<String> = Vec::new();
     if let Some(p) = facts.and_then(|f| f.pipeline.as_ref()) {
         let (glyph, short, color) = crate::bar::pipeline_short(p);
-        tip.push(format!(
-            "Pipeline {glyph} {}",
-            crate::bar::pipeline_word(p).1
+        parts.push((
+            Part::Text(format!("{glyph} {short}"), color),
+            Some(format!(
+                "Pipeline {glyph} {}",
+                crate::bar::pipeline_word(p).1
+            )),
         ));
-        parts.push(Part::Text(format!("{glyph} {short}"), color));
     }
     if let Some(said) = facts
         .and_then(|f| f.approvals.as_ref())
         .and_then(approvals_words)
     {
-        tip.push(format!("Approvals {said}"));
-        parts.push(Part::Text(said, theme::muted()));
+        parts.push((
+            Part::Text(said.clone(), theme::muted()),
+            Some(format!("Approvals {said}")),
+        ));
     }
     if let Some((files, added, removed, _)) = facts.and_then(|f| f.size) {
-        tip.push(format!("{} +{added} −{removed}", plural(files, "file")));
+        let said = format!("{} +{added} −{removed}", plural(files, "file"));
         if room.third() {
-            parts.push(Part::Size(files, added, removed));
+            parts.push((Part::Size(files, added, removed), Some(said)));
+        } else {
+            left.push(said);
         }
     }
     let (open_threads, _) = facts.map(|f| discussions(&f.threads)).unwrap_or_default();
     if open_threads > 0 {
-        tip.push(format!("{open_threads} open"));
+        let said = format!("{open_threads} open");
         if room.third() {
-            parts.push(Part::Text(format!("{open_threads} open"), theme::muted()));
+            parts.push((Part::Text(said.clone(), theme::muted()), Some(said)));
+        } else {
+            left.push(said);
         }
     }
     if m.conflicts {
-        tip.push("Conflicts with its target".into());
-        parts.push(Part::Text("⚠ conflicts".into(), theme::warning()));
+        parts.push((
+            Part::Text("⚠ conflicts".into(), theme::warning()),
+            Some("Conflicts with its target".into()),
+        ));
     }
-    if rq
-        .rows
-        .main_line
-        .as_deref()
-        .is_some_and(|main| main != m.target)
+    // A target that is not the main line; the tip's first line names it whether or not the row has room.
+    if room.third()
+        && rq
+            .rows
+            .main_line
+            .as_deref()
+            .is_some_and(|main| main != m.target)
     {
-        tip.push(format!("Into {}", m.target));
-        if room.third() {
-            parts.push(Part::Text(format!("→ {}", m.target), theme::muted()));
-        }
+        parts.push((Part::Text(format!("→ {}", m.target), theme::muted()), None));
     }
-    if let Some(t) = &turn {
-        tip.push(t.words(mine));
-    }
-    tip.push(format!("updated {}", hover::full_date(m.updated)));
     // What the row has room for, as the list was last measured: the parts of least use leave whole — the target,
     // the open discussions, the size —, the last one left cut when even the rest does not fit.
     let width = look.widths.width("requests");
     if width > 0. {
         let turn_width = turn.as_ref().map_or(0., |t| estimate(&t.words(mine)) + 8.);
         let budget = width - 52. - turn_width;
-        let needs = |parts: &[Part]| {
-            parts.iter().map(Part::estimate).sum::<f32>() + 14. * parts.len() as f32
+        let needs = |parts: &[(Part, Option<String>)]| {
+            parts.iter().map(|(p, _)| p.estimate()).sum::<f32>() + 14. * parts.len() as f32
         };
         while parts.len() > 3 && needs(&parts) > budget {
             let least = parts
                 .iter()
                 .enumerate()
                 .skip(3)
-                .min_by_key(|(n, p)| (p.keep(), std::cmp::Reverse(*n)))
+                .min_by_key(|(n, (p, _))| (p.keep(), std::cmp::Reverse(*n)))
                 .map(|(n, _)| n);
             match least {
-                Some(n) => parts.remove(n),
+                Some(n) => left.extend(parts.remove(n).1),
                 None => break,
             };
         }
     }
+    tip.extend(left);
+    if let Some(t) = turn.as_ref().filter(|_| !room.second()) {
+        tip.push(t.words(mine));
+    }
+    tip.push(format!("updated {}", hover::full_date(m.updated)));
+    // The title and the last part are cut to their room; the tip says them only when they were: the title first,
+    // the last part after who and where from.
+    let (title_cut, last_cut) = (hover::WasCut::default(), hover::WasCut::default());
+    let mut lines: Vec<(Option<hover::WasCut>, SharedString)> =
+        vec![(Some(title_cut.clone()), m.title.clone().into())];
+    let mut always = tip.into_iter();
+    lines.extend(always.next().map(|first| (None, first.into())));
+    lines.extend(
+        (parts.last().and_then(|(_, said)| said.clone()))
+            .map(|said| (Some(last_cut.clone()), said.into())),
+    );
+    lines.extend(always.map(|line| (None, line.into())));
+    let parts: Vec<Part> = parts.into_iter().map(|(p, _)| p).collect();
     let last = parts.len().saturating_sub(1);
     let mut line2: Vec<AnyElement> = Vec::new();
     for (n, part) in parts.into_iter().enumerate() {
@@ -1300,7 +1323,7 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
                     .into_any_element(),
             );
         }
-        line2.push(part.drawn(n == last, look.filter));
+        line2.push(part.drawn(n == last, look.filter, &last_cut));
     }
     let compact = look.compact;
     let (context, acts) = (acts.clone(), acts.clone());
@@ -1342,11 +1365,12 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
                             .items_center()
                             .gap(px(8.))
                             .child(
-                                div()
-                                    .min_w_0()
-                                    .cut_in_tip()
-                                    .when(m.draft, |s| s.text_color(theme::muted()))
-                                    .child(marked(m.title.clone(), look.filter)),
+                                hover::cut_in_row(
+                                    m.title.clone(),
+                                    marked(m.title.clone(), look.filter),
+                                    &title_cut,
+                                )
+                                .when(m.draft, |s| s.text_color(theme::muted())),
                             )
                             .when(new_to_you, |s| s.child(tag("New", theme::accent())))
                             .when(m.draft, |s| s.child(tag("Draft", theme::muted())))
@@ -1384,7 +1408,7 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
                             })),
                     ),
             )
-            .row_tip(picked, tip.join("\n"))
+            .row_tip_cut(picked, lines)
             .on_click(move |event: &ClickEvent, _, cx| {
                 // A second click on the picked one opens it, as ↵ does; with no preview beside the
                 // list, the first (#80).

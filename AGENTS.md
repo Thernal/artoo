@@ -280,6 +280,10 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   cuts with `CutInTip` instead (`cut_in_tip`, `name_in_tip`, `path_in_tip`, `clamp_in_tip`): an inner tooltip, even
   an empty one, hides the outer. A row that can be picked gives its tooltip with `RowTip::row_tip(picked, …)`
   (`row_whole` beside a card), so F1 and ⌘K's `Show the whole text` open it at the row picked last, `⌘C` copying it.
+  A row's tooltip holds what the row does not say (#202): who, the branches, the exact time, the parts that left for
+  room — never the title or a part the row shows. A text the row draws cut is drawn with `hover::cut_in_row`, which
+  measures it, and its line goes to `RowTip::row_tip_cut` with that measure: the tooltip says it only when it was cut
+  this time (F1 says every line).
   Tests over every crate fail on a bare `truncate`, `line_clamp` or `text_ellipsis…` outside the kit's `hover.rs`,
   and on a chain holding `overflow_hidden` and `whitespace_nowrap` (text clipped with no sign) unless a `// clip:`
   comment above it says why (a field scrolling with its caret).

@@ -6,11 +6,11 @@ use crate::history::{Act, Acts, History};
 use artoo_core::route::Route;
 use artoo_shell_api::Frame;
 use artoo_ui_kit::format::{self, plural};
-use artoo_ui_kit::hover::{self, CutInTip, Hover, RowTip};
+use artoo_ui_kit::hover::{self, Hover, RowTip};
 use artoo_ui_kit::{gap, icons, island, px, row, theme};
 use gpui::{
-    AnyElement, App, ClickEvent, Context, Entity, MouseButton, MouseDownEvent, Render, Window, div,
-    prelude::*,
+    AnyElement, App, ClickEvent, Context, Entity, MouseButton, MouseDownEvent, Render,
+    SharedString, Window, div, prelude::*,
 };
 use std::rc::{Rc, Weak};
 
@@ -132,7 +132,8 @@ impl History {
         let run = self.picked_run();
         // A commit's anatomy (#79): its sha and title always; when, and who when there are
         // several, while the list has 260 px; the icon and its version under 360 px leave first.
-        // The tooltip holds them all.
+        // The tooltip holds what the row does not say (#202): who when the row leaves it out, exactly when, and the
+        // version when its chip left.
         let room = self.widths.room("commits");
         let several = self
             .commits
@@ -148,21 +149,24 @@ impl History {
                     Some((newest, oldest)) => (newest..=oldest).contains(&ix),
                     None => picked == Some(ix),
                 };
-                let mut tip = vec![
-                    c.summary.clone(),
-                    format!(
-                        "{} · {} · {}",
-                        format::short(c.id),
-                        c.author,
-                        hover::full_date(c.time)
-                    ),
-                ];
-                if let Some(v) = came[ix] {
-                    tip.push(format!("came with v{v}"));
-                }
                 let (menu, open, this) = (acts.clone(), acts.clone(), this.clone());
                 // The why under the subject, its body's first line (#188, Design A5).
                 let why = first_line_of_body(&c.message);
+                // The subject, the why and the author are cut to their room; the tip says them only when they were.
+                let [summary_cut, why_cut, author_cut] = [(); 3].map(|_| hover::WasCut::default());
+                let mut tip: Vec<(Option<hover::WasCut>, SharedString)> =
+                    vec![(Some(summary_cut.clone()), c.summary.clone().into())];
+                tip.extend(why.clone().map(|line| (Some(why_cut.clone()), line.into())));
+                let when = hover::full_date(c.time);
+                if several && room.second() {
+                    tip.push((Some(author_cut.clone()), c.author.clone().into()));
+                    tip.push((None, when.into()));
+                } else {
+                    tip.push((None, format!("{} · {when}", c.author).into()));
+                }
+                if let Some(v) = came[ix].filter(|_| !room.third()) {
+                    tip.push((None, format!("came with v{v}").into()));
+                }
                 row(("request-commit", ix), selected)
                     .when(why.is_none(), |s| s.h(px(36.)))
                     .when(why.is_some(), |s| s.py(px(6.)))
@@ -189,24 +193,23 @@ impl History {
                             .min_w_0()
                             .flex()
                             .flex_col()
-                            .child(div().min_w_0().cut_in_tip().child(c.summary.clone()))
+                            .child(hover::cut_in_row(
+                                c.summary.clone(),
+                                c.summary.clone(),
+                                &summary_cut,
+                            ))
                             .children(why.map(|line| {
-                                div()
-                                    .min_w_0()
-                                    .cut_in_tip()
+                                hover::cut_in_row(line.clone(), line, &why_cut)
                                     .text_size(px(12.))
                                     .text_color(theme::muted())
-                                    .child(line)
                             })),
                     )
                     .children((several && room.second()).then(|| {
-                        div()
+                        hover::cut_in_row(c.author.clone(), c.author.clone(), &author_cut)
                             .flex_none()
                             .max_w(px(140.))
-                            .cut_in_tip()
                             .text_size(px(11.))
                             .text_color(theme::muted())
-                            .child(c.author.clone())
                     }))
                     .children(came[ix].filter(|_| room.third()).map(|v| {
                         div()
@@ -234,7 +237,7 @@ impl History {
                                 .child(format::ago(c.time)),
                         )
                     })
-                    .row_tip(selected, tip.join("\n"))
+                    .row_tip_cut(selected, tip)
                     // Its SHA, its message, its link (#162).
                     .on_mouse_down(MouseButton::Right, move |e: &MouseDownEvent, _, cx| {
                         menu(Act::CommitMenu { ix, at: e.position }, cx)

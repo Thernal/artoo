@@ -101,7 +101,19 @@ fn explain(stderr: &str) -> String {
     .iter()
     .any(|p| lower.contains(p))
     {
-        "Can't reach the remote — is the VPN on?".to_owned()
+        // With several remotes `--all` names each it could not fetch; with one, it is the one.
+        let named: Vec<&str> = stderr
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix("error: could not fetch "))
+            .filter_map(|rest| rest.split_whitespace().next())
+            .map(|name| name.trim_matches('\''))
+            .collect();
+        let remote = if named.is_empty() {
+            "the remote".to_owned()
+        } else {
+            named.join(", ")
+        };
+        format!("Can't reach {remote} — is the VPN on?")
     } else if [
         "permission denied",
         "authentication failed",
@@ -168,5 +180,13 @@ mod tests {
         assert!(explain("ssh: Could not resolve hostname git.example").contains("VPN"));
         assert!(explain("git@host: Permission denied (publickey).").contains("credentials"));
         assert_eq!(explain("\nfatal: odd\n"), "fatal: odd");
+        // Of several remotes, the one not reached is named.
+        assert_eq!(
+            explain(
+                "ssh: Could not resolve hostname git.example\nfatal: Could not read from remote \
+                 repository.\nerror: could not fetch upstream\n"
+            ),
+            "Can't reach upstream — is the VPN on?"
+        );
     }
 }

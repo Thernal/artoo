@@ -113,21 +113,19 @@ pub fn version_rows(h: &History, new_from: Option<usize>, read: Option<usize>, a
                 );
             let acts = acts.clone();
             let item = row(("version", ix), chosen)
-                // A long hover: who pushed it, exactly when, and what moved the branch (#53).
-                .row_tip(
-                    chosen,
-                    format!(
-                        "v{} · {} · {} · {}",
-                        v.number,
-                        v.author,
-                        hover::full_date(v.time),
-                        if v.reason.is_empty() {
-                            kind
-                        } else {
-                            v.reason.as_str()
-                        }
-                    ),
-                )
+                // A long hover (#53): what the row does not say (#202) — who pushed it when one person pushed them
+                // all, exactly when, and what moved the branch when it says more than the row's word.
+                .row_tip(chosen, {
+                    let mut tip = Vec::new();
+                    if !several {
+                        tip.push(v.author.clone());
+                    }
+                    tip.push(hover::full_date(v.time));
+                    if !v.reason.is_empty() && v.reason != kind {
+                        tip.push(v.reason.clone());
+                    }
+                    tip.join(" · ")
+                })
                 .h(px(44.))
                 .items_start()
                 .gap_2()

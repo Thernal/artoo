@@ -70,11 +70,14 @@ for someone using the app, not for someone reading the code; the commits follow 
   for updates to About. Rows are 44 px in one 640 column, a row off its default has a dot and `Reset` on hover, `Done`
   sits at the foot of the left column, one editor found is said in plain words, and `Format comments as markdown`
   left (its key, ⌥M, stays).
-- **A failed fetch reads as a fact.** The title bar says `Can't reach origin · fetched 14:32` beside an amber dot, with
-  `Retry` as its own button, instead of a red sentence; its tooltip names the host, the likely cause and the last
-  fetch. Sentences that described a page went — how Artoo signs in, the faces, Raw / Rich's key, Merge's warning, the
-  Agents setup line, the Inbox preview repeating its row — and the layout's fold widths moved to the interface size's
-  tooltip. Every tooltip now opens after the same 800 ms, and the merge card's × is named.
+- **A failed fetch reads as a fact.** The title bar says `Can't reach origin · fetched 14:32` beside an amber dot, the
+  remote by its own name (the one git could not reach, of several), with `Retry` as its own button, instead of a red
+  sentence; its tooltip names the host, the likely cause and the last fetch. Sentences that described a page went — how
+  Artoo signs in, the faces, Raw / Rich's key, Merge's warning, the Agents setup line, the Inbox preview repeating its
+  row — and the layout's fold widths moved to the interface size's tooltip. A row's tooltip says what the row does not —
+  `Juniper Hale · feature/login-state → main`, `updated Thu 15 Oct 2026, 16:25` — and the title or a part only when the
+  row cut it, in the merge requests list, a request's commits, its versions and the Inbox. Every tooltip now opens after
+  the same 800 ms, and the merge card's × is named.
 - **The Agents window is grouped by what you owe.** `Needs you`, `Working` and `Done` replace the filters; a row is the
   agent's own last words — `One sealed class, or a sealed class and a separate error type?` — with where and how long
   ago under them — a comment of yours says how long ago from when you wrote it —, and one button for the one thing to do
