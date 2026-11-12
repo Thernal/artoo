@@ -27,6 +27,7 @@ pub struct Head {
 /// right its count and controls; a click on it calls `fold`.
 pub fn head(id: &'static str, h: Head, fold: impl Fn(&mut App) + 'static) -> Stateful<Div> {
     let folded = h.folded;
+    let (title, key) = split_key(&h.title);
     div()
         .id(id)
         .flex_none()
@@ -69,8 +70,10 @@ pub fn head(id: &'static str, h: Head, fold: impl Fn(&mut App) + 'static) -> Sta
                 .text_size(px(11.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme::muted())
-                .child(h.title.to_uppercase()),
+                .child(title.to_uppercase()),
         )
+        // The key that gives its list the keyboard, while it has it: a keycap, not words (#208).
+        .children(key.map(|key| crate::keys::caps(&key, crate::keys::On::Plain)))
         .child(
             div()
                 .flex_1()
@@ -84,6 +87,16 @@ pub fn head(id: &'static str, h: Head, fold: impl Fn(&mut App) + 'static) -> Sta
                 ),
         )
         .children(h.end)
+}
+
+/// A title and the key at its end, `Commits · ⌃2` (`Ctrl+2` off a Mac): the key apart.
+fn split_key(title: &str) -> (String, Option<String>) {
+    match title.rsplit_once(" · ") {
+        Some((t, key)) if key.starts_with('⌃') || key.starts_with("Ctrl") => {
+            (t.to_owned(), Some(key.to_owned()))
+        }
+        _ => (title.to_owned(), None),
+    }
 }
 
 /// The panel at `width`, its sections one under the other, outlined while one of its lists has the keyboard;
@@ -128,4 +141,21 @@ pub fn count(n: String) -> AnyElement {
         .text_color(theme::faint())
         .child(SharedString::from(n))
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_titles_key_is_drawn_apart() {
+        use super::split_key;
+        assert_eq!(
+            split_key("Commits · ⌃2"),
+            ("Commits".into(), Some("⌃2".into()))
+        );
+        assert_eq!(
+            split_key("Changes ✓ · Ctrl+3"),
+            ("Changes ✓".into(), Some("Ctrl+3".into()))
+        );
+        assert_eq!(split_key("Versions · 3"), ("Versions · 3".into(), None));
+    }
 }

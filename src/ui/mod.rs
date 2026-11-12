@@ -2310,6 +2310,12 @@ impl Workspace {
         let link = self.commit_link_entry(commit.id, cx);
         let on_host = link.as_ref().is_some_and(|e| e.act.is_some());
         groups[0].extend(link);
+        // Its files as they were, in Code (#208).
+        let (id, short) = (commit.id, format::short(commit.id));
+        groups.push(vec![Entry::new(
+            "Browse files here",
+            Act::new(move |this, _, cx| this.browse_files((short.clone(), id), cx)),
+        )]);
         if let Some(web) = self.web.as_ref().filter(|_| on_host) {
             groups.push(vec![Entry::new(
                 format!("Open in {} ↗", web.name()),
@@ -2317,6 +2323,13 @@ impl Workspace {
             )]);
         }
         self.open_menu(at, groups, cx);
+    }
+
+    /// Code reads at `rev` and comes on screen (#208).
+    fn browse_files(&mut self, rev: (String, git2::Oid), cx: &mut Context<Self>) {
+        if let Some(code) = self.code() {
+            code.browse(Some(rev), cx);
+        }
     }
 
     fn file_context(&mut self, ix: usize, at: Point<gpui::Pixels>, cx: &mut Context<Self>) {
@@ -2367,6 +2380,11 @@ impl Workspace {
         // Its page on the host; one only on this Mac says so instead (#162).
         let link = self.branch_link(&branch.refname, cx).ok();
         groups[0].extend(self.branch_link_entry(&branch.refname, cx));
+        let (name, tip) = (branch.name.clone(), branch.tip);
+        groups.push(vec![Entry::new(
+            "Browse files here",
+            Act::new(move |this, _, cx| this.browse_files((name.clone(), tip), cx)),
+        )]);
         if self.requests_available(cx) && branch.name != "main" && branch.name != "master" {
             groups.push(vec![
                 Entry::new(

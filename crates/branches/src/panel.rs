@@ -187,7 +187,7 @@ impl Render for Panel {
             .get::<Rc<dyn artoo_review_api::Review>>()
             .zip(services.get::<Rc<dyn artoo_review_api::Host>>())
             .and_then(|(review, host)| review.changes_section(tag(ListZone::Files), host, cx));
-        if let Some((changes, open)) = changes {
+        if let Some((changes, open)) = changes.filter(|_| !shows.no_changes) {
             if open {
                 open_lists += 1;
             }
@@ -238,10 +238,13 @@ impl History {
                     && (a.to_string(), b.to_string()) == (c.base_commit, c.head_commit)
             })
         });
+        // The main line's Commits and Changes are tabs (#208): one or the other, the whole column.
+        let main = branch.as_deref().is_some_and(|b| self.main_line(b));
         Shows {
             versions: self.versions.len() > 1 && !commit_level && !on_branch && !loose,
-            commits: !tabbed && !loose,
+            commits: !tabbed && !loose && !(main && self.main_changes),
             compare,
+            no_changes: main && !self.main_changes,
         }
     }
 

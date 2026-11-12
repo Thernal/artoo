@@ -47,7 +47,22 @@ pub fn piece(history: Entity<History>, services: Rc<Services>) -> Piece {
             let text = |key: String, text: &str| {
                 markdown::body(text, false, key, None, Some(drawing.selecting.clone()), cx)
             };
-            Some(head(&diff, &look, &text, &acts))
+            let head = head(&diff, &look, &text, &acts);
+            // The main line's page says where it is pushed and its latest commit over the commit's head (#208).
+            let main =
+                <artoo_branches_api::BranchRoute as artoo_core::route::Place>::from_route(route)
+                    .filter(|b| h.main_line(&b.refname))
+                    .and_then(|_| crate::facts::main_line(h));
+            Some(match main {
+                Some(line) => div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(artoo_ui_kit::gap()))
+                    .child(line)
+                    .child(head)
+                    .into_any_element(),
+                None => head,
+            })
         }),
     }
 }

@@ -85,6 +85,8 @@ pub struct History {
     pub kept_read: Option<crate::since::KeptRead>,
     /// How many files the request open's whole diff lists, read once for its sides (base, head) (#187).
     pub whole: Option<((git2::Oid, git2::Oid), usize)>,
+    /// The main line's page shows its Changes tab, not its Commits (#208).
+    pub main_changes: bool,
 }
 
 pub use artoo_branches_api::Event;
@@ -198,6 +200,7 @@ impl Default for History {
             pick_to: None,
             widths: Default::default(),
             kept_read: None,
+            main_changes: false,
             whole: None,
         }
     }
@@ -231,6 +234,25 @@ impl Handle {
 impl artoo_branches_api::Branches for Handle {
     fn tabbed(&self, refname: &str, cx: &gpui::App) -> bool {
         self.0.upgrade().is_some_and(|h| h.read(cx).tabbed(refname))
+    }
+
+    fn main_line(&self, refname: &str, cx: &gpui::App) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|h| h.read(cx).main_line(refname))
+    }
+
+    fn main_changes(&self, cx: &gpui::App) -> bool {
+        self.0.upgrade().is_some_and(|h| h.read(cx).main_changes)
+    }
+
+    fn set_main_changes(&self, on: bool, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, cx| {
+                h.main_changes = on;
+                cx.notify();
+            });
+        }
     }
 
     fn pick_commits(&self, newest: git2::Oid, oldest: Option<git2::Oid>, cx: &mut gpui::App) {

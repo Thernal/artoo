@@ -7,6 +7,7 @@
 //! `artoo_code_api::Host` it finds there, and reads its file through the review's `FileView`.
 
 mod outline;
+mod revisions;
 mod search;
 mod space;
 
@@ -68,6 +69,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
             Box::new(GoToCode),
             Rc::new(move |_, cx| goes.go_space(artoo_code_api::SPACE, cx)),
         )],
+        lists: vec![revisions::list(code.downgrade())],
         pages: Some(space::CodeSpace::pages(&code)),
         tool: Some(tool),
         ..Default::default()

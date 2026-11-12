@@ -6,6 +6,14 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **Code reads any revision, and says which once; main's page is laid out like a branch's.** The chip over Code's
+  tree, `working tree ▾`, lists the working tree, HEAD, the branches, origin's, the tags and `Commit id…` (any id, tag
+  or `HEAD~3`, with its message). At another revision the chip is tinted, `release/2.4 ×`, and × goes back to the
+  working tree; a file's head says only `19 lines`, without `read only` or the revision again. A commit's and a
+  branch's menus gain `Browse files here`. main's page offers a quiet `Compare… ⌥⌘C` instead of Create merge request,
+  has the tabs `Commits 10 · Changes 3` (⌃⇥ turns them over) with the commits running to the column's foot, and a row
+  `Remote origin · in sync · Latest 231a547 · 25 d ago`; a section's key is a keycap, `⌃2`. A run of commits is
+  called `2 commits` in the path, and a branch's remote reads `origin · in sync`.
 - **Code goes from a name to where it is declared, to a line, and says where you are.** ⌘-click a name, or put the
   caret on it and press F12: a card opens under the line, `By name · 3`, the declaration in this file first and then
   the others, `LoginState.kt:3` with its line and folder; ↑ ↓ ↵ open one, ⇧F12 searches the word in the repository. A

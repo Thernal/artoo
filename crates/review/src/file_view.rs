@@ -498,12 +498,13 @@ impl Review {
         cx: &Context<Self>,
     ) -> gpui::Div {
         let markdown = view.markdown() && view.image.is_none();
+        // What it is read at is the revision chip's to say, once (#208).
         let facts = if view.image.is_some() {
-            format!("image · {}", view.at)
+            "image".to_owned()
         } else if let Some(size) = view.binary {
-            format!("{} · {}", crate::image_view::bytes(size as usize), view.at)
+            crate::image_view::bytes(size as usize)
         } else {
-            format!("{} lines · {}", view.lines.len(), view.at)
+            format!("{} lines", view.lines.len())
         };
         div()
             .flex_none()
@@ -587,7 +588,6 @@ impl Review {
                         ),
                     )
             }))
-            .child(div().text_color(theme::faint()).child("read only"))
     }
 
     /// The scope line over the lines (#207): the declarations holding the top line, the outermost first, once their own

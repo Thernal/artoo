@@ -7,7 +7,7 @@ use artoo_core::git::Repo;
 use artoo_core::route::{Place, Route};
 use artoo_requests_api::Requests;
 use artoo_shell_api::{Piece, Services, Slot};
-use artoo_ui_kit::format::plural;
+use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::{island, px, theme, words};
 use git2::Oid;
 use gpui::{AnyElement, App, Div, Entity, MouseButton, MouseDownEvent, div, prelude::*};
@@ -93,39 +93,76 @@ pub fn line_of(
 /// `request`'s number; a right click on it branch `ix`'s menu. None for the main line itself.
 pub fn branch_line(f: &Facts, ix: Option<usize>, request: Option<u64>, acts: &Acts) -> Option<Div> {
     let main = f.base.as_ref()?.0.trim_start_matches("origin/").to_owned();
-    let remote = match &f.upstream {
-        None => "not pushed".to_owned(),
-        Some((up, 0, 0)) => format!("pushed to {}", up.split('/').next().unwrap_or(up)),
-        Some((_, ahead, 0)) => format!("{} not pushed", plural(*ahead, "commit")),
-        Some((up, _, behind)) => format!("{behind} behind {up}"),
-    };
     let request = request.map_or_else(|| "none yet".to_owned(), words::number);
-    let fact = |label: String, value: String| {
-        div()
-            .flex()
-            .gap(px(6.))
-            .child(div().text_color(theme::faint()).child(label))
-            .child(div().child(value))
-    };
     let acts = acts.clone();
     Some(
-        island()
+        facts_row()
             // Its link, the branch's name, a request (#162).
             .on_mouse_down(MouseButton::Right, move |e: &MouseDownEvent, _, cx| {
                 if let Some(ix) = ix {
                     acts(Act::BranchMenu { ix, at: e.position }, cx)
                 }
             })
-            .flex_none()
-            .flex_row()
-            .items_center()
-            .gap(px(20.))
-            .h(px(40.))
-            .px(px(14.))
-            .text_size(px(12.))
             .child(fact(format!("Ahead of {main}"), plural(f.ahead, "commit")))
             .child(fact("Behind".to_owned(), f.behind.to_string()))
-            .child(fact("Remote".to_owned(), remote))
+            .child(fact("Remote".to_owned(), remote(f.upstream.as_ref())))
             .child(fact(words::say("Request").into_owned(), request)),
     )
+}
+
+/// The main line's own row over its page (#208): where it is pushed and its latest commit, `231a547 · 25 d ago`.
+/// None until its facts and commits are read.
+pub fn main_line(h: &History) -> Option<AnyElement> {
+    let f = h.page.as_ref()?;
+    let latest = h.commits.first()?;
+    Some(
+        facts_row()
+            .child(fact("Remote".to_owned(), remote(f.upstream.as_ref())))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(6.))
+                    .child(div().text_color(theme::faint()).child("Latest"))
+                    .child(
+                        div()
+                            .font_family(theme::code_font())
+                            .child(format::short(latest.id)),
+                    )
+                    .child(div().text_color(theme::faint()).child("·"))
+                    .child(div().child(format::ago(latest.time))),
+            )
+            .into_any_element(),
+    )
+}
+
+/// Where a branch is pushed, `upstream` its upstream with how far it is ahead of it and behind it: `origin · in
+/// sync`, `2 commits not pushed`, `3 behind origin/main`, `not pushed`.
+fn remote(upstream: Option<&(String, usize, usize)>) -> String {
+    match upstream {
+        None => "not pushed".to_owned(),
+        Some((up, 0, 0)) => format!("{} · in sync", up.split('/').next().unwrap_or(up)),
+        Some((_, ahead, 0)) => format!("{} not pushed", plural(*ahead, "commit")),
+        Some((up, _, behind)) => format!("{behind} behind {up}"),
+    }
+}
+
+/// A row of facts, one line over the page.
+fn facts_row() -> Div {
+    island()
+        .flex_none()
+        .flex_row()
+        .items_center()
+        .gap(px(20.))
+        .h(px(40.))
+        .px(px(14.))
+        .text_size(px(12.))
+}
+
+/// A fact, its label faint.
+fn fact(label: String, value: String) -> Div {
+    div()
+        .flex()
+        .gap(px(6.))
+        .child(div().text_color(theme::faint()).child(label))
+        .child(div().child(value))
 }

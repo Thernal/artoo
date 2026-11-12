@@ -352,9 +352,18 @@ fn path(
         }
         RequestCommitsRoute::KIND => {
             let r = RequestCommitsRoute::from_route(route)?;
-            let oid = |hex: &str| git2::Oid::from_str(hex).ok().map(format::short);
-            let name = format!("{}..{}", oid(&r.oldest)?, oid(&r.newest)?);
-            (up(r.number, true), name, true, tip(r.number))
+            let oid = |hex: &str| git2::Oid::from_str(hex).ok();
+            let (newest, oldest) = (oid(&r.newest)?, oid(&r.oldest)?);
+            // How many commits the run is (#208), its ends while they are not among the commits read.
+            let at = |id| branches().and_then(|b| b.commit_of(id, cx));
+            let (name, mono) = match (at(newest), at(oldest)) {
+                (Some(a), Some(b)) if b >= a => (format::plural(b - a + 1, "commit"), false),
+                _ => (
+                    format!("{}..{}", format::short(oldest), format::short(newest)),
+                    true,
+                ),
+            };
+            (up(r.number, true), name, mono, tip(r.number))
         }
         RequestVersionsRoute::KIND => {
             let r = RequestVersionsRoute::from_route(route)?;

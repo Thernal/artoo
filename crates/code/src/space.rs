@@ -382,10 +382,8 @@ impl CodeSpace {
                     .filter(|v| &v.path == path)
                     .map(|v| format!(" · as of {} · {} lines", v.at, v.lines))
                     .unwrap_or_default();
-                (
-                    format!("{path}{at}"),
-                    read.map(|v| format!("as of {}", v.at)),
-                )
+                // The revision is the chip's to say (#208): the path's long hover keeps it.
+                (format!("{path}{at}"), None)
             }
             Page::Folder(_) => {
                 let inside = format!("{path}/");
@@ -626,7 +624,7 @@ impl CodeSpace {
     }
 
     /// Code reads at `rev` (None: the working tree); the page on screen is read again there.
-    fn set_revision(&mut self, rev: Option<(String, Oid)>, cx: &mut Context<Self>) {
+    pub(crate) fn set_revision(&mut self, rev: Option<(String, Oid)>, cx: &mut Context<Self>) {
         self.code.rev = rev;
         self.read_files(false, cx);
         match self.shown.clone() {
@@ -790,6 +788,11 @@ impl CodeSpace {
         }
     }
 
+    /// The repository's folder.
+    pub(crate) fn root(&self) -> Option<&std::path::Path> {
+        self.root.as_deref()
+    }
+
     /// What the chip says Code reads: the working tree, or the branch or commit picked.
     fn revision_label(&self) -> String {
         match (&self.code.rev, self.plain) {
@@ -859,25 +862,7 @@ impl CodeSpace {
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .text_color(theme::muted()),
                     )
-                    .child(
-                        div()
-                            .id("code-revision")
-                            .flex_none()
-                            .px(px(6.))
-                            .rounded(px(4.))
-                            .text_color(theme::faint())
-                            .when(!self.plain, |s| {
-                                s.cursor_pointer()
-                                    .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
-                                    .on_mouse_down(
-                                        MouseButton::Left,
-                                        cx.listener(|this, e: &MouseDownEvent, _, cx| {
-                                            this.open_revision_menu(e.position, cx)
-                                        }),
-                                    )
-                            })
-                            .child(chip),
-                    ),
+                    .child(self.render_revision_chip(chip, cx)),
             )
             .child(
                 div().flex_none().px(px(8.)).pb(px(6.)).child(
@@ -1040,7 +1025,69 @@ impl CodeSpace {
         self.frame.menu(at, groups, cx);
     }
 
-    /// The chip's menu: the working tree, HEAD, the local branches.
+    /// The revision chip over the tree (#208): `working tree ▾`, a control that opens the revisions; at any other
+    /// revision tinted, `231a547 ×`, the × going back to the working tree.
+    fn render_revision_chip(&self, label: String, cx: &Context<Self>) -> gpui::Stateful<Div> {
+        let elsewhere = self.code.rev.is_some() && !self.plain;
+        div()
+            .id("code-revision")
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .h(px(22.))
+            .pl(px(7.))
+            .pr(px(if self.plain { 7. } else { 4. }))
+            .rounded(px(4.))
+            .map(|s| match elsewhere {
+                true => s
+                    .bg(theme::info_bg())
+                    .text_color(theme::accent())
+                    .font_family(theme::code_font()),
+                false => s.text_color(theme::faint()),
+            })
+            .when(!self.plain, |s| {
+                s.cursor_pointer()
+                    .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, e: &MouseDownEvent, _, cx| {
+                            this.open_revision_menu(e.position, cx)
+                        }),
+                    )
+            })
+            .child(label)
+            .when(!self.plain && !elsewhere, |s| {
+                s.child(
+                    icons::icon("chevron")
+                        .size(px(12.))
+                        .text_color(theme::faint()),
+                )
+            })
+            .when(elsewhere, |s| {
+                s.child(
+                    div()
+                        .id("code-revision-clear")
+                        .size(px(16.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(3.))
+                        .hover(|s| s.bg(theme::hover()))
+                        .child(icons::icon("x").size(px(11.)).text_color(theme::accent()))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.set_revision(None, cx);
+                            }),
+                        ),
+                )
+            })
+    }
+
+    /// The chip's menu (#208): the working tree, HEAD, the local branches, the remote ones, the tags, and a commit by
+    /// its id.
     fn open_revision_menu(&mut self, at: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
         let now = self.code.at();
         let all = self.branches(cx);
@@ -1068,7 +1115,37 @@ impl CodeSpace {
                     .checked(self.code.rev.as_ref().is_some_and(|r| r.0 == b.name))
             })
             .collect();
-        self.frame.menu(at, vec![entries, branches], cx);
+        let remotes: Vec<MenuItem> = all
+            .iter()
+            .filter(|b| b.kind == artoo_core::git::RefKind::Remote)
+            .map(|b| {
+                read_at(b.name.clone(), Some((b.name.clone(), b.tip)))
+                    .checked(self.code.rev.as_ref().is_some_and(|r| r.0 == b.name))
+            })
+            .collect();
+        // The tags, newest names last as git lists them; a long list keeps its last ones.
+        let tags: Vec<MenuItem> = (self.root.as_deref())
+            .and_then(|root| Repo::open(root).ok()?.compare_refs().ok())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|r| r.tag)
+            .rev()
+            .take(12)
+            .map(|r| {
+                read_at(format!("tag {}", r.name), Some((r.name.clone(), r.tip)))
+                    .checked(self.code.rev.as_ref().is_some_and(|c| c.0 == r.name))
+            })
+            .collect();
+        let frame = self.frame.clone();
+        let by_id = vec![MenuItem::new("Commit id…", move |_, cx| {
+            frame.search(crate::revisions::LIST, cx)
+        })];
+        let groups = [entries, branches, remotes, tags, by_id];
+        self.frame.menu(
+            at,
+            groups.into_iter().filter(|g| !g.is_empty()).collect(),
+            cx,
+        );
     }
 
     /// Tab `key`'s menu: keep a preview, pin it, close it or others, copy its path, show it in Finder.
@@ -1434,13 +1511,8 @@ impl CodeSpace {
                     .border_b_1()
                     .border_color(theme::island_border())
                     .text_size(px(12.))
-                    // Its path and count are the bar's, its name the tab's (A, 2026-10-23):
-                    // what it is read at, as a file's line says.
-                    .child(
-                        div()
-                            .text_color(theme::faint())
-                            .child(format!("as of {}", self.revision_label())),
-                    )
+                    // Its path and count are the bar's, its name the tab's (A, 2026-10-23); what it is read at
+                    // the revision chip's (#208).
                     .child(div().flex_1())
                     .child(
                         div()
@@ -1711,6 +1783,13 @@ impl artoo_code_api::Code for Handle {
 
     fn follow(&self, rev: Option<(String, Oid)>, cx: &mut App) {
         self.update(cx, |c, _| c.code.rev = rev);
+    }
+
+    fn browse(&self, rev: Option<(String, Oid)>, cx: &mut App) {
+        self.update(cx, |c, cx| {
+            c.set_revision(rev, cx);
+            c.frame.go_space(artoo_code_api::SPACE, cx);
+        });
     }
 
     fn read_files(&self, force: bool, cx: &mut App) {

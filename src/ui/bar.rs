@@ -261,6 +261,29 @@ impl Workspace {
             }
             // The file or the project's folder in the app it belongs to, named (#78).
             (CODE, _) => out.extend(self.open_in_action(&tab, cx)),
+            // main has nothing to propose: a quiet Compare… in place of Create merge request (#208).
+            (BRANCHES, Some(Page::Branch(refname)))
+                if self.branches().is_some_and(|b| b.main_line(refname, cx)) =>
+            {
+                out.push(
+                    BarAction::new(
+                        "compare",
+                        self.bar_action("bar-compare", "branch", "Compare…", "⌥⌘C")
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.search(artoo_branches_api::COMPARE, cx)
+                            })),
+                    )
+                    .folds(
+                        MenuItem::new(
+                            "Compare…",
+                            on_tab(&tab, |this, cx| {
+                                this.search(artoo_branches_api::COMPARE, cx)
+                            }),
+                        )
+                        .key("⌥⌘C"),
+                    ),
+                );
+            }
             (BRANCHES, Some(Page::Branch(refname))) => {
                 let ix = self
                     .branch_list(cx)

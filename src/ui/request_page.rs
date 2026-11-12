@@ -13,6 +13,12 @@ impl Workspace {
     /// The section tabs in an item's bar with their counts — a request's Overview, Commits and
     /// Changes, a branch's Commits and Changes (#74); ⌃⇥ walks them.
     pub(super) fn section_tabs(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        if let Some(Page::Branch(refname)) = self.shown_page()
+            && let Some(b) = self.branches()
+            && b.main_line(&refname, cx)
+        {
+            return Some(self.main_tabs(b.main_changes(cx), cx));
+        }
         let at = self.page_section(cx)?;
         let item = self.item_of(self.nav_page()?)?;
         let (loaded, files) = match Page::from_route(&item)? {
@@ -56,6 +62,46 @@ impl Workspace {
                 )
             },
         ))
+    }
+
+    /// The main line's tabs, `Commits 10 · Changes 3` (#208): which of the two fills the side panel's column, the
+    /// diff staying the commit picked; ⌃⇥ turns them over.
+    fn main_tabs(&self, changes: bool, cx: &mut Context<Self>) -> gpui::Div {
+        let files = self.shown_diff(cx).map(|d| d.files.len());
+        [
+            (false, "Commits", Some(self.commit_count(cx)), "Commits ⌃⇥"),
+            (true, "Changes", files, "Changes ⌃⇥"),
+        ]
+        .into_iter()
+        .fold(
+            artoo_ui_kit::controls::group(),
+            |group, (on, name, n, tip)| {
+                let label = match n {
+                    Some(n) => format!("{name} {n}"),
+                    None => name.to_owned(),
+                };
+                group.child(
+                    artoo_ui_kit::controls::chip(
+                        SharedString::from(format!("section-{name}")),
+                        label,
+                        on == changes,
+                    )
+                    .tooltip_show_delay(artoo_ui_kit::hover::LONG)
+                    .tooltip(move |_, cx| cx.new(|_| artoo_ui_kit::hover::Tip(tip)).into())
+                    .on_click(
+                        cx.listener(move |this, _: &ClickEvent, _, cx| this.main_tab(on, cx)),
+                    ),
+                )
+            },
+        )
+    }
+
+    /// The main line's Changes tab or its Commits.
+    pub(super) fn main_tab(&mut self, changes: bool, cx: &mut Context<Self>) {
+        if let Some(b) = self.branches() {
+            b.set_main_changes(changes, cx);
+        }
+        cx.notify();
     }
 
     /// ↑ ↓ in a request's Commits: another commit picked, nothing opened.

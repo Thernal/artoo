@@ -20,6 +20,7 @@ use artoo_review_api::{ItemView, Review};
 use artoo_shell_api::{
     Drawing, Frame, ItemRow, NameHover, PagePath, Pages, PathUp, Screen, Services,
 };
+use artoo_ui_kit::format::plural;
 use artoo_ui_kit::room::Widths;
 use artoo_ui_kit::{px, theme};
 use gpui::{AnyElement, App, Context, Entity, Render, Window, div, prelude::*};
@@ -323,8 +324,18 @@ fn path(route: &Route, drawing: &Drawing, services: &Services, cx: &App) -> Opti
         (name, PathUp::new("Commits", Some(page)))
     };
     let short = artoo_ui_kit::format::short;
+    // A run says how many commits it is (#208), its ends while they are not among the commits read.
     let run = |newest: &str, oldest: &str| {
-        Some(format!("{}..{}", short(oid(oldest)?), short(oid(newest)?)))
+        let (newest, oldest) = (oid(newest)?, oid(oldest)?);
+        Some(
+            match (
+                branches.commit_of(newest, cx),
+                branches.commit_of(oldest, cx),
+            ) {
+                (Some(a), Some(b)) if b >= a => (plural(b - a + 1, "commit"), false),
+                _ => (format!("{}..{}", short(oldest), short(newest)), true),
+            },
+        )
     };
     let (up, name, mono, hover) = match route.kind.as_str() {
         BranchRoute::KIND => {
@@ -341,8 +352,8 @@ fn path(route: &Route, drawing: &Drawing, services: &Services, cx: &App) -> Opti
         BranchCommitsRoute::KIND => {
             let r = BranchCommitsRoute::from_route(route)?;
             let (name, commits) = branch(&r.refname);
-            let id = run(&r.newest, &r.oldest)?;
-            (vec![root(), name, commits], id, true, card(&r.refname))
+            let (id, mono) = run(&r.newest, &r.oldest)?;
+            (vec![root(), name, commits], id, mono, card(&r.refname))
         }
         VersionsRoute::KIND => {
             let r = VersionsRoute::from_route(route)?;

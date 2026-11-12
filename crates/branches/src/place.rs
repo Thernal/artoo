@@ -21,6 +21,14 @@ impl History {
             .is_some_and(|f| f.refname == refname && f.base.is_some())
     }
 
+    /// Branch `refname` is the one open and is the main line itself: its Commits and Changes are tabs of the side
+    /// panel, not pages (#208).
+    pub fn main_line(&self, refname: &str) -> bool {
+        self.page
+            .as_ref()
+            .is_some_and(|f| f.refname == refname && f.base.is_none())
+    }
+
     /// The diff `shown` is the branch page's own: the branch open against the main line.
     pub fn shows_branch(&self, shown: Option<&Header>) -> bool {
         let (Some(f), Some(ix)) = (self.page.as_ref(), self.branch) else {

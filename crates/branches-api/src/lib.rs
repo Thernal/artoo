@@ -52,6 +52,8 @@ pub struct PanelShows {
     pub commits: bool,
     /// A comparison's own commits.
     pub compare: bool,
+    /// The review's Changes are left out: the main line's Commits tab (#208).
+    pub no_changes: bool,
 }
 
 /// A page waiting, shown (`Branches::finish_waiting`): the commit it shows, when it shows one.
@@ -303,6 +305,13 @@ pub trait Branches {
 
     /// Whether branch `refname`'s page has Commits and Changes as tabs: it is the one open, off the main line.
     fn tabbed(&self, refname: &str, cx: &App) -> bool;
+
+    /// Whether branch `refname` is the one open and the main line itself (#208).
+    fn main_line(&self, refname: &str, cx: &App) -> bool;
+
+    /// The main line's page shows its Changes tab in the side panel, not its Commits (#208).
+    fn main_changes(&self, cx: &App) -> bool;
+    fn set_main_changes(&self, on: bool, cx: &mut App);
 
     /// A commit, or a run of them (newest, oldest), came on screen as a page: its Commits page has it picked.
     fn pick_commits(&self, newest: git2::Oid, oldest: Option<git2::Oid>, cx: &mut App);

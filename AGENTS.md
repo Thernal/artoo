@@ -24,6 +24,13 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   `peek_card`) from `artoo_core::symbols::Names`, the repository's declarations by keyword, read once in the
   background at the first ask (`Review::names`). ⌃G is `Line` in the file's head (`file_line`, one of the tab's
   inputs); the scope line over the lines comes from `symbols::scopes`, computed as the file is read.
+- **The revision Code reads, and the main line's page** (#208): the tree's chip (`render_revision_chip` in
+  `crates/code/src/space.rs`) opens a menu of the working tree, HEAD, branches, remotes and tags; `Commit id…` is a ⌘K
+  list (`crates/code/src/revisions.rs`, `revisions::LIST`). Another feature opens Code at a revision through
+  `artoo_code_api::Code::browse` (a commit's and a branch's `Browse files here`). On the main line (`History::main_line`:
+  the page loaded without a base) Commits and Changes are the side panel's two tabs (`History::main_changes`,
+  `PanelShows::no_changes`), drawn in the bar by `main_tabs` and turned over by ⌃⇥; its facts row is
+  `facts::main_line`, drawn over the commit's head.
 - **A Cargo workspace (#165).** The root package is the app (`src/main.rs`, `src/ui/`);
   `crates/plugin-sdk` (`artoo-plugin-sdk`, #175) is what a plugin builds against: one shared library holding GPUI, its
   platform, the core, the kit and every contract, which the app links (`extern crate` in `main.rs`) so each is once in

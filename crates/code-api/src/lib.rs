@@ -53,6 +53,9 @@ pub trait Code {
     /// Code reads at `rev` from now on (None: the working tree); what it shows is read there as it is shown.
     fn follow(&self, rev: Option<(String, Oid)>, cx: &mut App);
 
+    /// A commit's or a branch's `Browse files here` (#208): Code reads at `rev`, and comes on screen.
+    fn browse(&self, rev: Option<(String, Oid)>, cx: &mut App);
+
     /// The project's files read at the revision, once per revision, and again with `force`.
     fn read_files(&self, force: bool, cx: &mut App);
 

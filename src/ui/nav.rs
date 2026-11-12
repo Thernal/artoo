@@ -822,6 +822,14 @@ impl Workspace {
             requests.set_scope(scopes[(at + if forward { 1 } else { n - 1 }) % n], cx);
             return cx.notify();
         }
+        // On the main line they turn its two tabs over (#208).
+        if let Some(Page::Branch(refname)) = self.shown_page()
+            && let Some(b) = self.branches()
+            && b.main_line(&refname, cx)
+        {
+            let changes = !b.main_changes(cx);
+            return self.main_tab(changes, cx);
+        }
         let (sections, Some(at)) = (self.item_sections(cx), self.page_section(cx)) else {
             return;
         };
