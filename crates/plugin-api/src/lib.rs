@@ -1,6 +1,6 @@
 //! The plugins' contract (#175), inside the SDK: what a plugin is to the app — its stamp, what it says of itself
 //! (`Meta`) and what it was built against, and its install, the two things `plugin!` writes into it — and what
-//! plugins offer each other (`services`). A plugin reaches it through the SDK (`artoo_plugin_sdk::plugin!`).
+//! plugins offer each other (`services`), and the tools a plugin gives agents (`tools`, #213). A plugin reaches it through the SDK (`artoo_plugin_sdk::plugin!`).
 //!
 //! The app reads the stamp from the plugin's file before it loads anything of it: which plugin it is, what it needs,
 //! and whether it was built against this SDK. One built against another is refused there, by name, since loading it
@@ -8,6 +8,7 @@
 //! once, and its install called — Rust's ABI, which the same SDK build makes safe.
 
 pub mod services;
+pub mod tools;
 
 /// GPUI, for what `plugin!` writes (`$crate::gpui::App`).
 #[doc(hidden)]

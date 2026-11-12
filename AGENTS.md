@@ -46,6 +46,12 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   `places::add`: `jira.issue`). The plugin's words — how it reads, its digest, its tool — are kept on the note when it
   is written (`places::on`, `places::note`), so the MCP server, which loads no plugin, and a plugin turned off still
   read it; `Comment::reads` is what every list says of a place; a click opens `places::route` (`jump_to`).
+- **A plugin's tools** (#213, `crates/plugin-api/src/tools.rs`): a plugin adds `tools::Tool`s as it installs, its
+  namespace its own (`tools::installing`, the loader's around each install; `drop_of` when one stops). The MCP server
+  loads no plugin: the first window says its plugins' tools in its presence (`Presence::tools`, on the beat in
+  `src/ui/shell.rs`), the server lists them after its own and leaves a call for that process in the agents' folder
+  (`Bus::call_tool`, `calls/<uid>.json`); the beat takes it (`Folder::calls`), runs the tool and answers
+  (`<uid>.answer`). The SDK gives plugins `serde_json` for the arguments.
 - **A Cargo workspace (#165).** The root package is the app (`src/main.rs`, `src/ui/`);
   `crates/plugin-sdk` (`artoo-plugin-sdk`, #175) is what a plugin builds against: one shared library holding GPUI, its
   platform, the core, the kit and every contract, which the app links (`extern crate` in `main.rs`) so each is once in

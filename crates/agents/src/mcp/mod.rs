@@ -261,6 +261,52 @@ fn repo() -> Result<(PathBuf, PathBuf), String> {
         .map_err(|_| format!("{} is not in a git repository", cwd.display()))
 }
 
+/// The app's tools, then those the plugins of the windows running give (#213): listed while their window is there,
+/// gone with it; one whose name is the app's own, or another window's already, is left out.
+fn all_tools(bus: &Bus) -> Value {
+    let mut list = tools();
+    let Some(own) = list.as_array_mut() else {
+        return list;
+    };
+    let mut names: Vec<String> = (own.iter())
+        .filter_map(|t| t["name"].as_str().map(str::to_owned))
+        .collect();
+    for (_, tool) in plugin_tools(bus) {
+        if names.contains(&tool.name) {
+            continue;
+        }
+        let input = serde_json::from_str::<Value>(&tool.input)
+            .unwrap_or_else(|_| json!({"type": "object"}));
+        own.push(json!({
+            "name": tool.name,
+            "description": format!("{} (from Artoo's plugin {})", tool.description, tool.plugin),
+            "inputSchema": input,
+        }));
+        names.push(tool.name);
+    }
+    list
+}
+
+/// The plugins' tools of the windows running, with the process each is in.
+fn plugin_tools(bus: &Bus) -> Vec<(u32, crate::agents::PluginTool)> {
+    (bus.running().into_iter())
+        .flat_map(|p| p.tools.into_iter().map(move |t| (p.pid, t)))
+        .collect()
+}
+
+/// A plugin's tool `name` called on `args`, in the process whose window has it; None when none has it.
+fn call_plugin(bus: &Bus, name: &str, args: &Value) -> Option<Result<String, String>> {
+    let (pid, _) = plugin_tools(bus)
+        .into_iter()
+        .find(|(_, t)| t.name == name)?;
+    let args = if args.is_object() {
+        args.to_string()
+    } else {
+        "{}".to_owned()
+    };
+    Some(bus.call_tool(pid, name, &args, Duration::from_secs(60)))
+}
+
 fn call(
     hosts: &dyn Hosts,
     bus: &Bus,
@@ -272,6 +318,12 @@ fn call(
         "report_problem" => return draft_report(bus, args),
         "open_artoo" => return open_app(bus, exe, Duration::from_secs(30)),
         _ => {}
+    }
+    let own = tools()
+        .as_array()
+        .is_some_and(|t| t.iter().any(|t| t["name"] == name));
+    if !own && let Some(answer) = call_plugin(bus, name, args) {
+        return answer;
     }
     let (here, root) = repo()?;
     match name {
@@ -413,7 +465,7 @@ fn handle(hosts: &dyn Hosts, bus: &Bus, exe: &str, message: &Value) -> Option<Va
             "instructions": instructions(exe),
         }),
         "ping" => json!({}),
-        "tools/list" => json!({"tools": tools()}),
+        "tools/list" => json!({"tools": all_tools(bus)}),
         "tools/call" => {
             let params = &message["params"];
             let name = params["name"].as_str().unwrap_or_default();
@@ -460,6 +512,72 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_plugins_tools_are_listed_while_its_window_is_there_and_called_in_it() {
+        use crate::agents::{Presence, now};
+        let dir = std::env::temp_dir().join(format!("artoo-mcp-plugin-{}", agents::uid()));
+        let bus = Bus::at(dir.clone());
+        let hosts = artoo_hosts::hosts();
+        let list = |bus: &Bus| {
+            let reply = handle(
+                &*hosts,
+                bus,
+                "/x/Artoo",
+                &json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
+            )
+            .unwrap();
+            (reply["result"]["tools"].as_array().unwrap().iter())
+                .map(|t| t["name"].as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert!(!list(&bus).contains(&"jira_issue".to_owned()));
+        let pid = std::process::id();
+        let presence = Presence {
+            pid,
+            projects: Vec::new(),
+            beat: now(),
+            tools: vec![crate::agents::PluginTool {
+                name: "jira_issue".into(),
+                description: "An issue of the tracker".into(),
+                input: r#"{"type":"object","properties":{"key":{"type":"string"}}}"#.into(),
+                plugin: "artoo-tasks".into(),
+            }],
+        };
+        bus.present(1, &presence).unwrap();
+        let names = list(&bus);
+        assert_eq!(names.len(), 13);
+        assert_eq!(names.last().map(String::as_str), Some("jira_issue"));
+        // The window takes the call and answers it, as the app's beat does.
+        let window = Bus::at(dir.clone());
+        let app = std::thread::spawn(move || {
+            for _ in 0..100 {
+                if let Some(call) = window.take_calls(pid).pop() {
+                    window.answer_call(&call.uid, Ok(format!("{} {}", call.tool, call.args)));
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(30));
+            }
+        });
+        let reply = handle(
+            &*hosts,
+            &bus,
+            "/x/Artoo",
+            &json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                    "params": {"name": "jira_issue", "arguments": {"key": "PAY-412"}}}),
+        )
+        .unwrap();
+        app.join().unwrap();
+        assert_eq!(
+            reply["result"]["content"][0]["text"],
+            r#"jira_issue {"key":"PAY-412"}"#
+        );
+        assert!(reply["result"].get("isError").is_none());
+        // The window gone, its tools are.
+        bus.absent(pid, 1);
+        assert!(!list(&bus).contains(&"jira_issue".to_owned()));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn it_introduces_itself_and_its_tools() {
         let bus = Bus::at(std::env::temp_dir().join("artoo-mcp-test"));
         let hosts = artoo_hosts::hosts();
@@ -501,6 +619,7 @@ mod tests {
             pid: std::process::id(),
             projects,
             beat: agents::now(),
+            tools: Vec::new(),
         };
         bus.present(1, &window(vec![project.clone()])).unwrap();
         let shown = open_app(&bus, "", Duration::ZERO).unwrap();

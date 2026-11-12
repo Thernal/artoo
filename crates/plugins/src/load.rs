@@ -358,15 +358,19 @@ pub(crate) fn load(cx: &mut App) -> (Vec<Plugin>, Option<Crash>) {
             }
             // What it offers as it installs is known to be its own (the notices' sources, #196).
             artoo_shell_api::notices::guest(cx, Some(id.clone()));
+            artoo_plugin_api::tools::installing(cx, Some(&id));
             let installed = catch_unwind(AssertUnwindSafe(|| install(cx)))
                 .map_err(|panic| format!("stopped as it installed: {}", said(&*panic)));
             artoo_shell_api::notices::guest(cx, None);
+            artoo_plugin_api::tools::installing(cx, None);
             installed
         });
         starting.done(&id);
         if let Err(why) = installed {
             // Caught: the app goes on, and the panic hook's report is no one's end.
             crash::forget();
+            // Its tools are not given to agents (#213).
+            artoo_plugin_api::tools::drop_of(cx, &id);
             plugins[i].state = State::Refused(why);
             // What it offered is not offered: the rest are ordered again without it.
             order = ordered(&mut plugins)

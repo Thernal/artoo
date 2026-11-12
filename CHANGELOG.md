@@ -6,6 +6,10 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **MCP: a plugin's own tools.** A plugin gives agents tools of its own — a tracker's plugin reads an issue whole, or
+  searches — and Artoo's MCP server lists them beside its own while Artoo runs with the plugin on; the agent's call
+  runs in Artoo, in the plugin. A plugin that stops as it installs takes its tools with it. A tool's name is the
+  plugin's namespace and a name (`jira.issue`), which the agent calls as `jira_issue`.
 - **Agents: a note for an agent on what a plugin shows, not only on a line.** A plugin declares kinds of place — an
   issue's paragraph, a board as it is filtered — and a note written there waits, works and finishes in the Agents
   window beside the others, read by the plugin's words (`PAY-412 · description · ¶4`). The agent gets the plugin's

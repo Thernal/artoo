@@ -101,6 +101,8 @@ struct Beat {
     /// The projects it said it has open, and when.
     said: Vec<PathBuf>,
     said_at: i64,
+    /// The plugins' tools it said it has (#213).
+    tools: Vec<crate::bus::PluginTool>,
     /// Projects opened for an agent whose tabs are still loading (a tab has its root once loaded),
     /// with when: not opened twice meanwhile.
     opening: Vec<(PathBuf, i64)>,
@@ -114,15 +116,30 @@ impl Beat {
         let folder = crate::bus::folder(cx);
         let mut projects = shell.projects(cx);
         let now = crate::bus::now();
+        // The plugins' tools, said by the first window, which runs agents' calls of them (#213).
+        let tools: Vec<crate::bus::PluginTool> = if shell.primary() {
+            (artoo_plugin_sdk::tools::listed(cx).into_iter())
+                .map(|t| crate::bus::PluginTool {
+                    name: t.name,
+                    description: t.description,
+                    input: t.input,
+                    plugin: t.plugin,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         // Said again when it changes, and every 10 s so it stays fresh.
-        if projects != self.said || now - self.said_at >= 10 {
+        if projects != self.said || tools != self.tools || now - self.said_at >= 10 {
             let presence = crate::bus::Presence {
                 pid: std::process::id(),
                 projects: projects.clone(),
                 beat: now,
+                tools: tools.clone(),
             };
             if folder.present(cx.entity_id().as_u64(), &presence) {
                 self.said = projects.clone();
+                self.tools = tools;
                 self.said_at = now;
             }
         }
@@ -130,6 +147,18 @@ impl Beat {
             return;
         }
         let pid = std::process::id();
+        for call in folder.calls(pid) {
+            let folder = folder.clone();
+            match artoo_plugin_sdk::tools::call(cx, &call.tool, call.args) {
+                Some(task) => cx
+                    .spawn(async move |_, _| folder.answer_call(&call.uid, task.await))
+                    .detach(),
+                None => folder.answer_call(
+                    &call.uid,
+                    Err(format!("{} is not here: its plugin is off", call.tool)),
+                ),
+            }
+        }
         self.opening
             .retain(|(path, at)| !projects.contains(path) && now - at < 30);
         let elsewhere: Vec<PathBuf> = folder

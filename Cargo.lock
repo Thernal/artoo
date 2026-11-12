@@ -471,6 +471,8 @@ dependencies = [
  "artoo-ui-kit",
  "gpui-pre",
  "gpui-pre-platform",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

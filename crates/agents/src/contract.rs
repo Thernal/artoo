@@ -2,7 +2,7 @@
 //! this Mac keeps them; the pieces the tab draws, as the agents draw them.
 
 use crate::agents::Bus;
-use artoo_agents_api::bus::{Event, Folder, Mark, Presence};
+use artoo_agents_api::bus::{Event, Folder, Mark, Presence, ToolCall};
 use artoo_agents_api::comment::{Answered, Comment, Form};
 use artoo_agents_api::notes::{Note, Notes};
 use artoo_agents_api::view::{AnswerLook, From, NoteLook, OnAnswer, OnForm, OnNote, Renderer};
@@ -61,6 +61,18 @@ impl Folder for FolderImpl {
 
     fn marks_stamp(&self, project: &Path) -> Option<SystemTime> {
         Bus::new()?.marks_stamp(project)
+    }
+
+    fn calls(&self, pid: u32) -> Vec<ToolCall> {
+        Bus::new()
+            .map(|bus| bus.take_calls(pid))
+            .unwrap_or_default()
+    }
+
+    fn answer_call(&self, uid: &str, answer: Result<String, String>) {
+        if let Some(bus) = Bus::new() {
+            bus.answer_call(uid, answer);
+        }
     }
 }
 

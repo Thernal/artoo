@@ -22,7 +22,7 @@
 //! `cargo build -p artoo-plugin-sdk` do too — build the app.
 
 pub use artoo_plugin_api::{
-    ABI, Meta, STAMP_SECTION, Stamp, plugin, read_stamp, services, stamp, stamp_len,
+    ABI, Meta, STAMP_SECTION, Stamp, plugin, read_stamp, services, stamp, stamp_len, tools,
 };
 
 pub use artoo_agents_api as agents;
@@ -38,3 +38,6 @@ pub use artoo_ui_kit as kit;
 pub use gpui;
 /// The platform, for the app alone: it is here because its load-time constructors must share the SDK's image.
 pub use gpui_platform;
+/// JSON as the app reads it: a tool's arguments (#213), a tracker's answers.
+pub use serde;
+pub use serde_json;

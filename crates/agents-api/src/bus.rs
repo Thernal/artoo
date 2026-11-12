@@ -58,6 +58,41 @@ pub struct Presence {
     pub projects: Vec<PathBuf>,
     /// When the window last said it is there.
     pub beat: i64,
+    /// The tools its plugins give agents (#213), which the MCP server lists beside its own and passes calls of to
+    /// this process.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<PluginTool>,
+}
+
+/// A plugin's tool, as a window says it has it (#213).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginTool {
+    /// As an agent calls it: `jira_issue`.
+    pub name: String,
+    pub description: String,
+    /// What it takes: a JSON schema of an object, as text.
+    pub input: String,
+    /// The plugin it is of.
+    pub plugin: String,
+}
+
+/// An agent's call of a plugin's tool (#213): written by the MCP server for process `pid`, which runs it and
+/// answers (`Folder::calls`, `Folder::answer_call`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolCall {
+    pub uid: String,
+    pub pid: u32,
+    pub tool: String,
+    /// Its arguments: a JSON object, as text.
+    pub args: String,
+    pub at: i64,
+}
+
+/// What a tool answered: text for the agent, or why not.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolAnswer {
+    pub ok: bool,
+    pub text: String,
 }
 
 /// What an agent asks the app to show (#153): written by the MCP server, taken once by the app.
@@ -220,6 +255,12 @@ pub trait Folder: Send + Sync {
 
     /// When `project`'s marks last changed.
     fn marks_stamp(&self, project: &Path) -> Option<SystemTime>;
+
+    /// The calls of plugins' tools agents made to process `pid`, each taken as it is given (#213).
+    fn calls(&self, pid: u32) -> Vec<ToolCall>;
+
+    /// Call `uid` answered.
+    fn answer_call(&self, uid: &str, answer: Result<String, String>);
 }
 
 struct Installed(Arc<dyn Folder>);

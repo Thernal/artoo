@@ -12,12 +12,15 @@
 
 use crate::review::{self, Comment, Reply, State};
 /// What goes over the folder, the contract's model.
-pub use artoo_agents_api::bus::{Chat, Event, Mark, Place, Presence, RequestDraft, What, now};
+pub use artoo_agents_api::bus::{
+    Chat, Event, Mark, Place, PluginTool, Presence, RequestDraft, ToolAnswer, ToolCall, What, now,
+};
 use artoo_agents_api::provider::{Me, Provider};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 /// What an agent did with a comment.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -181,6 +184,79 @@ impl Bus {
             }
         }
         out
+    }
+
+    fn calls_dir(&self) -> PathBuf {
+        self.dir.join("calls")
+    }
+
+    /// Plugin tool `tool` called on `args` in process `pid` (#213): the call left for it, its answer waited for
+    /// `wait` at most.
+    pub fn call_tool(
+        &self,
+        pid: u32,
+        tool: &str,
+        args: &str,
+        wait: Duration,
+    ) -> Result<String, String> {
+        let dir = self.calls_dir();
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let call = ToolCall {
+            uid: uid(),
+            pid,
+            tool: tool.to_owned(),
+            args: args.to_owned(),
+            at: now(),
+        };
+        write_whole(&dir.join(format!("{}.json", call.uid)), &call).map_err(|e| e.to_string())?;
+        let answer = dir.join(format!("{}.answer", call.uid));
+        let start = std::time::Instant::now();
+        while start.elapsed() < wait {
+            if let Some(a) = std::fs::read_to_string(&answer)
+                .ok()
+                .and_then(|t| serde_json::from_str::<ToolAnswer>(&t).ok())
+            {
+                let _ = std::fs::remove_file(&answer);
+                return if a.ok { Ok(a.text) } else { Err(a.text) };
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        // Not taken: gone, so a window that comes later does not run it for no one.
+        let _ = std::fs::remove_file(dir.join(format!("{}.json", call.uid)));
+        Err(format!(
+            "Artoo did not answer {tool} within {} s",
+            wait.as_secs()
+        ))
+    }
+
+    /// The calls left for process `pid`, each taken (its file gone) as it is given.
+    pub fn take_calls(&self, pid: u32) -> Vec<ToolCall> {
+        let Ok(entries) = std::fs::read_dir(self.calls_dir()) else {
+            return Vec::new();
+        };
+        let mut out: Vec<ToolCall> = entries
+            .flatten()
+            .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+            .filter_map(|e| {
+                let call: ToolCall =
+                    serde_json::from_str(&std::fs::read_to_string(e.path()).ok()?).ok()?;
+                (call.pid == pid && std::fs::remove_file(e.path()).is_ok()).then_some(call)
+            })
+            .collect();
+        out.sort_by_key(|c| c.at);
+        out
+    }
+
+    /// Call `uid` answered, for the MCP server waiting on it.
+    pub fn answer_call(&self, uid: &str, answer: Result<String, String>) {
+        let (ok, text) = match answer {
+            Ok(text) => (true, text),
+            Err(text) => (false, text),
+        };
+        let _ = write_whole(
+            &self.calls_dir().join(format!("{}.answer", safe(uid))),
+            &ToolAnswer { ok, text },
+        );
     }
 
     fn marks_file(&self, project: &Path) -> PathBuf {
@@ -825,6 +901,7 @@ mod tests {
             pid: std::process::id(),
             projects: vec!["/p".into()],
             beat: now(),
+            tools: Vec::new(),
         };
         bus.present(1, &here).unwrap();
         // A process that has ended: this test binary run once more, only to list the tests.
