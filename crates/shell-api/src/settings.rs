@@ -19,6 +19,49 @@ pub struct Section {
     pub order: u16,
 }
 
+/// About's id: the window root draws it, the updates' rows go into it (#203).
+pub const ABOUT: &str = "about";
+
+/// A setting by its words (`add_setting`): what Settings' search and ⌘K find, and the section that holds it (#203).
+/// The window root's rows are found with their live controls; another owner's lead to their section.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Named {
+    /// The section's id (`Section::id`).
+    pub section: &'static str,
+    /// Its name on its row.
+    pub label: &'static str,
+    /// Its row's line, if it has one.
+    pub detail: &'static str,
+    /// What it answers to beyond its label: what it is about, the old section's name.
+    pub words: &'static str,
+}
+
+impl Named {
+    pub const fn new(section: &'static str, label: &'static str) -> Self {
+        Self {
+            section,
+            label,
+            detail: "",
+            words: "",
+        }
+    }
+
+    pub const fn detail(self, detail: &'static str) -> Self {
+        Self { detail, ..self }
+    }
+
+    pub const fn words(self, words: &'static str) -> Self {
+        Self { words, ..self }
+    }
+
+    /// Whether every word typed is in its label, its line, its words or its section's title.
+    pub fn found(&self, query: &str, section: &str) -> bool {
+        let hay = format!("{} {} {} {section}", self.label, self.detail, self.words).to_lowercase();
+        let mut words = query.split_whitespace().peekable();
+        words.peek().is_some() && words.all(|w| hay.contains(&w.to_lowercase()))
+    }
+}
+
 /// Rows a part draws under a section of Settings (`Parts::settings`), its own or another's: Appearance holds the
 /// themes' and the window root's faces and panes.
 #[derive(Clone)]
@@ -110,6 +153,11 @@ pub struct Page {
     /// Rows that fill the section take the page's height (the theme editor: its tokens scroll beside a preview that
     /// stays).
     pub editing: bool,
+    /// The search field at the head of the left column (#203).
+    pub search: AnyElement,
+    /// While something is typed in it: how many settings each section has that answer to it. The content is then
+    /// the hits under their sections, with its own heading.
+    pub found: Option<Vec<(&'static str, usize)>>,
 }
 
 /// What a click on the frame does.
@@ -130,5 +178,30 @@ pub fn page(page: Page, host: Rc<dyn SettingsHost>, cx: &App) -> AnyElement {
     match render::renderer::<dyn SettingsRenderer>(cx) {
         Some(renderer) => renderer.page(page, host),
         None => div().into_any_element(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Named;
+
+    #[test]
+    fn a_setting_is_found_by_any_word_of_its_name_its_line_its_words_or_its_section() {
+        let fold = Named::new("review", "Fold generated files")
+            .detail("Lock files and generated code.")
+            .words("diff collapse");
+        for query in [
+            "fold",
+            "GENERATED files",
+            "lock",
+            "diff",
+            "collapse",
+            "review fold",
+        ] {
+            assert!(fold.found(query, "Review"), "{query}");
+        }
+        for query in ["", "  ", "font", "fold font"] {
+            assert!(!fold.found(query, "Review"), "{query}");
+        }
     }
 }

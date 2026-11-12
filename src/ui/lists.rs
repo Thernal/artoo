@@ -36,6 +36,7 @@ impl Workspace {
         let (text, look) = match field {
             Field::Branches => (&self.bfilter, input::Look::default()),
             Field::Keys => (&self.keys_filter, input::Look::default()),
+            Field::Settings => (&self.settings_query, input::Look::default()),
             Field::Label => (&self.label_name, input::Look::default()),
         };
         let el = div()
@@ -117,6 +118,7 @@ impl Workspace {
         let text = match field {
             Field::Branches => &mut self.bfilter,
             Field::Keys => &mut self.keys_filter,
+            Field::Settings => &mut self.settings_query,
             Field::Label => &mut self.label_name,
         };
         let edit = input::edit(text, &mut self.field_edit, &event.keystroke, cx);
@@ -145,6 +147,8 @@ pub enum Field {
     Branches,
     /// The filter of Settings → Keyboard.
     Keys,
+    /// Settings' search, at the head of its left column (#203).
+    Settings,
     /// The name of a project or a chat being given (`labeling.rs`).
     Label,
 }

@@ -28,6 +28,17 @@ pub fn install(cx: &mut App) {
             order: 20,
         },
     );
+    // What Settings' search and ⌘K find here (#203).
+    for named in [
+        artoo_shell_api::settings::Named::new(SECTION, "Theme")
+            .words("window colour color palette dark light"),
+        artoo_shell_api::settings::Named::new(SECTION, "Code theme")
+            .words("colour color syntax highlight"),
+        artoo_shell_api::settings::Named::new(SECTION, "Your themes")
+            .words("themes folder json file icons own"),
+    ] {
+        artoo_shell_api::add_setting(cx, named);
+    }
     artoo_shell_api::add_action(
         cx,
         Action::new("appearance.save-theme", SaveTheme).key("cmd-s", when::TAB),

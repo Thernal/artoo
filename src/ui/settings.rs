@@ -78,8 +78,11 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn render_settings(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    /// The window root's rows of Settings, each with its words, in every section it draws in (#203): a row off its
+    /// default carries a dot and Reset.
+    fn own_rows(&self, cx: &mut Context<Self>) -> Vec<Own> {
         let s = self.settings.clone();
+        let d = crate::storage::Settings::default();
         let marks = group().children(MarkStyle::ALL.map(|style| {
             chip(style_id(style), style.label(), s.mark_style == style).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
@@ -102,13 +105,30 @@ impl Workspace {
             .filter(|e| e.installed())
             .collect();
         let current = self.editor(cx);
-        let editors = group().children(installed.iter().map(|&e| {
-            chip(e.key, e.label, current == Some(e)).on_click(cx.listener(
-                move |this, _: &ClickEvent, _, cx| {
-                    this.change_settings(|this| this.settings.editor = Some(e.key.to_owned()), cx)
-                },
-            ))
-        }));
+        // One editor found is a fact, not a switch of one (#203).
+        let editors: gpui::AnyElement = match installed.as_slice() {
+            [] => div()
+                .text_size(px(12.))
+                .text_color(theme::faint())
+                .child("Android Studio, Zed or VS Code not found")
+                .into_any_element(),
+            [one] => div()
+                .text_color(theme::muted())
+                .child(one.label)
+                .into_any_element(),
+            _ => group()
+                .children(installed.iter().map(|&e| {
+                    chip(e.key, e.label, current == Some(e)).on_click(cx.listener(
+                        move |this, _: &ClickEvent, _, cx| {
+                            this.change_settings(
+                                |this| this.settings.editor = Some(e.key.to_owned()),
+                                cx,
+                            )
+                        },
+                    ))
+                }))
+                .into_any_element(),
+        };
         let open_in = group().children(crate::storage::OpenIn::ALL.map(|o| {
             chip(o.label(), o.label(), s.open_in == o).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
@@ -125,13 +145,7 @@ impl Workspace {
         }));
         let panes = self.panes_chips(cx);
         let animations = switch("animations", s.animations).on_click(cx.listener(
-            |this, _: &ClickEvent, _, cx| {
-                this.change_settings(
-                    |this| this.settings.animations = !this.settings.animations,
-                    cx,
-                );
-                super::motion::set(this.settings.animations, cx);
-            },
+            |this, _: &ClickEvent, _, cx| this.set_animations(!this.settings.animations, cx),
         ));
         let refresh = switch("refresh", s.auto_refresh).on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {
@@ -141,18 +155,8 @@ impl Workspace {
                 )
             },
         ));
-
-        let fold = switch("fold-generated", s.fold_generated).on_click(cx.listener(
-            |this, _: &ClickEvent, _, cx| {
-                this.rv().clear_unfolded(cx);
-                this.change_settings(
-                    |this| this.settings.fold_generated = !this.settings.fold_generated,
-                    cx,
-                );
-                this.refresh_rows(cx);
-                this.build_stack(cx);
-            },
-        ));
+        let fold = switch("fold-generated", s.fold_generated)
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.flip_fold_generated(cx)));
         let scrolled = switch("auto-reviewed", s.auto_reviewed).on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {
                 this.change_settings(
@@ -161,17 +165,12 @@ impl Workspace {
                 );
             },
         ));
-
-        let rich = switch("rich-comments", s.rich_comments)
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_rich_comments(cx)));
-
         let fetch = switch("fetch", self.fetch.enabled).on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {
                 let on = !this.fetch.enabled;
                 this.set_fetch_enabled(on, cx)
             },
         ));
-
         let updates = switch("check-updates", s.check_updates).on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {
                 this.change_settings(
@@ -180,81 +179,307 @@ impl Workspace {
                 );
             },
         ));
-        let update_rows = self.settings_rows(GENERAL);
+        let preview = div()
+            .my(px(8.))
+            .rounded(px(ISLAND_RADIUS))
+            .overflow_hidden()
+            .bg(theme::editor())
+            .border_1()
+            .border_color(theme::island_border())
+            .children(self.review_api().map(|r| r.mark_preview(s.mark_style)))
+            .into_any_element();
+        let [ui_face, code_face, ui_size] = self.font_rows(cx);
+        // A repository's settings under its name (#203).
+        let repo: gpui::SharedString = (self.root.as_ref())
+            .and_then(|r| r.file_name())
+            .map_or("This repository".into(), |n| {
+                n.to_string_lossy().into_owned().into()
+            });
+        vec![
+            Own::row(
+                CHANGED_WORDS,
+                10,
+                marks,
+                (s.mark_style != d.mark_style).then(|| {
+                    reset(cx, |this, _, cx| {
+                        this.change_settings(
+                            |this| this.settings.mark_style = MarkStyle::default(),
+                            cx,
+                        )
+                    })
+                }),
+            ),
+            Own::part(REVIEW, 11, preview),
+            Own::row(
+                DEFAULT_MODE,
+                20,
+                modes,
+                (s.default_mode != d.default_mode).then(|| {
+                    reset(cx, |this, _, cx| {
+                        let mode = DiffMode::default();
+                        this.change_settings(|this| this.settings.default_mode = mode, cx);
+                        this.set_mode(mode, cx);
+                    })
+                }),
+            ),
+            Own::row(
+                FOLD,
+                30,
+                fold,
+                (s.fold_generated != d.fold_generated)
+                    .then(|| reset(cx, |this, _, cx| this.flip_fold_generated(cx))),
+            ),
+            Own::row(
+                MARK_REVIEWED,
+                40,
+                scrolled,
+                (s.auto_reviewed != d.auto_reviewed).then(|| {
+                    reset(cx, |this, _, cx| {
+                        this.change_settings(|this| this.settings.auto_reviewed = false, cx)
+                    })
+                }),
+            ),
+            Own::part(APPEARANCE, 40, subhead("Fonts and size")),
+            Own::named(INTERFACE_FONT, 41, ui_face),
+            Own::named(CODE_FONT, 42, code_face),
+            Own::named(INTERFACE_SIZE, 43, ui_size),
+            Own::part(APPEARANCE, 59, subhead("Window")),
+            Own::row(
+                PANES,
+                60,
+                panes,
+                (s.flat != d.flat).then(|| {
+                    reset(cx, |this, _, cx| {
+                        this.change_settings(|this| this.settings.flat = false, cx)
+                    })
+                }),
+            ),
+            Own::row(
+                ANIMATIONS,
+                70,
+                animations,
+                (s.animations != d.animations)
+                    .then(|| reset(cx, |this, _, cx| this.set_animations(true, cx))),
+            ),
+            Own::row(
+                OPEN_FILES,
+                10,
+                editors,
+                s.editor.is_some().then(|| {
+                    reset(cx, |this, _, cx| {
+                        this.change_settings(|this| this.settings.editor = None, cx)
+                    })
+                }),
+            ),
+            Own::row(
+                OPEN_REPO,
+                20,
+                open_in,
+                (s.open_in != d.open_in).then(|| {
+                    reset(cx, |this, _, cx| {
+                        this.change_settings(|this| this.settings.open_in = Default::default(), cx)
+                    })
+                }),
+            ),
+            Own::row(
+                SHOW_PROJECTS,
+                30,
+                projects,
+                (s.projects != d.projects).then(|| {
+                    reset(cx, |this, _, cx| {
+                        this.change_settings(|this| this.settings.projects = Default::default(), cx)
+                    })
+                }),
+            ),
+            Own::part(PROJECTS, 40, subhead(repo)),
+            Own::row(
+                REFRESH,
+                41,
+                refresh,
+                (s.auto_refresh != d.auto_refresh).then(|| {
+                    reset(cx, |this, _, cx| {
+                        this.change_settings(|this| this.settings.auto_refresh = true, cx)
+                    })
+                }),
+            ),
+            Own::row(
+                FETCH,
+                42,
+                fetch,
+                (!self.fetch.enabled)
+                    .then(|| reset(cx, |this, _, cx| this.set_fetch_enabled(true, cx))),
+            ),
+            Own::row(
+                UPDATES,
+                5,
+                updates,
+                (s.check_updates != d.check_updates).then(|| {
+                    reset(cx, |this, _, cx| {
+                        this.change_settings(|this| this.settings.check_updates = true, cx)
+                    })
+                }),
+            ),
+        ]
+    }
 
+    fn flip_fold_generated(&mut self, cx: &mut Context<Self>) {
+        self.rv().clear_unfolded(cx);
+        self.change_settings(
+            |this| this.settings.fold_generated = !this.settings.fold_generated,
+            cx,
+        );
+        self.refresh_rows(cx);
+        self.build_stack(cx);
+    }
+
+    fn set_animations(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.change_settings(|this| this.settings.animations = on, cx);
+        super::motion::set(on, cx);
+    }
+
+    /// The search's hits (#203): the window root's rows live, another owner's leading to their section; with how
+    /// many each section has.
+    fn settings_hits(
+        &self,
+        query: &str,
+        cx: &mut Context<Self>,
+    ) -> (gpui::AnyElement, Vec<(&'static str, usize)>) {
+        let sections = artoo_shell_api::settings_sections(cx);
+        let title = |id: &str| sections.iter().find(|s| s.id == id).map_or("", |s| s.title);
+        let own = self.own_rows(cx);
+        let mut hits: Vec<(&'static str, gpui::AnyElement)> = Vec::new();
+        let own_named: Vec<Named> = own.iter().filter_map(|o| o.named).collect();
+        for o in own {
+            if o.named.is_some_and(|n| n.found(query, title(n.section))) {
+                hits.push((o.section, o.view));
+            }
+        }
+        for n in artoo_shell_api::settings_named(cx) {
+            if own_named.contains(&n) || !n.found(query, title(n.section)) {
+                continue;
+            }
+            let section = n.section;
+            let line = if n.detail.is_empty() {
+                format!("In {}", title(section))
+            } else {
+                format!("{} · in {}", n.detail, title(section))
+            };
+            let show = super::discussion::button(
+                gpui::SharedString::from(format!("settings-show-{}-{}", section, n.label)),
+                "Show",
+                None,
+                super::discussion::Kind::Plain,
+            )
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.settings_query.clear();
+                this.open_settings_section(section, cx);
+                cx.notify();
+            }));
+            hits.push((
+                section,
+                artoo_ui_kit::controls::setting_row(
+                    format!("door-{section}-{}", n.label),
+                    n.label,
+                    line,
+                    show,
+                    None,
+                )
+                .into_any_element(),
+            ));
+        }
+        let counts: Vec<(&'static str, usize)> = (sections.iter())
+            .map(|s| (s.id, hits.iter().filter(|(id, _)| *id == s.id).count()))
+            .collect();
+        let total = hits.len();
+        let mut column = div().flex().flex_col();
+        if total == 0 {
+            column = column
+                .child(title_line(format!("No setting matches “{query}”")))
+                .child(
+                    div().pt(px(8.)).child(
+                        super::discussion::button(
+                            "settings-clear",
+                            "Clear the search",
+                            None,
+                            super::discussion::Kind::Plain,
+                        )
+                        .on_click(cx.listener(
+                            |this, _: &ClickEvent, _, cx| {
+                                this.settings_query.clear();
+                                cx.notify();
+                            },
+                        )),
+                    ),
+                );
+        } else {
+            column = column.child(
+                div()
+                    .flex()
+                    .items_baseline()
+                    .gap_2()
+                    .child(title_line("Search"))
+                    .child(div().text_size(px(12.)).text_color(theme::muted()).child(
+                        if total == 1 {
+                            "1 setting".to_owned()
+                        } else {
+                            format!("{total} settings")
+                        },
+                    )),
+            );
+            for s in &sections {
+                let mine: Vec<gpui::AnyElement> = (hits.iter_mut())
+                    .filter(|(id, _)| *id == s.id)
+                    .map(|(_, v)| std::mem::replace(v, div().into_any_element()))
+                    .collect();
+                if !mine.is_empty() {
+                    column = column.child(subhead(s.title)).children(mine);
+                }
+            }
+        }
+        (column.into_any_element(), counts)
+    }
+
+    pub(super) fn render_settings(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let section = self.settings_section;
+        let query = self.settings_query.trim().to_owned();
+        let search = div()
+            .flex()
+            .items_center()
+            .gap_1()
+            .child(
+                self.field_box(
+                    "settings-search",
+                    super::lists::Field::Settings,
+                    "Search settings",
+                    cx,
+                )
+                .flex_1(),
+            )
+            .into_any_element();
+        if !query.is_empty() {
+            let (content, counts) = self.settings_hits(&query, cx);
+            return settings::page(
+                settings::Page {
+                    sections: artoo_shell_api::settings_sections(cx),
+                    on: section,
+                    content,
+                    editing: false,
+                    search,
+                    found: Some(counts),
+                },
+                Rc::new(Glue(cx.weak_entity())),
+                cx,
+            );
+        }
         // Rows that fill the section take the page's height: the theme editor's tokens scroll beside a preview that
         // stays.
         let mut editing = false;
-        let column = || div().flex().flex_col().gap_5();
+        let column = || div().flex().flex_col();
         let content: gpui::AnyElement = match section {
-            DIFF => column()
-                .child(item(
-                    "Changed words",
-                    "In Words and Structural modes.",
-                    marks,
-                ))
-                .child(
-                    div()
-                        .rounded(px(ISLAND_RADIUS))
-                        .overflow_hidden()
-                        .bg(theme::editor())
-                        .border_1()
-                        .border_color(theme::island_border())
-                        .children(self.review_api().map(|r| r.mark_preview(s.mark_style))),
-                )
-                .child(item("Default mode", "", modes))
-                .child(item(
-                    "Fold generated files",
-                    "Lock files and generated code that change by more than 40 lines.",
-                    fold,
-                ))
-                .child(item("Mark reviewed as I scroll past", "", scrolled))
-                .child(item("Format comments as markdown", "", rich))
-                .into_any_element(),
-            GENERAL => column()
-                .child(item(
-                    "Open files in",
-                    "",
-                    if installed.is_empty() {
-                        div()
-                            .text_size(px(12.))
-                            .text_color(theme::faint())
-                            .child("Android Studio, Zed or VS Code not found")
-                            .into_any_element()
-                    } else {
-                        editors.into_any_element()
-                    },
-                ))
-                .child(item("Open a repository in", "", open_in))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .child(item(
-                            "Check for updates",
-                            "At start and every 6 hours.",
-                            updates,
-                        ))
-                        .children(
-                            update_rows
-                                .into_iter()
-                                .map(|row| div().pt(px(6.)).child(row.view)),
-                        ),
-                )
-                .into_any_element(),
-            REPOSITORY => column()
-                .child(item("Refresh when the repository changes", "", refresh))
-                .child(item(
-                    "Fetch in the background",
-                    "Every 5 minutes and when the window comes back",
-                    fetch,
-                ))
-                .into_any_element(),
             KEYBOARD => self.render_keyboard_settings(cx).into_any_element(),
             super::notice_settings::NOTIFICATIONS => self.render_notice_settings(cx),
-            // A feature's section: the parts' rows and the window root's in their places (Settings → Agents,
-            // Appearance), or the rows that fill it now (the theme editor).
+            // The window root's rows and the features' in their places (Review, Appearance, Projects, About), or the
+            // rows that fill it now (the theme editor).
             other => {
                 let rows = self.settings_rows(other);
                 match rows
@@ -266,21 +491,11 @@ impl Workspace {
                         filling.view.clone().into_any_element()
                     }
                     None => {
-                        // Appearance holds the faces and sizes, the projects, the panes and motion between the
-                        // themes' cards (10) and your themes (80).
-                        let mut placed: Vec<(u16, gpui::AnyElement)> = if other == APPEARANCE {
-                            vec![
-                                (40, self.render_fonts(cx)),
-                                (
-                                    50,
-                                    item("Several projects", "", projects).into_any_element(),
-                                ),
-                                (60, item("Panes", "", panes).into_any_element()),
-                                (70, item("Animations", "", animations).into_any_element()),
-                            ]
-                        } else {
-                            Vec::new()
-                        };
+                        let mut placed: Vec<(u16, gpui::AnyElement)> = (self.own_rows(cx))
+                            .into_iter()
+                            .filter(|o| o.section == other)
+                            .map(|o| (o.order, o.view))
+                            .collect();
                         placed.extend(
                             rows.into_iter()
                                 .map(|r| (r.order, r.view.into_any_element())),
@@ -299,11 +514,87 @@ impl Workspace {
                 on: section,
                 content,
                 editing,
+                search,
+                found: None,
             },
             Rc::new(Glue(cx.weak_entity())),
             cx,
         )
     }
+}
+
+/// A row of the window root's in Settings (#203): its section, its place among the section's rows (Appearance mixes
+/// them with the themes', 10, and your themes', 80), its words when it is a setting.
+struct Own {
+    section: &'static str,
+    order: u16,
+    named: Option<Named>,
+    view: gpui::AnyElement,
+}
+
+impl Own {
+    /// A setting's row, with its dot and Reset when off its default.
+    fn row(named: Named, order: u16, control: impl IntoElement, reset: Option<Reset>) -> Self {
+        Self::named(
+            named,
+            order,
+            artoo_ui_kit::controls::setting_row(
+                named.label,
+                named.label,
+                named.detail,
+                control,
+                reset,
+            )
+            .into_any_element(),
+        )
+    }
+
+    /// A setting's row drawn already (the faces' and sizes').
+    fn named(named: Named, order: u16, view: gpui::AnyElement) -> Self {
+        Self {
+            section: named.section,
+            order,
+            named: Some(named),
+            view,
+        }
+    }
+
+    /// What is not a setting: a heading, the changed words' preview.
+    fn part(section: &'static str, order: u16, view: impl IntoElement) -> Self {
+        Self {
+            section,
+            order,
+            named: None,
+            view: view.into_any_element(),
+        }
+    }
+}
+
+/// A row's Reset, done by the tab.
+fn reset(
+    cx: &mut Context<Workspace>,
+    act: impl Fn(&mut Workspace, &mut Window, &mut Context<Workspace>) + 'static,
+) -> Reset {
+    Box::new(cx.listener(move |this, _: &ClickEvent, window, cx| act(this, window, cx)))
+}
+
+/// A part's heading over its rows: Fonts and size, Window, a repository's name.
+fn subhead(title: impl Into<gpui::SharedString>) -> impl IntoElement {
+    div()
+        .pt(px(18.))
+        .pb(px(4.))
+        .text_size(px(12.))
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .text_color(theme::muted())
+        .child(title.into())
+}
+
+fn title_line(text: impl Into<gpui::SharedString>) -> impl IntoElement {
+    div()
+        .pb(px(6.))
+        .text_size(px(15.))
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .child(text.into())
 }
 
 /// What a click on Settings' frame does, answered by the tab.
@@ -329,29 +620,109 @@ impl settings::SettingsHost for Glue {
     }
 }
 
-use artoo_shell_api::settings::{self, Section};
+use artoo_shell_api::settings::{self, Named, Section};
+use artoo_ui_kit::controls::Reset;
 
 /// Appearance's section (`artoo-appearance`'s, order 20): the window root's rows go into it.
 pub(super) const APPEARANCE: &str = "appearance";
 
-/// The window root's sections of Settings, by id: the tab draws them (`render_settings`). A feature's section holds
-/// its parts' rows: Merge requests the hosts' (50), the agents' between it and Keyboard (60).
-pub(super) const DIFF: &str = "diff";
-pub(super) const GENERAL: &str = "general";
-pub(super) const REPOSITORY: &str = "repository";
+/// The window root's sections of Settings, by id (#203: what each holds is in its name): the tab draws them
+/// (`render_settings`). A feature's section holds its parts' rows: Accounts the hosts' (50), Agents (60), Plugins
+/// (80).
+pub(super) const REVIEW: &str = "review";
+pub(super) const PROJECTS: &str = "projects";
+pub(super) const ABOUT: &str = artoo_shell_api::settings::ABOUT;
 pub(super) const REQUESTS: &str = artoo_hosts_api::connect::SETTINGS;
 pub(super) const KEYBOARD: &str = "keyboard";
 
-/// Offers the window root's sections, in their places in the left column (`run`).
+const CHANGED_WORDS: Named = Named::new(REVIEW, "Changed words")
+    .detail("In Words and Structural modes.")
+    .words("diff highlight mark tinted underlined");
+const DEFAULT_MODE: Named =
+    Named::new(REVIEW, "Default mode").words("diff view lines words structural");
+const FOLD: Named = Named::new(REVIEW, "Fold generated files")
+    .detail("Lock files and generated code that change by more than 40 lines.")
+    .words("diff lock collapse");
+const MARK_REVIEWED: Named = Named::new(REVIEW, "Mark reviewed as I scroll past")
+    .detail("With all files in one scroll.")
+    .words("diff viewed");
+const INTERFACE_FONT: Named =
+    Named::new(APPEARANCE, "Interface").words("interface font face typeface");
+const CODE_FONT: Named = Named::new(APPEARANCE, "Code")
+    .detail("Grows with the interface size.")
+    .words("code font face typeface monospace size points");
+const INTERFACE_SIZE: Named = Named::new(APPEARANCE, "Interface size")
+    .detail("⌘+ and ⌘− change it from anywhere; ⌘0 back to 100 %")
+    .words("zoom scale bigger smaller");
+const PANES: Named = Named::new(APPEARANCE, "Panes").words("islands flat borders gaps layout");
+const ANIMATIONS: Named = Named::new(APPEARANCE, "Animations").words("motion reduce");
+const OPEN_FILES: Named = Named::new(PROJECTS, "Open files in").words("general editor program");
+const OPEN_REPO: Named =
+    Named::new(PROJECTS, "Open a repository in").words("general window tab ask");
+const SHOW_PROJECTS: Named =
+    Named::new(PROJECTS, "Show projects as").words("several rail tabs menu layout");
+const REFRESH: Named =
+    Named::new(PROJECTS, "Refresh when the repository changes").words("repository watch files");
+const FETCH: Named = Named::new(PROJECTS, "Fetch in the background")
+    .detail("Every 5 minutes and when the window comes back")
+    .words("repository remote origin");
+const UPDATES: Named = Named::new(ABOUT, "Check for updates")
+    .detail("At start and every 6 hours.")
+    .words("general version");
+
+/// What the sections the window root draws by hand hold, found by their words and opened (#203).
+const DRAWN: [Named; 5] = [
+    Named::new(
+        super::notice_settings::NOTIFICATIONS,
+        "System notifications",
+    )
+    .words("general toast alert mac background"),
+    Named::new(
+        super::notice_settings::NOTIFICATIONS,
+        "Count on the Dock icon",
+    )
+    .words("badge"),
+    Named::new(
+        super::notice_settings::NOTIFICATIONS,
+        "Notices by their source",
+    )
+    .words("inbox toast system kinds"),
+    Named::new(KEYBOARD, "Keyboard helpers").words("keys caps hints shortcuts"),
+    Named::new(KEYBOARD, "Keys of every action").words("shortcuts keymap bindings"),
+];
+
+/// Offers the window root's sections, in their places in the left column, and its settings by their words.
 pub(super) fn install(cx: &mut App) {
     for (id, title, order) in [
-        (DIFF, "Diff", 10),
-        (GENERAL, "General", 30),
+        (REVIEW, "Review", 10),
+        (KEYBOARD, "Keyboard", 30),
         (super::notice_settings::NOTIFICATIONS, "Notifications", 35),
-        (REPOSITORY, "Repository", 40),
-        (KEYBOARD, "Keyboard", 70),
+        (PROJECTS, "Projects", 40),
+        (ABOUT, "About", 90),
     ] {
         artoo_shell_api::add_settings_section(cx, Section { id, title, order });
+    }
+    for named in [
+        CHANGED_WORDS,
+        DEFAULT_MODE,
+        FOLD,
+        MARK_REVIEWED,
+        INTERFACE_FONT,
+        CODE_FONT,
+        INTERFACE_SIZE,
+        PANES,
+        ANIMATIONS,
+        OPEN_FILES,
+        OPEN_REPO,
+        SHOW_PROJECTS,
+        REFRESH,
+        FETCH,
+        UPDATES,
+    ]
+    .into_iter()
+    .chain(DRAWN)
+    {
+        artoo_shell_api::add_setting(cx, named);
     }
 }
 use artoo_ui_kit::controls::switch;
@@ -830,14 +1201,14 @@ const HEADINGS: [&str; 6] = ["Move", "Comment", "Find", "View", "Requests", "App
 
 /// A command as Settings → Keyboard names it: the menu's or ⌘K's words, the name the keymap gives it
 /// (`Approve request`, what a clash says), its id (its heading).
-struct Named {
+struct KeyName {
     said: String,
     was: String,
     id: &'static str,
 }
 
-/// Every command's `Named`, by its keymap name (`ApproveRequest`).
-fn key_names(cx: &App) -> std::collections::HashMap<&'static str, Named> {
+/// Every command's `KeyName`, by its keymap name (`ApproveRequest`).
+fn key_names(cx: &App) -> std::collections::HashMap<&'static str, KeyName> {
     artoo_shell_api::actions(cx)
         .iter()
         .map(|a| {
@@ -851,7 +1222,7 @@ fn key_names(cx: &App) -> std::collections::HashMap<&'static str, Named> {
             };
             (
                 name,
-                Named {
+                KeyName {
                     said,
                     was,
                     id: a.id,
@@ -862,7 +1233,7 @@ fn key_names(cx: &App) -> std::collections::HashMap<&'static str, Named> {
 }
 
 /// Which heading a command goes under (`HEADINGS`); one not offered as an action, the app's.
-fn heading(name: &str, named: &std::collections::HashMap<&'static str, Named>) -> usize {
+fn heading(name: &str, named: &std::collections::HashMap<&'static str, KeyName>) -> usize {
     named.get(name).map_or(5, |n| heading_of(n.id))
 }
 

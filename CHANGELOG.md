@@ -6,6 +6,14 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **Settings finds a setting by its words.** `Search settings` heads the left column (⌘F while Settings is open):
+  typing lists the hits under their sections, each with its own switch or chips, and every section counts its hits;
+  ⌘K lists settings too — `font` finds the faces, `notifications` what Notifications holds. The sections say what is
+  in them — `Review · Appearance · Keyboard · Notifications · Projects · Accounts · Agents · Plugins · About` —:
+  where files and repositories open moved to Projects, with this repository's own settings under its name, and Check
+  for updates to About. Rows are 44 px in one 640 column, a row off its default has a dot and `Reset` on hover, `Done`
+  sits at the foot of the left column, one editor found is said in plain words, and `Format comments as markdown`
+  left (its key, ⌥M, stays).
 - **A failed fetch reads as a fact.** The title bar says `Can't reach origin · fetched 14:32` beside an amber dot, with
   `Retry` as its own button, instead of a red sentence; its tooltip names the host, the likely cause and the last
   fetch. Sentences that described a page went — how Artoo signs in, the faces, Raw / Rich's key, Merge's warning, the

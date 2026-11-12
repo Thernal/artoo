@@ -32,9 +32,17 @@ pub fn install(cx: &mut gpui::App) {
         cx,
         artoo_shell_api::settings::Section {
             id: artoo_hosts_api::connect::SETTINGS,
-            title: "Merge requests",
+            title: "Accounts",
             order: 50,
         },
+    );
+    artoo_shell_api::add_setting(
+        cx,
+        artoo_shell_api::settings::Named::new(
+            artoo_hosts_api::connect::SETTINGS,
+            "Hosts and their tokens",
+        )
+        .words("token sign in login merge requests gitlab github ssh password"),
     );
     artoo_shell_api::add_parts(cx, |frame, _, cx| panel::parts(frame, cx));
     artoo_shell_api::add_parts(cx, |frame, _, cx| welcome::parts(frame, cx));

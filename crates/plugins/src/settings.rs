@@ -58,6 +58,11 @@ pub(crate) fn install(plugins: Vec<Plugin>, crash: Option<Crash>, cx: &mut App) 
             order: 80,
         },
     );
+    artoo_shell_api::add_setting(
+        cx,
+        artoo_shell_api::settings::Named::new(SECTION, "Plugins")
+            .words("extensions install folder"),
+    );
     artoo_shell_api::add_parts(cx, parts);
     artoo_shell_api::add_parts(cx, crate::card::parts);
 }

@@ -53,7 +53,11 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
         }),
         tool: None,
         // Under the window root's General.
-        settings: vec![artoo_shell_api::settings::Rows::new("general", 10, status)],
+        settings: vec![artoo_shell_api::settings::Rows::new(
+            artoo_shell_api::settings::ABOUT,
+            10,
+            status,
+        )],
         actions: vec![(
             Box::new(CheckForUpdates),
             Rc::new(move |_, cx| check.update(cx, |card, cx| card.check_now(cx))),

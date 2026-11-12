@@ -670,7 +670,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         }
                         "settings-general" => {
                             this.open_settings(cx);
-                            this.settings_section = settings::GENERAL;
+                            this.settings_section = settings::ABOUT;
                             continue;
                         }
                         // The token's source, and one made with the SSH key (#142).
@@ -681,7 +681,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         // Fetch in the background's switch (#141).
                         "settings-repository" => {
                             this.open_settings(cx);
-                            this.settings_section = settings::REPOSITORY;
+                            this.settings_section = settings::PROJECTS;
                             continue;
                         }
                         "swipe" | "onion" => {
@@ -1194,6 +1194,8 @@ pub struct Workspace {
     spot: Option<goto::Spot>,
     /// What Settings → Keyboard is filtered by.
     keys_filter: String,
+    /// What Settings' search has typed (#203): its hits stand for the section while it is not empty.
+    settings_query: String,
     /// The filter is a key pressed (By keys): rows with exactly that key.
     keys_exact: bool,
     /// Settings → Keyboard lists only the keys the user changed.
@@ -1405,8 +1407,9 @@ impl Workspace {
             zen_one: false,
             recording: None,
             note_sel: None,
-            settings_section: settings::DIFF,
+            settings_section: settings::REVIEW,
             keys_filter: String::new(),
+            settings_query: String::new(),
             keys_exact: false,
             keys_changed_only: false,
             pending_link: None,
@@ -2728,7 +2731,10 @@ impl Workspace {
     /// ⌘F filters a space's list (#72), finds in the open diff, and with none open searches the
     /// commits.
     fn find_action(&mut self, _: &Find, _: &mut Window, cx: &mut Context<Self>) {
-        if (self.at_root_list() || self.at_inbox()) && !self.settings_open {
+        // Settings' own search (#203).
+        if self.settings_open {
+            self.start_field(lists::Field::Settings, cx);
+        } else if (self.at_root_list() || self.at_inbox()) && !self.settings_open {
             self.start_field(lists::Field::Branches, cx);
         } else if self.shown_diff(cx).is_some() && !self.settings_open {
             self.start_dfind(cx);
@@ -3227,10 +3233,20 @@ mod tests {
         assert!(switch.is_some_and(|s| s > 30));
     }
 
-    /// Settings' left column: the window root's sections, Notifications after General (#196), the agents' between
-    /// Merge requests and Keyboard, the plugins' last.
+    /// Settings' left column: sections by what they hold (#203), the plugins' before About.
     #[test]
     fn settings_lists_its_sections_in_their_places() {
+        // Every setting offered by its words is in a section offered.
+        let orphans = installed(|cx| {
+            let ids: Vec<_> = (artoo_shell_api::settings_sections(cx).into_iter())
+                .map(|s| s.id)
+                .collect();
+            (artoo_shell_api::settings_named(cx).into_iter())
+                .filter(|n| !ids.contains(&n.section))
+                .map(|n| n.label)
+                .collect::<Vec<_>>()
+        });
+        assert!(orphans.is_empty(), "{orphans:?}");
         let titles = installed(|cx| {
             artoo_shell_api::settings_sections(cx)
                 .into_iter()
@@ -3240,15 +3256,15 @@ mod tests {
         assert_eq!(
             titles,
             [
-                "Diff",
+                "Review",
                 "Appearance",
-                "General",
-                "Notifications",
-                "Repository",
-                "Merge requests",
-                "Agents",
                 "Keyboard",
-                "Plugins"
+                "Notifications",
+                "Projects",
+                "Accounts",
+                "Agents",
+                "Plugins",
+                "About"
             ]
         );
     }

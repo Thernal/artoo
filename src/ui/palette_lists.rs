@@ -29,32 +29,75 @@ pub(super) fn faces_of(code: bool) -> &'static str {
 /// The tab's scope All shows alone: a link of a host's pasted, opened as the tab opens a link (`open_link`).
 pub(super) fn searches(tab: WeakEntity<Workspace>) -> Vec<Search> {
     let picks = tab.clone();
-    vec![Search {
-        id: "link",
-        label: "Link",
-        placeholder: "",
+    let opens = tab.clone();
+    vec![
+        settings_search(opens),
+        Search {
+            id: "link",
+            label: "Link",
+            placeholder: "",
+            go: "",
+            order: u16::MAX,
+            all: AllOf {
+                few: 1,
+                order: 0,
+                prefix: None,
+                alone: true,
+            },
+            find: Rc::new(move |ask, cx| {
+                let Some(link) = (ask.all)
+                    .then(|| artoo_hosts_api::get(cx).link(ask.text))
+                    .flatten()
+                else {
+                    return Vec::new();
+                };
+                let label = format!("Open {}", link.describe());
+                let detail = link.project().to_owned();
+                let open = doing(&picks, move |this, cx| this.open_link(link.clone(), cx));
+                vec![Find::new("Link", label, detail, open).key("↵".to_owned())]
+            }),
+            opened: None,
+        },
+    ]
+}
+
+/// Settings by their words (#203): each found with its value's section, ↵ opens that section.
+fn settings_search(tab: WeakEntity<Workspace>) -> Search {
+    Search {
+        id: "settings",
+        label: "Settings",
+        placeholder: "Settings — a word of one's name",
         go: "",
-        order: u16::MAX,
+        order: 85,
         all: AllOf {
-            few: 1,
-            order: 0,
+            few: 3,
+            order: 50,
             prefix: None,
-            alone: true,
+            alone: false,
         },
         find: Rc::new(move |ask, cx| {
-            let Some(link) = (ask.all)
-                .then(|| artoo_hosts_api::get(cx).link(ask.text))
-                .flatten()
-            else {
-                return Vec::new();
-            };
-            let label = format!("Open {}", link.describe());
-            let detail = link.project().to_owned();
-            let open = doing(&picks, move |this, cx| this.open_link(link.clone(), cx));
-            vec![Find::new("Link", label, detail, open).key("↵".to_owned())]
+            let sections = artoo_shell_api::settings_sections(cx);
+            let title = |id: &str| sections.iter().find(|s| s.id == id).map_or("", |s| s.title);
+            (artoo_shell_api::settings_named(cx).into_iter())
+                .filter(|n| n.found(ask.text, title(n.section)))
+                .map(|n| {
+                    let section = n.section;
+                    let open = doing(&tab, move |this, cx| {
+                        this.open_settings(cx);
+                        this.open_settings_section(section, cx);
+                        cx.notify();
+                    });
+                    Find::new(
+                        "Settings",
+                        n.label.to_owned(),
+                        format!("Settings → {}", title(section)),
+                        open,
+                    )
+                })
+                .collect()
         }),
         opened: None,
-    }]
+    }
 }
 
 /// The tab's lists, reading it through `tab`.

@@ -1,13 +1,13 @@
 //! Settings → Appearance → Fonts and size (#24 A): the interface's face and the code's, each
 //! picked from a menu that draws every face in itself — a few installed ones, and Other… for all
-//! of them in ⌘K's window —, the code's size in points, the interface size, and a line saying
+//! of them in ⌘K's window —, the code's size in points, the interface size, its tooltip saying
 //! where the narrow layout folds at that size (`narrow.rs`: the steps grow with it).
 
 use super::faces::{CODE_FACES, UI_FACES, fold_line, short_list};
 pub(super) use super::faces::{face_family, face_label, installed};
 use super::menu::{Act, Entry};
-use super::settings::item;
 use super::{ROW_RADIUS, Workspace, icons, px, theme};
+use artoo_ui_kit::controls::setting_row;
 use artoo_ui_kit::controls::{chip, group};
 use gpui::{AnyElement, ClickEvent, Context, Pixels, Point, div, prelude::*};
 
@@ -22,18 +22,6 @@ fn zoom_for(points: u16) -> u16 {
 }
 
 impl Workspace {
-    /// The section: Interface and Code with their faces, the code's size, the interface size, and
-    /// where the layout folds.
-    pub(super) fn render_fonts(&self, cx: &mut Context<Self>) -> AnyElement {
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(10.))
-            .child(artoo_ui_kit::controls::subhead("Fonts and size", ""))
-            .child(div().flex().flex_col().children(self.font_rows(cx)))
-            .into_any_element()
-    }
-
     /// Interface and its face, Code with its face and size, Interface size (here, and Set up's
     /// Look).
     pub(super) fn font_rows(&self, cx: &mut Context<Self>) -> [AnyElement; 3] {
@@ -84,18 +72,48 @@ impl Workspace {
             .gap_2()
             .child(self.face_picker(true, faces.code.as_deref(), cx))
             .child(code_size);
+        // Each off its default carries a dot and Reset (#203): the code's face and size go back together.
+        let reset =
+            |cx: &mut Context<Self>, act: fn(&mut Self, &mut gpui::Window, &mut Context<Self>)| {
+                Some(Box::new(
+                    cx.listener(move |this, _: &ClickEvent, window, cx| act(this, window, cx)),
+                ) as artoo_ui_kit::controls::Reset)
+            };
+        let ui_reset = faces
+            .ui
+            .is_some()
+            .then(|| reset(cx, |this, _, cx| this.choose_face(false, None, cx)));
+        let code_reset = (faces.code.is_some() || s.zoom != 100).then(|| {
+            reset(cx, |this, _, cx| {
+                this.choose_face(true, None, cx);
+                this.set_zoom(100, cx);
+            })
+        });
+        let size_reset = (s.ui_zoom != 100)
+            .then(|| reset(cx, |this, window, cx| this.set_ui_zoom(100, window, cx)));
         [
-            item(
+            setting_row(
+                "Interface",
                 "Interface",
                 "",
                 self.face_picker(false, faces.ui.as_deref(), cx),
+                ui_reset.flatten(),
             )
             .into_any_element(),
-            item("Code", "Grows with the interface size.", code).into_any_element(),
-            item(
+            setting_row(
+                "Code",
+                "Code",
+                "Grows with the interface size.",
+                code,
+                code_reset.flatten(),
+            )
+            .into_any_element(),
+            setting_row(
+                "Interface size",
                 "Interface size",
                 "⌘+ and ⌘− change it from anywhere; ⌘0 back to 100 %",
                 ui_zoom,
+                size_reset.flatten(),
             )
             .into_any_element(),
         ]

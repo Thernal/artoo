@@ -952,6 +952,7 @@ struct Registry {
     makers: Vec<Maker>,
     editors: Vec<Editor>,
     sections: Vec<settings::Section>,
+    named: Vec<settings::Named>,
     spaces: Vec<spaces::SpaceInfo>,
     /// What was offered a second time and refused: `action review.wrap (its id)`.
     refused: Vec<String>,
@@ -985,6 +986,27 @@ pub fn add_settings_section(cx: &mut App, section: settings::Section) {
         return;
     }
     registry.sections.push(section);
+}
+
+/// Offers a setting by its words (a feature's `install`): Settings' search and ⌘K find it (#203). One its section
+/// offered already under the same label is refused, and the log says so.
+pub fn add_setting(cx: &mut App, named: settings::Named) {
+    let registry = cx.default_global::<Registry>();
+    if (registry.named.iter()).any(|n| n.section == named.section && n.label == named.label) {
+        refuse(
+            registry,
+            format!("setting {} / {}", named.section, named.label),
+        );
+        return;
+    }
+    registry.named.push(named);
+}
+
+/// The settings offered by their words, as they were offered.
+pub fn settings_named(cx: &App) -> Vec<settings::Named> {
+    cx.try_global::<Registry>()
+        .map(|r| r.named.clone())
+        .unwrap_or_default()
 }
 
 /// The sections of Settings offered, in their order.

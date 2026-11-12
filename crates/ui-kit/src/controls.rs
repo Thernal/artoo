@@ -76,33 +76,80 @@ pub fn bar_button(
 }
 
 /// A labelled row of Settings: the name, and a line only where the name and the control do not say enough, on the
-/// left; the control on the right.
+/// left; the control on the right. 44 px, rows touching (#203).
 pub fn setting(
     title: &'static str,
     detail: &'static str,
     control: impl IntoElement,
 ) -> impl IntoElement {
+    setting_row(title, title, detail, control, None)
+}
+
+/// What a click on a row's Reset does (`setting_row`).
+pub type Reset = Box<dyn Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static>;
+
+/// A row of Settings (`setting`) with its words as given; one off its default carries a dot before its name and
+/// `Reset` on hover, `reset` what that does (#203).
+pub fn setting_row(
+    id: impl Into<SharedString>,
+    title: impl Into<SharedString>,
+    detail: impl Into<SharedString>,
+    control: impl IntoElement,
+    reset: Option<Reset>,
+) -> gpui::Stateful<Div> {
+    let id: SharedString = id.into();
+    let group: SharedString = format!("setting-{id}").into();
+    let (title, detail): (SharedString, SharedString) = (title.into(), detail.into());
     div()
+        .id(gpui::ElementId::Name(group.clone()))
+        .group(group.clone())
         .flex()
         .items_center()
-        .gap_4()
-        .py(px(10.))
+        .gap_3()
+        .min_h(px(44.))
+        .py(px(5.))
         .border_b_1()
         .border_color(theme::island_border())
+        .children(reset.is_some().then(|| {
+            div()
+                .flex_none()
+                .size(px(6.))
+                .rounded_full()
+                .bg(theme::accent())
+        }))
         .child(
             div()
                 .flex_1()
                 .min_w_0()
                 .flex()
                 .flex_col()
-                .child(keys::text(title).into_owned())
+                .child(keys::text(&title).into_owned())
                 .children((!detail.is_empty()).then(|| {
                     div()
                         .text_size(px(12.))
                         .text_color(theme::muted())
-                        .child(keys::text(detail).into_owned())
+                        .child(keys::text(&detail).into_owned())
                 })),
         )
+        .children(reset.map(|reset| {
+            div()
+                .id(gpui::ElementId::Name(format!("{group}-reset").into()))
+                .flex_none()
+                .px(px(8.))
+                .h(px(24.))
+                .flex()
+                .items_center()
+                .rounded(px(6.))
+                .border_1()
+                .border_color(theme::island_border())
+                .text_size(px(12.))
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::hover()))
+                .invisible()
+                .group_hover(group.clone(), |s| s.visible())
+                .child("Reset")
+                .on_click(reset)
+        }))
         .child(div().flex_none().child(control))
 }
 

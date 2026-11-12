@@ -88,7 +88,7 @@ pub fn install(cx: &mut gpui::App) {
             .menu(Menu::View, "Agents")
             .at(0, 4),
     );
-    // Between Merge requests and Keyboard, where it always was.
+    // After Accounts (#203).
     artoo_shell_api::add_settings_section(
         cx,
         artoo_shell_api::settings::Section {
@@ -97,6 +97,14 @@ pub fn install(cx: &mut gpui::App) {
             order: 60,
         },
     );
+    for named in [
+        artoo_shell_api::settings::Named::new(artoo_agents_api::view::SETTINGS, "Claude Code")
+            .words("mcp agent chat connect"),
+        artoo_shell_api::settings::Named::new(artoo_agents_api::view::SETTINGS, "Codex")
+            .words("mcp agent chat connect"),
+    ] {
+        artoo_shell_api::add_setting(cx, named);
+    }
     artoo_shell_api::add_parts(cx, parts);
 }
 
