@@ -24,7 +24,7 @@ impl Requests {
         if let Some(m) = self.current.and_then(|iid| self.find(iid)) {
             add(&m.author_login, &m.author);
             for r in &m.reviewers {
-                add(r, "");
+                add(r, m.reviewer_name(r).unwrap_or_default());
             }
         }
         for t in &self.threads {

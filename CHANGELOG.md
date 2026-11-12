@@ -162,7 +162,7 @@ for someone using the app, not for someone reading the code; the commits follow 
   request you never opened, `Draft` a draft, which sorts last. The preview shows Size, Pipeline, Approvals, Reviewers,
   In the way, Discussions and Your review as labelled rows. `Display ▾` groups by author or not at all, and sorts by the
   oldest opened (`opened 12 d ago`) or by size. A request's facts are read a few at a time, the one you pick first, and
-  kept for the next start.
+  kept for the next start. A reviewer is called what GitLab or GitHub calls them, not by their username.
 - **A request's Changes is one bar, one toolbar row, then the files.** The title sits in the page bar after `!398`, with
   the failed job (`✗ lint`) beside Submit review; the row over the diff and the file row are gone. The current file's
   header holds `1 change ↑ ↓`, Open in Zed and Mark reviewed, and stays at the top while you scroll through it.

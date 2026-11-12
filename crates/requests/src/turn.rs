@@ -78,8 +78,12 @@ fn first(name: &str) -> String {
     name.split_whitespace().next().unwrap_or(name).to_owned()
 }
 
-/// A login's name as the request's notes give it; the login capitalised when nobody of that login wrote.
-fn name_of(login: &str, threads: &[Thread]) -> String {
+/// A reviewer's first name as the host gives it (#189), else as the request's notes do; the login capitalised when
+/// neither knows it.
+fn name_of(login: &str, m: &Mr, threads: &[Thread]) -> String {
+    if let Some(name) = m.reviewer_name(login) {
+        return first(name);
+    }
     threads
         .iter()
         .flat_map(|t| &t.notes)
@@ -135,7 +139,7 @@ pub fn turn(
         m.reviewers
             .iter()
             .filter(|login| login.as_str() != me && **login != m.author_login)
-            .map(|login| name_of(login, threads))
+            .map(|login| name_of(login, m, threads))
             .find(|name| approvals.is_none_or(|a| !a.by.iter().any(|by| first(by) == *name)))
     };
     if !me.is_empty() && m.author_login == me {
@@ -368,5 +372,19 @@ mod tests {
         let on_author = turn("you", &m, None, &asked, &[100]);
         assert_eq!(on_author.words(false), "Waiting on Juniper · 1 thread");
         assert_eq!(on_author.group(false), Group::Others);
+    }
+
+    #[test]
+    fn a_reviewer_is_named_as_the_host_names_them_before_any_note_does() {
+        let mut m = request("juniper");
+        m.reviewers = vec!["kestrel".into()];
+        // No name anywhere: the login, capitalised.
+        let who = |m: &Mr| match turn("you", m, None, &[], &[100]) {
+            Turn::Them { who, .. } => who,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(who(&m), "Kestrel");
+        m.reviewer_names = vec!["Wren Okafor".into()];
+        assert_eq!(who(&m), "Wren");
     }
 }

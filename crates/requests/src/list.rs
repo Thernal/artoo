@@ -1512,9 +1512,13 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
     }
     let threads: &[Thread] = facts.map_or(&[], |f| f.threads.as_slice());
     if !m.reviewers.is_empty() {
+        // The host's name (#189), else the one its notes carry, else the login.
         let name_of = |login: &str| {
             if login == me {
                 return "You".to_owned();
+            }
+            if let Some(name) = m.reviewer_name(login) {
+                return name.to_owned();
             }
             threads
                 .iter()

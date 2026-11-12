@@ -1762,6 +1762,15 @@ pub fn parse_mrs(value: &Value) -> Vec<Mr> {
         .into_iter()
         .flatten()
         .filter_map(|m| {
+            // Each reviewer's username and, beside it, the name GitLab gives (#189).
+            let (reviewers, reviewer_names) = m
+                .get("reviewers")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .map(|r| (text(r, "username"), text(r, "name")))
+                .filter(|(u, _)| !u.is_empty())
+                .unzip();
             Some(Mr {
                 iid: m.get("iid")?.as_u64()?,
                 title: text(m, "title"),
@@ -1782,14 +1791,8 @@ pub fn parse_mrs(value: &Value) -> Vec<Mr> {
                     .and_then(Value::as_bool)
                     .unwrap_or(false),
                 author_login: text(m.get("author").unwrap_or(&Value::Null), "username"),
-                reviewers: m
-                    .get("reviewers")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .map(|r| text(r, "username"))
-                    .filter(|u| !u.is_empty())
-                    .collect(),
+                reviewers,
+                reviewer_names,
                 description: text(m, "description"),
                 state: match m.get("state").and_then(Value::as_str) {
                     Some("merged") => MrState::Merged,
@@ -1952,6 +1955,19 @@ mod tests {
                 (5, MrState::Closed, None),
             ]
         );
+    }
+
+    #[test]
+    fn a_reviewer_keeps_the_name_gitlab_gives() {
+        let mrs = parse_mrs(&json!([{ "iid": 1, "reviewers": [
+            { "username": "ember", "name": "Ember Lind" },
+            { "username": "", "name": "Nobody" },
+            { "username": "kestrel", "name": "" }
+        ] }]));
+        let m = &mrs[0];
+        assert_eq!(m.reviewers, ["ember", "kestrel"]);
+        assert_eq!(m.reviewer_name("ember"), Some("Ember Lind"));
+        assert_eq!(m.reviewer_name("kestrel"), None);
     }
 
     #[test]

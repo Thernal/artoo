@@ -157,7 +157,12 @@ impl Workspace {
             let mine = |l: &str| !login.is_empty() && l == login;
             if mine(&m.author_login) || m.author == name {
                 Some("Author of this merge request".to_owned())
-            } else if m.reviewers.iter().any(|r| mine(r) || r == name) || approved {
+            } else if m
+                .reviewers
+                .iter()
+                .any(|r| mine(r) || r == name || m.reviewer_name(r) == Some(name))
+                || approved
+            {
                 Some(if approved {
                     "Reviewer · approved".to_owned()
                 } else {

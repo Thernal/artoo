@@ -64,6 +64,8 @@ pub struct Mr {
     /// The author's and the reviewers' usernames: whose request it is, who was asked to look.
     pub author_login: String,
     pub reviewers: Vec<String>,
+    /// The reviewers' names as the host gives them, beside `reviewers` in their order; empty where it gives none.
+    pub reviewer_names: Vec<String>,
     /// What the author wrote about it, as the list gives it: the root page's preview (#72).
     pub description: String,
     pub state: MrState,
@@ -72,6 +74,15 @@ pub struct Mr {
     pub merged_with: Option<String>,
     /// The host says the branch conflicts with its target (GitLab's `has_conflicts`; GitHub's list does not say).
     pub conflicts: bool,
+}
+
+impl Mr {
+    /// The name the host gives reviewer `login`, when it gives one (#189).
+    pub fn reviewer_name(&self, login: &str) -> Option<&str> {
+        (self.reviewers.iter().zip(&self.reviewer_names))
+            .find(|(l, name)| *l == login && !name.is_empty())
+            .map(|(_, name)| name.as_str())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

@@ -307,10 +307,33 @@ pub fn username(remote: &WebRemote) -> Result<String> {
     })
 }
 
+/// The open pull requests, the last updated first. Read through GraphQL, which names the author and the reviewers
+/// where the REST list gives their logins only (#189); ten pages of a hundred at most, as the REST list was.
 pub fn list(remote: &WebRemote) -> Result<Vec<Mr>> {
     let value = match read_fixture("pulls.json") {
         Some(v) => v?,
-        None => get_all(remote, "pulls?state=open&sort=updated&direction=desc")?,
+        None => {
+            let mut all = Vec::new();
+            let mut after: Option<String> = None;
+            for _ in 0..10 {
+                let page = graphql(remote, OPEN, json!({ "after": after }))?;
+                let found = &page["repository"]["pullRequests"];
+                all.extend(
+                    found["nodes"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(rest_shape),
+                );
+                after = (found["pageInfo"]["hasNextPage"].as_bool() == Some(true))
+                    .then(|| s(&found["pageInfo"]["endCursor"]))
+                    .filter(|c| !c.is_empty());
+                if after.is_none() {
+                    break;
+                }
+            }
+            Value::Array(all)
+        }
     };
     Ok(parse_pulls(&value))
 }
@@ -383,18 +406,41 @@ pub fn list_past(
     Ok(PastPage { list, next, total })
 }
 
-const SEARCH: &str = "query($q: String!, $after: String) {
-  search(query: $q, type: ISSUE, first: 30, after: $after) {
-    issueCount pageInfo { hasNextPage endCursor }
-    nodes { ... on PullRequest {
-      number title url updatedAt createdAt body isDraft state mergedAt
+/// What a pull request read through GraphQL brings, for `rest_shape`.
+macro_rules! pull_fields {
+    () => {
+        "number title url updatedAt createdAt body isDraft state mergedAt
       headRefName headRefOid baseRefName mergeCommit { oid }
       author { login ... on User { name } }
       comments { totalCount }
-      reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } } } }
-    } }
+      reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login name } } } }"
+    };
+}
+
+const SEARCH: &str = concat!(
+    "query($q: String!, $after: String) {
+  search(query: $q, type: ISSUE, first: 30, after: $after) {
+    issueCount pageInfo { hasNextPage endCursor }
+    nodes { ... on PullRequest { ",
+    pull_fields!(),
+    " } }
   }
-}";
+}"
+);
+
+/// The open pull requests, a page of a hundred, the last updated first.
+const OPEN: &str = concat!(
+    "query($owner: String!, $name: String!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: OPEN, first: 100, after: $after, orderBy: { field: UPDATED_AT, direction: DESC }) {
+      pageInfo { hasNextPage endCursor }
+      nodes { ",
+    pull_fields!(),
+    " }
+    }
+  }
+}"
+);
 
 /// A searched pull request in the shape the REST lists give, for `parse_pull`.
 fn rest_shape(n: &Value) -> Value {
@@ -402,7 +448,10 @@ fn rest_shape(n: &Value) -> Value {
         .as_array()
         .into_iter()
         .flatten()
-        .map(|r| json!({ "login": r["requestedReviewer"]["login"] }))
+        .map(|r| {
+            let who = &r["requestedReviewer"];
+            json!({ "login": who["login"], "name": who["name"] })
+        })
         .collect();
     json!({
         "number": n["number"],
@@ -637,6 +686,14 @@ pub fn parse_pulls(value: &Value) -> Vec<Mr> {
 }
 
 fn parse_pull(p: &Value) -> Option<Mr> {
+    // Each reviewer's login and, where GraphQL gave it, the name beside it (#189); a team has no login here.
+    let (reviewers, reviewer_names) = p["requested_reviewers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|r| (s(&r["login"]), s(&r["name"])))
+        .filter(|(l, _)| !l.is_empty())
+        .unzip();
     Some(Mr {
         iid: p["number"].as_u64()?,
         title: s(&p["title"]),
@@ -651,13 +708,8 @@ fn parse_pull(p: &Value) -> Option<Mr> {
             as usize,
         draft: p["draft"].as_bool().unwrap_or(false),
         author_login: s(&p["user"]["login"]),
-        reviewers: p["requested_reviewers"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|r| s(&r["login"]))
-            .filter(|l| !l.is_empty())
-            .collect(),
+        reviewers,
+        reviewer_names,
         description: s(&p["body"]),
         // GitHub's closed covers merged: `merged_at` tells them apart.
         state: match (s(&p["state"]).as_str(), p["merged_at"].is_string()) {
@@ -1706,7 +1758,7 @@ mod tests {
             "user": {"login": "ann"}, "html_url": "https://github.com/o/r/pull/12",
             "head": {"ref": "retry", "sha": "abc"}, "base": {"ref": "main"},
             "created_at": "2026-10-01T10:00:00Z", "updated_at": "2026-10-02T10:00:00Z",
-            "requested_reviewers": [{"login": "bob"}]
+            "requested_reviewers": [{"login": "bob"}, {"login": "cy", "name": "Cy Moss"}]
         }]);
         let prs = parse_pulls(&value);
         assert_eq!(prs.len(), 1);
@@ -1717,7 +1769,34 @@ mod tests {
         );
         assert_eq!((p.head.as_str(), p.author_login.as_str()), ("abc", "ann"));
         assert!(p.draft);
+        assert_eq!(p.reviewers, ["bob", "cy"]);
+        assert_eq!(
+            (p.reviewer_name("bob"), p.reviewer_name("cy")),
+            (None, Some("Cy Moss"))
+        );
+    }
+
+    #[test]
+    fn a_pull_read_through_graphql_names_its_author_and_reviewers() {
+        let node = json!({
+            "number": 7, "title": "Retry", "state": "OPEN", "isDraft": false,
+            "author": {"login": "ann", "name": "Ann Vale"},
+            "headRefName": "retry", "headRefOid": "abc", "baseRefName": "main",
+            "comments": {"totalCount": 2},
+            "reviewRequests": {"nodes": [
+                {"requestedReviewer": {"login": "bob", "name": "Bob Reed"}},
+                {"requestedReviewer": {}}
+            ]}
+        });
+        let prs = parse_pulls(&Value::Array(vec![rest_shape(&node)]));
+        let p = &prs[0];
+        assert_eq!(
+            (p.author.as_str(), p.author_login.as_str()),
+            ("Ann Vale", "ann")
+        );
         assert_eq!(p.reviewers, ["bob"]);
+        assert_eq!(p.reviewer_name("bob"), Some("Bob Reed"));
+        assert_eq!((p.state, p.comments), (artoo_hosts_api::MrState::Opened, 2));
     }
 
     fn threads_data() -> Value {

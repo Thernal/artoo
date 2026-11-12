@@ -436,18 +436,22 @@ impl Requests {
             lines.push(format!("opened {}", hover::full_date(m.created)));
         }
         if !m.reviewers.is_empty() {
-            // By name where it is known, you as you.
+            // By name where it is known — the host's (#189), else a member's — you as you.
             let me = self.login.as_deref();
             let names: Vec<String> = m
                 .reviewers
                 .iter()
-                .map(
-                    |login| match self.members.iter().find(|(l, _)| l == login) {
+                .map(|login| {
+                    let member = || self.members.iter().find(|(l, _)| l == login);
+                    match m.reviewer_name(login) {
                         _ if Some(login.as_str()) == me => "you".to_owned(),
-                        Some((_, name)) if !name.is_empty() => name.clone(),
-                        _ => format!("@{login}"),
-                    },
-                )
+                        Some(name) => name.to_owned(),
+                        None => match member() {
+                            Some((_, name)) if !name.is_empty() => name.clone(),
+                            _ => format!("@{login}"),
+                        },
+                    }
+                })
                 .collect();
             lines.push(format!("Reviewers: {}", names.join(", ")));
         }
