@@ -362,27 +362,15 @@ impl AgentsWindow {
     ) -> AnyElement {
         let id = c.id;
         let picked = self.row == Some(id);
-        // A folder's note by the folder, with its slash (#97).
-        let place = if c.is_folder() {
-            c.path.clone()
-        } else {
-            format!(
-                "{}:{}",
-                c.path.rsplit('/').next().unwrap_or(&c.path),
-                c.line
-            )
-        };
+        // A folder's note by the folder, with its slash (#97); a plugin's place by its words (#212).
+        let place = c.reads();
         let last = c.replies.last();
         let when = last.map(|r| r.at).filter(|&at| at > 0);
         let theirs = last.is_some();
         let words = last.map_or(c.body.as_str(), |r| r.body.as_str());
         let room = self.widths.room("agents");
         let chat = c.sent.as_ref().filter(|s| !s.session.is_empty());
-        let whole = if c.is_folder() {
-            format!("{} — the folder and everything in it", c.path)
-        } else {
-            format!("{}:{}", c.path, c.line)
-        };
+        let whole = c.reads_whole();
         // The tip holds what the row does not: where in full, your note under the agent's words, the chat.
         let mut tip = vec![whole];
         if theirs {

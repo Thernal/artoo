@@ -52,6 +52,31 @@ pub struct Comment {
     /// Written as an answer to the agent's own note on this line (#151): that note.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answers: Option<String>,
+    /// Its place when a plugin defines it (#212): an issue's paragraph, a board as it is filtered. None is the app's
+    /// own kind, `line`: the file, line and code above, which are empty for a plugin's place.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on: Option<On>,
+}
+
+/// The kind of the app's own place: a file, a line, the code on it (#212).
+pub const LINE: &str = "line";
+
+/// A note's place of a kind a plugin declares (#212, `crate::places`). The plugin's words for it are kept with the
+/// note as they were when it was written, so the Agents window reads them while the plugin is off, and the MCP
+/// server, which loads no plugin, gives them to the agent.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct On {
+    /// `jira.issue`: the plugin's namespace, a dot, its name.
+    pub kind: String,
+    /// What the plugin finds the place again by, in its own form (a key and a paragraph, a board and its filter).
+    pub data: String,
+    /// How it reads on the note and in the Agents window: `PAY-412 · description · ¶4`.
+    pub reads: String,
+    /// The text an agent gets as the note's context: the paragraph, what the board shows.
+    pub digest: String,
+    /// The plugin's MCP tool that reads more of it (#213), as the agent calls it: `jira_issue`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
 }
 
 /// A small form an agent asks with (#10 C, Design `design/next/agent-answer/kinds.html`).
@@ -226,7 +251,33 @@ impl Comment {
 
     /// A note on a whole folder (#97): its path ends with a slash, it has no line.
     pub fn is_folder(&self) -> bool {
-        self.path.ends_with('/')
+        self.on.is_none() && self.path.ends_with('/')
+    }
+
+    /// Its place's kind: `line`, or the plugin's (#212).
+    pub fn kind(&self) -> &str {
+        self.on.as_ref().map_or(LINE, |on| on.kind.as_str())
+    }
+
+    /// Where it is, short: `Money.kt:23`, `refunds/`, a plugin's words (`PAY-412 · description · ¶4`).
+    pub fn reads(&self) -> String {
+        if let Some(on) = &self.on {
+            return on.reads.clone();
+        }
+        if self.is_folder() {
+            return self.path.clone();
+        }
+        let name = self.path.rsplit('/').next().unwrap_or(&self.path);
+        format!("{name}:{}", self.line)
+    }
+
+    /// Where it is, whole: `app/src/Money.kt:23`, a folder and everything in it, a plugin's words.
+    pub fn reads_whole(&self) -> String {
+        match &self.on {
+            Some(on) => on.reads.clone(),
+            None if self.is_folder() => format!("{} — the folder and everything in it", self.path),
+            None => format!("{}:{}", self.path, self.line),
+        }
     }
 
     /// The commented code as it was: the lines above, then the line.
@@ -313,6 +364,15 @@ pub fn key(root: &Path) -> String {
         .collect()
 }
 
+/// `text` as a markdown quote.
+pub fn quote(text: &str) -> String {
+    let text = text.trim();
+    if text.is_empty() {
+        return String::new();
+    }
+    format!("> {}", text.replace('\n', "\n> "))
+}
+
 /// The comments as markdown for an agent: the file and line, the code, then what to change.
 /// `places` gives each comment's current line, `None` when it is outdated.
 pub fn export(repo: &str, comments: &[(Comment, Place)]) -> String {
@@ -320,6 +380,16 @@ pub fn export(repo: &str, comments: &[(Comment, Place)]) -> String {
         "# Review of {repo}\n\nAddress each comment below. Each names a file and line, quotes the line as the reviewer saw it, and says what to change.\n"
     );
     for (comment, place) in comments {
+        if let Some(on) = &comment.on {
+            out.push_str(&format!(
+                "\n## {}\n\n{}\n\n{}\n\n_Written at {}._\n",
+                on.reads,
+                quote(&on.digest),
+                comment.body.trim(),
+                comment.at
+            ));
+            continue;
+        }
         if comment.is_folder() {
             out.push_str(&format!(
                 "\n## {} (the folder and everything in it)\n\n{}\n\n_Written at {}._\n",

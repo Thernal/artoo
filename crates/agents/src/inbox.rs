@@ -23,13 +23,9 @@ pub fn verb(c: &Comment) -> &'static str {
     }
 }
 
-/// Where a note is written: `refunds/`, `Money.kt:23`.
+/// Where a note is written: `refunds/`, `Money.kt:23`, a plugin's place (`PAY-412 · description · ¶4`, #212).
 pub fn note_place(c: &Comment) -> String {
-    if c.path.ends_with('/') {
-        return c.path.clone();
-    }
-    let name = c.path.rsplit('/').next().unwrap_or(&c.path);
-    format!("{name}:{}", c.line)
+    c.reads()
 }
 
 /// The answer to note `c` (#116): who and what, the note's place, the start of what the agent wrote.
@@ -177,7 +173,7 @@ pub fn answer_preview(c: &Comment, from: From, thread: AnyElement, on: &OnAnswer
         .font_weight(FontWeight::SEMIBOLD)
         .child(note_place(c));
     // The lines the note is on, as they were when it was written.
-    let code = (!c.path.ends_with('/') && !c.code.is_empty()).then(|| {
+    let code = (!c.is_folder() && c.on.is_none() && !c.code.is_empty()).then(|| {
         let first = c.line.saturating_sub(c.above.len() as u32);
         let lines = c
             .above

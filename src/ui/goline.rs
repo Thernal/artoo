@@ -142,6 +142,17 @@ impl Workspace {
 
     /// Shows a comment: in the open file, scrolled to; in another file of the diff, that file first.
     pub(super) fn jump_to(&mut self, id: u64, cx: &mut Context<Self>) {
+        // A note on a plugin's place: the plugin's page for it, while the plugin is on (#212).
+        let on = (self.comments(cx).iter())
+            .find(|c| c.id == id)
+            .and_then(|c| c.on.clone());
+        if let Some(on) = on {
+            match artoo_agents_api::places::route(cx, &on) {
+                Some(route) if self.drawn().has(&route) => self.go_page(route, cx),
+                _ => self.toast_info(format!("Nothing here opens {}", on.reads).into(), cx),
+            }
+            return;
+        }
         let Some((path, line, old)) = self
             .comments(cx)
             .iter()

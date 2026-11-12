@@ -1,6 +1,6 @@
 //! The agents' contract (#165 stage 4): what another feature asks of the agents' chats — for now the reports a
 //! chat drafted of a problem it hit (`report_problem`, #118), which Report a problem opens to be checked — and the
-//! models the tab speaks with them: the comments for an agent (`comment`), an agent's notes on its changes
+//! models the tab speaks with them: the comments for an agent (`comment`) and the kinds of place they are on (`places`, #212), an agent's notes on its changes
 //! (`notes`), what goes over the agents' folder (`bus`); a tab's agents (`tab`), and how they
 //! are drawn there (`view`); the kinds of agent, Claude Code's, Codex's and any other offered (`provider`).
 //!
@@ -11,6 +11,7 @@ pub mod bus;
 pub mod comment;
 pub mod notes;
 pub mod notices;
+pub mod places;
 pub mod provider;
 pub mod tab;
 pub mod view;

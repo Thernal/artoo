@@ -482,6 +482,30 @@ pub fn brief(root: &Path, comments: &[&Comment]) -> String {
         comments.len()
     );
     for c in comments {
+        // A note on a plugin's place (#212): its words, the context it gave, the tool that reads more of it.
+        if let Some(on) = &c.on {
+            out.push_str(&format!(
+                "\n## Comment {} — {}\n\n{}\n\n{}\n",
+                c.id,
+                on.reads,
+                artoo_agents_api::comment::quote(&on.digest),
+                c.body.trim()
+            ));
+            if let Some(tool) = &on.tool {
+                out.push_str(&format!(
+                    "\nThis is not a line of code: it is on `{}`. Call the tool `{tool}` for more of it.\n",
+                    on.kind
+                ));
+            }
+            for r in &c.replies {
+                out.push_str(&format!("\n> Your earlier answer: {}\n", r.body));
+            }
+            if let Some(a) = &c.answer {
+                let form = c.replies.last().and_then(|r| r.form.as_ref());
+                out.push_str(&format!("\nThe reviewer answered:\n{}\n", a.words(form)));
+            }
+            continue;
+        }
         // A note on a whole folder: no line, no code (#97).
         if c.is_folder() {
             let gone = !root.join(&c.path).is_dir();
@@ -557,6 +581,27 @@ mod tests {
             beat: if listening { now() } else { now() - 3600 },
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn a_note_on_a_plugins_place_reaches_the_agent_with_its_context_and_tool() {
+        let mut note = artoo_agents_api::places::note(
+            artoo_agents_api::comment::On {
+                kind: "jira.issue".into(),
+                data: r#"{"key":"PAY-412","para":4}"#.into(),
+                reads: "PAY-412 · description · ¶4".into(),
+                digest: "Done when the refund equals what was captured.\nCurrencies with 0 and 3 minor units have tests.".into(),
+                tool: Some("jira_issue".into()),
+            },
+            "Work on this, but leave the report export out.".into(),
+        );
+        note.id = 7;
+        let text = brief(Path::new("/no/such/root"), &[&note]);
+        assert!(text.contains("## Comment 7 — PAY-412 · description · ¶4"));
+        assert!(text.contains("> Done when the refund equals what was captured.\n> Currencies"));
+        assert!(text.contains("Work on this, but leave the report export out."));
+        assert!(text.contains("Call the tool `jira_issue` for more of it."));
+        assert!(!text.contains("```"));
     }
 
     #[test]

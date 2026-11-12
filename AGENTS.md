@@ -41,6 +41,11 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   has not (git, a remote, a token). Git and a remote are no longer a menu row's grey line: the space opens and
   `missing_page` fills its middle, the bar showing its name alone (`render_page_bar`); a missing token keeps its line
   and still opens Merge requests' sign-in.
+- **A note's place of a kind** (#212, `crates/agents-api/src/places.rs`): a note for an agent is on a line (`LINE`, the
+  app's: `path`, `line`, `code`) or on a plugin's place (`Comment::on`, an `On` of a kind the plugin declared with
+  `places::add`: `jira.issue`). The plugin's words — how it reads, its digest, its tool — are kept on the note when it
+  is written (`places::on`, `places::note`), so the MCP server, which loads no plugin, and a plugin turned off still
+  read it; `Comment::reads` is what every list says of a place; a click opens `places::route` (`jump_to`).
 - **A Cargo workspace (#165).** The root package is the app (`src/main.rs`, `src/ui/`);
   `crates/plugin-sdk` (`artoo-plugin-sdk`, #175) is what a plugin builds against: one shared library holding GPUI, its
   platform, the core, the kit and every contract, which the app links (`extern crate` in `main.rs`) so each is once in

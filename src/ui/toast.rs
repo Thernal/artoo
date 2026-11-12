@@ -220,8 +220,7 @@ impl Workspace {
         comment: crate::comment::Comment,
         cx: &mut Context<Self>,
     ) {
-        let name = comment.path.rsplit('/').next().unwrap_or(&comment.path);
-        let text = format!("Draft deleted · {name}:{}", comment.line);
+        let text = format!("Draft deleted · {}", comment.reads());
         let (tab, comment) = (cx.weak_entity(), Cell::new(Some(comment)));
         let undo = Rc::new(move |cx: &mut App| {
             if let Some(comment) = comment.take() {
