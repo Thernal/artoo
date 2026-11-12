@@ -159,7 +159,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   command by hand) — requests through the hosts' contract (`serve_mcp(hosts)`);
   it shows the app functions alone (`install`, `serve_mcp`, `watch`, Set up's looks). `crates/reports` (`artoo-reports`): Report a problem,
   its tool window included (`tool.rs`; its `install` alone is shown). `crates/appearance` (`artoo-appearance`, #12,
-  #171: Settings → Appearance, its section and ⌘S its own — Window cards and Code cards (following the window by
+  #171: Settings → Appearance, its section and ⌘S its own — Theme and Code theme as one row each opening a list that tries each live (`appearance/src/themes.rs`, #204; Set up's Look keeps the Window cards), Code (following the window by
   default; the Code choice brings only the syntax colours and the diff's tints, drawn on the window's surface, and a
   Code card says how many read under 4.5:1 there, which and how much in that word's long hover — no warning opens under
   the cards any more, #111, D16), a sample diff in the chosen pair, your themes' folder, Copy One Dark as JSON, each

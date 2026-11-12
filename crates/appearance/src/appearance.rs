@@ -8,9 +8,10 @@
 //! that extends it.
 
 use crate::cards::{
-    ROWS, card, code_face, is_text, own, row_name, rows_of, rows_of_three, sample_diff,
-    small_button, tag_of, theme_preview, value, window_face,
+    ROWS, card, is_text, own, row_name, rows_of, sample_diff, small_button, tag_of, theme_preview,
+    value, window_face,
 };
+use crate::themes as lists;
 use artoo_core::themes::{self, TOKENS, Theme};
 use artoo_shell_api::{Frame, MenuItem, Typed};
 use artoo_ui_kit::controls::{setting, subhead};
@@ -23,6 +24,25 @@ use gpui::{
     Window, div, prelude::*, rgba,
 };
 use std::rc::Rc;
+
+/// A theme's swatch (#204): its background with two of its code colours on it.
+fn swatch(t: &Theme) -> Div {
+    use artoo_core::themes::T;
+    let c = |tok: T| rgba(t.get(tok));
+    div()
+        .flex_none()
+        .size(px(16.))
+        .rounded(px(4.))
+        .border_1()
+        .border_color(theme::island_border())
+        .bg(c(T::Bg3))
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap(px(2.))
+        .child(div().size(px(4.)).rounded_full().bg(c(T::Code1)))
+        .child(div().size(px(4.)).rounded_full().bg(c(T::Code3)))
+}
 
 /// The hex field's id as the tab's input.
 pub(crate) const INPUT: &str = "appearance.value";
@@ -214,7 +234,9 @@ impl Appearance {
             .collect()
     }
 
-    /// Its rows over the window root's: Window, Code and the sample — or the editor, filling the section.
+    /// Its rows over the window root's (#204): Theme and Code theme, each one row opening every theme in one list
+    /// (`themes.rs`) — ↑↓ tries it live —, Edit beside the theme in force, and the sample in both; or the editor,
+    /// filling the section.
     pub(crate) fn render_themes(&mut self, cx: &mut Context<Self>) -> AnyElement {
         if self.edit.is_some() {
             return self.render_editor(cx);
@@ -229,70 +251,36 @@ impl Appearance {
             .code
             .as_deref()
             .and_then(|id| all.iter().find(|t| t.id == id));
-        let windows = self.window_cards(cx);
-        let mut codes: Vec<AnyElement> = vec![
-            card(
-                ("code-theme-follow", 0),
-                div()
-                    .h(px(84.))
-                    .rounded(px(6.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .bg(theme::editor())
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .child("Same as the window"),
-                "Follow the window".into(),
-                None,
-                choice.code.is_none(),
-                None,
-            )
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                let mut c = theme::choice();
-                c.code = None;
-                this.choose(c, cx);
-            }))
-            .into_any_element(),
-        ];
-        codes.extend(all.iter().filter(|t| t.code).enumerate().map(|(i, t)| {
-            let id = t.id.clone();
-            // Drawn on the window's diff surface (D16): what reads under 4.5:1 there is said, and
-            // which in its long hover (it no longer opens a warning under the cards).
-            let low = themes::code_on(t, window);
-            let tip = format!(
-                "On {}'s diff, text needs 4.5:1:\n{}\nFollow the window draws code in the window's own colours.",
-                window.label,
-                low.iter()
-                    .map(|(tok, r)| format!("{} {r:.1}:1", TOKENS[*tok as usize].0))
-                    .collect::<Vec<_>>()
-                    .join(" · ")
-            );
-            card(
-                ("code-theme", i),
-                code_face(t),
-                t.label.clone(),
-                (!low.is_empty()).then(|| (format!("{} under 4.5:1 here", low.len()), true, Some(tip))),
-                choice.code.as_deref() == Some(t.id.as_str()),
-                None,
-            )
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                let mut c = theme::choice();
-                c.code = Some(id.clone());
-                this.choose(c, cx);
-            }))
-            .into_any_element()
-        }));
+        let edit = window.id.clone();
+        let theme_row = div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(small_button("theme-edit", "Edit").on_click(
+                cx.listener(move |this, _: &ClickEvent, _, cx| this.start_edit(&edit, cx)),
+            ))
+            .child(self.theme_picker(
+                "theme-pick",
+                window,
+                window.label.clone(),
+                lists::THEMES,
+                cx,
+            ));
+        let code_row = self.theme_picker(
+            "code-theme-pick",
+            code.unwrap_or(window),
+            code.map_or(lists::SAME.to_owned(), |t| t.label.clone()),
+            lists::CODE_THEMES,
+            cx,
+        );
         div()
             .flex()
             .flex_col()
-            .gap_5()
-            .child(subhead("Window", ""))
-            .child(rows_of_three(windows))
-            .child(subhead("Code", ""))
-            .child(rows_of_three(codes))
+            .child(setting("Theme", "", theme_row))
+            .child(setting("Code theme", "", code_row))
             .child(
                 div()
+                    .mt(px(10.))
                     .rounded(px(8.))
                     .overflow_hidden()
                     .border_1()
@@ -300,6 +288,40 @@ impl Appearance {
                     .child(sample_diff(window, code.unwrap_or(window))),
             )
             .into_any_element()
+    }
+
+    /// A theme row's button: the theme's swatch and name, ▾; a click opens `list` (#204).
+    fn theme_picker(
+        &self,
+        id: &'static str,
+        t: &Theme,
+        label: String,
+        list: &'static str,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        div()
+            .id(id)
+            .min_w(px(190.))
+            .h(px(28.))
+            .px(px(8.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .rounded(px(ROW_RADIUS))
+            .bg(theme::hover())
+            .cursor_pointer()
+            .hover(|s| s.bg(theme::selected()))
+            .child(swatch(t))
+            .child(div().flex_1().text_size(px(13.)).child(label))
+            .child(
+                icons::icon("chevron")
+                    .size(px(12.))
+                    .text_color(theme::muted()),
+            )
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                let frame = this.frame.clone();
+                frame.search(list, cx);
+            }))
     }
 
     /// Its rows under the window root's: your themes, then the file icons.
@@ -374,7 +396,7 @@ impl Appearance {
             .code
             .as_deref()
             .and_then(theme::find)
-            .map_or("Follow the window".to_owned(), |t| t.label);
+            .map_or(lists::SAME.to_owned(), |t| t.label);
         let code_picker =
             div()
                 .id("setup-code-theme")
@@ -425,7 +447,7 @@ impl Appearance {
                 .ok();
             }
         };
-        let follow = MenuItem::new("Follow the window", choose(None)).checked(current.is_none());
+        let follow = MenuItem::new(lists::SAME, choose(None)).checked(current.is_none());
         let themes = theme::all()
             .into_iter()
             .filter(|t| t.code)

@@ -195,45 +195,6 @@ pub fn window_face(t: &Theme) -> Div {
 /// Pieces of a sample line and the code token each is drawn in.
 pub type Runs = Vec<(std::ops::Range<usize>, T)>;
 
-/// D's Code card: a few lines of Kotlin in the theme's syntax colours on its diff surface.
-pub fn code_face(t: &Theme) -> Div {
-    let lines: [(&str, Runs); 4] = [
-        ("fun retry() {", vec![(0..3, T::Code1), (4..9, T::Code2)]),
-        (
-            "  val m = \"failed\"",
-            vec![(2..5, T::Code1), (10..18, T::Code3)],
-        ),
-        ("  tries += 1", vec![(11..12, T::Code4)]),
-        ("}", vec![]),
-    ];
-    div()
-        .h(px(84.))
-        .px(px(10.))
-        .py(px(8.))
-        .rounded(px(6.))
-        .overflow_hidden()
-        .bg(c(t, T::Bg3))
-        .font_family(theme::code_font())
-        .text_size(px(12.))
-        .line_height(px(17.))
-        .text_color(c(t, T::Text1))
-        .children(lines.into_iter().map(|(text, runs)| {
-            div()
-                .whitespace_nowrap()
-                .child(
-                    StyledText::new(text).with_highlights(runs.into_iter().map(|(r, tok)| {
-                        (
-                            r,
-                            HighlightStyle {
-                                color: Some(c(t, tok).into()),
-                                ..Default::default()
-                            },
-                        )
-                    })),
-                )
-        }))
-}
-
 /// Sample Kotlin coloured as the highlighter would: keywords, types (a capital), calls, members,
 /// numbers, strings, comments and operators.
 pub fn kotlin_runs(line: &str) -> Runs {
@@ -582,11 +543,6 @@ pub fn card(
                 }))
                 .children(extra),
         )
-}
-
-/// Cards three to a row.
-pub fn rows_of_three(cards: Vec<AnyElement>) -> Div {
-    rows_of(3, cards)
 }
 
 /// Cards `per` to a row, the last row's room kept.

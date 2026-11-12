@@ -99,7 +99,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
             ),
         ],
         inputs: vec![input(&app)],
-        lists: vec![themes::list()],
+        lists: vec![themes::list(), themes::code_list()],
         snapshots: {
             let mut snapshots = snapshots(&app);
             // The themes to try, on the one in force.
