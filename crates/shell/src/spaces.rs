@@ -86,6 +86,7 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
         let space = row.space;
         let id = space.id();
         let label = row.label;
+        let key = row.key.clone();
         let (missing, opens, shut) = (row.missing, row.opens, row.shut);
         let any = !opens.is_empty();
         let (toggle, go, moved) = (host.clone(), host.clone(), host.clone());
@@ -264,7 +265,11 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                 if e.click_count() == 2 && any {
                     go.toggle(space, window, cx)
                 } else {
-                    go.go(space, window, cx)
+                    go.go(space, window, cx);
+                    // Its key, once, after the mouse went there (#193).
+                    if !key.is_empty() {
+                        artoo_ui_kit::keys::teach(&words::say(label), &key, window, cx)
+                    }
                 }
             });
         // The icon's place: centred in the folded menu, after the indent open; it moves only

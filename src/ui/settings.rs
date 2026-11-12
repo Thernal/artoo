@@ -827,19 +827,19 @@ impl Workspace {
         )
     }
 
-    fn render_keyboard_settings(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        use super::discussion::{Kind, button};
-        use super::keymap::{self, Keymap};
-        use super::keys::{self, On};
+    /// Settings → Keyboard's rows as listed: the filter's and Changed only's, under their headings (Move · Comment ·
+    /// Find · View · Requests · App), by name within each; the names they are said by.
+    fn keyboard_rows(
+        &self,
+        cx: &App,
+    ) -> (
+        Vec<super::keymap::Entry>,
+        std::collections::HashMap<&'static str, KeyName>,
+    ) {
         let query = self.keys_filter.trim().to_lowercase();
-        let changed_only = self.keys_changed_only;
-        let map = cx.global::<Keymap>();
-        let (preset, changed_count) = (map.preset(), map.changed_count());
         // The menu's and ⌘K's names, not code words (#193); `Activate` is not one to change.
         let named = key_names(cx);
-        let mut entries: Vec<_> = map
-            .entries()
-            .into_iter()
+        let mut entries: Vec<_> = (cx.global::<super::keymap::Keymap>().entries().into_iter())
             .filter(|e| e.name != "Activate")
             .map(|mut e| {
                 if let Some(n) = named.get(e.name) {
@@ -854,12 +854,52 @@ impl Workspace {
                 e
             })
             .filter(|e| matches_keys(e, &query, self.keys_exact))
-            .filter(|e| !changed_only || e.changed)
+            .filter(|e| !self.keys_changed_only || e.changed)
             .collect();
-        // Under headings, Move · Comment · Find · View · Requests · App, by name within each.
         entries.sort_by(|a, b| {
             (heading(a.name, &named), &a.label).cmp(&(heading(b.name, &named), &b.label))
         });
+        (entries, named)
+    }
+
+    /// ↑ ↓ in Settings → Keyboard's filter (#193): the next row, or the one before, the keyboard's.
+    pub(super) fn keys_step(&mut self, down: bool, cx: &mut Context<Self>) {
+        let names: Vec<&'static str> = self.keyboard_rows(cx).0.iter().map(|e| e.name).collect();
+        let at = (self.keys_sel).and_then(|s| names.iter().position(|n| *n == s));
+        let next = match at {
+            None => 0,
+            Some(i) if down => (i + 1).min(names.len().saturating_sub(1)),
+            Some(i) => i.saturating_sub(1),
+        };
+        self.keys_sel = names.get(next).copied();
+        cx.notify();
+    }
+
+    /// ↵ in the filter: the row the keyboard is on waits for its new key.
+    pub(super) fn keys_change_picked(&mut self, cx: &mut Context<Self>) {
+        let rows = self.keyboard_rows(cx).0;
+        let sel = (self.keys_sel)
+            .filter(|s| rows.iter().any(|e| e.name == *s))
+            .or(rows.first().map(|e| e.name));
+        if let Some(name) = sel {
+            self.keys_sel = Some(name);
+            self.recording = Some(name);
+            cx.notify();
+        }
+    }
+
+    fn render_keyboard_settings(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        use super::discussion::{Kind, button};
+        use super::keymap::{self, Keymap};
+        use super::keys::{self, On};
+        let changed_only = self.keys_changed_only;
+        let map = cx.global::<Keymap>();
+        let (preset, changed_count) = (map.preset(), map.changed_count());
+        let (entries, named) = self.keyboard_rows(cx);
+        // The row the keyboard is on (#193): the one picked while it is listed, else the first.
+        let sel = (self.keys_sel)
+            .filter(|s| entries.iter().any(|e| e.name == *s))
+            .or(entries.first().map(|e| e.name));
         let presets = self.key_presets(cx);
         let helpers = self.key_helpers_row(cx);
         let by_keys = self.recording == Some(BY_KEYS);
@@ -939,7 +979,7 @@ impl Workspace {
                     .text_size(px(12.))
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .text_color(theme::muted())
-                    .child(HEADINGS[under])
+                    .child(under.words())
             });
             let was = e
                 .was
@@ -974,6 +1014,7 @@ impl Workspace {
                     .child(keys::caps(&keymap::symbols(k), On::Plain))
             });
             let group = gpui::SharedString::from(format!("key-row-{name}"));
+            let picked = sel == Some(name);
             let row = div()
                 .id(group.clone())
                 .group(group.clone())
@@ -984,7 +1025,12 @@ impl Workspace {
                 .px(px(10.))
                 .rounded(px(6.))
                 .when(waiting, |s| s.border_1().border_color(theme::focus()))
-                .hover(|s| s.bg(theme::hover()))
+                .when(picked, |s| s.bg(theme::selected()))
+                .when(!picked, |s| s.hover(|s| s.bg(theme::hover())))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.keys_sel = Some(name);
+                    cx.notify();
+                }))
                 .child(
                     div()
                         .flex_1()
@@ -1053,10 +1099,10 @@ impl Workspace {
                                 }),
                             )
                         }))
-                        // Change on the row pointed at alone (#193).
+                        // Change on the row pointed at, and on the keyboard's (#193).
                         .child(
                             div()
-                                .when(!waiting, |s| {
+                                .when(!waiting && !picked, |s| {
                                     s.invisible().group_hover(group.clone(), |s| s.visible())
                                 })
                                 .child(
@@ -1128,7 +1174,7 @@ impl Workspace {
                             .text_size(px(12.))
                             .text_color(theme::muted())
                             .child(keys_said(
-                                "The keys of what is on screen while ⌘ is held · ⌃⌘ the spaces'",
+                                "Keys while ⌘ or ⌃⌘ is held · a hint after the mouse",
                             )),
                     ),
             )
@@ -1216,15 +1262,12 @@ fn matches_keys(e: &super::keymap::Entry, query: &str, exact: bool) -> bool {
             .any(|k| k.contains(query) || written(k).contains(query))
 }
 
-/// Settings → Keyboard's headings (#193), in their order.
-const HEADINGS: [&str; 6] = ["Move", "Comment", "Find", "View", "Requests", "App"];
-
 /// A command as Settings → Keyboard names it: the menu's or ⌘K's words, the name the keymap gives it
 /// (`Approve request`, what a clash says), its id (its heading).
 struct KeyName {
     said: String,
     was: String,
-    id: &'static str,
+    heading: artoo_shell_api::Heading,
 }
 
 /// Every command's `KeyName`, by its keymap name (`ApproveRequest`).
@@ -1245,79 +1288,21 @@ fn key_names(cx: &App) -> std::collections::HashMap<&'static str, KeyName> {
                 KeyName {
                     said,
                     was,
-                    id: a.id,
+                    heading: a.heading,
                 },
             )
         })
         .collect()
 }
 
-/// Which heading a command goes under (`HEADINGS`); one not offered as an action, the app's.
-fn heading(name: &str, named: &std::collections::HashMap<&'static str, KeyName>) -> usize {
-    named.get(name).map_or(5, |n| heading_of(n.id))
-}
-
-/// The heading of the command with id `id`: what comments, what moves (a request's next one too), what finds,
-/// what shows, a request's acts, the rest the app's.
-fn heading_of(id: &str) -> usize {
-    const COMMENT: [&str; 9] = [
-        "review.comment-line",
-        "requests.reply",
-        "requests.resolve",
-        "requests.edit",
-        "requests.react",
-        "requests.submit",
-        "agents.send",
-        "requests.next-draft",
-        "requests.previous-draft",
-    ];
-    let (domain, verb) = id.split_once('.').unwrap_or(("", id));
-    // By the id's words (`next-change`: next, change), never a part of one (`rendered` is not `end`).
-    let words: Vec<&str> = verb.split('-').collect();
-    let has = |these: &[&str]| these.iter().any(|w| words.contains(w));
-    if COMMENT.contains(&id) {
-        1
-    } else if domain == "shell" && has(&["new", "close", "reopen", "pin"]) {
-        5
-    } else if has(&[
-        "find",
-        "search",
-        "filter",
-        "match",
-        "recent",
-        "bookmarks",
-        "structure",
-    ]) || id == "shell.switch"
-    {
-        2
-    } else if id == "shell.switch-branch"
-        || matches!(
-            id,
-            "requests.overview" | "requests.commits" | "requests.changes"
-        )
-        || has(&[
-            "next", "previous", "back", "forward", "start", "end", "page", "zone", "focus", "tab",
-            "item", "section", "up", "down",
-        ])
-    {
-        0
-    } else if domain == "requests" {
-        4
-    } else if domain == "review"
-        || has(&[
-            "zoom",
-            "fold",
-            "side",
-            "diff",
-            "shortcuts",
-            "whole",
-            "theme",
-        ])
-    {
-        3
-    } else {
-        5
-    }
+/// Which heading a command goes under: its action's (#193); one not offered as an action, the app's.
+fn heading(
+    name: &str,
+    named: &std::collections::HashMap<&'static str, KeyName>,
+) -> artoo_shell_api::Heading {
+    named
+        .get(name)
+        .map_or(artoo_shell_api::Heading::App, |n| n.heading)
 }
 
 /// `text` with its keys in this OS's words.
@@ -1367,17 +1352,7 @@ mod tests {
     }
 
     #[test]
-    fn a_command_goes_under_its_heading_by_its_words() {
-        assert_eq!(heading_of("review.next-change"), 0);
-        assert_eq!(heading_of("requests.next"), 0);
-        assert_eq!(heading_of("requests.resolve"), 1);
-        assert_eq!(heading_of("review.find"), 2);
-        assert_eq!(heading_of("review.next-match"), 2);
-        assert_eq!(heading_of("shell.new-tab"), 5);
-        // `rendered` holds `end`, not the word.
-        assert_eq!(heading_of("review.rendered"), 3);
-        assert_eq!(heading_of("requests.approve"), 4);
-        assert_eq!(heading_of("shell.quit"), 5);
+    fn a_title_is_said_as_a_sentence() {
         assert_eq!(sentence("Next Open Item"), "Next open item");
         assert_eq!(sentence("Open in GitLab"), "Open in GitLab");
     }

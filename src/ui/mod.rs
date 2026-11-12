@@ -1202,6 +1202,9 @@ pub struct Workspace {
     spot: Option<goto::Spot>,
     /// What Settings → Keyboard is filtered by.
     keys_filter: String,
+    /// The row of Settings → Keyboard the keyboard is on, by its keymap name (#193): ↑ ↓ from the filter move it,
+    /// ↵ changes its key.
+    keys_sel: Option<&'static str>,
     /// What Settings' search has typed (#203): its hits stand for the section while it is not empty.
     settings_query: String,
     /// The filter is a key pressed (By keys): rows with exactly that key.
@@ -1417,6 +1420,7 @@ impl Workspace {
             note_sel: None,
             settings_section: settings::REVIEW,
             keys_filter: String::new(),
+            keys_sel: None,
             settings_query: String::new(),
             keys_exact: false,
             keys_changed_only: false,

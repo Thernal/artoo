@@ -110,10 +110,12 @@ for someone using the app, not for someone reading the code; the commits follow 
   menu's dots for drafts and news, then the places you chose, and opens on the second row, so ⌘E ↵ returns you. A
   request only looked at is one italic row in the menu that the next one replaces; marking a file, a comment or an
   approval keeps it. An open row's right click closes it, the others, all of them or the merged ones.
-- **Hold ⌘ to see the keys.** Held a moment, ⌘ shows each repository's ⌘1…, and ⌘B ⌘[ ⌘] on the title bar's
-  buttons; ⌃⌘ shows the spaces'. Settings → Keyboard turns these helpers off. Settings → Keyboard reads by headings —
-  Move, Comment, Find, View, Requests, App — with the menu's names, Change on the row you point at, and a clash says
-  which command it shares the key with. Create merge request moves to ⇧⌘M, its key in its tooltip.
+- **Hold ⌘ to see the keys.** Held a moment, ⌘ shows each repository's ⌘1…, and ⌘B ⌘[ ⌘] on the title bar's buttons; ⌃⌘
+  shows the spaces'. One of these done with the mouse says its key a moment at the window's foot — `Collapse the menu
+  ⌘B` —, once for each key. Settings → Keyboard turns these helpers off. Settings → Keyboard reads by headings — Move,
+  Comment, Find, View, Requests, App, each command under the one it says — with the menu's names, Change on the row you
+  point at and on the one ↑ ↓ from the filter are on (↵ changes its key), and a clash says which command it shares the
+  key with. Create merge request moves to ⇧⌘M, its key in its tooltip.
 - **⌘K knows where you are.** Opened empty it lists `Here` — on a request `Approve this merge request`, `Submit review`,
   `Merge…`, `Copy link`, `Next merge request`, each with its key — then `Recent`, the places you last chose, a file with
   the request it was in and the line you left it at (`AuthApi.kt !398 · line 23`), each row with its icon. Approve,

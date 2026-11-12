@@ -87,17 +87,22 @@ fn title_bar(bar: TitleBar, host: Rc<dyn TitleHost>) -> impl IntoElement {
                 .flex()
                 .gap(px(2.))
                 .children(bar.open.then(|| {
+                    // What a click does, its tooltip's words and the hint's after it (#193).
+                    let folding = if bar.folded {
+                        "Expand the menu"
+                    } else {
+                        "Collapse the menu"
+                    };
                     nav_button(
                         "fold-places",
                         "sidebar",
-                        if bar.folded {
-                            "Expand the menu  ⌘B".into()
-                        } else {
-                            "Collapse the menu  ⌘B".into()
-                        },
+                        format!("{folding}  ⌘B").into(),
                         true,
                     )
-                    .on_click(move |_, window, cx| fold.fold(window, cx))
+                    .on_click(move |_, window, cx| {
+                        fold.fold(window, cx);
+                        keys::teach(folding, "⌘B", window, cx)
+                    })
                     .relative()
                     .children(keys::held_cap("⌘B", keys::Held::Cmd))
                 }))
@@ -112,7 +117,8 @@ fn title_bar(bar: TitleBar, host: Rc<dyn TitleHost>) -> impl IntoElement {
                     // A click goes back; held, its menu opens and the release does not (#194).
                     .on_click(move |_, window, cx| {
                         if !HELD.with(|h| h.replace(false)) {
-                            back.back(window, cx)
+                            back.back(window, cx);
+                            keys::teach("Back", "⌘[", window, cx)
                         }
                     })
                     .on_mouse_down(MouseButton::Left, {
@@ -134,7 +140,10 @@ fn title_bar(bar: TitleBar, host: Rc<dyn TitleHost>) -> impl IntoElement {
                 )
                 .child(
                     nav_button("go-forward", "forward", "Forward  ⌘]".into(), bar.forward)
-                        .on_click(move |_, window, cx| forward.forward(window, cx))
+                        .on_click(move |_, window, cx| {
+                            forward.forward(window, cx);
+                            keys::teach("Forward", "⌘]", window, cx)
+                        })
                         .relative()
                         .children(keys::held_cap("⌘]", keys::Held::Cmd)),
                 ),

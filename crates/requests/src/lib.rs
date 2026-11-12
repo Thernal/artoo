@@ -34,7 +34,7 @@ mod waiting;
 mod why;
 
 use artoo_shell_api::spaces::{self, Space, SpaceInfo};
-use artoo_shell_api::{Action, Frame, Menu, Parts, when};
+use artoo_shell_api::{Action, Frame, Heading, Menu, Parts, when};
 use gpui::{App, AppContext, Entity, Window};
 use std::rc::Rc;
 
@@ -79,6 +79,7 @@ pub fn install(cx: &mut App) {
     artoo_shell_api::add_action(
         cx,
         Action::new("requests.inbox", GoToInbox)
+            .heading(Heading::Move)
             .words("Inbox")
             .order(0)
             .key("ctrl-cmd-1", when::TAB)
@@ -88,6 +89,7 @@ pub fn install(cx: &mut App) {
     artoo_shell_api::add_action(
         cx,
         Action::new("requests.space", GoToMergeRequests)
+            .heading(Heading::Move)
             .words("Merge requests")
             .order(30)
             .key("ctrl-cmd-4", when::TAB)
@@ -97,6 +99,7 @@ pub fn install(cx: &mut App) {
     artoo_shell_api::add_action(
         cx,
         Action::new("requests.discussions", ToggleComments)
+            .heading(Heading::View)
             .words("Show or hide the Discussions window")
             // Its place in ⌘K among Artoo's own, as it always had.
             .order(150)

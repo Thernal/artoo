@@ -297,6 +297,92 @@ pub fn set_held(held: Option<Held>) -> bool {
     HELD.with(|h| h.replace(held) != held)
 }
 
+/// How long the hint after the mouse stays (#193).
+pub const HINT: std::time::Duration = std::time::Duration::from_millis(2600);
+
+/// The hint after the mouse (#193).
+struct Taught {
+    /// The one showing now: what was done, its key, when it began.
+    now: Option<(String, String, std::time::Instant)>,
+    /// The keys already taught this run.
+    keys: Vec<String>,
+}
+
+thread_local! {
+    /// Settings → Keyboard's helpers, as the window last drew them.
+    static HELPERS: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+    static TAUGHT: std::cell::RefCell<Taught> =
+        const { std::cell::RefCell::new(Taught { now: None, keys: Vec::new() }) };
+}
+
+/// The keyboard helpers on or off, as Settings → Keyboard says (#193).
+pub fn set_helpers(on: bool) {
+    HELPERS.with(|h| h.set(on));
+}
+
+/// The mouse did what key `spec` does (`what`, as its tooltip says it): a hint at the window's foot says the key a
+/// moment, once a run for each key, while the helpers are on (#193, "a brief hint after the mouse did what a key
+/// does"). The window draws again when it has gone.
+pub fn teach(what: &str, spec: &str, window: &mut gpui::Window, cx: &mut gpui::App) {
+    if !HELPERS.with(std::cell::Cell::get) {
+        return;
+    }
+    let fresh = TAUGHT.with(|t| {
+        let mut t = t.borrow_mut();
+        if t.keys.iter().any(|k| k == spec) {
+            return false;
+        }
+        t.keys.push(spec.to_owned());
+        t.now = Some((what.to_owned(), spec.to_owned(), std::time::Instant::now()));
+        true
+    });
+    if fresh {
+        window.refresh();
+        window
+            .spawn(cx, async move |cx| {
+                cx.background_executor().timer(HINT).await;
+                cx.update(|window, _| window.refresh()).ok();
+            })
+            .detach();
+    }
+}
+
+/// The hint after the mouse, while it stays (`teach`): what was done and its key's caps, at the window's foot over
+/// what is there.
+pub fn hint() -> Option<Div> {
+    let (what, spec) = TAUGHT.with(|t| {
+        (t.borrow().now.as_ref())
+            .filter(|(_, _, at)| at.elapsed() < HINT)
+            .map(|(what, spec, _)| (what.clone(), spec.clone()))
+    })?;
+    Some(
+        div()
+            .absolute()
+            .bottom(px(28.))
+            .left_0()
+            .right_0()
+            .flex()
+            .justify_center()
+            .child(
+                div()
+                    .h(px(30.))
+                    .px(px(12.))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .rounded(px(8.))
+                    .border_1()
+                    .border_color(theme::island_border())
+                    .bg(theme::panel())
+                    .shadow_lg()
+                    .text_size(px(12.))
+                    .text_color(theme::muted())
+                    .child(what)
+                    .child(caps(&spec, On::Plain)),
+            ),
+    )
+}
+
 /// `spec` as a cap over a control's corner while `when` is held (#193): placed over what is there, so nothing
 /// moves. The control it is put in must be `relative`.
 pub fn held_cap(spec: &str, when: Held) -> Option<Div> {

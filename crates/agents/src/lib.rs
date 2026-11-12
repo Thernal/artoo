@@ -76,10 +76,11 @@ pub fn install(cx: &mut gpui::App) {
     artoo_agents_api::bus::provide(cx, Arc::new(contract::FolderImpl));
     artoo_agents_api::tab::provide(cx, std::rc::Rc::new(tab::make));
     artoo_agents_api::view::provide(cx, std::rc::Rc::new(contract::RendererImpl));
-    use artoo_shell_api::{Action, Menu, when};
+    use artoo_shell_api::{Action, Heading, Menu, when};
     artoo_shell_api::add_action(
         cx,
         Action::new("agents.window", ToggleAgents)
+            .heading(Heading::View)
             .words("Show or hide the Agents window")
             // Its places in ⌘K and the View menu among Artoo's own, as it always had.
             .order(100)

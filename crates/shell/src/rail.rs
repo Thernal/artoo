@@ -76,6 +76,7 @@ fn rail(tabs: Vec<TabInfo>, host: Rc<dyn TabsHost>) -> impl IntoElement {
             format!("{}{place}{unread}", tab.title)
         };
         let (select, menu, moved) = (host.clone(), host.clone(), host.clone());
+        let title = tab.title.clone();
         div()
             .id(("project", ix))
             .relative()
@@ -136,7 +137,14 @@ fn rail(tabs: Vec<TabInfo>, host: Rc<dyn TabsHost>) -> impl IntoElement {
             )
             .tooltip_show_delay(hover::LONG)
             .tooltip(move |_, cx| cx.new(|_| TipOwned(tip.clone().into())).into())
-            .on_click(move |_: &ClickEvent, window, cx| select.select(ix, window, cx))
+            .on_click(move |_: &ClickEvent, window, cx| {
+                select.select(ix, window, cx);
+                // Its key, once, after the mouse went there (#193).
+                if ix < 9 {
+                    let key = format!("⌘{}", ix + 1);
+                    artoo_ui_kit::keys::teach(&title, &key, window, cx)
+                }
+            })
             .on_mouse_down(
                 MouseButton::Right,
                 move |event: &MouseDownEvent, window, cx| menu.menu(ix, event.position, window, cx),

@@ -111,9 +111,22 @@ impl Workspace {
             self.inbox_step(event.keystroke.key == "down", cx);
             return true;
         }
-        // Typed, the keyboard filter matches by words again.
+        // Settings → Keyboard's filter keeps ↑ ↓ ↵ for its rows (#193): the keyboard's row, and its key changed.
+        if field == Field::Keys && matches!(event.keystroke.key.as_str(), "up" | "down") {
+            self.keys_step(event.keystroke.key == "down", cx);
+            return true;
+        }
+        if field == Field::Keys
+            && event.keystroke.key == "enter"
+            && !event.keystroke.modifiers.modified()
+        {
+            self.keys_change_picked(cx);
+            return true;
+        }
+        // Typed, the keyboard filter matches by words again, its first row the keyboard's.
         if field == Field::Keys {
             self.keys_exact = false;
+            self.keys_sel = None;
         }
         let text = match field {
             Field::Branches => &mut self.bfilter,

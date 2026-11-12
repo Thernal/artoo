@@ -12,7 +12,7 @@ mod search;
 mod space;
 
 use artoo_shell_api::spaces::{self, Space, SpaceInfo};
-use artoo_shell_api::{Action, Frame, Menu, Parts, when};
+use artoo_shell_api::{Action, Frame, Heading, Menu, Parts, when};
 use gpui::{App, AppContext, Window};
 use std::rc::Rc;
 
@@ -40,6 +40,7 @@ pub fn install(cx: &mut App) {
     artoo_shell_api::add_action(
         cx,
         Action::new("code.space", GoToCode)
+            .heading(Heading::Move)
             .words("Code")
             .order(10)
             .key("ctrl-cmd-2", when::TAB)

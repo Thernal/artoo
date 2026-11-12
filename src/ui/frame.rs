@@ -192,6 +192,8 @@ impl title::TitleHost for TitleGlue {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The helpers' switch, for the hint after the mouse the kit draws (#193).
+        artoo_ui_kit::keys::set_helpers(self.settings.key_helpers);
         debug_assert_eq!(
             self.rv().app_settings(cx),
             self.settings,
@@ -589,6 +591,8 @@ impl Render for Workspace {
                 .shows()
                 .then(|| gpui::deferred(self.ctx_menu.clone()).with_priority(3)),
         )
+        // A key said a moment after the mouse did what it does (#193), over the page.
+        .children(artoo_ui_kit::keys::hint())
         .children(self.render_mention_card(cx))
         .children(self.render_whole(cx))
         .children(self.rv().render_blame_tip(cx))

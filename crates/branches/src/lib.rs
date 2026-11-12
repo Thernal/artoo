@@ -36,7 +36,7 @@ mod waiting;
 mod working;
 
 use artoo_shell_api::spaces::{self, Space, SpaceInfo};
-use artoo_shell_api::{Action, Frame, Menu, Parts, when};
+use artoo_shell_api::{Action, Frame, Heading, Menu, Parts, when};
 use gpui::{App, AppContext, Window};
 use std::rc::Rc;
 
@@ -66,6 +66,7 @@ pub fn install(cx: &mut App) {
     artoo_shell_api::add_action(
         cx,
         Action::new("branches.space", GoToBranches)
+            .heading(Heading::Move)
             .words("Branches")
             .order(20)
             .key("ctrl-cmd-3", when::TAB)

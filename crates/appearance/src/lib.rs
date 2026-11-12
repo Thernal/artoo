@@ -9,7 +9,7 @@ mod themes;
 
 use appearance::{Appearance, Drawn, INPUT};
 use artoo_shell_api::settings::{Rows, Section};
-use artoo_shell_api::{Action, Frame, Input, Parts, Typed, when};
+use artoo_shell_api::{Action, Frame, Heading, Input, Parts, Typed, when};
 use gpui::{App, AppContext, Entity, Window};
 use std::rc::Rc;
 
@@ -46,6 +46,7 @@ pub fn install(cx: &mut App) {
     artoo_shell_api::add_action(
         cx,
         Action::new("appearance.theme", PickTheme)
+            .heading(Heading::View)
             .words("Theme — try each on the whole window")
             .order(380),
     );

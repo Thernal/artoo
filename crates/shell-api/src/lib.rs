@@ -96,6 +96,35 @@ pub struct Action {
     pub keys: Vec<Key>,
     /// Its item in the menu bar.
     pub menu: Option<InMenu>,
+    /// The heading Settings → Keyboard lists it under (#193); the app's, `App`, unless it says.
+    pub heading: Heading,
+}
+
+/// Settings → Keyboard's headings (#193), in their order: what moves, what comments, what finds, what shows, a
+/// request's acts, and the app's — what fits none of them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Heading {
+    Move,
+    Comment,
+    Find,
+    View,
+    Requests,
+    #[default]
+    App,
+}
+
+impl Heading {
+    /// Its words, as the page heads its rows.
+    pub fn words(self) -> &'static str {
+        match self {
+            Heading::Move => "Move",
+            Heading::Comment => "Comment",
+            Heading::Find => "Find",
+            Heading::View => "View",
+            Heading::Requests => "Requests",
+            Heading::App => "App",
+        }
+    }
 }
 
 /// Where ⌘K lists an action that does not say (`Action::order`): after Artoo's own.
@@ -113,7 +142,13 @@ impl Action {
             order: LATER,
             keys: Vec::new(),
             menu: None,
+            heading: Heading::App,
         }
+    }
+
+    /// Listed under `heading` in Settings → Keyboard (#193).
+    pub fn heading(self, heading: Heading) -> Self {
+        Self { heading, ..self }
     }
 
     /// In ⌘K by `words`.
