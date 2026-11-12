@@ -372,6 +372,91 @@ fn window_size() -> (f32, f32) {
     (1480., 920.)
 }
 
+#[cfg(feature = "snapshot")]
+/// A snapshot's click, `x,y` in window points: `cmd:x,y` with ⌘ held, `right:x,y` a right click. None: not a click.
+fn click_at(
+    step: &str,
+) -> Option<(
+    gpui::Point<gpui::Pixels>,
+    gpui::MouseButton,
+    gpui::Modifiers,
+)> {
+    let (at, button) = match step.trim().strip_prefix("right:") {
+        Some(at) => (at, gpui::MouseButton::Right),
+        None => (step.trim(), gpui::MouseButton::Left),
+    };
+    let (at, modifiers) = match at.strip_prefix("cmd:") {
+        Some(at) => (at, gpui::Modifiers::command()),
+        None => (at, gpui::Modifiers::default()),
+    };
+    let (x, y) = at.split_once(',')?;
+    let (x, y) = (x.trim().parse::<f32>().ok()?, y.trim().parse::<f32>().ok()?);
+    Some((gpui::point(gpui::px(x), gpui::px(y)), button, modifiers))
+}
+
+/// A snapshot clicks at `at` (`click_at`): the pointer moved there, pressed and let go, each event drawn after it, as a
+/// hidden window draws only by hand.
+#[cfg(feature = "snapshot")]
+async fn snapshot_click(window: gpui::AnyWindowHandle, at: &str, cx: &mut gpui::AsyncApp) {
+    let Some((position, button, modifiers)) = click_at(at) else {
+        return;
+    };
+    let executor = cx.background_executor().clone();
+    let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+    cx.update_window(window, |_, window, cx| window.draw(cx).clear(cx))
+        .ok();
+    let events = [
+        gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+            position,
+            pressed_button: None,
+            modifiers: Default::default(),
+        }),
+        gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
+            button,
+            position,
+            modifiers,
+            click_count: 1,
+            first_mouse: false,
+        }),
+        gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
+            button,
+            position,
+            modifiers,
+            click_count: 1,
+        }),
+    ];
+    for event in events {
+        cx.update_window(window, |_, window, cx| {
+            window.dispatch_event(event, cx);
+            window.draw(cx).clear(cx);
+        })
+        .ok();
+        wait(100).await;
+    }
+    wait(500).await;
+}
+
+/// A snapshot's keystrokes, `right right cmd-t`, each drawn after it; `wait` waits a second.
+#[cfg(feature = "snapshot")]
+async fn snapshot_keys(window: gpui::AnyWindowHandle, keys: &str, cx: &mut gpui::AsyncApp) {
+    let executor = cx.background_executor().clone();
+    let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+    for key in keys.split_whitespace() {
+        if key == "wait" {
+            wait(1000).await;
+            continue;
+        }
+        if let Ok(keystroke) = gpui::Keystroke::parse(key) {
+            cx.update_window(window, |_, window, cx| {
+                window.dispatch_keystroke(keystroke, cx);
+                window.draw(cx).clear(cx);
+            })
+            .ok();
+        }
+        wait(400).await;
+    }
+}
+
 /// Waits for loading (`ARTOO_SNAPSHOT_DELAY_MS`, 2500 by default), selects a commit by SHA
 /// prefix (`ARTOO_SNAPSHOT_COMMIT`) and a file by path (`ARTOO_SNAPSHOT_FILE`), turns on view options
 /// (`ARTOO_SNAPSHOT_VIEW=unified,structural,wrap,all-lines,whitespace`, not saved), optionally
@@ -379,7 +464,6 @@ fn window_size() -> (f32, f32) {
 /// `ARTOO_SNAPSHOT` and quits.
 #[cfg(feature = "snapshot")]
 fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
-    use std::time::Duration;
     let Some(out) = std::env::var_os("ARTOO_SNAPSHOT").map(PathBuf::from) else {
         return;
     };
@@ -390,7 +474,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
     let ws = shell.read(cx).first();
     cx.spawn(async move |cx| {
         let executor = cx.background_executor().clone();
-        let wait = |ms| executor.timer(Duration::from_millis(ms));
+        let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
         let delay = std::env::var("ARTOO_SNAPSHOT_DELAY_MS")
             .ok()
             .and_then(|d| d.parse().ok())
@@ -1056,76 +1140,23 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         // a ⌘-click (a name's declarations, #207); `right:x,y` a right click (a commit's menu, #208).
         let clicks = std::env::var("ARTOO_SNAPSHOT_CLICK").unwrap_or_default();
         for at in clicks.split(';').filter(|c| !c.trim().is_empty()) {
-            let (at, button) = match at.trim().strip_prefix("right:") {
-                Some(at) => (at, gpui::MouseButton::Right),
-                None => (at, gpui::MouseButton::Left),
-            };
-            let (at, modifiers) = match at.trim().strip_prefix("cmd:") {
-                Some(at) => (
-                    at,
-                    gpui::Modifiers {
-                        platform: true,
-                        ..Default::default()
-                    },
-                ),
-                None => (at, gpui::Modifiers::default()),
-            };
-            let Some((x, y)) = at.split_once(',') else {
-                continue;
-            };
-            let (Ok(x), Ok(y)) = (x.trim().parse::<f32>(), y.trim().parse::<f32>()) else {
-                continue;
-            };
-            let position = gpui::point(gpui::px(x), gpui::px(y));
-            cx.update_window(window.into(), |_, window, cx| window.draw(cx).clear(cx))
-                .ok();
-            let events = [
-                gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
-                    position,
-                    pressed_button: None,
-                    modifiers: Default::default(),
-                }),
-                gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
-                    button,
-                    position,
-                    modifiers,
-                    click_count: 1,
-                    first_mouse: false,
-                }),
-                gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
-                    button,
-                    position,
-                    modifiers,
-                    click_count: 1,
-                }),
-            ];
-            for event in events {
-                cx.update_window(window.into(), |_, window, cx| {
-                    window.dispatch_event(event, cx);
-                    // A hidden window draws only by hand: what the event did is known after a frame.
-                    window.draw(cx).clear(cx);
-                })
-                .ok();
-                wait(100).await;
-            }
-            wait(500).await;
+            snapshot_click(window.into(), at, cx).await;
         }
         // Keys after the clicks (`ARTOO_SNAPSHOT_THEN`, as `ARTOO_SNAPSHOT_KEYS`): what a click opened, moved in (a
         // theme's list dropped from its row, #204).
         if let Ok(keys) = std::env::var("ARTOO_SNAPSHOT_THEN") {
-            for key in keys.split_whitespace() {
-                if key == "wait" {
-                    wait(1000).await;
-                    continue;
+            snapshot_keys(window.into(), &keys, cx).await;
+        }
+        // Clicks and keys in any order (`ARTOO_SNAPSHOT_STEPS`, F61): steps apart by `;`, each a click as
+        // `ARTOO_SNAPSHOT_CLICK` takes one, `wait`, or keys as `ARTOO_SNAPSHOT_KEYS` — `620,410; f i x; cmd-enter`
+        // clicks a field, types in it and sends it, what keys before clicks could not.
+        if let Ok(steps) = std::env::var("ARTOO_SNAPSHOT_STEPS") {
+            for step in steps.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+                if click_at(step).is_some() {
+                    snapshot_click(window.into(), step, cx).await;
+                } else {
+                    snapshot_keys(window.into(), step, cx).await;
                 }
-                if let Ok(keystroke) = gpui::Keystroke::parse(key) {
-                    cx.update_window(window.into(), |_, window, cx| {
-                        window.dispatch_keystroke(keystroke, cx);
-                        window.draw(cx).clear(cx);
-                    })
-                    .ok();
-                }
-                wait(400).await;
             }
         }
         // `x,y`, or `cmd:x,y` with ⌘ held (a name underlined in Code, #207).
