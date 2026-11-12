@@ -13,16 +13,20 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   shows the window root's rows live under their sections and another owner's as a row leading to its section, and ⌘K's
   Settings scope lists them all (`palette_lists.rs`). A row is the kit's `setting_row`: 44 px, a dot and Reset on hover
   when off its default; Done sits at the left column's foot. A title-bar item (`TitleItem::id`) hides from its right click
-  (`Settings::hidden_bar`, #205); the fetch status's right click retries or stops fetching. Tabs are as wide as the
-  repository's `.editorconfig` says (`artoo_core::rows::follow_tab_width`).
+  (`Settings::hidden_bar`, #205); the fetch status's right click retries or stops fetching. Tabs are as wide
+  as the project's `.editorconfig` says, each review its own (`Review::tab`, `artoo_core::rows::tab_width_of`).
 - **Reading a file in Code** (#206, `crates/review/src/file_view.rs`): ⌘F finds in its lines (`Review::file_matches`,
   the diff's find bar and field), a minimap at its right (`render_minimap`: the file small, hits, lines changed since
   HEAD — `changed_since_head` —, a slider on hover, click and drag scroll). ⌥⌘F searches every file git knows in the
-  working tree (`find_files.rs`, `repository_files`), opening a hit in the diff or in Code.
+  working tree (`find_files.rs`), opening a hit in the diff or in Code. It reads nothing until a query
+  (`repo_search.rs`): the paths from git's index, then 120 ms after the last key a background scan in chunks, hits
+  streamed; a query that adds to the last plain one scans only the files that held it and those changed since; a
+  byte cache (64 MB, least recently used) keeps the files read.
 - **Going to a name in Code, no language server** (#207, `crates/review/src/names.rs`): ⌘-click or F12 (the caret is
   the tab's `note_sel` in the file's lines, `file_view::selects_as`) opens a peek row under the line (`Row::Peek`,
-  `peek_card`) from `artoo_core::symbols::Names`, the repository's declarations by keyword, read once in the
-  background at the first ask (`Review::names`). ⌃G is `Line` in the file's head (`file_line`, one of the tab's
+  `peek_card`) from `artoo_core::symbols::Names`, the repository's declarations by keyword, read in the
+  background at the first ask (`Review::names`) and at each peek again for the files whose time or size changed
+  (`names::up_to_date`). ⌃G is `Line` in the file's head (`file_line`, one of the tab's
   inputs); the scope line over the lines comes from `symbols::scopes`, computed as the file is read.
 - **The revision Code reads, and the main line's page** (#208): the tree's chip (`render_revision_chip` in
   `crates/code/src/space.rs`) opens a menu of the working tree, HEAD, branches, remotes and tags; `Commit id…` is a ⌘K

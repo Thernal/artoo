@@ -38,20 +38,22 @@ for someone using the app, not for someone reading the code; the commits follow 
   caret on it and press F12: a card opens under the line, `By name · 3`, the declaration in this file first and then
   the others, `LoginState.kt:3` with its line and folder; ↑ ↓ ↵ open one, ⇧F12 searches the word in the repository. A
   name declared once elsewhere opens straight away. There is no language server: the repository's declarations are
-  read by their keyword (`fun`, `class`, `struct` …), once, the first time you ask — Java's methods, which no keyword
-  declares, are not found. ⌃G (or a click on the file's `N lines`) puts `Line` in the file's head; ↵ goes there. Over
-  the code, a line names the declarations you are inside — `class LoginViewModel › fun submit` —, and a click goes to
-  one.
+  read by their keyword (`fun`, `class`, `struct` …) the first time you ask, and a file you or an agent changed since
+  is read again at the next ask — Java's methods, which no keyword declares, are not found. ⌃G (or a click on the
+  file's `N lines`) puts `Line` in the file's head; ↵ goes there. Over the code, a line names the declarations you are
+  inside — `class LoginViewModel › fun submit` —, and a click goes to one.
 - **Code finds in the file you read, and the repository has a search.** ⌘F on a file in Code opens a find bar under
   its head — `amount`, `.*`, `1 of 2`, ↑ ↓ × — with the hits tinted in the lines and the current one filled. A minimap
   at the code's right draws the file small, marks the find's hits and the lines that differ from HEAD (they have a bar
   beside their numbers too), and shows what is on screen as you point at it; a click or a drag scrolls there. ⌥⌘F is
   `Search in payments-service`: every file of the repository, `capture · 37 in 4 files`, grouped by file; a hit opens
-  in the diff when it changes that file, else in Code at its line.
+  in the diff when it changes that file, else in Code at its line. It reads nothing as it opens and searches while you
+  type, in the background, hits coming in as they are found (`Searching… 240 of 587 files`); typing on narrows the
+  last search, so a large repository stays quick.
 - **A setting changes where it annoys you.** Right-click a button in the title bar — a plugin's too — and `Hide` it;
   Settings → Appearance lists what is hidden with `Show all`. Right-click the fetch status for `Retry` and `Stop
-  fetching this repository`. Settings asks less: generated files always start folded and tabs are as wide as the
-  repository's `.editorconfig` says, with no option for either; the projects inside the menu of spaces went (Rail and
+  fetching this repository`. Settings asks less: generated files always start folded and tabs are as wide as
+  each project's `.editorconfig` says, with no option for either; the projects inside the menu of spaces went (Rail and
   Tabs stay, and a Menu kept opens as Tabs); About gains `Open settings folder`. A `Colour-blind` theme ships: One
   Dark with blue for added lines and orange for removed ones.
 - **Themes are one row each.** Settings → Appearance says `Theme  ● One Dark ▾` and `Code theme  ● Same as Theme ▾`
@@ -124,14 +126,15 @@ for someone using the app, not for someone reading the code; the commits follow 
 - **A new request can ask anyone in the project to review.** Type under Reviewers to find a member by name or
   username; ↵ adds them. With nothing to merge, Create reads `Create · Nothing to merge` and cannot be pressed. ⌘K's
   Create merge request… opens the same form; the one-question-at-a-time card is gone.
-- **The merge requests list says whose turn each one is.** Groups are `Waiting on you`, `Waiting on others`, `Yours`
-  and `Done`, from what happened on the request: a comment hands it to the author, a push or a reply brings it back,
-  approving ends it. Each row ends with the turn — `Waiting on you · 1 reply`, `Waiting on Juniper · 1 thread`, `You
-  approved` — and its second line reads `!398 · Juniper Hale · ✗ lint · 1 of 2 · +120 −34 · 2 open · ⚠ conflicts`, a
-  target other than the main line last; a narrow list drops the least needed parts whole. `New` marks a request you
-  never opened, `Draft` a draft, which sorts last. The preview shows Size, Pipeline, Approvals, Reviewers, In the way,
-  Discussions and Your review as labelled rows. `Display ▾` groups by author or not at all, and sorts by oldest or
-  by size.
+- **The merge requests list says whose turn each one is.** Groups are `Waiting on you`, `Waiting on others`, `Yours` and
+  `Done`, from what happened on the request: a comment hands it to the author, a push or a reply brings it back,
+  approving ends it until the next push. Each row ends with the turn — `Waiting on you · 1 reply`, `Waiting on Juniper ·
+  1 thread`, `You approved` — and its second line reads `!398 · Juniper Hale · ✗ lint · 1 of 2 · +120 −34 · 2 open · ⚠
+  conflicts`, a target other than the main line last; a narrow list drops the least needed parts whole. `New` marks a
+  request you never opened, `Draft` a draft, which sorts last. The preview shows Size, Pipeline, Approvals, Reviewers,
+  In the way, Discussions and Your review as labelled rows. `Display ▾` groups by author or not at all, and sorts by the
+  oldest opened (`opened 12 d ago`) or by size. A request's facts are read a few at a time, the one you pick first, and
+  kept for the next start.
 - **A request's Changes is one bar, one toolbar row, then the files.** The title sits in the page bar after `!398`, with
   the failed job (`✗ lint`) beside Submit review; the row over the diff and the file row are gone. The current file's
   header holds `1 change ↑ ↓`, Open in Zed and Mark reviewed, and stays at the top while you scroll through it.
