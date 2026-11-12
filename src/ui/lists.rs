@@ -128,6 +128,24 @@ impl Workspace {
             self.keys_exact = false;
             self.keys_sel = None;
         }
+        // Settings' search (#203): ↑ ↓ walk the sections while it is empty, ⇥ leaves it for the rows; typed, the row a
+        // door lit and the keyboard's let go.
+        if field == Field::Settings {
+            let key = event.keystroke.key.as_str();
+            let plain = !event.keystroke.modifiers.modified();
+            if plain && matches!(key, "up" | "down") && self.settings_query.trim().is_empty() {
+                self.settings_step_section(key == "down", cx);
+                return true;
+            }
+            if key == "tab" && !event.keystroke.modifiers.control && !event.keystroke.modifiers.alt
+            {
+                self.leave_input(cx);
+                self.settings_step_row(!event.keystroke.modifiers.shift, cx);
+                return true;
+            }
+            self.settings_lit = None;
+            self.settings_focus = None;
+        }
         let text = match field {
             Field::Branches => &mut self.bfilter,
             Field::Keys => &mut self.keys_filter,

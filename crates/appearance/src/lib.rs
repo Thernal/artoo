@@ -7,7 +7,8 @@ mod appearance;
 mod cards;
 mod themes;
 
-use appearance::{Appearance, Drawn, INPUT};
+use appearance::{Appearance, INPUT};
+use artoo_shell_api::settings::row_view;
 use artoo_shell_api::settings::{Rows, Section};
 use artoo_shell_api::{Action, Frame, Heading, Input, Parts, Typed, when};
 use gpui::{App, AppContext, Entity, Window};
@@ -60,9 +61,13 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     // Drawn inside the tab: a change draws the tab again.
     let redraw = frame.clone();
     cx.observe(&app, move |_, cx| redraw.redraw(cx)).detach();
-    let themes = Drawn::new(&app, Appearance::render_themes, cx);
-    let yours = Drawn::new(&app, Appearance::render_yours, cx);
-    let short = Drawn::new(&app, Appearance::render_short, cx);
+    let themes = row_view(app.clone(), Appearance::render_themes, cx);
+    let yours = row_view(app.clone(), Appearance::render_yours, cx);
+    let short = row_view(app.clone(), Appearance::render_short, cx);
+    // Each setting alone, as Settings' search shows it (#203).
+    let theme_hit = row_view(app.clone(), Appearance::render_theme_row, cx);
+    let code_hit = row_view(app.clone(), Appearance::render_code_row, cx);
+    let yours_hit = row_view(app.clone(), Appearance::render_yours, cx);
     let (fills, escape, closed, save) = (
         app.downgrade(),
         app.downgrade(),
@@ -73,6 +78,8 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     Parts {
         settings: vec![
             Rows::new(SECTION, 10, themes)
+                .hit("Theme", theme_hit)
+                .hit("Code theme", code_hit)
                 .short(short)
                 .fills(move |cx| fills.upgrade().is_some_and(|a| a.read(cx).editing()))
                 .escape(move |cx| escape.update(cx, |a, cx| a.escape(cx)).unwrap_or(false))
@@ -85,7 +92,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
                         })
                         .ok();
                 }),
-            Rows::new(SECTION, 80, yours),
+            Rows::new(SECTION, 80, yours).hit("Your themes", yours_hit),
         ],
         actions: vec![
             (

@@ -10,9 +10,13 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
 - **Settings** (#203, `src/ui/settings.rs`, the frame `crates/shell/src/settings.rs`): sections by what they hold —
   Review · Appearance · Keyboard · Notifications · Projects · Accounts · Agents · Plugins · About. Every setting is
   offered by its words (`artoo_shell_api::add_setting`, `settings::Named`): `Search settings` (⌘F, `Field::Settings`)
-  shows the window root's rows live under their sections and another owner's as a row leading to its section, and ⌘K's
-  Settings scope lists them all (`palette_lists.rs`). A row is the kit's `setting_row`: 44 px, a dot and Reset on hover
-  when off its default; Done sits at the left column's foot. A title-bar item (`TitleItem::id`) hides from its right click
+  shows every setting's own row live under its section — another owner's through `settings::Rows::hit` (`row_view`
+  draws one row of its entity) —, a list a section holds (Keys of every action, Notices by their source) as a row
+  leading to it, and ⌘K's Settings scope lists them all (`palette_lists.rs`). A row is the kit's `setting_row`, or any
+  row in `setting_frame`: 44 px, a dot and Reset on hover when off its default, the search's words marked
+  (`found_marked`, the word that found it under it, `found_by`), lit when a door led to it and ringed under the
+  keyboard (`SettingsLook`, set as Settings draws). ↑ ↓ step the section, ⇥ the row (`Workspace::settings_key`), space
+  and ← → act on it (`setting_keys`, each row's act registered as it draws). Done sits at the left column's foot. A title-bar item (`TitleItem::id`) hides from its right click
   (`Settings::hidden_bar`, #205); the fetch status's right click retries or stops fetching. Tabs are as wide
   as the project's `.editorconfig` says, each review its own (`Review::tab`, `artoo_core::rows::tab_width_of`).
 - **Reading a file in Code** (#206, `crates/review/src/file_view.rs`): ⌘F finds in its lines (`Review::file_matches`,

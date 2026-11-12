@@ -6,8 +6,9 @@ use super::px;
 use super::{ISLAND_RADIUS, Workspace, theme};
 use crate::editor::Editor;
 use crate::storage::{DiffMode, MarkStyle};
-use artoo_ui_kit::controls::{chip, group};
+use artoo_ui_kit::controls::{SettingAct, SettingKey, SettingsLook, chip, group};
 use gpui::{App, ClickEvent, Context, WeakEntity, Window, div, prelude::*};
+use std::collections::HashMap;
 use std::rc::Rc;
 
 /// The button of the toast saying a host connected: Settings → Merge requests, where the way in
@@ -25,6 +26,8 @@ impl Workspace {
         // Set up's "every key in Settings → Keyboard": Settings takes its place.
         self.close_setup(cx);
         self.settings_open = true;
+        self.settings_lit = None;
+        self.settings_focus = None;
         cx.notify();
     }
 
@@ -37,6 +40,8 @@ impl Workspace {
     /// Section `section` of Settings on: its rows' owners read what they show anew (`Rows::opened`).
     pub(super) fn open_settings_section(&mut self, section: &'static str, cx: &mut Context<Self>) {
         self.settings_section = section;
+        self.settings_lit = None;
+        self.settings_focus = None;
         if section == super::notice_settings::NOTIFICATIONS {
             self.read_notices_allowed(cx);
         }
@@ -75,6 +80,87 @@ impl Workspace {
         change(self);
         self.save_settings(cx);
         super::share_settings(&self.settings);
+        cx.notify();
+    }
+
+    /// Settings walked by keys (#203, Design C1): ↑ ↓ the sections, ⇥ ⇧⇥ the rows, space or ↵ on the keyboard's row
+    /// flips it and ← → step its choice. Heard before the keymap while Settings is open and nothing types; what the
+    /// row does with the key comes back, to be done outside the tab (it acts on the tab).
+    pub(super) fn settings_key(
+        &mut self,
+        key: &gpui::Keystroke,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<(SettingAct, SettingKey)> {
+        if !self.settings_open
+            || self.recording.is_some()
+            || self.typing(cx).is_some()
+            || self.setup_open(cx)
+            || self.ctx_menu.read(cx).is_open()
+            || !self.focus.contains_focused(window, cx)
+        {
+            return None;
+        }
+        let m = &key.modifiers;
+        if m.control || m.alt || m.platform || m.function {
+            return None;
+        }
+        let row_act = |key| {
+            (self.settings_focus.as_deref())
+                .and_then(artoo_ui_kit::controls::setting_act)
+                .map(|act| (act, key))
+        };
+        match (key.key.as_str(), m.shift) {
+            ("up" | "down", false) if self.settings_query.trim().is_empty() => {
+                self.settings_step_section(key.key == "down", cx);
+                cx.stop_propagation();
+                None
+            }
+            ("tab", back) => {
+                self.settings_step_row(!back, cx);
+                cx.stop_propagation();
+                None
+            }
+            ("space" | "enter", false) => row_act(SettingKey::Space),
+            ("left", false) => row_act(SettingKey::Left),
+            ("right", false) => row_act(SettingKey::Right),
+            _ => None,
+        }
+    }
+
+    /// The section above or below the one on (#203).
+    pub(super) fn settings_step_section(&mut self, down: bool, cx: &mut Context<Self>) {
+        let sections = artoo_shell_api::settings_sections(cx);
+        let Some(at) = sections.iter().position(|s| s.id == self.settings_section) else {
+            return;
+        };
+        let next = if down {
+            (at + 1).min(sections.len() - 1)
+        } else {
+            at.saturating_sub(1)
+        };
+        if next != at {
+            self.open_settings_section(sections[next].id, cx);
+            cx.notify();
+        }
+    }
+
+    /// The keyboard on the next row of Settings drawn (`forward`), or the one before; round from the last (#203).
+    pub(super) fn settings_step_row(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let drawn = artoo_ui_kit::controls::settings_drawn();
+        if drawn.is_empty() {
+            return;
+        }
+        let n = drawn.len();
+        let at = (self.settings_focus.as_ref()).and_then(|f| drawn.iter().position(|d| d == f));
+        let next = match (at, forward) {
+            (Some(i), true) => (i + 1) % n,
+            (Some(i), false) => (i + n - 1) % n,
+            (None, true) => 0,
+            (None, false) => n - 1,
+        };
+        self.settings_focus = Some(drawn[next].clone());
+        self.settings_lit = None;
         cx.notify();
     }
 
@@ -224,6 +310,170 @@ impl Workspace {
             .map_or("This repository".into(), |n| {
                 n.to_string_lossy().into_owned().into()
             });
+        // What each row does with keys on the keyboard's row (#203): a switch flips on space, a choice steps on ← →.
+        row_keys(
+            cx,
+            CHANGED_WORDS,
+            None,
+            Some(|this, right, _, cx| {
+                let style = stepped(&MarkStyle::ALL, this.settings.mark_style, right);
+                this.change_settings(|this| this.settings.mark_style = style, cx);
+            }),
+        );
+        row_keys(
+            cx,
+            DEFAULT_MODE,
+            None,
+            Some(|this, right, _, cx| {
+                let mode = stepped(&DiffMode::ALL, this.settings.default_mode, right);
+                this.change_settings(|this| this.settings.default_mode = mode, cx);
+                this.set_mode(mode, cx);
+            }),
+        );
+        row_keys(
+            cx,
+            MARK_REVIEWED,
+            Some(|this, _, cx| {
+                this.change_settings(
+                    |this| this.settings.auto_reviewed = !this.settings.auto_reviewed,
+                    cx,
+                )
+            }),
+            None,
+        );
+        row_keys(
+            cx,
+            CODE_FONT,
+            None,
+            Some(|this, right, _, cx| {
+                let points = super::fonts::code_points(this.settings.zoom);
+                let points = if right {
+                    points + 1
+                } else {
+                    points.saturating_sub(1)
+                };
+                this.set_zoom(super::fonts::zoom_for(points), cx);
+            }),
+        );
+        row_keys(
+            cx,
+            INTERFACE_SIZE,
+            None,
+            Some(|this, right, window, cx| this.ui_zoom_by(if right { 1 } else { -1 }, window, cx)),
+        );
+        row_keys(
+            cx,
+            PANES,
+            None,
+            Some(|this, right, _, cx| this.change_settings(|this| this.settings.flat = right, cx)),
+        );
+        row_keys(
+            cx,
+            ANIMATIONS,
+            Some(|this, _, cx| this.set_animations(!this.settings.animations, cx)),
+            None,
+        );
+        row_keys(
+            cx,
+            HIDDEN_BAR,
+            Some(|this, _, cx| this.change_settings(|this| this.settings.hidden_bar.clear(), cx)),
+            None,
+        );
+        row_keys(
+            cx,
+            OPEN_FILES,
+            None,
+            Some(|this, right, _, cx| {
+                let installed: Vec<Editor> = (artoo_shell_api::editors(cx).iter())
+                    .copied()
+                    .filter(|e| e.installed())
+                    .collect();
+                let Some(now) = this.editor(cx) else {
+                    return;
+                };
+                let next = stepped(&installed, now, right);
+                this.change_settings(|this| this.settings.editor = Some(next.key.to_owned()), cx);
+            }),
+        );
+        row_keys(
+            cx,
+            OPEN_REPO,
+            None,
+            Some(|this, right, _, cx| {
+                let o = stepped(&crate::storage::OpenIn::ALL, this.settings.open_in, right);
+                this.change_settings(|this| this.settings.open_in = o, cx);
+            }),
+        );
+        row_keys(
+            cx,
+            SHOW_PROJECTS,
+            None,
+            Some(|this, right, _, cx| {
+                let p = stepped(&crate::storage::Projects::ALL, super::projects(), right);
+                this.change_settings(|this| this.settings.projects = p, cx);
+            }),
+        );
+        row_keys(
+            cx,
+            REFRESH,
+            Some(|this, _, cx| {
+                this.change_settings(
+                    |this| this.settings.auto_refresh = !this.settings.auto_refresh,
+                    cx,
+                )
+            }),
+            None,
+        );
+        row_keys(
+            cx,
+            FETCH,
+            Some(|this, _, cx| {
+                let on = !this.fetch.enabled;
+                this.set_fetch_enabled(on, cx)
+            }),
+            None,
+        );
+        row_keys(
+            cx,
+            SETTINGS_FILES,
+            Some(|_, _, cx| {
+                if let Some(dir) = artoo_core::platform::data_dir() {
+                    cx.reveal_path(&dir);
+                }
+            }),
+            None,
+        );
+        row_keys(
+            cx,
+            SYSTEM_NOTES,
+            Some(|this, _, cx| {
+                this.set_system_notifications(!this.settings.system_notifications, cx)
+            }),
+            None,
+        );
+        row_keys(cx, DOCK, Some(|this, _, cx| this.flip_dock_count(cx)), None);
+        row_keys(
+            cx,
+            HELPERS,
+            Some(|this, _, cx| {
+                this.change_settings(
+                    |this| this.settings.key_helpers = !this.settings.key_helpers,
+                    cx,
+                )
+            }),
+            None,
+        );
+        row_keys(
+            cx,
+            UPDATES,
+            Some(|this, _, cx| {
+                this.change_settings(
+                    |this| this.settings.check_updates = !this.settings.check_updates,
+                    cx,
+                )
+            }),
+            None,
+        );
         vec![
             Own::row(
                 CHANGED_WORDS,
@@ -286,6 +536,7 @@ impl Workspace {
         ]
         .into_iter()
         .chain(hidden_row.map(|row| Own::row(HIDDEN_BAR, 75, row, None)))
+        .chain(self.dock_row(cx).map(|row| Own::named(DOCK, 20, row)))
         .chain(vec![
             Own::row(
                 OPEN_FILES,
@@ -336,6 +587,9 @@ impl Workspace {
                     .then(|| reset(cx, |this, _, cx| this.set_fetch_enabled(true, cx))),
             ),
             Own::row(SETTINGS_FILES, 20, folder, None),
+            // The rows of the sections drawn by hand, as search shows them (#203).
+            Own::named(SYSTEM_NOTES, 10, self.notice_system_row(cx)),
+            Own::named(HELPERS, 10, self.key_helpers_row(cx).into_any_element()),
             Own::row(
                 UPDATES,
                 5,
@@ -364,7 +618,9 @@ impl Workspace {
     ) -> (gpui::AnyElement, Vec<(&'static str, usize)>) {
         let sections = artoo_shell_api::settings_sections(cx);
         let title = |id: &str| sections.iter().find(|s| s.id == id).map_or("", |s| s.title);
-        let own = self.own_rows(cx);
+        let mut own = self.own_rows(cx);
+        // Found in the order their section draws them.
+        own.sort_by_key(|o| o.order);
         let mut hits: Vec<(&'static str, gpui::AnyElement)> = Vec::new();
         let own_named: Vec<Named> = own.iter().filter_map(|o| o.named).collect();
         for o in own {
@@ -372,11 +628,20 @@ impl Workspace {
                 hits.push((o.section, o.view));
             }
         }
+        // A feature's setting found is its own row, live, when it offers one (#203).
+        let hit_rows: Vec<(&'static str, gpui::AnyView)> = (sections.iter())
+            .flat_map(|s| self.settings_rows(s.id))
+            .flat_map(|r| r.hits)
+            .collect();
         for n in artoo_shell_api::settings_named(cx) {
             if own_named.contains(&n) || !n.found(query, title(n.section)) {
                 continue;
             }
-            let section = n.section;
+            if let Some((_, view)) = hit_rows.iter().find(|(label, _)| *label == n.label) {
+                hits.push((n.section, view.clone().into_any_element()));
+                continue;
+            }
+            let (section, label) = (n.section, n.label);
             let line = if n.detail.is_empty() {
                 format!("In {}", title(section))
             } else {
@@ -391,6 +656,7 @@ impl Workspace {
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.settings_query.clear();
                 this.open_settings_section(section, cx);
+                this.settings_lit = Some(label.into());
                 cx.notify();
             }));
             hits.push((
@@ -460,6 +726,21 @@ impl Workspace {
     pub(super) fn render_settings(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let section = self.settings_section;
         let query = self.settings_query.trim().to_owned();
+        // Every row of Settings is drawn with what was typed marked, the row a door led to lit and the keyboard's
+        // ringed (#203).
+        let sections = artoo_shell_api::settings_sections(cx);
+        let title = |id: &str| sections.iter().find(|s| s.id == id).map_or("", |s| s.title);
+        let words: HashMap<gpui::SharedString, (&'static str, &'static str)> =
+            (artoo_shell_api::settings_named(cx))
+                .into_iter()
+                .map(|n| (n.label.into(), (n.words, title(n.section))))
+                .collect();
+        artoo_ui_kit::controls::settings_look(SettingsLook {
+            query: query.split_whitespace().map(str::to_owned).collect(),
+            words: Rc::new(words),
+            lit: self.settings_lit.clone(),
+            focus: self.settings_focus.clone(),
+        });
         let search = div()
             .flex()
             .items_center()
@@ -471,7 +752,12 @@ impl Workspace {
                     "Search settings",
                     cx,
                 )
-                .flex_1(),
+                .flex_1()
+                // Where it is from anywhere in Settings (#203).
+                .child(artoo_ui_kit::keys::caps(
+                    "⌘F",
+                    artoo_ui_kit::keys::On::Plain,
+                )),
             )
             .into_any_element();
         if !query.is_empty() {
@@ -588,6 +874,37 @@ impl Own {
     }
 }
 
+/// What `named`'s row does with keys on the keyboard's row (#203): `space` on space or ↵, `step` on ← → (true: →).
+type Space = fn(&mut Workspace, &mut Window, &mut Context<Workspace>);
+type Step = fn(&mut Workspace, bool, &mut Window, &mut Context<Workspace>);
+
+fn row_keys(cx: &Context<Workspace>, named: Named, space: Option<Space>, step: Option<Step>) {
+    let tab = cx.weak_entity();
+    artoo_ui_kit::controls::setting_keys(
+        named.label,
+        Rc::new(move |key, window, cx| {
+            tab.update(cx, |this, cx| match key {
+                SettingKey::Space => space.map(|f| f(this, window, cx)).is_some(),
+                SettingKey::Left | SettingKey::Right => (step)
+                    .map(|f| f(this, key == SettingKey::Right, window, cx))
+                    .is_some(),
+            })
+            .unwrap_or(false)
+        }),
+    );
+}
+
+/// The choice next to `now` among `all`, toward its end when `forward`; the ends stay.
+fn stepped<T: Copy + PartialEq>(all: &[T], now: T, forward: bool) -> T {
+    let at = all.iter().position(|t| *t == now).unwrap_or(0);
+    let next = if forward {
+        (at + 1).min(all.len().saturating_sub(1))
+    } else {
+        at.saturating_sub(1)
+    };
+    all.get(next).copied().unwrap_or(now)
+}
+
 /// A row's Reset, done by the tab.
 fn reset(
     cx: &mut Context<Workspace>,
@@ -689,24 +1006,29 @@ const UPDATES: Named = Named::new(ABOUT, "Check for updates")
     .detail("At start and every 6 hours.")
     .words("general version");
 
-/// What the sections the window root draws by hand hold, found by their words and opened (#203).
+/// The rows of the sections the window root draws by hand (#203): found live, as its other rows are.
+const SYSTEM_NOTES: Named = Named::new(
+    super::notice_settings::NOTIFICATIONS,
+    super::notice_settings::SYSTEM_NOTIFICATIONS,
+)
+.words("general toast alert mac background");
+const DOCK: Named = Named::new(
+    super::notice_settings::NOTIFICATIONS,
+    super::notice_settings::DOCK_COUNT,
+)
+.words("badge");
+const HELPERS: Named = Named::new(KEYBOARD, "Keyboard helpers").words("keys caps hints shortcuts");
+
+/// What those sections hold that is a list, not a row: found by their words and opened (#203).
 const DRAWN: [Named; 5] = [
-    Named::new(
-        super::notice_settings::NOTIFICATIONS,
-        "System notifications",
-    )
-    .words("general toast alert mac background"),
-    Named::new(
-        super::notice_settings::NOTIFICATIONS,
-        "Count on the Dock icon",
-    )
-    .words("badge"),
+    SYSTEM_NOTES,
+    DOCK,
     Named::new(
         super::notice_settings::NOTIFICATIONS,
         "Notices by their source",
     )
     .words("inbox toast system kinds"),
-    Named::new(KEYBOARD, "Keyboard helpers").words("keys caps hints shortcuts"),
+    HELPERS,
     Named::new(KEYBOARD, "Keys of every action").words("shortcuts keymap bindings"),
 ];
 
@@ -1153,7 +1475,8 @@ impl Workspace {
     /// Settings → Keyboard's first row (#193): the keyboard helpers, the keys over what is on screen while ⌘ is held.
     fn key_helpers_row(&self, cx: &mut Context<Self>) -> gpui::Div {
         let on = self.settings.key_helpers;
-        div()
+        // Framed as every row of Settings is (#203).
+        artoo_ui_kit::controls::setting_frame(&HELPERS.label.into(), div())
             .mb(px(12.))
             .px(px(12.))
             .py(px(8.))
@@ -1168,7 +1491,7 @@ impl Workspace {
                     .min_w_0()
                     .flex()
                     .flex_col()
-                    .child("Keyboard helpers")
+                    .child(artoo_ui_kit::controls::found_marked(HELPERS.label))
                     .child(
                         div()
                             .text_size(px(12.))
@@ -1176,6 +1499,16 @@ impl Workspace {
                             .child(keys_said(
                                 "Keys while ⌘ or ⌃⌘ is held · a hint after the mouse",
                             )),
+                    )
+                    .children(
+                        artoo_ui_kit::controls::found_by(HELPERS.label, HELPERS.label).map(
+                            |word| {
+                                div()
+                                    .text_size(px(11.))
+                                    .text_color(theme::faint())
+                                    .child(artoo_ui_kit::controls::found_marked(word))
+                            },
+                        ),
                     ),
             )
             .child(switch("key-helpers", on).on_click(cx.listener(

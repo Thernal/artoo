@@ -4,7 +4,7 @@
 //! (`Rows::order`); the frame draws the page around them.
 
 use crate::{Hook, render};
-use gpui::{AnyElement, AnyView, App, Window, div, prelude::*};
+use gpui::{AnyElement, AnyView, App, Context, Entity, Window, div, prelude::*};
 use std::rc::Rc;
 
 /// A section of Settings (`add_settings_section`): its place in the left column and its title. What it holds its
@@ -84,6 +84,36 @@ pub struct Rows {
     /// Their section was opened (a click in the left column, a toast's button): what they show is read anew (the
     /// hosts' ways in looked for). It runs inside the tab's update: it defers what reads the `Frame`.
     pub opened: Option<Hook>,
+    /// Each of their settings as a row of its own, by its name (`Named::label`): what Settings' search shows, live,
+    /// for a hit (#203). A setting with none leads to its section.
+    pub hits: Vec<(&'static str, AnyView)>,
+}
+
+/// One of `owner`'s rows as a view of its own (`Rows::hit`): `draw` draws it from `owner`, again whenever `owner`
+/// changes.
+pub fn row_view<T: 'static>(
+    owner: Entity<T>,
+    draw: fn(&mut T, &mut Context<T>) -> AnyElement,
+    cx: &mut App,
+) -> AnyView {
+    cx.new(|cx| {
+        cx.observe(&owner, |_, _, cx| cx.notify()).detach();
+        OneRow { owner, draw }
+    })
+    .into()
+}
+
+/// A row of another's, drawn by it (`row_view`).
+struct OneRow<T: 'static> {
+    owner: Entity<T>,
+    draw: fn(&mut T, &mut Context<T>) -> AnyElement,
+}
+
+impl<T: 'static> Render for OneRow<T> {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let draw = self.draw;
+        self.owner.update(cx, draw)
+    }
 }
 
 /// Whether rows fill their section now (`Rows::fills`).
@@ -103,7 +133,14 @@ impl Rows {
             escape: None,
             closed: None,
             opened: None,
+            hits: Vec::new(),
         }
+    }
+
+    /// Setting `label`'s row as a view of its own (`row_view`), for Settings' search (#203).
+    pub fn hit(mut self, label: &'static str, view: impl Into<AnyView>) -> Self {
+        self.hits.push((label, view.into()));
+        self
     }
 
     pub fn short(self, view: impl Into<AnyView>) -> Self {

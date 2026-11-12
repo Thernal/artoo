@@ -81,10 +81,12 @@ fn settings_search(tab: WeakEntity<Workspace>) -> Search {
             (artoo_shell_api::settings_named(cx).into_iter())
                 .filter(|n| n.found(ask.text, title(n.section)))
                 .map(|n| {
-                    let section = n.section;
+                    let (section, label) = (n.section, n.label);
+                    // Its section opens with its row lit (#203).
                     let open = doing(&tab, move |this, cx| {
                         this.open_settings(cx);
                         this.open_settings_section(section, cx);
+                        this.settings_lit = Some(label.into());
                         cx.notify();
                     });
                     Find::new(

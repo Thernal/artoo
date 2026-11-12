@@ -70,6 +70,11 @@ for someone using the app, not for someone reading the code; the commits follow 
   for updates to About. Rows are 44 px in one 640 column, a row off its default has a dot and `Reset` on hover, `Done`
   sits at the foot of the left column, one editor found is said in plain words, and `Format comments as markdown`
   left (its key, ⌥M, stays).
+- **A setting found is its own row, with what found it marked.** Search settings shows every setting live where it can —
+  `dark` the Theme row, `claude` Claude Code's, `notif` System notifications and the Dock's count — with the words you
+  typed marked and, when a row was found by a word it does not show, that word under it (`dark`, `In Notifications`).
+  A setting picked in ⌘K lights its row. Settings walks by keys: ↑ ↓ change the section, ⇥ rings a row, space flips
+  it, ← → step its choice.
 - **A failed fetch reads as a fact.** The title bar says `Can't reach origin · fetched 14:32` beside an amber dot, the
   remote by its own name (the one git could not reach, of several), with `Retry` as its own button, instead of a red
   sentence; its tooltip names the host, the likely cause and the last fetch. Sentences that described a page went — how

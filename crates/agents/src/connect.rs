@@ -5,11 +5,12 @@
 use crate::agents;
 use artoo_agents_api::provider::Provider;
 use artoo_shell_api::settings::Rows;
-use artoo_ui_kit::{ROW_RADIUS, hover, px, theme};
+use artoo_ui_kit::{ROW_RADIUS, controls, hover, px, theme};
 use gpui::{
     App, ClickEvent, ClipboardItem, Context, Entity, FontWeight, Render, SharedString, Window, div,
     prelude::*,
 };
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// An agent being connected from one tab, and what came of it.
@@ -56,16 +57,26 @@ impl Connect {
 
 /// Settings → Agents, as a part's rows.
 pub fn settings(connect: Entity<Connect>, cx: &mut App) -> Rows {
-    let view = cx.new(|cx| {
-        cx.observe(&connect, |_, _, cx| cx.notify()).detach();
-        AgentsSettings { connect }
-    });
-    Rows::new(artoo_agents_api::view::SETTINGS, 10, view)
+    let view = |only: Option<&'static str>, cx: &mut App| {
+        let connect = connect.clone();
+        cx.new(|cx| {
+            cx.observe(&connect, |_, _, cx| cx.notify()).detach();
+            AgentsSettings { connect, only }
+        })
+    };
+    let all = view(None, cx);
+    // Each agent alone, as Settings' search shows it (#203).
+    let (claude, codex) = (view(Some("Claude Code"), cx), view(Some("Codex"), cx));
+    Rows::new(artoo_agents_api::view::SETTINGS, 10, all)
+        .hit("Claude Code", claude)
+        .hit("Codex", codex)
 }
 
 /// Settings → Agents: each agent's Connect, or its command by hand.
 struct AgentsSettings {
     connect: Entity<Connect>,
+    /// The one agent drawn, by its name (Settings' search); every one when none.
+    only: Option<&'static str>,
 }
 
 /// An agent's ids' word: its name's first, small ("claude").
@@ -135,9 +146,11 @@ impl Render for AgentsSettings {
         };
         // One row an agent (#201): what is connected, as facts; Connect all while one is not; the by-hand command
         // with a failure only; an agent connected by hand says its limit on its row.
+        // Framed as every row of Settings is (#203): lit, ringed, walked by ⇥, what was searched marked.
         let row = |id: String, name: String, facts: String, end: Option<gpui::AnyElement>| {
-            div()
-                .id(SharedString::from(id))
+            let named = SharedString::from(name.clone());
+            let why = controls::found_by(&name, &format!("{name} {facts}"));
+            controls::setting_frame(&named, div().id(SharedString::from(id)))
                 .flex()
                 .items_center()
                 .gap_4()
@@ -151,18 +164,31 @@ impl Render for AgentsSettings {
                         .flex()
                         .flex_col()
                         .gap(px(2.))
-                        .child(div().font_weight(FontWeight::SEMIBOLD).child(name))
+                        .child(
+                            div()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(controls::found_marked(name)),
+                        )
                         .child(
                             div()
                                 .text_size(px(12.))
                                 .text_color(theme::muted())
-                                .child(facts),
-                        ),
+                                .child(controls::found_marked(facts)),
+                        )
+                        .children(why.map(|word| {
+                            div()
+                                .text_size(px(11.))
+                                .text_color(theme::faint())
+                                .child(controls::found_marked(word))
+                        })),
                 )
                 .children(end)
         };
         let mut rows = div().flex().flex_col();
         for provider in artoo_agents_api::provider::all(cx) {
+            if self.only.is_some_and(|only| only != provider.name()) {
+                continue;
+            }
             let (name, word) = (provider.name(), word(provider.name()));
             let by_hand = provider.add_command(&server);
             let Some(about) = provider.connects() else {
@@ -231,6 +257,19 @@ impl Render for AgentsSettings {
             };
             let all_in = !profiles.is_empty() && profiles.iter().all(|(_, on)| *on);
             let to_connect = provider.clone();
+            // Space on the keyboard's row connects it (#203).
+            if !all_in && !(word == "claude" && profiles.is_empty()) {
+                let (connect, provider) = (self.connect.clone(), provider.clone());
+                controls::setting_keys(
+                    name,
+                    Rc::new(move |key, _, cx| {
+                        key == controls::SettingKey::Space && {
+                            connect.update(cx, |c, cx| c.connect(provider.clone(), cx));
+                            true
+                        }
+                    }),
+                );
+            }
             let end = if all_in || (word == "claude" && profiles.is_empty()) {
                 None
             } else {

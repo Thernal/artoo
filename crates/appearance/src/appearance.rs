@@ -20,8 +20,8 @@ use artoo_ui_kit::motion::{self, Folds, Marks};
 use artoo_ui_kit::room::Heights;
 use artoo_ui_kit::{ROW_RADIUS, file_icons, format, hover, icons, keys, px, theme};
 use gpui::{
-    AnyElement, ClickEvent, Context, Div, Entity, FontWeight, Keystroke, Pixels, Point, Render,
-    Window, div, prelude::*, rgba,
+    AnyElement, ClickEvent, Context, Div, FontWeight, Keystroke, Pixels, Point, Window, div,
+    prelude::*, rgba,
 };
 use std::rc::Rc;
 
@@ -77,32 +77,6 @@ pub(crate) struct Appearance {
     motion: Marks,
     folds: Folds,
     heights: Heights,
-}
-
-/// One of Appearance's views, drawn from its state: its rows in Settings, Set up's Look.
-pub(crate) struct Drawn {
-    app: Entity<Appearance>,
-    draw: fn(&mut Appearance, &mut Context<Appearance>) -> AnyElement,
-}
-
-impl Drawn {
-    pub(crate) fn new(
-        app: &Entity<Appearance>,
-        draw: fn(&mut Appearance, &mut Context<Appearance>) -> AnyElement,
-        cx: &mut gpui::App,
-    ) -> Entity<Self> {
-        let app = app.clone();
-        cx.new(|cx| {
-            cx.observe(&app, |_, _, cx| cx.notify()).detach();
-            Drawn { app, draw }
-        })
-    }
-}
-
-impl Render for Drawn {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.app.update(cx, self.draw)
-    }
 }
 
 impl Appearance {
@@ -241,16 +215,27 @@ impl Appearance {
         if self.edit.is_some() {
             return self.render_editor(cx);
         }
-        let all = theme::all();
-        let choice = theme::choice();
-        let window = all
-            .iter()
-            .find(|t| t.id == choice.window)
-            .unwrap_or(&all[0]);
-        let code = choice
-            .code
-            .as_deref()
-            .and_then(|id| all.iter().find(|t| t.id == id));
+        let (window, code) = in_force();
+        div()
+            .flex()
+            .flex_col()
+            .child(self.render_theme_row(cx))
+            .child(self.render_code_row(cx))
+            .child(
+                div()
+                    .mt(px(10.))
+                    .rounded(px(8.))
+                    .overflow_hidden()
+                    .border_1()
+                    .border_color(theme::island_border())
+                    .child(sample_diff(&window, code.as_ref().unwrap_or(&window))),
+            )
+            .into_any_element()
+    }
+
+    /// The Theme row: Edit, and the theme in force opening the list (here, and Settings' search, #203).
+    pub(crate) fn render_theme_row(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let (window, _) = in_force();
         let edit = window.id.clone();
         let theme_row = div()
             .flex()
@@ -261,33 +246,26 @@ impl Appearance {
             ))
             .child(self.theme_picker(
                 "theme-pick",
-                window,
+                &window,
                 window.label.clone(),
                 lists::THEMES,
                 cx,
             ));
+        setting("Theme", "", theme_row).into_any_element()
+    }
+
+    /// The Code theme row: the code's theme, or the window's, opening its list (here, and Settings' search, #203).
+    pub(crate) fn render_code_row(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let (window, code) = in_force();
         let code_row = self.theme_picker(
             "code-theme-pick",
-            code.unwrap_or(window),
-            code.map_or(lists::SAME.to_owned(), |t| t.label.clone()),
+            code.as_ref().unwrap_or(&window),
+            code.as_ref()
+                .map_or(lists::SAME.to_owned(), |t| t.label.clone()),
             lists::CODE_THEMES,
             cx,
         );
-        div()
-            .flex()
-            .flex_col()
-            .child(setting("Theme", "", theme_row))
-            .child(setting("Code theme", "", code_row))
-            .child(
-                div()
-                    .mt(px(10.))
-                    .rounded(px(8.))
-                    .overflow_hidden()
-                    .border_1()
-                    .border_color(theme::island_border())
-                    .child(sample_diff(window, code.unwrap_or(window))),
-            )
-            .into_any_element()
+        setting("Code theme", "", code_row).into_any_element()
     }
 
     /// A theme row's button: the theme's swatch and name, ▾; a click opens `list` (#204).
@@ -1509,4 +1487,16 @@ fn fraction(b: gpui::Bounds<gpui::Pixels>, p: gpui::Point<gpui::Pixels>) -> (f32
         f(p.x, b.origin.x, b.size.width),
         f(p.y, b.origin.y, b.size.height),
     )
+}
+
+/// The window's theme in force, and the code's when it has its own.
+fn in_force() -> (Theme, Option<Theme>) {
+    let all = theme::all();
+    let choice = theme::choice();
+    let window = (all.iter())
+        .find(|t| t.id == choice.window)
+        .unwrap_or(&all[0])
+        .clone();
+    let code = (choice.code.as_deref()).and_then(|id| all.iter().find(|t| t.id == id).cloned());
+    (window, code)
 }

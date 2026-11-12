@@ -1638,11 +1638,17 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, cx: &mut App) -> artoo_shell_api::Part
         panel: panel.clone(),
         frame: frame.clone(),
     });
+    // The hosts as Settings' search shows them, live (#203).
+    let hit = cx.new(|_| WaysSettings {
+        panel: panel.clone(),
+        frame: frame.clone(),
+    });
     let (looked, looking) = (Handle(panel.clone()), frame.clone());
     artoo_shell_api::Parts {
         // Settings → Merge requests: the ways in, looked for again each time it opens.
         settings: vec![
             artoo_shell_api::settings::Rows::new(artoo_hosts_api::connect::SETTINGS, 0, rows)
+                .hit("Hosts and their tokens", hit)
                 .opened(move |cx| {
                     let (handle, frame) = (looked.clone(), looking.clone());
                     // Inside the tab's update: where the tab is, read once it is over.

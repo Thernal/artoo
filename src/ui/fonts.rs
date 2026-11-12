@@ -17,7 +17,7 @@ pub(super) fn code_points(zoom: u16) -> u16 {
 }
 
 /// The code size (%) that draws the code at `points`.
-fn zoom_for(points: u16) -> u16 {
+pub(super) fn zoom_for(points: u16) -> u16 {
     (f32::from(points) * 100. / super::CODE_SIZE).round() as u16
 }
 

@@ -77,17 +77,25 @@ fn on_now(plugins: &[Plugin]) -> Vec<String> {
 }
 
 fn parts(_: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
-    let view = cx.new(|cx| {
-        cx.observe_global::<Loaded>(|_, cx| cx.notify()).detach();
-        cx.observe_global::<Market>(|_, cx| cx.notify()).detach();
-        PluginsSettings
-    });
+    let view = |cx: &mut App| {
+        cx.new(|cx| {
+            cx.observe_global::<Loaded>(|_, cx| cx.notify()).detach();
+            cx.observe_global::<Market>(|_, cx| cx.notify()).detach();
+            PluginsSettings
+        })
+    };
+    // The list again, as Settings' search shows it, live (#203).
+    let (view, hit) = (view(cx), view(cx));
     let sample: Snap = Rc::new(|_, cx| {
         cx.set_global(sample());
         cx.set_global(market::sample());
     });
     Parts {
-        settings: vec![Rows::new(SECTION, 10, view).opened(market::opened)],
+        settings: vec![
+            Rows::new(SECTION, 10, view)
+                .hit("Plugins", hit)
+                .opened(market::opened),
+        ],
         snapshots: vec![
             ("plugins-sample", sample),
             (

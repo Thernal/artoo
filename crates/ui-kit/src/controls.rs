@@ -6,7 +6,13 @@
 
 use super::{ROW_RADIUS, hover, icons, keys, motion, px, theme, words};
 use artoo_core::platform;
-use gpui::{AnyElement, Context, Div, FontWeight, Rgba, SharedString, div, prelude::*};
+use gpui::{
+    AnyElement, Context, Div, FontWeight, Rgba, SharedString, div, prelude::FluentBuilder,
+    prelude::*,
+};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 
 /// Finder with it selected, as the rail's project menu words it off macOS.
 pub const REVEAL: &str = if platform::MAC {
@@ -89,7 +95,9 @@ pub fn setting(
 pub type Reset = Box<dyn Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static>;
 
 /// A row of Settings (`setting`) with its words as given; one off its default carries a dot before its name and
-/// `Reset` on hover, `reset` what that does (#203).
+/// `Reset` on hover, `reset` what that does (#203). While Settings searches, what was typed is marked in its words and
+/// a word it answers to beyond them is said under them; a row a door led to is lit, the keyboard's has a ring
+/// (`settings_look`).
 pub fn setting_row(
     id: impl Into<SharedString>,
     title: impl Into<SharedString>,
@@ -100,8 +108,12 @@ pub fn setting_row(
     let id: SharedString = id.into();
     let group: SharedString = format!("setting-{id}").into();
     let (title, detail): (SharedString, SharedString) = (title.into(), detail.into());
-    div()
-        .id(gpui::ElementId::Name(group.clone()))
+    let (shown, line) = (
+        keys::text(&title).into_owned(),
+        keys::text(&detail).into_owned(),
+    );
+    let why = found_by(&title, &format!("{shown} {line}"));
+    setting_frame(&title, div().id(gpui::ElementId::Name(group.clone())))
         .group(group.clone())
         .flex()
         .items_center()
@@ -123,12 +135,18 @@ pub fn setting_row(
                 .min_w_0()
                 .flex()
                 .flex_col()
-                .child(keys::text(&title).into_owned())
-                .children((!detail.is_empty()).then(|| {
+                .child(found_marked(shown))
+                .children((!line.is_empty()).then(|| {
                     div()
                         .text_size(px(12.))
                         .text_color(theme::muted())
-                        .child(keys::text(&detail).into_owned())
+                        .child(found_marked(line))
+                }))
+                .children(why.map(|word| {
+                    div()
+                        .text_size(px(11.))
+                        .text_color(theme::faint())
+                        .child(found_marked(word))
                 })),
         )
         .children(reset.map(|reset| {
@@ -151,6 +169,169 @@ pub fn setting_row(
                 .on_click(reset)
         }))
         .child(div().flex_none().child(control))
+}
+
+/// How Settings' rows are drawn this time (#203), set by the window root as it draws Settings (`settings_look`).
+#[derive(Clone, Default)]
+pub struct SettingsLook {
+    /// The search's words, as typed; none while it is empty.
+    pub query: Vec<String>,
+    /// What each setting answers to beyond its name and line, and its section's title, by its name: a row found by
+    /// one of these says it (`In Notifications` for the section's).
+    pub words: Rc<HashMap<SharedString, (&'static str, &'static str)>>,
+    /// The row a door led to (⌘K's pick), by its name: lit until another section, the search or a click.
+    pub lit: Option<SharedString>,
+    /// The row the keyboard is on (⇥), by its name.
+    pub focus: Option<SharedString>,
+}
+
+/// What a key does on the keyboard's row (`setting_keys`): space flips it, ← → step its choice.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SettingKey {
+    Space,
+    Left,
+    Right,
+}
+
+/// A row's answer to a key (`setting_keys`); true when it did something.
+pub type SettingAct = Rc<dyn Fn(SettingKey, &mut gpui::Window, &mut gpui::App) -> bool>;
+
+thread_local! {
+    static LOOK: RefCell<SettingsLook> = RefCell::new(SettingsLook::default());
+    /// The rows of Settings drawn this time, by name, in the order they are on screen.
+    static DRAWN: RefCell<Vec<SharedString>> = const { RefCell::new(Vec::new()) };
+    /// What each row does with a key, by name, as last built.
+    static ACTS: RefCell<HashMap<SharedString, SettingAct>> = RefCell::new(HashMap::new());
+}
+
+/// Settings is drawn with `look` (the window root, each time it draws Settings); the rows drawn are counted anew.
+pub fn settings_look(look: SettingsLook) {
+    LOOK.with(|l| *l.borrow_mut() = look);
+    DRAWN.with(|d| d.borrow_mut().clear());
+}
+
+/// Settings is not drawn: a setting's row elsewhere (Set up's) marks nothing and is lit by nothing. The rows ⇥ walks
+/// stay those Settings drew last.
+pub fn settings_look_off() {
+    LOOK.with(|l| *l.borrow_mut() = SettingsLook::default());
+}
+
+/// The rows of Settings drawn last, by name, in the order they are on screen: what ⇥ walks.
+pub fn settings_drawn() -> Vec<SharedString> {
+    DRAWN.with(|d| d.borrow().clone())
+}
+
+/// What row `name` does with keys on the keyboard's row; set as it is built.
+pub fn setting_keys(name: impl Into<SharedString>, act: SettingAct) {
+    ACTS.with(|a| a.borrow_mut().insert(name.into(), act));
+}
+
+/// Row `name`'s answer to `key`, if it has one.
+pub fn setting_act(name: &str) -> Option<SettingAct> {
+    ACTS.with(|a| a.borrow().get(name).cloned())
+}
+
+/// A row of Settings drawn its own way (an agent's, a host's) framed as `setting_row` frames its own: lit when a door
+/// led to it, ringed when the keyboard is on it, and counted among the rows ⇥ walks.
+pub fn setting_frame<E: Styled + ParentElement + FluentBuilder>(name: &SharedString, row: E) -> E {
+    let (lit, focus) = LOOK.with(|l| {
+        let l = l.borrow();
+        (l.lit.as_ref() == Some(name), l.focus.as_ref() == Some(name))
+    });
+    let counted = name.clone();
+    // Lit or ringed, the row reaches 8 px past its column on each side, its words where they were; the bar and the
+    // ring are drawn over it, so the row's own borders stay.
+    row.relative()
+        .when(lit || focus, |r| r.mx(px(-8.)).px(px(8.)))
+        .when(lit, |r| {
+            r.bg(theme::info_bg()).child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .top_0()
+                    .bottom_0()
+                    .w(px(2.))
+                    .bg(theme::accent()),
+            )
+        })
+        .when(focus, |r| {
+            r.child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .rounded(px(ROW_RADIUS))
+                    .border_2()
+                    .border_color(theme::focus()),
+            )
+        })
+        .child(
+            gpui::canvas(
+                move |_, _, _| {
+                    DRAWN.with(|d| {
+                        let mut d = d.borrow_mut();
+                        if !d.contains(&counted) {
+                            d.push(counted);
+                        }
+                    })
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_0(),
+        )
+}
+
+/// `text` with the search's words marked (#203), as the lists' filters mark theirs.
+pub fn found_marked(text: impl Into<SharedString>) -> gpui::StyledText {
+    let text: SharedString = text.into();
+    let query = LOOK.with(|l| l.borrow().query.clone());
+    let low = text.to_ascii_lowercase();
+    let mut spans: Vec<std::ops::Range<usize>> = (query.iter())
+        .filter(|w| !w.is_empty())
+        .flat_map(|w| {
+            let w = w.to_ascii_lowercase();
+            (low.match_indices(w.as_str()))
+                .map(|(at, m)| at..at + m.len())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    spans.sort_by_key(|r| r.start);
+    let mut merged: Vec<std::ops::Range<usize>> = Vec::new();
+    for r in spans {
+        match merged.last_mut() {
+            Some(last) if r.start <= last.end => last.end = last.end.max(r.end),
+            _ => merged.push(r),
+        }
+    }
+    let mark = gpui::HighlightStyle {
+        color: Some(theme::text().into()),
+        background_color: Some(theme::warning_bg().into()),
+        ..Default::default()
+    };
+    gpui::StyledText::new(text).with_highlights(merged.into_iter().map(|r| (r, mark)))
+}
+
+/// The word setting `name` was found by when what was typed is not in `seen` (its name and line): the first of its
+/// words holding it (`dark` finds Theme by `dark`).
+pub fn found_by(name: &str, seen: &str) -> Option<String> {
+    LOOK.with(|l| {
+        let l = l.borrow();
+        let seen = seen.to_lowercase();
+        let missing: Vec<String> = (l.query.iter())
+            .map(|w| w.to_lowercase())
+            .filter(|w| !w.is_empty() && !seen.contains(w.as_str()))
+            .collect();
+        let (words, section) = l.words.get(name)?;
+        let answers = |text: &str| {
+            missing
+                .iter()
+                .any(|w| text.to_lowercase().contains(w.as_str()))
+        };
+        (words.split_whitespace())
+            .find(|word| answers(word))
+            .map(str::to_owned)
+            .or_else(|| answers(section).then(|| format!("In {section}")))
+    })
 }
 
 /// A part's title over its rows, with a line under it if there is one (Settings → Appearance's Window, Fonts and

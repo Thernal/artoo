@@ -1207,6 +1207,11 @@ pub struct Workspace {
     keys_sel: Option<&'static str>,
     /// What Settings' search has typed (#203): its hits stand for the section while it is not empty.
     settings_query: String,
+    /// The row of Settings a door led to (⌘K's pick, a hit's Show), by its name: lit until another section, the
+    /// search or esc (#203).
+    settings_lit: Option<gpui::SharedString>,
+    /// The row of Settings the keyboard is on (⇥), by its name (#203).
+    settings_focus: Option<gpui::SharedString>,
     /// The filter is a key pressed (By keys): rows with exactly that key.
     keys_exact: bool,
     /// Settings → Keyboard lists only the keys the user changed.
@@ -1422,6 +1427,8 @@ impl Workspace {
             keys_filter: String::new(),
             keys_sel: None,
             settings_query: String::new(),
+            settings_lit: None,
+            settings_focus: None,
             keys_exact: false,
             keys_changed_only: false,
             pending_link: None,
@@ -1646,9 +1653,20 @@ impl Workspace {
         .detach();
         // The whole text open at a row hears every key first (#184).
         let tab = cx.weak_entity();
-        cx.intercept_keystrokes(move |event, _, cx| {
-            tab.update(cx, |this, cx| this.whole_key(&event.keystroke, cx))
-                .ok();
+        // So does Settings, walked by keys (#203): what a row does with one is done outside the tab, which it acts on.
+        cx.intercept_keystrokes(move |event, window, cx| {
+            let press = tab
+                .update(cx, |this, cx| {
+                    this.whole_key(&event.keystroke, cx);
+                    this.settings_key(&event.keystroke, window, cx)
+                })
+                .ok()
+                .flatten();
+            if let Some((act, key)) = press
+                && act(key, window, cx)
+            {
+                cx.stop_propagation();
+            }
         })
         .detach();
         this

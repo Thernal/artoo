@@ -128,6 +128,13 @@ impl Workspace {
             } else if self.close_setup(cx)
                 || (self.settings_open && self.settings_escape(self.settings_section, cx))
             {
+            } else if self.settings_open
+                && (self.settings_focus.is_some() || self.settings_lit.is_some())
+            {
+                // The keyboard's row and a lit one let go before the search does (#203).
+                self.settings_focus = None;
+                self.settings_lit = None;
+                cx.notify();
             } else if self.settings_open && !self.settings_query.is_empty() {
                 // What was searched goes before Settings does (#203).
                 self.settings_query.clear();

@@ -21,6 +21,10 @@ const COLUMNS: [(Channel, &str, &str); 3] = [
     (Channel::System, "System", "While no window is in front"),
 ];
 
+/// The names of Notifications' own rows, as Settings' search finds them (#203).
+pub(super) const SYSTEM_NOTIFICATIONS: &str = "System notifications";
+pub(super) const DOCK_COUNT: &str = "Count on the Dock icon";
+
 impl Workspace {
     /// What macOS says of Artoo's notifications, asked again off the window's thread: as the section opens and as
     /// System notifications is turned on.
@@ -49,6 +53,18 @@ impl Workspace {
     }
 
     pub(super) fn render_notice_settings(&self, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(self.notice_system_row(cx))
+            .child(self.notice_table(cx))
+            .children(self.dock_row(cx).map(|row| div().pt(px(8.)).child(row)))
+            .into_any_element()
+    }
+
+    /// System notifications' row: its switch, and what macOS says of it (here, and Settings' search, #203).
+    pub(super) fn notice_system_row(&self, cx: &mut Context<Self>) -> AnyElement {
         let s = &self.settings;
         let refused = self.notices_allowed == Some(false);
         let system = switch("system-notifications", s.system_notifications).on_click(cx.listener(
@@ -83,7 +99,10 @@ impl Workspace {
                 .child("While no Artoo window is in front.")
                 .into_any_element()
         };
-        let system_row = div()
+        // Framed as every row of Settings is (#203).
+        let name = gpui::SharedString::from(SYSTEM_NOTIFICATIONS);
+        let why = artoo_ui_kit::controls::found_by(SYSTEM_NOTIFICATIONS, SYSTEM_NOTIFICATIONS);
+        artoo_ui_kit::controls::setting_frame(&name, div())
             .flex()
             .items_center()
             .gap_4()
@@ -97,11 +116,23 @@ impl Workspace {
                     .flex()
                     .flex_col()
                     .gap(px(2.))
-                    .child("System notifications")
-                    .child(line),
+                    .child(artoo_ui_kit::controls::found_marked(SYSTEM_NOTIFICATIONS))
+                    .child(line)
+                    .children(why.map(|word| {
+                        div()
+                            .text_size(px(11.))
+                            .text_color(theme::faint())
+                            .child(artoo_ui_kit::controls::found_marked(word))
+                    })),
             )
-            .child(div().flex_none().child(system));
+            .child(div().flex_none().child(system))
+            .into_any_element()
+    }
 
+    /// Every kind of notice by its source, on each channel (Settings → Notifications).
+    fn notice_table(&self, cx: &mut Context<Self>) -> AnyElement {
+        let s = &self.settings;
+        let refused = self.notices_allowed == Some(false);
         // System's column is dim while nothing can reach the system.
         let system_off = !s.system_notifications || refused;
         let sources = notices::sources(cx);
@@ -121,27 +152,23 @@ impl Workspace {
             }
         }
 
-        let dock = switch("dock-count", s.dock_count).on_click(cx.listener(
-            |this, _: &ClickEvent, _, cx| {
-                this.change_settings(
-                    |this| this.settings.dock_count = !this.settings.dock_count,
-                    cx,
-                );
-                this.dock_count(cx);
-            },
-        ));
-        div()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .child(system_row)
-            .child(table)
-            .children(crate::platform::MAC.then(|| {
-                div()
-                    .pt(px(8.))
-                    .child(super::settings::item("Count on the Dock icon", "", dock))
-            }))
-            .into_any_element()
+        table.into_any_element()
+    }
+
+    /// The count on the Dock icon's row, on macOS (here, and Settings' search, #203).
+    pub(super) fn dock_row(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let dock = switch("dock-count", self.settings.dock_count)
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.flip_dock_count(cx)));
+        crate::platform::MAC.then(|| super::settings::item(DOCK_COUNT, "", dock).into_any_element())
+    }
+
+    /// The count on the Dock icon turned the other way.
+    pub(super) fn flip_dock_count(&mut self, cx: &mut Context<Self>) {
+        self.change_settings(
+            |this| this.settings.dock_count = !this.settings.dock_count,
+            cx,
+        );
+        self.dock_count(cx);
     }
 
     /// System notifications turned on or off: on, macOS asks for its permission (where it has one) and is asked

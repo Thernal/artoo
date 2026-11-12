@@ -194,6 +194,10 @@ impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // The helpers' switch, for the hint after the mouse the kit draws (#193).
         artoo_ui_kit::keys::set_helpers(self.settings.key_helpers);
+        // A setting's row drawn outside Settings (Set up's Look) marks nothing and is lit by nothing (#203).
+        if !self.settings_open {
+            artoo_ui_kit::controls::settings_look_off();
+        }
         debug_assert_eq!(
             self.rv().app_settings(cx),
             self.settings,
