@@ -15,6 +15,10 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   when off its default; Done sits at the left column's foot. A title-bar item (`TitleItem::id`) hides from its right click
   (`Settings::hidden_bar`, #205); the fetch status's right click retries or stops fetching. Tabs are as wide as the
   repository's `.editorconfig` says (`artoo_core::rows::follow_tab_width`).
+- **Reading a file in Code** (#206, `crates/review/src/file_view.rs`): ⌘F finds in its lines (`Review::file_matches`,
+  the diff's find bar and field), a minimap at its right (`render_minimap`: the file small, hits, lines changed since
+  HEAD — `changed_since_head` —, a slider on hover, click and drag scroll). ⌥⌘F searches every file git knows in the
+  working tree (`find_files.rs`, `repository_files`), opening a hit in the diff or in Code.
 - **A Cargo workspace (#165).** The root package is the app (`src/main.rs`, `src/ui/`);
   `crates/plugin-sdk` (`artoo-plugin-sdk`, #175) is what a plugin builds against: one shared library holding GPUI, its
   platform, the core, the kit and every contract, which the app links (`extern crate` in `main.rs`) so each is once in

@@ -27,6 +27,11 @@ pub struct FileView {
     /// Those lines as the selection copies them (#93).
     pub plain: Rc<std::cell::RefCell<Vec<String>>>,
     pub list: ListState,
+    /// Its lines (0-based) that differ from HEAD, read from the working tree (#206): the gutter and the minimap mark
+    /// them.
+    pub changed: Rc<std::collections::HashSet<usize>>,
+    /// The rows as last drawn, its notes among its lines: where a line's row is.
+    pub shown: std::cell::RefCell<Rc<Vec<Row>>>,
     /// A Markdown file: shown rendered, until Source.
     pub rendered: bool,
     /// An image file, decoded.
@@ -125,7 +130,7 @@ pub fn widen(line: &str, spans: &[Span]) -> (SharedString, Vec<Span>) {
     for (i, c) in line.char_indices() {
         at.resize(i + 1, out.len());
         if c == '\t' {
-            out.push_str("    ");
+            out.push_str(&" ".repeat(artoo_core::rows::tab_width()));
         } else {
             out.push(c);
         }
@@ -143,6 +148,43 @@ pub fn widen(line: &str, spans: &[Span]) -> (SharedString, Vec<Span>) {
         out.push(' ');
     }
     (out.into(), spans)
+}
+
+/// The lines (0-based) of `now`, the working tree's `path`, that differ from HEAD's: all of them for a file HEAD has
+/// not (#206).
+fn changed_since_head(
+    root: &std::path::Path,
+    path: &str,
+    now: &[u8],
+) -> std::collections::HashSet<usize> {
+    let mut changed = std::collections::HashSet::new();
+    let Ok(repo) = git2::Repository::open(root) else {
+        return changed;
+    };
+    let old = (repo.head().ok())
+        .and_then(|h| h.peel_to_tree().ok())
+        .and_then(|tree| tree.get_path(std::path::Path::new(path)).ok())
+        .and_then(|entry| repo.find_blob(entry.id()).ok())
+        .map(|blob| blob.content().to_vec());
+    let Some(old) = old else {
+        let lines = String::from_utf8_lossy(now).lines().count();
+        return (0..lines).collect();
+    };
+    let Ok(patch) = git2::Patch::from_buffers(&old, None, now, None, None) else {
+        return changed;
+    };
+    for h in 0..patch.num_hunks() {
+        let lines = patch.num_lines_in_hunk(h).unwrap_or(0);
+        for l in 0..lines {
+            if let Ok(line) = patch.line_in_hunk(h, l)
+                && line.origin() == '+'
+                && let Some(n) = line.new_lineno()
+            {
+                changed.insert(n as usize - 1);
+            }
+        }
+    }
+    changed
 }
 
 impl Review {
@@ -170,7 +212,14 @@ impl Review {
                             None => std::fs::read(root.join(&file)).ok()?,
                         };
                         let image = gpui::Image::from_bytes(crate::image_view::format(kind), bytes);
-                        return Some((Vec::new(), Vec::new(), at, Some(Arc::new(image)), None));
+                        return Some((
+                            Vec::new(),
+                            Vec::new(),
+                            at,
+                            Some(Arc::new(image)),
+                            None,
+                            Default::default(),
+                        ));
                     }
                     let bytes = match rev {
                         Some(rev) => Repo::open(&root).ok()?.bytes_at(rev, &file)?,
@@ -178,18 +227,22 @@ impl Review {
                     };
                     if artoo_core::files::binary(&bytes) {
                         let size = Some(bytes.len() as u64);
-                        return Some((Vec::new(), Vec::new(), at, None, size));
+                        return Some((Vec::new(), Vec::new(), at, None, size, Default::default()));
                     }
                     let text = String::from_utf8_lossy(&bytes);
                     let spans = highlight::highlight(&file, &text);
                     let lines: Vec<String> = text.lines().map(str::to_owned).collect();
-                    Some((lines, spans, at, None, None))
+                    let changed = match rev {
+                        None => changed_since_head(&root, &file, &bytes),
+                        Some(_) => Default::default(),
+                    };
+                    Some((lines, spans, at, None, None, changed))
                 })
                 .await;
             this.update(cx, |rv, cx| {
                 rv.file_reading = None;
                 cx.emit(match read {
-                    Some((lines, spans, at, image, binary)) => {
+                    Some((lines, spans, at, image, binary, changed)) => {
                         let text: Vec<_> = lines
                             .iter()
                             .enumerate()
@@ -204,6 +257,8 @@ impl Review {
                             text: Rc::new(text),
                             plain: Rc::new(std::cell::RefCell::new(plain)),
                             list: ListState::new(0, ListAlignment::Top, px(400.)),
+                            changed: Rc::new(changed),
+                            shown: Default::default(),
                             rendered: true,
                             image,
                             binary,
@@ -234,6 +289,21 @@ impl Review {
     }
 
     /// The file's lines are on screen: neither an image nor a document rendered.
+    /// Line `line` (0-based) of the file read comes into view, a few lines under the top (#206).
+    pub fn scroll_file_to(&mut self, line: usize) {
+        let Some(view) = &self.file_view else {
+            return;
+        };
+        let shown = view.shown.borrow().clone();
+        let row = (shown.iter())
+            .position(|r| matches!(r, Row::Line(n) if *n == line))
+            .unwrap_or(line);
+        view.list.scroll_to(gpui::ListOffset {
+            item_ix: row.saturating_sub(3),
+            offset_in_item: px(0.),
+        });
+    }
+
     pub fn file_lines_shown(&self) -> bool {
         self.file_view
             .as_ref()
@@ -304,6 +374,7 @@ impl Review {
         notes: &FileNotes,
         binary: Option<AnyElement>,
         selecting: Selecting,
+        finding: bool,
         cx: &mut Context<Self>,
     ) -> Option<(gpui::Div, AnyElement)> {
         let view = self.file_view.as_ref()?;
@@ -339,7 +410,28 @@ impl Review {
                 ))
                 .into_any_element()
         } else {
-            self.render_file_lines(view, host, notes, selecting)
+            // ⌘F's bar under the head, the lines, and the minimap at their right (#206).
+            let this = cx.entity().downgrade();
+            let frame = self.frame.as_ref().and_then(std::rc::Weak::upgrade);
+            let bar = (self.render_find_bar(finding, this.clone())).map(|bar| match &frame {
+                Some(frame) => artoo_shell_api::input_box(bar, crate::find::INPUT, frame),
+                None => bar,
+            });
+            div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .children(bar)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .flex()
+                        .child(self.render_file_lines(view, host, notes, selecting))
+                        .child(self.render_minimap(view, this)),
+                )
+                .into_any_element()
         };
         Some((head, body))
     }
@@ -414,6 +506,127 @@ impl Review {
             .child(div().text_color(theme::faint()).child("read only"))
     }
 
+    /// The minimap (#206): the file drawn small — each line a bar as long as its text —, the lines that differ from
+    /// HEAD in its gutter, the find's hits over it (the current one stronger), and a slider over what is on screen,
+    /// shown on hover. A click or a drag scrolls there.
+    fn render_minimap(&self, view: &FileView, this: WeakEntity<Review>) -> AnyElement {
+        const BUCKETS: usize = 240;
+        const WIDTH: f32 = 72.;
+        let total = view.lines.len().max(1);
+        let per = total.div_ceil(BUCKETS).max(1);
+        let buckets = total.div_ceil(per);
+        let share = |n: usize| n as f32 / total as f32;
+        let mut shape = Vec::with_capacity(buckets);
+        for b in 0..buckets {
+            let lines = &view.lines[b * per..((b + 1) * per).min(view.lines.len())];
+            let longest = lines.iter().map(|l| l.trim_end().len()).max().unwrap_or(0);
+            let indent = (lines.iter())
+                .map(|l| l.len() - l.trim_start().len())
+                .min()
+                .unwrap_or(0);
+            shape.push((indent.min(60), longest.min(100)));
+        }
+        let band = 1. / buckets as f32;
+        let bars = shape
+            .into_iter()
+            .enumerate()
+            .filter(|(_, (_, w))| *w > 0)
+            .map(|(b, (indent, w))| {
+                div()
+                    .absolute()
+                    .top(gpui::relative(b as f32 * band))
+                    .h(gpui::relative(band * 0.7))
+                    .left(px(8. + indent as f32 * 0.5))
+                    .w(px((w.saturating_sub(indent)) as f32 * 0.55))
+                    .bg(theme::faint())
+                    .opacity(0.35)
+            });
+        let changed = (view.changed.iter()).map(|&n| {
+            div()
+                .absolute()
+                .top(gpui::relative(share(n)))
+                .h(px(2.))
+                .left_0()
+                .w(px(3.))
+                .bg(theme::added())
+        });
+        let current = self.file_matches.get(self.match_at).copied();
+        let hits = self.file_matches.iter().map(|&n| {
+            div()
+                .absolute()
+                .top(gpui::relative(share(n)))
+                .h(px(2.))
+                .left(px(6.))
+                .right_0()
+                .bg(if Some(n) == current {
+                    theme::warning()
+                } else {
+                    theme::warning_bg()
+                })
+        });
+        // What is on screen: the rows from the list's top, as many as fit.
+        let top = view.list.logical_scroll_top().item_ix;
+        let seen = (f32::from(view.list.viewport_bounds().size.height) / (self.code_size() * 1.55))
+            .max(1.);
+        let (from, span) = (share(top.min(total)), (seen / total as f32).min(1.));
+        let list = view.list.clone();
+        let rows = view.shown.borrow().len().max(total);
+        let scroll = move |y: f32, bounds: gpui::Bounds<gpui::Pixels>| {
+            let at =
+                ((y - f32::from(bounds.origin.y)) / f32::from(bounds.size.height)).clamp(0., 1.);
+            let row = (at * rows as f32) as usize;
+            list.scroll_to(gpui::ListOffset {
+                item_ix: row.saturating_sub((seen / 2.) as usize),
+                offset_in_item: px(0.),
+            });
+        };
+        let (down, drag) = (scroll.clone(), scroll);
+        let (that, those) = (this.clone(), this);
+        // Where the minimap is, read as it is laid out: a click's place in it.
+        let place: Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>> = Rc::default();
+        let (keep, at_down, at_drag) = (place.clone(), place.clone(), place);
+        div()
+            .id("minimap")
+            .group("minimap")
+            .relative()
+            .flex_none()
+            .w(px(WIDTH))
+            .h_full()
+            .border_l_1()
+            .border_color(theme::island_border())
+            .cursor_pointer()
+            .children(bars)
+            .children(changed)
+            .children(hits)
+            .child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .top(gpui::relative(from))
+                    .h(gpui::relative(span))
+                    .bg(theme::hover())
+                    .invisible()
+                    .group_hover("minimap", |s| s.visible()),
+            )
+            .child(
+                gpui::canvas(move |bounds, _, _| keep.set(bounds), |_, _, _, _| {})
+                    .absolute()
+                    .size_full(),
+            )
+            .on_mouse_down(gpui::MouseButton::Left, move |ev, _, cx| {
+                down(f32::from(ev.position.y), at_down.get());
+                that.update(cx, |_, cx| cx.notify()).ok();
+            })
+            .on_mouse_move(move |ev, _, cx| {
+                if ev.pressed_button == Some(gpui::MouseButton::Left) {
+                    drag(f32::from(ev.position.y), at_drag.get());
+                    those.update(cx, |_, cx| cx.notify()).ok();
+                }
+            })
+            .into_any_element()
+    }
+
     /// The lines with their numbers; a number's click writes a note on its line.
     fn render_file_lines(
         &self,
@@ -428,6 +641,12 @@ impl Review {
         // Room on its left for the + that writes a note (#104).
         let gutter = digits * size * 0.62 + 42.;
         let rows = Rc::new(rows(&view.lines, notes));
+        *view.shown.borrow_mut() = rows.clone();
+        let (terms, current) = (
+            self.dterms.clone(),
+            self.file_matches.get(self.match_at).copied(),
+        );
+        let changed = view.changed.clone();
         if view.list.item_count() != rows.len() {
             let top = view.list.logical_scroll_top();
             view.list.reset(rows.len());
@@ -454,21 +673,35 @@ impl Review {
                 }
             };
             let (line, spans) = &text[n];
-            let highlights = spans
-                .iter()
-                .filter(|s| s.range.end <= line.len())
-                .map(|s| {
-                    (
-                        s.range.clone(),
-                        HighlightStyle {
-                            color: Some(theme::code(s.color)),
-                            font_style: s.italic.then_some(FontStyle::Italic),
-                            font_weight: s.bold.then_some(gpui::FontWeight::SEMIBOLD),
-                            ..Default::default()
+            // The find's hits tinted, the current line's filled (#206).
+            let found = terms.ranges(line);
+            let strong = current == Some(n);
+            let highlights = artoo_core::rows::runs(line, spans, &[], &found, None)
+                .into_iter()
+                .filter(|r| r.range.end <= line.len())
+                .map(|run| {
+                    let style = HighlightStyle {
+                        color: run.color.map(theme::code),
+                        font_style: run.italic.then_some(FontStyle::Italic),
+                        font_weight: run.bold.then_some(gpui::FontWeight::SEMIBOLD),
+                        ..Default::default()
+                    };
+                    let style = match (run.found, strong) {
+                        (true, true) => HighlightStyle {
+                            color: Some(theme::base().into()),
+                            background_color: Some(theme::warning().into()),
+                            ..style
                         },
-                    )
+                        (true, false) => HighlightStyle {
+                            background_color: Some(theme::warning_bg().into()),
+                            ..style
+                        },
+                        _ => style,
+                    };
+                    (run.range, style)
                 })
                 .collect::<Vec<_>>();
+            let is_changed = changed.contains(&n);
             let comment = host.clone();
             let styled = StyledText::new(line.clone()).with_highlights(highlights);
             let layout = styled.layout().clone();
@@ -521,6 +754,14 @@ impl Review {
                         .hover(|s| s.text_color(theme::agent()))
                         .child((n + 1).to_string())
                         .on_click(move |_, _, cx| comment.file(FileEvent::Note(n as u32 + 1), cx)),
+                )
+                // A line that differs from HEAD: a bar beside its number (#206).
+                .child(
+                    div()
+                        .flex_none()
+                        .w(px(3.))
+                        .h_full()
+                        .when(is_changed, |s| s.bg(theme::added())),
                 )
                 .child(
                     div()

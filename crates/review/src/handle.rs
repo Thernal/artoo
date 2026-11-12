@@ -494,10 +494,11 @@ impl artoo_review_api::Review for Handle {
         notes: &FileNotes,
         binary: Option<AnyElement>,
         selecting: Selecting,
+        finding: bool,
         cx: &mut App,
     ) -> Option<(gpui::Div, AnyElement)> {
         self.with(cx, |rv, cx| {
-            rv.render_file_view(host, notes, binary, selecting, cx)
+            rv.render_file_view(host, notes, binary, selecting, finding, cx)
         })
     }
 

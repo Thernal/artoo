@@ -25,10 +25,15 @@ impl Review {
     /// close; `this` answers its clicks.
     pub fn render_find_bar(&self, active: bool, this: WeakEntity<Review>) -> Option<Div> {
         let text = self.dfind.as_ref()?;
+        let in_file = self.file_lines_shown();
         let field = self.find_area.field_of(
             text,
             active,
-            "Find in this diff",
+            if in_file {
+                "Find in this file"
+            } else {
+                "Find in this diff"
+            },
             false,
             |rv: &mut Review| Some(&mut rv.find_area),
             this.clone(),
@@ -37,6 +42,10 @@ impl Review {
             format!("Not a regular expression: {error}")
         } else if self.dterms.is_empty() {
             String::new()
+        } else if in_file && self.file_matches.is_empty() {
+            "No matches".to_owned()
+        } else if in_file {
+            format!("{} of {}", self.match_at + 1, self.file_matches.len())
         } else if let Some(count) = self.stack_match_count() {
             count
         } else if self.matches.is_empty() {
@@ -127,6 +136,14 @@ impl Review {
             Some(data) => rows::matching_rows(data, &self.rows, &self.dterms),
             None => Vec::new(),
         };
+        // The file read in Code finds in its own lines (#206).
+        self.file_matches = match &self.file_view {
+            Some(view) if !self.dterms.is_empty() => (view.text.iter().enumerate())
+                .filter(|(_, (line, _))| self.dterms.hits(line))
+                .map(|(n, _)| n)
+                .collect(),
+            _ => Vec::new(),
+        };
         self.match_at = self.match_at.min(self.matches.len().saturating_sub(1));
         let mut changes = Vec::new();
         let mut inside = false;
@@ -200,6 +217,19 @@ impl Review {
 
     /// The open file's next (or previous) match comes into view; false when it has none.
     pub fn step_match(&mut self, forward: bool) -> bool {
+        if self.file_lines_shown() {
+            let n = self.file_matches.len();
+            if n == 0 {
+                return false;
+            }
+            self.match_at = if forward {
+                (self.match_at + 1) % n
+            } else {
+                (self.match_at + n - 1) % n
+            };
+            self.scroll_file_to(self.file_matches[self.match_at]);
+            return true;
+        }
         let n = self.matches.len();
         if n == 0 {
             return false;
@@ -251,7 +281,11 @@ impl Review {
         self.dfind = Some(text);
         self.match_at = 0;
         self.recompute_matches();
-        if self.stack.is_none()
+        if self.file_lines_shown() {
+            if let Some(&line) = self.file_matches.first() {
+                self.scroll_file_to(line);
+            }
+        } else if self.stack.is_none()
             && let Some(&row) = self.matches.first()
         {
             self.scroll_to_row(row);
@@ -270,6 +304,9 @@ impl Review {
     /// match from the file in view on is where it goes.
     pub fn find(&mut self, text: String, cx: &mut Context<Self>) -> Found {
         self.set_find(text);
+        if self.file_lines_shown() {
+            return None;
+        }
         self.stack.as_ref()?;
         self.build_stack(cx);
         let at = self.first_stack_match()?;
@@ -279,7 +316,7 @@ impl Review {
     /// The match after (or before) the current one: in the open file it comes into view; in the one scroll, it
     /// is where it goes.
     pub fn step_find(&mut self, forward: bool) -> Found {
-        if self.stack.is_none() {
+        if self.stack.is_none() || self.file_lines_shown() {
             self.step_match(forward);
             return None;
         }

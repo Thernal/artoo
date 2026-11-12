@@ -330,7 +330,7 @@ pub(super) fn own() -> Vec<Action> {
             .order(at(20))
             .key("cmd-alt-b", NOT_TYPING),
         Action::new("review.find-in-files", FindInFiles)
-            .words("Search in all files of the diff")
+            .words("Search in the repository")
             .order(at(19))
             .key("cmd-alt-f", TAB),
         Action::new("review.toggle-reviewed", ToggleReviewed).key("shift-v", NOT_TYPING),

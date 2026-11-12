@@ -314,13 +314,16 @@ pub trait Review {
     /// The file Code reads is binary: its size (`Some(None)`: text; `None`: no file).
     fn file_binary(&self, cx: &App) -> Option<Option<u64>>;
 
-    /// The file Code reads drawn: its head and its body; `binary` what stands for a binary file's lines.
+    /// The file Code reads drawn: its head and its body; `binary` what stands for a binary file's lines. `finding`:
+    /// its find bar has the keyboard (#206).
+    #[allow(clippy::too_many_arguments)]
     fn render_file_view(
         &self,
         host: Rc<dyn Host>,
         notes: &FileNotes,
         binary: Option<AnyElement>,
         selecting: Selecting,
+        finding: bool,
         cx: &mut App,
     ) -> Option<(gpui::Div, AnyElement)>;
 

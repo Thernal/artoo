@@ -1,10 +1,9 @@
-//! Search in all files of the diff (⌘⌥F): what the IDE calls Find in Files, but over the lines of
-//! this diff. Results are grouped by file; ↵ opens one and leaves the match marked in the file.
+//! Search in the repository (⌘⌥F, #206): what the IDE calls Find in Files, over every file of the working tree
+//! git knows. Results are grouped by file; ↵ opens one and leaves the match marked in the file.
 //! Designed in `../Design/mockups/ide-ideas/a-ideas.html` (3). The tab draws it over the window and
 //! answers its clicks (`SearchEvent`); its field is the tab's.
 
 use crate::review::Review;
-use artoo_core::git::LineKind;
 use artoo_core::textedit::TextEdit;
 use artoo_ui_kit::format::plural;
 use artoo_ui_kit::hover::{self, Tip};
@@ -36,6 +35,10 @@ pub struct FindFiles {
     regex: bool,
     error: Option<String>,
     hits: Vec<Hit>,
+    /// The repository's text files, read as it opened: (path, lines).
+    files: std::rc::Rc<Vec<(String, Vec<String>)>>,
+    /// The repository's name, the window's title.
+    name: String,
     files_with_hits: usize,
     capped: bool,
     scroll: ScrollHandle,
@@ -70,11 +73,54 @@ fn find_in(hay: &str, needle: &str, case: bool, word: bool) -> Option<Range<usiz
     None
 }
 
+/// No more than this many files, none longer than this, are searched: what a person waits for.
+const MAX_FILES: usize = 20_000;
+const MAX_BYTES: u64 = 1 << 20;
+
+/// The repository's text files as git knows them, read from the working tree.
+fn repository_files(root: &std::path::Path) -> Vec<(String, Vec<String>)> {
+    let Ok(repo) = git2::Repository::open(root) else {
+        return Vec::new();
+    };
+    let Ok(index) = repo.index() else {
+        return Vec::new();
+    };
+    let mut files = Vec::new();
+    for entry in index.iter().take(MAX_FILES) {
+        let path = String::from_utf8_lossy(&entry.path).into_owned();
+        let full = root.join(&path);
+        if std::fs::metadata(&full).map_or(true, |m| !m.is_file() || m.len() > MAX_BYTES) {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(&full) else {
+            continue;
+        };
+        if artoo_core::files::binary(&bytes) {
+            continue;
+        }
+        let lines = String::from_utf8_lossy(&bytes)
+            .lines()
+            .map(str::to_owned)
+            .collect();
+        files.push((path, lines));
+    }
+    files
+}
+
 impl Review {
     /// Opens the search, the diff's find's words in it.
     pub fn open_find_files(&mut self) {
         let query = self.dfind.clone().unwrap_or_default();
+        let root = self.root.clone();
+        let name = (root.as_ref())
+            .and_then(|r| r.file_name())
+            .map_or("the repository".to_owned(), |n| {
+                n.to_string_lossy().into_owned()
+            });
+        let files = std::rc::Rc::new(root.as_deref().map(repository_files).unwrap_or_default());
         self.ffind = Some(FindFiles {
+            files,
+            name,
             query,
             at: 0,
             case: false,
@@ -104,9 +150,10 @@ impl Review {
     }
 
     fn refresh_find_files(&mut self) {
-        let (Some(f), Some(diff)) = (&self.ffind, &self.diff) else {
+        let Some(f) = &self.ffind else {
             return;
         };
+        let files = f.files.clone();
         let (query, case, word) = (f.query.clone(), f.case, f.word);
         // As a regular expression: the case and whole-word toggles go into it.
         let pattern = (f.regex && !query.is_empty()).then(|| {
@@ -137,45 +184,21 @@ impl Review {
         let mut files_with_hits = 0;
         let mut capped = false;
         if !query.is_empty() {
-            'files: for (file_ix, file) in diff.files.iter().enumerate() {
-                let new_lines: Vec<&str> = file
-                    .new_text
-                    .as_deref()
-                    .unwrap_or_default()
-                    .lines()
-                    .collect();
-                let old_lines: Vec<&str> = file
-                    .old_text
-                    .as_deref()
-                    .unwrap_or_default()
-                    .lines()
-                    .collect();
+            'files: for (file_ix, (_, lines)) in files.iter().enumerate() {
                 let before = hits.len();
-                for hunk in &file.hunks {
-                    for line in &hunk.lines {
-                        let (old, n) = match (line.kind, line.new_line, line.old_line) {
-                            (LineKind::Removed, _, Some(o)) => (true, o),
-                            (_, Some(n), _) => (false, n),
-                            _ => continue,
-                        };
-                        let Some(text) = (if old { &old_lines } else { &new_lines })
-                            .get(n.saturating_sub(1) as usize)
-                        else {
-                            continue;
-                        };
-                        if let Some(range) = find(text) {
-                            if hits.len() >= MAX_HITS {
-                                capped = true;
-                                break 'files;
-                            }
-                            hits.push(Hit {
-                                file: file_ix,
-                                line: n,
-                                old,
-                                text: (*text).to_owned(),
-                                range,
-                            });
+                for (n, text) in lines.iter().enumerate() {
+                    if let Some(range) = find(text) {
+                        if hits.len() >= MAX_HITS {
+                            capped = true;
+                            break 'files;
                         }
+                        hits.push(Hit {
+                            file: file_ix,
+                            line: n as u32 + 1,
+                            old: false,
+                            text: text.clone(),
+                            range,
+                        });
                     }
                 }
                 if hits.len() > before {
@@ -273,11 +296,7 @@ impl Review {
             self.ffind = Some(f);
             return None;
         };
-        let path = self
-            .diff
-            .as_ref()
-            .and_then(|d| d.files.get(hit.file))
-            .map(|file| file.path().to_owned())?;
+        let path = f.files.get(hit.file).map(|(path, _)| path.clone())?;
         Some(Found {
             query: f.query.clone(),
             path,
@@ -289,7 +308,6 @@ impl Review {
     /// The search over the window, its `field` drawn by the tab; `on` answers its clicks.
     pub fn render_find_files(&self, field: AnyElement, on: OnSearch) -> Option<AnyElement> {
         let f = self.ffind.as_ref()?;
-        let diff = self.diff.as_ref()?;
         let click = |event: SearchEvent| {
             let on = on.clone();
             move |_: &ClickEvent, window: &mut Window, cx: &mut App| on(event, window, cx)
@@ -328,10 +346,7 @@ impl Review {
                         .text_size(px(11.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme::faint())
-                        .child(
-                            hover::path(("hit-path", ix), diff.files[hit.file].path().to_owned())
-                                .flex_1(),
-                        )
+                        .child(hover::path(("hit-path", ix), f.files[hit.file].0.clone()).flex_1())
                         .child(count.to_string())
                         .into_any_element(),
                 );
@@ -376,14 +391,15 @@ impl Review {
             );
         }
         let summary = if f.query.is_empty() {
-            "Type to search the lines of this diff.".to_owned()
+            format!("Type to search {} files.", f.files.len())
         } else if f.hits.is_empty() {
             "Nothing matches.".to_owned()
         } else {
             format!(
-                "{}{} in {}",
+                "{} · {}{} in {}",
+                f.query,
                 if f.capped { "first " } else { "" },
-                plural(f.hits.len(), "result"),
+                f.hits.len(),
                 plural(f.files_with_hits, "file")
             )
         };
@@ -413,7 +429,7 @@ impl Review {
                         .bg(theme::panel())
                         .shadow_lg()
                         .overflow_hidden()
-                        .child(island_label("Search in all files of this diff"))
+                        .child(island_label(format!("Search in {}", f.name)))
                         .child(
                             div()
                                 .h(px(40.))

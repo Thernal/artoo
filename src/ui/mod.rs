@@ -2732,6 +2732,9 @@ impl Workspace {
         // Settings' own search (#203).
         if self.settings_open {
             self.start_field(lists::Field::Settings, cx);
+        } else if self.code_file_shown(cx) {
+            // The file read in Code finds in its own lines (#206).
+            self.start_dfind(cx);
         } else if (self.at_root_list() || self.at_inbox()) && !self.settings_open {
             self.start_field(lists::Field::Branches, cx);
         } else if self.shown_diff(cx).is_some() && !self.settings_open {

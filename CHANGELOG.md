@@ -6,6 +6,12 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **Code finds in the file you read, and the repository has a search.** ⌘F on a file in Code opens a find bar under
+  its head — `amount`, `.*`, `1 of 2`, ↑ ↓ × — with the hits tinted in the lines and the current one filled. A minimap
+  at the code's right draws the file small, marks the find's hits and the lines that differ from HEAD (they have a bar
+  beside their numbers too), and shows what is on screen as you point at it; a click or a drag scrolls there. ⌥⌘F is
+  `Search in payments-service`: every file of the repository, `capture · 37 in 4 files`, grouped by file; a hit opens
+  in the diff when it changes that file, else in Code at its line.
 - **A setting changes where it annoys you.** Right-click a button in the title bar — a plugin's too — and `Hide` it;
   Settings → Appearance lists what is hidden with `Show all`. Right-click the fetch status for `Retry` and `Stop
   fetching this repository`. Settings asks less: generated files always start folded and tabs are as wide as the

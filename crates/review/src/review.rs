@@ -125,6 +125,8 @@ pub struct Review {
     /// Rows of the open diff that hold the find text, and the one stepped to.
     pub matches: Vec<usize>,
     pub match_at: usize,
+    /// The lines of the file read in Code that hold the find text (#206).
+    pub file_matches: Vec<usize>,
     /// Said above the diff when it changed under the user.
     pub notice: Option<Notice>,
     /// Scroll position (file path, offset) to put back once the reloaded file is laid out.
@@ -229,6 +231,7 @@ impl Review {
             changes: Vec::new(),
             change_at: None,
             matches: Vec::new(),
+            file_matches: Vec::new(),
             match_at: 0,
             notice: None,
             restore_scroll: None,
