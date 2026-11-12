@@ -1062,23 +1062,11 @@ pub(crate) fn filter_lets(m: &Mr, terms: &[&str]) -> bool {
     terms.iter().all(|w| rank::word_matches(w, &hay))
 }
 
-/// Where the filter's words are found in `text`, in order and apart: the stretches a row marks (#191). A word
-/// matched by its initials only is not marked.
+/// Where the filter's words are found in `text`, in order and apart: the stretches a row marks (#191), a word
+/// matched by its initials at the starts it matched (`juha`: **Ju**niper **Ha**le).
 fn hits(text: &str, filter: &str) -> Vec<std::ops::Range<usize>> {
-    let lower = text.to_lowercase();
-    // A text whose lower case changes its length is not marked.
-    if lower.len() != text.len() {
-        return Vec::new();
-    }
-    let mut found: Vec<std::ops::Range<usize>> = filter
-        .to_lowercase()
-        .split_whitespace()
-        .flat_map(|w| {
-            lower
-                .match_indices(w)
-                .map(|(at, w)| at..at + w.len())
-                .collect::<Vec<_>>()
-        })
+    let mut found: Vec<std::ops::Range<usize>> = (filter.split_whitespace())
+        .flat_map(|w| rank::word_spans(w, text))
         .collect();
     found.sort_by_key(|r| r.start);
     let mut merged: Vec<std::ops::Range<usize>> = Vec::new();
@@ -1912,5 +1900,6 @@ mod tests {
         );
         assert_eq!(hits("aaa", "aa a"), vec![0..3]);
         assert!(hits("Juniper Hale", "").is_empty());
+        assert_eq!(hits("Juniper Hale", "juha"), vec![0..2, 8..10]);
     }
 }

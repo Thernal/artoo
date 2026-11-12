@@ -60,9 +60,21 @@ fn pieces(text: &str) -> Vec<Piece> {
     out
 }
 
-/// The caps of one shortcut on Windows and Linux: Ctrl, Alt, Shift, then the key.
+/// The caps of one shortcut on Windows and Linux, as `platform::pc_keys` binds it: Ctrl, Alt, Shift, then the key.
+/// ⌘1…9 are Alt+1…9 (the tabs), ⌥1…9 Alt+Shift+1…9 (a request's sections, #191), ⌥⌘→ and ⌥⌘← Ctrl+PageDown and
+/// Ctrl+PageUp, ⌃G Ctrl+L (Go to line, #207).
 fn pc_caps(mods: &[char], key: &str) -> Vec<String> {
-    let tab = mods == ['⌘'] && matches!(key.as_bytes(), [b'1'..=b'9']);
+    let alt_cmd = mods.len() == 2 && mods.contains(&'⌥') && mods.contains(&'⌘');
+    let alone = |key: &str| vec!["Ctrl".to_owned(), key.to_owned()];
+    match key {
+        "G" | "g" if mods == ['⌃'] => return alone("L"),
+        "→" if alt_cmd => return alone("PageDown"),
+        "←" if alt_cmd => return alone("PageUp"),
+        _ => {}
+    }
+    let digit = matches!(key.as_bytes(), [b'1'..=b'9']);
+    let tab = mods == ['⌘'] && digit;
+    let section = mods == ['⌥'] && digit;
     let mut caps = Vec::new();
     if !tab && mods.iter().any(|&c| c == '⌘' || c == '⌃') {
         caps.push("Ctrl".to_owned());
@@ -70,7 +82,7 @@ fn pc_caps(mods: &[char], key: &str) -> Vec<String> {
     if tab || mods.contains(&'⌥') {
         caps.push("Alt".to_owned());
     }
-    if mods.contains(&'⇧') || (mods.contains(&'⌃') && mods.contains(&'⌘')) {
+    if section || mods.contains(&'⇧') || (mods.contains(&'⌃') && mods.contains(&'⌘')) {
         caps.push("Shift".to_owned());
     }
     if !key.is_empty() {
@@ -253,6 +265,10 @@ mod tests {
         assert_eq!(pc_text("⌘-click opens it"), "Ctrl-click opens it");
         assert_eq!(pc_text("⌘[ ⌘]"), "Ctrl+[ Ctrl+]");
         assert_eq!(pc_text("no keys ↵"), "no keys ↵");
+        // As `pc_keys` binds them (#191, #207).
+        assert_eq!(pc_text("Overview ⌥1 · ⌘I"), "Overview Alt+Shift+1 · Ctrl+I");
+        assert_eq!(pc_text("⌥⌘→ ⌥⌘←"), "Ctrl+PageDown Ctrl+PageUp");
+        assert_eq!(pc_text("Go to line ⌃G"), "Go to line Ctrl+L");
         assert_eq!(pc_split("⇧⌘↵"), ["Ctrl", "Shift", "Enter"]);
         assert_eq!(pc_split("⌘+"), ["Ctrl", "+"]);
         assert_eq!(pc_split("Tab"), ["Tab"]);

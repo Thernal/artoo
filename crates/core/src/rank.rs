@@ -46,13 +46,45 @@ pub fn word_matches(word: &str, hay: &str) -> bool {
     typed.len() >= 3 && starts_match(&typed, &words_of(hay))
 }
 
+/// Where the typed `word` matched `hay`, as byte ranges of `hay` — what a row marks (#191): each place it is found
+/// as typed (ignoring case), else the starts of the words it matched by (`pfmob`: `pfm`, `o`, `b`). None where
+/// lower case changes `hay`'s length.
+pub fn word_spans(word: &str, hay: &str) -> Vec<std::ops::Range<usize>> {
+    let word = word.to_lowercase();
+    let lower = hay.to_lowercase();
+    if word.is_empty() || lower.len() != hay.len() {
+        return Vec::new();
+    }
+    let found: Vec<_> = (lower.match_indices(&word))
+        .map(|(at, w)| at..at + w.len())
+        .collect();
+    if !found.is_empty() {
+        return found;
+    }
+    let typed: Vec<char> = word.chars().filter(|c| c.is_alphanumeric()).collect();
+    if typed.len() < 3 {
+        return Vec::new();
+    }
+    starts_spans(&typed, &words_at(hay)).unwrap_or_default()
+}
+
+/// A word of a name: each of its characters lower case, with the bytes of the name it came from.
+type Placed = Vec<(std::ops::Range<usize>, char)>;
+
 /// `hay`'s words, lower case: split at anything not a letter or digit, and where a lower-case
 /// letter or a digit meets an upper-case one (`LoginViewModel`: login, view, model).
 fn words_of(hay: &str) -> Vec<Vec<char>> {
-    let mut words: Vec<Vec<char>> = Vec::new();
-    let mut word: Vec<char> = Vec::new();
+    (words_at(hay).into_iter())
+        .map(|w| w.into_iter().map(|(_, c)| c).collect())
+        .collect()
+}
+
+/// `words_of`, each character with where it is in `hay`.
+fn words_at(hay: &str) -> Vec<Placed> {
+    let mut words: Vec<Placed> = Vec::new();
+    let mut word: Placed = Vec::new();
     let mut before: Option<char> = None;
-    for c in hay.chars() {
+    for (at, c) in hay.char_indices() {
         if !c.is_alphanumeric() {
             if !word.is_empty() {
                 words.push(std::mem::take(&mut word));
@@ -63,7 +95,8 @@ fn words_of(hay: &str) -> Vec<Vec<char>> {
             if hump && !word.is_empty() {
                 words.push(std::mem::take(&mut word));
             }
-            word.extend(c.to_lowercase());
+            let bytes = at..at + c.len_utf8();
+            word.extend(c.to_lowercase().map(|l| (bytes.clone(), l)));
         }
         before = Some(c);
     }
@@ -71,6 +104,23 @@ fn words_of(hay: &str) -> Vec<Vec<char>> {
         words.push(word);
     }
     words
+}
+
+/// The starts `starts_match` finds `typed` by, as ranges of the name: the first way it finds.
+fn starts_spans(typed: &[char], words: &[Placed]) -> Option<Vec<std::ops::Range<usize>>> {
+    if typed.is_empty() {
+        return Some(Vec::new());
+    }
+    words.iter().enumerate().find_map(|(n, word)| {
+        let shared = (word.iter().zip(typed))
+            .take_while(|((_, a), b)| a == *b)
+            .count();
+        (1..=shared).rev().find_map(|k| {
+            let mut rest = starts_spans(&typed[k..], &words[n + 1..])?;
+            rest.insert(0, word[0].0.start..word[k - 1].0.end);
+            Some(rest)
+        })
+    })
 }
 
 /// Whether `typed` is the start of one word, then of a later one, and so on, all of it used.
@@ -128,6 +178,22 @@ mod tests {
                 "origin/feature/ST-37965-analysis-of-develop-changes",
             ]
         );
+    }
+
+    #[test]
+    fn a_word_is_marked_where_it_matched() {
+        assert_eq!(word_spans("LOG", "Refactor the login"), vec![13..16]);
+        assert_eq!(
+            word_spans("juha", "Juniper Hale"),
+            vec![0..2, 8..10],
+            "by its initials"
+        );
+        assert_eq!(
+            word_spans("lvm", "LoginViewModel.kt"),
+            vec![0..1, 5..6, 9..10]
+        );
+        assert!(word_spans("jh", "Juniper Hale").is_empty(), "too short");
+        assert!(word_spans("xyz", "Juniper Hale").is_empty());
     }
 
     #[test]
