@@ -16,6 +16,8 @@ impl Workspace {
     ) {
         use artoo_ui_kit::keys::{self, Held};
         let m = event.modifiers;
+        // A name under the pointer in Code's file is underlined while ⌘ is held (#207).
+        self.rv().cmd_held(m.platform, cx);
         let want = match (m.platform, m.control, m.alt || m.shift || m.function) {
             _ if !self.settings.key_helpers => None,
             (true, false, false) => Some(Held::Cmd),

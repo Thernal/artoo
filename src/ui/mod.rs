@@ -1124,8 +1124,13 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                 wait(400).await;
             }
         }
-        if let Ok(at) = std::env::var("ARTOO_SNAPSHOT_HOVER")
-            && let Some((x, y)) = at.split_once(',')
+        // `x,y`, or `cmd:x,y` with ⌘ held (a name underlined in Code, #207).
+        let hover = std::env::var("ARTOO_SNAPSHOT_HOVER").unwrap_or_default();
+        let (hover, held) = match hover.trim().strip_prefix("cmd:") {
+            Some(at) => (at.to_owned(), gpui::Modifiers::command()),
+            None => (hover, gpui::Modifiers::default()),
+        };
+        if let Some((x, y)) = hover.split_once(',')
             && let (Ok(x), Ok(y)) = (x.trim().parse::<f32>(), y.trim().parse::<f32>())
         {
             // The keys' results drawn first: a hover reads the frame on screen.
@@ -1137,7 +1142,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                         gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
                             position: gpui::point(gpui::px(x + dx), gpui::px(y)),
                             pressed_button: None,
-                            modifiers: Default::default(),
+                            modifiers: held,
                         }),
                         cx,
                     );
@@ -2015,7 +2020,10 @@ impl Workspace {
             ReviewEvent::Changed => {}
             ReviewEvent::Found { file, row } => self.go_found(Some((*file, *row)), cx),
             ReviewEvent::GoLine(done) => self.goline_done(*done, cx),
-            ReviewEvent::Go { path, line } => self.open_in_code(path.clone(), *line, cx),
+            ReviewEvent::Go { path, line, keep } => {
+                self.open_in_code(path.clone(), *line, !*keep, cx)
+            }
+            ReviewEvent::Caret(sel) => self.note_sel = Some(sel.clone()),
             ReviewEvent::SearchWord(word) => self.search_word(word.clone(), cx),
             ReviewEvent::InFiles(found) => self.found_in_files(found.clone(), cx),
             ReviewEvent::Page(event) => self.page_event(event.clone(), cx),

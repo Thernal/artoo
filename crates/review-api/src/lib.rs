@@ -473,6 +473,9 @@ pub trait Review {
     /// ⌃G on Code's file: `Line` in its head.
     fn open_file_line(&self, cx: &mut App);
 
+    /// ⌘ went down or up (#207): the name under the pointer in Code's file is underlined while it is held.
+    fn cmd_held(&self, held: bool, cx: &mut App);
+
     /// The lines selected in the diff: side, first and last.
     fn selected_lines(&self, cx: &App) -> Option<(bool, u32, u32)>;
 
@@ -995,8 +998,11 @@ pub enum Event {
     /// The line typed after `c` moved the marker, asks to write there, or closed: the tab lays the rows out with
     /// what is pinned on them, and opens the composer.
     GoLine(GoLineKey),
-    /// A declaration chosen in Code's peek (#207): the tab opens `path` in Code at 1-based `line`.
-    Go { path: String, line: u32 },
+    /// A declaration chosen in Code's peek (#207): the tab opens `path` in Code at 1-based `line`, in a tab of its
+    /// own when `keep` (⌘↵, ⌘-click), else in the preview tab.
+    Go { path: String, line: u32, keep: bool },
+    /// `Line` went to a line and a column in Code's file (#207): the caret the tab keeps there, F12 reading from it.
+    Caret(artoo_ui_kit::markdown::TextSel),
     /// ⇧F12 in the peek: the tab searches the repository for the word.
     SearchWord(String),
     /// A line the repository's search opened (#206): the tab shows it, in the diff on screen when it changes that

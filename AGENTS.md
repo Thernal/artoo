@@ -35,8 +35,13 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   the tab's `note_sel` in the file's lines, `file_view::selects_as`) opens a peek row under the line (`Row::Peek`,
   `peek_card`) from `artoo_core::symbols::Names`, the repository's declarations by keyword, read in the
   background at the first ask (`Review::names`) and at each peek again for the files whose time or size changed
-  (`names::up_to_date`). ⌃G is `Line` in the file's head (`file_line`, one of the tab's
-  inputs); the scope line over the lines comes from `symbols::scopes`, computed as the file is read.
+  (`names::up_to_date`). The peek scrolls the list as far as its card (`peek_height`) reaches past the window's foot,
+  as it opens and again as its declarations come; ↵ opens one in Code's preview tab, ⌘↵ and a ⌘-click in a tab of its
+  own (`ReviewEvent::Go`'s `keep`, `open_in_code`'s `preview`). Holding ⌘ underlines a declared name under the
+  pointer (`Review::pointed`, `underlined`, the tab passing ⌘ on through `cmd_held`); the first hold reads the names.
+  ⌃G is `Line` in the file's head (`file_line`, one of the tab's inputs); `42:7` also puts the caret (the tab's
+  `note_sel`, `ReviewEvent::Caret`) before the seventh character, and a caret in the file's lines is drawn. The
+  scope line over the lines comes from `symbols::scopes`, computed as the file is read.
 - **The revision Code reads, and the main line's page** (#208): the tree's chip (`render_revision_chip` in
   `crates/code/src/space.rs`) opens a menu of the working tree, HEAD, branches, remotes and tags; `Commit id…` is a ⌘K
   list (`crates/code/src/revisions.rs`, `revisions::LIST`). Another feature opens Code at a revision through

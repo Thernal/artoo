@@ -2,16 +2,21 @@
 //!
 //! The repository's declarations by name (`artoo_core::symbols::Names`), read by keyword from its files as the
 //! Outline reads one file's, are built in the background at the first ⌘-click or F12 on a name — never at start —
-//! and brought up to date at each one after: only the files changed since are read again. The peek opens under the line, headed `By name · 3`: the file read's own declaration first, then the
-//! others; ↑ ↓ choose, ↵ opens it in Code, ⇧F12 searches the word in the repository, esc closes. A name declared
-//! once, elsewhere, is opened at once. ⌃G puts `Line` in the file's head, ↵ goes there. Each is one of the tab's
-//! inputs (`peek_input`, `line_input`).
+//! and brought up to date at each one after: only the files changed since are read again. Holding ⌘ underlines a
+//! declared name under the pointer (the first hold reads the names). The peek opens under the line, scrolled into
+//! view, its name underlined in the accent, headed `By name · 3`: the file read's own declaration first, then the
+//! others; ↑ ↓ choose, ↵ opens it in Code's preview tab, ⌘↵ (or a ⌘-click) in a tab of its own, ⇧F12 searches the
+//! word in the repository, esc closes. A name declared once, elsewhere, is opened at once. ⌃G puts `Line` in the
+//! file's head, ↵ goes there, `42:7` to its seventh character with the caret. Each is one of the tab's inputs
+//! (`peek_input`, `line_input`).
 
 use crate::review::{Review, ReviewEvent};
 use artoo_core::symbols::{self, Declared, Names};
 use artoo_shell_api::{Input, Typed};
 use artoo_ui_kit::{keys, px, theme};
 use gpui::{AnyElement, App, Context, Entity, Keystroke, WeakEntity, div, prelude::*};
+use std::cell::Cell;
+use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -23,8 +28,12 @@ pub const LINE_INPUT: &str = artoo_review_api::LINE_INPUT;
 /// The declarations of a name, open under its line.
 pub struct Peek {
     pub word: String,
-    /// The line (0-based) it is under.
+    /// The line (0-based) it is under, and the name's bytes in it: underlined while the peek is open.
     pub line: usize,
+    pub range: Range<usize>,
+    /// Not yet scrolled into view, as it opened or as its declarations came: the list scrolls as far as it reaches
+    /// past the window's foot.
+    pub reveal: Cell<bool>,
     /// Its declarations, the file read's first; `None` while the names are being read.
     pub found: Option<Vec<Declared>>,
     /// The names were brought up to date for it.
@@ -108,15 +117,18 @@ impl Review {
             return false;
         }
         let plain = view.plain.borrow();
-        let Some(word) = (plain.get(line)).and_then(|t| symbols::word_at(t, at)) else {
+        let Some((word, range)) = (plain.get(line))
+            .and_then(|t| symbols::word_range(t, at).map(|r| (t[r.clone()].to_owned(), r)))
+        else {
             return false;
         };
-        let word = word.to_owned();
         drop(plain);
         self.file_line = None;
         self.peek = Some(Peek {
             word,
             line,
+            range,
+            reveal: Cell::new(true),
             found: None,
             fresh: false,
             sel: 0,
@@ -145,35 +157,118 @@ impl Review {
                 {
                     let (path, line) = (only.path.clone(), only.line);
                     self.peek = None;
-                    cx.emit(ReviewEvent::Go { path, line });
+                    cx.emit(ReviewEvent::Go {
+                        path,
+                        line,
+                        keep: false,
+                    });
                     return;
                 }
                 peek.found = Some(found);
+                peek.reveal.set(true);
             }
-            _ if self.names_reading.is_some() => {}
-            _ => {
-                let kept = (self.names.take())
-                    .filter(|(read, _)| *read == root)
-                    .map(|(_, names)| Arc::unwrap_or_clone(names))
-                    .unwrap_or_default();
-                self.names_reading = Some(cx.spawn(async move |this, cx| {
-                    let read = root.clone();
-                    let names = (cx.background_executor())
-                        .spawn(async move { up_to_date(&read, kept) })
-                        .await;
-                    this.update(cx, |rv, cx| {
-                        rv.names_reading = None;
-                        rv.names = Some((root, Arc::new(names)));
-                        if let Some(peek) = rv.peek.as_mut() {
-                            peek.fresh = true;
-                        }
-                        rv.fill_peek(cx);
-                        cx.emit(ReviewEvent::Changed);
-                    })
-                    .ok();
-                }));
+            _ => self.read_names(cx),
+        }
+    }
+
+    /// The repository's names brought up to date in the background, unless they are being read: then the peek
+    /// open is filled from them.
+    fn read_names(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        if self.names_reading.is_some() {
+            return;
+        }
+        let kept = (self.names.take())
+            .filter(|(read, _)| *read == root)
+            .map(|(_, names)| Arc::unwrap_or_clone(names))
+            .unwrap_or_default();
+        self.names_reading = Some(cx.spawn(async move |this, cx| {
+            let read = root.clone();
+            let names = (cx.background_executor())
+                .spawn(async move { up_to_date(&read, kept) })
+                .await;
+            this.update(cx, |rv, cx| {
+                rv.names_reading = None;
+                rv.names = Some((root, Arc::new(names)));
+                if let Some(peek) = rv.peek.as_mut() {
+                    peek.fresh = true;
+                    rv.fill_peek(cx);
+                }
+                cx.emit(ReviewEvent::Changed);
+            })
+            .ok();
+        }));
+    }
+
+    /// The pointer over byte `at` of line `line` (0-based) of the file read, `None` off its text; ⌘ held or not.
+    /// The first time ⌘ is held over a name, the names are read: only a declared one is underlined.
+    pub fn point_name(
+        &mut self,
+        line: usize,
+        at: Option<usize>,
+        cmd: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let was = self.underlined();
+        let range = self.file_view.as_ref().zip(at).and_then(|(view, at)| {
+            let plain = view.plain.borrow();
+            let text = plain.get(line)?;
+            let on_word =
+                (text.get(at..)?.chars().next()).is_some_and(|c| c.is_alphanumeric() || c == '_');
+            on_word.then(|| symbols::word_range(text, at)).flatten()
+        });
+        self.pointed = range.map(|r| (line, r));
+        self.cmd = cmd;
+        if cmd && self.pointed.is_some() && self.names.is_none() {
+            self.read_names(cx);
+        }
+        if self.underlined() != was {
+            cx.notify();
+        }
+    }
+
+    /// The pointer left line `line`'s text.
+    pub fn left_name(&mut self, line: usize, cx: &mut Context<Self>) {
+        if self.pointed.as_ref().is_some_and(|(n, _)| *n == line) {
+            let was = self.underlined();
+            self.pointed = None;
+            if was.is_some() {
+                cx.notify();
             }
         }
+    }
+
+    /// ⌘ went down or up.
+    pub fn cmd_held(&mut self, held: bool, cx: &mut Context<Self>) {
+        if self.cmd == held {
+            return;
+        }
+        let was = self.underlined();
+        self.cmd = held;
+        if held && self.pointed.is_some() && self.names.is_none() {
+            self.read_names(cx);
+        }
+        if self.underlined() != was {
+            cx.notify();
+        }
+    }
+
+    /// The name underlined in Code's file: its line and bytes, and whether it is the peek's (in the accent) —
+    /// else the one under the pointer while ⌘ is held, when the names say it is declared.
+    pub fn underlined(&self) -> Option<(usize, Range<usize>, bool)> {
+        if let Some(peek) = &self.peek {
+            return Some((peek.line, peek.range.clone(), true));
+        }
+        if !self.cmd {
+            return None;
+        }
+        let (line, range) = self.pointed.clone()?;
+        let (_, names) = self.names.as_ref()?;
+        let plain = self.file_view.as_ref()?.plain.borrow();
+        let word = plain.get(line)?.get(range.clone())?;
+        names.declares(word).then_some((line, range, false))
     }
 
     /// The peek closes.
@@ -181,8 +276,8 @@ impl Review {
         self.peek.take().is_some()
     }
 
-    /// Declaration `ix` of the peek opened: the peek closes, the tab opens it.
-    pub fn open_declared(&mut self, ix: usize, cx: &mut Context<Self>) {
+    /// Declaration `ix` of the peek opened: the peek closes, the tab opens it — in a tab of its own when `keep`.
+    pub fn open_declared(&mut self, ix: usize, keep: bool, cx: &mut Context<Self>) {
         let Some(peek) = self.peek.take() else {
             return;
         };
@@ -190,6 +285,7 @@ impl Review {
             cx.emit(ReviewEvent::Go {
                 path: d.path.clone(),
                 line: d.line,
+                keep,
             });
         }
         cx.emit(ReviewEvent::Changed);
@@ -206,7 +302,7 @@ impl Review {
             "down" if n > 0 => peek.sel = (peek.sel + 1) % n,
             "enter" => {
                 let at = peek.sel;
-                self.open_declared(at, cx);
+                self.open_declared(at, key.modifiers.platform, cx);
                 return Typed::Leave;
             }
             "f12" if key.modifiers.shift => {
@@ -234,26 +330,40 @@ impl Review {
         }
     }
 
-    /// A key while `Line` has the keyboard: digits, ⌫, ↵ goes there (past the end, the last line), esc closes.
+    /// A key while `Line` has the keyboard: digits and one `:` before a column, ⌫, ↵ goes there (past the end, the
+    /// last line; a column past the line's end, its end) with the caret at the column, esc closes.
     fn file_line_key(&mut self, key: &Keystroke, cx: &mut Context<Self>) -> Typed {
         let Some(typed) = self.file_line.as_mut() else {
             return Typed::Leave;
         };
-        let k = key.key.as_str();
+        // `:` as typed (⇧; on a US keyboard).
+        let colon = key.key == ":"
+            || key.key_char.as_deref() == Some(":")
+            || (key.key == ";" && key.modifiers.shift);
+        let k = if colon { ":" } else { key.key.as_str() };
         match k {
             "backspace" => {
                 typed.pop();
             }
             "enter" => {
                 let count = self.file_view.as_ref().map_or(0, |v| v.lines.len());
-                if let Ok(n) = typed.parse::<usize>()
-                    && n > 0
+                if let Some((n, column)) = line_and_column(typed)
                     && count > 0
                 {
                     let line = n.min(count) - 1;
                     self.file_line = None;
                     self.file_target = Some(line);
                     self.scroll_file_to(line);
+                    if let (Some(column), Some(view)) = (column, self.file_view.as_ref()) {
+                        let at = (view.plain.borrow().get(line))
+                            .map_or(0, |text| byte_of_column(text, column));
+                        cx.emit(ReviewEvent::Caret(artoo_ui_kit::markdown::TextSel {
+                            note: crate::file_view::selects_as(&view.path).into(),
+                            anchor: (line, at),
+                            head: (line, at),
+                            texts: view.plain.clone(),
+                        }));
+                    }
                     cx.emit(ReviewEvent::Changed);
                     return Typed::Leave;
                 }
@@ -264,10 +374,11 @@ impl Review {
                 return Typed::Leave;
             }
             _ if k.len() == 1
-                && k.as_bytes()[0].is_ascii_digit()
+                && (k.as_bytes()[0].is_ascii_digit()
+                    || (k == ":" && !typed.is_empty() && !typed.contains(':')))
                 && !key.modifiers.platform
                 && !key.modifiers.control
-                && typed.len() < 7 =>
+                && typed.len() < 14 =>
             {
                 typed.push_str(k)
             }
@@ -309,6 +420,31 @@ impl Review {
                 .child(keys::caps("↵", keys::On::Plain)),
         )
     }
+}
+
+/// `Line`'s text read as a 1-based line and, after a `:`, a 1-based column: `42`, `42:7`; `42:` is the line.
+fn line_and_column(typed: &str) -> Option<(usize, Option<usize>)> {
+    let (line, column) = match typed.split_once(':') {
+        Some((line, "")) => (line, None),
+        Some((line, column)) => (line, Some(column.parse::<usize>().ok().filter(|&c| c > 0)?)),
+        None => (typed, None),
+    };
+    let line = line.parse::<usize>().ok().filter(|&n| n > 0)?;
+    Some((line, column))
+}
+
+/// The byte before the 1-based `column`th character of `text`; past its end, its end.
+fn byte_of_column(text: &str, column: usize) -> usize {
+    text.char_indices()
+        .nth(column - 1)
+        .map_or(text.len(), |(at, _)| at)
+}
+
+/// How tall the peek's card is with its gaps (`peek_card`), in the kit's points: its head, a row a declaration (or
+/// the one saying there is none yet), its foot.
+pub fn peek_height(peek: &Peek) -> f32 {
+    let rows = peek.found.as_ref().map_or(1, |f| f.len().max(1));
+    8. + 2. + 30. + 28. * rows as f32 + 28.
 }
 
 /// The peek's card under its line, `left` in from the row's start: `By name · 3`, the declarations, the keys.
@@ -380,8 +516,10 @@ pub fn peek_card(look: &PeekLook, left: f32, this: WeakEntity<Review>) -> AnyEle
                     .child(d.text.clone()),
             )
             .child(div().flex_none().text_color(theme::faint()).child(dir))
-            .on_click(move |_, _, cx| {
-                open.update(cx, |rv, cx| rv.open_declared(ix, cx)).ok();
+            .on_click(move |ev, _, cx| {
+                let keep = ev.modifiers().platform;
+                open.update(cx, |rv, cx| rv.open_declared(ix, keep, cx))
+                    .ok();
             })
     });
     let empty = match &look.found {
@@ -399,6 +537,7 @@ pub fn peek_card(look: &PeekLook, left: f32, this: WeakEntity<Review>) -> AnyEle
         .border_color(theme::island_border())
         .text_color(theme::faint())
         .child(hint("↵", "open"))
+        .child(hint("⌘↵", "new tab"))
         .child(hint("⇧F12", "search the word"))
         .child(div().flex_1())
         .child(keys::caps("esc", keys::On::Plain));
@@ -489,7 +628,20 @@ pub fn line_input(review: Entity<Review>) -> Input {
 
 #[cfg(test)]
 mod tests {
-    use super::up_to_date;
+    use super::{byte_of_column, line_and_column, up_to_date};
+
+    #[test]
+    fn line_reads_a_line_and_a_column() {
+        assert_eq!(line_and_column("42"), Some((42, None)));
+        assert_eq!(line_and_column("42:7"), Some((42, Some(7))));
+        assert_eq!(line_and_column("42:"), Some((42, None)));
+        assert_eq!(line_and_column("0"), None);
+        assert_eq!(line_and_column("42:0"), None);
+        assert_eq!(line_and_column(":7"), None);
+        assert_eq!(byte_of_column("    val é = 1", 5), 4);
+        assert_eq!(byte_of_column("val é = 1", 6), 6);
+        assert_eq!(byte_of_column("val", 9), 3);
+    }
     use artoo_core::symbols::Names;
 
     /// What going to a name costs on this repository (#207: 40 ms and 3.5 MB measured): its names are read from its

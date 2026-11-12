@@ -700,6 +700,10 @@ impl artoo_review_api::Review for Handle {
         self.with(cx, |rv, _| rv.open_file_line())
     }
 
+    fn cmd_held(&self, held: bool, cx: &mut App) {
+        self.with(cx, |rv, cx| rv.cmd_held(held, cx))
+    }
+
     fn selected_lines(&self, cx: &App) -> Option<(bool, u32, u32)> {
         self.read(cx, |rv, _| rv.selected_lines())
     }

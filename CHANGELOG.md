@@ -37,11 +37,13 @@ for someone using the app, not for someone reading the code; the commits follow 
   called `2 commits` in the path, and a branch's remote reads `origin · in sync`.
 - **Code goes from a name to where it is declared, to a line, and says where you are.** ⌘-click a name, or put the
   caret on it and press F12: a card opens under the line, `By name · 3`, the declaration in this file first and then
-  the others, `LoginState.kt:3` with its line and folder; ↑ ↓ ↵ open one, ⇧F12 searches the word in the repository. A
-  name declared once elsewhere opens straight away. There is no language server: the repository's declarations are
-  read by their keyword (`fun`, `class`, `struct` …) the first time you ask, and a file you or an agent changed since
-  is read again at the next ask — Java's methods, which no keyword declares, are not found. ⌃G (or a click on the
-  file's `N lines`) puts `Line` in the file's head; ↵ goes there. Over the code, a line names the declarations you are
+  the others, `LoginState.kt:3` with its line and folder, the name underlined in the accent; ↑ ↓ ↵ open one in the
+  preview tab, ⌘↵ in a tab of its own, ⇧F12 searches the word in the repository. A card opened at the window's foot
+  scrolls into view. Holding ⌘ underlines a name under the pointer that is declared somewhere. A name declared once
+  elsewhere opens straight away. There is no language server: the repository's declarations are read by their keyword
+  (`fun`, `class`, `enum class`, `struct` …) the first time you ask, and a file you or an agent changed since is read
+  again at the next ask — Java's methods, which no keyword declares, are not found. ⌃G (or a click on the file's
+  `N lines`) puts `Line` in the file's head; ↵ goes there, `42:7` to its seventh character with the caret. Over the code, a line names the declarations you are
   inside — `class LoginViewModel › fun submit` —, and a click goes to one.
 - **Code finds in the file you read, and the repository has a search.** ⌘F on a file in Code opens a find bar under
   its head — `amount`, `.*`, `1 of 2`, ↑ ↓ × — with the hits tinted in the lines and the current one filled. A minimap
@@ -51,7 +53,7 @@ for someone using the app, not for someone reading the code; the commits follow 
   opens `Search in payments-service`, a window on the right with its icon first on the stripe: every file of the
   repository, `capture · 37 in 4 files · working tree`, the lines grouped by file — a file's head folds them —, each
   in its colours with every hit on it marked. ↑ ↓ ↵ or a click open a line in the diff when it changes that file, else
-  in Code at its line, and the window stays for the next one; closed and opened again, it has your words and what it
+  in Code at its line, in the preview tab, and the window stays for the next one; closed and opened again, it has your words and what it
   found. It reads nothing as it opens and searches while you type, in the background, hits coming in as they are found
   (`Searching… 240 of 587 files`); typing on narrows the last search, so a large repository stays quick.
 - **A setting changes where it annoys you.** Right-click a button in the title bar — a plugin's too — and `Hide` it;

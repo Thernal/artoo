@@ -132,6 +132,10 @@ pub struct Review {
     /// The repository's names, read once at the first peek, for the folder they were read in; and their read.
     pub names: Option<(PathBuf, Arc<artoo_core::symbols::Names>)>,
     pub names_reading: Option<Task<()>>,
+    /// The name under the pointer in Code's file: its line (0-based) and bytes; and whether ⌘ is held, which
+    /// underlines it (#207).
+    pub pointed: Option<(usize, std::ops::Range<usize>)>,
+    pub cmd: bool,
     /// How many columns a tab is in this project (`.editorconfig`, #205).
     pub tab: usize,
     /// Each commit's files by their fingerprints, read when its row asks how much of it you viewed (#209).
@@ -250,6 +254,8 @@ impl Review {
             matches: Vec::new(),
             file_matches: Vec::new(),
             peek: None,
+            pointed: None,
+            cmd: false,
             names: None,
             names_reading: None,
             tab: 4,

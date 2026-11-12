@@ -9,8 +9,8 @@ use artoo_ui_kit::{ROW_RADIUS, format, icons, keys, px, theme};
 use git2::Oid;
 use gpui::{
     AnyElement, App, Bounds, ClickEvent, Context, Entity, FontStyle, HighlightStyle, Hsla,
-    ListAlignment, ListState, Pixels, SharedString, StyledText, Task, WeakEntity, div, img, list,
-    point, prelude::*, size,
+    ListAlignment, ListState, Pixels, SharedString, StyledText, Task, UnderlineStyle, WeakEntity,
+    div, img, list, point, prelude::*, size,
 };
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -890,6 +890,18 @@ impl Review {
             self.peek.as_ref().map(|p| p.line),
         ));
         let peek = (self.peek.as_ref()).map(|p| Rc::new(crate::names::PeekLook::of(p, &view.path)));
+        // The name underlined: the peek's, in the accent, or the one under the pointer while ⌘ is held (#207).
+        let underlined = self.underlined();
+        // A peek opened (or filled) under a line at the window's foot: how far it reaches past it, read from where
+        // its line was drawn, before the rows change.
+        let reveal_by = self.peek.as_ref().filter(|p| p.reveal.get()).and_then(|p| {
+            let shown = view.shown.borrow();
+            let ix = (shown.iter()).position(|r| matches!(r, Row::Line(n) if *n == p.line))?;
+            let line = view.list.bounds_for_item(ix)?;
+            p.reveal.set(false);
+            let card = px(crate::names::peek_height(p));
+            Some(line.bottom() + card - view.list.viewport_bounds().bottom())
+        });
         let target = self.file_target;
         *view.shown.borrow_mut() = rows.clone();
         let (terms, current) = (
@@ -901,6 +913,13 @@ impl Review {
             let top = view.list.logical_scroll_top();
             view.list.reset(rows.len());
             view.list.scroll_to(top);
+        }
+        if let Some(by) = reveal_by.filter(|by| *by > gpui::px(0.)) {
+            let top = view.list.logical_scroll_top();
+            view.list.scroll_to(gpui::ListOffset {
+                item_ix: top.item_ix,
+                offset_in_item: top.offset_in_item + by,
+            });
         }
         let text = view.text.clone();
         // Its lines select as one text, across rows (#93).
@@ -932,7 +951,12 @@ impl Review {
             // The find's hits tinted, the current line's filled (#206).
             let found = terms.ranges(line);
             let strong = current == Some(n);
-            let highlights = artoo_core::rows::runs(line, spans, &[], &found, None)
+            let name = underlined.as_ref().filter(|(at, ..)| *at == n);
+            let marks: Vec<_> = name
+                .map(|(_, range, _)| range.clone())
+                .into_iter()
+                .collect();
+            let highlights = artoo_core::rows::runs(line, spans, &marks, &found, None)
                 .into_iter()
                 .filter(|r| r.range.end <= line.len())
                 .map(|run| {
@@ -954,6 +978,22 @@ impl Review {
                         },
                         _ => style,
                     };
+                    let style = match name {
+                        Some((_, _, peeked)) if run.marked => HighlightStyle {
+                            color: if *peeked {
+                                Some(theme::accent().into())
+                            } else {
+                                style.color
+                            },
+                            underline: Some(UnderlineStyle {
+                                thickness: px(1.),
+                                color: None,
+                                wavy: false,
+                            }),
+                            ..style
+                        },
+                        _ => style,
+                    };
                     (run.range, style)
                 })
                 .collect::<Vec<_>>();
@@ -961,8 +1001,14 @@ impl Review {
             let comment = host.clone();
             let styled = StyledText::new(line.clone()).with_highlights(highlights);
             let layout = styled.layout().clone();
-            // ⌘-click on a name: its declarations (#207).
+            // ⌘-click on a name: its declarations; the pointer over one, underlined while ⌘ is held (#207).
             let (by_name, at_layout, name_note) = (this.clone(), layout.clone(), note.clone());
+            let (point_at, point_layout, point_left) = (this.clone(), layout.clone(), this.clone());
+            // The caret in this line, where F12 reads a name: a click's, or `Line`'s column.
+            let caret = (sel.current.as_ref())
+                .filter(|s| s.note == note && s.anchor == s.head && s.head.0 == n)
+                .map(|s| s.head.1);
+            let caret_layout = layout.clone();
             let plus = host.clone();
             // In the code's font and size on each row: the list's own reach none of its rows.
             div()
@@ -1025,6 +1071,8 @@ impl Review {
                 )
                 .child(
                     div()
+                        .id(("file-text", n))
+                        .relative()
                         .flex_1()
                         .pl_2()
                         .whitespace_nowrap()
@@ -1036,6 +1084,16 @@ impl Review {
                             let at = artoo_ui_kit::input::nearest_index(&at_layout, ev.position);
                             (by_name.update(cx, |rv, cx| rv.peek_name(&name_note, n, at, cx))).ok();
                         })
+                        .on_mouse_move(move |ev, _, cx| {
+                            let at = point_layout.index_for_position(ev.position).ok();
+                            let cmd = ev.modifiers.platform;
+                            (point_at.update(cx, |rv, cx| rv.point_name(n, at, cmd, cx))).ok();
+                        })
+                        .on_hover(move |hovered, _, cx| {
+                            if !*hovered {
+                                (point_left.update(cx, |rv, cx| rv.left_name(n, cx))).ok();
+                            }
+                        })
                         .child(markdown::line_block(
                             styled.into_any_element(),
                             layout,
@@ -1043,7 +1101,25 @@ impl Review {
                             n,
                             plain.clone(),
                             sel.clone(),
-                        )),
+                        ))
+                        .children(caret.map(|at| {
+                            gpui::canvas(
+                                |_, _, _| (),
+                                move |_, _, window, _| {
+                                    if let Some(p) = caret_layout.position_for_index(at) {
+                                        let h = caret_layout.line_height();
+                                        window.paint_quad(gpui::fill(
+                                            Bounds::new(p, gpui::size(px(2.), h)),
+                                            theme::accent(),
+                                        ));
+                                    }
+                                },
+                            )
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .size_full()
+                        })),
                 )
                 .into_any_element()
         })

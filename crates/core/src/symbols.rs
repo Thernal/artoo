@@ -59,6 +59,9 @@ const MODIFIERS: &[&str] = &[
     "suspend",
     "data",
     "sealed",
+    "inner",
+    "value",
+    "annotation",
     "inline",
     "extern",
     "@objc",
@@ -73,6 +76,10 @@ pub fn declaration(line: &str) -> Option<(&'static str, String)> {
     }
     let kind = *KINDS.iter().find(|k| Some(**k) == words.peek().copied())?;
     words.next();
+    // Kotlin's `enum class Name`: the class is the enum's.
+    if kind == "enum" && words.peek() == Some(&"class") {
+        words.next();
+    }
     let name: String = words
         .next()?
         .chars()
@@ -169,6 +176,11 @@ pub fn scopes_at(scopes: &[Scope], line: u32) -> Vec<&Scope> {
 
 /// The name around byte `at` of `line`: letters, digits and `_`.
 pub fn word_at(line: &str, at: usize) -> Option<&str> {
+    word_range(line, at).map(|r| &line[r])
+}
+
+/// Where the name around byte `at` of `line` is, as `word_at` reads it.
+pub fn word_range(line: &str, at: usize) -> Option<std::ops::Range<usize>> {
     let word = |c: char| c.is_alphanumeric() || c == '_';
     let at = at.min(line.len());
     let start = line[..at]
@@ -182,7 +194,7 @@ pub fn word_at(line: &str, at: usize) -> Option<&str> {
         .find(|(_, c)| !word(*c))
         .map_or(line.len(), |(i, _)| at + i);
     let name = &line[start..end];
-    (!name.is_empty() && !name.starts_with(|c: char| c.is_ascii_digit())).then_some(name)
+    (!name.is_empty() && !name.starts_with(|c: char| c.is_ascii_digit())).then_some(start..end)
 }
 
 /// Where a name is declared (#207): a file, its line, the keyword and the line's text.
@@ -292,6 +304,11 @@ impl Names {
                 .then(a.line.cmp(&b.line))
         });
         found
+    }
+
+    /// Whether `name` is declared anywhere.
+    pub fn declares(&self, name: &str) -> bool {
+        self.by.contains_key(name)
     }
 
     /// How many names it holds.
@@ -486,6 +503,14 @@ mod tests {
             Some(("class", "Foo".into()))
         );
         assert_eq!(declaration("def retry(n):"), Some(("def", "retry".into())));
+        assert_eq!(
+            declaration("enum class LoginState { IDLE }"),
+            Some(("enum", "LoginState".into()))
+        );
+        assert_eq!(
+            declaration("    inner class Holder"),
+            Some(("class", "Holder".into()))
+        );
         assert_eq!(declaration("let fn_count = 1;"), None);
         assert_eq!(declaration("// fn commented()"), None);
     }

@@ -51,18 +51,28 @@ impl Workspace {
             self.jump_to_line(&found.path, found.line, found.old, cx);
             return;
         }
-        self.open_in_code(found.path, found.line, cx);
+        self.open_in_code(found.path, found.line, true, cx);
         self.set_dfind(found.query, cx);
     }
 
-    /// Line `line` of `path` in Code: revealed when the file is the one read, else read there (#206, #207).
-    pub(super) fn open_in_code(&mut self, path: String, line: u32, cx: &mut Context<Self>) {
+    /// Line `line` of `path` in Code: revealed when the file is the one read, else read there — in the preview tab
+    /// the next file opened replaces (`preview`), or in one of its own (#206, #207).
+    pub(super) fn open_in_code(
+        &mut self,
+        path: String,
+        line: u32,
+        preview: bool,
+        cx: &mut Context<Self>,
+    ) {
         let shown = self.rv().file_read(cx).map(|v| v.path);
         if shown.as_deref() == Some(path.as_str()) && self.code_file_shown(cx) {
+            if !preview && let Some(code) = self.code() {
+                code.place_tab(&path, false, cx);
+            }
             self.reveal_file_line(line, cx);
         } else {
             self.file_jump = Some((path.clone(), line));
-            self.open_file_view(path, cx);
+            self.open_code_file(path, preview, cx);
         }
     }
 
