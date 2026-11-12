@@ -365,12 +365,17 @@ impl AgentsWindow {
         // A folder's note by the folder, with its slash (#97); a plugin's place by its words (#212).
         let place = c.reads();
         let last = c.replies.last();
-        let when = last.map(|r| r.at).filter(|&at| at > 0);
+        // The agent's last word, else when you wrote it (#201).
+        let when = last.map(|r| r.at).or(Some(c.written)).filter(|&at| at > 0);
         let theirs = last.is_some();
         let words = last.map_or(c.body.as_str(), |r| r.body.as_str());
         let room = self.widths.room("agents");
         let chat = c.sent.as_ref().filter(|s| !s.session.is_empty());
         let whole = c.reads_whole();
+        // Your answer to its question, picked and not sent yet: it goes with the next send (#201).
+        let mine = (c.answer.as_ref())
+            .map(|a| a.gist(last.and_then(|r| r.form.as_ref())))
+            .filter(|g| !g.is_empty());
         // The tip holds what the row does not: where in full, your note under the agent's words, the chat.
         let mut tip = vec![whole];
         if theirs {
@@ -486,6 +491,23 @@ impl AgentsWindow {
                             .clamp_in_tip(2)
                             .child(format::one_line(words, rich)),
                     )
+                    // Your answer picked and not sent yet, under the agent's question (#201).
+                    .children(mine.map(|mine| {
+                        div()
+                            .flex()
+                            .gap(px(4.))
+                            .text_size(px(11.))
+                            .text_color(theme::muted())
+                            .child(div().flex_none().child("Your answer:"))
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .cut_in_tip()
+                                    .font_weight(gpui::FontWeight::MEDIUM)
+                                    .text_color(theme::text())
+                                    .child(mine),
+                            )
+                    }))
                     .child(
                         div()
                             .flex()

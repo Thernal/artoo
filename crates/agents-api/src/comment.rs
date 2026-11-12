@@ -24,6 +24,10 @@ pub struct Comment {
     pub body: String,
     /// Where it was written: a commit or a version range, for the reader of the export.
     pub at: String,
+    /// When it was written, seconds since the epoch (#201): its row says how long ago before the agent answers. 0
+    /// for one written before it was kept.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub written: i64,
     /// The commit its line was read from, so the line can be followed when it changes (#46).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit: Option<String>,
@@ -56,6 +60,10 @@ pub struct Comment {
     /// own kind, `line`: the file, line and code above, which are empty for a plugin's place.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on: Option<On>,
+}
+
+fn is_zero(n: &i64) -> bool {
+    *n == 0
 }
 
 /// The kind of the app's own place: a file, a line, the code on it (#212).
@@ -164,6 +172,32 @@ pub struct Answered {
 }
 
 impl Answered {
+    /// The answer short, as its row says it under the question (#201, `Your answer: From the toast`): what was
+    /// picked, one's own value, your call, else the note's first line.
+    pub fn gist(&self, form: Option<&Form>) -> String {
+        if self.your_call {
+            return "Your call".to_owned();
+        }
+        if !self.value.trim().is_empty() {
+            return self.value.trim().to_owned();
+        }
+        let picked: Vec<String> = form.map_or_else(Vec::new, |form| {
+            let choices = form.choices();
+            (self.picks.iter())
+                .filter_map(|&i| choices.get(i).map(|c| c.label.clone()))
+                .collect()
+        });
+        match form.map(|f| f.kind) {
+            _ if picked.is_empty() => (self.note.lines())
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or("")
+                .trim()
+                .to_owned(),
+            Some(FormKind::Order) => picked.join(" → "),
+            _ => picked.join("; "),
+        }
+    }
+
     /// The answer in words, for the agent: what was picked, then the note.
     pub fn words(&self, form: Option<&Form>) -> String {
         let mut parts = Vec::new();
@@ -417,6 +451,35 @@ pub fn export(repo: &str, comments: &[(Comment, Place)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_answer_is_said_short_under_its_question() {
+        let form = Form {
+            kind: FormKind::One,
+            options: ["From the toast", "From the form"]
+                .map(|l| FormOption {
+                    label: l.to_owned(),
+                    ..Default::default()
+                })
+                .to_vec(),
+        };
+        let picked = Answered {
+            picks: vec![0],
+            note: "and keep the form".into(),
+            ..Default::default()
+        };
+        assert_eq!(picked.gist(Some(&form)), "From the toast");
+        let call = Answered {
+            your_call: true,
+            ..Default::default()
+        };
+        assert_eq!(call.gist(Some(&form)), "Your call");
+        let note = Answered {
+            note: "\nNeither: retry on its own.\nThen a toast.".into(),
+            ..Default::default()
+        };
+        assert_eq!(note.gist(Some(&form)), "Neither: retry on its own.");
+    }
 
     fn comment(line: u32, code: &str) -> Comment {
         Comment {

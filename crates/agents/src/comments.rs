@@ -143,6 +143,10 @@ impl AgentComments {
     /// `comment` added to the drafts as the next one; its id. Not saved.
     pub fn add(&mut self, mut comment: Comment) -> u64 {
         comment.id = next_id(&self.list);
+        // When it was written, for its row before the agent answers (#201).
+        if comment.written == 0 {
+            comment.written = artoo_agents_api::bus::now();
+        }
         let id = comment.id;
         self.list.push(comment);
         id
@@ -425,6 +429,18 @@ mod tests {
         );
         assert!(c.answer_value(7, ""));
         assert!(!c.answer_note(8, "x"), "no such comment");
+    }
+
+    #[test]
+    fn a_comment_keeps_when_it_was_written() {
+        let mut c = AgentComments::default();
+        c.add(Comment::default());
+        c.add(Comment {
+            written: 5,
+            ..Default::default()
+        });
+        assert!(c.list[0].written >= artoo_agents_api::bus::now() - 5);
+        assert_eq!(c.list[1].written, 5, "one brought back keeps its own");
     }
 
     #[test]
