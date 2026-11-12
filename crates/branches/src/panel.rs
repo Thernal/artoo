@@ -149,7 +149,7 @@ impl Render for Panel {
         }
 
         if shows.commits {
-            fill_viewed(&self.history, &services, cx);
+            fill_viewed(&self.history, &services, false, cx);
             let h = self.history.read(cx);
             let field = (h.commits_drawn() && h.find.text.is_some()).then(|| {
                 let active = frame.typing(cx) == Some(crate::find::INPUT);
@@ -205,16 +205,46 @@ impl Render for Panel {
     }
 }
 
+/// The rows above the first in view whose counts are read, and a quarter of all those read.
+const AROUND: usize = 20;
+
+/// The commits of `len` whose counts are read with row `top` the first in view: a screen's worth around it.
+fn counted(top: usize, len: usize) -> std::ops::Range<usize> {
+    let from = top.saturating_sub(AROUND).min(len);
+    from..(from + AROUND * 4).min(len)
+}
+
 /// How much of each of the history's commits you viewed, asked of the review (`Review` in the tab's `services`) for
-/// their rows (#209): the newest 120, read forty at a time.
-pub fn fill_viewed(history: &Entity<History>, services: &artoo_shell_api::Services, cx: &mut App) {
+/// their rows (#209), read forty at a time: in the side panel's list those in view and a screen's worth around them,
+/// however far down it is scrolled; on the Commits page, which draws every row, `all` of them.
+pub fn fill_viewed(
+    history: &Entity<History>,
+    services: &artoo_shell_api::Services,
+    all: bool,
+    cx: &mut App,
+) {
     let Some(review) = services.get::<Rc<dyn artoo_review_api::Review>>() else {
         return;
     };
-    let ids: Vec<git2::Oid> = (history.read(cx).commits.iter())
-        .take(120)
-        .map(|c| c.id)
-        .collect();
+    let h = history.read(cx);
+    // The first row in view: how far the list is scrolled, over the height of a row as it drew them last.
+    let top = {
+        let scroll = h.commit_scroll.0.borrow();
+        let row = (scroll.last_item_size).map_or(0., |s| {
+            f32::from(s.contents.height) / h.commits.len().max(1) as f32
+        });
+        let down = -f32::from(scroll.base_handle.offset().y);
+        if row > 0. {
+            (down / row).max(0.) as usize
+        } else {
+            0
+        }
+    };
+    let rows = match all {
+        true => 0..h.commits.len(),
+        false => counted(top, h.commits.len()),
+    };
+    let ids: Vec<git2::Oid> = h.commits[rows].iter().map(|c| c.id).collect();
     let viewed = review.commit_viewed(&ids, cx);
     let viewed = (ids.into_iter().zip(viewed))
         .filter_map(|(id, v)| Some((id, v?)))
@@ -453,5 +483,19 @@ impl History {
                 }))
                 .into_any_element(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::counted;
+
+    #[test]
+    fn the_rows_counted_follow_the_list_however_far_it_scrolls() {
+        assert_eq!(counted(0, 500), 0..80);
+        assert_eq!(counted(300, 500), 280..360);
+        assert_eq!(counted(490, 500), 470..500);
+        assert_eq!(counted(0, 12), 0..12);
+        assert_eq!(counted(40, 12), 12..12);
     }
 }

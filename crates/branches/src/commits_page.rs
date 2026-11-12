@@ -46,7 +46,7 @@ impl Render for BranchCommits {
         let line = crate::facts::line_of(&self.history, &services, route, cx)
             .unwrap_or_else(|| div().into_any_element());
         let acts = services.get::<Acts>().unwrap_or_else(|| Rc::new(|_, _| {}));
-        crate::panel::fill_viewed(&self.history, &services, cx);
+        crate::panel::fill_viewed(&self.history, &services, true, cx);
         let commits = self
             .history
             .update(cx, |h, cx| h.commits_page(false, &acts, cx));
