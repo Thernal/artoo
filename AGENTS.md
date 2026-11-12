@@ -37,6 +37,10 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   survives commits that leave the file alone and a changed file is `State::Stale`, `↻` beside its name. A commit row's
   `1 of 3` / `✓ viewed` is `Review::commit_viewed`: each commit's files fingerprinted in the background, counted
   against every mark of the repository, again only when `Store::generation` moves (`panel::fill_viewed`).
+- **What a project lacks** (#210, `src/ui/spaces.rs`): `Workspace::missing` says what a space needs that the project
+  has not (git, a remote, a token). Git and a remote are no longer a menu row's grey line: the space opens and
+  `missing_page` fills its middle, the bar showing its name alone (`render_page_bar`); a missing token keeps its line
+  and still opens Merge requests' sign-in.
 - **A Cargo workspace (#165).** The root package is the app (`src/main.rs`, `src/ui/`);
   `crates/plugin-sdk` (`artoo-plugin-sdk`, #175) is what a plugin builds against: one shared library holding GPUI, its
   platform, the core, the kit and every contract, which the app links (`extern crate` in `main.rs`) so each is once in

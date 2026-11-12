@@ -84,7 +84,7 @@ impl Workspace {
 
     fn missing(&self, space: Space, cx: &App) -> Option<Missing> {
         match space {
-            BRANCHES if self.plain => Some(Missing::Git),
+            BRANCHES | INBOX | REQUESTS if self.plain => Some(Missing::Git),
             INBOX | REQUESTS if self.requests_available(cx) => None,
             INBOX | REQUESTS if self.requests_api().is_some_and(|r| r.connectable(cx)) => {
                 Some(Missing::Token)
@@ -241,15 +241,47 @@ impl Workspace {
 
     /// A space's row or ⌃⌘1…4: the page it was left on, its root when it is already on screen.
     /// One the project lacks a token for opens the connect panel; one it lacks a remote or git
-    /// for does nothing.
+    /// for opens too, and says so in its middle (#210).
     pub(super) fn go_space(&mut self, space: Space, cx: &mut Context<Self>) {
         let offered = spaces::all(cx).iter().any(|s| s.space == space);
         match self.missing(space, cx) {
             _ if self.root.is_none() || !offered => {}
-            Some(Missing::Remote | Missing::Git) => {}
             Some(Missing::Token) => self.show(REQUESTS, None, cx),
-            None => self.enter_space(space, cx),
+            Some(Missing::Remote | Missing::Git) | None => self.enter_space(space, cx),
         }
+    }
+
+    /// What a space says in its middle when the project lacks what it needs (#210): a plain folder's Inbox, Branches
+    /// and Merge requests `Not a git repository`, a repository without a remote's Inbox and Merge requests `No
+    /// remote`, each with what is missing under it, once. No button: the agent does the setup.
+    pub(super) fn missing_page(&self, space: Space, cx: &App) -> Option<gpui::Div> {
+        let name = (self.root.as_ref())
+            .and_then(|r| r.file_name())
+            .map_or_else(
+                || "This folder".to_owned(),
+                |n| n.to_string_lossy().into_owned(),
+            );
+        let (icon, title, text) = match (space, self.missing(space, cx)?) {
+            (_, Missing::Token) => return None,
+            (_, Missing::Git) => (
+                "branch",
+                "Not a git repository",
+                format!("{name} has no .git folder"),
+            ),
+            (INBOX, Missing::Remote) => (
+                "inbox",
+                "No remote",
+                format!("Its news comes from a GitLab or GitHub remote; {name} has none"),
+            ),
+            (_, Missing::Remote) => (
+                "pull-request",
+                "No remote",
+                format!("Merge requests need a GitLab or GitHub remote; {name} has none"),
+            ),
+        };
+        Some(artoo_ui_kit::island().flex_1().bg(theme::editor()).child(
+            artoo_ui_kit::controls::empty_state(icon, title.to_owned(), text, None),
+        ))
     }
 
     /// The menu; None without a repository and in zen.
@@ -303,8 +335,9 @@ impl Workspace {
                 label: info.label,
                 icon: info.icon,
                 key,
-                missing: missing.map(Missing::line),
-                inert: missing == Some(Missing::Remote),
+                // Only a token to connect is said under a space: what the project lacks, its page says (#210).
+                missing: missing.filter(|m| *m == Missing::Token).map(Missing::line),
+                inert: false,
                 waiting: self.waiting(space, cx),
                 shut: self.nav.folded.contains(&space),
                 opens,

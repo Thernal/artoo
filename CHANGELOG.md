@@ -6,6 +6,10 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **A plain folder and a repository with no remote: every page opens and says what is missing.** The menu no longer
+  greys Inbox, Branches and Merge requests or writes under them; each opens like any page. A plain folder's pages say
+  `Not a git repository`, `notes has no .git folder`; a repository with no remote says `No remote` once, on Merge
+  requests and on the Inbox, with what they need it for. The bar over such a page is its name alone.
 - **Branches: a Viewed box on every file, kept while an agent commits.** A commit's, a branch's and the working
   tree's files each have a `☐ Viewed` box on their card instead of Mark reviewed; a tick folds the card to its head,
   and the list over them counts `1 of 3 viewed` (⌥⇧V still ticks them all). A tick stays while commits leave the file

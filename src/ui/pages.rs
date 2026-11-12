@@ -10,6 +10,8 @@ use gpui::{AnyElement, Context, div, prelude::*};
 impl Workspace {
     pub(super) fn render_space(&self, cx: &mut Context<Self>) -> AnyElement {
         let body = match (self.nav.space, self.nav_page()) {
+            // What the project lacks for the space, in its middle (#210).
+            (space, _) if let Some(missing) = self.missing_page(space, cx) => missing,
             // A page a feature draws: the Inbox, Code's tree beside its folder page or a file's tabs
             // (#75), the lists of Branches and Merge requests.
             (space, page) if let Some(pages) = self.pages_drawing(space, page) => {

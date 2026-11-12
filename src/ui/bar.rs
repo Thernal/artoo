@@ -46,7 +46,11 @@ impl Workspace {
             .then(|| path.last().map(|c| c.to.clone()))
             .flatten();
         let path = if self.compact() { Vec::new() } else { path };
-        let count = count.or_else(|| self.count_of(space, cx));
+        // A space the project lacks git or a remote for is its name alone; its middle says what is missing (#210).
+        let lacking = self.missing_page(space, cx).is_some();
+        let count = count
+            .or_else(|| self.count_of(space, cx))
+            .filter(|_| !lacking);
         let public = space == REQUESTS && page.is_some();
         // Narrow, ‹ is one level up; ⌘[ and the title bar still go back (#80).
         let from = self.nav.from.filter(|_| page.is_some() && !self.compact());
@@ -95,8 +99,12 @@ impl Workspace {
                 title: title(words::say(&name).into_owned(), called, mono, hover),
                 count,
                 lead: self.lead_of(page.as_ref(), cx),
-                view: self.view_of(space, page.as_ref(), cx),
-                actions: self.actions_of(space, page.as_ref(), cx),
+                view: self.view_of(space, page.as_ref(), cx).filter(|_| !lacking),
+                actions: if lacking {
+                    Vec::new()
+                } else {
+                    self.actions_of(space, page.as_ref(), cx)
+                },
                 more: self.more_of(page.as_ref(), cx),
                 room: self.bar_room.clone(),
                 public,
