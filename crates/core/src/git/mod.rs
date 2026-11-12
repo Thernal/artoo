@@ -927,6 +927,18 @@ impl Repo {
                 tag: false,
             })
             .collect();
+        out.extend(self.tags()?.into_iter().map(|(name, tip)| NamedRef {
+            name,
+            tip,
+            tag: true,
+            stale: None,
+        }));
+        Ok(out)
+    }
+
+    /// The tags, each with the commit it marks, in git's order (by name).
+    pub fn tags(&self) -> Result<Vec<(String, Oid)>> {
+        let mut out = Vec::new();
         for name in self.inner.tag_names(None)?.iter().flatten().flatten() {
             let tip = self
                 .inner
@@ -934,12 +946,7 @@ impl Repo {
                 .and_then(|o| o.peel_to_commit())
                 .map(|c| c.id());
             if let Ok(tip) = tip {
-                out.push(NamedRef {
-                    name: name.to_owned(),
-                    tip,
-                    tag: true,
-                    stale: None,
-                });
+                out.push((name.to_owned(), tip));
             }
         }
         Ok(out)

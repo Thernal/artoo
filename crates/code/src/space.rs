@@ -224,6 +224,8 @@ pub struct CodeSpace {
     shown: Option<Page>,
     host: Rc<dyn Host>,
     frame: Rc<dyn Frame>,
+    /// Where the revision chip was drawn: its list drops from there (#208).
+    chip_at: Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
 }
 
 impl CodeSpace {
@@ -235,6 +237,7 @@ impl CodeSpace {
             shown: None,
             host,
             frame,
+            chip_at: Rc::default(),
         }
     }
 
@@ -303,7 +306,7 @@ impl CodeSpace {
     }
 
     /// The repository's branches, as the tab's branches read them.
-    fn branches(&self, cx: &App) -> Arc<Vec<BranchRef>> {
+    pub(crate) fn branches(&self, cx: &App) -> Arc<Vec<BranchRef>> {
         (self.frame.services().get::<Rc<dyn Branches>>())
             .map(|b| b.list(cx))
             .unwrap_or_default()
@@ -793,6 +796,11 @@ impl CodeSpace {
         self.root.as_deref()
     }
 
+    /// The revision Code reads, by the name it was picked by; None the working tree.
+    pub(crate) fn revision(&self) -> Option<&(String, Oid)> {
+        self.code.rev.as_ref()
+    }
+
     /// What the chip says Code reads: the working tree, or the branch or commit picked.
     fn revision_label(&self) -> String {
         match (&self.code.rev, self.plain) {
@@ -1031,6 +1039,7 @@ impl CodeSpace {
         let elsewhere = self.code.rev.is_some() && !self.plain;
         div()
             .id("code-revision")
+            .relative()
             .flex_none()
             .flex()
             .items_center()
@@ -1051,9 +1060,7 @@ impl CodeSpace {
                     .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
                     .on_mouse_down(
                         MouseButton::Left,
-                        cx.listener(|this, e: &MouseDownEvent, _, cx| {
-                            this.open_revision_menu(e.position, cx)
-                        }),
+                        cx.listener(|this, _: &MouseDownEvent, _, cx| this.open_revisions(cx)),
                     )
             })
             .child(label)
@@ -1063,6 +1070,12 @@ impl CodeSpace {
                         .size(px(12.))
                         .text_color(theme::faint()),
                 )
+            })
+            .child({
+                let at = self.chip_at.clone();
+                gpui::canvas(move |bounds, _, _| at.set(Some(bounds)), |_, _, _, _| {})
+                    .absolute()
+                    .size_full()
             })
             .when(elsewhere, |s| {
                 s.child(
@@ -1086,66 +1099,13 @@ impl CodeSpace {
             })
     }
 
-    /// The chip's menu (#208): the working tree, HEAD, the local branches, the remote ones, the tags, and a commit by
-    /// its id.
-    fn open_revision_menu(&mut self, at: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
-        let now = self.code.at();
-        let all = self.branches(cx);
-        let read_at = |label: String, rev: Option<(String, Oid)>| {
-            self.item(label, cx, move |c, cx| c.set_revision(rev.clone(), cx))
-        };
-        let mut entries = vec![read_at("Working tree".to_owned(), None).checked(now.is_none())];
-        if let Some(head) = all.iter().find(|b| b.is_head) {
-            entries.push(
-                read_at(
-                    format!("HEAD · {}", head.name),
-                    Some((head.name.clone(), head.tip)),
-                )
-                .checked(
-                    now == Some(head.tip)
-                        && self.code.rev.as_ref().is_some_and(|r| r.0 == head.name),
-                ),
-            );
+    /// The chip's list (#208, `revisions`), dropped from the chip: a field filtering the working tree, HEAD, the
+    /// branches, the remotes' and every tag, or naming a commit by its id.
+    fn open_revisions(&mut self, cx: &mut Context<Self>) {
+        match self.chip_at.get() {
+            Some(chip) => self.frame.search_under(crate::revisions::LIST, chip, cx),
+            None => self.frame.search(crate::revisions::LIST, cx),
         }
-        let branches: Vec<MenuItem> = all
-            .iter()
-            .filter(|b| b.kind == artoo_core::git::RefKind::Local && !b.is_head)
-            .map(|b| {
-                read_at(b.name.clone(), Some((b.name.clone(), b.tip)))
-                    .checked(self.code.rev.as_ref().is_some_and(|r| r.0 == b.name))
-            })
-            .collect();
-        let remotes: Vec<MenuItem> = all
-            .iter()
-            .filter(|b| b.kind == artoo_core::git::RefKind::Remote)
-            .map(|b| {
-                read_at(b.name.clone(), Some((b.name.clone(), b.tip)))
-                    .checked(self.code.rev.as_ref().is_some_and(|r| r.0 == b.name))
-            })
-            .collect();
-        // The tags, newest names last as git lists them; a long list keeps its last ones.
-        let tags: Vec<MenuItem> = (self.root.as_deref())
-            .and_then(|root| Repo::open(root).ok()?.compare_refs().ok())
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|r| r.tag)
-            .rev()
-            .take(12)
-            .map(|r| {
-                read_at(format!("tag {}", r.name), Some((r.name.clone(), r.tip)))
-                    .checked(self.code.rev.as_ref().is_some_and(|c| c.0 == r.name))
-            })
-            .collect();
-        let frame = self.frame.clone();
-        let by_id = vec![MenuItem::new("Commit id…", move |_, cx| {
-            frame.search(crate::revisions::LIST, cx)
-        })];
-        let groups = [entries, branches, remotes, tags, by_id];
-        self.frame.menu(
-            at,
-            groups.into_iter().filter(|g| !g.is_empty()).collect(),
-            cx,
-        );
     }
 
     /// Tab `key`'s menu: keep a preview, pin it, close it or others, copy its path, show it in Finder.

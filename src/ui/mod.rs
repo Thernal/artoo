@@ -1053,9 +1053,13 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         // The pointer resting at `x,y` (window points) long enough for a tooltip or a card (#53).
         // A click at a point of the window, after the keys: what only the mouse opens (an image whole, #211).
         // `x,y`, or several clicks one after another: `x,y;x,y` (a menu opened, then an item of it picked); `cmd:x,y`
-        // a ⌘-click (a name's declarations, #207).
+        // a ⌘-click (a name's declarations, #207); `right:x,y` a right click (a commit's menu, #208).
         let clicks = std::env::var("ARTOO_SNAPSHOT_CLICK").unwrap_or_default();
         for at in clicks.split(';').filter(|c| !c.trim().is_empty()) {
+            let (at, button) = match at.trim().strip_prefix("right:") {
+                Some(at) => (at, gpui::MouseButton::Right),
+                None => (at, gpui::MouseButton::Left),
+            };
             let (at, modifiers) = match at.trim().strip_prefix("cmd:") {
                 Some(at) => (
                     at,
@@ -1082,14 +1086,14 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                     modifiers: Default::default(),
                 }),
                 gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
-                    button: gpui::MouseButton::Left,
+                    button,
                     position,
                     modifiers,
                     click_count: 1,
                     first_mouse: false,
                 }),
                 gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
-                    button: gpui::MouseButton::Left,
+                    button,
                     position,
                     modifiers,
                     click_count: 1,

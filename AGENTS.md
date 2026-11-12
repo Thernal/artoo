@@ -43,8 +43,9 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   `note_sel`, `ReviewEvent::Caret`) before the seventh character, and a caret in the file's lines is drawn. The
   scope line over the lines comes from `symbols::scopes`, computed as the file is read.
 - **The revision Code reads, and the main line's page** (#208): the tree's chip (`render_revision_chip` in
-  `crates/code/src/space.rs`) opens a menu of the working tree, HEAD, branches, remotes and tags; `Commit id…` is a ⌘K
-  list (`crates/code/src/revisions.rs`, `revisions::LIST`). Another feature opens Code at a revision through
+  `crates/code/src/space.rs`) drops a list (`Frame::search_under`, `crates/code/src/revisions.rs`, `revisions::LIST`):
+  its field filters the working tree, HEAD, the branches, each remote's and every tag (`Repo::tags`, by version), and
+  what it names as a revision git knows is offered too. Another feature opens Code at a revision through
   `artoo_code_api::Code::browse` (a commit's and a branch's `Browse files here`). On the main line (`History::main_line`:
   the page loaded without a base) Commits and Changes are the side panel's two tabs (`History::main_changes`,
   `PanelShows::no_changes`), drawn in the bar by `main_tabs` and turned over by ⌃⇥; its facts row is

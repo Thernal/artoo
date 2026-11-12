@@ -28,8 +28,9 @@ for someone using the app, not for someone reading the code; the commits follow 
   A merge request's own diff keeps Mark reviewed. The branch checked out has one page, the Working tree: its commits
   over every file it changed since main, committed or not, `Checked out feature/login-state` first in its facts.
 - **Code reads any revision, and says which once; main's page is laid out like a branch's.** The chip over Code's
-  tree, `working tree ▾`, lists the working tree, HEAD, the branches, origin's, the tags and `Commit id…` (any id, tag
-  or `HEAD~3`, with its message). At another revision the chip is tinted, `release/2.4 ×`, and × goes back to the
+  tree, `working tree ▾`, drops a list under `Filter, or a commit id`: the working tree, HEAD, the branches, origin's
+  and every tag, highest version first, in a list that scrolls; what you type filters it, and any id or `HEAD~3` is
+  offered with its message. At another revision the chip is tinted, `release/2.4 ×`, and × goes back to the
   working tree; a file's head says only `19 lines`, without `read only` or the revision again. A commit's and a
   branch's menus gain `Browse files here`. main's page offers a quiet `Compare… ⌥⌘C` instead of Create merge request,
   has the tabs `Commits 10 · Changes 3` (⌃⇥ turns them over) with the commits running to the column's foot, and a row
