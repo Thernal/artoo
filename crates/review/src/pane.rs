@@ -449,6 +449,13 @@ impl Review {
     /// The chip on the file's line: mark file `ix` read, and the key; none where nothing is marked.
     fn review_chip(&self, ix: usize, host: &Rc<dyn Host>, cx: &gpui::App) -> Option<Stateful<Div>> {
         let state = self.review_state(ix)?;
+        // Branches' files: a `☐ Viewed` box (#209).
+        if self.viewing() {
+            return Some(crate::reviewed::viewed_box(
+                "review-chip",
+                state == State::Done,
+            ));
+        }
         Some(
             div()
                 .id("review-chip")

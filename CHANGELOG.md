@@ -6,6 +6,14 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **Branches: a Viewed box on every file, kept while an agent commits.** A commit's, a branch's and the working
+  tree's files each have a `☐ Viewed` box on their card instead of Mark reviewed; a tick folds the card to its head,
+  and the list over them counts `1 of 3 viewed` (⌥⇧V still ticks them all). A tick stays while commits leave the file
+  alone; when one changes it, the file unticks itself and carries `↻`, `Changed since you ticked it`. Each commit row
+  says how much of it you viewed — `1 of 3`, `✓ viewed` — counting a change you ticked before it was committed. Folders
+  carry no box, `Filter by path` shows over three files, a click on a commit's id copies the whole of it, `Message ▾`
+  says `4 more lines ▾`, and `231a547 · against its parent` and a branch's `Since merge base · Direct · Swap` went.
+  A merge request's own diff keeps Mark reviewed.
 - **Code reads any revision, and says which once; main's page is laid out like a branch's.** The chip over Code's
   tree, `working tree ▾`, lists the working tree, HEAD, the branches, origin's, the tags and `Commit id…` (any id, tag
   or `HEAD~3`, with its message). At another revision the chip is tinted, `release/2.4 ×`, and × goes back to the

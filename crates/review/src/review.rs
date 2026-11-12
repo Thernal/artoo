@@ -18,7 +18,7 @@ use gpui::{
 };
 use std::cell::Cell as Shared;
 use std::cell::Cell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -132,6 +132,12 @@ pub struct Review {
     /// The repository's names, read once at the first peek, for the folder they were read in; and their read.
     pub names: Option<(PathBuf, Arc<artoo_core::symbols::Names>)>,
     pub names_reading: Option<Task<()>>,
+    /// Each commit's files by their fingerprints, read when its row asks how much of it you viewed (#209).
+    pub commit_fps: HashMap<git2::Oid, Vec<(String, u64)>>,
+    /// Those being read.
+    pub commit_fps_reading: Option<Task<()>>,
+    /// How much of each commit read you viewed, as of the marks' generation and the commits read then.
+    pub viewed_counts: ((u64, usize), HashMap<git2::Oid, (usize, usize)>),
     /// ⌃G's `Line` in Code's file head, as typed (#207).
     pub file_line: Option<String>,
     /// The line (0-based) of Code's file gone to last: tinted.
@@ -244,6 +250,9 @@ impl Review {
             peek: None,
             names: None,
             names_reading: None,
+            commit_fps: HashMap::new(),
+            commit_fps_reading: None,
+            viewed_counts: ((u64::MAX, 0), HashMap::new()),
             file_line: None,
             file_target: None,
             match_at: 0,

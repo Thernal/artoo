@@ -73,6 +73,8 @@ pub struct History {
     pub pending: Option<crate::news::Pending>,
     /// Versions from this index on arrived since the user last looked.
     pub new_from: Option<usize>,
+    /// How much of each commit you viewed, as the review last said it (#209): its row says `1 of 3` or `viewed`.
+    pub viewed: std::collections::HashMap<git2::Oid, (usize, usize)>,
     /// The repository read again after it changed (`reload`).
     pub reload: Option<Task<()>>,
     /// The commit the Commits page has picked (#73), and with shift the other end of a run of them
@@ -195,6 +197,7 @@ impl Default for History {
             sections: Default::default(),
             pending: None,
             new_from: None,
+            viewed: Default::default(),
             reload: None,
             pick: None,
             pick_to: None,

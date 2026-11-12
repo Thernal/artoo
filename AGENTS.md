@@ -31,6 +31,12 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   the page loaded without a base) Commits and Changes are the side panel's two tabs (`History::main_changes`,
   `PanelShows::no_changes`), drawn in the bar by `main_tabs` and turned over by ⌃⇥; its facts row is
   `facts::main_line`, drawn over the commit's head.
+- **Viewed files in Branches** (#209, `crates/review/src/reviewed.rs`): a branch's, a commit's and the working
+  tree's marks are a `☐ Viewed` box (`Review::viewing`, `viewed_box`); a merge request's own diff keeps Mark reviewed.
+  A comparison's marks are kept by its refs' names and the working tree's under `worktree` (`scope_key`), so a tick
+  survives commits that leave the file alone and a changed file is `State::Stale`, `↻` beside its name. A commit row's
+  `1 of 3` / `✓ viewed` is `Review::commit_viewed`: each commit's files fingerprinted in the background, counted
+  against every mark of the repository, again only when `Store::generation` moves (`panel::fill_viewed`).
 - **A Cargo workspace (#165).** The root package is the app (`src/main.rs`, `src/ui/`);
   `crates/plugin-sdk` (`artoo-plugin-sdk`, #175) is what a plugin builds against: one shared library holding GPUI, its
   platform, the core, the kit and every contract, which the app links (`extern crate` in `main.rs`) so each is once in

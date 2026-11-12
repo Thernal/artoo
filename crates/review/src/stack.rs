@@ -220,7 +220,8 @@ impl Review {
         let active = ix == self.file;
         let first = self.stack.as_ref().and_then(|s| s.block_of(ix)) == Some(0);
         let switch = self.switch_of(ix, true, this.clone());
-        let (fold, mark) = (host.clone(), this);
+        let (fold, mark, fold_viewed) = (host.clone(), this, host.clone());
+        let viewing = self.viewing();
         // Drawn twice while stuck never: the list's own is above the rows then.
         let id = |name: &'static str| (if stuck { "stuck-header" } else { name }, ix);
         div()
@@ -322,7 +323,30 @@ impl Review {
                     .when(active, |s| {
                         s.children(self.change_nav(host)).children(open_in)
                     })
-                    .children(state.map(|state| {
+                    // Branches' files: a `☐ Viewed` box; a tick folds the card to its head (#209).
+                    .children(state.filter(|_| viewing).map(|state| {
+                        let ticked = state == State::Done;
+                        let mark = mark.clone();
+                        let fold = fold_viewed.clone();
+                        crate::reviewed::viewed_box(id("file-header-viewed"), ticked)
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_click(move |_: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                let marked = mark
+                                    .update(cx, |rv, cx| {
+                                        let marked = rv.set_reviewed(ix, !ticked);
+                                        if marked {
+                                            cx.emit(ReviewEvent::Changed);
+                                        }
+                                        marked
+                                    })
+                                    .unwrap_or(false);
+                                if marked && !ticked && !folded {
+                                    fold.file(FileEvent::Fold(ix), cx);
+                                }
+                            })
+                    }))
+                    .children(state.filter(|_| !viewing).map(|state| {
                         div()
                             .id(id("file-header-mark"))
                             .flex_none()

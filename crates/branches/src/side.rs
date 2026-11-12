@@ -341,6 +341,12 @@ pub fn commit_row(
                             .child(commit.author.clone()),
                     )
                     .child(div().flex_1())
+                    // How much of it you viewed (#209).
+                    .children(
+                        h.viewed
+                            .get(&commit.id)
+                            .and_then(|&(done, total)| viewed_word(done, total)),
+                    )
                     .child(
                         div()
                             .flex_none()
@@ -368,6 +374,22 @@ pub fn commit_row(
         None => item,
     };
     div().w_full().h(px(64.)).px(px(6.)).py(px(1.)).child(item)
+}
+
+/// What a commit's row says of how much of it you viewed (#209): `1 of 3`, `✓ viewed`, nothing before the first.
+pub fn viewed_word(done: usize, total: usize) -> Option<Div> {
+    (done > 0 && total > 0).then(|| {
+        let all = done >= total;
+        div()
+            .flex_none()
+            .whitespace_nowrap()
+            .text_color(if all { theme::accent() } else { theme::muted() })
+            .child(if all {
+                "✓ viewed".to_owned()
+            } else {
+                format!("{done} of {total}")
+            })
+    })
 }
 
 /// A comparison's commits (#21, B): its `n` rows in `list`, at most `COMPARE_ROWS` before it scrolls, and how they

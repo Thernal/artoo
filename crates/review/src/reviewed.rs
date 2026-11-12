@@ -66,6 +66,8 @@ pub struct Store {
     open: HashMap<String, Vec<String>>,
     /// The order the next head or progress written takes.
     next: u64,
+    /// One more each time a mark is made or taken back: what is counted from the marks is counted again (#209).
+    pub generation: u64,
 }
 
 impl Store {
@@ -188,6 +190,16 @@ impl Store {
             .any(|(_, files)| files.get(path).is_some_and(|m| m.fp == fp))
     }
 
+    /// Every file marked in `root`, by its path and the fingerprint it was marked with: what `read_anywhere` asks, at
+    /// once.
+    pub fn read_files(&self, root: &str) -> std::collections::HashSet<(&str, u64)> {
+        let prefix = format!("{root}|");
+        (self.marks.iter())
+            .filter(|(scope, _)| scope.starts_with(&prefix))
+            .flat_map(|(_, files)| files.iter().map(|(path, m)| (path.as_str(), m.fp)))
+            .collect()
+    }
+
     /// Whether `path` was read in a since view up to `head` (`Since v2`): what changed since a version read,
     /// read to this head (#182).
     pub fn read_since(&self, root: &str, path: &str, head: git2::Oid) -> bool {
@@ -303,7 +315,8 @@ impl Store {
         out
     }
 
-    fn save(&self) {
+    fn save(&mut self) {
+        self.generation += 1;
         storage::save("reviewed.txt", self.render());
     }
 
@@ -448,6 +461,72 @@ pub fn legacy_fingerprint(file: &FileDiff) -> u64 {
     h
 }
 
+/// The key the marks of a diff with `header` in the repository at `root` are kept under (see `review_scope`).
+fn scope_key(root: &str, header: &Header) -> Option<String> {
+    let key = match header {
+        Header::Commit(c) => format!("commit:{}", c.id),
+        Header::Compare {
+            request: Some(iid), ..
+        } => format!("mr:{iid}"),
+        Header::Compare {
+            base,
+            head,
+            since_merge_base,
+            ..
+        } => {
+            let dots = if *since_merge_base { "..." } else { ".." };
+            format!("name:{}{dots}{}", base.0, head.0)
+        }
+        Header::Versions { from, to, .. } => format!("ver:{}..{}", from.tip, to.tip),
+        Header::WorkingTree { only_unstaged } => match only_unstaged {
+            true => "worktree:unstaged".to_owned(),
+            false => "worktree".to_owned(),
+        },
+        Header::Interdiff { .. } => return None,
+    };
+    Some(format!("{root}|{key}"))
+}
+
+/// A card's `☐ Viewed` box (#209), `ticked` or not.
+pub fn viewed_box(id: impl Into<gpui::ElementId>, ticked: bool) -> gpui::Stateful<gpui::Div> {
+    use artoo_ui_kit::{ROW_RADIUS, px, theme};
+    use gpui::{FontWeight, ParentElement, Styled, div, prelude::*};
+    div()
+        .id(id)
+        .flex_none()
+        .h(px(24.))
+        .px(px(6.))
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .rounded(px(ROW_RADIUS))
+        .text_size(px(12.))
+        .text_color(theme::muted())
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
+        .child(
+            div()
+                .flex_none()
+                .size(px(14.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(3.))
+                .border_1()
+                .border_color(if ticked {
+                    theme::accent()
+                } else {
+                    theme::faint()
+                })
+                .when(ticked, |s| s.bg(theme::accent()))
+                .text_size(px(10.))
+                .font_weight(FontWeight::BOLD)
+                .text_color(theme::base())
+                .child(if ticked { "✓" } else { "" }),
+        )
+        .child("Viewed")
+}
+
 impl Review {
     pub fn review_state(&self, ix: usize) -> Option<State> {
         let scope = self.review_scope.as_deref()?;
@@ -533,11 +612,30 @@ impl Review {
     }
 
     /// `↻ v2` beside file `ix`'s name while the diff is what changed since the version you read (#187, Design A1):
-    /// the icon and the version, no word; it goes once the file is read again.
+    /// the icon and the version, no word; it goes once the file is read again. Where marks are a Viewed box, `↻` beside
+    /// a file ticked and changed since (#209).
     pub fn since_chip(&self, ix: usize) -> Option<gpui::Stateful<gpui::Div>> {
         use artoo_ui_kit::hover::Hover;
         use artoo_ui_kit::{px, theme};
         use gpui::{ParentElement, Styled, div, prelude::*};
+        if self.since.is_none() && self.viewing() && self.review_state(ix) == Some(State::Stale) {
+            return Some(
+                div()
+                    .id(("since-chip", ix))
+                    .flex_none()
+                    .size(px(18.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .border_1()
+                    .border_color(theme::accent())
+                    .text_size(px(11.))
+                    .text_color(theme::accent())
+                    .child("↻")
+                    .tip("Changed since you ticked it"),
+            );
+        }
         let n = self.since?.version;
         (self.review_state(ix) != Some(State::Done)).then(|| {
             div()
@@ -554,6 +652,73 @@ impl Review {
                 .child(format!("↻ v{n}"))
                 .tip(format!("Changed since v{n}, the version you read"))
         })
+    }
+
+    /// How many of each commit `ids`' files you viewed, of how many (#209): a file ticked in the commit's own diff,
+    /// or the same change ticked anywhere — in the working tree before it was committed, on its branch. None for a
+    /// commit not read yet; asking starts reading the first forty, in the background.
+    pub fn commit_viewed(
+        &mut self,
+        ids: &[git2::Oid],
+        cx: &mut gpui::Context<Self>,
+    ) -> Vec<Option<(usize, usize)>> {
+        let Some(root) = self.root.clone() else {
+            return vec![None; ids.len()];
+        };
+        let missing: Vec<git2::Oid> = (ids.iter())
+            .filter(|id| !self.commit_fps.contains_key(id))
+            .take(40)
+            .copied()
+            .collect();
+        if !missing.is_empty() && self.commit_fps_reading.is_none() {
+            let settings = artoo_core::git::DiffSettings {
+                ignore_whitespace: self.options.ignore_whitespace,
+            };
+            let at = root.clone();
+            self.commit_fps_reading = Some(cx.spawn(async move |this, cx| {
+                let read = cx
+                    .background_executor()
+                    .spawn(async move {
+                        let Ok(repo) = artoo_core::git::Repo::open(&at) else {
+                            return Vec::new();
+                        };
+                        (missing.into_iter())
+                            .map(|id| {
+                                let files = repo.commit_diff(id, settings).unwrap_or_default();
+                                let fps = (files.iter())
+                                    .map(|f| (f.path().to_owned(), fingerprint(f)))
+                                    .collect();
+                                (id, fps)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .await;
+                this.update(cx, |rv, cx| {
+                    rv.commit_fps.extend(read);
+                    rv.commit_fps_reading = None;
+                    cx.emit(crate::review::ReviewEvent::Changed);
+                    cx.notify();
+                })
+                .ok();
+            }));
+        }
+        // Counted again only when a mark moved or more commits were read: a row asks on every frame.
+        let at = (self.reviewed.generation, self.commit_fps.len());
+        if self.viewed_counts.0 != at {
+            let read = self.reviewed.read_files(&root.display().to_string());
+            let counts = (self.commit_fps.iter())
+                .map(|(id, fps)| {
+                    let done = (fps.iter())
+                        .filter(|(path, fp)| read.contains(&(path.as_str(), *fp)))
+                        .count();
+                    (*id, (done, fps.len()))
+                })
+                .collect();
+            self.viewed_counts = (at, counts);
+        }
+        (ids.iter())
+            .map(|id| self.viewed_counts.1.get(id).copied())
+            .collect()
     }
 
     /// How many files are marked read, of how many.
@@ -588,21 +753,28 @@ impl Review {
             .unwrap_or_default()
     }
 
-    /// The key the marks of the open diff are kept under; none for the working tree, which has
-    /// no stable identity. A branch's pages keep them too: your own work is reviewed there before
-    /// it goes out (the developer, 2026-10-23; #74 had none).
+    /// The key the marks of the open diff are kept under. A branch's pages keep them too: your own work is reviewed
+    /// there before it goes out (the developer, 2026-10-23; #74 had none). A comparison and the working tree keep
+    /// them by name, not by commit (#209): a file ticked stays ticked while commits leave its change alone, and turns
+    /// `↻` when one changes it.
     fn review_scope(&self) -> Option<String> {
         let root = self.root.as_ref()?.display().to_string();
-        let key = match &self.diff.as_ref()?.header {
-            Header::Commit(c) => format!("commit:{}", c.id),
-            Header::Compare {
-                request: Some(iid), ..
-            } => format!("mr:{iid}"),
-            Header::Compare { base, head, .. } => format!("range:{}..{}", base.1, head.1),
-            Header::Versions { from, to, .. } => format!("ver:{}..{}", from.tip, to.tip),
-            Header::Interdiff { .. } | Header::WorkingTree { .. } => return None,
-        };
-        Some(format!("{root}|{key}"))
+        scope_key(&root, &self.diff.as_ref()?.header)
+    }
+
+    /// Whether the open diff's marks are a Viewed box (#209): Branches' diffs — a commit, a branch, a comparison, the
+    /// working tree; a merge request's whole diff and its versions keep Mark reviewed.
+    pub fn viewing(&self) -> bool {
+        !matches!(
+            self.diff.as_ref().map(|d| &d.header),
+            None | Some(
+                Header::Compare {
+                    request: Some(_),
+                    ..
+                } | Header::Versions { .. }
+                    | Header::Interdiff { .. }
+            )
+        )
     }
 
     /// Records whether the head of the open diff is fully reviewed; the card offering what is next
@@ -871,6 +1043,60 @@ mod tests {
         assert!(store.read_in_commits("/r", "c.rs"));
         assert!(store.read_in_commit("/r", "c.rs", commit));
         assert!(!store.read_in_commit("/r", "c.rs", v2));
+    }
+
+    #[test]
+    fn a_branch_keeps_its_ticks_by_name_while_commits_arrive() {
+        let at = |n: u8| git2::Oid::from_bytes(&[n; 20]).unwrap();
+        let branch = |tip| Header::Compare {
+            base: ("main".to_owned(), at(1)),
+            head: ("feature/x".to_owned(), tip),
+            since_merge_base: true,
+            start: at(1),
+            commits: 1,
+            request: None,
+            stale: None,
+        };
+        let (before, after) = (
+            scope_key("/r", &branch(at(2))).unwrap(),
+            scope_key("/r", &branch(at(3))).unwrap(),
+        );
+        assert_eq!(before, after);
+        let around = ["fun a() {", "}"];
+        let ticked = changed("a.rs", &around, 2, "  old()", "  new()");
+        let changed_again = changed("a.rs", &around, 2, "  old()", "  newer()");
+        let mut store = Store::default();
+        store.set(&before, "a.rs", fingerprint(&ticked), Some(at(2)));
+        // A commit that leaves the file alone: the same change, still ticked.
+        assert_eq!(store.get(&after, "a.rs"), Some(fingerprint(&ticked)));
+        // One that changes it: ticked, another change now — `↻`.
+        let was = store.get(&after, "a.rs");
+        assert!(was.is_some() && was != Some(fingerprint(&changed_again)));
+        // The working tree keeps its own, by halves.
+        assert_eq!(
+            scope_key(
+                "/r",
+                &Header::WorkingTree {
+                    only_unstaged: false
+                }
+            )
+            .as_deref(),
+            Some("/r|worktree")
+        );
+        assert_ne!(
+            scope_key(
+                "/r",
+                &Header::WorkingTree {
+                    only_unstaged: true
+                }
+            ),
+            scope_key(
+                "/r",
+                &Header::WorkingTree {
+                    only_unstaged: false
+                }
+            )
+        );
     }
 
     #[test]

@@ -144,6 +144,7 @@ impl Render for Panel {
         }
 
         if shows.commits {
+            fill_viewed(&self.history, &services, cx);
             let h = self.history.read(cx);
             let field = (h.commits_drawn() && h.find.text.is_some()).then(|| {
                 let active = frame.typing(cx) == Some(crate::find::INPUT);
@@ -197,6 +198,23 @@ impl Render for Panel {
 
         panel::panel(self.width, zone.is_some(), sections, open_lists)
     }
+}
+
+/// How much of each of the history's commits you viewed, asked of the review (`Review` in the tab's `services`) for
+/// their rows (#209): the newest 120, read forty at a time.
+pub fn fill_viewed(history: &Entity<History>, services: &artoo_shell_api::Services, cx: &mut App) {
+    let Some(review) = services.get::<Rc<dyn artoo_review_api::Review>>() else {
+        return;
+    };
+    let ids: Vec<git2::Oid> = (history.read(cx).commits.iter())
+        .take(120)
+        .map(|c| c.id)
+        .collect();
+    let viewed = review.commit_viewed(&ids, cx);
+    let viewed = (ids.into_iter().zip(viewed))
+        .filter_map(|(id, v)| Some((id, v?)))
+        .collect();
+    history.update(cx, |h, _| h.viewed = viewed);
 }
 
 impl History {

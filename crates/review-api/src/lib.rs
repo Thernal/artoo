@@ -302,6 +302,10 @@ pub trait Review {
     /// The revision the file Code reads is at (`None`: the working tree).
     fn viewed_rev(&self, cx: &App) -> Option<Oid>;
 
+    /// How many of each commit `ids`' files you viewed, of how many (#209); none for a commit whose files are not
+    /// read yet — asking starts reading them, and the review says `Event::Changed` when they came.
+    fn commit_viewed(&self, ids: &[Oid], cx: &mut App) -> Vec<Option<(usize, usize)>>;
+
     /// Line `line` of the file Code reads in view, `notes` placed among its lines.
     fn reveal_file_line(&self, line: u32, notes: &FileNotes, cx: &mut App);
 

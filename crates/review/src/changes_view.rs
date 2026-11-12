@@ -152,7 +152,14 @@ impl Review {
             .flex_col()
             .child(self.widths.measure("changes"))
             .children(self.render_review_progress(&host))
-            .child(self.filter_field(look.filtering, cx))
+            // `Filter by path` over three files where files are viewed (#209), or while it filters.
+            .when(
+                !self.viewing()
+                    || look.filtering
+                    || !self.pfilter.is_empty()
+                    || self.diff.as_ref().is_some_and(|d| d.files.len() > 3),
+                |s| s.child(self.filter_field(look.filtering, cx)),
+            )
             .children(self.render_changes_total(counts))
             .child(if count == 0 {
                 div()
@@ -543,6 +550,10 @@ impl Review {
     /// The box of a folder: empty, part-marked or all marked; a click marks or unmarks the folder.
     fn folder_box(&self, path: &str, host: &Rc<dyn Host>) -> Option<impl IntoElement + use<>> {
         self.review_scope.as_ref()?;
+        // Folders carry no box where files are viewed (#209).
+        if self.viewing() {
+            return None;
+        }
         let ixs = self.files_under(path);
         let done = ixs
             .iter()
@@ -608,6 +619,14 @@ impl Review {
                 .unwrap_or_default();
             format!("{version} {}", format::ago(time))
         });
+        if self.viewing() {
+            return match (state, at) {
+                (State::Open, _) => "Viewed  V".into(),
+                (State::Done, Some(at)) => format!("Viewed{at} — click to untick  ⇧V"),
+                (State::Done, None) => "Viewed — click to untick  ⇧V".into(),
+                (State::Stale, _) => "Changed since you ticked it  V".into(),
+            };
+        }
         match (state, at) {
             (State::Open, _) => "Mark as reviewed  ⇧V".into(),
             (State::Done, Some(at)) => format!("Reviewed{at} — click to unmark  ⇧V"),
@@ -626,9 +645,13 @@ impl Review {
     ) -> Option<impl IntoElement + use<>> {
         let state = self.review_state(ix)?;
         let said: gpui::SharedString = self.review_said(ix, state, host, cx).into();
+        let viewing = self.viewing();
         let (border, fill, glyph) = match state {
             State::Open => (theme::faint(), None, ""),
+            State::Done if viewing => (theme::accent(), Some(theme::accent()), "✓"),
             State::Done => (theme::added(), Some(theme::added()), "✓"),
+            // Viewed: unticked, `↻` beside its name (#209).
+            State::Stale if viewing => (theme::faint(), None, ""),
             State::Stale => (theme::warning(), None, "↻"),
         };
         let host = host.clone();
@@ -670,8 +693,11 @@ impl Review {
     }
 
     /// "7/17" with a bar under it, and Mark all / Unmark all.
-    fn render_review_progress(&self, host: &Rc<dyn Host>) -> Option<impl IntoElement + use<>> {
+    fn render_review_progress(&self, host: &Rc<dyn Host>) -> Option<AnyElement> {
         let (done, total) = self.review_progress()?;
+        if self.viewing() {
+            return Some(viewed_count(done, total).into_any_element());
+        }
         let filtered = !self.pfilter.trim().is_empty();
         let shown = self.file_order();
         let shown_done = shown
@@ -752,9 +778,42 @@ impl Review {
                             motion::BASE,
                             |bar, share| bar.w(gpui::relative(share.clamp(0., 1.))),
                         )),
-                ),
+                )
+                .into_any_element(),
         )
     }
+}
+
+/// `1 of 3 viewed` beside its bar, over the files (#209): no Mark all, ⌥⇧V still marks them all.
+fn viewed_count(done: usize, total: usize) -> gpui::Div {
+    div()
+        .flex_none()
+        .px(px(14.))
+        .pb(px(6.))
+        .flex()
+        .items_center()
+        .gap_3()
+        .child(
+            div()
+                .flex_1()
+                .h(px(4.))
+                .rounded(px(2.))
+                .bg(theme::hover())
+                .child(motion::toward_value(
+                    div().h_full().rounded(px(2.)).bg(theme::accent()),
+                    "review-bar",
+                    done as f32 / total.max(1) as f32,
+                    motion::BASE,
+                    |bar, share| bar.w(gpui::relative(share.clamp(0., 1.))),
+                )),
+        )
+        .child(
+            div()
+                .flex_none()
+                .text_size(px(11.))
+                .text_color(theme::muted())
+                .child(format!("{done} of {total} viewed")),
+        )
 }
 
 /// On file `path`'s row: a pencil while a comment written there (`draft`) waits without the keyboard (#168).

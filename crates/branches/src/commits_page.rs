@@ -46,6 +46,7 @@ impl Render for BranchCommits {
         let line = crate::facts::line_of(&self.history, &services, route, cx)
             .unwrap_or_else(|| div().into_any_element());
         let acts = services.get::<Acts>().unwrap_or_else(|| Rc::new(|_, _| {}));
+        crate::panel::fill_viewed(&self.history, &services, cx);
         let commits = self
             .history
             .update(cx, |h, cx| h.commits_page(false, &acts, cx));
@@ -219,7 +220,13 @@ impl History {
                             .child(format!("v{v}"))
                     }))
                     .when(room.second(), |s| {
-                        s.child(
+                        // How much of it you viewed (#209).
+                        s.children(
+                            (self.viewed.get(&c.id))
+                                .and_then(|&(done, total)| crate::side::viewed_word(done, total))
+                                .map(|w| w.text_size(px(11.))),
+                        )
+                        .child(
                             div()
                                 .flex_none()
                                 .text_size(px(11.))

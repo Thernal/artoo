@@ -94,6 +94,13 @@ pub fn bar_piece(history: Entity<History>, services: Rc<Services>) -> Piece {
                 });
                 return Some(range_switch(on, count, &acts));
             }
+            // A branch's own page shows it since it left the main line: no sides to choose (#209).
+            if <artoo_branches_api::BranchRoute as artoo_core::route::Place>::from_route(route)
+                .is_some()
+                && matches!(diff.header, Header::Compare { .. })
+            {
+                return None;
+            }
             Some(what(&diff, h, narrowed, &acts))
         }),
     }
@@ -169,11 +176,8 @@ fn range_switch(on: RangeOn, count: Option<String>, acts: &Acts) -> AnyElement {
 /// its commits says so, its × the whole again (#21).
 pub fn what(diff: &Diff, history: &History, narrowed: bool, acts: &Acts) -> AnyElement {
     match &diff.header {
-        Header::Commit(c) => div()
-            .text_size(px(12.))
-            .text_color(theme::muted())
-            .child(format!("{} · against its parent", format::short(c.id)))
-            .into_any_element(),
+        // The commit's head says what it is (#209).
+        Header::Commit(_) => div().into_any_element(),
         Header::WorkingTree { only_unstaged } => {
             let only = *only_unstaged;
             group()
@@ -368,20 +372,16 @@ fn summary(diff: &Diff, look: &HeadLook, text: Selectable, acts: &Acts) -> gpui:
                         .gap_y(px(2.))
                         .text_size(px(12.))
                         .text_color(theme::muted())
+                        // A click on the id copies the whole of it (#209).
                         .child(
                             div()
-                                .flex()
-                                .gap_2()
-                                .child(div().font_family(theme::code_font()).child(short))
-                                .child(
-                                    div()
-                                        .id("copy-hash")
-                                        .text_color(theme::accent())
-                                        .cursor_pointer()
-                                        .hover(|s| s.text_color(theme::text()))
-                                        .child("copy")
-                                        .on_click(asks(acts, Act::Copy(full))),
-                                ),
+                                .id("copy-hash")
+                                .font_family(theme::code_font())
+                                .cursor_pointer()
+                                .hover(|s| s.text_color(theme::text()))
+                                .child(short)
+                                .tip("Copy the whole id")
+                                .on_click(asks(acts, Act::Copy(full))),
                         )
                         .child(commit.author.clone())
                         .children(body.is_some().then(|| {
@@ -391,10 +391,15 @@ fn summary(diff: &Diff, look: &HeadLook, text: Selectable, acts: &Acts) -> gpui:
                                 .text_color(theme::accent())
                                 .cursor_pointer()
                                 .hover(|s| s.text_color(theme::text()))
-                                .child(if look.message_open {
-                                    "Message ▴"
-                                } else {
-                                    "Message ▾"
+                                // How much more it says (#209).
+                                .child({
+                                    let n = body.as_deref().map_or(0, |b| b.lines().count());
+                                    let more = format::plural(n, "more line");
+                                    if look.message_open {
+                                        format!("{more} ▴")
+                                    } else {
+                                        format!("{more} ▾")
+                                    }
                                 })
                                 .on_click(move |e: &ClickEvent, _, cx| {
                                     if e.click_count() > 1 {

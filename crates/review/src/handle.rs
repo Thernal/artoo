@@ -470,6 +470,13 @@ impl artoo_review_api::Review for Handle {
         self.read(cx, |rv, _| rv.viewed_rev())
     }
 
+    fn commit_viewed(&self, ids: &[Oid], cx: &mut App) -> Vec<Option<(usize, usize)>> {
+        let Some(rv) = self.0.upgrade() else {
+            return vec![None; ids.len()];
+        };
+        rv.update(cx, |rv, cx| rv.commit_viewed(ids, cx))
+    }
+
     fn reveal_file_line(&self, line: u32, notes: &FileNotes, cx: &mut App) {
         self.with(cx, |rv, _| rv.reveal_file_line(line, notes))
     }
