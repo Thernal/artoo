@@ -21,7 +21,8 @@ pub struct Button {
     /// Its tool's name, handed back when it is clicked.
     pub id: &'static str,
     pub icon: &'static str,
-    pub tip: &'static str,
+    /// Its long hover, its key last: the window's title, or what it names (`Tool::heading`).
+    pub tip: SharedString,
     /// Its window is open.
     pub on: bool,
     /// A count on it, in its colour.

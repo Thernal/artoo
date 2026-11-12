@@ -2,8 +2,8 @@
 //! events and its host, what it keeps (the selection, the marks, blame, the stack, the pins, the diff, images,
 //! pages, the file view, the Changes list's rows) and how it draws its rows, the files' headers and the file read
 //! in Code, the diff's column (`column`) and the file's pane in it (`pane`), zen's head (`zen`), the Changes list
-//! (`changes_view`), Find in files (`find_files`) and the find bar (`find`), whose field is one of its parts' inputs
-//! as the line typed after `c` is (`goline`).
+//! (`changes_view`), the repository's search, a tool window (`find_files`), and the find bar (`find`), whose field
+//! is one of its parts' inputs as the line typed after `c` is (`goline`).
 
 mod annotate;
 mod changes;
@@ -38,8 +38,8 @@ use artoo_shell_api::{Frame, Parts};
 use gpui::{App, AppContext, Window};
 use std::rc::Rc;
 
-/// The review's parts in every tab: the find bar's field and the line typed after `c` as its inputs; its item
-/// page's middle among the tab's services (`item`).
+/// The review's parts in every tab: the find bar's field and the line typed after `c` as its inputs, the
+/// repository's search as its tool window (`find_files`); its item page's middle among the tab's services (`item`).
 pub fn install(cx: &mut App) {
     artoo_review_api::viewers::add(cx, md_page::viewer());
     artoo_review_api::viewers::add(cx, image_view::viewer());
@@ -65,6 +65,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     services.set(handle::handle(&review));
     services.set(item::view(review.clone(), &frame, cx));
     Parts {
+        tool: Some(find_files::tool(review.clone(), frame.clone(), cx)),
         inputs: vec![
             find::input(review.clone()),
             goline::input(review.clone()),

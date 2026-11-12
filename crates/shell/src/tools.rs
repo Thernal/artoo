@@ -94,7 +94,7 @@ fn button(b: Button, toggle: OnTool) -> impl IntoElement {
         }))
         .tooltip_show_delay(hover::LONG)
         .tooltip(move |_, cx| {
-            let tip = keys::text(tip).into_owned();
+            let tip = keys::text(&tip).into_owned();
             let tip = if what.is_empty() {
                 tip
             } else {
@@ -164,11 +164,12 @@ fn window(view: ToolView, place: Place, close: OnClose) -> impl IntoElement {
                                 .flex()
                                 .items_baseline()
                                 .gap(px(6.))
+                                // A long one (`Search in` a repository's name) is cut, its whole in its hover.
                                 .child(
-                                    div()
-                                        .flex_none()
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .child(view.title),
+                                    hover::cut("tool-title", view.title)
+                                        .flex_shrink(1.)
+                                        .min_w_0()
+                                        .font_weight(FontWeight::SEMIBOLD),
                                 )
                                 .children(
                                     view.count

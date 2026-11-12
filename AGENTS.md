@@ -22,9 +22,12 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
 - **Reading a file in Code** (#206, `crates/review/src/file_view.rs`): ⌘F finds in its lines (`Review::file_matches`,
   the diff's find bar and field), a minimap at its right (`render_minimap`: the file small, hits, lines changed since
   HEAD — `changed_since_head` —, a slider on hover, click and drag scroll). ⌥⌘F searches every file git knows in the
-  working tree (`find_files.rs`), opening a hit in the diff or in Code. It reads nothing until a query
-  (`repo_search.rs`): the paths from git's index, then 120 ms after the last key a background scan in chunks, hits
-  streamed; a query that adds to the last plain one scans only the files that held it and those changed since; a
+  working tree in the review's tool window (`find_files.rs`, `artoo_review_api::SEARCH`, first on the stripe; its
+  title names the repository, `Tool::heading`): lines grouped by file, a head folds its group, each line coloured
+  alone with every hit marked; ↑ ↓ ↵ or a click open a line (`ReviewEvent::InFiles`) in the diff or in Code and the
+  keyboard stays; closed (`Tool::closed`), it keeps its words and lines and drops its reads. It reads nothing until a
+  query (`repo_search.rs`): the paths from git's index, then 120 ms after the last key a background scan in chunks,
+  hits streamed; a query that adds to the last plain one scans only the files that held it and those changed since; a
   byte cache (64 MB, least recently used) keeps the files read.
 - **Going to a name in Code, no language server** (#207, `crates/review/src/names.rs`): ⌘-click or F12 (the caret is
   the tab's `note_sel` in the file's lines, `file_view::selects_as`) opens a peek row under the line (`Row::Peek`,

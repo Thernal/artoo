@@ -63,6 +63,12 @@ impl Workspace {
             self.layout.tool = name.to_owned();
             self.save_layout();
         }
+        // The one that goes lets go of what it keeps only while open (the search's reads).
+        if let Some(id) = was
+            && was != tool
+        {
+            self.tool_closed(id, cx);
+        }
         // A window gets ready before it is drawn (the report takes the window's picture).
         if let Some(id) = tool
             && was != tool
@@ -97,8 +103,11 @@ impl Workspace {
                 .filter(|b| b.count > 0)
                 .map(|b| b.what),
         };
+        let title = (tool.heading.as_ref())
+            .and_then(|heading| heading(cx))
+            .map_or_else(|| tool.title.into(), Into::into);
         Some(ToolView {
-            title: tool.title.into(),
+            title,
             count,
             actions: Vec::new(),
             body: tool.view.clone().into_any_element(),
@@ -142,10 +151,18 @@ impl Workspace {
                         (count(badge.count, badge.color), badge.what, badge.under)
                     }
                 };
+                // What the window names says its tip, before its key: `Search in payments-service  ⌥⌘F`.
+                let tip = match tool.heading.as_ref().and_then(|heading| heading(cx)) {
+                    Some(named) => match tool.tip.split_once("  ") {
+                        Some((_, key)) => format!("{named}  {key}").into(),
+                        None => named.into(),
+                    },
+                    None => tool.tip.into(),
+                };
                 Some(tools::Button {
                     id,
                     icon: tool.icon,
-                    tip: tool.tip,
+                    tip,
                     on: open == Some(id),
                     badge,
                     what,

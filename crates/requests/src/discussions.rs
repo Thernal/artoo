@@ -62,6 +62,7 @@ pub(crate) fn tool(
         icon: "message",
         tip: "Discussions  ⌘⇧D",
         title: "Discussions",
+        heading: None,
         spaces: &[artoo_requests_api::SPACE],
         on_pages: true,
         stripe: true,
@@ -82,6 +83,7 @@ pub(crate) fn tool(
         })),
         view: view.into(),
         opened: Rc::new(|_| {}),
+        closed: Rc::new(|_| {}),
         typing: Rc::new(Cell::new(false)),
         key: Rc::new(|_, _, _| {}),
         // The tab walks them once its update is over: it shows each in the diff.

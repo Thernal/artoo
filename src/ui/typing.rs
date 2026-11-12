@@ -17,8 +17,6 @@ use gpui::{App, Context, MouseButton, MouseDownEvent, WeakEntity, prelude::*};
 pub enum Input {
     /// ⌘K and the palettes sharing its box.
     Palette,
-    /// Go to file, and find in files (`findfiles.rs`).
-    FindFiles,
     /// Which app opens a file, asked (`opening.rs`).
     OpenAsk,
     /// The reactions' grid and its search.
@@ -38,7 +36,7 @@ pub enum Input {
     /// Submit review's summary.
     Submit,
     /// A feature's tool window being written in (`artoo_shell_api::Tool`): Report a problem's title and
-    /// description.
+    /// description, the repository's search (#206).
     Tool,
     /// A part's field (`artoo_shell_api::Input`), by its id: the commits' search, the find bar over the diff, the line typed after
     /// `c`, the New merge request form.
@@ -46,9 +44,8 @@ pub enum Input {
 }
 
 impl Input {
-    const ALL: [Input; 11] = [
+    const ALL: [Input; 10] = [
         Input::Palette,
-        Input::FindFiles,
         Input::OpenAsk,
         Input::Reactions,
         Input::Overlay,
@@ -66,7 +63,6 @@ impl keyboard::Input for Input {
         matches!(
             self,
             Input::Palette
-                | Input::FindFiles
                 | Input::OpenAsk
                 | Input::Reactions
                 | Input::Overlay
@@ -126,7 +122,6 @@ impl Keys for Workspace {
     fn input_open(&self, input: Input, cx: &App) -> bool {
         match input {
             Input::Palette => self.palette_open(cx),
-            Input::FindFiles => self.rv().find_files_open(cx),
             Input::OpenAsk => self.open_ask.is_some(),
             Input::Reactions => self.requests_api().is_some_and(|r| r.grid_open(cx)),
             Input::Overlay => self.overlay_open(),
@@ -275,8 +270,7 @@ pub(super) fn field_box_out<E: InteractiveElement>(
 mod tests {
     /// The key handlers `find_key` routes to by `Input`: the only places a key may edit a text, a part's field
     /// through its own (`part_input_key`).
-    const ROUTED: [&str; 9] = [
-        "ffind_key",
+    const ROUTED: [&str; 8] = [
         "palette_key",
         "beside_key",
         "merge_key",

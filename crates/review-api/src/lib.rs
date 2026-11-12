@@ -192,9 +192,6 @@ pub trait Review {
     /// Generated files unfolded go back to folded.
     fn clear_unfolded(&self, cx: &mut App);
 
-    /// Find in files is open.
-    fn find_files_open(&self, cx: &App) -> bool;
-
     /// The active file's row at the top of the view.
     fn local_top(&self, cx: &App) -> usize;
 
@@ -338,35 +335,6 @@ pub trait Review {
         typing: Option<&'static str>,
         cx: &mut App,
     ) -> Option<(gpui::Div, AnyElement)>;
-
-    /// Find in files opened.
-    fn open_find_files(&self, cx: &mut App);
-
-    /// Find in files closed: true when it was open.
-    fn close_find_files(&self, cx: &mut App) -> bool;
-
-    /// A key typed in find in files, edited in the tab's `field`.
-    fn find_files_key(
-        &self,
-        key: &gpui::Keystroke,
-        field: &mut artoo_core::textedit::TextEdit,
-        cx: &mut App,
-    ) -> SearchKeyed;
-
-    /// Find in files' selection moved down or up: true when it moved.
-    fn find_files_step(&self, down: bool, cx: &mut App) -> bool;
-
-    /// Hit `ix` of find in files opened: it closes, and what to open.
-    fn open_found(&self, ix: usize, cx: &mut App) -> Option<FoundInFiles>;
-
-    /// A toggle of find in files (case, word, regular expression).
-    fn find_files_toggle(&self, toggle: SearchEvent, cx: &mut App);
-
-    /// What find in files looks for, while it is open.
-    fn find_files_query(&self, cx: &App) -> Option<String>;
-
-    /// Find in files drawn, `field` the tab's field of its words.
-    fn render_find_files(&self, field: AnyElement, on: OnSearch, cx: &App) -> Option<AnyElement>;
 
     /// A press on a line at byte `byte`: the caret, a word or the line, by click count; ⇧ extends.
     fn press(&self, old: bool, line: u32, byte: usize, clicks: usize, shift: bool, cx: &mut App);
@@ -857,6 +825,9 @@ pub const PEEK_INPUT: &str = "review.peek";
 /// ⌃G's `Line` in Code's file head among the tab's inputs (#207).
 pub const LINE_INPUT: &str = "review.file-line";
 
+/// The repository's search (⌥⌘F, #206): its tool window's id, which the layout keeps it open by.
+pub const SEARCH: &str = "search";
+
 /// The size of code at 100 %.
 pub const CODE_SIZE: f32 = 12.;
 
@@ -876,31 +847,13 @@ pub enum GoLineKey {
     Kept,
 }
 
-/// A hit opened: the search closes, the diff's find takes its words and the file opens at its line.
+/// A line the repository's search opened (#206): the diff's find takes its words and the file opens at its line.
+#[derive(Clone, Debug)]
 pub struct FoundInFiles {
     pub query: String,
     pub path: String,
     pub line: u32,
     pub old: bool,
-}
-
-/// A click in the search, for the tab to answer.
-#[derive(Clone, Copy)]
-pub enum SearchEvent {
-    /// Outside its window.
-    Close,
-    Case,
-    Word,
-    Regex,
-    /// Hit `ix` opened.
-    Open(usize),
-}
-
-/// What a key typed in the search came to.
-pub enum SearchKeyed {
-    Kept,
-    Closed,
-    Open(FoundInFiles),
 }
 
 /// A click on a document's page or its switch, for the tab to answer.
@@ -1046,6 +999,9 @@ pub enum Event {
     Go { path: String, line: u32 },
     /// ⇧F12 in the peek: the tab searches the repository for the word.
     SearchWord(String),
+    /// A line the repository's search opened (#206): the tab shows it, in the diff on screen when it changes that
+    /// file, else in Code at its line.
+    InFiles(FoundInFiles),
     /// A click on a document's switch (`md_page::emitting`).
     Page(PageEvent),
 }
@@ -1065,9 +1021,6 @@ pub struct FileRead {
     pub at: String,
     pub lines: usize,
 }
-
-/// What answers find in files' clicks.
-pub type OnSearch = Rc<dyn Fn(SearchEvent, &mut gpui::Window, &mut App)>;
 
 /// What hears the review's events (`Review::on_event`).
 pub type Hears = Rc<dyn Fn(&Event, &mut App)>;

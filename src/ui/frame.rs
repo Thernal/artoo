@@ -286,9 +286,7 @@ impl Render for Workspace {
             } else {
                 match self.typing(cx) {
                     None => "Workspace",
-                    Some(Input::Palette | Input::FindFiles | Input::Beside) => {
-                        "Workspace Typing Palette"
-                    }
+                    Some(Input::Palette | Input::Beside) => "Workspace Typing Palette",
                     // ↑ ↓ belong to the field: they move its caret or its line. The new
                     // version's card scrolls with them (#135).
                     Some(Input::Compose | Input::Submit | Input::Tool | Input::Overlay) => {
@@ -413,7 +411,7 @@ impl Render for Workspace {
             }
         }))
         .on_action(cx.listener(|this, _: &ToggleAnnotate, _, cx| this.toggle_annotate(cx)))
-        .on_action(cx.listener(|this, _: &FindInFiles, _, cx| this.open_find_files(cx)))
+        .on_action(cx.listener(|this, _: &FindInFiles, _, cx| this.search_repository(cx)))
         .on_action(cx.listener(|this, _: &GoToName, _, cx| this.go_to_name(cx)))
         .on_action(cx.listener(|this, _: &GoToLine, _, cx| this.go_to_line(cx)))
         .on_action(cx.listener(|this, _: &ToggleReviewed, _, cx| this.toggle_reviewed(cx)))
@@ -600,7 +598,6 @@ impl Render for Workspace {
         .children(self.render_mention_card(cx))
         .children(self.render_whole(cx))
         .children(self.rv().render_blame_tip(cx))
-        .children(self.render_find_files(cx))
         .children(self.render_open_ask(cx))
         .children(self.render_beside_backdrop(cx))
         .children(self.render_label_card(cx))

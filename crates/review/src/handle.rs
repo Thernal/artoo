@@ -8,8 +8,8 @@ use artoo_core::rows::{FileData, Row};
 use artoo_core::storage::{Settings, ViewOptions};
 use artoo_review_api::diff::Diff;
 use artoo_review_api::{
-    Event, FileNotes, FileRead, FoundInFiles, Hears, Host, ImageMode, ItemKey, LineNote, Notice,
-    OnSearch, Opt, PageLook, Pins, ReviewState, SearchEvent, SearchKeyed, Source,
+    Event, FileNotes, FileRead, Hears, Host, ImageMode, ItemKey, LineNote, Notice, Opt, PageLook,
+    Pins, ReviewState, Source,
 };
 use artoo_ui_kit::markdown::Selecting;
 use git2::Oid;
@@ -294,10 +294,6 @@ impl artoo_review_api::Review for Handle {
         self.with(cx, |rv, _| rv.unfolded.clear())
     }
 
-    fn find_files_open(&self, cx: &App) -> bool {
-        self.read(cx, |rv, _| rv.find_files_open())
-    }
-
     fn local_top(&self, cx: &App) -> usize {
         self.read(cx, |rv, _| rv.local_top())
     }
@@ -511,45 +507,6 @@ impl artoo_review_api::Review for Handle {
         self.with(cx, |rv, cx| {
             rv.render_file_view(host, notes, binary, selecting, typing, cx)
         })
-    }
-
-    fn open_find_files(&self, cx: &mut App) {
-        self.with(cx, |rv, cx| rv.open_find_files(cx))
-    }
-
-    fn close_find_files(&self, cx: &mut App) -> bool {
-        self.with(cx, |rv, _| rv.close_find_files())
-    }
-
-    fn find_files_key(
-        &self,
-        key: &gpui::Keystroke,
-        field: &mut artoo_core::textedit::TextEdit,
-        cx: &mut App,
-    ) -> SearchKeyed {
-        self.0
-            .update(cx, |rv, cx| rv.find_files_key(key, field, cx))
-            .unwrap_or(SearchKeyed::Kept)
-    }
-
-    fn find_files_step(&self, down: bool, cx: &mut App) -> bool {
-        self.with(cx, |rv, _| rv.find_files_step(down))
-    }
-
-    fn open_found(&self, ix: usize, cx: &mut App) -> Option<FoundInFiles> {
-        self.with(cx, |rv, _| rv.open_found(ix))
-    }
-
-    fn find_files_toggle(&self, toggle: SearchEvent, cx: &mut App) {
-        self.with(cx, |rv, cx| rv.find_files_toggle(toggle, cx))
-    }
-
-    fn find_files_query(&self, cx: &App) -> Option<String> {
-        self.read(cx, |rv, _| rv.find_files_query().map(str::to_owned))
-    }
-
-    fn render_find_files(&self, field: AnyElement, on: OnSearch, cx: &App) -> Option<AnyElement> {
-        self.read(cx, |rv, _| rv.render_find_files(field, on))
     }
 
     fn press(&self, old: bool, line: u32, byte: usize, clicks: usize, shift: bool, cx: &mut App) {

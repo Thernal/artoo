@@ -117,7 +117,7 @@ pub struct Review {
     pub widths: artoo_ui_kit::room::Widths,
     /// The field of the line typed after `c`.
     pub goline_area: artoo_ui_kit::input::Area,
-    /// Find in files (⌘⌥F), while it is open (`find_files`).
+    /// The repository's search (⌥⌘F, `find_files`): its words and what it found, kept while its window is closed.
     pub ffind: Option<crate::find_files::FindFiles>,
     /// Rows where a change begins, and the one stepped to (F7).
     pub changes: Vec<usize>,

@@ -70,7 +70,6 @@ impl Workspace {
     ) {
         self.sync_keyboard(cx);
         match self.typing(cx) {
-            Some(Input::FindFiles) => return self.ffind_key(event, cx),
             Some(Input::Palette) => return self.palette_key(event, window, cx),
             Some(Input::OpenAsk) => return self.open_ask_key(event, cx),
             Some(Input::Overlay) => return self.overlay_key(event, window, cx),

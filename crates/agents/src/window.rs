@@ -83,6 +83,7 @@ pub fn tool(
         icon: "bot",
         tip: "Agents  ⇧⌘A",
         title: "Agents",
+        heading: None,
         spaces: &["code", "branches", "requests"],
         on_pages: false,
         stripe: true,
@@ -97,6 +98,7 @@ pub fn tool(
             let window = opened.clone();
             cx.defer(move |cx| window.update(cx, |w, cx| w.refresh_chats(cx)));
         }),
+        closed: Rc::new(|_| {}),
         typing: Rc::new(Cell::new(false)),
         key: Rc::new(|_, _, _| {}),
         list_key: Some(Rc::new(move |key, cx| {

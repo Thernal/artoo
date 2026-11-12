@@ -512,6 +512,13 @@ impl Workspace {
         took
     }
 
+    /// A part's tool window closed, or another took its place.
+    pub(super) fn tool_closed(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Some(closed) = self.part_tool(id).map(|t| t.closed.clone()) {
+            closed(cx);
+        }
+    }
+
     /// A part's tool window opened: it gets ready before it is drawn.
     pub(super) fn tool_opened(&mut self, id: &str, cx: &mut Context<Self>) {
         if let Some(opened) = self.part_tool(id).map(|t| t.opened.clone()) {

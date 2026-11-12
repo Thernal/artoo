@@ -2016,10 +2016,8 @@ impl Workspace {
             ReviewEvent::Found { file, row } => self.go_found(Some((*file, *row)), cx),
             ReviewEvent::GoLine(done) => self.goline_done(*done, cx),
             ReviewEvent::Go { path, line } => self.open_in_code(path.clone(), *line, cx),
-            ReviewEvent::SearchWord(word) => {
-                self.set_dfind(word.clone(), cx);
-                self.open_find_files(cx);
-            }
+            ReviewEvent::SearchWord(word) => self.search_word(word.clone(), cx),
+            ReviewEvent::InFiles(found) => self.found_in_files(found.clone(), cx),
             ReviewEvent::Page(event) => self.page_event(event.clone(), cx),
         }
         cx.notify();
@@ -2772,9 +2770,6 @@ impl Workspace {
     }
 
     fn palette_up(&mut self, _: &PaletteUp, _: &mut Window, cx: &mut Context<Self>) {
-        if self.rv().find_files_open(cx) {
-            return self.ffind_step(false, cx);
-        }
         if self.beside.is_some() {
             return self.step_beside(false, cx);
         }
@@ -2782,9 +2777,6 @@ impl Workspace {
     }
 
     fn palette_down(&mut self, _: &PaletteDown, _: &mut Window, cx: &mut Context<Self>) {
-        if self.rv().find_files_open(cx) {
-            return self.ffind_step(true, cx);
-        }
         if self.beside.is_some() {
             return self.step_beside(true, cx);
         }

@@ -1,56 +1,45 @@
-//! Search in the repository (⌘⌥F, #206), the review's (`artoo_review::find_files`): the tab opens it over the
-//! window, gives it its field and the keys, and opens what is found — in the diff on screen when it changes that
-//! file, else in Code at its line.
+//! Search in the repository (⌥⌘F, #206), the review's tool window (`artoo_review::find_files`): the tab opens it
+//! and opens what it found — in the diff on screen when it changes that file, else in Code at its line; going to a
+//! name and to a line in Code's file (#207).
 
 use super::Workspace;
-use artoo_review_api::{SearchEvent, SearchKeyed as Keyed};
-use gpui::{AnyElement, Context, KeyDownEvent, prelude::*};
-use std::rc::Rc;
+use super::zones::Zone;
+use artoo_review_api::SEARCH;
+use gpui::Context;
 
 impl Workspace {
-    pub(super) fn open_find_files(&mut self, cx: &mut Context<Self>) {
+    /// ⌥⌘F: the repository's search opened with the keyboard, its words the find's when it has some.
+    pub(super) fn search_repository(&mut self, cx: &mut Context<Self>) {
         if self.root.is_none() || self.settings_open {
             return;
         }
         self.close_palette(cx);
-        self.field = None;
-        self.reset_field_edit();
-        self.rv().open_find_files(cx);
-        cx.notify();
+        self.set_tool(Some(SEARCH), cx);
     }
 
-    pub(super) fn close_find_files(&mut self, cx: &mut Context<Self>) {
-        if self.rv().close_find_files(cx) {
-            cx.notify();
+    /// ⇧F12 in the peek: the repository searched for `word`, the window open already or not.
+    pub(super) fn search_word(&mut self, word: String, cx: &mut Context<Self>) {
+        self.set_dfind(word, cx);
+        if self.tool() == Some(SEARCH) {
+            self.tool_opened(SEARCH, cx);
         }
+        self.search_repository(cx);
     }
 
-    pub(super) fn ffind_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
-        let rv = self.rv();
-        let keyed = rv.find_files_key(&event.keystroke, &mut self.field_edit, cx);
-        if let Keyed::Open(found) = keyed {
-            self.open_found_line(found, cx);
+    /// A line the search opened: shown, the keyboard left with the search so ↓ ↵ go on to the next.
+    pub(super) fn found_in_files(
+        &mut self,
+        found: artoo_review_api::FoundInFiles,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_found_line(found, cx);
+        if self.tool() == Some(SEARCH) {
+            // The find bar the line opened is looked at first: else, opened since the last look, it takes the
+            // keyboard back.
+            self.sync_keyboard(cx);
+            self.take_keyboard(super::typing::Input::Tool, cx);
+            self.set_zone(Zone::Tool, cx);
         }
-        cx.notify();
-    }
-
-    pub(super) fn ffind_step(&mut self, down: bool, cx: &mut Context<Self>) {
-        if self.rv().find_files_step(down, cx) {
-            cx.notify();
-        }
-    }
-
-    fn search_event(&mut self, event: SearchEvent, cx: &mut Context<Self>) {
-        match event {
-            SearchEvent::Close => return self.close_find_files(cx),
-            SearchEvent::Open(ix) => {
-                if let Some(found) = self.rv().open_found(ix, cx) {
-                    self.open_found_line(found, cx);
-                }
-            }
-            toggle => self.rv().find_files_toggle(toggle, cx),
-        }
-        cx.notify();
     }
 
     /// A line found: in the diff on screen when it changes that file, else read in Code (#206).
@@ -97,18 +86,5 @@ impl Workspace {
             self.rv().open_file_line(cx);
             cx.notify();
         }
-    }
-
-    pub(super) fn render_find_files(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let query = self.rv().find_files_query(cx)?;
-        let field = self
-            .field_text(&query, true, "Search the repository", cx)
-            .into_any_element();
-        let this = cx.weak_entity();
-        let on = Rc::new(move |event, _: &mut gpui::Window, cx: &mut gpui::App| {
-            this.update(cx, |this, cx| this.search_event(event, cx))
-                .ok();
-        });
-        self.rv().render_find_files(field, on, cx)
     }
 }

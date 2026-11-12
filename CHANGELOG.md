@@ -46,11 +46,13 @@ for someone using the app, not for someone reading the code; the commits follow 
 - **Code finds in the file you read, and the repository has a search.** ⌘F on a file in Code opens a find bar under
   its head — `amount`, `.*`, `1 of 2`, ↑ ↓ × — with the hits tinted in the lines and the current one filled. A minimap
   at the code's right draws the file small, marks the find's hits and the lines that differ from HEAD (they have a bar
-  beside their numbers too), and shows what is on screen as you point at it; a click or a drag scrolls there. ⌥⌘F is
-  `Search in payments-service`: every file of the repository, `capture · 37 in 4 files`, grouped by file; a hit opens
-  in the diff when it changes that file, else in Code at its line. It reads nothing as it opens and searches while you
-  type, in the background, hits coming in as they are found (`Searching… 240 of 587 files`); typing on narrows the
-  last search, so a large repository stays quick.
+  beside their numbers too), and shows what is on screen as you point at it; a click or a drag scrolls there. ⌥⌘F
+  opens `Search in payments-service`, a window on the right with its icon first on the stripe: every file of the
+  repository, `capture · 37 in 4 files · working tree`, the lines grouped by file — a file's head folds them —, each
+  in its colours with every hit on it marked. ↑ ↓ ↵ or a click open a line in the diff when it changes that file, else
+  in Code at its line, and the window stays for the next one; closed and opened again, it has your words and what it
+  found. It reads nothing as it opens and searches while you type, in the background, hits coming in as they are found
+  (`Searching… 240 of 587 files`); typing on narrows the last search, so a large repository stays quick.
 - **A setting changes where it annoys you.** Right-click a button in the title bar — a plugin's too — and `Hide` it;
   Settings → Appearance lists what is hidden with `Show all`. Right-click the fetch status for `Retry` and `Stop
   fetching this repository`. Settings asks less: generated files always start folded — those the repository's

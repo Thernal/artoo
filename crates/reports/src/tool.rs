@@ -37,6 +37,7 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
             icon: "flag",
             tip: "Report a problem  ⌥⌘/",
             title: "Report a problem",
+            heading: None,
             spaces: &[],
             on_pages: false,
             // Not a window you work in: Help → Report a Problem…, ⌘K and ⌥⌘/ open it (#195).
@@ -53,6 +54,7 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
                     r.refresh_states(cx);
                 })
             }),
+            closed: Rc::new(|_| {}),
             typing,
             key: Rc::new(move |event, _, cx| key.update(cx, |r, cx| r.key(event, cx))),
             list_key: None,

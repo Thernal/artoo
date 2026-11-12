@@ -664,6 +664,9 @@ pub struct Tool {
     pub tip: &'static str,
     /// The window's title; the shell draws it with the close button.
     pub title: &'static str,
+    /// The title when it names more than `title`, asked as the window and its icon are drawn: the repository's
+    /// search says which repository (`Search in payments-service`), and so does its icon's tip, before its key.
+    pub heading: Option<OnHeading>,
     /// The spaces it is in, by their names (`code`, `branches`, `requests`, `inbox`); none, every one.
     pub spaces: &'static [&'static str],
     /// Only while a page is on screen, not on its space's own page (a request's Discussions).
@@ -683,6 +686,8 @@ pub struct Tool {
     pub view: AnyView,
     /// As it opens, before its window is drawn: a picture of the window taken now does not show it.
     pub opened: Hook,
+    /// As it closes, or another window takes its place: what it keeps only while open goes (the search's reads).
+    pub closed: Hook,
     /// Whether it takes typed keys while it has the keyboard; the part sets it, the shell reads it.
     pub typing: Rc<Cell<bool>>,
     /// A typed key while it has the keyboard.
@@ -694,6 +699,10 @@ pub struct Tool {
 /// What a tool window's icon says, asked as the stripe is drawn: while the tab draws, so it reads its own state and
 /// never the tab (through a host or otherwise).
 pub type OnBadge = Rc<dyn Fn(&App) -> Badge>;
+
+/// A tool window's title when it names more (`Tool::heading`), asked as the window and the stripe are drawn: it
+/// reads its own state and never the tab.
+pub type OnHeading = Rc<dyn Fn(&App) -> Option<String>>;
 
 /// What a tool window says after its title (`Tool::count`), asked as the window is drawn: while the tab draws, so
 /// it reads its own state and never the tab.

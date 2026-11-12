@@ -70,7 +70,7 @@ impl Workspace {
             Input::Field => true,
             Input::Part(id) => return self.part_input(id).and_then(|i| (i.selected)(cx)),
             Input::Palette => return self.palette_selected(cx),
-            Input::FindFiles | Input::Submit => true,
+            Input::Submit => true,
             _ => false,
         };
         shared

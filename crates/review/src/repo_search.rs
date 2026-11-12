@@ -77,6 +77,25 @@ pub(crate) struct Line {
     pub line: u32,
     pub text: String,
     pub range: Range<usize>,
+    /// The line's other hits in `text`, after the first (#206).
+    pub more: Vec<Range<usize>>,
+    /// Its colours, filled by whoever shows it (`find_files::colour`).
+    pub spans: Vec<artoo_core::highlight::Span>,
+    /// What of the file's bytes `text` shows, after `lead` bytes of `…`.
+    cut: Range<usize>,
+    lead: usize,
+}
+
+impl Line {
+    /// Another hit at `hit` of the file's `bytes`, on this line: marked where the text shows it.
+    fn mark(&mut self, bytes: &[u8], hit: Range<usize>) {
+        if hit.start < self.cut.start || hit.end > self.cut.end {
+            return;
+        }
+        let shown = |r: Range<usize>| String::from_utf8_lossy(&bytes[r]).len();
+        let start = self.lead + shown(self.cut.start..hit.start);
+        self.more.push(start..start + shown(hit));
+    }
 }
 
 /// What a file is to a query.
@@ -113,7 +132,14 @@ pub(crate) fn search(bytes: &[u8], q: &Compiled, room: usize) -> InFile {
             continue;
         }
         found.holds = true;
-        if m.start() < done_to || (q.word && !stands_alone(bytes, m.start(), m.end())) {
+        if q.word && !stands_alone(bytes, m.start(), m.end()) {
+            continue;
+        }
+        // Another on the line already found: marked there too.
+        if m.start() < done_to {
+            if let Some(line) = found.lines.last_mut() {
+                line.mark(bytes, m.range());
+            }
             continue;
         }
         found.hit = true;
@@ -170,6 +196,10 @@ fn cut_line(bytes: &[u8], span: Range<usize>, hit: Range<usize>, number: u32) ->
         line: number,
         range: start..start + found.len(),
         text: format!("{lead}{before}{found}{after}"),
+        more: Vec::new(),
+        spans: Vec::new(),
+        cut: from..to,
+        lead: lead.len(),
     }
 }
 
@@ -366,6 +396,17 @@ mod tests {
         );
         assert_eq!(lines(text, "backoff", true, false, false).len(), 2);
         assert_eq!(lines(text, "Backoff", true, false, false).len(), 1);
+    }
+
+    #[test]
+    fn every_hit_on_a_line_is_marked_where_its_text_shows_it() {
+        let q = compile("ab", false, false, false).unwrap();
+        let found = search("ab x AB, ab\nab".as_bytes(), &q, 100);
+        let first = &found.lines[0];
+        assert_eq!(first.range, 0..2);
+        let more: Vec<&str> = first.more.iter().map(|r| &first.text[r.clone()]).collect();
+        assert_eq!(more, ["AB", "ab"]);
+        assert!(found.lines[1].more.is_empty());
     }
 
     #[test]
