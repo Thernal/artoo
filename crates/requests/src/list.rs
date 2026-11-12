@@ -211,7 +211,8 @@ fn order(sort: SortBy, size: &dyn Fn(&Mr) -> usize) -> impl Fn(&Mr) -> (bool, i6
     move |m| {
         let key = match sort {
             SortBy::Updated => -m.updated,
-            SortBy::Oldest => m.updated,
+            // The one waiting longest first: when it was opened, not its last note (L17).
+            SortBy::Oldest => m.created,
             SortBy::Size => -(size(m) as i64),
         };
         (m.draft, key)
@@ -651,8 +652,6 @@ pub struct ListLook<'a> {
     pub filter: &'a str,
     /// Narrow: no preview beside the list, and a click opens a request (#80).
     pub compact: bool,
-    /// Comments drawn as markdown: a waiting discussion's line says them so.
-    pub rich: bool,
     /// The lists' widths: a row shows what its list has room for (#79).
     pub widths: &'a Widths,
     /// How far your review of each request listed got, and how many of its files are reviewed
@@ -1213,6 +1212,12 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
     // Its anatomy (#79): the title and when always; the size, discussions and target leave first as the list
     // narrows, then whose turn; the tooltip holds it all.
     let room = look.widths.room("requests");
+    // The row's date says what is sorted (L17): an open one's opening under Oldest first.
+    let when = if open && rq.rows.display.1 == SortBy::Oldest {
+        format!("opened {}", format::ago(m.created))
+    } else {
+        format::ago(m.updated)
+    };
     let mut tip = vec![
         format!("{} {}", words::number(iid), m.title),
         format!("{} · {} → {}", m.author, m.source, m.target),
@@ -1363,7 +1368,7 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
                                     .flex_none()
                                     .text_size(px(11.))
                                     .text_color(theme::faint())
-                                    .child(format::ago(m.updated))
+                                    .child(when)
                             })),
                     )
                     .child(
@@ -1405,8 +1410,8 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
 }
 
 /// The request picked (#189, Design L3): its number and branches, whose turn it is; its title; labelled rows —
-/// Size, Pipeline, Approvals, Reviewers, In the way, Discussions, Your review —; for one of yours the discussions
-/// waiting for you; the description; Open.
+/// Size, Pipeline, Approvals, Reviewers, In the way, Discussions, Your review —; the description; Open. What waits for
+/// you on one of yours is its Overview's, not the preview's (W).
 fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
     let iid = m.iid;
     let me = rq.login.as_deref().unwrap_or_default();
@@ -1608,84 +1613,6 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
         }));
     let description = markdown::plain(&m.description);
     let description = description.trim();
-    let waiting = if mine {
-        rq.waiting_for_me(threads)
-    } else {
-        Vec::new()
-    };
-    let first = waiting.first().and_then(|t| t.notes.last().map(|n| n.id));
-    let open_label = if first.is_some() {
-        "Open the first"
-    } else {
-        "Open"
-    };
-    let open_hint = if first.is_some() {
-        words::say("opens the merge request at that discussion").into_owned()
-    } else {
-        "opens on its changes, at the first file not reviewed · ⌥↓ the next not reviewed".to_owned()
-    };
-    let waits = (!waiting.is_empty()).then(|| {
-        div()
-            .flex()
-            .flex_col()
-            .child(
-                div()
-                    .pb(px(6.))
-                    .text_size(px(11.))
-                    .text_color(theme::faint())
-                    .child(format!("Waiting for you · {}", waiting.len())),
-            )
-            .children(waiting.iter().enumerate().map(|(n, t)| {
-                let last = t.notes.last();
-                let who = last.map(|n| n.author.clone()).unwrap_or_default();
-                let gist = last
-                    .map(|n| format::one_line(&n.body, look.rich))
-                    .unwrap_or_default();
-                let at = match (&t.path, t.new_line.or(t.old_line)) {
-                    (Some(path), Some(line)) => {
-                        format!("{}:{line}", path.rsplit('/').next().unwrap_or(path))
-                    }
-                    (Some(path), None) => path.rsplit('/').next().unwrap_or(path).to_owned(),
-                    _ => "General".to_owned(),
-                };
-                let note = last.map(|n| n.id);
-                let acts = acts.clone();
-                div()
-                    .id(("waiting", n))
-                    .flex()
-                    .items_start()
-                    .gap(px(10.))
-                    .py(px(8.))
-                    .border_t_1()
-                    .border_color(theme::island_border())
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme::hover()))
-                    .child(discussion::avatar(&who, false, 18.))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.))
-                            .text_size(px(12.))
-                            .child(
-                                div()
-                                    .flex()
-                                    .gap(px(6.))
-                                    .child(div().font_weight(FontWeight::SEMIBOLD).child(who))
-                                    .child(
-                                        div().text_color(theme::faint()).child(format!("on {at}")),
-                                    ),
-                            )
-                            .child(
-                                hover::cut(SharedString::from(format!("waiting-text-{n}")), gist)
-                                    .text_color(theme::muted()),
-                            ),
-                    )
-                    .on_click(move |_: &ClickEvent, _, cx| acts(Act::OpenRequest { iid, note }, cx))
-            }))
-    });
     let acts = acts.clone();
     div()
         .flex()
@@ -1699,7 +1626,6 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
         .child(rule())
         .child(labelled)
         .child(rule())
-        .children(waits)
         .children((!description.is_empty()).then(|| {
             hover::cut_to(
                 SharedString::from(format!("mr-description-{iid}")),
@@ -1712,10 +1638,10 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
         }))
         .child(
             div().flex().items_center().gap(px(12.)).child(
-                primary_button("request-open", open_label, "↵")
-                    .tip(open_hint)
+                primary_button("request-open", "Open", "↵")
+                    .tip("opens on its changes, at the first file not reviewed · ⌥↓ the next not reviewed")
                     .on_click(move |_: &ClickEvent, _, cx| {
-                        acts(Act::OpenRequest { iid, note: first }, cx)
+                        acts(Act::OpenRequest { iid, note: None }, cx)
                     }),
             ),
         )
@@ -1876,6 +1802,8 @@ mod tests {
         let m = |iid: u64, updated: i64, draft: bool| Mr {
             iid,
             updated,
+            // Opened in the other order than last updated: Oldest first goes by the opening.
+            created: 100 - updated,
             draft,
             ..Default::default()
         };
@@ -1884,7 +1812,7 @@ mod tests {
         list.sort_by_key(order(SortBy::Updated, &size));
         assert_eq!(list.iter().map(|m| m.iid).collect::<Vec<_>>(), [3, 1, 2]);
         list.sort_by_key(order(SortBy::Oldest, &size));
-        assert_eq!(list.iter().map(|m| m.iid).collect::<Vec<_>>(), [1, 3, 2]);
+        assert_eq!(list.iter().map(|m| m.iid).collect::<Vec<_>>(), [3, 1, 2]);
         list.sort_by_key(order(SortBy::Size, &size));
         assert_eq!(list.iter().map(|m| m.iid).collect::<Vec<_>>(), [3, 1, 2]);
     }

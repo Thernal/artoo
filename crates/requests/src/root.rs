@@ -185,7 +185,6 @@ impl RootPage {
                 picked: rq.rows.picked,
                 filter: &filter,
                 compact: host.narrow(cx),
-                rich: host.rich(cx),
                 widths: &self.widths,
                 seen,
                 parts,
