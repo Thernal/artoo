@@ -325,7 +325,7 @@ impl Review {
                                 }
                             })
                             .children(draft_mark(file.path(), draft))
-                            .children(generated_tag(file))
+                            .children(generated_tag(self.root.as_deref(), file))
                             .children(file_tag(diff.tags.row_word(ix)))
                             .when(counts, |s| s.child(stats(file)))
                             .row_tip(self.file == ix, change_tip(file))
@@ -524,7 +524,7 @@ impl Review {
             )
             .children(self.since_chip(ix))
             .children(draft_mark(path, draft))
-            .children(generated_tag(file))
+            .children(generated_tag(self.root.as_deref(), file))
             .children(file_tag(tag))
             .when(counts, |s| s.child(stats(file)))
             .row_tip(self.file == ix, change_tip(file))
@@ -833,9 +833,9 @@ fn draft_mark(path: &str, draft: Option<&str>) -> Option<AnyElement> {
     })
 }
 
-/// "generated" beside a lock or generated file.
-fn generated_tag(file: &FileDiff) -> Option<gpui::Div> {
-    artoo_core::generated::is_generated(file.path()).then(|| {
+/// "generated" beside a lock or generated file, as the repository at `root` says (#205).
+fn generated_tag(root: Option<&std::path::Path>, file: &FileDiff) -> Option<gpui::Div> {
+    artoo_core::generated::is_generated_in(root, file.path()).then(|| {
         div()
             .flex_none()
             .text_size(px(10.))

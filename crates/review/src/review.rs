@@ -644,9 +644,10 @@ impl Review {
         (DIFF_ROW * f32::from(self.settings.zoom) / 100.).round()
     }
 
-    /// A generated file with a long change starts folded; the reader can open it.
+    /// A generated file with a long change starts folded; the reader can open it. Generated: as the repository's
+    /// `.gitattributes` says, else by its name (#205).
     pub fn generated_folded(&self, file: &FileDiff) -> bool {
-        artoo_core::generated::is_generated(file.path())
+        artoo_core::generated::is_generated_in(self.root.as_deref(), file.path())
             && file.added + file.removed > artoo_core::generated::FOLD_ABOVE
             && !self.unfolded.contains(file.path())
     }

@@ -53,8 +53,9 @@ for someone using the app, not for someone reading the code; the commits follow 
   last search, so a large repository stays quick.
 - **A setting changes where it annoys you.** Right-click a button in the title bar — a plugin's too — and `Hide` it;
   Settings → Appearance lists what is hidden with `Show all`. Right-click the fetch status for `Retry` and `Stop
-  fetching this repository`. Settings asks less: generated files always start folded and tabs are as wide as
-  each project's `.editorconfig` says, with no option for either; the projects inside the menu of spaces went (Rail and
+  fetching this repository`. Settings asks less: generated files always start folded — those the repository's
+  `.gitattributes` marks `linguist-generated` too, and not those it marks `-linguist-generated` — and tabs are as wide
+  as each project's `.editorconfig` says, with no option for either; the projects inside the menu of spaces went (Rail and
   Tabs stay, and a Menu kept opens as Tabs); About gains `Open settings folder`. A `Colour-blind` theme ships: One
   Dark with blue for added lines and orange for removed ones.
 - **Themes are one row each, and plugins can bring them.** Settings → Appearance says `Theme  ● One Dark ▾` and

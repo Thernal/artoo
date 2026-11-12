@@ -187,6 +187,8 @@ pub fn get_request(
         .filter_map(Value::as_str)
         .collect();
     let r = read(hosts, here, iid)?;
+    // Generated as the repository's `.gitattributes` says, else by its name (#205).
+    let root = Repo::open(here).ok().map(|repo| repo.root());
     let m = &r.mr;
     let (added, removed) = r
         .files
@@ -243,7 +245,7 @@ pub fn get_request(
             file.added, file.removed
         );
         let generated = paths.is_empty()
-            && crate::generated::is_generated(path)
+            && crate::generated::is_generated_in(root.as_deref(), path)
             && file.added + file.removed > crate::generated::FOLD_ABOVE;
         let lines = lines_of(file);
         if let Some(note) = &file.note {
