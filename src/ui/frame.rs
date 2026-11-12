@@ -121,11 +121,7 @@ impl Workspace {
                 .as_deref()
                 .map_or_else(|| "Artoo".to_owned(), crate::labels::project_name)
         });
-        let mut items: Vec<gpui::AnyElement> = self
-            .title_items(cx)
-            .into_iter()
-            .map(IntoElement::into_any_element)
-            .collect();
+        let mut items: Vec<gpui::AnyElement> = self.bar_items(cx);
         items.extend(self.render_fetch(cx).map(IntoElement::into_any_element));
         items.extend(self.render_status(cx).map(IntoElement::into_any_element));
         title::title_bar(

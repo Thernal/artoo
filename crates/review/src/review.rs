@@ -617,8 +617,7 @@ impl Review {
 
     /// A generated file with a long change starts folded; the reader can open it.
     pub fn generated_folded(&self, file: &FileDiff) -> bool {
-        self.settings.fold_generated
-            && artoo_core::generated::is_generated(file.path())
+        artoo_core::generated::is_generated(file.path())
             && file.added + file.removed > artoo_core::generated::FOLD_ABOVE
             && !self.unfolded.contains(file.path())
     }

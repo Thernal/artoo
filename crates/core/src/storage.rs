@@ -302,24 +302,22 @@ impl MarkStyle {
     }
 }
 
-/// How several open repositories are shown (redesign round 2): a rail of projects on the left,
-/// tabs in the title bar, or the projects inside the menu of spaces.
+/// How several open repositories are shown (redesign round 2): a rail of projects on the left, or tabs in the
+/// title bar. The projects inside the menu of spaces went (#205): a Menu kept lands on Tabs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Projects {
     #[default]
     Rail,
     Tabs,
-    Menu,
 }
 
 impl Projects {
-    pub const ALL: [Projects; 3] = [Projects::Rail, Projects::Tabs, Projects::Menu];
+    pub const ALL: [Projects; 2] = [Projects::Rail, Projects::Tabs];
 
     pub fn label(self) -> &'static str {
         match self {
             Projects::Rail => "Rail",
             Projects::Tabs => "Tabs",
-            Projects::Menu => "Menu",
         }
     }
 
@@ -327,12 +325,14 @@ impl Projects {
         match self {
             Projects::Rail => "rail",
             Projects::Tabs => "tabs",
-            Projects::Menu => "menu",
         }
     }
 
     fn from_key(key: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|p| p.key() == key)
+        match key {
+            "menu" => Some(Projects::Tabs),
+            _ => Self::ALL.into_iter().find(|p| p.key() == key),
+        }
     }
 }
 
@@ -381,8 +381,6 @@ pub struct Settings {
     pub default_mode: DiffMode,
     /// Re-read the repository when something outside the app changes it.
     pub auto_refresh: bool,
-    /// Lock files and other generated files start folded in a diff.
-    pub fold_generated: bool,
     /// With all files in one scroll, a file scrolled past is marked reviewed.
     pub auto_reviewed: bool,
     /// The size of the code in a diff, in percent of the normal size (⌘+ ⌘− ⌘0).
@@ -412,6 +410,8 @@ pub struct Settings {
     pub dock_count: bool,
     /// Keyboard helpers: the keys of what is on screen while ⌘ (or ⌃⌘) is held (#193).
     pub key_helpers: bool,
+    /// The title bar's items hidden from their right click, by id (#205).
+    pub hidden_bar: Vec<String>,
 }
 
 impl Default for Settings {
@@ -421,7 +421,6 @@ impl Default for Settings {
             mark_style: MarkStyle::default(),
             default_mode: DiffMode::default(),
             auto_refresh: true,
-            fold_generated: true,
             auto_reviewed: false,
             zoom: 100,
             ui_zoom: 100,
@@ -436,6 +435,7 @@ impl Default for Settings {
             system_notifications: false,
             dock_count: true,
             key_helpers: true,
+            hidden_bar: Vec::new(),
         }
     }
 }
@@ -464,7 +464,6 @@ impl Settings {
                     settings.default_mode = DiffMode::from_key(value).unwrap_or_default()
                 }
                 "auto_refresh" => settings.auto_refresh = value != "false",
-                "fold_generated" => settings.fold_generated = value != "false",
                 "auto_reviewed" => settings.auto_reviewed = value == "true",
                 "rich_comments" => settings.rich_comments = value != "false",
                 "key_helpers" => settings.key_helpers = value != "false",
@@ -488,6 +487,12 @@ impl Settings {
                     })
                 }
                 "editor" => settings.editor = Some(value.to_owned()).filter(|v| !v.is_empty()),
+                "hidden_bar" => {
+                    settings.hidden_bar = (value.split(','))
+                        .filter(|v| !v.is_empty())
+                        .map(str::to_owned)
+                        .collect()
+                }
                 _ => {}
             }
         }
@@ -500,7 +505,9 @@ impl std::fmt::Display for Settings {
         writeln!(f, "mark_style={}", self.mark_style.key())?;
         writeln!(f, "default_mode={}", self.default_mode.key())?;
         writeln!(f, "auto_refresh={}", self.auto_refresh)?;
-        writeln!(f, "fold_generated={}", self.fold_generated)?;
+        if !self.hidden_bar.is_empty() {
+            writeln!(f, "hidden_bar={}", self.hidden_bar.join(","))?;
+        }
         writeln!(f, "auto_reviewed={}", self.auto_reviewed)?;
         writeln!(f, "rich_comments={}", self.rich_comments)?;
         writeln!(f, "keys_seen={}", self.keys_seen)?;
@@ -616,7 +623,6 @@ mod tests {
             mark_style: MarkStyle::Underlined,
             default_mode: DiffMode::Structural,
             auto_refresh: false,
-            fold_generated: false,
             auto_reviewed: true,
             zoom: 130,
             ui_zoom: 120,
@@ -624,15 +630,23 @@ mod tests {
             keys_seen: true,
             open_in: OpenIn::NewTab,
             last_new_tab: true,
-            projects: Projects::Menu,
+            projects: Projects::Tabs,
             flat: true,
             animations: false,
             check_updates: false,
             system_notifications: true,
             dock_count: false,
             key_helpers: false,
+            hidden_bar: vec!["updates".to_owned(), "jira".to_owned()],
         };
         assert_eq!(Settings::parse(&settings.to_string()), settings);
+    }
+
+    #[test]
+    fn the_menu_layout_kept_lands_on_tabs_and_a_fold_option_is_forgotten() {
+        let settings = Settings::parse("projects=menu\nfold_generated=false\n");
+        assert_eq!(settings.projects, Projects::Tabs);
+        assert!(!settings.to_string().contains("fold_generated"));
     }
 
     #[test]

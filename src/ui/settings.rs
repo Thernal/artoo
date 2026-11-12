@@ -155,8 +155,37 @@ impl Workspace {
                 )
             },
         ));
-        let fold = switch("fold-generated", s.fold_generated)
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.flip_fold_generated(cx)));
+        // What the title bar hides from its right click, shown again (#205).
+        let hidden = self.hidden_bar_names(cx);
+        let hidden_row = (!hidden.is_empty()).then(|| {
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(div().text_color(theme::muted()).child(hidden.join(" · ")))
+                .child(
+                    super::discussion::button(
+                        "bar-show-all",
+                        "Show all",
+                        None,
+                        super::discussion::Kind::Plain,
+                    )
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.change_settings(|this| this.settings.hidden_bar.clear(), cx)
+                    })),
+                )
+        });
+        let folder = super::discussion::button(
+            "settings-folder",
+            "Open settings folder",
+            None,
+            super::discussion::Kind::Plain,
+        )
+        .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
+            if let Some(dir) = artoo_core::platform::data_dir() {
+                cx.reveal_path(&dir);
+            }
+        }));
         let scrolled = switch("auto-reviewed", s.auto_reviewed).on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {
                 this.change_settings(
@@ -223,13 +252,6 @@ impl Workspace {
                 }),
             ),
             Own::row(
-                FOLD,
-                30,
-                fold,
-                (s.fold_generated != d.fold_generated)
-                    .then(|| reset(cx, |this, _, cx| this.flip_fold_generated(cx))),
-            ),
-            Own::row(
                 MARK_REVIEWED,
                 40,
                 scrolled,
@@ -261,6 +283,10 @@ impl Workspace {
                 (s.animations != d.animations)
                     .then(|| reset(cx, |this, _, cx| this.set_animations(true, cx))),
             ),
+        ]
+        .into_iter()
+        .chain(hidden_row.map(|row| Own::row(HIDDEN_BAR, 75, row, None)))
+        .chain(vec![
             Own::row(
                 OPEN_FILES,
                 10,
@@ -309,6 +335,7 @@ impl Workspace {
                 (!self.fetch.enabled)
                     .then(|| reset(cx, |this, _, cx| this.set_fetch_enabled(true, cx))),
             ),
+            Own::row(SETTINGS_FILES, 20, folder, None),
             Own::row(
                 UPDATES,
                 5,
@@ -319,17 +346,8 @@ impl Workspace {
                     })
                 }),
             ),
-        ]
-    }
-
-    fn flip_fold_generated(&mut self, cx: &mut Context<Self>) {
-        self.rv().clear_unfolded(cx);
-        self.change_settings(
-            |this| this.settings.fold_generated = !this.settings.fold_generated,
-            cx,
-        );
-        self.refresh_rows(cx);
-        self.build_stack(cx);
+        ])
+        .collect()
     }
 
     fn set_animations(&mut self, on: bool, cx: &mut Context<Self>) {
@@ -640,9 +658,6 @@ const CHANGED_WORDS: Named = Named::new(REVIEW, "Changed words")
     .words("diff highlight mark tinted underlined");
 const DEFAULT_MODE: Named =
     Named::new(REVIEW, "Default mode").words("diff view lines words structural");
-const FOLD: Named = Named::new(REVIEW, "Fold generated files")
-    .detail("Lock files and generated code that change by more than 40 lines.")
-    .words("diff lock collapse");
 const MARK_REVIEWED: Named = Named::new(REVIEW, "Mark reviewed as I scroll past")
     .detail("With all files in one scroll.")
     .words("diff viewed");
@@ -666,6 +681,10 @@ const REFRESH: Named =
 const FETCH: Named = Named::new(PROJECTS, "Fetch in the background")
     .detail("Every 5 minutes and when the window comes back")
     .words("repository remote origin");
+const SETTINGS_FILES: Named =
+    Named::new(ABOUT, "Settings files").words("export import backup folder txt");
+const HIDDEN_BAR: Named =
+    Named::new(APPEARANCE, "Hidden from the title bar").words("title bar buttons hide show");
 const UPDATES: Named = Named::new(ABOUT, "Check for updates")
     .detail("At start and every 6 hours.")
     .words("general version");
@@ -705,7 +724,6 @@ pub(super) fn install(cx: &mut App) {
     for named in [
         CHANGED_WORDS,
         DEFAULT_MODE,
-        FOLD,
         MARK_REVIEWED,
         INTERFACE_FONT,
         CODE_FONT,
@@ -718,6 +736,8 @@ pub(super) fn install(cx: &mut App) {
         REFRESH,
         FETCH,
         UPDATES,
+        SETTINGS_FILES,
+        HIDDEN_BAR,
     ]
     .into_iter()
     .chain(DRAWN)

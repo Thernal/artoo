@@ -137,14 +137,6 @@ impl Workspace {
         )];
         self.open_menu(at, vec![moves, open, close], cx);
     }
-
-    /// The projects in the menu of spaces (Settings → Appearance → Menu): one row each.
-    pub(super) fn menu_projects(&self) -> Vec<(usize, TabInfo)> {
-        if super::projects() != Projects::Menu {
-            return Vec::new();
-        }
-        self.tabs.borrow().iter().cloned().enumerate().collect()
-    }
 }
 
 /// The rail's Move up and Move down (#49): project `from` to place `to`.

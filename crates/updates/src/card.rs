@@ -36,6 +36,8 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
     let (shot, shot_commits) = (on(&card), on(&card));
     Parts {
         title: Some(TitleItem {
+            id: "updates",
+            name: "A newer version",
             view: mark.into(),
             shown: Rc::new(|_| crate::newest().is_some()),
         }),

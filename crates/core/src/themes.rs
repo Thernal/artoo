@@ -154,7 +154,7 @@ pub fn index(name: &str) -> Option<usize> {
 }
 
 /// The built-in themes: (id, file).
-const BUILT_IN: [(&str, &str); 5] = [
+const BUILT_IN: [(&str, &str); 6] = [
     (
         "one-dark",
         include_str!("../../../assets/themes/one-dark.json"),
@@ -169,6 +169,11 @@ const BUILT_IN: [(&str, &str); 5] = [
     ),
     ("night", include_str!("../../../assets/themes/night.json")),
     ("paper", include_str!("../../../assets/themes/paper.json")),
+    // One Dark with blue for added and orange for removed, told apart without red and green (#205).
+    (
+        "colour-blind",
+        include_str!("../../../assets/themes/colour-blind.json"),
+    ),
 ];
 
 /// A theme ready to draw with: every token, 0xRRGGBBAA.
@@ -291,6 +296,7 @@ fn label_of(id: &str) -> String {
         "darcula" => "Darcula".into(),
         "night" => "Night".into(),
         "paper" => "Paper".into(),
+        "colour-blind" => "Colour-blind".into(),
         other => other.to_owned(),
     }
 }

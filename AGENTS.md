@@ -12,7 +12,9 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   offered by its words (`artoo_shell_api::add_setting`, `settings::Named`): `Search settings` (⌘F, `Field::Settings`)
   shows the window root's rows live under their sections and another owner's as a row leading to its section, and ⌘K's
   Settings scope lists them all (`palette_lists.rs`). A row is the kit's `setting_row`: 44 px, a dot and Reset on hover
-  when off its default; Done sits at the left column's foot.
+  when off its default; Done sits at the left column's foot. A title-bar item (`TitleItem::id`) hides from its right click
+  (`Settings::hidden_bar`, #205); the fetch status's right click retries or stops fetching. Tabs are as wide as the
+  repository's `.editorconfig` says (`artoo_core::rows::follow_tab_width`).
 - **A Cargo workspace (#165).** The root package is the app (`src/main.rs`, `src/ui/`);
   `crates/plugin-sdk` (`artoo-plugin-sdk`, #175) is what a plugin builds against: one shared library holding GPUI, its
   platform, the core, the kit and every contract, which the app links (`extern crate` in `main.rs`) so each is once in

@@ -106,6 +106,19 @@ impl Workspace {
     /// The title bar's word on the fetch, as a fact (#202): when it last ran; a failure an amber dot and
     /// `Can't reach origin · fetched 14:32` (any other `Fetch failed · fetched 14:32`), Retry its own small button.
     /// Its tip keeps the host, the guess and the last fetch.
+    /// The fetch status's right click (#205): Retry, Stop fetching this repository.
+    fn fetch_menu(&mut self, at: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
+        use super::menu::{Act, Entry};
+        let entries = vec![
+            Entry::new("Retry", Act::new(|this, _, cx| this.fetch_now(cx))),
+            Entry::new(
+                "Stop fetching this repository",
+                Act::new(|this, _, cx| this.set_fetch_enabled(false, cx)),
+            ),
+        ];
+        self.open_menu(at, vec![entries], cx);
+    }
+
     pub(super) fn render_fetch(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         if !self.fetch.enabled {
             return None;
@@ -170,7 +183,15 @@ impl Workspace {
                     .bg(theme::warning())
             }))
             .child(div().min_w_0().cut_in_tip().child(text))
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.fetch_now(cx)));
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.fetch_now(cx)))
+            // Where fetching annoys you, it stops (#205).
+            .on_mouse_down(
+                gpui::MouseButton::Right,
+                cx.listener(|this, ev: &gpui::MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.fetch_menu(ev.position, cx);
+                }),
+            );
         let retry = failed.map(|_| {
             div()
                 .id("fetch-retry")

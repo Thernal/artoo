@@ -610,6 +610,42 @@ pub fn runs(
     out
 }
 
+/// How wide a tab is drawn, in columns: the repository's own (`.editorconfig`, #205), 4 when it says nothing.
+static TAB_WIDTH: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(4);
+
+pub fn tab_width() -> usize {
+    TAB_WIDTH.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The repository at `root` opened: its tabs are drawn as wide as it says.
+pub fn follow_tab_width(root: &std::path::Path) {
+    let text = std::fs::read_to_string(root.join(".editorconfig")).unwrap_or_default();
+    let width = editorconfig_tab_width(&text).unwrap_or(4);
+    TAB_WIDTH.store(width, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// `tab_width` (or `indent_size`) in an `.editorconfig`'s section for every file (`[*]`), 1 to 16.
+fn editorconfig_tab_width(text: &str) -> Option<usize> {
+    let (mut every, mut tab, mut indent) = (false, None, None);
+    for line in text.lines().map(str::trim) {
+        if line.starts_with('[') {
+            every = line == "[*]";
+        } else if every && let Some((key, value)) = line.split_once('=') {
+            let n = value
+                .trim()
+                .parse::<usize>()
+                .ok()
+                .filter(|n| (1..=16).contains(n));
+            match key.trim() {
+                "tab_width" => tab = n,
+                "indent_size" => indent = n,
+                _ => {}
+            }
+        }
+    }
+    tab.or(indent)
+}
+
 /// Expands tabs to `width` columns; `map[i]` is where byte `i` of `text` lands in the result.
 pub fn expand_tabs(text: &str, width: usize) -> (String, Vec<usize>) {
     let mut out = String::with_capacity(text.len());
@@ -1074,5 +1110,21 @@ mod tests {
             ]
         );
         assert_eq!(pinned(rows.clone(), &[]), rows);
+    }
+}
+
+#[cfg(test)]
+mod tab_tests {
+    use super::editorconfig_tab_width;
+
+    #[test]
+    fn the_tab_width_is_the_editorconfigs_for_every_file() {
+        assert_eq!(editorconfig_tab_width("[*]\nindent_size = 2\n"), Some(2));
+        assert_eq!(
+            editorconfig_tab_width("[*]\nindent_size = 2\ntab_width = 8\n[*.md]\ntab_width = 3\n"),
+            Some(8)
+        );
+        assert_eq!(editorconfig_tab_width("[*.kt]\nindent_size = 4\n"), None);
+        assert_eq!(editorconfig_tab_width("[*]\nindent_size = tab\n"), None);
     }
 }

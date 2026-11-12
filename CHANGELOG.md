@@ -6,6 +6,12 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **A setting changes where it annoys you.** Right-click a button in the title bar — a plugin's too — and `Hide` it;
+  Settings → Appearance lists what is hidden with `Show all`. Right-click the fetch status for `Retry` and `Stop
+  fetching this repository`. Settings asks less: generated files always start folded and tabs are as wide as the
+  repository's `.editorconfig` says, with no option for either; the projects inside the menu of spaces went (Rail and
+  Tabs stay, and a Menu kept opens as Tabs); About gains `Open settings folder`. A `Colour-blind` theme ships: One
+  Dark with blue for added lines and orange for removed ones.
 - **Themes are one row each.** Settings → Appearance says `Theme  ● One Dark ▾` and `Code theme  ● Same as Theme ▾`
   instead of two walls of cards, so the fonts are on the first screen. Either row opens every theme in one list with
   a filter, grouped `Built in` and `Yours`; ↑↓ tries the theme on the whole window, ↵ keeps it, esc goes back to the

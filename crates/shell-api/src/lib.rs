@@ -570,6 +570,10 @@ pub type OnKey = Rc<dyn Fn(&KeyDownEvent, &mut Window, &mut App)>;
 
 /// An item in the title bar, beside the fetch and the status.
 pub struct TitleItem {
+    /// A stable id (`updates`): what its right click's Hide keeps (#205).
+    pub id: &'static str,
+    /// Its name in Settings → Appearance's list of what is hidden.
+    pub name: &'static str,
     pub view: AnyView,
     /// Whether it is shown now: one that is not takes no room.
     pub shown: Rc<dyn Fn(&App) -> bool>,

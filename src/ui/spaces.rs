@@ -324,7 +324,8 @@ impl Workspace {
                 moving: self.motion.recent("places-fold"),
                 here: self.space(),
                 rows,
-                projects: self.menu_projects(),
+                // The projects inside the menu of spaces went (#205).
+                projects: Vec::new(),
                 tabs: self.tabs_host(cx),
                 panel_icons: self.render_panel_icons(cx),
                 zen: self.zen.is_some(),

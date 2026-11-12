@@ -567,13 +567,59 @@ impl Workspace {
         }
     }
 
-    /// The parts' items in the title bar that are shown now.
-    pub(super) fn title_items(&self, cx: &App) -> Vec<AnyView> {
+    /// The parts' items in the title bar that are shown now and not hidden from their right click (#205), by id.
+    pub(super) fn title_items(&self, cx: &App) -> Vec<(&'static str, AnyView)> {
         self.parts
             .iter()
             .filter_map(|p| p.title.as_ref())
+            .filter(|t| !self.settings.hidden_bar.iter().any(|h| h == t.id))
             .filter(|t| (t.shown)(cx))
-            .map(|t| t.view.clone())
+            .map(|t| (t.id, t.view.clone()))
+            .collect()
+    }
+
+    /// The names of the title bar's items hidden (Settings → Appearance).
+    pub(super) fn hidden_bar_names(&self, _: &App) -> Vec<&'static str> {
+        (self.parts.iter())
+            .filter_map(|p| p.title.as_ref())
+            .filter(|t| self.settings.hidden_bar.iter().any(|h| h == t.id))
+            .map(|t| t.name)
+            .collect()
+    }
+
+    /// A title-bar item's right click: Hide (#205).
+    fn bar_item_menu(
+        &mut self,
+        id: &'static str,
+        at: gpui::Point<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        use super::menu::{Act, Entry};
+        let hide = Entry::new(
+            "Hide",
+            Act::new(move |this, _, cx| {
+                this.change_settings(|this| this.settings.hidden_bar.push(id.to_owned()), cx)
+            }),
+        );
+        self.open_menu(at, vec![vec![hide]], cx);
+    }
+
+    /// The items as the title bar draws them, each hiding from its right click.
+    pub(super) fn bar_items(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
+        (self.title_items(cx).into_iter())
+            .map(|(id, view)| {
+                gpui::div()
+                    .id(id)
+                    .child(view)
+                    .on_mouse_down(
+                        gpui::MouseButton::Right,
+                        cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
+                            cx.stop_propagation();
+                            this.bar_item_menu(id, ev.position, cx);
+                        }),
+                    )
+                    .into_any_element()
+            })
             .collect()
     }
 
