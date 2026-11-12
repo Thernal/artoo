@@ -303,8 +303,13 @@ pub trait Branches {
     /// comparison `on_screen` kept while a run of its commits narrows it; `None` while no branch is open.
     fn loaded(&self, on_screen: Option<&Route>, cx: &App) -> Option<Route>;
 
-    /// Whether branch `refname`'s page has Commits and Changes as tabs: it is the one open, off the main line.
+    /// Whether branch `refname`'s page has Commits and Changes as tabs: it is the one open, off the main line, and
+    /// not the one checked out, whose page is the Working tree (#209).
     fn tabbed(&self, refname: &str, cx: &App) -> bool;
+
+    /// The branch whose own page is the Working tree (#209): the one checked out, off the main line, while it is
+    /// open. Its refname.
+    fn checked_out(&self, cx: &App) -> Option<String>;
 
     /// Whether branch `refname` is the one open and the main line itself (#208).
     fn main_line(&self, refname: &str, cx: &App) -> bool;

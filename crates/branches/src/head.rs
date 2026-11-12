@@ -178,7 +178,9 @@ pub fn what(diff: &Diff, history: &History, narrowed: bool, acts: &Acts) -> AnyE
     match &diff.header {
         // The commit's head says what it is (#209).
         Header::Commit(_) => div().into_any_element(),
-        Header::WorkingTree { only_unstaged } => {
+        // The branch checked out's whole work: one list, no halves (#209).
+        Header::WorkingTree { since: Some(_), .. } => div().into_any_element(),
+        Header::WorkingTree { only_unstaged, .. } => {
             let only = *only_unstaged;
             group()
                 .child(
@@ -422,8 +424,19 @@ fn summary(diff: &Diff, look: &HeadLook, text: Selectable, acts: &Acts) -> gpui:
                         })),
                 )
         }
-        Header::WorkingTree { only_unstaged } => {
+        Header::WorkingTree {
+            only_unstaged,
+            since,
+        } => {
             let only = *only_unstaged;
+            let against = match since {
+                Some(since) => format!(
+                    "Working tree against {}",
+                    since.base.0.trim_start_matches("origin/")
+                ),
+                None if only => "Working tree against the index".to_owned(),
+                None => "Working tree against HEAD".to_owned(),
+            };
             header
                 .child(
                     div()
@@ -436,11 +449,7 @@ fn summary(diff: &Diff, look: &HeadLook, text: Selectable, acts: &Acts) -> gpui:
                             div()
                                 .text_size(px(15.))
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .child(if only {
-                                    "Working tree against the index"
-                                } else {
-                                    "Working tree against HEAD"
-                                }),
+                                .child(against),
                         ),
                 )
                 .child(

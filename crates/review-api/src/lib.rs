@@ -62,8 +62,12 @@ pub enum Source {
         old: PairCommit,
         new: PairCommit,
     },
-    /// What is not committed: all of it as `git status` groups it, or what is not staged only.
-    WorkingTree { only_unstaged: bool },
+    /// What is not committed: all of it as `git status` groups it, or what is not staged only; with `since`, the
+    /// checked-out branch's whole work against its main line, what is not committed with it (#209).
+    WorkingTree {
+        only_unstaged: bool,
+        since: Option<diff::Since>,
+    },
     /// What `head` changed against `base`, each a name and the commit it was at, since their merge base or
     /// directly; the merge request it is the diff of, so comments can go to it.
     Compare {

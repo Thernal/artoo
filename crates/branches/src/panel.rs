@@ -5,6 +5,11 @@
 //! list has the keyboard it asks the `Frame` as it draws.
 
 use crate::history::{Act, Acts, History, Selection};
+
+/// The most commits the Working tree's Commits shows before it scrolls (#209).
+const WORK_ROWS: usize = 6;
+/// A commit's row in the side panel.
+pub(crate) const COMMIT_ROW: f32 = 62.;
 use crate::side::{search_chip, version_rows, working_chip};
 use artoo_branches_api::{
     BranchCommitRoute, BranchCommitsRoute, BranchRoute, CompareRoute, WorkingTreeRoute,
@@ -236,8 +241,14 @@ impl History {
                 .or_else(|| BranchCommitRoute::from_route(route).map(|b| b.refname))
                 .or_else(|| BranchCommitsRoute::from_route(route).map(|b| b.refname))
         });
+        // The Working tree of the branch checked out, or its own pages: its commits over its whole work (#209).
+        let working = self.checked_out().is_some()
+            && (kind == WorkingTreeRoute::KIND
+                || branch
+                    .as_deref()
+                    .is_some_and(|b| self.shows_working_tree(b)));
         // Tabbed: a request's page, a branch's off the main line.
-        let tabbed = request || branch.as_deref().is_some_and(|b| self.tabbed(b));
+        let tabbed = request || (!working && branch.as_deref().is_some_and(|b| self.tabbed(b)));
         // A commit of the main line is its page's own level: the panel stays as on its branch.
         let commit_level = [
             RequestCommitRoute::KIND,
@@ -247,7 +258,7 @@ impl History {
         .contains(&kind)
             || (tabbed && kind == BranchCommitRoute::KIND);
         let on_branch = tabbed && branch.is_some();
-        let loose = kind == CompareRoute::KIND || kind == WorkingTreeRoute::KIND;
+        let loose = kind == CompareRoute::KIND || (kind == WorkingTreeRoute::KIND && !working);
         let compare = route.and_then(CompareRoute::from_route).is_some_and(|c| {
             self.compare.as_ref().is_some_and(|shown| {
                 let ((base, a), (head, b), since) = &shown.of;
@@ -259,7 +270,7 @@ impl History {
         // The main line's Commits and Changes are tabs (#208): one or the other, the whole column.
         let main = branch.as_deref().is_some_and(|b| self.main_line(b));
         Shows {
-            versions: self.versions.len() > 1 && !commit_level && !on_branch && !loose,
+            versions: self.versions.len() > 1 && !commit_level && !on_branch && !loose && !working,
             commits: !tabbed && !loose && !(main && self.main_changes),
             compare,
             no_changes: main && !self.main_changes,
@@ -347,6 +358,8 @@ impl History {
                 c.summary.clone()
             }
         });
+        // The branch checked out: its page is the Working tree already, its commits as tall as their rows (#209).
+        let checked_out = self.checked_out().is_some();
         let mut end: Vec<AnyElement> = Vec::new();
         end.extend(
             working_chip(
@@ -354,6 +367,7 @@ impl History {
                 self.selection == Selection::WorkingTree,
                 &acts,
             )
+            .filter(|_| !checked_out)
             .map(IntoElement::into_any_element),
         );
         end.push(search_chip(self.find.text.is_some(), &acts).into_any_element());
@@ -389,6 +403,11 @@ impl History {
                         cx,
                     ))
             });
+        if checked_out {
+            let rows = self.commit_rows().clamp(1, WORK_ROWS) as f32;
+            let tall = panel::HEADER + if folded { 0. } else { rows * COMMIT_ROW + 6. };
+            return section.flex_none().h(px(tall)).into_any_element();
+        }
         open_share(section, "commits-open", !folded).into_any_element()
     }
 

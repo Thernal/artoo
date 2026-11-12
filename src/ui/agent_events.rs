@@ -419,7 +419,7 @@ impl Workspace {
         if let Some(on) = unstaged
             && matches!(
                 self.shown_diff(cx).as_ref().map(|d| &d.header),
-                Some(super::Header::WorkingTree { only_unstaged }) if *only_unstaged != on
+                Some(super::Header::WorkingTree { only_unstaged, .. }) if *only_unstaged != on
             )
         {
             self.set_only_unstaged(on, cx);

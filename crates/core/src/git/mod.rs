@@ -252,6 +252,24 @@ struct WorkingParts<'r> {
     untracked: std::collections::HashSet<String>,
 }
 
+impl WorkingParts<'_> {
+    /// What `git status` says of `path`: `untracked`, `partly staged`, `staged` or `not staged`; none for a file
+    /// not changed since `HEAD`.
+    fn word(&self, path: &str) -> Option<&'static str> {
+        match (
+            self.staged.iter().any(|s| s.path() == path),
+            self.unstaged_paths.contains(path),
+            self.untracked.contains(path),
+        ) {
+            (_, _, true) => Some("untracked"),
+            (true, true, _) => Some("partly staged"),
+            (true, false, _) => Some("staged"),
+            (false, true, _) => Some("not staged"),
+            (false, false, _) => None,
+        }
+    }
+}
+
 /// The working tree's diff options: new files with their content.
 fn working_options(settings: DiffSettings) -> git2::DiffOptions {
     let mut o = diff::options(settings);
@@ -696,11 +714,11 @@ impl Repo {
     /// The changes of the working tree against `HEAD` (staged, not staged and untracked files),
     /// a file once; with `only_unstaged` only what changed since the last `git add`. Read-only.
     pub fn working_tree(&self, settings: DiffSettings, only_unstaged: bool) -> Result<WorkingTree> {
-        let Some(parts) = self.working_parts(settings)? else {
+        let Some(mut parts) = self.working_parts(settings)? else {
             return Ok(WorkingTree::default());
         };
         let files = if only_unstaged {
-            parts.unstaged
+            std::mem::take(&mut parts.unstaged)
         } else {
             diff::collect(
                 &self.inner,
@@ -719,19 +737,42 @@ impl Repo {
         };
         let tags = files
             .iter()
-            .map(|f| {
-                let path = f.path();
-                match (
-                    parts.staged.iter().any(|s| s.path() == path),
-                    parts.unstaged_paths.contains(path),
-                    parts.untracked.contains(path),
-                ) {
-                    (_, _, true) => "untracked",
-                    (true, true, _) => "partly staged",
-                    (true, false, _) => "staged",
-                    _ => "not staged",
-                }
-            })
+            .map(|f| parts.word(f.path()).unwrap_or("not staged"))
+            .collect();
+        Ok(WorkingTree {
+            files,
+            tags,
+            staged: None,
+        })
+    }
+
+    /// The checked-out branch's whole work against `base`, its main line (#209): every file its commits and what is
+    /// not committed changed since their merge base, a file once, read from the disk. A file not committed is
+    /// tagged as `working_tree` tags it, a committed one with nothing. Read-only.
+    pub fn working_since(&self, base: Oid, settings: DiffSettings) -> Result<WorkingTree> {
+        let Some(parts) = self.working_parts(settings)? else {
+            return Ok(WorkingTree::default());
+        };
+        let head = self.inner.head()?.peel_to_commit()?.id();
+        let start = self.inner.merge_base(base, head)?;
+        let old = self.inner.find_commit(start)?.tree()?;
+        let files = diff::collect(
+            &self.inner,
+            self.inner.diff_tree_to_workdir_with_index(
+                Some(&old),
+                Some(&mut working_options(settings)),
+            )?,
+            diff::Sides {
+                old: Some(&old),
+                new: None,
+                disk: true,
+                old_index: None,
+                new_index: None,
+            },
+        )?;
+        let tags = files
+            .iter()
+            .map(|f| parts.word(f.path()).unwrap_or(""))
             .collect();
         Ok(WorkingTree {
             files,

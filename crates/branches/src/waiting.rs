@@ -15,6 +15,8 @@ pub enum Pick {
     Commits(Oid, Oid),
     /// Two versions compared, by their indexes.
     Versions(usize, usize),
+    /// The Working tree, once the branch checked out is read (#209).
+    WorkingTree,
 }
 
 /// A page waiting: what it asks, of the request whose number `request` is, or of the branch.
@@ -63,6 +65,11 @@ impl History {
                 Finished { commit: None }
             }
             Pick::Versions(..) => return None,
+            Pick::WorkingTree => {
+                let only_unstaged = self.wt.only_unstaged;
+                self.show_working_tree(only_unstaged, None, review, cx);
+                Finished { commit: None }
+            }
         };
         self.waiting = None;
         Some(finished)

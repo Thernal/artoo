@@ -25,7 +25,8 @@ for someone using the app, not for someone reading the code; the commits follow 
   says how much of it you viewed — `1 of 3`, `✓ viewed` — counting a change you ticked before it was committed. Folders
   carry no box, `Filter by path` shows over three files, a click on a commit's id copies the whole of it, `Message ▾`
   says `4 more lines ▾`, and `231a547 · against its parent` and a branch's `Since merge base · Direct · Swap` went.
-  A merge request's own diff keeps Mark reviewed.
+  A merge request's own diff keeps Mark reviewed. The branch checked out has one page, the Working tree: its commits
+  over every file it changed since main, committed or not, `Checked out feature/login-state` first in its facts.
 - **Code reads any revision, and says which once; main's page is laid out like a branch's.** The chip over Code's
   tree, `working tree ▾`, lists the working tree, HEAD, the branches, origin's, the tags and `Commit id…` (any id, tag
   or `HEAD~3`, with its message). At another revision the chip is tinted, `release/2.4 ×`, and × goes back to the

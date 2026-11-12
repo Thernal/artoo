@@ -661,6 +661,49 @@ fn the_working_tree_reads_staged_unstaged_and_untracked_changes() {
     assert_ne!(repo.working_summary().unwrap().1, before);
 }
 
+#[test]
+fn the_checked_out_branchs_work_is_its_commits_and_the_disk_against_main() {
+    use std::fs;
+    let mut fx = Fixture::new();
+    let root = fx.commit(
+        "refs/heads/main",
+        &[],
+        &[("a.txt", "1\n"), ("b.txt", "b\n")],
+        "root",
+    );
+    let feature = fx.commit(
+        "refs/heads/feature",
+        &[root],
+        &[("a.txt", "1\n"), ("b.txt", "b\n"), ("f.txt", "f\n")],
+        "commit: feature",
+    );
+    // main moved on after the fork: not the branch's work.
+    let main = fx.commit(
+        "refs/heads/main",
+        &[root],
+        &[("a.txt", "1\n"), ("b.txt", "b\n"), ("m.txt", "m\n")],
+        "commit: main work",
+    );
+    fx.repo.set_head("refs/heads/feature").unwrap();
+    fx.repo
+        .checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
+        .unwrap();
+    let dir = fx.repo.workdir().unwrap().to_owned();
+    fs::write(dir.join("b.txt"), "b2\n").unwrap(); // not committed
+    fs::write(dir.join("n.txt"), "n\n").unwrap(); // untracked
+    let repo = fx.open();
+    let work = repo.working_since(main, DiffSettings::default()).unwrap();
+    assert_eq!(paths(&work.files), ["b.txt", "f.txt", "n.txt"]);
+    assert_eq!(tag_of(&work, "f.txt"), "");
+    assert_eq!(tag_of(&work, "b.txt"), "not staged");
+    assert_eq!(tag_of(&work, "n.txt"), "untracked");
+    // Against the branch itself: what is not committed alone.
+    let own = repo
+        .working_since(feature, DiffSettings::default())
+        .unwrap();
+    assert_eq!(paths(&own.files), ["b.txt", "n.txt"]);
+}
+
 /// The word the working tree gives the first file at `path`.
 fn tag_of(tree: &WorkingTree, path: &str) -> &'static str {
     tree.tags[tree.files.iter().position(|f| f.path() == path).unwrap()]

@@ -38,7 +38,10 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
 - **Viewed files in Branches** (#209, `crates/review/src/reviewed.rs`): a branch's, a commit's and the working
   tree's marks are a `☐ Viewed` box (`Review::viewing`, `viewed_box`); a merge request's own diff keeps Mark reviewed.
   A comparison's marks are kept by its refs' names and the working tree's under `worktree` (`scope_key`), so a tick
-  survives commits that leave the file alone and a changed file is `State::Stale`, `↻` beside its name. A commit row's
+  survives commits that leave the file alone and a changed file is `State::Stale`, `↻` beside its name; ticks kept
+  by commit before that are carried to the name once (`carry_old_marks`). The branch checked out, off the main line,
+  has the Working tree as its page (`History::checked_out`, either route): its commits over its whole work, merge
+  base to the disk (`Source::WorkingTree { since }`, `Repo::working_since`), its ticks its comparison's. A commit row's
   `1 of 3` / `✓ viewed` is `Review::commit_viewed`: each commit's files fingerprinted in the background, counted
   against every mark of the repository, again only when `Store::generation` moves (`panel::fill_viewed`).
 - **What a project lacks** (#210, `src/ui/spaces.rs`): `Workspace::missing` says what a space needs that the project

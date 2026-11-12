@@ -41,7 +41,9 @@ impl History {
             .keep
             .and_then(|id| self.commits.iter().position(|c| c.id == id))
             .unwrap_or(0);
-        if !self.commits.is_empty() {
+        // The Working tree waiting for the branch checked out: not its newest commit first.
+        let tree = matches!(self.waiting, Some(w) if w.pick == crate::waiting::Pick::WorkingTree);
+        if !self.commits.is_empty() && !tree {
             commits.extend(self.show_commit(ix, None, review, cx));
         }
         let mut follow = !commits.is_empty();
@@ -63,8 +65,13 @@ impl History {
         Some(Settled { commits, follow })
     }
 
-    /// The branch open against the main line since they parted: its Changes. Whether it has a base.
+    /// The branch open against the main line since they parted: its Changes; the branch checked out, its whole
+    /// work through what is not committed, the Working tree (#209). Whether it has a base.
     pub fn show_branch_compare(&mut self, review: &dyn Review, cx: &mut App) -> bool {
+        if self.checked_out().is_some() {
+            self.show_working_tree(false, None, review, cx);
+            return true;
+        }
         let (Some(ix), Some(base)) = (self.branch, self.page.as_ref().and_then(|f| f.base.clone()))
         else {
             return false;
@@ -213,7 +220,7 @@ impl History {
     }
 
     /// The working tree against `HEAD`, or what is not staged only, read again in place: the file open keeps its
-    /// place, `keep` the one to open.
+    /// place, `keep` the one to open. On the branch checked out, off its main line, its whole work (`checked_out`).
     pub fn show_working_tree(
         &mut self,
         only_unstaged: bool,
@@ -223,7 +230,17 @@ impl History {
     ) {
         self.message_open = false;
         self.selection = Selection::WorkingTree;
-        review.reopen(Source::WorkingTree { only_unstaged }, keep, cx);
+        // The branch checked out, off its main line: its whole work, one list (#209).
+        let since = self.checked_out();
+        let only_unstaged = only_unstaged && since.is_none();
+        review.reopen(
+            Source::WorkingTree {
+                only_unstaged,
+                since,
+            },
+            keep,
+            cx,
+        );
     }
 
     /// What `head` changed against `base`, since their merge base or directly, a request's diff or not.

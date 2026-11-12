@@ -519,7 +519,11 @@ fn scope_key(root: &str, header: &Header) -> Option<String> {
             format!("name:{}{dots}{}", base.0, head.0)
         }
         Header::Versions { from, to, .. } => format!("ver:{}..{}", from.tip, to.tip),
-        Header::WorkingTree { only_unstaged } => match only_unstaged {
+        // The checked-out branch's whole work: its own comparison's ticks, by its names (#209).
+        Header::WorkingTree {
+            since: Some(since), ..
+        } => format!("name:{}...{}", since.base.0, since.branch.0),
+        Header::WorkingTree { only_unstaged, .. } => match only_unstaged {
             true => "worktree:unstaged".to_owned(),
             false => "worktree".to_owned(),
         },
@@ -901,16 +905,18 @@ impl Review {
         let (Some(scope), Some(root)) = (self.review_scope.clone(), self.root.clone()) else {
             return;
         };
-        let Some(Header::Compare {
-            base,
-            head,
-            request: None,
-            ..
-        }) = self.diff.as_ref().map(|d| &d.header)
-        else {
-            return;
+        let (base, head) = match self.diff.as_ref().map(|d| &d.header) {
+            Some(Header::Compare {
+                base,
+                head,
+                request: None,
+                ..
+            }) => (base.1, head.1),
+            Some(Header::WorkingTree {
+                since: Some(since), ..
+            }) => (since.base.1, since.branch.1),
+            _ => return,
         };
-        let (base, head) = (base.1, head.1);
         if self.reviewed.has_marks(&scope) {
             return;
         }
@@ -1171,6 +1177,16 @@ mod tests {
             scope_key("/r", &branch(at(3))).unwrap(),
         );
         assert_eq!(before, after);
+        // Its Working tree page, checked out: the same ticks (#209).
+        let since = artoo_review_api::diff::Since {
+            base: ("main".to_owned(), at(1)),
+            branch: ("feature/x".to_owned(), at(4)),
+        };
+        let work = Header::WorkingTree {
+            only_unstaged: false,
+            since: Some(since),
+        };
+        assert_eq!(scope_key("/r", &work), Some(before.clone()));
         let around = ["fun a() {", "}"];
         let ticked = changed("a.rs", &around, 2, "  old()", "  new()");
         let changed_again = changed("a.rs", &around, 2, "  old()", "  newer()");
@@ -1186,7 +1202,8 @@ mod tests {
             scope_key(
                 "/r",
                 &Header::WorkingTree {
-                    only_unstaged: false
+                    only_unstaged: false,
+                    since: None,
                 }
             )
             .as_deref(),
@@ -1196,13 +1213,15 @@ mod tests {
             scope_key(
                 "/r",
                 &Header::WorkingTree {
-                    only_unstaged: true
+                    only_unstaged: true,
+                    since: None,
                 }
             ),
             scope_key(
                 "/r",
                 &Header::WorkingTree {
-                    only_unstaged: false
+                    only_unstaged: false,
+                    since: None,
                 }
             )
         );

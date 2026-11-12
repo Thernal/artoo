@@ -293,7 +293,7 @@ pub fn commit_row(
     let item = row(("commit", ix), selected)
         // Its card on a long hover; F1 opens its whole message (#184).
         .row_whole(selected, commit.message.trim().to_owned())
-        .h(px(62.))
+        .h(px(crate::panel::COMMIT_ROW))
         .flex_col()
         .items_start()
         .justify_center()

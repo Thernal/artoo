@@ -62,14 +62,22 @@ pub fn read(root: &Path, source: Source, settings: DiffSettings) -> anyhow::Resu
             let diff = repo.interdiff(old.id, new.id, settings)?;
             plain(Header::Interdiff { from, to, old, new }, diff.files)
         }
-        Source::WorkingTree { only_unstaged } => {
-            // All changes as `git status` groups them (#22); Not staged only is that group alone.
-            let tree = match only_unstaged {
-                true => repo.working_tree(settings, true)?,
-                false => repo.working_groups(settings)?,
+        Source::WorkingTree {
+            only_unstaged,
+            since,
+        } => {
+            // All changes as `git status` groups them (#22); Not staged only is that group alone; the checked-out
+            // branch's whole work against its main line, one list (#209).
+            let tree = match (&since, only_unstaged) {
+                (Some(since), _) => repo.working_since(since.base.1, settings)?,
+                (None, true) => repo.working_tree(settings, true)?,
+                (None, false) => repo.working_groups(settings)?,
             };
             Diff {
-                header: Header::WorkingTree { only_unstaged },
+                header: Header::WorkingTree {
+                    only_unstaged,
+                    since,
+                },
                 files: Arc::new(tree.files),
                 pairs: Vec::new(),
                 tags: FileTags {

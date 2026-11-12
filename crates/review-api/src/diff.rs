@@ -5,6 +5,14 @@ use artoo_core::git::{CommitInfo, FileDiff, PairCommit, RangePair, Stale, Versio
 use std::collections::HashSet;
 use std::sync::Arc;
 
+/// The checked-out branch whose Working tree page shows its whole work (#209): against `base`, its main line, since
+/// their merge base; `branch` its name and tip as it was read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Since {
+    pub base: (String, git2::Oid),
+    pub branch: (String, git2::Oid),
+}
+
 /// What a diff is of.
 pub enum Header {
     Commit(CommitInfo),
@@ -14,9 +22,11 @@ pub enum Header {
         rebased: bool,
         conflicts: usize,
     },
-    /// Uncommitted work against `HEAD`.
+    /// Uncommitted work against `HEAD`; with `since`, the checked-out branch's whole work against its main line,
+    /// what is not committed with it (#209).
     WorkingTree {
         only_unstaged: bool,
+        since: Option<Since>,
     },
     /// Any two refs: what `head` changed against `base`.
     Compare {
@@ -88,7 +98,8 @@ pub struct FileTags {
 
 impl FileTags {
     pub fn word(&self, ix: usize) -> Option<&'static str> {
-        self.words.get(ix).copied()
+        // A committed file of the checked-out branch's whole work has no word (#209).
+        self.words.get(ix).copied().filter(|w| !w.is_empty())
     }
 
     /// The word a row of the list shows: in a group only `untracked`, as its header says the rest.

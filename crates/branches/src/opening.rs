@@ -220,7 +220,7 @@ impl History {
             return Some(opening);
         }
         if WorkingTreeRoute::from_route(route).is_some() {
-            return Some(Opening::WorkingTree);
+            return Some(self.working_tree_opening());
         }
         if let Some(RequestRoute { number }) = RequestRoute::from_route(route) {
             return Some(match self.open_request.clone() {
@@ -303,6 +303,25 @@ impl History {
     }
 
     /// Branch `refname` read anew, `keep` selected once it is; `Stay` when it is not here.
+    /// The Working tree: the branch checked out read with it, its commits over its whole work (#209); shown at once
+    /// when it is the one open, else once it is read. On a detached `HEAD` the working tree alone.
+    fn working_tree_opening(&mut self) -> Opening {
+        let Some(ix) = self.head_branch() else {
+            return Opening::WorkingTree;
+        };
+        let refname = self.branches[ix].refname.clone();
+        let read =
+            self.branch == Some(ix) && self.page.as_ref().is_some_and(|f| f.refname == refname);
+        if read {
+            return Opening::WorkingTree;
+        }
+        self.waiting = Some(Waiting {
+            request: None,
+            pick: Pick::WorkingTree,
+        });
+        self.reopen(&refname, None)
+    }
+
     fn reopen(&self, refname: &str, keep: Option<Oid>) -> Opening {
         match self.branches.iter().position(|b| b.refname == refname) {
             Some(ix) => Opening::Branch { ix, keep },
@@ -314,6 +333,7 @@ impl History {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::history::Selection;
     use artoo_core::git::{BranchRef, CommitInfo, RefKind};
     use std::sync::Arc;
 
@@ -374,6 +394,45 @@ mod tests {
         }
         .route();
         assert_eq!(h.opening(&gone, false), Some(Opening::Stay));
+    }
+
+    #[test]
+    fn the_working_tree_reads_the_branch_checked_out_and_is_its_page() {
+        use crate::facts::Facts;
+        let mut h = history();
+        let tree = WorkingTreeRoute {}.route();
+        // A detached HEAD: the working tree alone.
+        assert_eq!(h.opening(&tree, false), Some(Opening::WorkingTree));
+        assert_eq!(h.checked_out(), None);
+        let mut head = (*h.branches)[0].clone();
+        head.is_head = true;
+        h.branches = Arc::new(vec![head]);
+        // Checked out, not open: read, the Working tree waiting for it.
+        assert_eq!(
+            h.opening(&tree, false),
+            Some(Opening::Branch { ix: 0, keep: None })
+        );
+        assert_eq!(h.waiting.map(|w| w.pick), Some(Pick::WorkingTree));
+        // Read, off the main line: shown at once, its whole work against the main line.
+        h.waiting = None;
+        h.branch = Some(0);
+        h.page = Some(Facts {
+            refname: "refs/heads/feature".into(),
+            base: Some(("main".into(), id(1))),
+            ..Default::default()
+        });
+        assert_eq!(h.opening(&tree, false), Some(Opening::WorkingTree));
+        let since = h.checked_out().unwrap();
+        assert_eq!(since.base, ("main".to_owned(), id(1)));
+        assert_eq!(since.branch, ("feature".to_owned(), id(3)));
+        assert!(h.shows_working_tree("refs/heads/feature"));
+        // Its own page under its own route: either route is the page loaded.
+        h.selection = Selection::WorkingTree;
+        assert_eq!(h.loaded_route(None, None, Some(&branch())), Some(branch()));
+        assert_eq!(h.loaded_route(None, None, Some(&tree)), Some(tree.clone()));
+        // The main line checked out has no base: no whole work, the working tree alone.
+        h.page.as_mut().unwrap().base = None;
+        assert_eq!(h.checked_out(), None);
     }
 
     #[test]

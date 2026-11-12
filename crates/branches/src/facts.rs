@@ -2,7 +2,7 @@
 //! from it, where it is pushed; and the line that says it, a piece over the branch's page (`line`).
 
 use crate::history::{Act, Acts, History, NamedTip};
-use artoo_branches_api::BranchRoute;
+use artoo_branches_api::{BranchRoute, WorkingTreeRoute};
 use artoo_core::git::Repo;
 use artoo_core::route::{Place, Route};
 use artoo_requests_api::Requests;
@@ -74,9 +74,19 @@ pub fn line_of(
     route: &Route,
     cx: &App,
 ) -> Option<AnyElement> {
-    let BranchRoute { refname } = BranchRoute::from_route(route)?;
     let acts = services.get::<Acts>()?;
     let h = history.read(cx);
+    // The Working tree of the branch checked out says which it is first (#209).
+    let checked_out = h
+        .checked_out()
+        .filter(|_| h.selection == crate::history::Selection::WorkingTree);
+    let refname = match BranchRoute::from_route(route) {
+        Some(r) => r.refname,
+        None if WorkingTreeRoute::from_route(route).is_some() && checked_out.is_some() => {
+            h.branches.get(h.branch?)?.refname.clone()
+        }
+        None => return None,
+    };
     if !h.tabbed(&refname) {
         return None;
     }
@@ -85,13 +95,21 @@ pub fn line_of(
         .and_then(|ix| h.branches.get(ix))
         .and_then(|b| services.get::<Rc<dyn Requests>>()?.of_branch(b, cx))
         .map(|(iid, _)| iid);
-    let line = branch_line(h.page.as_ref()?, h.branch, request, &acts)?;
+    let checked_out = checked_out.map(|s| s.branch.0);
+    let line = branch_line(h.page.as_ref()?, h.branch, request, checked_out, &acts)?;
     Some(line.into_any_element())
 }
 
 /// One line over a branch's Changes and Commits: ahead of the main line, behind it, where it is pushed, its
-/// `request`'s number; a right click on it branch `ix`'s menu. None for the main line itself.
-pub fn branch_line(f: &Facts, ix: Option<usize>, request: Option<u64>, acts: &Acts) -> Option<Div> {
+/// `request`'s number; over the Working tree first the branch `checked_out` (#209); a right click on it branch
+/// `ix`'s menu. None for the main line itself.
+pub fn branch_line(
+    f: &Facts,
+    ix: Option<usize>,
+    request: Option<u64>,
+    checked_out: Option<String>,
+    acts: &Acts,
+) -> Option<Div> {
     let main = f.base.as_ref()?.0.trim_start_matches("origin/").to_owned();
     let request = request.map_or_else(|| "none yet".to_owned(), words::number);
     let acts = acts.clone();
@@ -103,6 +121,7 @@ pub fn branch_line(f: &Facts, ix: Option<usize>, request: Option<u64>, acts: &Ac
                     acts(Act::BranchMenu { ix, at: e.position }, cx)
                 }
             })
+            .children(checked_out.map(|name| mono_fact("Checked out".to_owned(), name)))
             .child(fact(format!("Ahead of {main}"), plural(f.ahead, "commit")))
             .child(fact("Behind".to_owned(), f.behind.to_string()))
             .child(fact("Remote".to_owned(), remote(f.upstream.as_ref())))
@@ -156,6 +175,15 @@ fn facts_row() -> Div {
         .h(px(40.))
         .px(px(14.))
         .text_size(px(12.))
+}
+
+/// A fact whose value is a name in code's font: a branch.
+fn mono_fact(label: String, value: String) -> Div {
+    div()
+        .flex()
+        .gap(px(6.))
+        .child(div().text_color(theme::faint()).child(label))
+        .child(div().font_family(theme::code_font()).child(value))
 }
 
 /// A fact, its label faint.

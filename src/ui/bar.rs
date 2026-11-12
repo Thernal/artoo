@@ -219,6 +219,12 @@ impl Workspace {
     ) -> Vec<BarAction> {
         let tab = cx.weak_entity();
         let mut out = Vec::new();
+        // The Working tree of the branch checked out is its page (#209): its request's way there too.
+        let checked_out = matches!(page, Some(Page::WorkingTree))
+            .then(|| self.branches().and_then(|b| b.checked_out(cx)))
+            .flatten()
+            .map(Page::Branch);
+        let page = checked_out.as_ref().or(page);
         match (space, page) {
             (REQUESTS, None) if self.requests_available(cx) => {
                 out.push(BarAction::new("filter", self.bar_filter("Filter", cx)))

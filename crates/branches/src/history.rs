@@ -236,7 +236,17 @@ impl Handle {
 
 impl artoo_branches_api::Branches for Handle {
     fn tabbed(&self, refname: &str, cx: &gpui::App) -> bool {
-        self.0.upgrade().is_some_and(|h| h.read(cx).tabbed(refname))
+        self.0.upgrade().is_some_and(|h| {
+            let h = h.read(cx);
+            h.tabbed(refname) && !h.shows_working_tree(refname)
+        })
+    }
+
+    fn checked_out(&self, cx: &gpui::App) -> Option<String> {
+        let h = self.0.upgrade()?;
+        let h = h.read(cx);
+        h.checked_out()?;
+        Some(h.branches.get(h.branch?)?.refname.clone())
     }
 
     fn main_line(&self, refname: &str, cx: &gpui::App) -> bool {

@@ -314,14 +314,20 @@ fn path(route: &Route, drawing: &Drawing, services: &Services, cx: &App) -> Opti
     };
     let oid = |hex: &str| git2::Oid::from_str(hex).ok();
     let root = || PathUp::new("Branches", None);
+    // The branch checked out's own page is the Working tree (#209): its commits are a level under it, no tabs.
+    let checked_out = branches.checked_out(cx);
+    let working = |refname: &str| checked_out.as_deref() == Some(refname);
     let branch = |refname: &str| {
         let page = BranchRoute {
             refname: refname.to_owned(),
         }
         .route();
+        if working(refname) {
+            return vec![PathUp::new("Working tree", Some(page))];
+        }
         let mut name = PathUp::new(named(refname), Some(page.clone()));
         name.mono = true;
-        (name, PathUp::new("Commits", Some(page)))
+        vec![name, PathUp::new("Commits", Some(page))]
     };
     let short = artoo_ui_kit::format::short;
     // A run says how many commits it is (#208), its ends while they are not among the commits read.
@@ -340,30 +346,30 @@ fn path(route: &Route, drawing: &Drawing, services: &Services, cx: &App) -> Opti
     let (up, name, mono, hover) = match route.kind.as_str() {
         BranchRoute::KIND => {
             let r = BranchRoute::from_route(route)?;
-            (vec![root()], named(&r.refname), true, card(&r.refname))
+            if working(&r.refname) {
+                (vec![root()], "Working tree".to_owned(), false, None)
+            } else {
+                (vec![root()], named(&r.refname), true, card(&r.refname))
+            }
         }
         // A commit is a level under the branch's Commits (#74).
         BranchCommitRoute::KIND => {
             let r = BranchCommitRoute::from_route(route)?;
-            let (name, commits) = branch(&r.refname);
             let id = oid(&r.commit)?;
-            (vec![root(), name, commits], short(id), true, commit(id))
+            let up: Vec<PathUp> = std::iter::once(root()).chain(branch(&r.refname)).collect();
+            (up, short(id), true, commit(id))
         }
         BranchCommitsRoute::KIND => {
             let r = BranchCommitsRoute::from_route(route)?;
-            let (name, commits) = branch(&r.refname);
             let (id, mono) = run(&r.newest, &r.oldest)?;
-            (vec![root(), name, commits], id, mono, card(&r.refname))
+            let up: Vec<PathUp> = std::iter::once(root()).chain(branch(&r.refname)).collect();
+            (up, id, mono, card(&r.refname))
         }
         VersionsRoute::KIND => {
             let r = VersionsRoute::from_route(route)?;
-            let (name, _) = branch(&r.refname);
-            (
-                vec![root(), name],
-                versions(r.from, r.to),
-                false,
-                card(&r.refname),
-            )
+            let mut up = vec![root()];
+            up.extend(branch(&r.refname).into_iter().take(1));
+            (up, versions(r.from, r.to), false, card(&r.refname))
         }
         WorkingTreeRoute::KIND => (vec![root()], "Working tree".to_owned(), false, None),
         CompareRoute::KIND => {

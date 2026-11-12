@@ -11,9 +11,34 @@ use artoo_core::route::{Place, Route};
 use artoo_requests_api::{
     RequestCommitRoute, RequestCommitsRoute, RequestRoute, RequestVersionsRoute,
 };
-use artoo_review_api::diff::Header;
+use artoo_review_api::diff::{Header, Since};
 
 impl History {
+    /// The branch checked out: a local branch `HEAD` is on; none on a detached `HEAD`.
+    pub fn head_branch(&self) -> Option<usize> {
+        (self.branches.iter()).position(|b| b.is_head && b.kind == artoo_core::git::RefKind::Local)
+    }
+
+    /// The Working tree page's whole work (#209): the branch open is the one checked out, off its main line — its
+    /// commits over every file it changed since the main line, what is not committed with them. None on the main
+    /// line, on a detached `HEAD`, before the branch is read.
+    pub fn checked_out(&self) -> Option<Since> {
+        let ix = self.branch.filter(|ix| Some(*ix) == self.head_branch())?;
+        let b = self.branches.get(ix)?;
+        let f = self.page.as_ref().filter(|f| f.refname == b.refname)?;
+        Some(Since {
+            base: f.base.clone()?,
+            branch: (b.name.clone(), b.tip),
+        })
+    }
+
+    /// Branch `refname`'s own page is the Working tree (`checked_out`): no tabs, `Working tree` its name.
+    pub fn shows_working_tree(&self, refname: &str) -> bool {
+        self.checked_out().is_some()
+            && (self.branch.and_then(|ix| self.branches.get(ix)))
+                .is_some_and(|b| b.refname == refname)
+    }
+
     /// Branch `refname` is the one open and has the tabs Commits · Changes: it forks from the main line.
     pub fn tabbed(&self, refname: &str) -> bool {
         self.page
@@ -99,6 +124,13 @@ impl History {
         }
         if let Some(route) = on_screen.filter(|r| {
             selection == Selection::None && self.compare_of(r).is_some_and(|c| c.picked.is_some())
+        }) {
+            return Some(route.clone());
+        }
+        // The checked-out branch's own page is the Working tree (#209): either route shows it.
+        if let Some(route) = on_screen.filter(|r| {
+            selection == Selection::WorkingTree
+                && BranchRoute::from_route(r).is_some_and(|b| self.shows_working_tree(&b.refname))
         }) {
             return Some(route.clone());
         }
