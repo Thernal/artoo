@@ -23,6 +23,9 @@ artoo-ui-kit = { path = "../ui-kit" }
 anyhow.workspace = true
 git2.workspace = true
 gpui.workspace = true
+# A request's facts kept between starts (#189).
+serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 # A test writes none of the user's files: a choice of notices, the notices read (`platform::sandboxed`).

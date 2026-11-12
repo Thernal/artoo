@@ -264,6 +264,7 @@ impl Waiting {
                 Op::Approve { mine } => {
                     if let Some(a) = approvals.as_mut().filter(|a| a.mine != *mine) {
                         a.mine = *mine;
+                        a.mine_at = mine.then_some(at);
                         if *mine {
                             a.by.push(me.0.to_owned());
                             a.left = a.left.saturating_sub(1);
@@ -697,6 +698,7 @@ mod tests {
             required: 2,
             left: 1,
             mine: false,
+            mine_at: None,
             can: true,
         });
         w.apply(1, 0, ME, &mut t, &mut d, &mut a);

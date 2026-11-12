@@ -1274,7 +1274,55 @@ pub fn approvals(remote: &WebRemote, iid: u64) -> Result<Approvals> {
         },
         None => get(remote, &format!("merge_requests/{iid}/approvals"))?,
     };
-    Ok(parse_approvals(&value))
+    let mut approvals = parse_approvals(&value);
+    if approvals.mine {
+        // GitLab's approvals say who, not when: the system note "approved this merge request" does.
+        let notes = match fixture() {
+            Some(dir) => std::fs::read_to_string(dir.join(format!("notes-{iid}.json")))
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .unwrap_or(Value::Null),
+            None => get(
+                remote,
+                &format!("merge_requests/{iid}/notes?sort=desc&order_by=created_at&per_page=100"),
+            )
+            .unwrap_or(Value::Null),
+        };
+        approvals.mine_at = login(remote).and_then(|me| approved_at(&notes, &me));
+    }
+    Ok(approvals)
+}
+
+/// The token's user's username on `remote`, asked once a run.
+fn login(remote: &WebRemote) -> Option<String> {
+    static KNOWN: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
+    if let Some((_, me)) = KNOWN
+        .lock()
+        .ok()?
+        .iter()
+        .find(|(base, _)| *base == remote.base)
+    {
+        return Some(me.clone());
+    }
+    let me = username(remote).ok().filter(|m| !m.is_empty())?;
+    KNOWN.lock().ok()?.push((remote.base.clone(), me.clone()));
+    Some(me)
+}
+
+/// When `me` last approved, of a request's `notes` (newest first): the latest "approved this merge request" of
+/// theirs, unless an "unapproved" came after it.
+pub fn approved_at(notes: &Value, me: &str) -> Option<i64> {
+    notes
+        .as_array()?
+        .iter()
+        .filter(|n| n.get("system").and_then(Value::as_bool) == Some(true))
+        .filter(|n| n["author"]["username"].as_str() == Some(me))
+        .find_map(|n| match n["body"].as_str()?.trim() {
+            "approved this merge request" => Some(Some(epoch(&text(n, "created_at")))),
+            "unapproved this merge request" => Some(None),
+            _ => None,
+        })
+        .flatten()
 }
 
 pub fn parse_approvals(value: &Value) -> Approvals {
@@ -1295,6 +1343,7 @@ pub fn parse_approvals(value: &Value) -> Approvals {
         required: count("approvals_required"),
         left: count("approvals_left"),
         mine: flag("user_has_approved"),
+        mine_at: None,
         can: flag("user_can_approve"),
     }
 }
@@ -2033,6 +2082,33 @@ mod tests {
         assert_eq!(a.by, vec!["Anna".to_owned()]);
         assert_eq!((a.required, a.left, a.mine, a.can), (2, 1, false, true));
         assert_eq!(parse_approvals(&Value::Null), Approvals::default());
+    }
+
+    #[test]
+    fn when_you_approved_is_your_latest_approval_note() {
+        let notes: Value = serde_json::from_str(
+            r#"[{"system": true, "body": "added 1 commit", "author": {"username": "you"},
+                 "created_at": "2026-11-10T12:00:00Z"},
+                {"system": true, "body": "approved this merge request", "author": {"username": "anna"},
+                 "created_at": "2026-11-10T11:00:00Z"},
+                {"system": true, "body": "approved this merge request", "author": {"username": "you"},
+                 "created_at": "2026-11-10T10:00:00Z"},
+                {"system": true, "body": "approved this merge request", "author": {"username": "you"},
+                 "created_at": "2026-11-09T10:00:00Z"}]"#,
+        )
+        .unwrap();
+        assert_eq!(
+            approved_at(&notes, "you"),
+            Some(epoch("2026-11-10T10:00:00Z"))
+        );
+        assert_eq!(approved_at(&notes, "boris"), None);
+        let unapproved: Value = serde_json::from_str(
+            r#"[{"system": true, "body": "unapproved this merge request", "author": {"username": "you"}},
+                {"system": true, "body": "approved this merge request", "author": {"username": "you"},
+                 "created_at": "2026-11-09T10:00:00Z"}]"#,
+        )
+        .unwrap();
+        assert_eq!(approved_at(&unapproved, "you"), None);
     }
 
     #[test]

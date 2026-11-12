@@ -963,7 +963,7 @@ const APPROVALS: &str = "query($owner: String!, $name: String!, $number: Int!) {
   viewer { login }
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
     author { login }
-    latestOpinionatedReviews(first: 50) { nodes { state author { login ... on User { name } } } }
+    latestOpinionatedReviews(first: 50) { nodes { state submittedAt author { login ... on User { name } } } }
   } }
 }";
 
@@ -993,6 +993,11 @@ pub fn parse_approvals(data: &Value) -> Approvals {
         mine: approved
             .iter()
             .any(|r| r["author"]["login"] == viewer.as_str()),
+        mine_at: approved
+            .iter()
+            .find(|r| r["author"]["login"] == viewer.as_str())
+            .map(|r| epoch(&r["submittedAt"]))
+            .filter(|at| *at > 0),
         can: !viewer.is_empty() && s(&pr["author"]["login"]) != viewer,
     }
 }

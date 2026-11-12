@@ -152,14 +152,19 @@ pub fn turn(
             _ => Turn::You { waiting: 0 },
         };
     }
-    if approvals.is_some_and(|a| a.mine) {
-        return Turn::Approved;
-    }
+    // Approved: done, unless a push came after it (when the host says when) — the turn is yours again (#189).
+    let last_push = pushes.iter().copied().max().unwrap_or(0);
+    let approved_at = match approvals.filter(|a| a.mine) {
+        Some(a) if a.mine_at.is_none_or(|at| last_push <= at) => return Turn::Approved,
+        Some(a) => a.mine_at,
+        None => None,
+    };
     let my_last = threads
         .iter()
         .flat_map(|t| &t.notes)
         .filter(|n| !me.is_empty() && n.login == me)
         .map(|n| n.created)
+        .chain(approved_at)
         .max();
     let asked = !me.is_empty() && m.reviewers.iter().any(|r| r == me);
     let Some(my_last) = my_last else {
@@ -200,7 +205,7 @@ pub fn turn(
             })
         })
         .count();
-    let pushed = pushes.iter().copied().max().unwrap_or(0) > my_last;
+    let pushed = last_push > my_last;
     if pushed || replies > 0 {
         return Turn::You { waiting: replies };
     }
@@ -301,10 +306,25 @@ mod tests {
             required: 2,
             left: 1,
             mine: true,
+            mine_at: Some(300),
             can: true,
         };
         assert_eq!(
             turn("you", &m, Some(&approved), &replied, &[100]),
+            Turn::Approved
+        );
+        // A push after your approval: yours to look at again.
+        assert_eq!(
+            turn("you", &m, Some(&approved), &[], &[100, 400]),
+            Turn::You { waiting: 0 }
+        );
+        // The host does not say when: approved stays done.
+        let unknown = Approvals {
+            mine_at: None,
+            ..approved.clone()
+        };
+        assert_eq!(
+            turn("you", &m, Some(&unknown), &[], &[100, 400]),
             Turn::Approved
         );
         assert_eq!(Turn::Approved.group(false), Group::Done);

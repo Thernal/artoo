@@ -74,7 +74,7 @@ pub struct Mr {
     pub conflicts: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Note {
     /// GitLab's id: a link's `#note_<id>` points at it.
     pub id: u64,
@@ -86,7 +86,7 @@ pub struct Note {
 }
 
 /// A discussion on a merge request: on a line of a file, or on the request as a whole.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Thread {
     /// GitLab's id of the discussion, for replying to it and resolving it.
     pub id: String,
@@ -108,7 +108,7 @@ pub struct Thread {
 }
 
 /// The latest pipeline of a merge request, and when it failed, the job that did.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Pipeline {
     /// GitLab's word: success, failed, running, pending, canceled, skipped, manual …
     pub status: String,
@@ -151,7 +151,7 @@ pub struct Todo {
 }
 
 /// Who approved a merge request, how many approvals it needs, and where the reviewer stands.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Approvals {
     /// Names of those who approved.
     pub by: Vec<String>,
@@ -161,6 +161,8 @@ pub struct Approvals {
     pub left: u32,
     /// The token's user approved it.
     pub mine: bool,
+    /// When the token's user approved it, when the host says: a push after it gives the turn back (#189).
+    pub mine_at: Option<i64>,
     /// The token's user may approve it (not the author on a project that forbids that, …).
     pub can: bool,
 }

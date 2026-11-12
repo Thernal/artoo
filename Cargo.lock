@@ -528,6 +528,8 @@ dependencies = [
  "artoo-ui-kit",
  "git2",
  "gpui-pre",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -19,7 +19,7 @@ use artoo_ui_kit::room::Widths;
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, discussion, flat, icons, motion, px, theme, words};
 use gpui::{AnyElement, ClickEvent, Context, Div, FontWeight, SharedString, Task, div, prelude::*};
 use std::cell::Cell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -37,8 +37,8 @@ pub const BAND: f32 = 28.;
 pub type Size = (usize, usize, usize, usize);
 
 /// What a request's row says, read for every request listed (#189): its pipeline, approvals, discussions, when it
-/// was pushed and how large it is, with its `updated` then.
-#[derive(Default)]
+/// was pushed and how large it is, with its `updated` then. Kept between starts (`FACTS_FILE`).
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct Facts {
     updated: i64,
     pub pipeline: Option<Pipeline>,
@@ -64,7 +64,10 @@ pub struct Preview {
 pub struct Rows {
     facts: HashMap<u64, Facts>,
     reading: HashSet<u64>,
-    facts_task: Option<Task<()>>,
+    /// The requests whose facts are still to read, the next first: the picked one, then as the list shows them.
+    queue: VecDeque<u64>,
+    /// How many reads go on at once, `LANES` at most.
+    workers: usize,
     /// The project's default branch: a row names its target only when it is another (#189).
     pub main_line: Option<String>,
     previews: HashMap<u64, Preview>,
@@ -88,6 +91,10 @@ pub struct Rows {
 
 /// A request read before its update was kept: nothing it has is new.
 const READ_BEFORE: i64 = i64::MAX;
+/// How many requests' facts are read at once: each asks the host about four things (#189).
+const LANES: usize = 3;
+/// Every project's open requests' facts, by request, kept between starts: a start reads only what was updated since.
+const FACTS_FILE: &str = "requests-facts.json";
 
 impl Rows {
     /// Project `repo`'s folds, display and requests read, unless they are the ones held.
@@ -98,7 +105,42 @@ impl Rows {
         let kept = kept_list(&storage::read(LIST_FILE), repo).unwrap_or_default();
         (self.folded, self.read, self.chosen, self.display) =
             (kept.folded, kept.read, kept.chosen, kept.display);
+        // Another project: its own requests' facts, as they were last read.
+        self.facts = kept_facts(&storage::read(FACTS_FILE), repo);
+        self.reading.clear();
+        self.queue.clear();
+        self.previews.clear();
         self.kept_of = Some(repo.to_owned());
+    }
+
+    /// The facts of the requests in `open`, kept for the next start; those of requests no longer open go, other
+    /// projects' stay as they were.
+    fn keep_facts(&self, open: &HashSet<u64>) {
+        if let Some(repo) = &self.kept_of {
+            let mine = (self.facts.iter()).filter(|(iid, _)| open.contains(iid));
+            storage::save(
+                FACTS_FILE,
+                with_kept_facts(&storage::read(FACTS_FILE), repo, mine),
+            );
+        }
+    }
+
+    /// The next request whose facts are wanted, taken off the queue: open, not read at its update, not being read.
+    fn next_to_read(&mut self, list: &[Mr]) -> Option<Mr> {
+        while let Some(iid) = self.queue.pop_front() {
+            let Some(m) = list
+                .iter()
+                .find(|m| m.iid == iid && m.state == MrState::Opened)
+            else {
+                continue;
+            };
+            let fresh = self.facts.get(&iid).is_some_and(|f| f.updated == m.updated);
+            if fresh || !self.reading.insert(iid) {
+                continue;
+            }
+            return Some(m.clone());
+        }
+        None
     }
 
     fn keep(&self) {
@@ -296,59 +338,101 @@ impl Requests {
         self.rows.keep();
     }
 
-    /// Every listed request's facts not read at its update yet, read in the background, each shown as it comes
-    /// (#189): its pipeline, approvals, discussions and pushes from `host`, its size from the clone.
+    /// Every open request's facts not read at its update yet, read in the background a few at a time, each shown as
+    /// it comes (#189): its pipeline, approvals, discussions and pushes from `host`, its size from the clone. The
+    /// picked request first, then as the list shows them; those kept from the last start at their update are not
+    /// read again.
     pub fn read_facts(&mut self, host: Arc<dyn Host>, cx: &mut Context<Self>) {
-        let wanted: Vec<Mr> = self
-            .list
-            .iter()
-            .filter(|m| m.state == MrState::Opened)
-            .filter(|m| !self.rows.reading.contains(&m.iid))
-            .filter(|m| {
-                self.rows
-                    .facts
-                    .get(&m.iid)
-                    .is_none_or(|f| f.updated != m.updated)
-            })
-            .cloned()
-            .collect();
-        if wanted.is_empty() {
-            return;
+        let mut queue: VecDeque<u64> = {
+            let size = |m: &Mr| self.size_of(m.iid).map_or(0, |(_, a, r, _)| a + r);
+            let order = order(self.rows.display.1, &size);
+            let mut open: Vec<&Mr> = (self.list.iter())
+                .filter(|m| m.state == MrState::Opened)
+                .filter(|m| (self.rows.facts.get(&m.iid)).is_none_or(|f| f.updated != m.updated))
+                .collect();
+            open.sort_by_key(|m| (self.group_of(m), order(m)));
+            open.iter().map(|m| m.iid).collect()
+        };
+        if let Some(picked) = self.rows.picked
+            && let Some(at) = queue.iter().position(|iid| *iid == picked)
+        {
+            queue.remove(at);
+            queue.push_front(picked);
         }
-        let root = self.root.clone();
-        self.rows.reading.extend(wanted.iter().map(|m| m.iid));
-        let first = self.rows.main_line.is_none();
-        let task = cx.spawn(async move |this, cx| {
-            if first && let Some(root) = root.clone() {
+        self.rows.queue = queue;
+        if self.rows.main_line.is_none()
+            && let Some(root) = self.root.clone()
+        {
+            cx.spawn(async move |this, cx| {
                 let main = cx
                     .background_executor()
                     .spawn(async move { Repo::open(&root).ok().and_then(|r| r.default_branch()) })
                     .await;
-                this.update(cx, |rq, _| rq.rows.main_line = main).ok();
-            }
-            // Read side by side; each shown once it is in.
-            let jobs: Vec<_> = wanted
-                .into_iter()
-                .map(|m| {
-                    let (host, root) = (host.clone(), root.clone());
-                    let iid = m.iid;
-                    let job = cx
-                        .background_executor()
-                        .spawn(async move { facts_of(&*host, root.as_deref(), &m) });
-                    (iid, job)
-                })
-                .collect();
-            for (iid, job) in jobs {
-                let facts = job.await;
                 this.update(cx, |rq, cx| {
-                    rq.rows.reading.remove(&iid);
-                    rq.rows.facts.insert(iid, facts);
+                    rq.rows.main_line = main;
                     cx.notify();
                 })
                 .ok();
-            }
-        });
-        self.rows.facts_task = Some(task);
+            })
+            .detach();
+        }
+        self.pump_facts(host, cx);
+    }
+
+    /// Request `iid`, picked: its facts next, if they are still to read.
+    pub fn read_facts_first(&mut self, iid: u64, host: Arc<dyn Host>, cx: &mut Context<Self>) {
+        if let Some(at) = self.rows.queue.iter().position(|q| *q == iid) {
+            self.rows.queue.remove(at);
+            self.rows.queue.push_front(iid);
+            self.pump_facts(host, cx);
+        }
+    }
+
+    /// Reads started until `LANES` go on at once, each taking the queue's next until it is empty.
+    fn pump_facts(&mut self, host: Arc<dyn Host>, cx: &mut Context<Self>) {
+        while self.rows.workers < LANES && !self.rows.queue.is_empty() {
+            self.rows.workers += 1;
+            let (host, root) = (host.clone(), self.root.clone());
+            cx.spawn(async move |this, cx| {
+                loop {
+                    let next = this
+                        .update(cx, |rq, _| {
+                            let list = std::mem::take(&mut rq.list);
+                            let next = rq.rows.next_to_read(&list);
+                            rq.list = list;
+                            next
+                        })
+                        .ok()
+                        .flatten();
+                    let Some(m) = next else {
+                        break;
+                    };
+                    let iid = m.iid;
+                    let (host, root) = (host.clone(), root.clone());
+                    let facts = cx
+                        .background_executor()
+                        .spawn(async move { facts_of(&*host, root.as_deref(), &m) })
+                        .await;
+                    let kept = this.update(cx, |rq, cx| {
+                        rq.rows.reading.remove(&iid);
+                        rq.rows.facts.insert(iid, facts);
+                        cx.notify();
+                    });
+                    if kept.is_err() {
+                        return;
+                    }
+                }
+                this.update(cx, |rq, _| {
+                    rq.rows.workers -= 1;
+                    if rq.rows.workers == 0 {
+                        let open = rq.list.iter().map(|m| m.iid).collect();
+                        rq.rows.keep_facts(&open);
+                    }
+                })
+                .ok();
+            })
+            .detach();
+        }
     }
 
     /// Request `m`, picked in the list: where merging it stands, once per update of it; with `viewed` (its head now,
@@ -363,6 +447,7 @@ impl Requests {
         cx: &mut Context<Self>,
     ) {
         let (iid, updated) = (m.iid, m.updated);
+        self.read_facts_first(iid, host.clone(), cx);
         if self
             .rows
             .previews
@@ -442,6 +527,30 @@ fn facts_of(host: &dyn Host, root: Option<&Path>, m: &Mr) -> Facts {
             .collect(),
         size,
     }
+}
+
+/// `text` (`FACTS_FILE`) with project `repo`'s facts replaced by `facts`; the other projects' as they were.
+fn with_kept_facts<'a>(
+    text: &str,
+    repo: &str,
+    facts: impl Iterator<Item = (&'a u64, &'a Facts)>,
+) -> String {
+    let mut all: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(text).unwrap_or_default();
+    let mine: HashMap<u64, &Facts> = facts.map(|(iid, f)| (*iid, f)).collect();
+    if let Ok(v) = serde_json::to_value(&mine) {
+        all.insert(repo.to_owned(), v);
+    }
+    serde_json::Value::Object(all).to_string()
+}
+
+/// Project `repo`'s requests' facts in `text` (`FACTS_FILE`), as last read.
+fn kept_facts(text: &str, repo: &str) -> HashMap<u64, Facts> {
+    serde_json::from_str::<HashMap<String, serde_json::Value>>(text)
+        .ok()
+        .and_then(|mut all| all.remove(repo))
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default()
 }
 
 /// What the list keeps of a project.
@@ -1713,6 +1822,53 @@ mod tests {
             kept_list("a\treviewed\t398\n", "a").map(|k| k.folded),
             Some(HashSet::new())
         );
+    }
+
+    #[test]
+    fn facts_are_kept_per_project_and_only_the_wanted_are_read() {
+        let facts = |updated: i64, pushes: Vec<i64>| Facts {
+            updated,
+            pushes,
+            ..Default::default()
+        };
+        let a = HashMap::from([(7, facts(70, vec![1, 2])), (8, facts(80, vec![]))]);
+        let text = with_kept_facts("", "a", a.iter());
+        let text = with_kept_facts(&text, "b", [(&9, &facts(90, vec![3]))].into_iter());
+        // Project a's again, 8 no longer open: b's stay.
+        let text = with_kept_facts(&text, "a", a.iter().filter(|(iid, _)| **iid == 7));
+        let kept = kept_facts(&text, "a");
+        assert_eq!(kept.keys().collect::<Vec<_>>(), [&7]);
+        assert_eq!(
+            (kept[&7].updated, kept[&7].pushes.clone()),
+            (70, vec![1, 2])
+        );
+        assert_eq!(kept_facts(&text, "b")[&9].updated, 90);
+        assert!(kept_facts(&text, "c").is_empty() && kept_facts("not json", "a").is_empty());
+
+        // The queue's next: open, not read at its update, not being read.
+        let m = |iid: u64, updated: i64, state: MrState| Mr {
+            iid,
+            updated,
+            state,
+            ..Default::default()
+        };
+        let list = [
+            m(7, 70, MrState::Opened),
+            m(8, 81, MrState::Opened),
+            m(9, 90, MrState::Merged),
+            m(10, 100, MrState::Opened),
+            m(11, 110, MrState::Opened),
+        ];
+        let mut rows = Rows {
+            facts: HashMap::from([(7, facts(70, vec![])), (8, facts(80, vec![]))]),
+            queue: VecDeque::from([7, 9, 11, 8, 10, 12]),
+            ..Default::default()
+        };
+        rows.reading.insert(11);
+        let read: Vec<u64> =
+            std::iter::from_fn(|| rows.next_to_read(&list).map(|m| m.iid)).collect();
+        assert_eq!(read, [8, 10]);
+        assert!(rows.reading.contains(&8) && rows.reading.contains(&10));
     }
 
     #[test]
