@@ -26,6 +26,7 @@ mod owners;
 mod pane;
 mod path_filter;
 mod pins;
+mod repo_search;
 mod review;
 mod reviewed;
 mod select;

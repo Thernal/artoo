@@ -195,14 +195,20 @@ pub struct Declared {
 }
 
 /// The repository's declarations by name, read by keyword from its files: going to a name with no language server.
-/// Built once, at the first ask; Java's methods, which no keyword declares, are not in it.
-#[derive(Default, Debug)]
+/// Each file is kept with when it was read (`Stamp`), so the names are brought up to date by reading again only the
+/// files that changed (#207); Java's methods, which no keyword declares, are not in it.
+#[derive(Default, Debug, Clone)]
 pub struct Names {
     by: std::collections::HashMap<String, Vec<Declared>>,
+    /// Each file read: as it was then, the names it declares and its lines.
+    read: std::collections::HashMap<String, (Stamp, Vec<String>, usize)>,
     /// The files read and their lines, what building it cost.
     pub files: usize,
     pub lines: usize,
 }
+
+/// A file as it was read: its modification time and length.
+pub type Stamp = (Option<std::time::SystemTime>, u64);
 
 /// Files whose words declare nothing: documents and data.
 const NOT_CODE: &[&str] = &[
@@ -210,27 +216,70 @@ const NOT_CODE: &[&str] = &[
     "xml",
 ];
 
+/// Whether the file at `path` can declare a name: not a document or data.
+pub fn is_code(path: &str) -> bool {
+    let ext = path.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
+    !ext.as_deref().is_some_and(|e| NOT_CODE.contains(&e))
+}
+
 impl Names {
     /// The declarations in `lines`, the file at `path`; none for a document or data.
     pub fn add<'a>(&mut self, path: &str, lines: impl IntoIterator<Item = &'a str>) {
-        let ext = path.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
-        if ext.as_deref().is_some_and(|e| NOT_CODE.contains(&e)) {
+        self.put(path, (None, 0), lines);
+    }
+
+    /// File `path` read again (`stamp`, its `lines`): what it declared before is gone, what it declares now is in.
+    pub fn put<'a>(&mut self, path: &str, stamp: Stamp, lines: impl IntoIterator<Item = &'a str>) {
+        self.forget(path);
+        if !is_code(path) {
             return;
         }
-        self.files += 1;
+        let mut declared = Vec::new();
+        let mut count = 0;
         for (i, line) in lines.into_iter().enumerate() {
-            self.lines += 1;
+            count += 1;
             let Some((kind, name)) = declaration(line) else {
                 continue;
             };
             let text: String = line.trim().chars().take(140).collect();
-            self.by.entry(name).or_default().push(Declared {
+            self.by.entry(name.clone()).or_default().push(Declared {
                 path: path.to_owned(),
                 line: i as u32 + 1,
                 kind,
                 text,
             });
+            declared.push(name);
         }
+        self.files += 1;
+        self.lines += count;
+        self.read.insert(path.to_owned(), (stamp, declared, count));
+    }
+
+    /// File `path` as it was read, when it was.
+    pub fn stamp(&self, path: &str) -> Option<Stamp> {
+        self.read.get(path).map(|(stamp, ..)| *stamp)
+    }
+
+    /// File `path` gone: its declarations with it.
+    pub fn forget(&mut self, path: &str) {
+        let Some((_, declared, count)) = self.read.remove(path) else {
+            return;
+        };
+        self.files -= 1;
+        self.lines -= count;
+        for name in declared {
+            if let Some(list) = self.by.get_mut(&name) {
+                list.retain(|d| d.path != path);
+                if list.is_empty() {
+                    self.by.remove(&name);
+                }
+            }
+        }
+    }
+
+    /// The files read.
+    pub fn paths(&self) -> impl Iterator<Item = &String> {
+        self.read.keys()
     }
 
     /// The declarations of `name`, those in `here` (the file read) first, then by path and line.
@@ -389,6 +438,26 @@ mod tests {
         assert_eq!(found[0].text, "sealed interface LoginState {");
         assert!(names.of("s", "a/Vm.kt").is_empty());
         assert_eq!((names.len(), names.lines), (2, 6));
+    }
+
+    #[test]
+    fn a_file_read_again_replaces_its_names_and_a_gone_one_takes_them() {
+        let mut names = Names::default();
+        let first = (None, 10);
+        names.put("a/State.kt", first, ["class LoginState", "class Old"]);
+        names.put("b/Vm.kt", (None, 3), ["class Vm"]);
+        assert_eq!(names.stamp("a/State.kt"), Some(first));
+        names.put(
+            "a/State.kt",
+            (None, 12),
+            ["", "class LoginState", "class New"],
+        );
+        assert!(names.of("Old", "").is_empty());
+        assert_eq!(names.of("LoginState", "")[0].line, 2);
+        assert_eq!(names.of("New", "").len(), 1);
+        names.forget("b/Vm.kt");
+        assert!(names.of("Vm", "").is_empty());
+        assert_eq!((names.files, names.lines, names.len()), (1, 3, 2));
     }
 
     #[test]

@@ -3,6 +3,7 @@
 //! Designed in `../Design/mockups/ide-ideas/a-ideas.html` (3). The tab draws it over the window and
 //! answers its clicks (`SearchEvent`); its field is the tab's.
 
+use crate::repo_search::{self, Cache, InFile, Look, Narrow, Scan};
 use crate::review::Review;
 use artoo_core::textedit::TextEdit;
 use artoo_ui_kit::format::plural;
@@ -13,10 +14,20 @@ use gpui::{
     AnyElement, App, ClickEvent, FontWeight, HighlightStyle, Keystroke, MouseButton, ScrollHandle,
     StyledText, Window, div, prelude::*,
 };
+use gpui::{Context, Task};
+use std::collections::{HashSet, VecDeque};
 use std::ops::Range;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
 /// No more results than a person can read.
 const MAX_HITS: usize = 400;
+/// How long a query waits after the last key before it is searched.
+const SETTLE: Duration = Duration::from_millis(120);
+/// The files one background job searches before the window hears of them.
+const CHUNK: usize = 256;
 
 struct Hit {
     file: usize,
@@ -35,91 +46,103 @@ pub struct FindFiles {
     regex: bool,
     error: Option<String>,
     hits: Vec<Hit>,
-    /// The repository's text files, read as it opened: (path, lines).
-    files: std::rc::Rc<Vec<(String, Vec<String>)>>,
+    /// The repository's files as git's index lists them: paths only, each read when a query needs it.
+    paths: Arc<Vec<String>>,
+    /// The paths are still being listed.
+    listing: bool,
+    root: PathBuf,
     /// The repository's name, the window's title.
     name: String,
     files_with_hits: usize,
     capped: bool,
+    /// The list or the scan under way: dropped, it stops.
+    task: Option<Task<()>>,
+    /// A scan is under way: how many of its files it has looked at, of how many.
+    searching: Option<(usize, usize)>,
+    /// The hits on screen are the last query's until the new one's first come in.
+    stale: bool,
+    /// The last plain query searched to its end, and the files that hold it: a longer one looks only there.
+    narrow: Option<Narrow>,
+    /// What was read, kept for the next query.
+    cache: Arc<Mutex<Cache>>,
     scroll: ScrollHandle,
 }
 
 pub use artoo_review_api::{FoundInFiles as Found, OnSearch, SearchEvent, SearchKeyed as Keyed};
 
-/// Where `needle` first occurs in `hay` (a byte range), under the toggles.
-fn find_in(hay: &str, needle: &str, case: bool, word: bool) -> Option<Range<usize>> {
-    if needle.is_empty() {
-        return None;
-    }
-    let lowered;
-    let (hay_cmp, needle_cmp): (&str, String) = if case || !hay.is_ascii() {
-        (hay, needle.to_owned())
-    } else {
-        lowered = hay.to_ascii_lowercase();
-        (lowered.as_str(), needle.to_ascii_lowercase())
-    };
-    let mut from = 0;
-    while let Some(at) = hay_cmp[from..].find(&needle_cmp) {
-        let start = from + at;
-        let end = start + needle_cmp.len();
-        let boundary = |c: Option<char>| c.is_none_or(|c| !(c.is_alphanumeric() || c == '_'));
-        if !word
-            || (boundary(hay[..start].chars().next_back()) && boundary(hay[end..].chars().next()))
-        {
-            return Some(start..end);
+impl FindFiles {
+    /// A chunk's files in (`looked` of them looked at): the first replace the last query's hits, the hits stop at
+    /// `MAX_HITS`.
+    fn take_found(&mut self, found: Vec<(usize, InFile)>, looked: usize) {
+        if self.stale && found.iter().any(|(_, f)| f.hit) {
+            self.hits.clear();
+            self.files_with_hits = 0;
+            self.capped = false;
+            self.at = 0;
+            self.stale = false;
         }
-        from = end;
-    }
-    None
-}
-
-/// No more than this many files, none longer than this, are searched: what a person waits for.
-const MAX_FILES: usize = 20_000;
-const MAX_BYTES: u64 = 1 << 20;
-
-/// The repository's text files as git knows them, read from the working tree.
-pub(crate) fn repository_files(root: &std::path::Path) -> Vec<(String, Vec<String>)> {
-    let Ok(repo) = git2::Repository::open(root) else {
-        return Vec::new();
-    };
-    let Ok(index) = repo.index() else {
-        return Vec::new();
-    };
-    let mut files = Vec::new();
-    for entry in index.iter().take(MAX_FILES) {
-        let path = String::from_utf8_lossy(&entry.path).into_owned();
-        let full = root.join(&path);
-        if std::fs::metadata(&full).map_or(true, |m| !m.is_file() || m.len() > MAX_BYTES) {
-            continue;
+        if let Some((done, _)) = self.searching.as_mut() {
+            *done += looked;
         }
-        let Ok(bytes) = std::fs::read(&full) else {
-            continue;
-        };
-        if artoo_core::files::binary(&bytes) {
-            continue;
+        for (file, in_file) in found {
+            if !in_file.hit {
+                continue;
+            }
+            self.files_with_hits += 1;
+            if in_file.lines.is_empty() {
+                self.capped = true;
+            }
+            for line in in_file.lines {
+                if self.hits.len() >= MAX_HITS {
+                    self.capped = true;
+                    break;
+                }
+                self.hits.push(Hit {
+                    file,
+                    line: line.line,
+                    old: false,
+                    text: line.text,
+                    range: line.range,
+                });
+            }
         }
-        let lines = String::from_utf8_lossy(&bytes)
-            .lines()
-            .map(str::to_owned)
-            .collect();
-        files.push((path, lines));
     }
-    files
 }
 
 impl Review {
-    /// Opens the search, the diff's find's words in it.
-    pub fn open_find_files(&mut self) {
+    /// Opens the search, the diff's find's words in it: the repository's paths are listed in the background, and
+    /// nothing is read until there is something to look for.
+    pub fn open_find_files(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
         let query = self.dfind.clone().unwrap_or_default();
-        let root = self.root.clone();
-        let name = (root.as_ref())
-            .and_then(|r| r.file_name())
-            .map_or("the repository".to_owned(), |n| {
-                n.to_string_lossy().into_owned()
-            });
-        let files = std::rc::Rc::new(root.as_deref().map(repository_files).unwrap_or_default());
+        let name = root.file_name().map_or("the repository".to_owned(), |n| {
+            n.to_string_lossy().into_owned()
+        });
+        let listing = {
+            let root = root.clone();
+            cx.spawn(async move |this, cx| {
+                let paths = cx
+                    .background_executor()
+                    .spawn(async move { repo_search::repository_paths(&root) })
+                    .await;
+                this.update(cx, |rv, cx| {
+                    if let Some(f) = rv.ffind.as_mut() {
+                        f.paths = Arc::new(paths);
+                        f.listing = false;
+                        f.task = None;
+                    }
+                    rv.refresh_find_files(cx);
+                    cx.notify();
+                })
+                .ok();
+            })
+        };
         self.ffind = Some(FindFiles {
-            files,
+            paths: Arc::new(Vec::new()),
+            listing: true,
+            root,
             name,
             query,
             at: 0,
@@ -130,9 +153,13 @@ impl Review {
             hits: Vec::new(),
             files_with_hits: 0,
             capped: false,
+            task: Some(listing),
+            searching: None,
+            stale: false,
+            narrow: None,
+            cache: Arc::default(),
             scroll: ScrollHandle::new(),
         });
-        self.refresh_find_files();
     }
 
     /// Closes the search; whether it was open.
@@ -149,74 +176,127 @@ impl Review {
         self.ffind.as_ref().map(|f| f.query.as_str())
     }
 
-    fn refresh_find_files(&mut self) {
-        let Some(f) = &self.ffind else {
+    /// The query searched again, in the background, once it has settled: the hits on screen stay until the new
+    /// ones come; a plain query that holds the last one's text looks only where that one was (and in files changed
+    /// since).
+    fn refresh_find_files(&mut self, cx: &mut Context<Self>) {
+        let Some(f) = self.ffind.as_mut() else {
             return;
         };
-        let files = f.files.clone();
-        let (query, case, word) = (f.query.clone(), f.case, f.word);
-        // As a regular expression: the case and whole-word toggles go into it.
-        let pattern = (f.regex && !query.is_empty()).then(|| {
-            let source = if word {
-                format!(r"\b(?:{query})\b")
-            } else {
-                query.clone()
-            };
-            regex::RegexBuilder::new(&source)
-                .case_insensitive(!case)
-                .build()
-                .map_err(|e| match e {
-                    regex::Error::Syntax(s) => s.lines().last().unwrap_or("").trim().to_owned(),
-                    other => other.to_string(),
-                })
-        });
-        let error = pattern.as_ref().and_then(|p| p.as_ref().err().cloned());
-        let pattern = pattern.and_then(Result::ok);
-        let find = |text: &str| match &pattern {
-            Some(re) => re
-                .find_iter(text)
-                .find(|m| !m.is_empty())
-                .map(|m| m.range()),
-            None if error.is_some() => None,
-            None => find_in(text, &query, case, word),
+        if f.listing {
+            return;
+        }
+        f.task = None;
+        f.searching = None;
+        f.error = None;
+        if f.query.is_empty() {
+            f.hits.clear();
+            f.files_with_hits = 0;
+            f.capped = false;
+            f.stale = false;
+            return;
+        }
+        let query = match repo_search::compile(&f.query, f.case, f.word, f.regex) {
+            Ok(query) => query,
+            Err(error) => {
+                f.error = Some(error);
+                f.hits.clear();
+                f.files_with_hits = 0;
+                f.stale = false;
+                return;
+            }
         };
-        let mut hits = Vec::new();
-        let mut files_with_hits = 0;
-        let mut capped = false;
-        if !query.is_empty() {
-            'files: for (file_ix, (_, lines)) in files.iter().enumerate() {
-                let before = hits.len();
-                for (n, text) in lines.iter().enumerate() {
-                    if let Some(range) = find(text) {
-                        if hits.len() >= MAX_HITS {
-                            capped = true;
-                            break 'files;
-                        }
-                        hits.push(Hit {
-                            file: file_ix,
-                            line: n as u32 + 1,
-                            old: false,
-                            text: text.clone(),
-                            range,
-                        });
-                    }
+        let narrow = (f.narrow.as_ref())
+            .filter(|n| query.plain && n.applies(&f.query, f.case))
+            .map(|n| (n.files.iter().copied().collect::<HashSet<_>>(), n.since));
+        let looks: Vec<Look> = (0..f.paths.len())
+            .map(|file| Look {
+                file,
+                always: narrow
+                    .as_ref()
+                    .is_none_or(|(files, _)| files.contains(&file)),
+            })
+            .collect();
+        let plain = query.plain.then(|| (f.query.clone(), f.case));
+        let scan = Arc::new(Scan {
+            root: f.root.clone(),
+            paths: f.paths.clone(),
+            query,
+            cache: f.cache.clone(),
+            full: AtomicBool::new(false),
+            since: narrow.map(|(_, since)| since),
+        });
+        let started = SystemTime::now();
+        let total = looks.len();
+        f.stale = true;
+        f.searching = Some((0, total));
+        f.task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SETTLE).await;
+            let lanes = cx.background_executor().num_cpus().clamp(1, 8);
+            let mut chunks = looks.chunks(CHUNK).map(<[Look]>::to_vec);
+            let mut pending = VecDeque::new();
+            let mut holding = Vec::new();
+            loop {
+                while pending.len() < lanes {
+                    let Some(chunk) = chunks.next() else {
+                        break;
+                    };
+                    let scan = scan.clone();
+                    let len = chunk.len();
+                    pending.push_back((
+                        len,
+                        cx.background_executor()
+                            .spawn(async move { repo_search::scan(&scan, &chunk, MAX_HITS) }),
+                    ));
                 }
-                if hits.len() > before {
-                    files_with_hits += 1;
+                let Some((len, job)) = pending.pop_front() else {
+                    break;
+                };
+                let found = job.await;
+                holding.extend(found.iter().map(|(file, _)| *file));
+                let full = &scan.full;
+                let alive = this
+                    .update(cx, |rv, cx| {
+                        let Some(f) = rv.ffind.as_mut() else {
+                            return false;
+                        };
+                        f.take_found(found, len);
+                        if f.hits.len() >= MAX_HITS {
+                            full.store(true, Ordering::Relaxed);
+                        }
+                        cx.notify();
+                        true
+                    })
+                    .unwrap_or(false);
+                if !alive {
+                    return;
                 }
             }
-        }
-        if let Some(f) = &mut self.ffind {
-            f.at = f.at.min(hits.len().saturating_sub(1));
-            f.error = error;
-            f.hits = hits;
-            f.files_with_hits = files_with_hits;
-            f.capped = capped;
-        }
+            this.update(cx, |rv, cx| {
+                if let Some(f) = rv.ffind.as_mut() {
+                    if f.stale {
+                        f.hits.clear();
+                        f.files_with_hits = 0;
+                        f.capped = false;
+                        f.stale = false;
+                    }
+                    f.searching = None;
+                    f.task = None;
+                    f.narrow = plain.map(|(query, case)| Narrow {
+                        query,
+                        case,
+                        files: holding,
+                        since: started,
+                    });
+                    cx.notify();
+                }
+            })
+            .ok();
+        }));
     }
 
     /// A toggle flipped (Case, Word, Regex); any other event is the tab's.
-    pub fn find_files_toggle(&mut self, toggle: SearchEvent) {
+    pub fn find_files_toggle(&mut self, toggle: SearchEvent, cx: &mut Context<Self>) {
         let Some(f) = self.ffind.as_mut() else {
             return;
         };
@@ -226,26 +306,34 @@ impl Review {
             SearchEvent::Regex => f.regex = !f.regex,
             SearchEvent::Close | SearchEvent::Open(_) => return,
         }
-        self.refresh_find_files();
+        self.refresh_find_files(cx);
     }
 
     /// A key typed in the search, edited in the tab's `field`.
-    pub fn find_files_key(&mut self, key: &Keystroke, field: &mut TextEdit, cx: &mut App) -> Keyed {
+    pub fn find_files_key(
+        &mut self,
+        key: &Keystroke,
+        field: &mut TextEdit,
+        cx: &mut Context<Self>,
+    ) -> Keyed {
         let Some(f) = self.ffind.as_mut() else {
             return Keyed::Kept;
         };
         if key.modifiers.alt && matches!(key.key.as_str(), "c" | "w" | "r") {
-            self.find_files_toggle(match key.key.as_str() {
-                "c" => SearchEvent::Case,
-                "w" => SearchEvent::Word,
-                _ => SearchEvent::Regex,
-            });
+            self.find_files_toggle(
+                match key.key.as_str() {
+                    "c" => SearchEvent::Case,
+                    "w" => SearchEvent::Word,
+                    _ => SearchEvent::Regex,
+                },
+                cx,
+            );
             return Keyed::Kept;
         }
         match input::edit(&mut f.query, field, key, cx) {
             Edit::Changed => {
                 f.at = 0;
-                self.refresh_find_files();
+                self.refresh_find_files(cx);
             }
             Edit::Enter { .. } => {
                 let at = f.at;
@@ -296,7 +384,7 @@ impl Review {
             self.ffind = Some(f);
             return None;
         };
-        let path = f.files.get(hit.file).map(|(path, _)| path.clone())?;
+        let path = f.paths.get(hit.file).cloned()?;
         Some(Found {
             query: f.query.clone(),
             path,
@@ -346,7 +434,7 @@ impl Review {
                         .text_size(px(11.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme::faint())
-                        .child(hover::path(("hit-path", ix), f.files[hit.file].0.clone()).flex_1())
+                        .child(hover::path(("hit-path", ix), f.paths[hit.file].clone()).flex_1())
                         .child(count.to_string())
                         .into_any_element(),
                 );
@@ -390,17 +478,23 @@ impl Review {
                     .into_any_element(),
             );
         }
-        let summary = if f.query.is_empty() {
-            format!("Type to search {} files.", f.files.len())
-        } else if f.hits.is_empty() {
-            "Nothing matches.".to_owned()
+        let summary = if f.listing {
+            "Listing the repository's files…".to_owned()
+        } else if f.query.is_empty() {
+            format!("Type to search {} files.", f.paths.len())
+        } else if f.hits.is_empty() || f.stale {
+            match f.searching {
+                Some((done, total)) => format!("Searching… {done} of {total} files"),
+                None => "Nothing matches.".to_owned(),
+            }
         } else {
             format!(
-                "{} · {}{} in {}",
+                "{} · {}{} in {}{}",
                 f.query,
                 if f.capped { "first " } else { "" },
                 f.hits.len(),
-                plural(f.files_with_hits, "file")
+                plural(f.files_with_hits, "file"),
+                if f.searching.is_some() { " so far" } else { "" },
             )
         };
         let close = on.clone();
@@ -491,33 +585,5 @@ impl Review {
                 )
                 .into_any_element(),
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::find_in;
-
-    #[test]
-    fn finds_ignoring_case_by_default() {
-        assert_eq!(
-            find_in("let Backoff = 1;", "backoff", false, false),
-            Some(4..11)
-        );
-        assert_eq!(find_in("let Backoff = 1;", "backoff", true, false), None);
-    }
-
-    #[test]
-    fn whole_word_skips_longer_words() {
-        assert_eq!(
-            find_in("backoff_delay backoff", "backoff", false, true),
-            Some(14..21)
-        );
-        assert_eq!(find_in("backoffs", "backoff", false, true), None);
-    }
-
-    #[test]
-    fn an_empty_query_matches_nothing() {
-        assert_eq!(find_in("anything", "", false, false), None);
     }
 }

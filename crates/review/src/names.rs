@@ -1,8 +1,8 @@
 //! Going to a name with no language server, going to a line, and where you are, in Code's file (#207).
 //!
 //! The repository's declarations by name (`artoo_core::symbols::Names`), read by keyword from its files as the
-//! Outline reads one file's, are built once, in the background, at the first ⌘-click or F12 on a name — never at
-//! start. The peek opens under the line, headed `By name · 3`: the file read's own declaration first, then the
+//! Outline reads one file's, are built in the background at the first ⌘-click or F12 on a name — never at start —
+//! and brought up to date at each one after: only the files changed since are read again. The peek opens under the line, headed `By name · 3`: the file read's own declaration first, then the
 //! others; ↑ ↓ choose, ↵ opens it in Code, ⇧F12 searches the word in the repository, esc closes. A name declared
 //! once, elsewhere, is opened at once. ⌃G puts `Line` in the file's head, ↵ goes there. Each is one of the tab's
 //! inputs (`peek_input`, `line_input`).
@@ -27,7 +27,48 @@ pub struct Peek {
     pub line: usize,
     /// Its declarations, the file read's first; `None` while the names are being read.
     pub found: Option<Vec<Declared>>,
+    /// The names were brought up to date for it.
+    pub fresh: bool,
     pub sel: usize,
+}
+
+/// `names` brought up to the repository at `root` as it is now: a file changed or new read again (by its time and
+/// length), one gone forgotten, the rest as they were.
+fn up_to_date(root: &std::path::Path, mut names: Names) -> Names {
+    let paths: Vec<String> = crate::repo_search::repository_paths(root)
+        .into_iter()
+        .filter(|p| symbols::is_code(p))
+        .collect();
+    let now: std::collections::HashSet<&str> = paths.iter().map(String::as_str).collect();
+    let gone: Vec<String> = (names.paths())
+        .filter(|p| !now.contains(p.as_str()))
+        .cloned()
+        .collect();
+    for path in gone {
+        names.forget(&path);
+    }
+    for path in &paths {
+        let full = root.join(path);
+        let Ok(meta) = std::fs::metadata(&full) else {
+            names.forget(path);
+            continue;
+        };
+        if !meta.is_file() || meta.len() > crate::repo_search::MAX_BYTES {
+            names.forget(path);
+            continue;
+        }
+        let stamp = (meta.modified().ok(), meta.len());
+        if names.stamp(path) == Some(stamp) {
+            continue;
+        }
+        match std::fs::read(&full) {
+            Ok(bytes) if !artoo_core::files::binary(&bytes) => {
+                names.put(path, stamp, String::from_utf8_lossy(&bytes).lines());
+            }
+            _ => names.forget(path),
+        }
+    }
+    names
 }
 
 /// What the peek's card draws, taken out of the review for the list's rows.
@@ -77,6 +118,7 @@ impl Review {
             word,
             line,
             found: None,
+            fresh: false,
             sel: 0,
         });
         self.fill_peek(cx);
@@ -84,14 +126,15 @@ impl Review {
         true
     }
 
-    /// The peek's declarations from the names, read first if they are not.
+    /// The peek's declarations from the names, brought up to date first.
     fn fill_peek(&mut self, cx: &mut Context<Self>) {
         let Some(root) = self.root.clone() else {
             return;
         };
         let here = (self.file_view.as_ref()).map_or(String::new(), |v| v.path.clone());
+        let fresh = self.peek.as_ref().is_some_and(|p| p.fresh);
         match &self.names {
-            Some((read, names)) if *read == root => {
+            Some((read, names)) if *read == root && fresh => {
                 let Some(peek) = self.peek.as_mut() else {
                     return;
                 };
@@ -109,20 +152,21 @@ impl Review {
             }
             _ if self.names_reading.is_some() => {}
             _ => {
+                let kept = (self.names.take())
+                    .filter(|(read, _)| *read == root)
+                    .map(|(_, names)| Arc::unwrap_or_clone(names))
+                    .unwrap_or_default();
                 self.names_reading = Some(cx.spawn(async move |this, cx| {
                     let read = root.clone();
                     let names = (cx.background_executor())
-                        .spawn(async move {
-                            let mut names = Names::default();
-                            for (path, lines) in crate::find_files::repository_files(&read) {
-                                names.add(&path, lines.iter().map(String::as_str));
-                            }
-                            names
-                        })
+                        .spawn(async move { up_to_date(&read, kept) })
                         .await;
                     this.update(cx, |rv, cx| {
                         rv.names_reading = None;
                         rv.names = Some((root, Arc::new(names)));
+                        if let Some(peek) = rv.peek.as_mut() {
+                            peek.fresh = true;
+                        }
                         rv.fill_peek(cx);
                         cx.emit(ReviewEvent::Changed);
                     })
@@ -445,27 +489,51 @@ pub fn line_input(review: Entity<Review>) -> Input {
 
 #[cfg(test)]
 mod tests {
-    /// What going to a name costs on this repository (#207: 40 ms and 3.5 MB measured, built once): its names are
-    /// read from its files and the core's own functions are found.
+    use super::up_to_date;
+    use artoo_core::symbols::Names;
+
+    /// What going to a name costs on this repository (#207: 40 ms and 3.5 MB measured): its names are read from its
+    /// files and the core's own functions are found; read again with nothing changed, nothing is read.
     #[test]
     fn this_repositorys_names_are_read_and_found() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let started = std::time::Instant::now();
-        let mut names = artoo_core::symbols::Names::default();
-        for (path, lines) in crate::find_files::repository_files(&root) {
-            names.add(&path, lines.iter().map(String::as_str));
-        }
+        let names = up_to_date(&root, Names::default());
         let took = started.elapsed();
+        let again = std::time::Instant::now();
+        let names = up_to_date(&root, names);
         eprintln!(
-            "names: {} in {} files, {} lines, {took:?}",
+            "names: {} in {} files, {} lines, {took:?}; again {:?}",
             names.len(),
             names.files,
-            names.lines
+            names.lines,
+            again.elapsed()
         );
         let found = names.of("word_at", "crates/core/src/symbols.rs");
         assert_eq!(
             found.first().map(|d| d.path.as_str()),
             Some("crates/core/src/symbols.rs")
         );
+    }
+
+    #[test]
+    fn a_changed_file_is_read_again_and_a_gone_one_forgotten() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        let file = dir.path().join("Login.kt");
+        std::fs::write(&file, "class LoginState").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(std::path::Path::new("Login.kt")).unwrap();
+        index.write().unwrap();
+        let names = up_to_date(dir.path(), Names::default());
+        assert_eq!(names.of("LoginState", "").len(), 1);
+        // Another length: read again, whatever the clock says.
+        std::fs::write(&file, "\nclass LoginScreen").unwrap();
+        let names = up_to_date(dir.path(), names);
+        assert!(names.of("LoginState", "").is_empty());
+        assert_eq!(names.of("LoginScreen", "")[0].line, 2);
+        std::fs::remove_file(&file).unwrap();
+        let names = up_to_date(dir.path(), names);
+        assert!(names.is_empty());
     }
 }

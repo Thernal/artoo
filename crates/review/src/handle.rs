@@ -510,7 +510,7 @@ impl artoo_review_api::Review for Handle {
     }
 
     fn open_find_files(&self, cx: &mut App) {
-        self.with(cx, |rv, _| rv.open_find_files())
+        self.with(cx, |rv, cx| rv.open_find_files(cx))
     }
 
     fn close_find_files(&self, cx: &mut App) -> bool {
@@ -537,7 +537,7 @@ impl artoo_review_api::Review for Handle {
     }
 
     fn find_files_toggle(&self, toggle: SearchEvent, cx: &mut App) {
-        self.with(cx, |rv, _| rv.find_files_toggle(toggle))
+        self.with(cx, |rv, cx| rv.find_files_toggle(toggle, cx))
     }
 
     fn find_files_query(&self, cx: &App) -> Option<String> {
