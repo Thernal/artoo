@@ -824,6 +824,7 @@ mod tests {
             login: login.into(),
             body: format!("note {id}"),
             created: id as i64,
+            edited: false,
         }
     }
 

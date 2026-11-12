@@ -206,6 +206,7 @@ actions!(
         PreviousThread,
         ReplyThread,
         ResolveThread,
+        CommentRequest,
         EditComment,
         ReactNote,
         NextZone,

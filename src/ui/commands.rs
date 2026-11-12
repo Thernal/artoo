@@ -255,6 +255,12 @@ pub(super) fn own() -> Vec<Action> {
             .icon("message")
             .order(at(59) + 1)
             .key("r", NOT_TYPING),
+        // The Discussions window's foot: a comment on the request as a whole (#199).
+        Action::new("requests.comment", CommentRequest)
+            .words("Comment on the merge request…")
+            .icon("message")
+            .order(at(59) + 1)
+            .key("cmd-enter", NOT_TYPING),
         Action::new("requests.resolve", ResolveThread)
             .words("Resolve the discussion, or reopen it")
             .icon("check")

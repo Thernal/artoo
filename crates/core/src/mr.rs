@@ -83,6 +83,9 @@ pub struct Note {
     pub login: String,
     pub body: String,
     pub created: i64,
+    /// Changed after it was written, as the host says (#199): its time reads `20 min ago · edited`.
+    #[serde(default)]
+    pub edited: bool,
 }
 
 /// A discussion on a merge request: on a line of a file, or on the request as a whole.

@@ -741,7 +741,14 @@ pub fn notice_preview(n: &Notice, look: NoticeLook, on: &OnInbox, cx: &App) -> D
                     &note.author,
                     note.login == me,
                     None,
-                    waits.map_or_else(|| format::ago(note.created), str::to_owned),
+                    waits.map_or_else(
+                        // Changed after it was written (#199).
+                        || match note.edited {
+                            true => format!("{} · edited", format::ago(note.created)),
+                            false => format::ago(note.created),
+                        },
+                        str::to_owned,
+                    ),
                     markdown::body(
                         &note.body,
                         rich,

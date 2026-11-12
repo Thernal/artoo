@@ -87,14 +87,15 @@ for someone using the app, not for someone reading the code; the commits follow 
   `Comment`. ⇥ turns it into a note for the chat working on this branch and back; the chip's ▾ lists everyone on the
   request and every agent chat of the project, and the note goes to the chat picked. ⇧⌘↵ in a reply keeps it pending
   with your review instead of posting it, and a pending comment can be edited before the review is sent.
-- **Discussions count the work left.** The window says `Discussions · 3 open`, each row ends with who moves —
-  `waiting on you` or `waiting on Ember` —, pending comments come first and resolved ones fold under `Resolved · 4`;
-  its icon counts open and pending, and ⇧N walks only the open ones. A general comment opens whole in the window,
-  every note, with Reply… and Resolve under it, and the reply is written right there; `Comment on the request…` in
-  its foot writes a comment on the whole request. A pending comment's right click and ⌘K offer Send now; ⌥⌘↵ sends a
-  reply and resolves its discussion. A comment to your agent goes away by its state: a draft is deleted with Undo, a
-  sent one withdrawn, one the agent read archived — never erased. Edit and Delete on your own note sit in its hover
-  bar beside ☺+.
+- **Discussions count the work left.** The window says `Discussions · 3 open`, each row ends with who moves — `waiting
+  on you` or `waiting on Ember` —, pending comments come first and resolved ones fold under `Resolved · 4`; its icon
+  counts open and pending, and ⇧N walks only the open ones. A general comment opens whole in the window, every note,
+  with Reply… and Resolve under it, and the reply is written right there. Its foot is a field, `Comment on !398 ⌘↵`,
+  that writes a comment on the whole request; ⌘↵ with nothing being typed opens it. A pending comment's right click and
+  ⌘K offer Send now; Reply has its own ▾, `Reply and resolve ⌥⌘↵` or, on a resolved discussion, `Reply and reopen`. A
+  comment to your agent goes away by its state: a draft is deleted with Undo, a sent one withdrawn, one the agent read
+  archived, under an archive icon — never erased. A comment changed after it was written says so: `20 min ago · edited`.
+  Edit and Delete on your own note sit in its hover bar beside ☺+.
 - **The diff keeps its room.** The narrow steps measure the diff, not only the window: when it would fall under 480
   px the side panel folds into the menu's column first, and only then does a tool window float. At 1 100 px with
   Discussions open that is about 590 px of diff instead of 305. The right stripe holds the windows you work in —

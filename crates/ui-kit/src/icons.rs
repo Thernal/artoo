@@ -75,6 +75,15 @@ const ICONS: &[(&str, &str)] = &[
         ),
     ),
     ("check", lucide!(r#"<path d="M20 6 9 17l-5-5"/>"#)),
+    // Archive, a comment already read (#199).
+    (
+        "archive",
+        lucide!(
+            r#"<rect width="20" height="5" x="2" y="3" rx="1"/>"#
+            r#"<path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/>"#
+            r#"<path d="M10 12h4"/>"#
+        ),
+    ),
     // ⌘K's Next merge request (#192).
     (
         "down",

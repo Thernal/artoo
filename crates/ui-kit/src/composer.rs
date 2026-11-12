@@ -892,24 +892,55 @@ impl Compose {
                 .into_any_element(),
             );
         }
-        tail.push(
-            discussion::button(
-                "reply-send",
-                if agent && inbox && matches!(self.target, Target::Answer(_)) {
-                    "Send answer"
-                } else if agent {
-                    "Add to drafts"
-                } else {
-                    "Reply"
-                },
-                (room != Room::S).then_some("⌘↵"),
-                Kind::Primary(tone),
-            )
-            .h(px(28.))
-            .px(px(10.))
-            .on_click(move |_, _, cx| on(FootEvent::Add, cx))
-            .into_any_element(),
-        );
+        let (send, more) = (on.clone(), on.clone());
+        // A reply on a discussion has its own ▾: Reply and resolve ⌥⌘↵, or Reply and reopen (#199); under L the
+        // room it takes is its key's, said in the tooltip.
+        let with_more = matches!(self.target, Target::Reply(_)) && !agent;
+        let cap = room == Room::L || (room == Room::M && !with_more);
+        let reply = discussion::button(
+            "reply-send",
+            if agent && inbox && matches!(self.target, Target::Answer(_)) {
+                "Send answer"
+            } else if agent {
+                "Add to drafts"
+            } else {
+                "Reply"
+            },
+            cap.then_some("⌘↵"),
+            Kind::Primary(tone),
+        )
+        .h(px(28.))
+        .px(px(10.))
+        .when(!cap, |s| {
+            s.tooltip_show_delay(hover::LONG)
+                .tooltip(|_, cx| cx.new(|_| hover::Tip("Reply  ⌘↵")).into())
+        })
+        .on_click(move |_, _, cx| send(FootEvent::Add, cx));
+        tail.push(if with_more {
+            div()
+                .flex()
+                .flex_none()
+                .gap(px(1.))
+                .child(reply.rounded_r(px(0.)))
+                .child(
+                    discussion::icon_button(
+                        "reply-more",
+                        "chevron",
+                        "Reply and resolve, or reopen",
+                        None,
+                        None,
+                        Kind::Primary(tone),
+                        true,
+                    )
+                    .h(px(28.))
+                    .px(px(6.))
+                    .rounded_l(px(0.))
+                    .on_click(move |event, _, cx| more(FootEvent::Folded(event.position()), cx)),
+                )
+                .into_any_element()
+        } else {
+            reply.into_any_element()
+        });
         // Who reads it, in words at every width (#200): shorter when narrow.
         let lead = matches!(self.target, Target::Reply(_) | Target::ThreadNote(_)).then(|| {
             let said = match (agent, narrow) {

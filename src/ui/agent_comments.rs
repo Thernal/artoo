@@ -365,7 +365,7 @@ impl Workspace {
                 let (icon, label, kind) = match erase_of(comment) {
                     Erase::Delete => ("trash", "Delete", Kind::Danger),
                     Erase::Withdraw => ("rotate-ccw", "Withdraw", Kind::Plain),
-                    Erase::Archive => ("inbox", "Archive", Kind::Plain),
+                    Erase::Archive => ("archive", "Archive", Kind::Plain),
                 };
                 let erase = erase_of(comment);
                 discussion::icon_button(

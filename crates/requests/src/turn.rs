@@ -256,6 +256,7 @@ mod tests {
             login: login.into(),
             body: String::new(),
             created: at,
+            edited: false,
         }
     }
 

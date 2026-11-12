@@ -13,7 +13,7 @@ use artoo_shell_api::{Badge, ListKey, Services, Tool};
 use artoo_ui_kit::controls::{comment_item, group_heading, skeleton, tool_foot};
 use artoo_ui_kit::format::one_line;
 use artoo_ui_kit::hover::{self, Hover, Tip};
-use artoo_ui_kit::{ROW_RADIUS, px, theme};
+use artoo_ui_kit::{ROW_RADIUS, keys, px, theme, words};
 use gpui::{
     AnyElement, App, ClickEvent, Context, Entity, FontWeight, MouseButton, MouseDownEvent, Window,
     div, prelude::*,
@@ -441,10 +441,33 @@ impl Requests {
                     move |_: &ClickEvent, _, cx| acts(Act::OpenSubmit { approve: false }, cx)
                 })
         });
-        // A comment on the request as a whole, from the foot (#199).
+        // A comment on the request as a whole, from the foot (#199): a field saying `Comment on !398`, its key ⌘↵.
         let comment = (look.showing && comment_box.is_none()).then(|| {
             let acts = acts.clone();
-            small_button("comment-on-request", "Comment on the request…")
+            let says = self.current.map_or_else(
+                || "Comment on the request".to_owned(),
+                |iid| format!("Comment on {}", words::number(iid)),
+            );
+            div()
+                .id("comment-on-request")
+                .flex_1()
+                .min_w_0()
+                .h(px(30.))
+                .px(px(10.))
+                .flex()
+                .items_center()
+                .gap_2()
+                .rounded(px(ROW_RADIUS))
+                .border_1()
+                .border_color(theme::island_border())
+                .bg(theme::editor())
+                .cursor_text()
+                .text_size(px(12.))
+                .text_color(theme::faint())
+                .child(
+                    hover::cut("comment-on-request-words", words::say(&says).into_owned()).flex_1(),
+                )
+                .child(keys::caps("⌘↵", keys::On::Plain))
                 .on_click(move |_: &ClickEvent, _, cx| acts(Act::CommentOnRequest, cx))
         });
         let foot = match (comment_box, submit, comment) {
@@ -459,13 +482,15 @@ impl Requests {
                     .into_any_element(),
             ),
             (None, None, None) => None,
+            // The field the whole width, as the design's foot is; Submit review under it at the right.
             (None, submit, comment) => Some(
                 div()
+                    .w_full()
                     .flex()
-                    .items_center()
+                    .flex_col()
                     .gap(px(6.))
-                    .children(comment)
-                    .children(submit)
+                    .children(comment.map(|c| div().flex().child(c)))
+                    .children(submit.map(|s| div().flex().justify_end().child(s)))
                     .into_any_element(),
             ),
         };
@@ -693,6 +718,7 @@ mod tests {
             login: login.to_owned(),
             body: String::new(),
             created: 0,
+            edited: false,
         }
     }
 

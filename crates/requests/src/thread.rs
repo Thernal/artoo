@@ -138,6 +138,12 @@ pub fn render_thread(
             let own = rq.login.as_deref() == Some(note.login.as_str());
             // Waiting on the host: faded, its time saying what for; a new one takes no actions.
             let (time, note_waits) = rq.note_time(note.id, note.created);
+            // Changed after it was written: `20 min ago · edited` (#199).
+            let time = if note.edited && !note_waits {
+                format!("{time} · edited")
+            } else {
+                time
+            };
             let can_act = can_act && !is_temp(note.id);
             let editable = can_act && !look.composing && own && !note_waits;
             let pills = rq.reaction_pills(note.id, look.marks, acts.clone());

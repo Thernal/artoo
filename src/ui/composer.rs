@@ -1023,6 +1023,24 @@ impl Workspace {
                         )
                         .key("⇧⌘↵"),
                     ]],
+                    // A reply's own ▾ (#199): sent, and its discussion resolved, or opened again when resolved.
+                    Some(Target::Reply(ix)) => {
+                        let resolved = self.request_thread(ix, cx).is_some_and(|t| t.resolved);
+                        vec![vec![
+                            Entry::new(
+                                if resolved {
+                                    "Reply and reopen"
+                                } else {
+                                    "Reply and resolve"
+                                },
+                                Act::new(move |this, _, cx| {
+                                    this.post_reply(ix, cx);
+                                    this.toggle_resolved(ix, cx)
+                                }),
+                            )
+                            .key("⌥⌘↵"),
+                        ]]
+                    }
                     _ => Vec::new(),
                 };
                 self.open_menu(at, more, cx)

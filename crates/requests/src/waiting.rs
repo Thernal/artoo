@@ -185,6 +185,7 @@ impl Waiting {
             login: me.1.to_owned(),
             body: body.to_owned(),
             created: at,
+            edited: false,
         };
         let discussion = |id: &str, note: Note, at: Option<&At>| Thread {
             id: id.to_owned(),
@@ -566,6 +567,7 @@ mod tests {
                     login: "ann".into(),
                     body: format!("note {id}"),
                     created: 1,
+                    edited: false,
                 })
                 .collect(),
             path: Some("a.rs".into()),

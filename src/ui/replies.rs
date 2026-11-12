@@ -99,6 +99,16 @@ impl Workspace {
         }
     }
 
+    /// ⌘↵ with nothing being typed (#199): the Discussions window, its foot writing a comment on the request on
+    /// screen.
+    pub(super) fn comment_on_request(&mut self, cx: &mut Context<Self>) {
+        if !self.showing_request(cx) {
+            return;
+        }
+        self.set_tool(Some(artoo_requests_api::DISCUSSIONS), cx);
+        self.start_request_comment(cx);
+    }
+
     /// Posts the Inbox's reply: to its discussion, or as a comment on the request.
     pub(super) fn post_inbox_reply(&mut self, cx: &mut Context<Self>) {
         let (Some(compose), Some((iid, discussion))) =

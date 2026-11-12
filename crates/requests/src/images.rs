@@ -125,6 +125,7 @@ mod tests {
             login: String::new(),
             body: body.to_owned(),
             created,
+            edited: false,
         }
     }
 

@@ -1830,6 +1830,16 @@ pub fn parse_versions(value: &Value) -> Vec<Push> {
     out
 }
 
+/// Whether note `n` was changed after it was written (#199): its `updated_at` later than its `created_at`, unless
+/// that was the discussion resolved, which moves it too.
+fn edited(n: &Value) -> bool {
+    let (created, updated) = (epoch(&text(n, "created_at")), epoch(&text(n, "updated_at")));
+    let resolved = Some(text(n, "resolved_at"))
+        .filter(|t| !t.is_empty())
+        .map(|t| epoch(&t));
+    updated > created + 1 && resolved.is_none_or(|r| (updated - r).abs() > 2)
+}
+
 pub fn parse_threads(value: &Value) -> Vec<Thread> {
     value
         .as_array()
@@ -1865,6 +1875,7 @@ pub fn parse_threads(value: &Value) -> Vec<Thread> {
                         login: text(n.get("author").unwrap_or(&Value::Null), "username"),
                         body: text(n, "body"),
                         created: epoch(&text(n, "created_at")),
+                        edited: edited(n),
                     })
                     .collect(),
                 path: position
@@ -2068,6 +2079,21 @@ mod tests {
         assert_eq!(threads[0].notes.len(), 2);
         assert!(!threads[0].resolved);
         assert_eq!(threads[1].path, None);
+    }
+
+    #[test]
+    fn a_note_changed_after_it_was_written_is_edited_but_a_resolve_is_not() {
+        let note = |updated: &str, resolved: Option<&str>| json!({"created_at": "2026-10-08T00:00:00Z", "updated_at": updated, "resolved_at": resolved});
+        assert!(edited(&note("2026-10-08T00:05:00Z", None)));
+        assert!(!edited(&note("2026-10-08T00:00:00Z", None)));
+        assert!(!edited(&note(
+            "2026-10-08T00:05:00Z",
+            Some("2026-10-08T00:05:00Z")
+        )));
+        assert!(edited(&note(
+            "2026-10-08T00:09:00Z",
+            Some("2026-10-08T00:05:00Z")
+        )));
     }
 
     #[test]

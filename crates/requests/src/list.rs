@@ -1814,6 +1814,7 @@ mod tests {
             login: login.into(),
             body: String::new(),
             created,
+            edited: false,
         };
         let thread = |notes: Vec<Note>, resolvable: bool, resolved: bool| Thread {
             id: String::new(),

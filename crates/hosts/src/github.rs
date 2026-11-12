@@ -679,7 +679,7 @@ const THREADS: &str = "query($owner: String!, $name: String!, $number: Int!) {
       id isResolved isOutdated path line originalLine diffSide
       resolvedBy { login ... on User { name } }
       comments(first: 100) { nodes {
-        databaseId body createdAt originalCommit { oid }
+        databaseId body createdAt lastEditedAt originalCommit { oid }
         author { login ... on User { name } }
         pullRequestReview { state }
       } }
@@ -728,6 +728,8 @@ pub fn parse_threads(data: &Value, issue_comments: &Value) -> Vec<Thread> {
         login: s(&c["author"]["login"]),
         body: s(&c["body"]),
         created: epoch(&c["createdAt"]),
+        // Changed after it was written (#199).
+        edited: !c["lastEditedAt"].is_null(),
     };
     let mut out: Vec<Thread> = data["repository"]["pullRequest"]["reviewThreads"]["nodes"]
         .as_array()
@@ -779,6 +781,7 @@ pub fn parse_threads(data: &Value, issue_comments: &Value) -> Vec<Thread> {
                         login: s(&c["user"]["login"]),
                         body: s(&c["body"]),
                         created: epoch(&c["created_at"]),
+                        edited: epoch(&c["updated_at"]) > epoch(&c["created_at"]) + 1,
                     }],
                     path: None,
                     new_line: None,
