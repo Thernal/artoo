@@ -47,6 +47,22 @@ pub fn monogram(mark: &str, hue: Rgba, size: f32) -> gpui::Div {
         .child(mark.to_owned())
 }
 
+/// A chat's letter on its hue (the `To:` chip, its list, #200): a solid rounded square, the letter in the base colour.
+pub fn letter(letter: char, hue: Rgba, size: f32) -> gpui::Div {
+    div()
+        .flex_none()
+        .size(px(size))
+        .rounded(px(size / 4.))
+        .bg(hue)
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(px(size * 0.625))
+        .font_weight(FontWeight::BOLD)
+        .text_color(theme::base())
+        .child(letter.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

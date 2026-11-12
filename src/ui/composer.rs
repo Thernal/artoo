@@ -21,6 +21,9 @@ pub(super) use artoo_ui_kit::composer::{
 };
 use gpui::{App, Context, KeyDownEvent, WeakEntity, div, prelude::*};
 
+/// The `To:` list's width, the design's: a chat's name and its branch side by side (#200).
+const AUDIENCE_WIDTH: f32 = 340.;
+
 /// The quiet Edit on one's own note: a pencil, alone in a narrow diff (#69).
 pub(super) fn edit_button(
     id: impl Into<gpui::ElementId>,
@@ -125,6 +128,7 @@ impl Workspace {
     /// branch and state, a gone one dimmed, the branch's own marked ⇥.
     fn audience_menu(&mut self, at: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
         use super::menu::{Act, Entry};
+        use artoo_ui_kit::{menu::Lead, theme};
         let Some(iid) = self.compose_request(cx) else {
             return;
         };
@@ -139,7 +143,8 @@ impl Workspace {
             Act::new(move |this, _, cx| this.set_audience(Some(iid), None, cx)),
         )
         .checked(matches!(target, Some(Target::Request(_))))
-        .detail(host);
+        .lead(Lead::Icon("pull-request", theme::warning()))
+        .under(host);
         let routed = self
             .route_of(self.page_branch(cx).as_deref(), cx)
             .map(|c| c.session);
@@ -148,6 +153,7 @@ impl Workspace {
         let chats: Vec<Entry> = (self.agents.chats(cx).iter())
             .map(|c| {
                 let (words, session) = (Self::chat_words(c), c.session.clone());
+                let (letter, hue) = self.agents.mark(&c.session, cx);
                 let alive = listening.contains(&c.session);
                 let state = if alive { "listening" } else { "gone" };
                 let branch = if c.branch.is_empty() {
@@ -166,7 +172,10 @@ impl Workspace {
                 } else {
                     Entry::off(words)
                 };
-                let entry = entry.detail(format!("{branch} · {state}"));
+                let entry = entry
+                    .lead(Lead::Letter(letter, hue))
+                    .under_code(branch)
+                    .detail(state);
                 if routed.as_ref() == Some(&c.session) {
                     entry.key("⇥")
                 } else {
@@ -174,21 +183,24 @@ impl Workspace {
                 }
             })
             .collect();
-        let mut groups = vec![vec![everyone]];
-        if chats.is_empty() {
+        let chats = if chats.is_empty() {
             // No chat here yet: the note is kept on this Mac for the agent.
-            groups.push(vec![
+            vec![
                 Entry::new(
                     "Your agent",
                     Act::new(|this, _, cx| this.set_audience(None, None, cx)),
                 )
                 .checked(target == Some(Target::Agent))
-                .detail("no chat listens yet"),
-            ]);
+                .lead(Lead::Icon("bot", theme::agent()))
+                .under("no chat listens yet"),
+            ]
         } else {
-            groups.push(chats);
-        }
-        self.open_menu(at, groups, cx);
+            chats
+        };
+        // As wide as the design's list: a chat's name and its branch side by side.
+        let groups = vec![(None, vec![everyone]), (Some("Agent chats"), chats)];
+        self.ctx_menu
+            .update(cx, |m, cx| m.open(at, groups, AUDIENCE_WIDTH, cx));
     }
 
     /// Who the comment being written goes to, picked in its `To:` list: everyone on request `iid`, or chat
@@ -906,10 +918,12 @@ impl Workspace {
             _ => "Your agent".to_owned(),
         };
         let mark = chat.as_ref().map(|c| self.agents.mark(&c.session, cx));
+        let list = self.compose_request(cx).is_some();
         let audience = Audience {
             words,
             mark,
-            list: self.compose_request(cx).is_some(),
+            list,
+            switch: list,
         };
         let on = this.clone();
         let on: artoo_ui_kit::composer::OnFoot = std::rc::Rc::new(move |event, cx| {
@@ -1052,19 +1066,42 @@ impl Workspace {
     pub(super) fn reply_editor(&self, this: WeakEntity<Self>, cx: &gpui::App) -> Option<gpui::Div> {
         let compose = self.compose.as_ref()?;
         let on = this.clone();
-        let (lead, tail, placeholder) = compose.reply_foot(
-            self.compose_room(cx),
-            self.inbox,
-            std::rc::Rc::new(move |event, cx| {
-                on.update(cx, |this, cx| this.foot_event(event, cx)).ok();
+        let on: artoo_ui_kit::composer::OnFoot = std::rc::Rc::new(move |event, cx| {
+            on.update(cx, |this, cx| this.foot_event(event, cx)).ok();
+        });
+        let (tail, placeholder) = compose.reply_foot(self.compose_room(cx), self.inbox, on.clone());
+        // Who reads a reply, the `To:` chip over its text (#200): everyone on the request, or — ⇥ — the chat a note
+        // for your agent goes to.
+        let head = match compose.target {
+            Target::Reply(_) => Some(Audience {
+                words: self.current_request(cx).map_or_else(
+                    || "Everyone on the request".to_owned(),
+                    |iid| format!("Everyone on !{iid}"),
+                ),
+                mark: None,
+                list: false,
+                switch: true,
             }),
-        );
+            Target::ThreadNote(_) => {
+                let chat = self.compose_chat_of(cx);
+                Some(Audience {
+                    words: chat
+                        .as_ref()
+                        .map_or_else(|| "Your agent".to_owned(), Self::chat_words),
+                    mark: chat.as_ref().map(|c| self.agents.mark(&c.session, cx)),
+                    list: false,
+                    switch: true,
+                })
+            }
+            _ => None,
+        }
+        .map(|audience| compose.audience_chip(&audience, on));
         Some(self.open_input(
             compose,
             compose.source().color(),
             placeholder.into(),
+            head,
             None,
-            lead,
             &[
                 Helper::Bold,
                 Helper::Italic,

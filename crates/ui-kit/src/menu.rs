@@ -3,7 +3,7 @@
 
 use crate::{ISLAND_RADIUS, hover, keys, motion, px, row, theme, ui_zoom};
 use gpui::{
-    App, Context, MouseButton, Pixels, Point, Render, SharedString, Window, div, prelude::*,
+    App, Context, MouseButton, Pixels, Point, Render, Rgba, SharedString, Window, div, prelude::*,
 };
 use std::rc::Rc;
 
@@ -20,6 +20,20 @@ pub struct Entry<A> {
     pub detail: Option<String>,
     /// `None`: shown dimmed, taking no click; its label says why (a branch only on this Mac, #162).
     pub act: Option<A>,
+    /// Worn before its label: who it is (#200).
+    pub lead: Option<Lead>,
+    /// A second line under the label, faint, `true` in the code face (a chat's branch, #200). Its `detail` then
+    /// stands at the row's right end instead of after the label.
+    pub under: Option<(String, bool)>,
+}
+
+/// What an entry wears before its label (#200, the `To:` list).
+#[derive(Clone, Copy)]
+pub enum Lead {
+    /// A chat's letter on its hue.
+    Letter(char, Rgba),
+    /// An icon in a colour: the request's, everyone on it.
+    Icon(&'static str, Rgba),
 }
 
 impl<A> Entry<A> {
@@ -31,6 +45,8 @@ impl<A> Entry<A> {
             face: None,
             detail: None,
             act: Some(act),
+            lead: None,
+            under: None,
         }
     }
 
@@ -43,6 +59,8 @@ impl<A> Entry<A> {
             face: None,
             detail: None,
             act: None,
+            lead: None,
+            under: None,
         }
     }
 
@@ -65,6 +83,22 @@ impl<A> Entry<A> {
         self.detail = Some(detail.into());
         self
     }
+
+    pub fn lead(mut self, lead: Lead) -> Self {
+        self.lead = Some(lead);
+        self
+    }
+
+    pub fn under(mut self, under: impl Into<String>) -> Self {
+        self.under = Some((under.into(), false));
+        self
+    }
+
+    /// `under`, in the code face: a branch.
+    pub fn under_code(mut self, under: impl Into<String>) -> Self {
+        self.under = Some((under.into(), true));
+        self
+    }
 }
 
 /// Entries in groups; a rule is drawn between groups, a group may have a heading.
@@ -77,6 +111,8 @@ struct Panel<A> {
 }
 
 const ROW: f32 = 28.;
+/// An entry with a line under its label.
+const TALL: f32 = 42.;
 /// A group's heading row.
 const HEAD: f32 = 26.;
 /// The room a menu keeps from the window's edges (#48: menus stay inside the window).
@@ -175,9 +211,11 @@ impl<A: Clone + 'static> Menu<A> {
         live: bool,
         cx: &mut Context<Self>,
     ) -> (gpui::Div, f32) {
-        let rows: usize = menu.groups.iter().map(Vec::len).sum();
+        let rows: f32 = (menu.groups.iter().flatten())
+            .map(|e| if e.under.is_some() { TALL } else { ROW })
+            .sum();
         let heads = menu.titles.iter().flatten().count();
-        let height = rows as f32 * ROW + heads as f32 * HEAD + menu.groups.len() as f32 * 9. + 12.;
+        let height = rows + heads as f32 * HEAD + menu.groups.len() as f32 * 9. + 12.;
         // Inside the window: moved back from an edge it would cross, and scrolling when taller
         // than the window has room for.
         // The pointer and the window in the interface's own units: `px` scales by the interface
@@ -220,7 +258,7 @@ impl<A: Clone + 'static> Menu<A> {
                     // One that cannot be done takes no hover: `row` gives it none as "selected",
                     // and its fill is taken away.
                     row(("ctx-entry", (g * 100 + i) as u64), off)
-                        .h(px(ROW))
+                        .h(px(if entry.under.is_some() { TALL } else { ROW }))
                         .gap_2()
                         .when(off, |s| {
                             s.bg(gpui::transparent_black())
@@ -234,12 +272,65 @@ impl<A: Clone + 'static> Menu<A> {
                                 ""
                             },
                         ))
-                        .child(match entry.detail.clone() {
-                            None => hover::cut("label", keys::text(&entry.label).into_owned())
-                                .when_some(entry.face.clone(), |s, face| s.font_family(face))
+                        // A gone one's lead is dimmed with its words.
+                        .children(entry.lead.map(|lead| {
+                            div()
+                                .flex_none()
+                                .size(px(16.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .when(off, |s| s.opacity(0.55))
+                                .child(match lead {
+                                    Lead::Letter(letter, hue) => {
+                                        crate::monogram::letter(letter, hue, 16.).into_any_element()
+                                    }
+                                    Lead::Icon(name, hue) => crate::icons::icon(name)
+                                        .size(px(14.))
+                                        .text_color(hue)
+                                        .into_any_element(),
+                                })
+                        }))
+                        .child(match (entry.detail.clone(), entry.under.clone()) {
+                            // Two lines, the design's `To:` list: the name over its branch, its state at the right.
+                            (detail, Some((under, code))) => div()
                                 .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .items_center()
+                                .gap(px(8.))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .flex()
+                                        .flex_col()
+                                        .child(
+                                            hover::cut("label", entry.label.clone())
+                                                .font_weight(gpui::FontWeight::SEMIBOLD),
+                                        )
+                                        .child(
+                                            hover::cut("under", under)
+                                                .text_size(px(11.))
+                                                .when(code, |s| s.font_family(theme::code_font()))
+                                                .text_color(theme::faint()),
+                                        ),
+                                )
+                                .children(detail.map(|d| {
+                                    div()
+                                        .flex_none()
+                                        .text_size(px(11.))
+                                        .text_color(theme::faint())
+                                        .child(d)
+                                }))
                                 .into_any_element(),
-                            Some(detail) => div()
+                            (None, None) => {
+                                hover::cut("label", keys::text(&entry.label).into_owned())
+                                    .when_some(entry.face.clone(), |s, face| s.font_family(face))
+                                    .flex_1()
+                                    .into_any_element()
+                            }
+                            (Some(detail), None) => div()
                                 .flex_1()
                                 .min_w_0()
                                 .flex()

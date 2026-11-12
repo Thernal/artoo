@@ -6,7 +6,7 @@
 use crate::complete::Choice;
 use crate::discussion::{self, Kind, Source};
 use crate::input::{self, Edit};
-use crate::{hover, icons, keys, markdown, px, theme};
+use crate::{hover, icons, markdown, px, theme};
 use artoo_core::markdown::Helper;
 use artoo_core::textedit::TextEdit;
 use gpui::{AnyElement, App, Div, Keystroke, Pixels, Point, Rgba, SharedString, div, prelude::*};
@@ -555,6 +555,8 @@ pub struct Audience {
     pub mark: Option<(char, Rgba)>,
     /// A request's page: ▾ lists who can read it, ⇥ switches to the branch's chat and back.
     pub list: bool,
+    /// ⇥ switches who reads it: a new comment to the branch's chat, a reply to a note for your agent, and back.
+    pub switch: bool,
 }
 
 /// What a comment's foot is drawn with that the tab knows.
@@ -611,7 +613,7 @@ impl Compose {
     pub fn audience_chip(&self, audience: &Audience, on: OnFoot) -> AnyElement {
         let tone = self.source().color();
         let hue = audience.mark.map_or(tone, |(_, hue)| hue);
-        let said: SharedString = if audience.list {
+        let said: SharedString = if audience.switch {
             format!("Who reads it: {}  ·  ⇥ switches", audience.words).into()
         } else {
             format!("Who reads it: {}", audience.words).into()
@@ -633,19 +635,7 @@ impl Compose {
             .whitespace_nowrap()
             .child(div().flex_none().text_color(theme::muted()).child("To:"))
             .child(match audience.mark {
-                Some((letter, hue)) => div()
-                    .flex_none()
-                    .size(px(16.))
-                    .rounded(px(4.))
-                    .bg(hue)
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_size(px(10.))
-                    .font_weight(gpui::FontWeight::BOLD)
-                    .text_color(theme::base())
-                    .child(letter.to_string())
-                    .into_any_element(),
+                Some((letter, hue)) => crate::monogram::letter(letter, hue, 16.).into_any_element(),
                 None => icons::icon(match self.source() {
                     Source::Agent => "bot",
                     _ => "pull-request",
@@ -846,7 +836,7 @@ impl Compose {
         room: Room,
         inbox: bool,
         on: OnFoot,
-    ) -> (Option<AnyElement>, Vec<AnyElement>, &'static str) {
+    ) -> (Vec<AnyElement>, &'static str) {
         // ⇥ turned it into a note for the agent: purple, and it stays on this Mac (#50 G).
         let agent = self.source() == Source::Agent;
         let tone = self.source().color();
@@ -941,44 +931,6 @@ impl Compose {
         } else {
             reply.into_any_element()
         });
-        // Who reads it, in words at every width (#200): shorter when narrow.
-        let lead = matches!(self.target, Target::Reply(_) | Target::ThreadNote(_)).then(|| {
-            let said = match (agent, narrow) {
-                (true, false) => "🔒 For your agent",
-                (true, true) => "🔒 Agent",
-                (false, false) => "Reply on the merge request",
-                (false, true) => "Everyone",
-            };
-            div()
-                .id("reply-audience")
-                .h(px(26.))
-                .px(px(8.))
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(6.))
-                .rounded(px(6.))
-                .bg(if agent {
-                    theme::agent_bg()
-                } else {
-                    theme::warning_bg()
-                })
-                .text_size(px(12.))
-                .text_color(tone)
-                .whitespace_nowrap()
-                .child(said)
-                .map(|s| {
-                    if narrow {
-                        s.tooltip_show_delay(hover::LONG).tooltip(move |_, cx| {
-                            cx.new(|_| hover::TipOwned(format!("{said} — ⇥ switches").into()))
-                                .into()
-                        })
-                    } else {
-                        s.child(keys::caps("⇥", keys::On::Plain))
-                    }
-                })
-                .into_any_element()
-        });
         let placeholder = match (self.target, room) {
             (Target::ThreadNote(_), _) => "Note for your agent",
             (Target::Answer(_), Room::S) => "Note with your answer",
@@ -986,7 +938,7 @@ impl Compose {
             (Target::AnswerValue(_), _) => "Your own value",
             _ => "Reply…",
         };
-        (lead, tail, placeholder)
+        (tail, placeholder)
     }
 
     /// An edit's foot: Cancel and Save, its keys unless the diff is `narrow`.
