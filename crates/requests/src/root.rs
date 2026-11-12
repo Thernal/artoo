@@ -205,6 +205,28 @@ impl RootPage {
             };
             (list::banner(rq, &acts), list::list(rq, &look, &acts))
         };
+        // While a filter is typed, a merged or closed list reads every scope on to its end, a page at a time, so each
+        // tab counts what the filter leaves, not what was read (#191): no host counts by the filter's words — the
+        // author, the number, the branch.
+        let read_on: Vec<artoo_requests_api::Scope> = {
+            use artoo_requests_api::Scope;
+            let rq = self.requests.read(cx);
+            let filtering =
+                !filter.trim().is_empty() && rq.view != artoo_hosts_api::MrState::Opened;
+            [Scope::All, Scope::ReviewMe, Scope::Mine]
+                .into_iter()
+                .filter(|s| filtering && rq.past.of_scope(*s).more && !rq.past.of_scope(*s).loading)
+                .collect()
+        };
+        if let Some(requests) = services.get::<Rc<dyn artoo_requests_api::Requests>>()
+            && !read_on.is_empty()
+        {
+            cx.defer(move |cx| {
+                for scope in read_on {
+                    requests.load_past_page(scope, cx);
+                }
+            });
+        }
         let body = match body {
             list::Body::Loading => div()
                 .flex_1()

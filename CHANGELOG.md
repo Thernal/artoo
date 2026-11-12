@@ -143,7 +143,8 @@ for someone using the app, not for someone reading the code; the commits follow 
   47`, ↵ writes there —, ⇧↑ ⇧↓ stretch it over lines, and `n` `p` (and F7) carry on into the next file. The discussion
   the keys act on wears a ring: a click or ⇧N gives it, esc lets it go, and `x` on it says `Resolved ·
   LoginViewModel.kt:47` with Undo — ⌘Z undoes the newest toast's. ⌥1 ⌥2 ⌥3 go to Overview, Commits and Changes. On the
-  merge requests list ⌃⇥ steps All · To review · Mine, whose counts follow the filter, and in the Inbox its kinds; the
+  merge requests list ⌃⇥ steps All · To review · Mine, whose counts follow the filter — a merged or closed list reads
+  on to its end while you filter, so `30+` becomes `75` —, and in the Inbox its kinds; the
   filter finds an author by username too and marks what it matched, the starts of words included (`juha` marks
   **Ju**niper **Ha**le). On Windows and Linux a tooltip spells a key as it is bound there: `Overview Alt+Shift+1 ·
   Ctrl+I`.
