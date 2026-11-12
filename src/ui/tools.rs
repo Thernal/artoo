@@ -22,6 +22,7 @@ impl Workspace {
         let mut tools: Vec<&artoo_shell_api::Tool> = self
             .part_tools()
             .filter(|t| t.spaces.is_empty() || t.spaces.contains(&space))
+            .filter(|t| !t.not_in.contains(&space))
             .filter(|t| page || !t.on_pages)
             .collect();
         tools.sort_by_key(|t| t.order);

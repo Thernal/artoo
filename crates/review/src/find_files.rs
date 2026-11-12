@@ -111,6 +111,7 @@ pub(crate) fn tool(review: Entity<Review>, frame: Rc<dyn Frame>, cx: &mut App) -
             Some(format!("Search in {}", name.to_string_lossy()))
         })),
         spaces: &[],
+        not_in: &[],
         on_pages: false,
         stripe: true,
         // The stripe's first, as the design draws it.

@@ -64,6 +64,7 @@ pub(crate) fn tool(
         title: "Discussions",
         heading: None,
         spaces: &[artoo_requests_api::SPACE],
+        not_in: &[],
         on_pages: true,
         stripe: true,
         // About the page: before the windows that are in every space.

@@ -25,6 +25,7 @@ pub(crate) fn tool(frame: Rc<dyn Frame>, host: Rc<dyn Host>, cx: &mut App) -> To
         title: "Outline",
         heading: None,
         spaces: &[artoo_code_api::SPACE],
+        not_in: &[],
         on_pages: false,
         stripe: true,
         // About the page: before the windows that are in every space.

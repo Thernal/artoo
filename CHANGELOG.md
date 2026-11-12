@@ -14,7 +14,8 @@ for someone using the app, not for someone reading the code; the commits follow 
 - **Agents: a note for an agent on what a plugin shows, not only on a line.** A plugin declares kinds of place — an
   issue's paragraph, a board as it is filtered — and a note written there waits, works and finishes in the Agents
   window beside the others, read by the plugin's words (`PAY-412 · description · ¶4`). The agent gets the plugin's
-  context for it and the name of the plugin's tool that reads more; a click opens the plugin's page.
+  context for it and the name of the plugin's tool that reads more; a click opens the plugin's page. The Agents
+  window is in a plugin's space too, so a note added there opens it beside the page.
 - **A plain folder and a repository with no remote: every page opens and says what is missing.** The menu no longer
   greys Inbox, Branches and Merge requests or writes under them; each opens like any page. A plain folder's pages say
   `Not a git repository`, `notes has no .git folder`; a repository with no remote says `No remote` once, on Merge

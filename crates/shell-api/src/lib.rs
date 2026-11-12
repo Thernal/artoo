@@ -669,6 +669,9 @@ pub struct Tool {
     pub heading: Option<OnHeading>,
     /// The spaces it is in, by their names (`code`, `branches`, `requests`, `inbox`); none, every one.
     pub spaces: &'static [&'static str],
+    /// The spaces it is not in, of those `spaces` lets in: the Agents window is in every space but the Inbox, a
+    /// plugin's (Tasks) too.
+    pub not_in: &'static [&'static str],
     /// Only while a page is on screen, not on its space's own page (a request's Discussions).
     pub on_pages: bool,
     /// Its icon in the stripe: a window you work in (Discussions, Agents). Off, it opens by its action alone (Help →

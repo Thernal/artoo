@@ -84,7 +84,9 @@ pub fn tool(
         tip: "Agents  ⇧⌘A",
         title: "Agents",
         heading: None,
-        spaces: &["code", "branches", "requests"],
+        // Every space but the Inbox: a plugin's writes notes for agents too (Tasks).
+        spaces: &[],
+        not_in: &["inbox"],
         on_pages: false,
         stripe: true,
         // After what is about the page, before Report a problem.
