@@ -28,8 +28,9 @@ use artoo_ui_kit::room::Widths;
 use artoo_ui_kit::{ROW_RADIUS, discussion, hover, island, keys, motion, px, theme, words};
 use git2::Oid;
 use gpui::{
-    AnyElement, App, ClickEvent, Context, Entity, FontWeight, KeyDownEvent, div, prelude::*,
+    AnyElement, App, ClickEvent, Context, Entity, FontWeight, KeyDownEvent, Pixels, div, prelude::*,
 };
+use std::cell::Cell;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -94,9 +95,12 @@ pub struct NewRequest {
     commits: usize,
     /// The reviewers chosen, by username.
     reviewers: Vec<String>,
-    /// What is typed under Reviewers, and the member picked in its list.
+    /// What is typed under Reviewers, the member picked in its list, and where the list is scrolled.
     reviewer_query: String,
     reviewer_at: usize,
+    reviewer_scroll: gpui::ScrollHandle,
+    /// The room over and under the Reviewers field as last drawn: its list drops where it fits.
+    reviewer_room: Rc<Cell<(Pixels, Pixels)>>,
     /// Both branches are known and the source has nothing the target lacks: Create cannot be pressed.
     nothing: bool,
     /// The description as it will read, instead of its text.
@@ -323,6 +327,8 @@ impl Requests {
             reviewers: Vec::new(),
             reviewer_query: String::new(),
             reviewer_at: 0,
+            reviewer_scroll: gpui::ScrollHandle::new(),
+            reviewer_room: Rc::default(),
             nothing: false,
             preview: false,
             changes: false,
@@ -642,8 +648,8 @@ impl Requests {
         }
     }
 
-    /// The project's members Reviewers' list offers for what is typed (#190): by username or name, you left out,
-    /// eight at most; each with whether it is chosen already. None while nothing is typed.
+    /// The project's members Reviewers' list offers while its field is focused (#190): you left out, each with
+    /// whether it is chosen already; everyone by name while nothing is typed, else eight found by username or name.
     pub(crate) fn reviewer_choices(&self) -> Vec<(String, String, bool)> {
         let Some(n) = self
             .creating
@@ -700,6 +706,7 @@ impl Requests {
             } else {
                 n.reviewer_at.saturating_sub(1)
             };
+            n.reviewer_scroll.scroll_to_item(n.reviewer_at);
             return true;
         }
         let Some(source) = self.branch_list() else {
@@ -909,6 +916,7 @@ impl Requests {
                     n.list_scroll.scroll_to_item(0);
                 }
                 n.reviewer_at = 0;
+                n.reviewer_scroll.scroll_to_item(0);
             }
             Edit::Selected | Edit::Ignored => {}
         }
@@ -1725,14 +1733,20 @@ impl Requests {
         let searching = typing && n.focus == Focus::Reviewers;
         let choices = self.reviewer_choices();
         let typed = n.reviewer_query.trim().to_lowercase();
+        // Under the field while a few rows fit there, else over it; never over the field itself, which shows what
+        // is typed (#190).
+        let (over, under) = n.reviewer_room.get();
+        let up = under < px(120.) && over > under;
+        let room = if up { over } else { under };
         let member_list =
             (!choices.is_empty()).then(|| {
                 let list =
                     div()
                         .id("create-members")
                         .w(px(320.))
-                        .max_h(px(260.))
+                        .max_h(px(260.).min(room.max(px(80.))))
                         .overflow_y_scroll()
+                        .track_scroll(&n.reviewer_scroll)
                         .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
                         .p(px(4.))
                         .rounded(px(ROW_RADIUS))
@@ -1786,16 +1800,39 @@ impl Requests {
                                     }))
                             },
                         ));
-                div().absolute().left_0().bottom_0().size_0().child(
+                let (at, corner, by) = match up {
+                    true => (div().top_0(), gpui::Anchor::BottomLeft, px(-4.)),
+                    false => (div().bottom_0(), gpui::Anchor::TopLeft, px(4.)),
+                };
+                at.absolute().left_0().size_0().child(
                     gpui::deferred(
                         gpui::anchored()
-                            .offset(gpui::point(px(0.), px(4.)))
+                            .anchor(corner)
+                            .offset(gpui::point(px(0.), by))
                             .snap_to_window_with_margin(px(8.))
                             .child(list),
                     )
                     .with_priority(1),
                 )
             });
+        let room_of = n.reviewer_room.clone();
+        let measure_room = gpui::canvas(
+            move |bounds, window, _| {
+                let margin = px(12.);
+                let room = (
+                    bounds.top() - margin,
+                    window.viewport_size().height - bounds.bottom() - margin,
+                );
+                if room_of.replace(room) != room {
+                    window.request_animation_frame();
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full();
         let reviewers = div()
             .flex()
             .flex_col()
@@ -1836,6 +1873,7 @@ impl Requests {
                             )))
                             .into_any_element(),
                     ))
+                    .child(measure_room)
                     .children(member_list),
             );
         let description: AnyElement = if n.preview {
@@ -2104,8 +2142,9 @@ impl Requests {
     }
 }
 
-/// Of the project's `members` (username, name), those `typed` finds by username or name, `me` left out, eight at
-/// most; each with whether it is `chosen` already. None while nothing is typed.
+/// Of the project's `members` (username, name), `me` left out, each with whether it is `chosen` already: while
+/// nothing is `typed`, everyone by name, the list scrolling (#190); else eight at most that it finds by username or
+/// name.
 fn members_for(
     members: &[(String, String)],
     me: Option<&str>,
@@ -2113,17 +2152,22 @@ fn members_for(
     chosen: &[String],
 ) -> Vec<(String, String, bool)> {
     let typed = typed.trim().to_lowercase();
+    let others = (members.iter()).filter(|(login, _)| Some(login.as_str()) != me);
+    let row =
+        |(login, name): &(String, String)| (login.clone(), name.clone(), chosen.contains(login));
     if typed.is_empty() {
-        return Vec::new();
+        let mut everyone: Vec<_> = others.map(row).collect();
+        everyone.sort_by_cached_key(|(login, name, _)| {
+            (if name.is_empty() { login } else { name }).to_lowercase()
+        });
+        return everyone;
     }
-    members
-        .iter()
-        .filter(|(login, _)| Some(login.as_str()) != me)
+    others
         .filter(|(login, name)| {
             login.to_lowercase().contains(&typed) || name.to_lowercase().contains(&typed)
         })
         .take(8)
-        .map(|(login, name)| (login.clone(), name.clone(), chosen.contains(login)))
+        .map(row)
         .collect()
 }
 
@@ -2241,8 +2285,12 @@ mod tests {
         .collect();
         let found =
             |typed: &str, chosen: &[String]| members_for(&members, Some("you"), typed, chosen);
-        // Nothing typed: no list.
-        assert!(found("  ", &[]).is_empty());
+        // Nothing typed: everyone but you, by name.
+        let everyone: Vec<String> = found("  ", &["kestrel".to_owned()])
+            .into_iter()
+            .map(|(login, _, chosen)| format!("{login}{}", if chosen { " ✓" } else { "" }))
+            .collect();
+        assert_eq!(everyone, ["ember", "juniper", "kestrel ✓"]);
         // By name, in any case; one already chosen says so; you are never offered.
         assert_eq!(
             found("ER", &["ember".to_owned()]),

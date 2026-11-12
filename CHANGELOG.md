@@ -151,8 +151,9 @@ for someone using the app, not for someone reading the code; the commits follow 
   `Approvals 1 of 2, one more needed`, `Pipeline lint failed  Pipeline →` — without opening Merge. The author and the
   branches are said once, beside the title; `Your review 0 of 8 files` replaces "Reviewed", and the facts end with
   `Commits 3`. The column beside the description adds Labels, Milestone and `Discussions 1 open · 1 resolved →`.
-- **A new request can ask anyone in the project to review.** Type under Reviewers to find a member by name or
-  username; ↵ adds them. With nothing to merge, Create reads `Create · Nothing to merge` and cannot be pressed. ⌘K's
+- **A new request can ask anyone in the project to review.** Reviewers lists everyone in the project by name as it
+  is focused; type to find a member by name or username; ↵ adds them. The list opens over the field where there is no
+  room under it. With nothing to merge, Create reads `Create · Nothing to merge` and cannot be pressed. ⌘K's
   Create merge request… opens the same form; the one-question-at-a-time card is gone.
 - **The merge requests list says whose turn each one is.** Groups are `Waiting on you`, `Waiting on others`, `Yours` and
   `Done`, from what happened on the request: a comment hands it to the author, a push or a reply brings it back,
