@@ -186,12 +186,19 @@ impl Workspace {
         rows
     }
 
-    /// An open item's words for ⌘E (#194): its row's, and how far its review got, its drafts, what it is.
-    pub(super) fn open_words(&self, open: &super::nav::Opened, cx: &App) -> (String, String) {
+    /// An open item's words for ⌘E (#194): its row's, and how far its review got, what it is; its dots, drafts
+    /// and news, as its row in the menu wears them.
+    pub(super) fn open_words(
+        &self,
+        open: &super::nav::Opened,
+        cx: &App,
+    ) -> (String, String, Vec<artoo_shell_api::palette::Dot>) {
+        use artoo_shell_api::palette::Dot;
         let space = self.item_space(&open.item);
         let pages = space.and_then(|s| self.space_pages(s));
-        let label = (pages.and_then(|p| (p.row)(&open.item, &open.page, cx)))
-            .map_or_else(|| open.page.kind.clone(), |row| row.label);
+        let row = pages.and_then(|p| (p.row)(&open.item, &open.page, cx));
+        let news = row.as_ref().is_some_and(|r| r.news);
+        let label = row.map_or_else(|| open.page.kind.clone(), |row| row.label);
         let drafts = (self.comments(cx).iter())
             .any(|c| c.state == crate::comment::State::Draft && open.paths.contains(&c.path));
         let mut detail = match Page::from_route(&open.item) {
@@ -214,10 +221,11 @@ impl Workspace {
         if open.preview {
             detail.push_str(" · looked at");
         }
-        if drafts {
-            detail.push_str(" · ● drafts");
-        }
-        (label, detail)
+        let dots = [(drafts, Dot::Drafts), (news, Dot::News)]
+            .into_iter()
+            .filter_map(|(on, dot)| on.then_some(dot))
+            .collect();
+        (label, detail, dots)
     }
 
     /// `from` dragged onto `to` in the menu: it takes `to`'s place, kept in `layout.txt`.

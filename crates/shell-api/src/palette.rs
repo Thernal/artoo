@@ -18,10 +18,21 @@ pub struct Row {
     pub icon: Option<String>,
     /// An icon by the kit's name before it, a command's or a place's (#192).
     pub glyph: Option<&'static str>,
+    /// The dots after its words (#194).
+    pub dots: Vec<Dot>,
     /// A file or a repository: its name, then its folder right after it, cut first.
     pub file: bool,
     /// A face, drawn in itself (#24).
     pub face: Option<SharedString>,
+}
+
+/// A dot after a row's words, as the menu's open rows wear them (#194).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Dot {
+    /// Comments not sent yet, in the agents' colour.
+    Drafts,
+    /// Something happened since it was last seen, in the accent.
+    News,
 }
 
 /// A tab of search everywhere.

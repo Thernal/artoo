@@ -505,6 +505,24 @@ impl Review {
         ))
     }
 
+    /// The new line at the top of the view, or the first under it that has one (#194).
+    pub fn top_line(&self) -> Option<u32> {
+        let top = self.diff_list.logical_scroll_top();
+        let rows: &[Row] = match &self.stack {
+            // Under the block's header.
+            Some(stack) => {
+                let (b, inside) = stack.locate(top.item_ix);
+                stack.blocks.get(b)?.rows.get(inside.saturating_sub(1)..)?
+            }
+            None => self.rows.get(top.item_ix..)?,
+        };
+        rows.iter().find_map(|row| match *row {
+            Row::Split { right, .. } => right.map(|c| c.line),
+            Row::Unified { new_line, .. } => new_line,
+            _ => None,
+        })
+    }
+
     /// Scrolls back to `offset` in file `path` (`scroll_place`'s): false when the file is not the one shown alone,
     /// nor in the one scroll.
     pub fn go_place(&mut self, path: &str, offset: ListOffset) -> bool {

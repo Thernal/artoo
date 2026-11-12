@@ -110,6 +110,7 @@ struct Item {
     icon: Option<String>,
     /// An icon by the kit's name before it (#192).
     glyph: Option<&'static str>,
+    dots: Vec<palette::Dot>,
     /// Its words a name and its folder (a file, a repository).
     in_folder: bool,
     /// The face its row is drawn in (#24).
@@ -141,6 +142,7 @@ fn found_items(finds: Vec<Find>) -> Vec<Item> {
             in_folder: f.in_folder || f.file.is_some(),
             icon: f.file,
             glyph: f.glyph,
+            dots: f.dots,
             face: f.face,
             pick: Pick::Found {
                 open: f.open,
@@ -478,6 +480,7 @@ impl Machine {
                 key: String::new(),
                 icon: None,
                 glyph: c.icon,
+                dots: Vec::new(),
                 in_folder: false,
                 face: None,
                 pick: Pick::Command(ix),
@@ -766,6 +769,7 @@ impl Render for Machine {
                     key,
                     icon: item.icon.clone(),
                     glyph: item.glyph,
+                    dots: item.dots.clone(),
                     file: item.in_folder,
                     face: item.face.clone(),
                 }

@@ -155,6 +155,10 @@ impl artoo_review_api::Review for Handle {
         self.0.upgrade()?.read(cx).scroll_place()
     }
 
+    fn top_line(&self, cx: &App) -> Option<u32> {
+        self.0.upgrade()?.read(cx).top_line()
+    }
+
     fn restore_at(&self, place: Option<(String, gpui::ListOffset)>, cx: &mut App) {
         if let Some(rv) = self.0.upgrade() {
             rv.update(cx, |rv, _| rv.restore_scroll = place);

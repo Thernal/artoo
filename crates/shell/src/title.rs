@@ -5,11 +5,51 @@
 use artoo_shell_api::title::{TitleBar, TitleHost, TitleRenderer};
 use artoo_ui_kit::hover::{self, Tip};
 use artoo_ui_kit::{GAP, ROW_RADIUS, icons, keys, px, theme};
-use gpui::{AnyElement, FontWeight, MouseButton, MouseDownEvent, div, prelude::*};
+use gpui::{AnyElement, App, FontWeight, MouseButton, MouseDownEvent, Window, div, prelude::*};
+use std::cell::Cell;
 use std::rc::Rc;
+use std::time::Duration;
 
 /// The title bar's height.
 const TITLE_BAR: f32 = 38.;
+
+/// How long ‹ is held before its menu opens (#194).
+const HOLD: Duration = Duration::from_millis(450);
+
+thread_local! {
+    /// The press of ‹ the menu waits on: a release or a new press moves it on, so the wait opens nothing.
+    static PRESS: Cell<u64> = const { Cell::new(0) };
+    /// The menu opened from a hold: the release after it does not go back.
+    static HELD: Cell<bool> = const { Cell::new(false) };
+}
+
+/// ‹ held: once `HOLD` passes with it still down, its menu of the last places opens at `at`.
+fn hold_back(
+    host: Rc<dyn TitleHost>,
+    at: gpui::Point<gpui::Pixels>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let press = PRESS.with(|p| {
+        p.set(p.get() + 1);
+        p.get()
+    });
+    HELD.with(|h| h.set(false));
+    window
+        .spawn(cx, async move |cx| {
+            cx.background_executor().timer(HOLD).await;
+            if PRESS.with(Cell::get) == press {
+                HELD.with(|h| h.set(true));
+                cx.update(|window, cx| host.back_menu(at, window, cx)).ok();
+            }
+        })
+        .detach();
+}
+
+/// ‹ let go: a hold that has not opened the menu yet opens nothing.
+fn let_go() {
+    PRESS.with(|p| p.set(p.get() + 1));
+}
 
 /// The title bar's renderer, installed by `install`.
 pub(crate) struct Renderer;
@@ -23,6 +63,7 @@ impl TitleRenderer for Renderer {
 /// The title bar: the project's own quiet words, the fetch and the refresh status before the gear.
 fn title_bar(bar: TitleBar, host: Rc<dyn TitleHost>) -> impl IntoElement {
     let tabbed = bar.tabs.is_some();
+    let can_back = bar.back;
     let (fold, back, back_menu, forward, menu, projects, search, settings) = (
         host.clone(),
         host.clone(),
@@ -68,7 +109,22 @@ fn title_bar(bar: TitleBar, host: Rc<dyn TitleHost>) -> impl IntoElement {
                         format!("{}  ⌘[", bar.back_to.as_deref().unwrap_or("Back")).into(),
                         bar.back,
                     )
-                    .on_click(move |_, window, cx| back.back(window, cx))
+                    // A click goes back; held, its menu opens and the release does not (#194).
+                    .on_click(move |_, window, cx| {
+                        if !HELD.with(|h| h.replace(false)) {
+                            back.back(window, cx)
+                        }
+                    })
+                    .on_mouse_down(MouseButton::Left, {
+                        let host = back_menu.clone();
+                        move |e: &MouseDownEvent, window, cx| {
+                            if can_back {
+                                hold_back(host.clone(), e.position, window, cx)
+                            }
+                        }
+                    })
+                    .on_mouse_up(MouseButton::Left, |_, _, _| let_go())
+                    .on_mouse_up_out(MouseButton::Left, |_, _, _| let_go())
                     // Its right click: the last places behind.
                     .on_mouse_down(MouseButton::Right, move |e: &MouseDownEvent, window, cx| {
                         back_menu.back_menu(e.position, window, cx)

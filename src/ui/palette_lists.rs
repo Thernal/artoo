@@ -211,11 +211,12 @@ fn recent(tab: WeakEntity<Workspace>) -> Finds {
             .is_some_and(|o| Some(&o.item) == shown.as_ref());
         let open = (opened.into_iter())
             .map(|o| (o.item.clone(), this.open_words(o, cx)))
-            .filter(|(_, (label, detail))| matches(&words, &format!("{label} {detail}")))
-            .map(|(item, (label, detail))| {
+            .filter(|(_, (label, detail, _))| matches(&words, &format!("{label} {detail}")))
+            .map(|(item, (label, detail, dots))| {
                 let glyph = page_glyph(super::nav::Page::from_route(&item).as_ref());
                 let open = doing(&picks, move |this, cx| this.show_open(&item, cx));
                 let find = Find::new("Open", label, detail, open);
+                let find = dots.into_iter().fold(find, Find::dot);
                 match glyph {
                     Some(glyph) => find.glyph(glyph),
                     None => find,

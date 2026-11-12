@@ -117,6 +117,10 @@ pub trait Review {
     /// Where the diff shown is scrolled to: the file at the top and its offset, for coming back to it.
     fn place(&self, cx: &App) -> Option<(String, gpui::ListOffset)>;
 
+    /// The new line at the top of the diff's view, or the first under it that has one: the line a stop of Back
+    /// names (#194).
+    fn top_line(&self, cx: &App) -> Option<u32>;
+
     /// The next diff shown opens at `place` (a page come back to), or at its top.
     fn restore_at(&self, place: Option<(String, gpui::ListOffset)>, cx: &mut App);
 

@@ -131,6 +131,8 @@ pub struct Find {
     pub in_folder: bool,
     /// An icon by the kit's name before it (a commit's, a request's, #192).
     pub glyph: Option<&'static str>,
+    /// The dots after its words: drafts, news (#194).
+    pub dots: Vec<crate::palette::Dot>,
     /// A face, its row drawn in it (#24).
     pub face: Option<SharedString>,
     /// The one in force (the theme on the window): its list opens on it.
@@ -151,6 +153,7 @@ impl Find {
             file: None,
             in_folder: false,
             glyph: None,
+            dots: Vec::new(),
             face: None,
             current: false,
             tried: None,
@@ -171,6 +174,12 @@ impl Find {
     /// Its row wears icon `name` (the kit's).
     pub fn glyph(mut self, name: &'static str) -> Self {
         self.glyph = Some(name);
+        self
+    }
+
+    /// A dot after its words.
+    pub fn dot(mut self, dot: crate::palette::Dot) -> Self {
+        self.dots.push(dot);
         self
     }
 

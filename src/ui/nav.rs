@@ -238,6 +238,8 @@ struct Moment {
     page: Option<Route>,
     /// Where the diff was scrolled as it was left, for coming back to it on the same page.
     place: Option<(String, ListOffset)>,
+    /// The line at the top of the view then, which ‹'s menu names it by (#194).
+    line: Option<u32>,
     /// Pushed by a jump not landed yet: the page it lands on, when another, takes its place.
     landing: bool,
 }
@@ -248,6 +250,7 @@ impl Moment {
             space,
             page,
             place: None,
+            line: None,
             landing: false,
         }
     }
@@ -331,7 +334,7 @@ impl Nav {
     }
 
     /// A jump from `place` on the page on screen: where it leaves is a stop, and where it lands another (#194).
-    fn jump(&mut self, place: Option<(String, ListOffset)>) {
+    fn jump(&mut self, place: Option<(String, ListOffset)>, line: Option<u32>) {
         let Some(now) = self.time.get_mut(self.at) else {
             return;
         };
@@ -339,8 +342,10 @@ impl Nav {
             return;
         }
         now.place = place;
+        now.line = line;
         let next = Moment {
             place: None,
+            line: None,
             landing: true,
             ..now.clone()
         };
@@ -996,7 +1001,7 @@ impl Workspace {
     ) {
         if !self.nav.restoring {
             let place = self.rv().place(cx);
-            self.nav.jump(place);
+            self.nav.jump(place, self.rv().top_line(cx));
         }
         self.keep_line(cx);
         jump(self, cx);
@@ -1007,10 +1012,12 @@ impl Workspace {
     fn leave_moment(&mut self, cx: &App) {
         let page = self.nav_page().cloned();
         let place = self.rv().place(cx);
+        let line = self.rv().top_line(cx);
         if let Some(now) = self.nav.time.get_mut(self.nav.at) {
             now.landing = false;
             if now.page == page && place.is_some() {
                 now.place = place;
+                now.line = line;
             }
         }
     }
@@ -1049,9 +1056,13 @@ impl Workspace {
         // A place: the next moment is the same page, a jump away.
         let within = next.is_some_and(|n| n == moment);
         Some(match (&moment.place, within) {
+            // `LoginViewModel.kt:46 · place`: the line in view with the stop (#194).
             (Some((path, _)), true) => {
                 let name = path.rsplit('/').next().unwrap_or(path);
-                format!("{name} · place")
+                match moment.line {
+                    Some(line) => format!("{name}:{line} · place"),
+                    None => format!("{name} · place"),
+                }
             }
             _ => format!("{} · page", page_name()),
         })
@@ -1972,7 +1983,7 @@ mod tests {
         let place = |path: &str| Some((path.to_owned(), ListOffset::default()));
         nav.remember(at(REQUESTS, Some(Page::Request(1))));
         // A line gone to in the same request: where it left is a stop, ⌘[ comes back to it.
-        nav.jump(place("a.kt"));
+        nav.jump(place("a.kt"), Some(12));
         nav.landed();
         assert_eq!(nav.time.len(), 2);
         assert!(nav.can_back());
@@ -1980,11 +1991,13 @@ mod tests {
             nav.time[0].place.as_ref().map(|(p, _)| p.as_str()),
             Some("a.kt")
         );
+        // The line in view goes with it, for ‹'s menu (#194).
+        assert_eq!(nav.time[0].line, Some(12));
         // The same page remembered again is no new moment.
         nav.remember(at(REQUESTS, Some(Page::Request(1))));
         assert_eq!(nav.time.len(), 2);
         // A jump that lands on another page is that page's moment, not a second of this one.
-        nav.jump(place("b.kt"));
+        nav.jump(place("b.kt"), None);
         nav.remember(at(CODE, Some(Page::File("b.kt".into()))));
         assert_eq!(nav.time.len(), 3);
         assert_eq!(nav.time[2].page, Some(Page::File("b.kt".into()).route()));

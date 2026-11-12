@@ -2,7 +2,7 @@
 //! the foot with the tab's key. The same window picks the refs of a comparison, a theme, a recent place, a bookmark, a
 //! face. What it lists, what the field holds and what a row does are the tab's.
 
-use artoo_shell_api::palette::{PaletteHost, PaletteRenderer, PaletteView, Tab};
+use artoo_shell_api::palette::{Dot, PaletteHost, PaletteRenderer, PaletteView, Tab};
 use artoo_ui_kit::{
     ISLAND_RADIUS, ROW_RADIUS, hover, icons, island_label, keys, motion, px, row, theme, words,
 };
@@ -16,6 +16,22 @@ impl PaletteRenderer for Renderer {
     fn palette(&self, view: PaletteView, host: Rc<dyn PaletteHost>) -> AnyElement {
         self::palette(view, host)
     }
+}
+
+/// A dot after a row's words, as the menu's open rows draw theirs: drafts in the agents' colour, news in the accent.
+fn dot(n: usize, dot: Dot) -> impl IntoElement {
+    let (color, tip) = match dot {
+        Dot::Drafts => (theme::agent(), "Unsent drafts"),
+        Dot::News => (theme::accent(), "New activity"),
+    };
+    div()
+        .id(("palette-dot", n))
+        .flex_none()
+        .size(px(7.))
+        .rounded_full()
+        .bg(color)
+        .tooltip_show_delay(hover::LONG)
+        .tooltip(move |_, cx| cx.new(|_| hover::Tip(tip)).into())
 }
 
 /// The window, over everything.
@@ -37,6 +53,7 @@ fn palette(view: PaletteView, host: Rc<dyn PaletteHost>) -> AnyElement {
             );
         }
         let selected = ix == view.at;
+        let dotted = !item.dots.is_empty();
         let run = host.clone();
         rows.push(
             row(("palette-item", ix), selected)
@@ -51,9 +68,18 @@ fn palette(view: PaletteView, host: Rc<dyn PaletteHost>) -> AnyElement {
                     hover::cut("label", keys::text(&item.label).into_owned())
                         // A face is drawn in itself (#24).
                         .when_some(item.face, |s, face| s.font_family(face))
-                        .when(!item.file, |s| s.flex_1())
+                        .when(!item.file && !dotted, |s| s.flex_1())
+                        // Its dots right after its words (#194).
+                        .when(!item.file && dotted, |s| s.flex_initial().min_w(px(0.)))
                         .when(item.file, |s| s.flex_none().max_w(px(320.))),
                 )
+                .children(
+                    item.dots
+                        .iter()
+                        .enumerate()
+                        .map(|(k, &d)| dot(ix * 2 + k, d)),
+                )
+                .children((dotted && !item.file).then(|| div().flex_1()))
                 .child(
                     // A file's folder gives way first; a command's key never does.
                     if item.file {
