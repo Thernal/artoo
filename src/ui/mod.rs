@@ -199,6 +199,8 @@ actions!(
         ShowWhole,
         ToggleAnnotate,
         FindInFiles,
+        GoToName,
+        GoToLine,
         ToggleReviewed,
         NextThread,
         PreviousThread,
@@ -1049,9 +1051,20 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         }
         // The pointer resting at `x,y` (window points) long enough for a tooltip or a card (#53).
         // A click at a point of the window, after the keys: what only the mouse opens (an image whole, #211).
-        // `x,y`, or several clicks one after another: `x,y;x,y` (a menu opened, then an item of it picked).
+        // `x,y`, or several clicks one after another: `x,y;x,y` (a menu opened, then an item of it picked); `cmd:x,y`
+        // a ⌘-click (a name's declarations, #207).
         let clicks = std::env::var("ARTOO_SNAPSHOT_CLICK").unwrap_or_default();
         for at in clicks.split(';').filter(|c| !c.trim().is_empty()) {
+            let (at, modifiers) = match at.trim().strip_prefix("cmd:") {
+                Some(at) => (
+                    at,
+                    gpui::Modifiers {
+                        platform: true,
+                        ..Default::default()
+                    },
+                ),
+                None => (at, gpui::Modifiers::default()),
+            };
             let Some((x, y)) = at.split_once(',') else {
                 continue;
             };
@@ -1070,14 +1083,14 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                 gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
                     button: gpui::MouseButton::Left,
                     position,
-                    modifiers: Default::default(),
+                    modifiers,
                     click_count: 1,
                     first_mouse: false,
                 }),
                 gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
                     button: gpui::MouseButton::Left,
                     position,
-                    modifiers: Default::default(),
+                    modifiers,
                     click_count: 1,
                 }),
             ];
@@ -1965,6 +1978,11 @@ impl Workspace {
             ReviewEvent::Changed => {}
             ReviewEvent::Found { file, row } => self.go_found(Some((*file, *row)), cx),
             ReviewEvent::GoLine(done) => self.goline_done(*done, cx),
+            ReviewEvent::Go { path, line } => self.open_in_code(path.clone(), *line, cx),
+            ReviewEvent::SearchWord(word) => {
+                self.set_dfind(word.clone(), cx);
+                self.open_find_files(cx);
+            }
             ReviewEvent::Page(event) => self.page_event(event.clone(), cx),
         }
         cx.notify();

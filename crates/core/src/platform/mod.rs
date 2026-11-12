@@ -43,6 +43,8 @@ pub fn pc_keys(mac: &str) -> String {
             match stroke {
                 "cmd-alt-right" => return "ctrl-pagedown".to_owned(),
                 "cmd-alt-left" => return "ctrl-pageup".to_owned(),
+                // Go to line (#207): Ctrl+G is the next match there (⌘G).
+                "ctrl-g" => return "ctrl-l".to_owned(),
                 _ => {}
             }
             if let Some(key) = stroke.strip_prefix("ctrl-cmd-") {
@@ -275,6 +277,7 @@ mod tests {
         assert_eq!(pc_keys("cmd-3"), "alt-3");
         assert_eq!(pc_keys("cmd-0"), "ctrl-0");
         assert_eq!(pc_keys("cmd-alt-right"), "ctrl-pagedown");
+        assert_eq!(pc_keys("ctrl-g"), "ctrl-l");
         assert_eq!(pc_keys("cmd--"), "ctrl--");
         assert_eq!(pc_keys("ctrl-2"), "ctrl-2");
         assert_eq!(pc_keys("ctrl-cmd-4"), "ctrl-shift-4");

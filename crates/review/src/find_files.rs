@@ -78,7 +78,7 @@ const MAX_FILES: usize = 20_000;
 const MAX_BYTES: u64 = 1 << 20;
 
 /// The repository's text files as git knows them, read from the working tree.
-fn repository_files(root: &std::path::Path) -> Vec<(String, Vec<String>)> {
+pub(crate) fn repository_files(root: &std::path::Path) -> Vec<(String, Vec<String>)> {
     let Ok(repo) = git2::Repository::open(root) else {
         return Vec::new();
     };

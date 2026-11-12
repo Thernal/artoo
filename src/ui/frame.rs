@@ -407,6 +407,8 @@ impl Render for Workspace {
         }))
         .on_action(cx.listener(|this, _: &ToggleAnnotate, _, cx| this.toggle_annotate(cx)))
         .on_action(cx.listener(|this, _: &FindInFiles, _, cx| this.open_find_files(cx)))
+        .on_action(cx.listener(|this, _: &GoToName, _, cx| this.go_to_name(cx)))
+        .on_action(cx.listener(|this, _: &GoToLine, _, cx| this.go_to_line(cx)))
         .on_action(cx.listener(|this, _: &ToggleReviewed, _, cx| this.toggle_reviewed(cx)))
         .on_action(cx.listener(|this, _: &ShowOverview, _, cx| {
             this.show_section(nav::Section::Overview, cx)

@@ -333,6 +333,15 @@ pub(super) fn own() -> Vec<Action> {
             .words("Search in the repository")
             .order(at(19))
             .key("cmd-alt-f", TAB),
+        // Code's file, no language server (#207).
+        Action::new("code.go-to-name", GoToName)
+            .words("Go to the declaration of the name at the caret")
+            .order(at(19) + 1)
+            .key("f12", TAB),
+        Action::new("code.go-to-line", GoToLine)
+            .words("Go to line")
+            .order(at(19) + 2)
+            .key("ctrl-g", TAB),
         Action::new("review.toggle-reviewed", ToggleReviewed).key("shift-v", NOT_TYPING),
         Action::new("shell.next-zone", NextZone).key("tab", NOT_TYPING),
         Action::new("shell.previous-zone", PreviousZone).key("shift-tab", NOT_TYPING),

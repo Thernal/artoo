@@ -127,6 +127,15 @@ pub struct Review {
     pub match_at: usize,
     /// The lines of the file read in Code that hold the find text (#206).
     pub file_matches: Vec<usize>,
+    /// The declarations of a name ⌘-clicked or F12'd in Code's file, open under its line (#207).
+    pub peek: Option<crate::names::Peek>,
+    /// The repository's names, read once at the first peek, for the folder they were read in; and their read.
+    pub names: Option<(PathBuf, Arc<artoo_core::symbols::Names>)>,
+    pub names_reading: Option<Task<()>>,
+    /// ⌃G's `Line` in Code's file head, as typed (#207).
+    pub file_line: Option<String>,
+    /// The line (0-based) of Code's file gone to last: tinted.
+    pub file_target: Option<usize>,
     /// Said above the diff when it changed under the user.
     pub notice: Option<Notice>,
     /// Scroll position (file path, offset) to put back once the reloaded file is laid out.
@@ -232,6 +241,11 @@ impl Review {
             change_at: None,
             matches: Vec::new(),
             file_matches: Vec::new(),
+            peek: None,
+            names: None,
+            names_reading: None,
+            file_line: None,
+            file_target: None,
             match_at: 0,
             notice: None,
             restore_scroll: None,

@@ -6,6 +6,14 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **Code goes from a name to where it is declared, to a line, and says where you are.** ⌘-click a name, or put the
+  caret on it and press F12: a card opens under the line, `By name · 3`, the declaration in this file first and then
+  the others, `LoginState.kt:3` with its line and folder; ↑ ↓ ↵ open one, ⇧F12 searches the word in the repository. A
+  name declared once elsewhere opens straight away. There is no language server: the repository's declarations are
+  read by their keyword (`fun`, `class`, `struct` …), once, the first time you ask — Java's methods, which no keyword
+  declares, are not found. ⌃G (or a click on the file's `N lines`) puts `Line` in the file's head; ↵ goes there. Over
+  the code, a line names the declarations you are inside — `class LoginViewModel › fun submit` —, and a click goes to
+  one.
 - **Code finds in the file you read, and the repository has a search.** ⌘F on a file in Code opens a find bar under
   its head — `amount`, `.*`, `1 of 2`, ↑ ↓ × — with the hits tinted in the lines and the current one filled. A minimap
   at the code's right draws the file small, marks the find's hits and the lines that differ from HEAD (they have a bar

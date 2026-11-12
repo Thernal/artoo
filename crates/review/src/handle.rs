@@ -494,11 +494,11 @@ impl artoo_review_api::Review for Handle {
         notes: &FileNotes,
         binary: Option<AnyElement>,
         selecting: Selecting,
-        finding: bool,
+        typing: Option<&'static str>,
         cx: &mut App,
     ) -> Option<(gpui::Div, AnyElement)> {
         self.with(cx, |rv, cx| {
-            rv.render_file_view(host, notes, binary, selecting, finding, cx)
+            rv.render_file_view(host, notes, binary, selecting, typing, cx)
         })
     }
 
@@ -722,6 +722,14 @@ impl artoo_review_api::Review for Handle {
 
     fn open_goline(&self, cx: &mut App) {
         self.with(cx, |rv, _| rv.open_goline())
+    }
+
+    fn peek_name(&self, note: &str, line: usize, at: usize, cx: &mut App) -> bool {
+        self.with(cx, |rv, cx| rv.peek_name(note, line, at, cx))
+    }
+
+    fn open_file_line(&self, cx: &mut App) {
+        self.with(cx, |rv, _| rv.open_file_line())
     }
 
     fn selected_lines(&self, cx: &App) -> Option<(bool, u32, u32)> {

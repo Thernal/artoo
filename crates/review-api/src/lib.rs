@@ -314,8 +314,8 @@ pub trait Review {
     /// The file Code reads is binary: its size (`Some(None)`: text; `None`: no file).
     fn file_binary(&self, cx: &App) -> Option<Option<u64>>;
 
-    /// The file Code reads drawn: its head and its body; `binary` what stands for a binary file's lines. `finding`:
-    /// its find bar has the keyboard (#206).
+    /// The file Code reads drawn: its head and its body; `binary` what stands for a binary file's lines. `typing`:
+    /// the tab's input that has the keyboard — its find bar's (#206), its `Line` (#207).
     #[allow(clippy::too_many_arguments)]
     fn render_file_view(
         &self,
@@ -323,7 +323,7 @@ pub trait Review {
         notes: &FileNotes,
         binary: Option<AnyElement>,
         selecting: Selecting,
-        finding: bool,
+        typing: Option<&'static str>,
         cx: &mut App,
     ) -> Option<(gpui::Div, AnyElement)>;
 
@@ -485,6 +485,13 @@ pub trait Review {
 
     /// The line after `c` opened: it starts empty, standing for the first change.
     fn open_goline(&self, cx: &mut App);
+
+    /// F12 on Code's file (#207): the declarations of the name at byte `at` of line `line` (0-based), the caret
+    /// there in the text that selects as `note`, open under the line. Whether there was a name there.
+    fn peek_name(&self, note: &str, line: usize, at: usize, cx: &mut App) -> bool;
+
+    /// ⌃G on Code's file: `Line` in its head.
+    fn open_file_line(&self, cx: &mut App);
 
     /// The lines selected in the diff: side, first and last.
     fn selected_lines(&self, cx: &App) -> Option<(bool, u32, u32)>;
@@ -832,6 +839,12 @@ pub const FIND_INPUT: &str = "review.find";
 /// The path filter's field among the tab's inputs.
 pub const FILTER_INPUT: &str = "review.filter";
 
+/// The declarations of a name, open under its line in Code's file, among the tab's inputs (#207).
+pub const PEEK_INPUT: &str = "review.peek";
+
+/// ⌃G's `Line` in Code's file head among the tab's inputs (#207).
+pub const LINE_INPUT: &str = "review.file-line";
+
 /// The size of code at 100 %.
 pub const CODE_SIZE: f32 = 12.;
 
@@ -1017,6 +1030,10 @@ pub enum Event {
     /// The line typed after `c` moved the marker, asks to write there, or closed: the tab lays the rows out with
     /// what is pinned on them, and opens the composer.
     GoLine(GoLineKey),
+    /// A declaration chosen in Code's peek (#207): the tab opens `path` in Code at 1-based `line`.
+    Go { path: String, line: u32 },
+    /// ⇧F12 in the peek: the tab searches the repository for the word.
+    SearchWord(String),
     /// A click on a document's switch (`md_page::emitting`).
     Page(PageEvent),
 }

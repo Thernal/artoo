@@ -62,14 +62,41 @@ impl Workspace {
             self.jump_to_line(&found.path, found.line, found.old, cx);
             return;
         }
-        let shown = self.rv().file_read(cx).map(|v| v.path);
-        if shown.as_deref() == Some(found.path.as_str()) && self.code_file_shown(cx) {
-            self.reveal_file_line(found.line, cx);
-        } else {
-            self.file_jump = Some((found.path.clone(), found.line));
-            self.open_file_view(found.path, cx);
-        }
+        self.open_in_code(found.path, found.line, cx);
         self.set_dfind(found.query, cx);
+    }
+
+    /// Line `line` of `path` in Code: revealed when the file is the one read, else read there (#206, #207).
+    pub(super) fn open_in_code(&mut self, path: String, line: u32, cx: &mut Context<Self>) {
+        let shown = self.rv().file_read(cx).map(|v| v.path);
+        if shown.as_deref() == Some(path.as_str()) && self.code_file_shown(cx) {
+            self.reveal_file_line(line, cx);
+        } else {
+            self.file_jump = Some((path.clone(), line));
+            self.open_file_view(path, cx);
+        }
+    }
+
+    /// F12 in Code's file: the declarations of the name at the caret (#207).
+    pub(super) fn go_to_name(&mut self, cx: &mut Context<Self>) {
+        if !self.code_file_shown(cx) {
+            return;
+        }
+        let Some(sel) = self.note_sel.clone() else {
+            return;
+        };
+        let (line, at) = sel.head;
+        if self.rv().peek_name(&sel.note, line, at, cx) {
+            cx.notify();
+        }
+    }
+
+    /// ⌃G in Code's file: `Line` in its head.
+    pub(super) fn go_to_line(&mut self, cx: &mut Context<Self>) {
+        if self.code_file_shown(cx) {
+            self.rv().open_file_line(cx);
+            cx.notify();
+        }
     }
 
     pub(super) fn render_find_files(&self, cx: &mut Context<Self>) -> Option<AnyElement> {

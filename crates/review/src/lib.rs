@@ -21,6 +21,7 @@ mod item;
 mod lines;
 mod lists;
 mod md_page;
+mod names;
 mod owners;
 mod pane;
 mod path_filter;
@@ -66,6 +67,8 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
         inputs: vec![
             find::input(review.clone()),
             goline::input(review.clone()),
+            names::peek_input(review.clone()),
+            names::line_input(review.clone()),
             path_filter::input(review),
         ],
         ..Default::default()

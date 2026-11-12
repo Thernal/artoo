@@ -92,37 +92,167 @@ pub fn enclosing<'a>(
     line_of: impl Fn(u32) -> &'a str,
 ) -> Option<(u32, u32)> {
     const MOST: u32 = 400;
-    let indent = |text: &str| text.len() - text.trim_start().len();
-    let blank = |text: &str| text.trim().is_empty();
     // The nearest declaration above that reaches the line: a line between two functions belongs
     // to what holds them.
-    let reach = |start: u32| {
-        let depth = indent(line_of(start));
-        let mut end = start;
-        for n in start + 1..=count.min(start + MOST) {
-            let text = line_of(n);
-            if blank(text) {
-                continue;
-            }
-            if indent(text) <= depth {
-                let t = text.trim_start();
-                let closes =
-                    t.starts_with('}') || t.starts_with(')') || t.starts_with(']') || t == "end";
-                // Its own closing line, not the one of what holds it.
-                if closes && indent(text) == depth {
-                    end = n;
-                }
-                break;
-            }
-            end = n;
-        }
-        end
-    };
     (line.saturating_sub(MOST).max(1)..=line.min(count))
         .rev()
         .filter(|&n| declaration(line_of(n)).is_some())
-        .map(|start| (start, reach(start)))
+        .map(|start| (start, reach(count, start, MOST, &line_of)))
         .find(|&(_, end)| end >= line)
+}
+
+/// The last line of the declaration on line `start`: the line before the first one after it indented no deeper,
+/// or that line when it only closes (`}`, `)`, `end`) at the same depth; at most `most` lines on.
+fn reach<'a>(count: u32, start: u32, most: u32, line_of: &impl Fn(u32) -> &'a str) -> u32 {
+    let indent = |text: &str| text.len() - text.trim_start().len();
+    let depth = indent(line_of(start));
+    let mut end = start;
+    for n in start + 1..=count.min(start + most) {
+        let text = line_of(n);
+        if text.trim().is_empty() {
+            continue;
+        }
+        if indent(text) <= depth {
+            let t = text.trim_start();
+            let closes =
+                t.starts_with('}') || t.starts_with(')') || t.starts_with(']') || t == "end";
+            // Its own closing line, not the one of what holds it.
+            if closes && indent(text) == depth {
+                end = n;
+                // A closing line that opens again goes on: Kotlin's `) {` after a class's constructor, `} else {`.
+                if t.trim_end().ends_with('{') {
+                    continue;
+                }
+            }
+            break;
+        }
+        end = n;
+    }
+    end
+}
+
+/// A declaration of a file with the lines it spans (1-based, both ends in): what the scope line over Code's file
+/// names (#207).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Scope {
+    pub start: u32,
+    pub end: u32,
+    pub kind: &'static str,
+    pub name: String,
+}
+
+/// Every declaration of `lines` with the lines it spans, a class's whole body too.
+pub fn scopes(lines: &[String]) -> Vec<Scope> {
+    const MOST: u32 = 20_000;
+    let count = lines.len() as u32;
+    let line_of = |n: u32| lines[n as usize - 1].as_str();
+    (lines.iter().enumerate())
+        .filter_map(|(i, text)| {
+            let (kind, name) = declaration(text)?;
+            let start = i as u32 + 1;
+            Some(Scope {
+                start,
+                end: reach(count, start, MOST, &line_of),
+                kind,
+                name,
+            })
+        })
+        .collect()
+}
+
+/// The declarations that hold line `line` and whose own line is above it, the outermost first.
+pub fn scopes_at(scopes: &[Scope], line: u32) -> Vec<&Scope> {
+    (scopes.iter())
+        .filter(|s| s.start < line && line <= s.end)
+        .collect()
+}
+
+/// The name around byte `at` of `line`: letters, digits and `_`.
+pub fn word_at(line: &str, at: usize) -> Option<&str> {
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let at = at.min(line.len());
+    let start = line[..at]
+        .char_indices()
+        .rev()
+        .take_while(|(_, c)| word(*c))
+        .last()
+        .map_or(at, |(i, _)| i);
+    let end = line[at..]
+        .char_indices()
+        .find(|(_, c)| !word(*c))
+        .map_or(line.len(), |(i, _)| at + i);
+    let name = &line[start..end];
+    (!name.is_empty() && !name.starts_with(|c: char| c.is_ascii_digit())).then_some(name)
+}
+
+/// Where a name is declared (#207): a file, its line, the keyword and the line's text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Declared {
+    pub path: String,
+    pub line: u32,
+    pub kind: &'static str,
+    pub text: String,
+}
+
+/// The repository's declarations by name, read by keyword from its files: going to a name with no language server.
+/// Built once, at the first ask; Java's methods, which no keyword declares, are not in it.
+#[derive(Default, Debug)]
+pub struct Names {
+    by: std::collections::HashMap<String, Vec<Declared>>,
+    /// The files read and their lines, what building it cost.
+    pub files: usize,
+    pub lines: usize,
+}
+
+/// Files whose words declare nothing: documents and data.
+const NOT_CODE: &[&str] = &[
+    "md", "markdown", "txt", "json", "lock", "toml", "yaml", "yml", "svg", "html", "css", "csv",
+    "xml",
+];
+
+impl Names {
+    /// The declarations in `lines`, the file at `path`; none for a document or data.
+    pub fn add<'a>(&mut self, path: &str, lines: impl IntoIterator<Item = &'a str>) {
+        let ext = path.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
+        if ext.as_deref().is_some_and(|e| NOT_CODE.contains(&e)) {
+            return;
+        }
+        self.files += 1;
+        for (i, line) in lines.into_iter().enumerate() {
+            self.lines += 1;
+            let Some((kind, name)) = declaration(line) else {
+                continue;
+            };
+            let text: String = line.trim().chars().take(140).collect();
+            self.by.entry(name).or_default().push(Declared {
+                path: path.to_owned(),
+                line: i as u32 + 1,
+                kind,
+                text,
+            });
+        }
+    }
+
+    /// The declarations of `name`, those in `here` (the file read) first, then by path and line.
+    pub fn of(&self, name: &str, here: &str) -> Vec<Declared> {
+        let mut found = self.by.get(name).cloned().unwrap_or_default();
+        found.sort_by(|a, b| {
+            (b.path == here)
+                .cmp(&(a.path == here))
+                .then_with(|| a.path.cmp(&b.path))
+                .then(a.line.cmp(&b.line))
+        });
+        found
+    }
+
+    /// How many names it holds.
+    pub fn len(&self) -> usize {
+        self.by.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by.is_empty()
+    }
 }
 
 /// The symbols of `file` the diff touches, in file order, removed ones last.
@@ -211,6 +341,65 @@ mod tests {
         let py = ["def f():", "    x = 1", "    return x", "", "y = 2"];
         assert_eq!(enclosing(5, 3, |n| py[n as usize - 1]), Some((1, 3)));
         assert_eq!(enclosing(5, 5, |n| py[n as usize - 1]), None);
+    }
+
+    #[test]
+    fn a_files_scopes_hold_their_lines_the_outermost_first() {
+        let text = "class Login {\n    fun submit() {\n        go()\n    }\n\n    fun retry() = submit()\n}\nfun top() {\n}\n";
+        let lines: Vec<String> = text.lines().map(str::to_owned).collect();
+        let all = scopes(&lines);
+        let names = |line: u32| {
+            (scopes_at(&all, line).into_iter())
+                .map(|s| s.name.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(3), ["Login", "submit"]);
+        assert_eq!(names(5), ["Login"]);
+        // Its own line is on screen: nothing to name over it.
+        assert_eq!(names(1), Vec::<&str>::new());
+        assert_eq!(names(9), ["top"]);
+        // A constructor over several lines: the class goes on past its `) {`.
+        let kt: Vec<String> = [
+            "class Vm(",
+            "    val a: A,",
+            ") {",
+            "    fun go() {",
+            "        x()",
+            "    }",
+            "}",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let all = scopes(&kt);
+        let held: Vec<&str> = scopes_at(&all, 5).iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(held, ["Vm", "go"]);
+    }
+
+    #[test]
+    fn a_name_is_found_where_it_is_declared_the_file_read_first() {
+        let mut names = Names::default();
+        names.add("b/State.kt", ["sealed interface LoginState {", "}"]);
+        names.add("a/Other.kt", ["class LoginState"]);
+        names.add("README.md", ["class LoginState"]);
+        names.add("a/Vm.kt", ["class Vm {", "    val s: LoginState", "}"]);
+        let found = names.of("LoginState", "b/State.kt");
+        let at: Vec<(&str, u32)> = found.iter().map(|d| (d.path.as_str(), d.line)).collect();
+        assert_eq!(at, [("b/State.kt", 1), ("a/Other.kt", 1)]);
+        assert_eq!(found[0].text, "sealed interface LoginState {");
+        assert!(names.of("s", "a/Vm.kt").is_empty());
+        assert_eq!((names.len(), names.lines), (2, 6));
+    }
+
+    #[test]
+    fn the_word_at_a_place_is_a_whole_name() {
+        let line = "    val s: LoginState = load(id_2)";
+        assert_eq!(word_at(line, 14), Some("LoginState"));
+        assert_eq!(word_at(line, 11), Some("LoginState"));
+        assert_eq!(word_at(line, 21), Some("LoginState"));
+        assert_eq!(word_at(line, 30), Some("id_2"));
+        assert_eq!(word_at(line, 2), None);
+        assert_eq!(word_at("x 42", 3), None);
     }
 
     #[test]

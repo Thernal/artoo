@@ -19,6 +19,11 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   the diff's find bar and field), a minimap at its right (`render_minimap`: the file small, hits, lines changed since
   HEAD — `changed_since_head` —, a slider on hover, click and drag scroll). ⌥⌘F searches every file git knows in the
   working tree (`find_files.rs`, `repository_files`), opening a hit in the diff or in Code.
+- **Going to a name in Code, no language server** (#207, `crates/review/src/names.rs`): ⌘-click or F12 (the caret is
+  the tab's `note_sel` in the file's lines, `file_view::selects_as`) opens a peek row under the line (`Row::Peek`,
+  `peek_card`) from `artoo_core::symbols::Names`, the repository's declarations by keyword, read once in the
+  background at the first ask (`Review::names`). ⌃G is `Line` in the file's head (`file_line`, one of the tab's
+  inputs); the scope line over the lines comes from `symbols::scopes`, computed as the file is read.
 - **A Cargo workspace (#165).** The root package is the app (`src/main.rs`, `src/ui/`);
   `crates/plugin-sdk` (`artoo-plugin-sdk`, #175) is what a plugin builds against: one shared library holding GPUI, its
   platform, the core, the kit and every contract, which the app links (`extern crate` in `main.rs`) so each is once in

@@ -32,6 +32,9 @@ pub struct FileView {
     pub changed: Rc<std::collections::HashSet<usize>>,
     /// The rows as last drawn, its notes among its lines: where a line's row is.
     pub shown: std::cell::RefCell<Rc<Vec<Row>>>,
+    /// Its declarations with the lines they span: the scope line over its lines names those holding the top one
+    /// (#207).
+    pub scopes: Rc<Vec<artoo_core::symbols::Scope>>,
     /// A Markdown file: shown rendered, until Source.
     pub rendered: bool,
     /// An image file, decoded.
@@ -43,12 +46,30 @@ pub struct FileView {
 /// The file being read for the view.
 pub type Reading = Option<Task<()>>;
 
-/// A row of the file's list: a line, a note under it, or the note being written.
+/// A row of the file's list: a line, a note under it, the note being written, or a name's declarations (#207).
 #[derive(Clone, Copy)]
 pub enum Row {
     Line(usize),
     Note(u64),
     Composer,
+    Peek,
+}
+
+/// What the lines of the file at `path` select as, one text across its rows (#93): where a caret in it is.
+pub fn selects_as(path: &str) -> String {
+    format!("file-lines-{path}")
+}
+
+/// `rows` with the peek right under line `line` (0-based), when one is open.
+fn with_peek(mut rows: Vec<Row>, line: Option<usize>) -> Vec<Row> {
+    if let Some(line) = line
+        && let Some(at) = rows
+            .iter()
+            .position(|r| matches!(r, Row::Line(n) if *n == line))
+    {
+        rows.insert(at + 1, Row::Peek);
+    }
+    rows
 }
 
 impl FileView {
@@ -219,6 +240,7 @@ impl Review {
                             Some(Arc::new(image)),
                             None,
                             Default::default(),
+                            Vec::new(),
                         ));
                     }
                     let bytes = match rev {
@@ -227,7 +249,15 @@ impl Review {
                     };
                     if artoo_core::files::binary(&bytes) {
                         let size = Some(bytes.len() as u64);
-                        return Some((Vec::new(), Vec::new(), at, None, size, Default::default()));
+                        return Some((
+                            Vec::new(),
+                            Vec::new(),
+                            at,
+                            None,
+                            size,
+                            Default::default(),
+                            Vec::new(),
+                        ));
                     }
                     let text = String::from_utf8_lossy(&bytes);
                     let spans = highlight::highlight(&file, &text);
@@ -236,13 +266,17 @@ impl Review {
                         None => changed_since_head(&root, &file, &bytes),
                         Some(_) => Default::default(),
                     };
-                    Some((lines, spans, at, None, None, changed))
+                    let scopes = artoo_core::symbols::scopes(&lines);
+                    Some((lines, spans, at, None, None, changed, scopes))
                 })
                 .await;
             this.update(cx, |rv, cx| {
                 rv.file_reading = None;
                 cx.emit(match read {
-                    Some((lines, spans, at, image, binary, changed)) => {
+                    Some((lines, spans, at, image, binary, changed, scopes)) => {
+                        rv.peek = None;
+                        rv.file_line = None;
+                        rv.file_target = None;
                         let text: Vec<_> = lines
                             .iter()
                             .enumerate()
@@ -259,6 +293,7 @@ impl Review {
                             list: ListState::new(0, ListAlignment::Top, px(400.)),
                             changed: Rc::new(changed),
                             shown: Default::default(),
+                            scopes: Rc::new(scopes),
                             rendered: true,
                             image,
                             binary,
@@ -320,11 +355,13 @@ impl Review {
 
     /// Line `line` of the file comes into view, its source shown; `notes` are what is on its lines.
     pub fn reveal_file_line(&mut self, line: u32, notes: &FileNotes) {
+        let peek = self.peek.as_ref().map(|p| p.line);
+        self.file_target = (line as usize).checked_sub(1);
         let Some(view) = self.file_view.as_mut() else {
             return;
         };
         view.rendered = false;
-        let rows = rows(&view.lines, notes);
+        let rows = with_peek(rows(&view.lines, notes), peek);
         let fresh = view.list.item_count() != rows.len();
         if fresh {
             view.list.reset(rows.len());
@@ -354,7 +391,7 @@ impl Review {
             return 1;
         };
         let top = view.list.logical_scroll_top().item_ix;
-        rows(&view.lines, notes)
+        with_peek(rows(&view.lines, notes), self.peek.as_ref().map(|p| p.line))
             .iter()
             .take(top + 1)
             .rev()
@@ -374,11 +411,12 @@ impl Review {
         notes: &FileNotes,
         binary: Option<AnyElement>,
         selecting: Selecting,
-        finding: bool,
+        typing: Option<&'static str>,
         cx: &mut Context<Self>,
     ) -> Option<(gpui::Div, AnyElement)> {
         let view = self.file_view.as_ref()?;
-        let head = self.render_file_head(view, cx);
+        let finding = typing == Some(crate::find::INPUT);
+        let head = self.render_file_head(view, typing == Some(crate::names::LINE_INPUT), cx);
         let body = if let Some(binary) = binary.filter(|_| view.binary.is_some()) {
             binary
         } else if let Some(image) = &view.image {
@@ -428,7 +466,22 @@ impl Review {
                         .flex_1()
                         .min_h_0()
                         .flex()
-                        .child(self.render_file_lines(view, host, notes, selecting))
+                        .child(
+                            div()
+                                .relative()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .child(self.render_file_lines(
+                                    view,
+                                    host,
+                                    notes,
+                                    selecting,
+                                    this.clone(),
+                                ))
+                                .children(self.render_scope(view, this.clone())),
+                        )
                         .child(self.render_minimap(view, this)),
                 )
                 .into_any_element()
@@ -438,7 +491,12 @@ impl Review {
 
     /// The file's line over it: its path, language, lines and revision; Rendered | Source for a
     /// Markdown file; read only.
-    fn render_file_head(&self, view: &FileView, cx: &Context<Self>) -> gpui::Div {
+    fn render_file_head(
+        &self,
+        view: &FileView,
+        line_typing: bool,
+        cx: &Context<Self>,
+    ) -> gpui::Div {
         let markdown = view.markdown() && view.image.is_none();
         let facts = if view.image.is_some() {
             format!("image · {}", view.at)
@@ -457,9 +515,35 @@ impl Review {
             .border_b_1()
             .border_color(theme::island_border())
             .text_size(px(12.))
-            // Its path is the bar's, its name the tab's (A, 2026-10-23).
-            .child(div().text_color(theme::faint()).child(facts))
+            // Its path is the bar's, its name the tab's (A, 2026-10-23). Its lines' count goes to a line (⌃G, #207).
+            .child(
+                div()
+                    .id("file-facts")
+                    .text_color(theme::faint())
+                    .when(self.file_lines_shown(), |s| {
+                        s.cursor_pointer()
+                            .hover(|s| s.text_color(theme::text()))
+                            .tooltip_show_delay(artoo_ui_kit::hover::LONG)
+                            .tooltip(|_, cx| {
+                                cx.new(|_| artoo_ui_kit::hover::Tip("Go to line  ⌃G"))
+                                    .into()
+                            })
+                            .on_click(cx.listener(|rv, _: &ClickEvent, _, cx| {
+                                rv.open_file_line();
+                                cx.emit(ReviewEvent::Changed);
+                            }))
+                    })
+                    .child(facts),
+            )
             .child(div().flex_1())
+            .children(self.render_file_line(line_typing).map(|field| {
+                match self.frame.as_ref().and_then(std::rc::Weak::upgrade) {
+                    Some(frame) => {
+                        artoo_shell_api::input_box(field, crate::names::LINE_INPUT, &frame)
+                    }
+                    None => field,
+                }
+            }))
             // `c` asks which line the note goes on.
             .children(
                 self.goline
@@ -504,6 +588,77 @@ impl Review {
                     )
             }))
             .child(div().text_color(theme::faint()).child("read only"))
+    }
+
+    /// The scope line over the lines (#207): the declarations holding the top line, the outermost first, once their own
+    /// line has scrolled off; a click goes to one.
+    fn render_scope(&self, view: &FileView, this: WeakEntity<Review>) -> Option<gpui::Div> {
+        let top = view.list.logical_scroll_top();
+        if top.item_ix == 0 && top.offset_in_item <= px(1.) {
+            return None;
+        }
+        let shown = view.shown.borrow().clone();
+        let line = (shown.iter().skip(top.item_ix)).find_map(|r| match r {
+            Row::Line(n) => Some(*n as u32 + 1),
+            _ => None,
+        })?;
+        let held = artoo_core::symbols::scopes_at(&view.scopes, line);
+        if held.is_empty() {
+            return None;
+        }
+        let size = self.code_size();
+        let digits = view.lines.len().max(1).to_string().len() as f32;
+        let left = digits * size * 0.62 + 42. + 3. + 8.;
+        let parts = held
+            .iter()
+            .rev()
+            .take(3)
+            .rev()
+            .enumerate()
+            .map(|(i, scope)| {
+                let (go, start) = (this.clone(), scope.start as usize - 1);
+                div()
+                    .id(("scope", i))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .cursor_pointer()
+                    .hover(|s| s.text_color(theme::accent()))
+                    .when(i > 0, |s| {
+                        s.child(div().text_color(theme::faint()).child("›"))
+                    })
+                    .child(div().text_color(theme::muted()).child(scope.kind))
+                    .child(scope.name.clone())
+                    .on_click(move |_, _, cx| {
+                        go.update(cx, |rv, cx| {
+                            rv.file_target = Some(start);
+                            rv.scroll_file_to(start);
+                            cx.emit(ReviewEvent::Changed);
+                        })
+                        .ok();
+                    })
+            });
+        Some(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .right_0()
+                // Over the list's own 6 px at its top too: nothing shows above it.
+                .h(px((size * 1.55).round() + 8.))
+                .pt(px(6.))
+                .pl(px(left))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .bg(theme::panel())
+                .border_b_1()
+                .border_color(theme::island_border())
+                .font_family(theme::code_font())
+                .text_size(px(size))
+                .text_color(theme::code_text())
+                .children(parts),
+        )
     }
 
     /// The minimap (#206): the file drawn small — each line a bar as long as its text —, the lines that differ from
@@ -634,13 +789,19 @@ impl Review {
         host: Rc<dyn Host>,
         notes: &FileNotes,
         selecting: Selecting,
+        this: WeakEntity<Review>,
     ) -> AnyElement {
         let size = self.code_size();
         let row = (size * 1.55).round();
         let digits = view.lines.len().max(1).to_string().len() as f32;
         // Room on its left for the + that writes a note (#104).
         let gutter = digits * size * 0.62 + 42.;
-        let rows = Rc::new(rows(&view.lines, notes));
+        let rows = Rc::new(with_peek(
+            rows(&view.lines, notes),
+            self.peek.as_ref().map(|p| p.line),
+        ));
+        let peek = (self.peek.as_ref()).map(|p| Rc::new(crate::names::PeekLook::of(p, &view.path)));
+        let target = self.file_target;
         *view.shown.borrow_mut() = rows.clone();
         let (terms, current) = (
             self.dterms.clone(),
@@ -656,7 +817,7 @@ impl Review {
         // Its lines select as one text, across rows (#93).
         let (sel, note, plain) = (
             selecting,
-            SharedString::from(format!("file-lines-{}", view.path)),
+            SharedString::from(selects_as(&view.path)),
             view.plain.clone(),
         );
         list(view.list.clone(), move |ix, _, cx| {
@@ -670,6 +831,12 @@ impl Review {
                 }
                 Row::Composer => {
                     return host.pin(artoo_core::rows::Row::Composer, true, gutter + 8., cx);
+                }
+                Row::Peek => {
+                    return match &peek {
+                        Some(look) => crate::names::peek_card(look, gutter + 11., this.clone()),
+                        None => div().into_any_element(),
+                    };
                 }
             };
             let (line, spans) = &text[n];
@@ -705,17 +872,21 @@ impl Review {
             let comment = host.clone();
             let styled = StyledText::new(line.clone()).with_highlights(highlights);
             let layout = styled.layout().clone();
+            // ⌘-click on a name: its declarations (#207).
+            let (by_name, at_layout, name_note) = (this.clone(), layout.clone(), note.clone());
             let plus = host.clone();
             // In the code's font and size on each row: the list's own reach none of its rows.
             div()
                 .id(("file-row", n))
                 .group("file-row")
                 .relative()
+                .w_full()
                 .h(px(row))
                 .font_family(theme::code_font())
                 .text_size(px(size))
                 .flex()
                 .items_center()
+                .when(target == Some(n), |s| s.bg(theme::hover()))
                 // A note for your agent on the line, as the diff's + is (#104).
                 .child(
                     div()
@@ -769,6 +940,13 @@ impl Review {
                         .pl_2()
                         .whitespace_nowrap()
                         .text_color(theme::code_text())
+                        .on_mouse_down(gpui::MouseButton::Left, move |ev, _, cx| {
+                            if !ev.modifiers.platform {
+                                return;
+                            }
+                            let at = artoo_ui_kit::input::nearest_index(&at_layout, ev.position);
+                            (by_name.update(cx, |rv, cx| rv.peek_name(&name_note, n, at, cx))).ok();
+                        })
                         .child(markdown::line_block(
                             styled.into_any_element(),
                             layout,
@@ -840,17 +1018,26 @@ mod tests {
             ],
             compose: Some(2),
         };
-        let rows: Vec<String> = rows(&lines, &notes)
-            .iter()
-            .map(|r| match r {
-                Row::Line(n) => format!("line {n}"),
-                Row::Note(id) => format!("note {id}"),
-                Row::Composer => "composer".to_owned(),
-            })
-            .collect();
+        let said = |rows: Vec<Row>| -> Vec<String> {
+            (rows.iter())
+                .map(|r| match r {
+                    Row::Line(n) => format!("line {n}"),
+                    Row::Note(id) => format!("note {id}"),
+                    Row::Composer => "composer".to_owned(),
+                    Row::Peek => "peek".to_owned(),
+                })
+                .collect()
+        };
         assert_eq!(
-            rows,
+            said(rows(&lines, &notes)),
             ["line 0", "note 3", "line 1", "note 7", "composer", "line 2"]
+        );
+        // A name's declarations open right under its line, over its notes (#207).
+        assert_eq!(
+            said(with_peek(rows(&lines, &notes), Some(1))),
+            [
+                "line 0", "note 3", "line 1", "peek", "note 7", "composer", "line 2"
+            ]
         );
     }
 

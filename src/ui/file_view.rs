@@ -98,8 +98,8 @@ impl Workspace {
         let notes = self.file_notes(cx);
         let selecting = self.selecting(cx.entity().downgrade());
         let host: Rc<dyn artoo_review_api::Host> = Rc::new(super::TabHost(cx.entity().downgrade()));
-        let finding = self.part_typing(cx) == Some(artoo_review_api::FIND_INPUT);
-        match (self.rv()).render_file_view(host, &notes, binary, selecting, finding, cx) {
+        let typing = self.part_typing(cx);
+        match (self.rv()).render_file_view(host, &notes, binary, selecting, typing, cx) {
             Some((head, body)) => FilePage::Read(head.into_any_element(), body),
             None => FilePage::Empty,
         }
