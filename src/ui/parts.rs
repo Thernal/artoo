@@ -156,6 +156,8 @@ impl Frame for TabFrame {
 
     fn open_settings(&self, id: &'static str, cx: &mut App) {
         self.later(cx, move |this, cx| {
+            // The section shown, not the search's hits over it (a theme's Edit from a hit, #204).
+            this.settings_query.clear();
             this.open_settings(cx);
             this.open_settings_section(id, cx);
             cx.notify();
@@ -180,6 +182,10 @@ impl Frame for TabFrame {
 
     fn search(&self, id: &'static str, cx: &mut App) {
         self.later(cx, move |this, cx| this.search(id, cx));
+    }
+
+    fn search_under(&self, id: &'static str, under: gpui::Bounds<gpui::Pixels>, cx: &mut App) {
+        self.later(cx, move |this, cx| this.search_under(id, under, cx));
     }
 
     fn command_words(&self, id: &'static str, cx: &App) -> Option<String> {

@@ -85,7 +85,7 @@ pub fn bar_button(
 /// left; the control on the right. 44 px, rows touching (#203).
 pub fn setting(
     title: &'static str,
-    detail: &'static str,
+    detail: impl Into<SharedString>,
     control: impl IntoElement,
 ) -> impl IntoElement {
     setting_row(title, title, detail, control, None)
@@ -332,6 +332,38 @@ pub fn found_by(name: &str, seen: &str) -> Option<String> {
             .map(str::to_owned)
             .or_else(|| answers(section).then(|| format!("In {section}")))
     })
+}
+
+/// A theme's swatch (#204): its ground, a short line and a long one in two of its code colours, 0xRRGGBBAA; 26 × 16
+/// on a row's button, 22 × 14 in a list.
+pub fn swatch([ground, short, long]: [u32; 3], small: bool) -> Div {
+    div()
+        .flex_none()
+        .w(px(if small { 22. } else { 26. }))
+        .h(px(if small { 14. } else { 16. }))
+        .px(px(4.))
+        .flex()
+        .flex_col()
+        .justify_center()
+        .gap(px(1.))
+        .rounded(px(2.))
+        .border_1()
+        .border_color(theme::island_border())
+        .bg(gpui::rgba(ground))
+        .child(
+            div()
+                .w(gpui::relative(0.7))
+                .h(px(2.))
+                .rounded(px(1.))
+                .bg(gpui::rgba(short)),
+        )
+        .child(
+            div()
+                .w_full()
+                .h(px(2.))
+                .rounded(px(1.))
+                .bg(gpui::rgba(long)),
+        )
 }
 
 /// A part's title over its rows, with a line under it if there is one (Settings → Appearance's Window, Fonts and

@@ -19,7 +19,7 @@ pub fn list(code: WeakEntity<CodeSpace>) -> List {
         id: LIST,
         says: Rc::new(|_| Said {
             title: Some("Read the files at".to_owned()),
-            placeholder: "A commit id, a tag or a branch — ↵ reads the files there",
+            placeholder: "A commit id, a tag or a branch — ↵ reads the files there".into(),
             empty: "No commit by that id.",
         }),
         find: Rc::new(move |ask, cx| {

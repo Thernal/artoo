@@ -24,6 +24,12 @@ pub struct Row {
     pub file: bool,
     /// A face, drawn in itself (#24).
     pub face: Option<SharedString>,
+    /// A swatch before it: a ground and two lines, 0xRRGGBBAA (#204).
+    pub swatch: Option<[u32; 3]>,
+    /// The one in force: a check at its end (#204).
+    pub checked: bool,
+    /// A word on it while it is picked, a click on it the host's `aside` (a theme's Edit, #204).
+    pub aside: Option<&'static str>,
 }
 
 /// A dot after a row's words, as the menu's open rows wear them (#194).
@@ -58,6 +64,13 @@ pub struct PaletteView {
     pub empty: &'static str,
     /// The tab on with its key: "Files · ⌘P".
     pub foot: Option<String>,
+    /// Dropped from a button rather than over the window's middle (#204): the button, in the window, and how tall
+    /// the list may grow under it. It is narrow, its rows short, its groups counted, the field's keys at its right.
+    pub under: Option<(gpui::Bounds<gpui::Pixels>, gpui::Pixels)>,
+    /// The field's keys at its right, when dropped: `↑↓ preview · ↵ · esc`.
+    pub hint: Option<&'static str>,
+    /// The list's scroll, and whether it goes to the row picked (the keys moved it, or it opened).
+    pub scroll: (gpui::ScrollHandle, bool),
 }
 
 /// What a click on the window does.
@@ -68,6 +81,8 @@ pub trait PaletteHost {
     fn close(&self, window: &mut Window, cx: &mut App);
     /// Tab `ix` of search everywhere.
     fn scope(&self, ix: usize, window: &mut Window, cx: &mut App);
+    /// The word on row `ix` (`Row::aside`).
+    fn aside(&self, ix: usize, window: &mut Window, cx: &mut App);
 }
 
 /// Draws the window: the frame's.

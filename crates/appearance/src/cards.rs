@@ -1,15 +1,11 @@
-//! A theme drawn small, as Settings → Appearance and Set up pick one (Design #12 A + C, `docs/specs/themes.md`,
-//! flow 09); Appearance's own, so it goes where its page goes: a Window theme's card — tabs down the left, the code as bars in the theme's syntax colours and diff
-//! tints —, a Code theme's syntax sample, the cards' frame and rows, the editor's preview of a request's header, a
-//! piece of diff and a discussion, and the editor's rows of tokens. The screen keeps the theme being edited and
-//! what a click does.
+//! A theme drawn small (Design #12 C, `docs/specs/themes.md`): Appearance's own, so it goes where its page goes — the
+//! sample diff under the Theme rows, the editor's preview of a request's header, a piece of diff and a discussion, and
+//! the editor's rows of tokens. The screen keeps the theme being edited and what a click does.
 
 use artoo_core::themes::{self, T, TOKENS, Theme};
 use artoo_ui_kit::format::plural;
 use artoo_ui_kit::{ROW_RADIUS, hover, icons, px, theme};
-use gpui::{
-    AnyElement, Div, FontWeight, HighlightStyle, Rgba, StyledText, div, prelude::*, relative, rgba,
-};
+use gpui::{Div, FontWeight, HighlightStyle, Rgba, StyledText, div, prelude::*, rgba};
 
 pub fn c(t: &Theme, tok: T) -> Rgba {
     rgba(t.get(tok))
@@ -68,128 +64,6 @@ pub fn row_name(i: usize) -> (String, String) {
             )
         }
     }
-}
-
-/// The Window card's face (`cards-5.html` A): tabs on the left, the selected one in the accent;
-/// code as bars, a removed and two added lines in the diff's tints.
-pub fn window_face(t: &Theme) -> Div {
-    let bar = |tok: T, w: f32, ring: Option<T>| {
-        let b = div().h(px(5.)).rounded(px(2.)).bg(c(t, tok));
-        match ring {
-            Some(r) => div()
-                .w(relative(w))
-                .p(px(2.))
-                .rounded(px(3.))
-                .bg(c(t, r))
-                .child(b)
-                .into_any_element(),
-            None => b.w(relative(w)).into_any_element(),
-        }
-    };
-    let line = |kind: i8, parts: Vec<AnyElement>, indent: bool| {
-        let (bg, gutter) = match kind {
-            -1 => (Some(c(t, T::Removed1)), Some(c(t, T::Removed2))),
-            1 => (Some(c(t, T::Added1)), Some(c(t, T::Added2))),
-            _ => (None, None),
-        };
-        div()
-            .h(px(13.))
-            .flex()
-            .items_center()
-            .gap(px(4.))
-            .pr(px(8.))
-            .when_some(bg, |s, bg| s.bg(bg))
-            .child(
-                div()
-                    .w(px(18.))
-                    .h_full()
-                    .flex_none()
-                    .when_some(gutter, |s, g| s.bg(g)),
-            )
-            .when(indent, |s| s.child(div().w(px(10.)).flex_none()))
-            .children(parts)
-    };
-    let tab = |on: bool| {
-        div()
-            .h(px(18.))
-            .rounded(px(4.))
-            .bg(if on { c(t, T::FillHover) } else { c(t, T::Bg3) })
-            .when(on, |s| s.border_l_2().border_color(c(t, T::Accent)))
-    };
-    div()
-        .h(px(132.))
-        .flex()
-        .rounded(px(6.))
-        .overflow_hidden()
-        .border_1()
-        .border_color(c(t, T::Border1))
-        .bg(c(t, T::Bg1))
-        .child(
-            div()
-                .w(px(54.))
-                .flex_none()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .px(px(5.))
-                .py(px(6.))
-                .bg(c(t, T::Bg2))
-                .child(tab(true))
-                .child(tab(false))
-                .child(tab(false))
-                .child(tab(false)),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .py(px(6.))
-                .flex()
-                .flex_col()
-                .gap(px(3.))
-                .bg(c(t, T::Bg3))
-                .child(line(
-                    0,
-                    vec![
-                        bar(T::Code1, 0.12, None),
-                        bar(T::Code2, 0.2, None),
-                        bar(T::Text3, 0.1, None),
-                    ],
-                    false,
-                ))
-                .child(line(
-                    0,
-                    vec![
-                        bar(T::Code1, 0.09, None),
-                        bar(T::Text3, 0.14, None),
-                        bar(T::Code5, 0.22, None),
-                    ],
-                    true,
-                ))
-                .child(line(
-                    -1,
-                    vec![
-                        bar(T::Text3, 0.14, None),
-                        bar(T::Code5, 0.18, Some(T::Removed3)),
-                    ],
-                    true,
-                ))
-                .child(line(
-                    1,
-                    vec![
-                        bar(T::Text3, 0.14, None),
-                        bar(T::Code2, 0.16, Some(T::Added3)),
-                        bar(T::Text3, 0.08, None),
-                    ],
-                    true,
-                ))
-                .child(line(
-                    1,
-                    vec![bar(T::Code4, 0.1, None), bar(T::Code3, 0.26, None)],
-                    true,
-                ))
-                .child(line(0, vec![bar(T::Code6, 0.4, None)], true)),
-        )
 }
 
 /// Pieces of a sample line and the code token each is drawn in.
@@ -492,78 +366,6 @@ pub fn theme_preview(t: &Theme) -> Div {
         .child(discussion)
 }
 
-/// A card's frame: the accent around the chosen one, its name and a word under it.
-pub fn card(
-    id: (&'static str, usize),
-    face: Div,
-    name: String,
-    tag: Option<(String, bool, Option<String>)>,
-    on: bool,
-    extra: Option<AnyElement>,
-) -> gpui::Stateful<Div> {
-    use artoo_ui_kit::hover::Hover;
-    div()
-        .id(id)
-        .flex_1()
-        .min_w_0()
-        .p(px(6.))
-        .rounded(px(10.))
-        .border_2()
-        .border_color(if on {
-            theme::accent()
-        } else {
-            gpui::transparent_black().into()
-        })
-        .cursor_pointer()
-        .hover(|s| s.bg(theme::hover()))
-        .child(face)
-        .child(
-            div()
-                .mt(px(6.))
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .text_size(px(12.))
-                .child(hover::cut("name", name).flex_1())
-                // A word under the card; what it means in its long hover.
-                .children(tag.map(|(t, bad, tip)| {
-                    let word = div()
-                        .id(gpui::SharedString::from(format!("{}-tag-{}", id.0, id.1)))
-                        .text_size(px(11.))
-                        .text_color(if bad {
-                            theme::removed()
-                        } else {
-                            theme::faint()
-                        })
-                        .child(t);
-                    match tip {
-                        Some(tip) => word.tip(tip).into_any_element(),
-                        None => word.into_any_element(),
-                    }
-                }))
-                .children(extra),
-        )
-}
-
-/// Cards `per` to a row, the last row's room kept.
-pub fn rows_of(per: usize, cards: Vec<AnyElement>) -> Div {
-    let mut rows: Vec<Div> = Vec::new();
-    let mut cards = cards.into_iter().peekable();
-    while cards.peek().is_some() {
-        let mut row = div().flex().gap(px(12.));
-        let mut n = 0;
-        for card in cards.by_ref().take(per) {
-            row = row.child(card);
-            n += 1;
-        }
-        for _ in n..per {
-            row = row.child(div().flex_1());
-        }
-        rows.push(row);
-    }
-    div().flex().flex_col().gap(px(8.)).children(rows)
-}
-
 pub fn small_button(
     id: impl Into<gpui::ElementId>,
     label: impl Into<gpui::SharedString>,
@@ -586,14 +388,14 @@ pub fn small_button(
         .child(label.into())
 }
 
-/// A tag for a theme's card: default, light, yours, its problems (true: drawn as one).
+/// A tag for a theme: default, light, yours, its problems (true: drawn as one).
 pub fn tag_of(t: &Theme) -> Option<(String, bool)> {
     if !t.problems.is_empty() {
         return Some((plural(t.problems.len(), "problem"), true));
     }
     let word = if t.id == "one-dark" {
         "default"
-    } else if !t.built_in {
+    } else if !t.built_in && t.plugin.is_none() {
         "JSON"
     } else if t.light() {
         "light"

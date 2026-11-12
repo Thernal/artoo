@@ -370,11 +370,33 @@ struct Registry {
 
 static REGISTRY: RwLock<Option<Registry>> = RwLock::new(None);
 
+/// The plugins' themes (#204): (the plugin's name, a theme file's text), as they added them.
+static PLUGIN_THEMES: RwLock<Vec<(String, String)>> = RwLock::new(Vec::new());
+
+/// Themes a plugin brings (#204): each a theme file's JSON, as the themes folder's (`docs/specs/themes.md`), listed
+/// under From plugins between the built-in ones and yours. A plugin calls it from its install; one taking a name
+/// already taken is left out.
+pub fn add_plugin_themes(plugin: &str, files: &[&str]) {
+    if let Ok(mut themes) = PLUGIN_THEMES.write() {
+        themes.extend(files.iter().map(|f| (plugin.to_owned(), (*f).to_owned())));
+    }
+    // Before the themes are read, reading them takes these too.
+    if with(|_| ()).is_some() {
+        reload();
+    }
+}
+
+/// Every theme to draw with: the built-in ones, the plugins', the themes folder's.
+fn resolve_all() -> Vec<Theme> {
+    let plugins = PLUGIN_THEMES.read().map(|p| p.clone()).unwrap_or_default();
+    themes::resolve_with(&plugins, &themes::read_folder())
+}
+
 /// Reads the themes (built in and the folder's) and the choice, and draws with it.
 pub fn load() {
     draw_faces(&Faces::parse(&crate::storage::read("fonts.txt")));
     let registry = Registry {
-        themes: themes::resolve(&themes::read_folder()),
+        themes: resolve_all(),
         choice: Choice::read(),
         stamp: themes::folder_stamp(),
     };
@@ -388,7 +410,7 @@ fn with<R>(f: impl FnOnce(&Registry) -> R) -> Option<R> {
     REGISTRY.read().ok()?.as_ref().map(f)
 }
 
-/// Every theme: the built-in ones, then the user's.
+/// Every theme: the built-in ones, the plugins', then the user's.
 pub fn all() -> Vec<Theme> {
     with(|r| r.themes.clone()).unwrap_or_else(|| themes::resolve(&[]))
 }
@@ -448,7 +470,7 @@ pub fn reload_if_changed() -> bool {
 pub fn reload() {
     let choice = choice();
     let registry = Registry {
-        themes: themes::resolve(&themes::read_folder()),
+        themes: resolve_all(),
         choice,
         stamp: themes::folder_stamp(),
     };

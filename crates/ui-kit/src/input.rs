@@ -383,7 +383,7 @@ pub fn text_body(
 pub fn field(
     text: &str,
     active: bool,
-    placeholder: &'static str,
+    placeholder: &str,
     look: &Look,
     body: impl FnOnce() -> AnyElement,
 ) -> Div {

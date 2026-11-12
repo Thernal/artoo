@@ -57,11 +57,14 @@ for someone using the app, not for someone reading the code; the commits follow 
   each project's `.editorconfig` says, with no option for either; the projects inside the menu of spaces went (Rail and
   Tabs stay, and a Menu kept opens as Tabs); About gains `Open settings folder`. A `Colour-blind` theme ships: One
   Dark with blue for added lines and orange for removed ones.
-- **Themes are one row each.** Settings → Appearance says `Theme  ● One Dark ▾` and `Code theme  ● Same as Theme ▾`
-  instead of two walls of cards, so the fonts are on the first screen. Either row opens every theme in one list with
-  a filter, grouped `Built in` and `Yours`; ↑↓ tries the theme on the whole window, ↵ keeps it, esc goes back to the
-  one you had. `Edit` sits beside the theme in force, and a code theme's contrast on the window's diff is a muted fact
-  on its row in the list (`2 under 4.5:1 · code-05 3.9`) rather than red on the page.
+- **Themes are one row each, and plugins can bring them.** Settings → Appearance says `Theme  ● One Dark ▾` and
+  `Code theme  ● Same as Theme ▾` instead of two walls of cards, so the fonts are on the first screen. Either row drops
+  every theme in one list under it — `Filter 30 themes`, grouped `Built in 6 · From plugins 22 · Yours 2`, each with
+  its swatch and the one in force checked; ↑↓ tries the theme on the whole window, ↵ keeps it, esc goes back to the one
+  you had, and `Edit` sits on the row you are on. A code theme's contrast on the window's diff is a muted fact on its
+  row (`2 under 4.5:1`) rather than red on the page. Your themes and the file icons fold into one `Your own · 2 themes
+  · 4 file icons` row, and Set up's Look shows the same two rows. A plugin brings its themes as theme files
+  (`artoo_ui_kit::theme::add_plugin_themes`); editing one makes a copy of your own.
 - **Settings finds a setting by its words.** `Search settings` heads the left column (⌘F while Settings is open):
   typing lists the hits under their sections, each with its own switch or chips, and every section counts its hits;
   ⌘K lists settings too — `font` finds the faces, `notifications` what Notifications holds. The sections say what is

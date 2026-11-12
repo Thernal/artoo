@@ -135,7 +135,7 @@ pub(super) fn lists(tab: WeakEntity<Workspace>) -> Vec<List> {
             projects(tab.clone()),
             Rc::new(|_| Said {
                 title: Some("Open a repository".to_owned()),
-                placeholder: "Open a repository — type to filter, or a path",
+                placeholder: "Open a repository — type to filter, or a path".into(),
                 empty: "None by that name. Browse… finds it on disk.",
             }),
         ),
@@ -161,7 +161,7 @@ fn list(id: &'static str, find: Finds, says: Says) -> List {
 fn says(placeholder: &'static str, empty: &'static str) -> Says {
     Rc::new(move |_| Said {
         title: None,
-        placeholder,
+        placeholder: placeholder.into(),
         empty,
     })
 }
@@ -331,12 +331,12 @@ fn switch(tab: WeakEntity<Workspace>) -> List {
         says: Rc::new(move |_| match said.get() {
             true => Said {
                 title: None,
-                placeholder: "Switch to — only what is not reviewed yet   ⇥ all",
+                placeholder: "Switch to — only what is not reviewed yet   ⇥ all".into(),
                 empty: "Nothing left to review here.",
             },
             false => Said {
                 title: None,
-                placeholder: "Switch to a branch or a merge request   ⇥ only not reviewed",
+                placeholder: "Switch to a branch or a merge request   ⇥ only not reviewed".into(),
                 empty: "No branch or merge request by that name.",
             },
         }),

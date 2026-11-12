@@ -195,6 +195,8 @@ pub struct Theme {
     pub split: bool,
     /// Shipped with the app.
     pub built_in: bool,
+    /// The plugin that brought it, by its name (#204).
+    pub plugin: Option<String>,
     /// The theme it extends.
     pub extends: Option<String>,
     /// The tokens it sets itself (the rest come from `extends`).
@@ -283,6 +285,7 @@ struct Raw {
     roles: Vec<(usize, u32)>,
     problems: Vec<String>,
     built_in: bool,
+    plugin: Option<String>,
     file: Option<PathBuf>,
     window: bool,
     code: bool,
@@ -407,6 +410,12 @@ fn read_raw(text: &str, fallback: &str) -> Raw {
 
 /// The built-in themes and the user's (`user`: (file, text)), each with `extends` followed.
 pub fn resolve(user: &[(PathBuf, String)]) -> Vec<Theme> {
+    resolve_with(&[], user)
+}
+
+/// The built-in themes, the plugins' (`plugins`: (the plugin's name, a theme file's text), #204) and the user's, each
+/// with `extends` followed. A plugin's theme that takes a name already taken is left out.
+pub fn resolve_with(plugins: &[(String, String)], user: &[(PathBuf, String)]) -> Vec<Theme> {
     let mut raws: Vec<Raw> = BUILT_IN
         .iter()
         .map(|(id, text)| Raw {
@@ -414,6 +423,15 @@ pub fn resolve(user: &[(PathBuf, String)]) -> Vec<Theme> {
             ..read_raw(text, id)
         })
         .collect();
+    for (plugin, text) in plugins {
+        let raw = Raw {
+            plugin: Some(plugin.clone()),
+            ..read_raw(text, &format!("{plugin}-theme"))
+        };
+        if !raws.iter().any(|r| r.id == raw.id) {
+            raws.push(raw);
+        }
+    }
     for (file, text) in user {
         let stem = file
             .file_stem()
@@ -487,6 +505,7 @@ pub fn resolve(user: &[(PathBuf, String)]) -> Vec<Theme> {
             code: raw.code,
             split: raw.split,
             built_in: raw.built_in,
+            plugin: raw.plugin.clone(),
             extends: raw.extends.clone(),
             own: raw.colors.iter().map(|(i, _)| *i).collect(),
             own_roles: raw.roles.iter().map(|(i, _)| *i).collect(),
@@ -721,6 +740,39 @@ mod tests {
         let json = mine.to_json(false);
         assert!(json.contains("\"extends\": \"night\""));
         assert!(!json.contains("islands"));
+    }
+
+    #[test]
+    fn a_plugins_theme_comes_after_the_built_in_ones_and_before_yours() {
+        let plugins = [
+            (
+                "catppuccin".to_owned(),
+                r##"{ "name": "mocha", "extends": "night", "colors": { "code-01": "#f38ba8" } }"##
+                    .to_owned(),
+            ),
+            // A built-in's name is not a plugin's to take.
+            ("thief".to_owned(), r##"{ "name": "paper" }"##.to_owned()),
+        ];
+        let user = [(
+            PathBuf::from("/t/mine.json"),
+            r##"{ "name": "mine", "extends": "mocha" }"##.into(),
+        )];
+        let themes = resolve_with(&plugins, &user);
+        let ids: Vec<&str> = themes.iter().map(|t| t.id.as_str()).collect();
+        let (mocha, mine) = (
+            ids.iter().position(|&i| i == "mocha"),
+            ids.iter().position(|&i| i == "mine"),
+        );
+        assert_eq!(mocha, Some(BUILT_IN.len()));
+        assert_eq!(mine, Some(BUILT_IN.len() + 1));
+        let mocha = &themes[BUILT_IN.len()];
+        assert_eq!(mocha.plugin.as_deref(), Some("catppuccin"));
+        assert!(!mocha.built_in);
+        assert_eq!(mocha.get(T::Code1), 0xf38ba8ff);
+        // Yours may build on a plugin's.
+        assert_eq!(themes[BUILT_IN.len() + 1].get(T::Code1), 0xf38ba8ff);
+        let paper = themes.iter().find(|t| t.id == "paper").unwrap();
+        assert!(paper.built_in && paper.plugin.is_none());
     }
 
     #[test]

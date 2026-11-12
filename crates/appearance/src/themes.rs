@@ -4,7 +4,7 @@
 //! theme's contrast on the window's diff is a muted fact on its row, not a warning on the page.
 
 use artoo_core::rank::word_matches;
-use artoo_core::themes::{self, TOKENS};
+use artoo_core::themes::{self, T, Theme};
 use artoo_shell_api::search::{Find, List, Opens, Said};
 use artoo_ui_kit::format::plural;
 use artoo_ui_kit::theme;
@@ -19,33 +19,36 @@ pub const CODE_THEMES: &str = "code-themes";
 /// What a code theme follows when it has none of its own (#204).
 pub const SAME: &str = "Same as Theme";
 
-/// The window's themes: yours after the ones built in, opening on the one in force.
-pub fn list() -> List {
-    list_of(false)
+/// What Edit on a theme's row does: the theme by its id in the editor (Settings → Appearance).
+pub type EditTheme = Rc<dyn Fn(&str, &mut App)>;
+
+/// The window's themes: built in, the plugins', yours, opening on the one in force.
+pub fn list(edit: EditTheme) -> List {
+    list_of(false, edit)
 }
 
 /// The code's themes: Same as Theme first.
-pub fn code_list() -> List {
-    list_of(true)
+pub fn code_list(edit: EditTheme) -> List {
+    list_of(true, edit)
 }
 
-fn list_of(code: bool) -> List {
+/// A theme's swatch (#204): its ground and two of its code colours, as the design draws them.
+fn swatch_of(t: &Theme) -> [u32; 3] {
+    [t.get(T::Bg3), t.get(T::Code1), t.get(T::Code2)]
+}
+
+fn list_of(code: bool, edit: EditTheme) -> List {
+    let offered = move |t: &Theme| if code { t.code } else { t.window };
     List {
         id: if code { CODE_THEMES } else { THEMES },
         says: Rc::new(move |_| {
-            let n = (theme::all().iter())
-                .filter(|t| if code { t.code } else { t.window })
-                .count();
+            let n = theme::all().iter().filter(|t| offered(t)).count();
             Said {
                 title: Some(format!(
                     "{} · {n}",
                     if code { "Code theme" } else { "Theme" }
                 )),
-                placeholder: if code {
-                    "Filter the code themes — ↑↓ tries it on the diff, ↵ keeps, esc goes back"
-                } else {
-                    "Filter the themes — ↑↓ tries it on the whole window, ↵ keeps, esc goes back"
-                },
+                placeholder: format!("Filter {n} themes").into(),
                 empty: "No theme by that name.",
             }
         }),
@@ -60,51 +63,56 @@ fn list_of(code: bool) -> List {
             let mut finds = Vec::new();
             if code && words.iter().all(|w| word_matches(w, SAME)) {
                 let open = Opens::Run(Rc::new(|cx| code_theme(None, true, cx)));
-                let detail = if choice.code.is_none() { "current" } else { "" };
-                finds.push(
-                    Find::new("", SAME.to_owned(), detail.to_owned(), open)
-                        .current(choice.code.is_none())
-                        .tried(Rc::new(|cx| code_theme(None, false, cx))),
-                );
+                let mut same = Find::new("", SAME.to_owned(), String::new(), open)
+                    .current(choice.code.is_none())
+                    .tried(Rc::new(|cx| code_theme(None, false, cx)));
+                if let Some(w) = &window {
+                    same = same.swatch(swatch_of(w));
+                }
+                finds.push(same);
             }
             finds.extend(
                 (all.iter())
-                    .filter(|t| if code { t.code } else { t.window })
-                    .filter(|t| words.iter().all(|w| word_matches(w, &t.label)))
+                    .filter(|t| offered(t))
+                    // Its group's words find it too: `plugins`, `light`.
+                    .filter(|t| {
+                        let hay = format!(
+                            "{} {} {}",
+                            t.label,
+                            group_of(t),
+                            if t.light() { "light" } else { "" }
+                        );
+                        words.iter().all(|w| word_matches(w, &hay))
+                    })
                     .map(|t| {
                         let current = match code {
                             true => choice.code.as_deref() == Some(t.id.as_str()),
                             false => t.id == choice.window,
                         };
-                        // Plugins bring no themes yet: built in, or yours.
-                        let group = if t.built_in { "Built in" } else { "Yours" };
                         let low = match (&window, code) {
                             (Some(w), true) => themes::code_on(t, w),
                             _ => Vec::new(),
                         };
-                        let detail = if current {
-                            "current".to_owned()
-                        } else if !t.problems.is_empty() && !t.built_in {
+                        // A fact, muted on its row: its problems, its contrast on the window's diff, light.
+                        let detail = if !t.problems.is_empty() && !t.built_in {
                             plural(t.problems.len(), "problem")
                         } else if !low.is_empty() {
-                            // Which, by the token's name: `2 under 4.5:1 · Comment 3.9`.
-                            let worst = (low.iter())
-                                .map(|(tok, r)| format!("{} {r:.1}", TOKENS[*tok as usize].0))
-                                .next()
-                                .unwrap_or_default();
-                            format!("{} under 4.5:1 · {worst}", low.len())
+                            format!("{} under 4.5:1", low.len())
                         } else if t.light() {
                             "light".to_owned()
                         } else {
                             String::new()
                         };
-                        let (tried, kept) = (t.id.clone(), t.id.clone());
+                        let (tried, kept, edited) = (t.id.clone(), t.id.clone(), t.id.clone());
                         let keep = Opens::Run(Rc::new(move |cx| match code {
                             true => code_theme(Some(&kept), true, cx),
                             false => window_theme(&kept, true, cx),
                         }));
-                        Find::new(group, t.label.clone(), detail, keep)
+                        let edit = edit.clone();
+                        Find::new(group_of(t), t.label.clone(), detail, keep)
                             .current(current)
+                            .swatch(swatch_of(t))
+                            .aside("Edit", Rc::new(move |cx| edit(&edited, cx)))
                             .tried(Rc::new(move |cx| match code {
                                 true => code_theme(Some(&tried), false, cx),
                                 false => window_theme(&tried, false, cx),
@@ -120,6 +128,17 @@ fn list_of(code: bool) -> List {
         })),
         back: None,
         tab: None,
+    }
+}
+
+/// The group a theme is listed under (#204): shipped with the app, a plugin's, or the themes folder's.
+fn group_of(t: &Theme) -> &'static str {
+    if t.built_in {
+        "Built in"
+    } else if t.plugin.is_some() {
+        "From plugins"
+    } else {
+        "Yours"
     }
 }
 

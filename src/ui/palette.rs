@@ -37,6 +37,21 @@ impl Workspace {
         cx.notify();
     }
 
+    /// List `id` dropped from `under`, its button (a theme row's, #204): what it covers cleared, as `search` does.
+    pub(super) fn search_under(
+        &mut self,
+        id: &'static str,
+        under: gpui::Bounds<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        self.field = None;
+        self.ctx_menu.update(cx, |m, cx| m.shut(cx));
+        if let Some(window) = self.search_window() {
+            window.search_under(id, under, cx);
+        }
+        cx.notify();
+    }
+
     /// ⌘K closed without a pick, what a list tried put back.
     pub(super) fn close_palette(&mut self, cx: &mut Context<Self>) {
         if let Some(window) = self.search_window() {

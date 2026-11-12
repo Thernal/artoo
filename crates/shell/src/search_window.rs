@@ -16,8 +16,8 @@ use artoo_shell_api::{Frame, Parts};
 use artoo_ui_kit::input::{self, Edit, Look};
 use artoo_ui_kit::{keys, words};
 use gpui::{
-    Action, AnyView, App, Context, Entity, KeyDownEvent, SharedString, WeakEntity, Window, div,
-    prelude::*,
+    Action, AnyView, App, Bounds, Context, Entity, KeyDownEvent, Pixels, ScrollHandle,
+    SharedString, WeakEntity, Window, div, prelude::*,
 };
 use std::cell::Cell;
 use std::rc::{Rc, Weak};
@@ -115,6 +115,10 @@ struct Item {
     in_folder: bool,
     /// The face its row is drawn in (#24).
     face: Option<SharedString>,
+    /// A swatch before it (a theme's, #204).
+    swatch: Option<[u32; 3]>,
+    /// A word on it while picked, and what it does (a theme's Edit, #204).
+    aside: Option<(&'static str, Doing)>,
     pick: Pick,
 }
 
@@ -128,6 +132,8 @@ struct Open {
     query: String,
     at: usize,
     items: Vec<Item>,
+    /// The button a list dropped from, in the window (#204); None over the window's middle.
+    under: Option<Bounds<Pixels>>,
 }
 
 /// An offered scope's or list's finds as rows.
@@ -144,6 +150,8 @@ fn found_items(finds: Vec<Find>) -> Vec<Item> {
             glyph: f.glyph,
             dots: f.dots,
             face: f.face,
+            swatch: f.swatch,
+            aside: f.aside,
             pick: Pick::Found {
                 open: f.open,
                 tried: f.tried,
@@ -168,6 +176,10 @@ pub(crate) struct Machine {
     open: Option<Open>,
     edit: TextEdit,
     scroll: Rc<Cell<f32>>,
+    /// The list's scroll, and whether it goes to the selection as it is drawn next: it moved by the keys or the
+    /// window opened, never as the wheel scrolls it.
+    list: ScrollHandle,
+    follow: Cell<bool>,
 }
 
 /// The window in a new tab, its handle in the tab's services; it draws nothing of its own as a part.
@@ -181,6 +193,8 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
         open: None,
         edit: TextEdit::default(),
         scroll: Rc::default(),
+        list: ScrollHandle::new(),
+        follow: Cell::new(false),
     });
     frame
         .services()
@@ -201,6 +215,14 @@ impl SearchWindow for Handle {
 
     fn search(&self, id: &'static str, cx: &mut App) {
         self.0.update(cx, |m, cx| m.search(id, cx));
+    }
+
+    fn search_under(&self, id: &'static str, under: Bounds<Pixels>, cx: &mut App) {
+        self.0.update(cx, |m, cx| {
+            if m.offered_list(id).is_some() {
+                m.open_on(Kind::List(id), Some(under), cx);
+            }
+        });
     }
 
     fn close(&self, cx: &mut App) {
@@ -297,7 +319,7 @@ impl Machine {
     /// Opened on scope `id`, moved to its tab, closed when it is the one open; or opened on list `id`.
     fn search(&mut self, id: &'static str, cx: &mut Context<Self>) {
         if self.offered_list(id).is_some() {
-            return self.open_on(Kind::List(id), cx);
+            return self.open_on(Kind::List(id), None, cx);
         }
         let scope = match id {
             search::ALL => Scope::All,
@@ -314,13 +336,14 @@ impl Machine {
                 self.refresh(cx);
                 cx.notify();
             }
-            _ => self.open_on(Kind::Search(scope), cx),
+            _ => self.open_on(Kind::Search(scope), None, cx),
         }
     }
 
-    fn open_on(&mut self, kind: Kind, cx: &mut Context<Self>) {
+    fn open_on(&mut self, kind: Kind, under: Option<Bounds<Pixels>>, cx: &mut Context<Self>) {
         self.edit = TextEdit::default();
         self.scroll.set(0.);
+        self.follow.set(true);
         // What the offered scopes read once for their finds (Code's: the project's files), or the list its own (the
         // faces installed), before the first finds.
         let opened: Vec<Doing> = match kind {
@@ -337,6 +360,7 @@ impl Machine {
             query: String::new(),
             at: 0,
             items: Vec::new(),
+            under,
         });
         // A list opens on the one in force (the theme on the window, the face in use).
         self.refresh_then(cx, |this, _| {
@@ -407,6 +431,7 @@ impl Machine {
                     p.counts = counts;
                 }
                 then(m, cx);
+                m.follow.set(true);
                 cx.notify();
             })
             .ok();
@@ -483,6 +508,8 @@ impl Machine {
                 dots: Vec::new(),
                 in_folder: false,
                 face: None,
+                swatch: None,
+                aside: None,
                 pick: Pick::Command(ix),
             })
             .collect()
@@ -678,6 +705,7 @@ impl Machine {
             } else {
                 (p.at + n - 1) % n
             };
+            self.follow.set(true);
             self.try_found(cx);
             cx.notify();
         }
@@ -711,8 +739,17 @@ impl Machine {
         self.redraw(cx);
     }
 
+    /// Row `ix`'s word (a theme's Edit): the window closes, what was tried put back, then the word's doing.
+    fn aside(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let doing = (self.open.as_ref()).and_then(|p| Some(p.items.get(ix)?.aside.clone()?.1));
+        if let Some(doing) = doing {
+            self.close(cx);
+            cx.defer(move |cx| doing(cx));
+        }
+    }
+
     /// The field: its text with the caret and selection, a click placing the caret.
-    fn field(&self, text: &str, placeholder: &'static str, cx: &Context<Self>) -> gpui::Div {
+    fn field(&self, text: &str, placeholder: &str, cx: &Context<Self>) -> gpui::Div {
         let (shown, this) = (text.to_owned(), cx.weak_entity());
         let place: input::Place = Rc::new(move |at, shift, clicks, drag, lower, cx| {
             this.update(cx, |m, cx| {
@@ -738,7 +775,7 @@ impl Machine {
 }
 
 impl Render for Machine {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(p) = self.open.as_ref() else {
             return div().into_any_element();
         };
@@ -749,7 +786,7 @@ impl Render for Machine {
         };
         let placeholder = match p.kind {
             Kind::Search(scope) => self.scope_placeholder(scope),
-            Kind::List(_) => said.as_ref().map_or("", |s| s.placeholder),
+            Kind::List(_) => said.as_ref().map_or("", |s| s.placeholder.as_ref()),
         };
         let title = said.as_ref().and_then(|s| s.title.clone());
         let keys_now = artoo_shell_api::keys::get(cx);
@@ -772,6 +809,9 @@ impl Render for Machine {
                     dots: item.dots.clone(),
                     file: item.in_folder,
                     face: item.face.clone(),
+                    swatch: item.swatch,
+                    checked: matches!(item.pick, Pick::Found { current: true, .. }),
+                    aside: item.aside.as_ref().map(|(word, _)| *word),
                 }
             })
             .collect();
@@ -805,6 +845,19 @@ impl Render for Machine {
             }
             Kind::List(_) => (None, None),
         };
+        // Dropped from a button: as tall as the window lets it under the button (#204).
+        let under = p.under.map(|b| {
+            let room = window.viewport_size().height - b.bottom() - gpui::px(12.);
+            (b, room.max(gpui::px(160.)))
+        });
+        // Its keys: ↑↓ tries the selection where a find tries one (a theme).
+        let tries = (p.items.get(p.at))
+            .is_some_and(|i| matches!(i.pick, Pick::Found { tried: Some(_), .. }));
+        let hint = under.map(|_| match tries {
+            true => "↑↓ preview · ↵ · esc",
+            false => "↑↓ · ↵ · esc",
+        });
+        let follow = self.follow.replace(false);
         palette::palette(
             PaletteView {
                 title,
@@ -815,6 +868,9 @@ impl Render for Machine {
                 at: p.at,
                 empty,
                 foot,
+                under,
+                hint,
+                scroll: (self.list.clone(), follow),
             },
             Rc::new(Glue(cx.weak_entity())),
             cx,
@@ -832,6 +888,10 @@ impl PaletteHost for Glue {
 
     fn close(&self, _: &mut Window, cx: &mut App) {
         self.0.update(cx, |m, cx| m.close(cx)).ok();
+    }
+
+    fn aside(&self, ix: usize, _: &mut Window, cx: &mut App) {
+        self.0.update(cx, |m, cx| m.aside(ix, cx)).ok();
     }
 
     fn scope(&self, ix: usize, _: &mut Window, cx: &mut App) {

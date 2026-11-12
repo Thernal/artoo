@@ -37,7 +37,7 @@ pub fn lists(history: WeakEntity<History>, frame: Rc<dyn Frame>) -> Vec<List> {
         id: COMPARE,
         says: Rc::new(|_| Said {
             title: Some("Compare · step 1 of 2".to_owned()),
-            placeholder: "Compare — pick the base: a branch, a tag or a commit",
+            placeholder: "Compare — pick the base: a branch, a tag or a commit".into(),
             empty: "No branch, tag or commit by that name.",
         }),
         find: Rc::new(move |ask, _| {
@@ -71,7 +71,7 @@ pub fn lists(history: WeakEntity<History>, frame: Rc<dyn Frame>) -> Vec<List> {
             let name = (named.borrow().base.as_ref()).map_or(String::new(), |(n, _)| n.clone());
             Said {
                 title: Some(format!("Compare · {name} … ?")),
-                placeholder: "Compare — pick what to compare with it",
+                placeholder: "Compare — pick what to compare with it".into(),
                 empty: "No branch, tag or commit by that name.",
             }
         }),

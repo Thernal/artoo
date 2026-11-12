@@ -12,7 +12,7 @@
 //! read its places); what it says is read as the window draws, and reads its owner's state alone.
 
 use artoo_core::route::Route;
-use gpui::{AnyView, App, KeyDownEvent, SharedString, Window};
+use gpui::{AnyView, App, Bounds, KeyDownEvent, Pixels, SharedString, Window};
 use std::rc::Rc;
 
 /// The All tab's id, the window's own (`SearchWindow::search`).
@@ -30,6 +30,8 @@ pub trait SearchWindow {
     /// Opened on scope `id` (`ALL`, `ACTIONS`, an offered one's), or moved to its tab while open, or closed when it is
     /// the tab open — its key again; or opened on list `id` alone. What it opening clears in the tab, the tab clears.
     fn search(&self, id: &'static str, cx: &mut App);
+    /// List `id` opened dropped from `under` (a row's button, in the window), not over the window's middle (#204).
+    fn search_under(&self, id: &'static str, under: Bounds<Pixels>, cx: &mut App);
     /// Closed without a pick, what a list tried put back.
     fn close(&self, cx: &mut App);
     fn is_open(&self, cx: &App) -> bool;
@@ -92,7 +94,7 @@ pub type Says = Rc<dyn Fn(&App) -> Said>;
 /// A list's words: a title over the field, the field's placeholder, the line when nothing is found.
 pub struct Said {
     pub title: Option<String>,
-    pub placeholder: &'static str,
+    pub placeholder: SharedString,
     pub empty: &'static str,
 }
 
@@ -140,6 +142,11 @@ pub struct Find {
     /// What it tries as the selection comes to it (a theme on the whole window), its list's `closed` putting it
     /// back.
     pub tried: Option<Doing>,
+    /// A swatch before it, 0xRRGGBBAA: a ground with two lines on it (a theme's own colours, #204).
+    pub swatch: Option<[u32; 3]>,
+    /// A word on its row while the selection is on it, and what a click on that word does once the window has
+    /// closed (a theme's `Edit`, #204).
+    pub aside: Option<(&'static str, Doing)>,
     pub open: Opens,
 }
 
@@ -157,8 +164,20 @@ impl Find {
             face: None,
             current: false,
             tried: None,
+            swatch: None,
+            aside: None,
             open,
         }
+    }
+
+    pub fn swatch(mut self, colors: [u32; 3]) -> Self {
+        self.swatch = Some(colors);
+        self
+    }
+
+    pub fn aside(mut self, word: &'static str, doing: Doing) -> Self {
+        self.aside = Some((word, doing));
+        self
     }
 
     pub fn key(mut self, key: String) -> Self {

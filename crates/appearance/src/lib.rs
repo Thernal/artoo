@@ -1,7 +1,8 @@
-//! Settings → Appearance (#12, `docs/specs/themes.md`; #171 phase 4): the Window and Code themes as cards, a theme
-//! edited, your themes' folder and the file icons — and Set up's Look drawn from the same cards. The section is
-//! this crate's; the window root's rows in it (Fonts and size, Several projects, Panes, Animations) stand between
-//! the cards and your themes by their order (40…70).
+//! Settings → Appearance (#12, `docs/specs/themes.md`; #171 phase 4; #204): Theme and Code theme, one row each
+//! dropping every theme in one list — built in, the plugins', yours —, a theme edited, Your own (your themes' folder
+//! and the file icons) — and Set up's Look drawn from the same two rows. The section is this crate's; the window
+//! root's rows in it (Fonts and size, Several projects, Panes, Animations) stand between the themes and Your own by
+//! their order (40…70).
 
 mod appearance;
 mod cards;
@@ -67,7 +68,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     // Each setting alone, as Settings' search shows it (#203).
     let theme_hit = row_view(app.clone(), Appearance::render_theme_row, cx);
     let code_hit = row_view(app.clone(), Appearance::render_code_row, cx);
-    let yours_hit = row_view(app.clone(), Appearance::render_yours, cx);
+    let yours_hit = row_view(app.clone(), Appearance::render_own, cx);
     let (fills, escape, closed, save) = (
         app.downgrade(),
         app.downgrade(),
@@ -75,6 +76,12 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
         app.downgrade(),
     );
     let (tries, palette) = (frame.clone(), frame.clone());
+    // Edit on a theme's row in its list: Settings → Appearance, the theme in the editor (#204).
+    let (editor, settings) = (app.downgrade(), frame.clone());
+    let edit: themes::EditTheme = Rc::new(move |id, cx| {
+        settings.open_settings(SECTION, cx);
+        editor.update(cx, |a, cx| a.start_edit(id, cx)).ok();
+    });
     Parts {
         settings: vec![
             Rows::new(SECTION, 10, themes)
@@ -107,7 +114,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
             ),
         ],
         inputs: vec![input(&app)],
-        lists: vec![themes::list(), themes::code_list()],
+        lists: vec![themes::list(edit.clone()), themes::code_list(edit)],
         snapshots: {
             let mut snapshots = snapshots(&app);
             // The themes to try, on the one in force.

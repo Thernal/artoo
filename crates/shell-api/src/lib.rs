@@ -363,6 +363,9 @@ pub trait Frame {
     /// actions open them.
     fn search(&self, id: &'static str, cx: &mut App);
 
+    /// List `id` (`List`) dropped from `under`, the button that opens it, in the window (a theme row's, #204).
+    fn search_under(&self, id: &'static str, under: gpui::Bounds<gpui::Pixels>, cx: &mut App);
+
     /// The words command `id` (an `Action`'s) says in ⌘K as the tab stands, when they are not its own: Copy link
     /// naming what is on screen, Pin tab saying Unpin on a pinned one.
     fn command_words(&self, id: &'static str, cx: &App) -> Option<String>;

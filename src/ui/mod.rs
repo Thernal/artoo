@@ -1106,6 +1106,24 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             }
             wait(500).await;
         }
+        // Keys after the clicks (`ARTOO_SNAPSHOT_THEN`, as `ARTOO_SNAPSHOT_KEYS`): what a click opened, moved in (a
+        // theme's list dropped from its row, #204).
+        if let Ok(keys) = std::env::var("ARTOO_SNAPSHOT_THEN") {
+            for key in keys.split_whitespace() {
+                if key == "wait" {
+                    wait(1000).await;
+                    continue;
+                }
+                if let Ok(keystroke) = gpui::Keystroke::parse(key) {
+                    cx.update_window(window.into(), |_, window, cx| {
+                        window.dispatch_keystroke(keystroke, cx);
+                        window.draw(cx).clear(cx);
+                    })
+                    .ok();
+                }
+                wait(400).await;
+            }
+        }
         if let Ok(at) = std::env::var("ARTOO_SNAPSHOT_HOVER")
             && let Some((x, y)) = at.split_once(',')
             && let (Ok(x), Ok(y)) = (x.trim().parse::<f32>(), y.trim().parse::<f32>())

@@ -8,40 +8,26 @@
 //! that extends it.
 
 use crate::cards::{
-    ROWS, card, is_text, own, row_name, rows_of, sample_diff, small_button, tag_of, theme_preview,
-    value, window_face,
+    ROWS, is_text, own, row_name, sample_diff, small_button, tag_of, theme_preview, value,
 };
 use crate::themes as lists;
-use artoo_core::themes::{self, TOKENS, Theme};
+use artoo_core::themes::{self, T, TOKENS, Theme};
 use artoo_shell_api::{Frame, MenuItem, Typed};
-use artoo_ui_kit::controls::{setting, subhead};
+use artoo_ui_kit::controls::setting;
 use artoo_ui_kit::input::{self, Area, Edit};
 use artoo_ui_kit::motion::{self, Folds, Marks};
 use artoo_ui_kit::room::Heights;
 use artoo_ui_kit::{ROW_RADIUS, file_icons, format, hover, icons, keys, px, theme};
 use gpui::{
-    AnyElement, ClickEvent, Context, Div, FontWeight, Keystroke, Pixels, Point, Window, div,
+    AnyElement, Bounds, ClickEvent, Context, Div, FontWeight, Keystroke, Pixels, Point, div,
     prelude::*, rgba,
 };
+use std::cell::Cell;
 use std::rc::Rc;
 
-/// A theme's swatch (#204): its background with two of its code colours on it.
+/// A theme's swatch on its row's button (#204).
 fn swatch(t: &Theme) -> Div {
-    use artoo_core::themes::T;
-    let c = |tok: T| rgba(t.get(tok));
-    div()
-        .flex_none()
-        .size(px(16.))
-        .rounded(px(4.))
-        .border_1()
-        .border_color(theme::island_border())
-        .bg(c(T::Bg3))
-        .flex()
-        .items_center()
-        .justify_center()
-        .gap(px(2.))
-        .child(div().size(px(4.)).rounded_full().bg(c(T::Code1)))
-        .child(div().size(px(4.)).rounded_full().bg(c(T::Code3)))
+    artoo_ui_kit::controls::swatch([t.get(T::Bg3), t.get(T::Code1), t.get(T::Code2)], false)
 }
 
 /// The hex field's id as the tab's input.
@@ -77,6 +63,10 @@ pub(crate) struct Appearance {
     motion: Marks,
     folds: Folds,
     heights: Heights,
+    /// Where the Theme and the Code theme buttons were drawn last, their lists dropping from there (#204).
+    under: [Rc<Cell<Option<Bounds<Pixels>>>>; 2],
+    /// Your own open: your themes and the file icons (#204).
+    own_open: bool,
 }
 
 impl Appearance {
@@ -90,6 +80,8 @@ impl Appearance {
             motion: Marks::default(),
             folds: Folds::default(),
             heights: Heights::default(),
+            under: Default::default(),
+            own_open: false,
         }
     }
 
@@ -165,52 +157,9 @@ impl Appearance {
         )
     }
 
-    /// The Window themes as cards, the chosen one framed; a card's Edit opens the editor
-    /// (Settings → Appearance, and Set up's Look).
-    pub(crate) fn window_cards(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let choice = theme::choice();
-        theme::all()
-            .iter()
-            .filter(|t| t.window)
-            .enumerate()
-            .map(|(i, t)| {
-                let id = t.id.clone();
-                let edit = t.id.clone();
-                let edit_button = div()
-                    .id(("win-edit", i))
-                    .px(px(6.))
-                    .rounded(px(4.))
-                    .text_size(px(11.))
-                    .text_color(theme::accent())
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme::selected()))
-                    .child("Edit")
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        cx.stop_propagation();
-                        this.start_edit(&edit, cx);
-                    }))
-                    .into_any_element();
-                card(
-                    ("win-theme", i),
-                    window_face(t),
-                    t.label.clone(),
-                    tag_of(t).map(|(word, bad)| (word, bad, None)),
-                    choice.window == t.id,
-                    Some(edit_button),
-                )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let mut c = theme::choice();
-                    c.window = id.clone();
-                    this.choose(c, cx);
-                }))
-                .into_any_element()
-            })
-            .collect()
-    }
-
-    /// Its rows over the window root's (#204): Theme and Code theme, each one row opening every theme in one list
-    /// (`themes.rs`) — ↑↓ tries it live —, Edit beside the theme in force, and the sample in both; or the editor,
-    /// filling the section.
+    /// Its rows over the window root's (#204): Theme and Code theme, each one row dropping every theme in one list
+    /// (`themes.rs`) — ↑↓ tries it live, Edit on the row picked —, and the sample in both; or the editor, filling the
+    /// section.
     pub(crate) fn render_themes(&mut self, cx: &mut Context<Self>) -> AnyElement {
         if self.edit.is_some() {
             return self.render_editor(cx);
@@ -233,25 +182,18 @@ impl Appearance {
             .into_any_element()
     }
 
-    /// The Theme row: Edit, and the theme in force opening the list (here, and Settings' search, #203).
+    /// The Theme row: the theme in force dropping the list, Edit on its rows (here, Settings' search and Set up's
+    /// Look, #203).
     pub(crate) fn render_theme_row(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let (window, _) = in_force();
-        let edit = window.id.clone();
-        let theme_row = div()
-            .flex()
-            .items_center()
-            .gap_2()
-            .child(small_button("theme-edit", "Edit").on_click(
-                cx.listener(move |this, _: &ClickEvent, _, cx| this.start_edit(&edit, cx)),
-            ))
-            .child(self.theme_picker(
-                "theme-pick",
-                &window,
-                window.label.clone(),
-                lists::THEMES,
-                cx,
-            ));
-        setting("Theme", "", theme_row).into_any_element()
+        let picker = self.theme_picker(
+            "theme-pick",
+            &window,
+            window.label.clone(),
+            (lists::THEMES, 0),
+            cx,
+        );
+        setting("Theme", "", picker).into_any_element()
     }
 
     /// The Code theme row: the code's theme, or the window's, opening its list (here, and Settings' search, #203).
@@ -262,23 +204,26 @@ impl Appearance {
             code.as_ref().unwrap_or(&window),
             code.as_ref()
                 .map_or(lists::SAME.to_owned(), |t| t.label.clone()),
-            lists::CODE_THEMES,
+            (lists::CODE_THEMES, 1),
             cx,
         );
         setting("Code theme", "", code_row).into_any_element()
     }
 
-    /// A theme row's button: the theme's swatch and name, ▾; a click opens `list` (#204).
+    /// A theme row's button: the theme's swatch and name, ▾; a click drops `list` from it (#204), `under` where it is
+    /// drawn.
     fn theme_picker(
         &self,
         id: &'static str,
         t: &Theme,
         label: String,
-        list: &'static str,
+        (list, under): (&'static str, usize),
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
+        let (drawn, from) = (self.under[under].clone(), self.under[under].clone());
         div()
             .id(id)
+            .relative()
             .min_w(px(190.))
             .h(px(28.))
             .px(px(8.))
@@ -296,248 +241,159 @@ impl Appearance {
                     .size(px(12.))
                     .text_color(theme::muted()),
             )
+            .child(
+                gpui::canvas(move |bounds, _, _| drawn.set(Some(bounds)), |_, _, _, _| {})
+                    .absolute()
+                    .size_full(),
+            )
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 let frame = this.frame.clone();
-                frame.search(list, cx);
+                match from.get() {
+                    Some(bounds) => frame.search_under(list, bounds, cx),
+                    None => frame.search(list, cx),
+                }
             }))
     }
 
-    /// Its rows under the window root's: your themes, then the file icons.
+    /// Its rows under the window root's (#204): `Your own`, what your themes and the file icons count, opening on
+    /// their rows.
     pub(crate) fn render_yours(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let mine = theme::all().iter().filter(|t| yours(t)).count();
+        let (icons_n, _) = file_icons::counts();
+        let open = self.own_open;
+        let head = div()
+            .id("your-own")
+            .mt(px(14.))
+            .h(px(28.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .cursor_pointer()
+            .child(
+                icons::icon("chevron-right")
+                    .size(px(13.))
+                    .text_color(theme::muted())
+                    .when(open, |s| {
+                        s.with_transformation(gpui::Transformation::rotate(gpui::radians(
+                            std::f32::consts::FRAC_PI_2,
+                        )))
+                    }),
+            )
+            .child(
+                div()
+                    .text_size(px(14.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("Your own"),
+            )
+            .child(
+                div()
+                    .text_size(px(13.))
+                    .text_color(theme::muted())
+                    .child(format!(
+                        "{} · {}",
+                        format::plural(mine, "theme"),
+                        format::plural(icons_n, "file icon")
+                    )),
+            )
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.own_open = !this.own_open;
+                cx.notify();
+            }));
+        div()
+            .flex()
+            .flex_col()
+            .child(head)
+            .children(open.then(|| self.render_own(cx)))
+            .into_any_element()
+    }
+
+    /// Your themes' row and the file icons', with what is wrong in them (the section's Your own open, and Settings'
+    /// search).
+    pub(crate) fn render_own(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let all = theme::all();
-        let folder = themes::folder()
-            .map(|f| format::home_relative(&f))
-            .unwrap_or_default();
+        let mine = all.iter().filter(|t| yours(t)).count();
         let troubled: Vec<&Theme> = all
             .iter()
-            .filter(|t| !t.built_in && !t.problems.is_empty())
+            .filter(|t| yours(t) && !t.problems.is_empty())
             .collect();
-        div()
-            .flex()
-            .flex_col()
-            .gap_5()
-            .child(subhead("Your themes", "JSON files in the themes folder."))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        small_button("themes-folder", "Open themes folder").on_click(cx.listener(
-                            |_, _: &ClickEvent, _, cx| {
-                                if let Some(dir) = themes::folder() {
-                                    let _ = std::fs::create_dir_all(&dir);
-                                    cx.reveal_path(&dir);
-                                }
-                            },
-                        )),
-                    )
-                    .child(
-                        small_button("themes-copy", "Copy One Dark as JSON").on_click(cx.listener(
-                            |_, _: &ClickEvent, _, cx| {
-                                let json = theme::all()[0].to_json(true);
-                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(json));
-                            },
-                        )),
-                    )
-                    .child(
-                        hover::cut("themes-folder", folder)
-                            .font_family(theme::code_font())
-                            .text_size(px(11.))
-                            .text_color(theme::faint()),
-                    ),
-            )
-            .children(troubled.into_iter().map(|t| {
-                div()
-                    .px(px(12.))
-                    .py(px(8.))
-                    .rounded(px(ROW_RADIUS))
-                    .bg(theme::danger_bg())
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .text_size(px(12.))
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child(format!(
-                        "{} — {}",
-                        t.label,
-                        tag_of(t).unwrap_or_default().0
-                    )))
-                    .children(t.problems.iter().map(|p| div().child(format!("· {p}"))))
-            }))
-            .child(self.render_file_icons(cx))
-            .into_any_element()
-    }
-
-    /// What Set up's Look draws of it: the Window themes as Settings draws them, five to a row, then Code colours.
-    pub(crate) fn render_short(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let code = theme::choice()
-            .code
-            .as_deref()
-            .and_then(theme::find)
-            .map_or(lists::SAME.to_owned(), |t| t.label);
-        let code_picker =
-            div()
-                .id("setup-code-theme")
-                .min_w(px(190.))
-                .h(px(28.))
-                .px(px(10.))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .rounded(px(ROW_RADIUS))
-                .bg(theme::hover())
-                .cursor_pointer()
-                .hover(|s| s.bg(theme::selected()))
-                .child(div().flex_1().text_size(px(13.)).child(code))
-                .child(
-                    icons::icon("chevron")
-                        .size(px(12.))
-                        .text_color(theme::muted()),
-                )
-                .on_click(cx.listener(|this, ev: &ClickEvent, _, cx| {
-                    this.open_code_themes(ev.position(), cx)
-                }));
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(12.))
-            .child(rows_of(5, self.window_cards(cx)))
-            .child(setting(
-                "Code colours",
-                "Syntax and the diff's tints.",
-                code_picker,
-            ))
-            .into_any_element()
-    }
-
-    /// Code colours' menu: Follow the window, then every code theme, the one in use checked.
-    fn open_code_themes(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
-        let current = theme::choice().code;
-        let me = cx.weak_entity();
-        let choose = move |id: Option<String>| {
-            let me = me.clone();
-            move |_: &mut Window, cx: &mut gpui::App| {
-                me.update(cx, |this, cx| {
-                    let mut choice = theme::choice();
-                    choice.code = id.clone();
-                    this.choose(choice, cx);
-                })
-                .ok();
-            }
-        };
-        let follow = MenuItem::new(lists::SAME, choose(None)).checked(current.is_none());
-        let themes = theme::all()
-            .into_iter()
-            .filter(|t| t.code)
-            .map(|t| {
-                let on = current.as_deref() == Some(t.id.as_str());
-                MenuItem::new(t.label, choose(Some(t.id))).checked(on)
-            })
-            .collect();
-        self.frame
-            .titled_menu(at, vec![(None, vec![follow]), (Some("Code"), themes)], cx);
-    }
-
-    /// File icons (#95): what they are, a few of them, the user's folder and what it gives.
-    fn render_file_icons(&self, cx: &mut Context<Self>) -> AnyElement {
+        let themes_folder = themes::folder()
+            .map(|f| format::home_relative(&f))
+            .unwrap_or_default();
+        let open_themes = small_button("themes-folder", "Open themes folder").on_click(
+            cx.listener(|_, _: &ClickEvent, _, cx| {
+                if let Some(dir) = themes::folder() {
+                    let _ = std::fs::create_dir_all(&dir);
+                    cx.reveal_path(&dir);
+                }
+            }),
+        );
         let (svgs, rules) = file_icons::counts();
         let problems = file_icons::problems();
-        let folder = file_icons::folder()
+        let icons_folder = file_icons::folder()
             .map(|d| format::home_relative(&d))
             .unwrap_or_default();
-        let samples = [
-            ("LoginViewModel.kt", false),
-            ("build.gradle.kts", false),
-            ("Main.java", false),
-            ("package.json", false),
-            ("README.md", false),
-            ("Dockerfile", false),
-            ("core", true),
-            (".github", true),
-        ];
+        let open_icons = small_button("icons-folder", "Open icons folder").on_click(cx.listener(
+            |_, _: &ClickEvent, _, cx| {
+                if let Some(dir) = file_icons::folder() {
+                    file_icons::start_folder(&dir);
+                    cx.reveal_path(&dir);
+                }
+            },
+        ));
+        let trouble = |title: String, lines: Vec<String>| {
+            div()
+                .px(px(12.))
+                .py(px(8.))
+                .rounded(px(ROW_RADIUS))
+                .bg(theme::danger_bg())
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .text_size(px(12.))
+                .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+                .children(lines.into_iter().map(|p| div().child(format!("· {p}"))))
+        };
         div()
             .flex()
             .flex_col()
-            .gap(px(10.))
-            .child(subhead(
-                "File icons",
-                "Yours in the icons folder: Dockerfile.svg, kt.svg or folder.svg, _dark for dark themes; folders.txt and files.txt: a path's regular expression, then the icon — (^|/)src/test$ testRoot.",
+            .child(setting(
+                "Your themes",
+                format!("{} in {themes_folder}", format::plural(mine, "JSON file")),
+                open_themes,
             ))
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap_x(px(14.))
-                    .gap_y(px(6.))
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .children(samples.into_iter().map(|(name, is_folder)| {
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .child(if is_folder {
-                                icons::folder_icon(name, 16.)
-                            } else {
-                                icons::file_icon(name, 16.)
-                            })
-                            .child(name)
-                    })),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        small_button("icons-folder", "Open icons folder").on_click(cx.listener(
-                            |_, _: &ClickEvent, _, cx| {
-                                if let Some(dir) = file_icons::folder() {
-                                    file_icons::start_folder(&dir);
-                                    cx.reveal_path(&dir);
-                                }
-                            },
-                        )),
-                    )
-                    .child(
-                        div()
-                            .flex_none()
-                            .text_size(px(11.))
-                            .text_color(theme::muted())
-                            .child(format!(
-                                "{} · {}",
-                                format::plural(svgs, "icon"),
-                                format::plural(rules, "rule")
-                            )),
-                    )
-                    .child(
-                        hover::cut("icons-folder", folder)
-                            .font_family(theme::code_font())
-                            .text_size(px(11.))
-                            .text_color(theme::faint()),
-                    ),
-            )
-            .children((!problems.is_empty()).then(|| {
-                div()
-                    .px(px(12.))
-                    .py(px(8.))
-                    .rounded(px(ROW_RADIUS))
-                    .bg(theme::danger_bg())
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .text_size(px(12.))
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Icon rules"))
-                    .children(problems.into_iter().map(|p| div().child(format!("· {p}"))))
+            .children(troubled.into_iter().map(|t| {
+                trouble(
+                    format!("{} — {}", t.label, tag_of(t).unwrap_or_default().0),
+                    t.problems.clone(),
+                )
             }))
+            .child(
+                div()
+                    .id("file-icons")
+                    .tooltip_show_delay(hover::LONG)
+                    .tooltip(|_, cx| cx.new(|_| hover::Tip(ICON_RULES)).into())
+                    .child(setting(
+                        "File icons",
+                        format!(
+                            "{} · {} in {icons_folder}",
+                            format::plural(svgs, "icon"),
+                            format::plural(rules, "rule")
+                        ),
+                        open_icons,
+                    )),
+            )
+            .children((!problems.is_empty()).then(|| trouble("Icon rules".to_owned(), problems)))
             .into_any_element()
     }
 
-    /// Draws with `choice` in every window and keeps it.
-    pub(crate) fn choose(&mut self, choice: theme::Choice, cx: &mut Context<Self>) {
-        theme::choose(choice);
-        cx.refresh_windows();
-        cx.notify();
+    /// What Set up's Look draws of it (#204): the Theme and Code theme rows, as Settings draws them.
+    pub(crate) fn render_short(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .flex()
+            .flex_col()
+            .child(self.render_theme_row(cx))
+            .child(self.render_code_row(cx))
+            .into_any_element()
     }
 
     /// Opens theme `id` in the editor; a built-in theme is copied first.
@@ -546,7 +402,8 @@ impl Appearance {
         let Some(t) = all.iter().find(|t| t.id == id).cloned() else {
             return;
         };
-        let (theme, from) = if t.built_in {
+        // A built-in theme or a plugin's is edited as a copy of it, yours.
+        let (theme, from) = if !yours(&t) {
             let mut name = format!("my-{}", t.id);
             let mut n = 2;
             while all.iter().any(|o| o.id == name) {
@@ -558,6 +415,7 @@ impl Appearance {
                     id: name.clone(),
                     label: name,
                     built_in: false,
+                    plugin: None,
                     extends: Some(t.id.clone()),
                     own: Vec::new(),
                     file: None,
@@ -644,8 +502,10 @@ impl Appearance {
             .as_ref()
             .map(|e| e.base.id.clone())
             .unwrap_or_default();
-        let (built_in, yours): (Vec<Theme>, Vec<Theme>) =
-            self.bases().into_iter().partition(|t| t.built_in);
+        let bases = self.bases();
+        let of = |keep: fn(&Theme) -> bool| bases.iter().filter(|t| keep(t)).cloned().collect();
+        let (built_in, plugins, own): (Vec<Theme>, Vec<Theme>, Vec<Theme>) =
+            (of(|t| t.built_in), of(|t| t.plugin.is_some()), of(yours));
         let entries = |themes: Vec<Theme>| {
             themes
                 .into_iter()
@@ -658,14 +518,13 @@ impl Appearance {
                 })
                 .collect::<Vec<_>>()
         };
-        self.frame.titled_menu(
-            at,
-            vec![
-                (Some("Extends"), entries(built_in)),
-                (Some("Your themes"), entries(yours)),
-            ],
-            cx,
-        );
+        let groups = vec![
+            (Some("Extends"), entries(built_in)),
+            (Some("From plugins"), entries(plugins)),
+            (Some("Your themes"), entries(own)),
+        ];
+        let groups = groups.into_iter().filter(|(_, g)| !g.is_empty()).collect();
+        self.frame.titled_menu(at, groups, cx);
     }
 
     /// The theme being edited is built on `id` now: what it does not set comes from there.
@@ -1490,6 +1349,15 @@ fn fraction(b: gpui::Bounds<gpui::Pixels>, p: gpui::Point<gpui::Pixels>) -> (f32
 }
 
 /// The window's theme in force, and the code's when it has its own.
+/// What a file icon's file and the rules are named (#95): the File icons row's tip.
+const ICON_RULES: &str = "Yours in the icons folder: Dockerfile.svg, kt.svg or folder.svg, _dark for dark themes; \
+folders.txt and files.txt: a path's regular expression, then the icon — (^|/)src/test$ testRoot.";
+
+/// A theme of the themes folder: neither built in nor a plugin's.
+fn yours(t: &Theme) -> bool {
+    !t.built_in && t.plugin.is_none()
+}
+
 fn in_force() -> (Theme, Option<Theme>) {
     let all = theme::all();
     let choice = theme::choice();
