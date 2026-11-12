@@ -854,7 +854,11 @@ impl artoo_review_api::Review for Handle {
     }
 
     fn set_root(&self, root: PathBuf, cx: &mut App) {
-        self.with(cx, |rv, _| rv.root = Some(root))
+        self.with(cx, |rv, _| {
+            // Its tabs as wide as its `.editorconfig` says (#205): this project's, not the last one opened's.
+            rv.tab = artoo_core::rows::tab_width_of(&root);
+            rv.root = Some(root);
+        })
     }
 
     fn restore_file_scroll(&self, cx: &mut App) {

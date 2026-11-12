@@ -41,6 +41,8 @@ pub struct RowStyle<'a> {
     pub row: f32,
     /// The annotation column is on; its cells (empty until blame is read).
     pub annot: Option<&'a [AnnCell]>,
+    /// How many columns a tab is: the project's own (#205).
+    pub tab: usize,
 }
 
 impl RowStyle<'_> {
@@ -371,7 +373,7 @@ fn code(
         .and_then(|s| s.in_line(cell.line, text.len()));
     let runs = rows::runs(text, spans, marks, &found, picked);
     let original = text.to_owned();
-    let (text, map) = rows::expand_tabs(text, rows::tab_width());
+    let (text, map) = rows::expand_tabs(text, style.tab);
     let highlights: Vec<_> = runs
         .into_iter()
         .map(|run| {

@@ -1727,8 +1727,6 @@ impl Workspace {
                         if let Some(branches_api) = this.branches() {
                             branches_api.opened(root.clone(), branches, Some(decor), fresh, cx);
                         }
-                        // Its tabs as wide as its `.editorconfig` says (#205).
-                        artoo_core::rows::follow_tab_width(&root);
                         this.root = Some(root);
                         // Once the root is this repository's: it reads whether fetch is off for it (#141).
                         this.start_fetching(cx);
@@ -1792,8 +1790,6 @@ impl Workspace {
         if let Some(branches) = self.branches() {
             branches.opened(root.clone(), Vec::new(), None, fresh, cx);
         }
-        // Its tabs as wide as its `.editorconfig` says (#205).
-        artoo_core::rows::follow_tab_width(&root);
         self.root = Some(root);
         self.clear_branch(cx);
         self.nav = nav::Nav::default();

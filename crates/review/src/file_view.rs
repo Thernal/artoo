@@ -143,15 +143,15 @@ pub fn place_note(lines: &[String], line: u32, code: &str) -> Option<usize> {
         .map(|(n, _)| n)
 }
 
-/// A line with its tabs as four spaces, and its spans moved to match; an empty line is a space.
-pub fn widen(line: &str, spans: &[Span]) -> (SharedString, Vec<Span>) {
+/// A line with its tabs as `tab` spaces, and its spans moved to match; an empty line is a space.
+pub fn widen(line: &str, spans: &[Span], tab: usize) -> (SharedString, Vec<Span>) {
     let mut out = String::with_capacity(line.len());
     // Where each byte of `line` (and its end) lands in `out`.
     let mut at = Vec::with_capacity(line.len() + 1);
     for (i, c) in line.char_indices() {
         at.resize(i + 1, out.len());
         if c == '\t' {
-            out.push_str(&" ".repeat(artoo_core::rows::tab_width()));
+            out.push_str(&" ".repeat(tab));
         } else {
             out.push(c);
         }
@@ -280,7 +280,9 @@ impl Review {
                         let text: Vec<_> = lines
                             .iter()
                             .enumerate()
-                            .map(|(n, l)| widen(l, spans.get(n).map_or(&[][..], Vec::as_slice)))
+                            .map(|(n, l)| {
+                                widen(l, spans.get(n).map_or(&[][..], Vec::as_slice), rv.tab)
+                            })
                             .collect();
                         let plain = text.iter().map(|(l, _)| l.to_string()).collect();
                         rv.file_view = Some(FileView {
@@ -1001,10 +1003,10 @@ mod tests {
             italic: false,
             bold: false,
         };
-        let (text, spans) = widen("\tfn x", &[span(1..3)]);
+        let (text, spans) = widen("\tfn x", &[span(1..3)], 4);
         assert_eq!(text.as_ref(), "    fn x");
         assert_eq!(spans[0].range, 4..6);
-        assert_eq!(widen("", &[]).0.as_ref(), " ");
+        assert_eq!(widen("", &[], 4).0.as_ref(), " ");
     }
 
     #[test]

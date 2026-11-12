@@ -132,6 +132,8 @@ pub struct Review {
     /// The repository's names, read once at the first peek, for the folder they were read in; and their read.
     pub names: Option<(PathBuf, Arc<artoo_core::symbols::Names>)>,
     pub names_reading: Option<Task<()>>,
+    /// How many columns a tab is in this project (`.editorconfig`, #205).
+    pub tab: usize,
     /// Each commit's files by their fingerprints, read when its row asks how much of it you viewed (#209).
     pub commit_fps: HashMap<git2::Oid, Vec<(String, u64)>>,
     /// Those being read.
@@ -250,6 +252,7 @@ impl Review {
             peek: None,
             names: None,
             names_reading: None,
+            tab: 4,
             commit_fps: HashMap::new(),
             commit_fps_reading: None,
             viewed_counts: ((u64::MAX, 0), HashMap::new()),
@@ -675,6 +678,7 @@ impl Review {
             row: self.row_height(),
             // Room for the comment mark (16 px) left of the number.
             gutter: digits.max(3) as f32 * self.char_width + 30.,
+            tab: self.tab,
         }
     }
 

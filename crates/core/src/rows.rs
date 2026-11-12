@@ -610,18 +610,11 @@ pub fn runs(
     out
 }
 
-/// How wide a tab is drawn, in columns: the repository's own (`.editorconfig`, #205), 4 when it says nothing.
-static TAB_WIDTH: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(4);
-
-pub fn tab_width() -> usize {
-    TAB_WIDTH.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-/// The repository at `root` opened: its tabs are drawn as wide as it says.
-pub fn follow_tab_width(root: &std::path::Path) {
+/// How wide a tab is drawn in the repository at `root`, in columns: its own `.editorconfig`'s (#205), 4 when it says
+/// nothing. Each project its own: a tab showing another repository draws its tabs as that one says.
+pub fn tab_width_of(root: &std::path::Path) -> usize {
     let text = std::fs::read_to_string(root.join(".editorconfig")).unwrap_or_default();
-    let width = editorconfig_tab_width(&text).unwrap_or(4);
-    TAB_WIDTH.store(width, std::sync::atomic::Ordering::Relaxed);
+    editorconfig_tab_width(&text).unwrap_or(4)
 }
 
 /// `tab_width` (or `indent_size`) in an `.editorconfig`'s section for every file (`[*]`), 1 to 16.
@@ -1126,5 +1119,13 @@ mod tab_tests {
         );
         assert_eq!(editorconfig_tab_width("[*.kt]\nindent_size = 4\n"), None);
         assert_eq!(editorconfig_tab_width("[*]\nindent_size = tab\n"), None);
+    }
+
+    #[test]
+    fn each_project_draws_its_tabs_as_it_says() {
+        let (two, none) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        std::fs::write(two.path().join(".editorconfig"), "[*]\nindent_size = 2\n").unwrap();
+        assert_eq!(super::tab_width_of(two.path()), 2);
+        assert_eq!(super::tab_width_of(none.path()), 4);
     }
 }
