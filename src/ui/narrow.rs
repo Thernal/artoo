@@ -4,7 +4,8 @@
 //! folds into the same left column — this
 //! page's panels as icons under a line, a click or ⌃3 opening it as a drawer over the content,
 //! docked again when there is room — a list's preview goes, the bar's path is ‹ and the id,
-//! secondary actions keep their icon and search its icon. The steps measure the diff too (#195): when it would keep
+//! secondary actions keep their icon and search its icon. The steps measure the diff too (#195), from the pages' area
+//! as it was drawn: when it would keep
 //! under 480 px the side panel folds first, and still under 480 a tool window floats over the diff; a drawer and a
 //! floating tool window are never open together. The steps are the
 //! design's pixels, so at a larger interface size they come sooner (#24): at 115 % the menu folds
@@ -59,20 +60,33 @@ impl Workspace {
     }
 
     /// The diff's width in the design's pixels, with the side panel beside it or not and the tool window docked or not:
-    /// what the window leaves once the rail, the menu, the stripe and the gaps are taken (#195).
+    /// the pages' area as last drawn (#195) — what the rail, the menu, the stripe and the gaps leave, zen's included —
+    /// less the side panel's and the tool window's widths with their handles. Before the area is drawn, the window
+    /// less what the frame is known to take.
     pub(super) fn diff_room(&self, side: bool, tool: bool) -> f32 {
-        let menu = if self.menu_folded() {
-            MENU_ICONS
-        } else {
-            self.layout.menu
-        };
-        let side = if side { self.layout.sidebar } else { 0. };
-        let tool = if tool && self.tool().is_some() {
-            self.layout.tool_width
+        let handle = artoo_shell_api::frame::handle_width();
+        let side = if side {
+            self.layout.sidebar + handle
         } else {
             0.
         };
-        self.design_width() - FRAME - menu - side - tool
+        let tool = if tool && self.tool().is_some() {
+            self.layout.tool_width + handle
+        } else {
+            0.
+        };
+        let pages = match self.pages_width.get() {
+            measured if measured > 0. => measured,
+            _ => {
+                let menu = if self.menu_folded() {
+                    MENU_ICONS
+                } else {
+                    self.layout.menu
+                };
+                self.design_width() - FRAME - menu + 2. * handle
+            }
+        };
+        pages - side - tool
     }
 
     /// The side panel folded into the menu's column: the window under 1 100 px, or the diff under 480 px with it
@@ -252,8 +266,9 @@ pub const SIDE: f32 = 1100.;
 pub const ROOM: f32 = 480.;
 /// The menu folded to icons.
 const MENU_ICONS: f32 = 52.;
-/// What the frame takes besides the menu, the side panel and the tool window — the rail, the stripe, the gaps: at
-/// 1 100 px a 300 px side panel and a 320 px tool window left the diff 305 px, the menu folded.
+/// What the frame takes besides the menu, the side panel and the tool window — the rail, the stripe, the gaps and the
+/// two handles: at 1 100 px a 300 px side panel and a 320 px tool window left the diff 305 px, the menu folded. Only
+/// until the pages' area is first drawn and measured.
 const FRAME: f32 = 123.;
 
 /// The menu folded in a window `width` px wide: as `set` from 1280 px, else folded unless

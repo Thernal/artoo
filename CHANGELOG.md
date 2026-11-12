@@ -118,7 +118,8 @@ for someone using the app, not for someone reading the code; the commits follow 
   archived, under an archive icon — never erased. A comment changed after it was written says so: `20 min ago · edited`.
   Edit and Delete on your own note sit in its hover bar beside ☺+.
 - **The diff keeps its room.** The narrow steps measure the diff, not only the window: when it would fall under 480
-  px the side panel folds into the menu's column first, and only then does a tool window float. At 1 100 px with
+  px the side panel folds into the menu's column first, and only then does a tool window float. The room is measured
+  as the window lays it out, so with projects as tabs, or in zen, the side panel stays where it fits. At 1 100 px with
   Discussions open that is about 590 px of diff instead of 305. The right stripe holds the windows you work in —
   Discussions, Agents, Outline —; Report a Problem… is in Help, ⌘K and ⌥⌘/, and the Inbox has no stripe at all.
 - **Back goes where you jumped.** A file picked, ⌘P or a line gone to is a stop of its own, so ⌘[ after a jump in a long

@@ -1319,6 +1319,9 @@ pub struct Workspace {
     /// The search over all files of the diff, while it is open.
     /// The window's width in logical pixels, as of the last frame.
     win_width: f32,
+    /// The pages' area as last drawn, in the design's pixels: what the side panel, the page and a docked tool window
+    /// share (#195). 0 before it is drawn.
+    pages_width: Rc<std::cell::Cell<f32>>,
     /// Discussions whose open or folded state differs from the default (a resolved one is folded).
     toggled_mr: HashSet<usize>,
     /// Agent comments the reader folded.
@@ -1489,6 +1492,7 @@ impl Workspace {
             decorated: Default::default(),
             last_tool: None,
             win_width: 1480.,
+            pages_width: Rc::default(),
             toggled_mr: HashSet::new(),
             toggled_agent: HashSet::new(),
             thread_at: None,

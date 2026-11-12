@@ -367,11 +367,28 @@ impl Workspace {
                 .into_any_element(),
             None => pages.view.clone().into_any_element(),
         };
+        // The area measured as it is drawn: the diff's room is what it leaves (#195). It does not change as the side
+        // panel folds or the tool window floats, so the room it gives settles.
+        let measured = self.pages_width.clone();
+        let measure = gpui::canvas(
+            move |bounds, window, _| {
+                let width = f32::from(bounds.size.width) / super::ui_zoom();
+                if (measured.replace(width) - width).abs() > 0.5 {
+                    window.request_animation_frame();
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full();
         div()
             .relative()
             .flex_1()
             .min_h_0()
             .flex()
+            .child(measure)
             .children(
                 side.filter(|_| beside)
                     .and_then(|side| side(route.as_ref(), width, cx))
