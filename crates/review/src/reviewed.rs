@@ -370,6 +370,47 @@ impl Store {
 
     /// The file does not grow without end: past 300 scopes, the one whose newest mark is oldest
     /// goes, never `scope`, the one just marked.
+    /// The comparisons of `root` whose marks were kept by commit, before they were kept by name (#209):
+    /// `root|range:<base>..<head>`, each with its two commits.
+    pub fn old_ranges(&self, root: &str) -> Vec<(String, git2::Oid, git2::Oid)> {
+        let prefix = format!("{root}|range:");
+        (self.marks.keys())
+            .filter_map(|key| {
+                let (base, head) = key.strip_prefix(&prefix)?.split_once("..")?;
+                let base = git2::Oid::from_str(base).ok()?;
+                let head = git2::Oid::from_str(head).ok()?;
+                Some((key.clone(), base, head))
+            })
+            .collect()
+    }
+
+    /// Whether anything is marked under `scope`.
+    pub fn has_marks(&self, scope: &str) -> bool {
+        self.marks.get(scope).is_some_and(|m| !m.is_empty())
+    }
+
+    /// Scope `to`, with nothing marked yet, given the marks of scopes `from`, oldest first: a later one's mark of a
+    /// file over an earlier one's. The marks keep their fingerprints, so a file changed since turns `↻`. Whether
+    /// any moved.
+    pub fn carry(&mut self, from: &[String], to: &str) -> bool {
+        if self.has_marks(to) {
+            return false;
+        }
+        let mut carried: HashMap<String, Mark> = HashMap::new();
+        for key in from {
+            if let Some(files) = self.marks.get(key) {
+                carried.extend(files.iter().map(|(path, m)| (path.clone(), *m)));
+            }
+        }
+        if carried.is_empty() {
+            return false;
+        }
+        self.marks.insert(to.to_owned(), carried);
+        self.prune(to);
+        self.save();
+        true
+    }
+
     fn prune(&mut self, scope: &str) {
         cap(&mut self.marks, 300, scope, |files| {
             files.values().map(|m| m.time).max().unwrap_or(0)
@@ -853,9 +894,46 @@ impl Review {
             .is_some_and(|r| self.reviewed.head_done(&r.display().to_string(), head))
     }
 
+    /// A branch's ticks made while comparisons were kept by commit (before #209), carried to its name once: those of
+    /// every old comparison of the same branch — its head one of this head's commits, its base one of this base's —,
+    /// oldest first.
+    fn carry_old_marks(&mut self) {
+        let (Some(scope), Some(root)) = (self.review_scope.clone(), self.root.clone()) else {
+            return;
+        };
+        let Some(Header::Compare {
+            base,
+            head,
+            request: None,
+            ..
+        }) = self.diff.as_ref().map(|d| &d.header)
+        else {
+            return;
+        };
+        let (base, head) = (base.1, head.1);
+        if self.reviewed.has_marks(&scope) {
+            return;
+        }
+        let old = self.reviewed.old_ranges(&root.display().to_string());
+        if old.is_empty() {
+            return;
+        }
+        let Ok(repo) = artoo_core::git::Repo::open(&root) else {
+            return;
+        };
+        let mut from: Vec<(i64, String)> = (old.into_iter())
+            .filter(|(_, b, h)| repo.contains(head, *h) && repo.contains(base, *b))
+            .map(|(key, _, h)| (repo.commit(h).map_or(0, |c| c.time), key))
+            .collect();
+        from.sort();
+        let from: Vec<String> = from.into_iter().map(|(_, key)| key).collect();
+        self.reviewed.carry(&from, &scope);
+    }
+
     /// Called when a diff arrives: its scope and the fingerprint of each file.
     pub fn index(&mut self) {
         self.review_scope = self.review_scope();
+        self.carry_old_marks();
         (self.fps, self.legacy_fps) = match (&self.review_scope, &self.diff) {
             (Some(_), Some(d)) => (
                 d.files.iter().map(fingerprint).collect(),
@@ -1043,6 +1121,37 @@ mod tests {
         assert!(store.read_in_commits("/r", "c.rs"));
         assert!(store.read_in_commit("/r", "c.rs", commit));
         assert!(!store.read_in_commit("/r", "c.rs", v2));
+    }
+
+    #[test]
+    fn ticks_kept_by_commit_are_carried_to_the_branchs_name_once() {
+        let at = |n: u8| git2::Oid::from_bytes(&[n; 20]).unwrap();
+        let mut store = Store::default();
+        let (older, newer) = (
+            format!("/r|range:{}..{}", at(1), at(2)),
+            format!("/r|range:{}..{}", at(1), at(3)),
+        );
+        store.set(&older, "a.rs", 1, Some(at(2)));
+        store.set(&older, "b.rs", 2, Some(at(2)));
+        store.set(&newer, "a.rs", 11, Some(at(3)));
+        store.set("/r|commit:x", "c.rs", 3, None);
+        let mut old = store.old_ranges("/r");
+        old.sort();
+        let mut want = vec![(older.clone(), at(1), at(2)), (newer.clone(), at(1), at(3))];
+        want.sort();
+        assert_eq!(old, want);
+        assert!(store.old_ranges("/other").is_empty());
+        // Oldest first: the newer comparison's mark of a file over the older's.
+        let to = "/r|name:main...feature";
+        assert!(store.carry(&[older, newer], to));
+        let carried: HashMap<_, _> = store.marks[to]
+            .iter()
+            .map(|(p, m)| (p.as_str(), m.fp))
+            .collect();
+        assert_eq!(carried, HashMap::from([("a.rs", 11), ("b.rs", 2)]));
+        // Once: a scope with marks takes none.
+        assert!(!store.carry(&["/r|commit:x".to_owned()], to));
+        assert!(!store.carry(&[], "/r|name:main...empty"));
     }
 
     #[test]
