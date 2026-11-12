@@ -1,6 +1,6 @@
 //! Settings → Plugins (#175): each plugin found as Artoo started, what became of it and why, its switch, the plugins'
 //! folder, and the local list a plugin being written is tried from. A switch writes `plugins.txt` at once and takes effect at the next start: a plugin's code, once
-//! loaded, stays until the app quits.
+//! loaded, stays until the app quits. Its tools for agents alone leave at once (#213).
 
 use crate::crash::Crash;
 use crate::load::{Origin, Plugin, State};
@@ -114,20 +114,23 @@ fn parts(_: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     }
 }
 
-/// Turns `id` on or off for the next start, and writes it down.
+/// Turns `id` on or off for the next start, and writes it down; its tools for agents leave or come back at once.
 fn flip(id: &str, cx: &mut App) {
     let loaded = cx.global_mut::<Loaded>();
-    if !loaded.off.remove(id) {
+    let off = !loaded.off.remove(id);
+    if off {
         loaded.off.insert(id.to_owned());
     }
     crate::load::save_off(&loaded.off);
+    artoo_plugin_api::tools::set_off(cx, id, off);
 }
 
-/// Turns `id` off for the next start (the card's button).
+/// Turns `id` off for the next start (the card's button); its tools for agents leave at once.
 pub(crate) fn turn_off(id: &str, cx: &mut App) {
     let loaded = cx.global_mut::<Loaded>();
     loaded.off.insert(id.to_owned());
     crate::load::save_off(&loaded.off);
+    artoo_plugin_api::tools::set_off(cx, id, true);
 }
 
 /// Asks for a plugin's project folder or library and adds it to the local list, for the next start.

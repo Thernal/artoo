@@ -73,7 +73,9 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   loads no plugin: the first window says its plugins' tools in its presence (`Presence::tools`, on the beat in
   `src/ui/shell.rs`), the server lists them after its own and leaves a call for that process in the agents' folder
   (`Bus::call_tool`, `calls/<uid>.json`); the beat takes it (`Folder::calls`), runs the tool and answers
-  (`<uid>.answer`). The SDK gives plugins `serde_json` for the arguments.
+  (`<uid>.answer`). The SDK gives plugins `serde_json` for the arguments. A plugin turned off in Settings takes its
+  tools from the list at once and on again brings them back (`tools::set_off`, the switch's), and the server tells
+  the agent when the plugins' tools change (`listChanged`, `watch_tools`: every 2 s once the client is initialized).
 - **A plugin's themes** (#204): theme files a plugin hands `artoo_ui_kit::theme::add_plugin_themes` as it installs,
   read as the themes folder's (`artoo_core::themes::resolve_with`), listed under From plugins between the built-in ones
   and yours; one taking a name already taken is left out.

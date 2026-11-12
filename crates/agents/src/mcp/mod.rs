@@ -460,7 +460,7 @@ fn handle(hosts: &dyn Hosts, bus: &Bus, exe: &str, message: &Value) -> Option<Va
     let result = match message["method"].as_str().unwrap_or_default() {
         "initialize" => json!({
             "protocolVersion": message["params"]["protocolVersion"].as_str().unwrap_or(PROTOCOL),
-            "capabilities": {"tools": {}},
+            "capabilities": {"tools": {"listChanged": true}},
             "serverInfo": {"name": "artoo", "version": env!("CARGO_PKG_VERSION")},
             "instructions": instructions(exe),
         }),
@@ -484,6 +484,34 @@ fn handle(hosts: &dyn Hosts, bus: &Bus, exe: &str, message: &Value) -> Option<Va
     Some(json!({"jsonrpc": "2.0", "id": id, "result": result}))
 }
 
+/// Every 2 s, whether the plugins' tools changed — a plugin turned off or on, a window gone —: said to the agent,
+/// which lists them again (`notifications/tools/list_changed`, #213).
+fn watch_tools(bus: Bus) {
+    std::thread::spawn(move || {
+        let names = |bus: &Bus| {
+            let mut names: Vec<String> = (plugin_tools(bus).into_iter())
+                .map(|(_, t)| t.name)
+                .collect();
+            names.sort();
+            names
+        };
+        let mut said = names(&bus);
+        loop {
+            std::thread::sleep(Duration::from_secs(2));
+            let now = names(&bus);
+            if now == said {
+                continue;
+            }
+            said = now;
+            let note = json!({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"});
+            let mut out = std::io::stdout().lock();
+            if writeln!(out, "{note}").and_then(|_| out.flush()).is_err() {
+                return;
+            }
+        }
+    });
+}
+
 /// The server on stdin and stdout, reading requests through `hosts`.
 pub fn run(hosts: Arc<dyn Hosts>) {
     let Some(bus) = Bus::new() else {
@@ -494,15 +522,21 @@ pub fn run(hosts: Arc<dyn Hosts>) {
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "artoo".into());
     let stdin = std::io::stdin();
-    let mut stdout = std::io::stdout();
+    let mut watching = false;
     for line in stdin.lock().lines() {
         let Ok(line) = line else { break };
         let Ok(message) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
+        // Said only once the client is ready for what the server says unasked.
+        if !watching && message["method"] == "notifications/initialized" {
+            watching = true;
+            watch_tools(bus.clone());
+        }
         if let Some(reply) = handle(&*hosts, &bus, &exe, &message) {
-            let _ = writeln!(stdout, "{reply}");
-            let _ = stdout.flush();
+            let mut out = std::io::stdout().lock();
+            let _ = writeln!(out, "{reply}");
+            let _ = out.flush();
         }
     }
 }

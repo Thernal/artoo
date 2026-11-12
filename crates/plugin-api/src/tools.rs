@@ -4,9 +4,12 @@
 //!
 //! A tool's name is the plugin's namespace, a dot and a name (`jira.issue`); the namespace is the first plugin's to
 //! use it. An agent calls it with the dot as `_` (`jira_issue`): tool names take no dot. A plugin that stops as it
-//! installs takes its tools with it (`drop_of`); one turned off is not loaded, so its tools are not there.
+//! installs takes its tools with it (`drop_of`); one off as Artoo starts is not loaded, so its tools are not there; one
+//! turned off in Settings takes them from the list at once and they come back when it is turned on again, its code
+//! staying until the app quits (`set_off`).
 
 use gpui::{App, Global, Task};
+use std::collections::BTreeSet;
 use std::rc::Rc;
 
 /// A tool's answer to its arguments (a JSON object, as text): text for the agent, or why not.
@@ -45,6 +48,15 @@ struct Tools {
     list: Vec<Entry>,
     /// The plugin installing now, whose the tools added are.
     installing: Option<String>,
+    /// The plugins turned off since they installed: their tools are neither listed nor called.
+    off: BTreeSet<String>,
+}
+
+impl Tools {
+    /// The tools of the plugins on.
+    fn on(&self) -> impl Iterator<Item = &Entry> {
+        self.list.iter().filter(|e| !self.off.contains(&e.owner))
+    }
 }
 
 impl Global for Tools {}
@@ -103,10 +115,20 @@ pub fn drop_of(cx: &mut App, id: &str) {
     }
 }
 
+/// Plugin `id` turned off in Settings (`off`), or on again: its tools leave the list at once, or come back (#213).
+pub fn set_off(cx: &mut App, id: &str, off: bool) {
+    let tools = cx.default_global::<Tools>();
+    if off {
+        tools.off.insert(id.to_owned());
+    } else {
+        tools.off.remove(id);
+    }
+}
+
 /// The tools there now, as the MCP server lists them.
 pub fn listed(cx: &App) -> Vec<Listed> {
     (cx.try_global::<Tools>().into_iter())
-        .flat_map(|t| &t.list)
+        .flat_map(Tools::on)
         .map(|e| Listed {
             name: mcp_name(e.tool.name),
             description: e.tool.description.to_owned(),
@@ -119,8 +141,7 @@ pub fn listed(cx: &App) -> Vec<Listed> {
 /// Tool `name` (as an agent calls it) run on `args`; None when no tool has the name.
 pub fn call(cx: &mut App, name: &str, args: String) -> Option<Task<Result<String, String>>> {
     let call = (cx.try_global::<Tools>())?
-        .list
-        .iter()
+        .on()
         .find(|e| mcp_name(e.tool.name) == name)
         .map(|e| e.tool.call.clone())?;
     Some(call(args, cx))
@@ -191,6 +212,30 @@ mod tests {
             drop_of(cx, "artoo-tasks");
             assert!(listed(cx).is_empty());
             assert!(call(cx, "jira_issue", "{}".into()).is_none());
+        });
+    }
+
+    #[gpui::test]
+    fn a_plugin_turned_off_takes_its_tools_at_once_and_on_again_brings_them(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            installing(cx, Some("artoo-tasks"));
+            add(cx, tool("jira.issue", "issue")).unwrap();
+            installing(cx, Some("other"));
+            add(cx, tool("trello.card", "card")).unwrap();
+            installing(cx, None);
+            set_off(cx, "artoo-tasks", true);
+            let names: Vec<_> = listed(cx).into_iter().map(|l| l.name).collect();
+            assert_eq!(names, ["trello_card"]);
+            assert!(call(cx, "jira_issue", "{}".into()).is_none());
+            // Its namespace stays its own while its code is loaded.
+            installing(cx, Some("third"));
+            assert!(add(cx, tool("jira.board", "board")).is_err());
+            installing(cx, None);
+            set_off(cx, "artoo-tasks", false);
+            assert_eq!(listed(cx).len(), 2);
+            assert!(call(cx, "jira_issue", "{}".into()).is_some());
         });
     }
 }
