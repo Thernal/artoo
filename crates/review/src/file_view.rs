@@ -8,8 +8,9 @@ use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::{ROW_RADIUS, format, icons, keys, px, theme};
 use git2::Oid;
 use gpui::{
-    AnyElement, App, ClickEvent, Context, Entity, FontStyle, HighlightStyle, ListAlignment,
-    ListState, SharedString, StyledText, Task, WeakEntity, div, img, list, prelude::*,
+    AnyElement, App, Bounds, ClickEvent, Context, Entity, FontStyle, HighlightStyle, Hsla,
+    ListAlignment, ListState, Pixels, SharedString, StyledText, Task, WeakEntity, div, img, list,
+    point, prelude::*, size,
 };
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -53,6 +54,29 @@ pub enum Row {
     Note(u64),
     Composer,
     Peek,
+}
+
+/// The line row `ix` is, or the one it is under (a note, the composer, a peek); `ix` itself before the rows are drawn.
+fn line_of_row(rows: &[Row], ix: usize) -> usize {
+    if rows.is_empty() {
+        return ix;
+    }
+    (rows[..=ix.min(rows.len() - 1)].iter().rev())
+        .find_map(|r| match r {
+            Row::Line(n) => Some(*n),
+            _ => None,
+        })
+        .unwrap_or(0)
+}
+
+/// The row line `line` is in, or the next line's; `line` itself before the rows are drawn.
+fn row_of_line(rows: &[Row], line: usize) -> usize {
+    if rows.is_empty() {
+        return line;
+    }
+    (rows.iter())
+        .position(|r| matches!(r, Row::Line(n) if *n >= line))
+        .unwrap_or(rows.len() - 1)
 }
 
 /// What the lines of the file at `path` select as, one text across its rows (#93): where a caret in it is.
@@ -300,6 +324,8 @@ impl Review {
                             image,
                             binary,
                         });
+                        // The find open as it came finds in its lines too: its count, its marks on the minimap.
+                        rv.recompute_matches();
                         ReviewEvent::FileRead
                     }
                     None => ReviewEvent::Failed(format!("{path} is not in this version.")),
@@ -359,6 +385,12 @@ impl Review {
     pub fn reveal_file_line(&mut self, line: u32, notes: &FileNotes) {
         let peek = self.peek.as_ref().map(|p| p.line);
         self.file_target = (line as usize).checked_sub(1);
+        // A line the find holds is its current one (a line the repository's search opened, #206).
+        if let Some(at) =
+            (self.file_target).and_then(|n| self.file_matches.iter().position(|&m| m == n))
+        {
+            self.match_at = at;
+        }
         let Some(view) = self.file_view.as_mut() else {
             return;
         };
@@ -663,111 +695,166 @@ impl Review {
         )
     }
 
-    /// The minimap (#206): the file drawn small — each line a bar as long as its text —, the lines that differ from
-    /// HEAD in its gutter, the find's hits over it (the current one stronger), and a slider over what is on screen,
-    /// shown on hover. A click or a drag scrolls there.
+    /// The minimap (#206, Design `explore/audit/code.js`): the file drawn small — a line 4 px high, a char 1.2 px wide,
+    /// each run of characters in its own colour, after a 6 px gutter where a line that differs from HEAD has its bar
+    /// —, the find's hits over it at their columns (the current line's whole), and a slider over what is on screen
+    /// while the pointer is over it. A file taller than the minimap scrolls in it with the page, and only the lines in
+    /// view are drawn. A click or a drag scrolls there.
     fn render_minimap(&self, view: &FileView, this: WeakEntity<Review>) -> AnyElement {
-        const BUCKETS: usize = 240;
         const WIDTH: f32 = 72.;
-        let total = view.lines.len().max(1);
-        let per = total.div_ceil(BUCKETS).max(1);
-        let buckets = total.div_ceil(per);
-        let share = |n: usize| n as f32 / total as f32;
-        let mut shape = Vec::with_capacity(buckets);
-        for b in 0..buckets {
-            let lines = &view.lines[b * per..((b + 1) * per).min(view.lines.len())];
-            let longest = lines.iter().map(|l| l.trim_end().len()).max().unwrap_or(0);
-            let indent = (lines.iter())
-                .map(|l| l.len() - l.trim_start().len())
-                .min()
-                .unwrap_or(0);
-            shape.push((indent.min(60), longest.min(100)));
-        }
-        let band = 1. / buckets as f32;
-        let bars = shape
-            .into_iter()
-            .enumerate()
-            .filter(|(_, (_, w))| *w > 0)
-            .map(|(b, (indent, w))| {
-                div()
-                    .absolute()
-                    .top(gpui::relative(b as f32 * band))
-                    .h(gpui::relative(band * 0.7))
-                    .left(px(8. + indent as f32 * 0.5))
-                    .w(px((w.saturating_sub(indent)) as f32 * 0.55))
-                    .bg(theme::faint())
-                    .opacity(0.35)
-            });
-        let changed = (view.changed.iter()).map(|&n| {
-            div()
-                .absolute()
-                .top(gpui::relative(share(n)))
-                .h(px(2.))
-                .left_0()
-                .w(px(3.))
-                .bg(theme::added())
-        });
-        let current = self.file_matches.get(self.match_at).copied();
-        let hits = self.file_matches.iter().map(|&n| {
-            div()
-                .absolute()
-                .top(gpui::relative(share(n)))
-                .h(px(2.))
-                .left(px(6.))
-                .right_0()
-                .bg(if Some(n) == current {
-                    theme::warning()
-                } else {
-                    theme::warning_bg()
-                })
-        });
-        // What is on screen: the rows from the list's top, as many as fit.
-        let top = view.list.logical_scroll_top().item_ix;
-        let seen = (f32::from(view.list.viewport_bounds().size.height) / (self.code_size() * 1.55))
-            .max(1.);
-        let (from, span) = (share(top.min(total)), (seen / total as f32).min(1.));
+        let (lh, cw, gutter, top) = (
+            f32::from(px(4.)),
+            f32::from(px(1.2)),
+            f32::from(px(6.)),
+            f32::from(px(8.)),
+        );
+        let total = view.text.len().max(1);
+        let shown = view.shown.borrow().clone();
+        // The first line on screen, and how many lines the screen holds.
+        let first = line_of_row(&shown, view.list.logical_scroll_top().item_ix);
+        let row = f32::from(px((self.code_size() * 1.55).round()));
+        let seen = (f32::from(view.list.viewport_bounds().size.height) / row).max(1.);
+        // How far the minimap's lines are scrolled up in `room`: none while they fit, else as far as the page is down.
+        let offset = move |room: f32| {
+            let height = total as f32 * lh;
+            if height <= room {
+                return 0.;
+            }
+            let span = (total as f32 - seen).max(1.);
+            (first as f32 / span).clamp(0., 1.) * (height - room)
+        };
+        // The first line a press at `y` puts on screen: the slider's middle under the pointer.
+        let aim = move |y: f32, bounds: Bounds<Pixels>| {
+            let room = f32::from(bounds.size.height) - top;
+            let at = y - f32::from(bounds.origin.y) - top;
+            let slider = (seen * lh).min(room);
+            let line = if total as f32 * lh <= room {
+                at / lh - seen / 2.
+            } else {
+                ((at - slider / 2.) / (room - slider).max(1.)).clamp(0., 1.)
+                    * (total as f32 - seen).max(0.)
+            };
+            line.max(0.) as usize
+        };
+        let (text, changed, terms) = (view.text.clone(), view.changed.clone(), self.dterms.clone());
+        let (matches, current) = (
+            self.file_matches.clone(),
+            self.file_matches.get(self.match_at).copied(),
+        );
+        let paint = move |bounds: Bounds<Pixels>, _: (), window: &mut gpui::Window, _: &mut App| {
+            let left = f32::from(bounds.origin.x);
+            let right = left + f32::from(bounds.size.width);
+            let y0 = f32::from(bounds.origin.y) + top;
+            let room = f32::from(bounds.size.height) - top;
+            let up = offset(room);
+            let from = ((up / lh) as usize).min(text.len());
+            let to = (((up + room) / lh).ceil() as usize).min(text.len());
+            let quad = |window: &mut gpui::Window, x: f32, y: f32, w: f32, h: f32, color: Hsla| {
+                window.paint_quad(gpui::fill(
+                    Bounds::new(
+                        point(gpui::px(x), gpui::px(y)),
+                        size(gpui::px(w), gpui::px(h)),
+                    ),
+                    color,
+                ));
+            };
+            let faded = |c: Hsla, by: f32| Hsla { a: c.a * by, ..c };
+            let plain: Hsla = theme::code_text().into();
+            for n in from..to {
+                let y = y0 + n as f32 * lh - up;
+                let (line, spans) = &text[n];
+                // Each run of characters of one colour, a space ending it.
+                let mut run: Option<(usize, Hsla)> = None;
+                let mut col = 0usize;
+                let mut at = 0usize;
+                let flush = |window: &mut gpui::Window, run: Option<(usize, Hsla)>, col: usize| {
+                    if let Some((start, color)) = run {
+                        let x = left + gutter + start as f32 * cw;
+                        let w = ((col - start) as f32 * cw).min(right - x);
+                        quad(window, x, y, w, lh - 1., faded(color, 0.85));
+                    }
+                };
+                for (b, ch) in line.char_indices() {
+                    if left + gutter + col as f32 * cw > right {
+                        break;
+                    }
+                    while at < spans.len() && spans[at].range.end <= b {
+                        at += 1;
+                    }
+                    let color = match spans.get(at) {
+                        Some(s) if s.range.start <= b => theme::code(s.color),
+                        _ => plain,
+                    };
+                    if ch.is_whitespace() {
+                        flush(window, run.take(), col);
+                    } else if run.is_none_or(|(_, c)| c != color) {
+                        flush(window, run.take(), col);
+                        run = Some((col, color));
+                    }
+                    col += 1;
+                }
+                flush(window, run, col);
+                if changed.contains(&n) {
+                    quad(window, left, y, 3., lh, theme::added().into());
+                }
+            }
+            // The find's hits in view, at their columns.
+            let attention: Hsla = theme::warning().into();
+            let lo = matches.partition_point(|&n| n < from);
+            let hi = matches.partition_point(|&n| n < to);
+            for &n in &matches[lo..hi] {
+                let line = &text[n].0;
+                let y = y0 + n as f32 * lh - up;
+                for range in terms.ranges(line) {
+                    let x = left + gutter + line[..range.start].chars().count() as f32 * cw;
+                    let w = (line[range].chars().count() as f32 * cw).max(3.);
+                    if Some(n) == current {
+                        quad(window, x - 1., y - 2., w + 2., lh + 3., attention);
+                    } else {
+                        quad(window, x, y - 1., w, lh + 1., faded(attention, 0.6));
+                    }
+                }
+            }
+            // What is on screen, while the pointer is over the minimap.
+            if bounds.contains(&window.mouse_position()) {
+                let y = y0 + first as f32 * lh - up;
+                let h = (seen * lh).min(room);
+                quad(
+                    window,
+                    left,
+                    y,
+                    right - left,
+                    h,
+                    faded(theme::text().into(), 0.16),
+                );
+            }
+        };
         let list = view.list.clone();
-        let rows = view.shown.borrow().len().max(total);
-        let scroll = move |y: f32, bounds: gpui::Bounds<gpui::Pixels>| {
-            let at =
-                ((y - f32::from(bounds.origin.y)) / f32::from(bounds.size.height)).clamp(0., 1.);
-            let row = (at * rows as f32) as usize;
+        let rows = shown.clone();
+        let scroll = move |y: f32, bounds: Bounds<Pixels>| {
+            let line = aim(y, bounds);
             list.scroll_to(gpui::ListOffset {
-                item_ix: row.saturating_sub((seen / 2.) as usize),
-                offset_in_item: px(0.),
+                item_ix: row_of_line(&rows, line),
+                offset_in_item: gpui::px(0.),
             });
         };
         let (down, drag) = (scroll.clone(), scroll);
         let (that, those) = (this.clone(), this);
-        // Where the minimap is, read as it is laid out: a click's place in it.
-        let place: Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>> = Rc::default();
+        // Where the minimap is, read as it is laid out: a press's place in it.
+        let place: Rc<std::cell::Cell<Bounds<Pixels>>> = Rc::default();
         let (keep, at_down, at_drag) = (place.clone(), place.clone(), place);
         div()
             .id("minimap")
-            .group("minimap")
             .relative()
             .flex_none()
             .w(px(WIDTH))
             .h_full()
-            .border_l_1()
-            .border_color(theme::island_border())
+            .overflow_hidden()
             .cursor_pointer()
-            .children(bars)
-            .children(changed)
-            .children(hits)
+            // Its hover drawn again as the pointer comes and goes: the slider shows with it.
+            .hover(|s| s.bg(gpui::transparent_black()))
             .child(
-                div()
-                    .absolute()
-                    .left_0()
-                    .right_0()
-                    .top(gpui::relative(from))
-                    .h(gpui::relative(span))
-                    .bg(theme::hover())
-                    .invisible()
-                    .group_hover("minimap", |s| s.visible()),
-            )
-            .child(
-                gpui::canvas(move |bounds, _, _| keep.set(bounds), |_, _, _, _| {})
+                gpui::canvas(move |bounds, _, _| keep.set(bounds), paint)
                     .absolute()
                     .size_full(),
             )

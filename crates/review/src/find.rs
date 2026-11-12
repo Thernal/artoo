@@ -144,7 +144,13 @@ impl Review {
                 .collect(),
             _ => Vec::new(),
         };
-        self.match_at = self.match_at.min(self.matches.len().saturating_sub(1));
+        // Within the list it counts in: the file's lines in Code, else the diff's rows.
+        let counted = if self.file_lines_shown() {
+            self.file_matches.len()
+        } else {
+            self.matches.len()
+        };
+        self.match_at = self.match_at.min(counted.saturating_sub(1));
         let mut changes = Vec::new();
         let mut inside = false;
         for (ix, row) in self.rows.iter().enumerate() {

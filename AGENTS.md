@@ -20,8 +20,10 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   (`Settings::hidden_bar`, #205); the fetch status's right click retries or stops fetching. Tabs are as wide
   as the project's `.editorconfig` says, each review its own (`Review::tab`, `artoo_core::rows::tab_width_of`).
 - **Reading a file in Code** (#206, `crates/review/src/file_view.rs`): ⌘F finds in its lines (`Review::file_matches`,
-  the diff's find bar and field), a minimap at its right (`render_minimap`: the file small, hits, lines changed since
-  HEAD — `changed_since_head` —, a slider on hover, click and drag scroll). ⌥⌘F searches every file git knows in the
+  the diff's find bar and field), a minimap at its right (`render_minimap`: the file small — a line 4 px, a char 1.2 px, each
+  run of characters in its colour, painted on a canvas for the lines in view only, scrolling with the page when the
+  file is taller —, the find's hits at their columns, lines changed since HEAD — `changed_since_head` —, a slider on
+  hover, click and drag scroll). ⌥⌘F searches every file git knows in the
   working tree in the review's tool window (`find_files.rs`, `artoo_review_api::SEARCH`, first on the stripe; its
   title names the repository, `Tool::heading`): lines grouped by file, a head folds its group, each line coloured
   alone with every hit marked; ↑ ↓ ↵ or a click open a line (`ReviewEvent::InFiles`) in the diff or in Code and the
