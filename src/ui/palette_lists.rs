@@ -213,8 +213,13 @@ fn recent(tab: WeakEntity<Workspace>) -> Finds {
             .map(|o| (o.item.clone(), this.open_words(o, cx)))
             .filter(|(_, (label, detail))| matches(&words, &format!("{label} {detail}")))
             .map(|(item, (label, detail))| {
+                let glyph = page_glyph(super::nav::Page::from_route(&item).as_ref());
                 let open = doing(&picks, move |this, cx| this.show_open(&item, cx));
-                Find::new("Open", label, detail, open)
+                let find = Find::new("Open", label, detail, open);
+                match glyph {
+                    Some(glyph) => find.glyph(glyph),
+                    None => find,
+                }
             });
         let places = (this.recents.iter())
             .filter(|r| !matches!(r.key, super::recents::Key::Request(iid) if open_requests.contains(&iid)))
@@ -234,7 +239,8 @@ fn recent(tab: WeakEntity<Workspace>) -> Finds {
                 let find = Find::new("Recent", r.label.clone(), r.detail.clone(), open);
                 match &r.key {
                     super::recents::Key::File { path, .. } => find.file(path.clone()),
-                    _ => find,
+                    super::recents::Key::Commit(_) => find.glyph("commit"),
+                    super::recents::Key::Request(_) => find.glyph("pull-request"),
                 }
             });
         let mut finds: Vec<Find> = open.chain(places).collect();
@@ -246,6 +252,19 @@ fn recent(tab: WeakEntity<Workspace>) -> Finds {
             find.current = true;
         }
         finds
+    })
+}
+
+/// The icon a page open wears in ⌘K (#192): a request's, a branch's, a commit's; a file's comes from its path.
+fn page_glyph(page: Option<&super::nav::Page>) -> Option<&'static str> {
+    use super::nav::Page;
+    Some(match page? {
+        Page::Request(_) | Page::RequestVersions(..) => "pull-request",
+        Page::RequestCommit(..) | Page::RequestCommits(..) => "commit",
+        Page::BranchCommit(..) | Page::BranchCommits(..) => "commit",
+        Page::Branch(_) | Page::Versions(..) | Page::Compare(..) | Page::WorkingTree => "branch",
+        Page::File(_) => "file",
+        Page::Folder(_) => "folder",
     })
 }
 

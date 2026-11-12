@@ -25,8 +25,10 @@ pub struct Entry {
     pub key: Key,
     pub label: String,
     pub detail: String,
-    /// The line gone to in it, a file's.
+    /// The line gone to in it, a file's: where it was left (#192).
     pub line: Option<u32>,
+    /// A file's request or folder, its detail before the line.
+    owner: String,
 }
 
 const KEEP: usize = 30;
@@ -34,10 +36,17 @@ const KEEP: usize = 30;
 impl Workspace {
     /// Puts a place first in the list (the same place twice is one entry).
     pub(super) fn remember_place(&mut self, key: Key, label: String, detail: String) {
-        self.remember_at(key, label, detail, None);
+        self.remember_at(key, label, detail, String::new(), None);
     }
 
-    fn remember_at(&mut self, key: Key, label: String, detail: String, line: Option<u32>) {
+    fn remember_at(
+        &mut self,
+        key: Key,
+        label: String,
+        detail: String,
+        owner: String,
+        line: Option<u32>,
+    ) {
         self.recents.retain(|e| e.key != key);
         self.recents.insert(
             0,
@@ -46,9 +55,40 @@ impl Workspace {
                 label,
                 detail,
                 line,
+                owner,
             },
         );
         self.recents.truncate(KEEP);
+    }
+
+    /// The file on screen is being left (another page, another file): its place in Recent keeps the line it is at
+    /// (#192), Code's the top line shown, a diff's the change the keyboard is at.
+    pub(super) fn keep_line(&mut self, cx: &App) {
+        let Some((path, line)) = self.line_here(cx) else {
+            return;
+        };
+        let entry = (self.recents.iter_mut())
+            .find(|e| matches!(&e.key, Key::File { path: p, .. } if *p == path));
+        if let Some(entry) = entry {
+            entry.line = Some(line);
+            entry.detail = file_detail(&entry.owner, Some(line));
+        }
+    }
+
+    /// The file the page reads and the line it is at, as Open in opens it (`open_target`).
+    fn line_here(&self, cx: &App) -> Option<(String, u32)> {
+        use super::nav::{Page, Section};
+        match (self.nav.space, self.shown_page()) {
+            (super::spaces::CODE, Some(Page::File(path))) => {
+                let line = self.file_top_line(&path, cx);
+                Some((path, line))
+            }
+            (super::spaces::CODE, _) => None,
+            (_, Some(_)) if matches!(self.page_tab(cx), None | Some(Section::Changes)) => {
+                Some((self.current_path(cx)?, self.rv().change_line(cx)?))
+            }
+            _ => None,
+        }
     }
 
     /// File `path` chosen (at `line`): kept with the request on screen, said `AuthApi.kt  !398 · line 23`.
@@ -62,16 +102,18 @@ impl Workspace {
             || path.rsplit_once('/').map_or("", |(dir, _)| dir).to_owned(),
             super::words::number,
         );
-        let detail = match line {
-            Some(line) if owner.is_empty() => format!("line {line}"),
-            Some(line) => format!("{owner} · line {line}"),
-            None => owner,
-        };
         let key = Key::File {
             path: path.to_owned(),
             request,
         };
-        self.remember_at(key, name, detail, line);
+        // Chosen again without a line, it keeps the one it was left at.
+        let line = line.or_else(|| {
+            (self.recents.iter())
+                .find(|e| e.key == key)
+                .and_then(|e| e.line)
+        });
+        let detail = file_detail(&owner, line);
+        self.remember_at(key, name, detail, owner, line);
     }
 
     /// Goes back to a place — a file to its request and line —; says so when it is not in what is open now.
@@ -121,5 +163,14 @@ impl Workspace {
             },
             Key::Request(iid) => self.open_request(iid, cx),
         }
+    }
+}
+
+/// A file's detail in Recent: `!398 · line 23`, `core/network · line 23`, or its owner alone.
+fn file_detail(owner: &str, line: Option<u32>) -> String {
+    match line {
+        Some(line) if owner.is_empty() => format!("line {line}"),
+        Some(line) => format!("{owner} · line {line}"),
+        None => owner.to_owned(),
     }
 }

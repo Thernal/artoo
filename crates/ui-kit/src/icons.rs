@@ -75,6 +75,11 @@ const ICONS: &[(&str, &str)] = &[
         ),
     ),
     ("check", lucide!(r#"<path d="M20 6 9 17l-5-5"/>"#)),
+    // ⌘K's Next merge request (#192).
+    (
+        "down",
+        lucide!(r#"<path d="M12 5v14"/>"# r#"<path d="m19 12-7 7-7-7"/>"#),
+    ),
     (
         "x",
         lucide!(r#"<path d="M18 6 6 18"/><path d="m6 6 12 12"/>"#),

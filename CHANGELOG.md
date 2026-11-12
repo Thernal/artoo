@@ -109,11 +109,11 @@ for someone using the app, not for someone reading the code; the commits follow 
   buttons; ⌃⌘ shows the spaces'. Settings → Keyboard turns these helpers off. Settings → Keyboard reads by headings —
   Move, Comment, Find, View, Requests, App — with the menu's names, Change on the row you point at, and a clash says
   which command it shares the key with. Create merge request moves to ⇧⌘M, its key in its tooltip.
-- **⌘K knows where you are.** Opened empty it lists `Here` — on a request `Approve this merge request`, `Submit
-  review`, `Merge…`, `Copy link`, `Next merge request`, each with its key — then `Recent`, the places you last chose,
-  a file with the request it was in (`AuthApi.kt  !398 · line 23`). Approve, reply, resolve, edit, react and the
-  other acts are in it now, and a command that matches what you typed comes first. The title bar's field reads
-  `Search or run an action`.
+- **⌘K knows where you are.** Opened empty it lists `Here` — on a request `Approve this merge request`, `Submit review`,
+  `Merge…`, `Copy link`, `Next merge request`, each with its key — then `Recent`, the places you last chose, a file with
+  the request it was in and the line you left it at (`AuthApi.kt !398 · line 23`), each row with its icon. Approve,
+  reply, resolve, edit, react and the other acts are in it now, and a command that matches what you typed comes first.
+  The title bar's field reads `Search or run an action`, and ⌘K's own field `Search`.
 - **The keyboard goes further in a request.** `c` with nothing typed stands on the change you are at — `Comment on line
   47`, ↵ writes there —, ⇧↑ ⇧↓ stretch it over lines, and `n` `p` (and F7) carry on into the next file. The discussion
   the keys act on wears a ring: a click or ⇧N gives it, esc lets it go, and `x` on it says `Resolved ·

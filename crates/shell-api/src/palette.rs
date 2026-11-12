@@ -16,6 +16,8 @@ pub struct Row {
     pub key: String,
     /// A file's path: its icon before it (#95).
     pub icon: Option<String>,
+    /// An icon by the kit's name before it, a command's or a place's (#192).
+    pub glyph: Option<&'static str>,
     /// A file or a repository: its name, then its folder right after it, cut first.
     pub file: bool,
     /// A face, drawn in itself (#24).

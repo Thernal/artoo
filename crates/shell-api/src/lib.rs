@@ -86,6 +86,10 @@ pub struct Action {
     pub act: Box<dyn gpui::Action>,
     /// What ⌘K lists ("Check for updates"); none, it is not there.
     pub words: Option<&'static str>,
+    /// What ⌘K's `Here` says on the page it acts on, when shorter than `words` ("Merge…", #192).
+    pub here: Option<&'static str>,
+    /// The icon its row in ⌘K wears, by the kit's name (`check`).
+    pub icon: Option<&'static str>,
     /// Where ⌘K lists it, the lowest first; those of one order as they were offered.
     pub order: u16,
     /// The keys it ships with, each where it applies; Settings → Keyboard changes them.
@@ -104,6 +108,8 @@ impl Action {
             id,
             act: Box::new(act),
             words: None,
+            here: None,
+            icon: None,
             order: LATER,
             keys: Vec::new(),
             menu: None,
@@ -114,6 +120,22 @@ impl Action {
     pub fn words(self, words: &'static str) -> Self {
         Self {
             words: Some(words),
+            ..self
+        }
+    }
+
+    /// Said `words` in ⌘K's `Here`, on the page it acts on.
+    pub fn here(self, words: &'static str) -> Self {
+        Self {
+            here: Some(words),
+            ..self
+        }
+    }
+
+    /// Its row in ⌘K wears icon `name` (the kit's).
+    pub fn icon(self, name: &'static str) -> Self {
+        Self {
+            icon: Some(name),
             ..self
         }
     }

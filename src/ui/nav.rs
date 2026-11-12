@@ -998,6 +998,7 @@ impl Workspace {
             let place = self.rv().place(cx);
             self.nav.jump(place);
         }
+        self.keep_line(cx);
         jump(self, cx);
         self.nav.landed();
     }
@@ -1058,6 +1059,7 @@ impl Workspace {
 
     /// Before the loaded request or branch makes way: where it was, for coming back to it.
     fn keep_place(&mut self, cx: &App) {
+        self.keep_line(cx);
         let Some(page) = self.loaded_page(cx) else {
             return;
         };

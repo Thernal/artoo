@@ -22,6 +22,9 @@ use gpui::{
 use std::cell::Cell;
 use std::rc::{Rc, Weak};
 
+/// The group ⌘K lists the page's commands under, nothing typed (#192).
+const HERE: &str = "Here";
+
 /// A tab of search everywhere: the window's own, or one offered (`Parts::searches`), by its id.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Scope {
@@ -59,6 +62,9 @@ enum Kind {
 struct Command {
     id: &'static str,
     words: &'static str,
+    /// What `Here` says, on the page it acts on.
+    here: Option<&'static str>,
+    icon: Option<&'static str>,
     act: Box<dyn Action>,
 }
 
@@ -74,6 +80,8 @@ fn commands(cx: &App) -> Vec<Command> {
         .map(|a| Command {
             id: a.id,
             words: a.words.unwrap_or_default(),
+            here: a.here,
+            icon: a.icon,
             act: a.act.boxed_clone(),
         })
         .collect()
@@ -100,6 +108,8 @@ struct Item {
     key: String,
     /// A file's path: its icon before it (#95).
     icon: Option<String>,
+    /// An icon by the kit's name before it (#192).
+    glyph: Option<&'static str>,
     /// Its words a name and its folder (a file, a repository).
     in_folder: bool,
     /// The face its row is drawn in (#24).
@@ -130,6 +140,7 @@ fn found_items(finds: Vec<Find>) -> Vec<Item> {
             key: f.key,
             in_folder: f.in_folder || f.file.is_some(),
             icon: f.file,
+            glyph: f.glyph,
             face: f.face,
             pick: Pick::Found {
                 open: f.open,
@@ -272,10 +283,11 @@ impl Machine {
         }
     }
 
+    /// The field says `Search` on All and Actions (#192), the tab lit over it saying what is searched; a scope offered
+    /// says how it finds.
     fn scope_placeholder(&self, scope: Scope) -> &'static str {
         match scope {
-            Scope::All => "Search everywhere — files, commits, branches, requests, actions",
-            Scope::Actions => "Actions — everything the app does, with its key",
+            Scope::All | Scope::Actions => "Search",
             Scope::Offered(id) => self.offered_search(id).map_or("", |s| s.placeholder),
         }
     }
@@ -450,19 +462,22 @@ impl Machine {
     }
 
     /// The commands offered that the palette's words match, under `group`: each in the words the tab says it in
-    /// now (Copy link naming the page), else its own.
+    /// now (Copy link naming the page), else its own; under `Here` in its short words, the page being the one it
+    /// acts on (#192).
     fn command_items(&self, group: &'static str, words: &[String], cx: &App) -> Vec<Item> {
         let frame = self.frame.upgrade();
+        let here = group == HERE;
         (self.commands.iter().enumerate())
             .filter(|(_, c)| matches(words, c.words))
             .map(|(ix, c)| Item {
                 group: group.into(),
-                label: (frame.as_ref())
-                    .and_then(|f| f.command_words(c.id, cx))
+                label: (c.here.filter(|_| here).map(str::to_owned))
+                    .or_else(|| frame.as_ref().and_then(|f| f.command_words(c.id, cx)))
                     .unwrap_or_else(|| c.words.to_owned()),
                 detail: String::new(),
                 key: String::new(),
                 icon: None,
+                glyph: c.icon,
                 in_folder: false,
                 face: None,
                 pick: Pick::Command(ix),
@@ -492,12 +507,12 @@ impl Machine {
     fn here_items(&self, cx: &App) -> Vec<Item> {
         let ids = (self.frame.upgrade()).map_or_else(Vec::new, |f| f.here(cx));
         let mut items: Vec<Item> = if ids.is_empty() {
-            self.command_items("Here", &[], cx)
+            self.command_items(HERE, &[], cx)
                 .into_iter()
                 .take(5)
                 .collect()
         } else {
-            let all = self.command_items("Here", &[], cx);
+            let all = self.command_items(HERE, &[], cx);
             ids.iter()
                 .filter_map(|id| {
                     let ix = self.commands.iter().position(|c| c.id == *id)?;
@@ -750,6 +765,7 @@ impl Render for Machine {
                     detail: item.detail.clone(),
                     key,
                     icon: item.icon.clone(),
+                    glyph: item.glyph,
                     file: item.in_folder,
                     face: item.face.clone(),
                 }

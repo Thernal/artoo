@@ -129,6 +129,8 @@ pub struct Find {
     pub file: Option<String>,
     /// Its words a name and the folder it is in, as a file's are, without a file's icon (a repository).
     pub in_folder: bool,
+    /// An icon by the kit's name before it (a commit's, a request's, #192).
+    pub glyph: Option<&'static str>,
     /// A face, its row drawn in it (#24).
     pub face: Option<SharedString>,
     /// The one in force (the theme on the window): its list opens on it.
@@ -148,6 +150,7 @@ impl Find {
             key: String::new(),
             file: None,
             in_folder: false,
+            glyph: None,
             face: None,
             current: false,
             tried: None,
@@ -162,6 +165,12 @@ impl Find {
 
     pub fn file(mut self, path: String) -> Self {
         self.file = Some(path);
+        self
+    }
+
+    /// Its row wears icon `name` (the kit's).
+    pub fn glyph(mut self, name: &'static str) -> Self {
+        self.glyph = Some(name);
         self
     }
 

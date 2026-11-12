@@ -103,12 +103,14 @@ pub(super) fn own() -> Vec<Action> {
     vec![
         Action::new("shell.open", Open)
             .words("Open a repository…")
+            .icon("open")
             .order(at(31))
             .key("cmd-o", APP)
             .menu(Bar::File, "Open Repository…")
             .at(1, 0),
         Action::new("shell.refresh", Refresh)
             .words("Refresh")
+            .icon("refresh")
             .order(at(30))
             .key("cmd-r", APP)
             .menu(Bar::File, "Refresh")
@@ -119,36 +121,42 @@ pub(super) fn own() -> Vec<Action> {
             .at(20, 0),
         Action::new("shell.settings", OpenSettings)
             .words("Settings")
+            .icon("settings")
             .order(at(57))
             .key("cmd-,", APP)
             .menu(Bar::App, "Settings…")
             .at(10, 0),
         Action::new("review.find", Find)
             .words("Find in the diff")
+            .icon("search")
             .order(at(18))
             .key("cmd-f", TAB)
             .menu(Bar::File, "Find in Diff…")
             .at(2, 0),
         Action::new("branches.find-commits", FindCommits)
             .words("Search commits")
+            .icon("commit")
             .order(at(28))
             .key("cmd-shift-f", TAB)
             .menu(Bar::File, "Find Commits…")
             .at(3, 0),
         Action::new("review.filter-files", FilterFiles)
             .words("Filter files by path")
+            .icon("files")
             .order(at(29))
             .key("cmd-alt-p", TAB)
             .menu(Bar::File, "Filter Files…")
             .at(3, 1),
         Action::new("shell.back", GoBack)
             .words("Back")
+            .icon("back")
             .order(at(33))
             .key("cmd-[", TAB)
             .menu(Bar::Go, "Back")
             .at(1, 0),
         Action::new("shell.forward", GoForward)
             .words("Forward")
+            .icon("forward")
             .order(at(34))
             .key("cmd-]", TAB)
             .menu(Bar::Go, "Forward")
@@ -156,31 +164,37 @@ pub(super) fn own() -> Vec<Action> {
         // ⌘J the side panel, as ⌘B the menu (the developer, 2026-10-23; ⌥⌘1 before).
         Action::new("shell.side-panel", ToggleSidebar)
             .words("Hide or show the side panel")
+            .icon("sidebar")
             .order(at(49))
             .key("cmd-j", TAB)
             .menu(Bar::View, "Show the Side Panel")
             .at(0, 0),
         Action::new("review.changes", ToggleFiles)
             .words("Fold or open Changes")
+            .icon("files")
             .order(at(50))
             .key("cmd-alt-2", TAB)
             .menu(Bar::View, "Show Files")
             .at(0, 1),
         Action::new("branches.or-requests", ToggleRequests)
             .words("Branches or merge requests")
+            .icon("branch")
             .order(at(51)),
         // The acts are in ⌘K too (#192); keys that only move stay out.
         Action::new("review.comment-line", CommentLine)
             .words("Comment on a line…")
+            .icon("message")
             .order(at(58))
             .key("c", NOT_TYPING),
         Action::new("requests.submit", SubmitReview)
             .words("Submit review")
+            .icon("send")
             .order(at(58) + 2)
             .key("cmd-shift-enter", NOT_TYPING),
         // ⌘K's Create merge request… opens the form, the one way in (#190: the quick way is gone).
         Action::new("requests.create", CreateRequest)
             .words("Create merge request…")
+            .icon("plus")
             .order(at(8))
             .key("cmd-shift-m", NOT_TYPING)
             .menu(Bar::File, "Create Merge Request…")
@@ -188,38 +202,47 @@ pub(super) fn own() -> Vec<Action> {
         // ⇧⌘A the Agents window as Design gives it, ⌥⌘A sends to an agent (D12, X3).
         Action::new("agents.send", SendToAgent)
             .words("Send the comments to an agent's chat…")
+            .icon("bot")
+            .here("Send to an agent…")
             .order(at(9))
             .key("cmd-alt-a", NOT_TYPING),
         // Open in (#78): the page's file or folder in its app, or in Finder.
         Action::new("shell.open-in", OpenIn)
             .words("Open in its app — the file or the folder")
+            .icon("external")
+            .here("Open in its app")
             .order(at(11))
             .key("cmd-alt-o", NOT_TYPING),
         Action::new("shell.reveal", RevealInFinder)
             .words("Reveal in Finder")
+            .icon("folder")
             .order(at(12))
             .key("cmd-alt-r", NOT_TYPING),
         // The menu folds with ⌘B (D2; ⌘0 stays zoom reset, the switch picker has no key); in a field ⌘B is
         // bold. ⌃⌘1…4 the spaces, Ctrl+Shift+1…4 on Windows and Linux.
         Action::new("shell.fold-menu", FoldMenu)
             .words("Fold the menu to icons")
+            .icon("sidebar")
             .order(at(13))
             .key("cmd-b", NOT_TYPING)
             .menu(Bar::View, "Fold the Menu to Icons")
             .at(0, 3),
         Action::new("requests.approve", ApproveRequest)
             .words("Approve this merge request")
+            .icon("check")
             .order(at(58) + 1)
             .key("a", NOT_TYPING),
         // A request's Changes: All and Since the version you read, in turn (#187).
         Action::new("requests.since-read", ToggleSince)
             .words("Since the version you read, or all changes")
+            .icon("eye")
             .order(at(59))
             .key("s", NOT_TYPING),
         Action::new("requests.next-draft", NextDraft).key("alt-n", NOT_TYPING),
         Action::new("requests.previous-draft", PreviousDraft).key("alt-p", NOT_TYPING),
         Action::new("shell.shortcuts", ShowShortcuts)
             .words("Keyboard shortcuts")
+            .icon("key")
             .order(at(14))
             .key("?", NOT_TYPING)
             .key("cmd-/", TAB)
@@ -229,14 +252,18 @@ pub(super) fn own() -> Vec<Action> {
         Action::new("requests.previous-thread", PreviousThread).key("shift-p", NOT_TYPING),
         Action::new("requests.reply", ReplyThread)
             .words("Reply to the discussion")
+            .icon("message")
             .order(at(59) + 1)
             .key("r", NOT_TYPING),
         Action::new("requests.resolve", ResolveThread)
             .words("Resolve the discussion, or reopen it")
+            .icon("check")
+            .here("Resolve the discussion")
             .order(at(59) + 2)
             .key("x", NOT_TYPING),
         Action::new("requests.edit", EditComment)
             .words("Edit your last comment in the discussion")
+            .icon("pencil")
             .order(at(59) + 3)
             .key("e", NOT_TYPING),
         Action::new("requests.react", ReactNote)
@@ -245,24 +272,29 @@ pub(super) fn own() -> Vec<Action> {
             .key("shift-e", NOT_TYPING),
         Action::new("requests.fold-thread", ToggleThread)
             .words("Fold the discussion, or open it")
+            .icon("chevron")
             .order(at(59) + 5)
             .key("o", NOT_TYPING),
         Action::new("requests.overview", ShowOverview)
             .words("Show the request's overview")
+            .icon("info")
             .order(at(16))
             .key("alt-1", NOT_TYPING)
             .key("cmd-i", NOT_TYPING),
         // A request's sections by number (#191).
         Action::new("requests.commits", ShowCommits)
             .words("Show the commits of the request or branch")
+            .icon("commit")
             .order(at(16) + 1)
             .key("alt-2", NOT_TYPING),
         Action::new("requests.changes", ShowChanges)
             .words("Show the changes of the request or branch")
+            .icon("files")
             .order(at(16) + 2)
             .key("alt-3", NOT_TYPING),
         Action::new("shell.next-section", NextSection)
             .words("Next section of the request")
+            .icon("chevron-right")
             .order(at(17))
             .key("ctrl-tab", TAB),
         Action::new("shell.previous-section", PreviousSection).key("ctrl-shift-tab", TAB),
@@ -277,10 +309,12 @@ pub(super) fn own() -> Vec<Action> {
             .at(3, 1),
         Action::new("review.mark-reviewed", MarkReviewed)
             .words("Mark the file reviewed, go to the next")
+            .icon("check")
             .order(at(59) + 6)
             .key("v", NOT_TYPING),
         Action::new("shell.recent", OpenRecent)
             .words("Recent places")
+            .icon("clock")
             .order(at(21))
             .key("cmd-e", TAB),
         Action::new("shell.zoom-in", ZoomIn)
@@ -308,17 +342,22 @@ pub(super) fn own() -> Vec<Action> {
         // The pending comment ⌥N stands on, published alone (#199).
         Action::new("requests.send-now", SendDraftNow)
             .words("Send this pending comment now")
+            .icon("send")
             .order(at(59) + 8),
         Action::new("review.bookmark", ToggleBookmark)
             .words("Bookmark the line, or take it off")
+            .icon("bookmark")
             .order(at(59) + 7)
             .key("b", NOT_TYPING),
         Action::new("review.bookmarks", ShowBookmarks)
             .words("Bookmarks")
+            .icon("bookmark")
             .order(at(23))
             .key("shift-b", NOT_TYPING),
         Action::new("review.structure", ShowStructure)
             .words("Changes in this file — functions and types")
+            .icon("list")
+            .here("Changes in this file")
             .order(at(22))
             .key("cmd-shift-o", TAB),
         Action::new("shell.whole-text", ShowWhole)
@@ -327,10 +366,12 @@ pub(super) fn own() -> Vec<Action> {
             .key("f1", TAB),
         Action::new("review.annotate", ToggleAnnotate)
             .words("Annotate — who wrote each line")
+            .icon("user")
             .order(at(20))
             .key("cmd-alt-b", NOT_TYPING),
         Action::new("review.find-in-files", FindInFiles)
             .words("Search in the repository")
+            .icon("search")
             .order(at(19))
             .key("cmd-alt-f", TAB),
         // Code's file, no language server (#207).
@@ -340,6 +381,7 @@ pub(super) fn own() -> Vec<Action> {
             .key("f12", TAB),
         Action::new("code.go-to-line", GoToLine)
             .words("Go to line")
+            .icon("list-ordered")
             .order(at(19) + 2)
             .key("ctrl-g", TAB),
         Action::new("review.toggle-reviewed", ToggleReviewed).key("shift-v", NOT_TYPING),
@@ -369,6 +411,7 @@ pub(super) fn own() -> Vec<Action> {
         Action::new("shell.focus-diff", FocusDiffZone).key("ctrl-4", TAB),
         Action::new("shell.new-tab", NewTab)
             .words("New tab")
+            .icon("plus")
             .order(at(56))
             .key("cmd-t", TAB)
             .menu(Bar::File, "New Tab")
@@ -452,21 +495,26 @@ pub(super) fn own() -> Vec<Action> {
         Action::new("shell.search-actions", SearchActions).key("cmd-shift-p", NO_CARET),
         Action::new("branches.compare", Compare)
             .words("Compare two refs…")
+            .icon("layers")
             .order(at(5))
             .key("cmd-alt-c", TAB),
         // Android Studio's Copy Reference: the page on screen's link (#162).
         Action::new("shell.copy-link", CopyLink)
             .words("Copy link to this page")
+            .icon("link")
+            .here("Copy link")
             .order(at(6))
             .key("cmd-alt-shift-c", TAB),
         // A toast's Undo from the keys (#191): a resolve, a deleted draft, toasts turned off.
         Action::new("shell.undo-toast", UndoToast)
             .words("Undo what the newest notification says")
+            .icon("rotate-ccw")
             .order(at(15) + 1)
             .key("cmd-z", NOT_TYPING),
         // A toast's button from the keys (#198); a field with a caret keeps ⌥↵.
         Action::new("shell.open-toast", OpenToast)
             .words("Open the newest notification")
+            .icon("bell")
             .order(at(15))
             .key("alt-enter", NO_CARET),
         // ⌘K shows its first key: ⌥D, as it always did.
@@ -536,13 +584,17 @@ pub(super) fn own() -> Vec<Action> {
             .key("alt-m", NOT_TYPING),
         Action::new("requests.leave", LeaveRequest)
             .words("Leave the merge request — back to your branch")
+            .icon("back")
             .order(at(45)),
         Action::new("review.all-reviewed", ToggleAllReviewed)
             .words("Mark all files reviewed, or unmark all")
+            .icon("list-checks")
             .order(at(46))
             .key("alt-shift-v", NOT_TYPING),
         Action::new("requests.next", NextRequest)
             .words("Next merge request not reviewed yet")
+            .icon("down")
+            .here("Next merge request")
             .order(at(47))
             .key("alt-down", NOT_TYPING),
         Action::new("requests.previous", PreviousRequest)
@@ -555,6 +607,7 @@ pub(super) fn own() -> Vec<Action> {
             .order(at(4)),
         Action::new("shell.pin-tab", PinTab)
             .words("Pin tab")
+            .icon("pin")
             .order(at(7)),
         Action::new("shell.name-project", NameProject)
             .words("Name and colour this project…")
@@ -566,6 +619,8 @@ pub(super) fn own() -> Vec<Action> {
             .at(0, 0),
         Action::new("requests.merge", MergeRequest)
             .words("Merge this merge request…")
+            .icon("merge")
+            .here("Merge…")
             .order(at(55)),
     ]
 }

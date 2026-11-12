@@ -43,6 +43,10 @@ fn palette(view: PaletteView, host: Rc<dyn PaletteHost>) -> AnyElement {
                 .h(px(28.))
                 .gap_3()
                 .children(item.icon.map(|p| icons::file_icon(&p, 16.)))
+                .children(
+                    (item.glyph)
+                        .map(|name| icons::icon(name).size(px(16.)).text_color(theme::muted())),
+                )
                 .child(
                     hover::cut("label", keys::text(&item.label).into_owned())
                         // A face is drawn in itself (#24).
