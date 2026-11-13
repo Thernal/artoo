@@ -19,7 +19,7 @@ pub use versions::{PairCommit, PairKind, RangePair, Version, VersionDiff};
 
 use anyhow::{Context as _, Result};
 use git2::{BranchType, Oid, Repository, Sort};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// Where a repository lives on the web: GitLab, GitHub or similar, from its clone URL.
@@ -346,6 +346,49 @@ impl Repo {
             git2::TreeWalkResult::Ok
         });
         out
+    }
+
+    /// The files git's index lists, by path, nothing read: blobs plain or executable, no link (0o120000) and no
+    /// submodule (0o160000), which are not text to search (the repository's search, #206).
+    pub fn index_files(&self) -> Vec<String> {
+        let Ok(index) = self.inner.index() else {
+            return Vec::new();
+        };
+        index
+            .iter()
+            .filter(|e| e.mode & 0o170000 == 0o100000)
+            .map(|e| String::from_utf8_lossy(&e.path).into_owned())
+            .collect()
+    }
+
+    /// The lines (0-based) of `now`, the working tree's `path`, that differ from `HEAD`'s: all of them for a file
+    /// `HEAD` has not (#206).
+    pub fn changed_since_head(&self, path: &str, now: &[u8]) -> HashSet<usize> {
+        let mut changed = HashSet::new();
+        let old = (self.inner.head().ok())
+            .and_then(|h| h.peel_to_tree().ok())
+            .and_then(|tree| tree.get_path(Path::new(path)).ok())
+            .and_then(|entry| self.inner.find_blob(entry.id()).ok())
+            .map(|blob| blob.content().to_vec());
+        let Some(old) = old else {
+            let lines = String::from_utf8_lossy(now).lines().count();
+            return (0..lines).collect();
+        };
+        let Ok(patch) = git2::Patch::from_buffers(&old, None, now, None, None) else {
+            return changed;
+        };
+        for h in 0..patch.num_hunks() {
+            let lines = patch.num_lines_in_hunk(h).unwrap_or(0);
+            for l in 0..lines {
+                if let Ok(line) = patch.line_in_hunk(h, l)
+                    && line.origin() == '+'
+                    && let Some(n) = line.new_lineno()
+                {
+                    changed.insert(n as usize - 1);
+                }
+            }
+        }
+        changed
     }
 
     /// The bytes of `path` in commit `rev`: an image Code shows (#75).

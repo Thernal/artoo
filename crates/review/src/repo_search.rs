@@ -19,18 +19,9 @@ const LONG_LINE: usize = 600;
 
 /// The repository's files as git's index lists them (no submodule, no link): paths only, nothing read.
 pub(crate) fn repository_paths(root: &Path) -> Vec<String> {
-    let Ok(repo) = git2::Repository::open(root) else {
-        return Vec::new();
-    };
-    let Ok(index) = repo.index() else {
-        return Vec::new();
-    };
-    index
-        .iter()
-        // A blob, plain or executable; a link (0o120000) and a submodule (0o160000) are not text to search.
-        .filter(|e| e.mode & 0o170000 == 0o100000)
-        .map(|e| String::from_utf8_lossy(&e.path).into_owned())
-        .collect()
+    (artoo_core::git::Repo::open(root).ok())
+        .map(|repo| repo.index_files())
+        .unwrap_or_default()
 }
 
 /// A query made ready to search with.

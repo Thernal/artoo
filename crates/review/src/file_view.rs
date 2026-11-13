@@ -195,43 +195,6 @@ pub fn widen(line: &str, spans: &[Span], tab: usize) -> (SharedString, Vec<Span>
     (out.into(), spans)
 }
 
-/// The lines (0-based) of `now`, the working tree's `path`, that differ from HEAD's: all of them for a file HEAD has
-/// not (#206).
-fn changed_since_head(
-    root: &std::path::Path,
-    path: &str,
-    now: &[u8],
-) -> std::collections::HashSet<usize> {
-    let mut changed = std::collections::HashSet::new();
-    let Ok(repo) = git2::Repository::open(root) else {
-        return changed;
-    };
-    let old = (repo.head().ok())
-        .and_then(|h| h.peel_to_tree().ok())
-        .and_then(|tree| tree.get_path(std::path::Path::new(path)).ok())
-        .and_then(|entry| repo.find_blob(entry.id()).ok())
-        .map(|blob| blob.content().to_vec());
-    let Some(old) = old else {
-        let lines = String::from_utf8_lossy(now).lines().count();
-        return (0..lines).collect();
-    };
-    let Ok(patch) = git2::Patch::from_buffers(&old, None, now, None, None) else {
-        return changed;
-    };
-    for h in 0..patch.num_hunks() {
-        let lines = patch.num_lines_in_hunk(h).unwrap_or(0);
-        for l in 0..lines {
-            if let Ok(line) = patch.line_in_hunk(h, l)
-                && line.origin() == '+'
-                && let Some(n) = line.new_lineno()
-            {
-                changed.insert(n as usize - 1);
-            }
-        }
-    }
-    changed
-}
-
 impl Review {
     /// Reads `path` at `rev` (the working tree when `None`) in the background; once read it is the file
     /// shown (`ReviewEvent::FileRead`), or why it could not be.
@@ -287,7 +250,9 @@ impl Review {
                     let spans = highlight::highlight(&file, &text);
                     let lines: Vec<String> = text.lines().map(str::to_owned).collect();
                     let changed = match rev {
-                        None => changed_since_head(&root, &file, &bytes),
+                        None => (Repo::open(&root).ok())
+                            .map(|repo| repo.changed_since_head(&file, &bytes))
+                            .unwrap_or_default(),
                         Some(_) => Default::default(),
                     };
                     let scopes = artoo_core::symbols::scopes(&lines);
