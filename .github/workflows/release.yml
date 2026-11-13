@@ -11,6 +11,12 @@ on:
 permissions:
   contents: read
 
+env:
+  # The Rust a release and its SDK are built with, which a plugin is built with too (sdk.txt). Pinned because
+  # Cargo 1.100 no longer writes the `deps` folder the SDK and the packages are taken from (its new build-dir
+  # layout); a later Rust waits until `.github/sdk-asset.sh` reads that layout.
+  RUST: 1.99.1
+
 jobs:
   version:
     name: Tag matches Cargo.toml
@@ -43,8 +49,9 @@ jobs:
         target: [aarch64-apple-darwin, x86_64-apple-darwin]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RUST }}
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
@@ -127,7 +134,9 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST }}
       - uses: Swatinem/rust-cache@v2
       - name: Build
         run: cargo build --release
@@ -171,7 +180,9 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST }}
       - uses: Swatinem/rust-cache@v2
       - name: Linux libraries
         run: sh .github/linux-deps.sh
