@@ -289,6 +289,23 @@ Language-agnostic; ships as written.
   is worse than none.
 - A capability with no established usage pattern earns a short usage comment on
   its public surface, where a consumer reads it — not on the implementation.
+- A comment that points outside the code carries a tag, on one line in the
+  language's own comment syntax: `TAG(ref): short reason`. The tags are a closed
+  set, each with the reference it needs:
+
+  | Tag | Means | Ref |
+  |---|---|---|
+  | `TODO` | work not done yet | a tracker key, or the rule code that leaves it open |
+  | `FIXME` | wrong behaviour shipped knowingly | a tracker key |
+  | `REQ` | a constraint a requirement sets; the code is done | the rule code (`BR-01`) |
+  | `DESIGN` | a value the design sets that the code cannot show | the design node (`91:45`) |
+  | `WORKAROUND` | a patch for a library or platform bug, removed when it is fixed | the upstream issue or version |
+
+  A rule code or a design node never sits in a free-text comment; a tag without
+  its reference, or one outside the set, is a finding. A comment that holds only
+  a reason stays untagged. A tool's own markers (a linter's generated
+  `TODO: Detekt [...]`) are not comments of this rule. The tags make every use
+  findable: `grep "REQ(BR-01)"` is the code a requirement change touches.
 
 ### `risk-levels.md` — spec skeleton, repo content
 
