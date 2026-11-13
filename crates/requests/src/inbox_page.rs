@@ -123,7 +123,10 @@ impl InboxPage {
         } else {
             notices.failed.then_some("Couldn't read the discussions")
         };
-        let body = if !notices.loaded && rows.is_empty() {
+        // Rows load only while there is a host to read: without one (no remote, no token, no git) the Inbox has
+        // its plugins' and agents' news alone, at once.
+        let reading = self.requests.read(cx).available && !notices.loaded;
+        let body = if reading && rows.is_empty() {
             inbox_view::loading(self.frame.list_width(cx))
         } else if let Some(failed) = failed.filter(|_| rows.is_empty()) {
             inbox_view::failed(failed)

@@ -82,14 +82,16 @@ impl Workspace {
         (!self.settings_open && self.root.is_some()).then_some(self.nav.space)
     }
 
+    /// What the project lacks for `space`. The Inbox lacks nothing: its news comes from GitLab or GitHub, plugins
+    /// and agents, and what one source lacks the others do not.
     fn missing(&self, space: Space, cx: &App) -> Option<Missing> {
         match space {
-            BRANCHES | INBOX | REQUESTS if self.plain => Some(Missing::Git),
-            INBOX | REQUESTS if self.requests_available(cx) => None,
-            INBOX | REQUESTS if self.requests_api().is_some_and(|r| r.connectable(cx)) => {
+            BRANCHES | REQUESTS if self.plain => Some(Missing::Git),
+            REQUESTS if self.requests_available(cx) => None,
+            REQUESTS if self.requests_api().is_some_and(|r| r.connectable(cx)) => {
                 Some(Missing::Token)
             }
-            INBOX | REQUESTS => Some(Missing::Remote),
+            REQUESTS => Some(Missing::Remote),
             _ => None,
         }
     }
@@ -259,9 +261,9 @@ impl Workspace {
         }
     }
 
-    /// What a space says in its middle when the project lacks what it needs (#210): a plain folder's Inbox, Branches
-    /// and Merge requests `Not a git repository`, a repository without a remote's Inbox and Merge requests `No
-    /// remote`, each with what is missing under it, once. No button: the agent does the setup.
+    /// What a space says in its middle when the project lacks what it needs (#210): a plain folder's Branches and
+    /// Merge requests `Not a git repository`, a repository without a remote's Merge requests `No remote`, each with
+    /// what is missing under it, once. No button: the agent does the setup.
     pub(super) fn missing_page(&self, space: Space, cx: &App) -> Option<gpui::Div> {
         let name = (self.root.as_ref())
             .and_then(|r| r.file_name())
@@ -275,11 +277,6 @@ impl Workspace {
                 "branch",
                 "Not a git repository",
                 format!("{name} has no .git folder"),
-            ),
-            (INBOX, Missing::Remote) => (
-                "inbox",
-                "No remote",
-                format!("Its news comes from a GitLab or GitHub remote; {name} has none"),
             ),
             (_, Missing::Remote) => (
                 "pull-request",
