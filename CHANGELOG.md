@@ -4,6 +4,12 @@ What is new in each release of Artoo. A release's notes on GitHub are its sectio
 (`.github/release-notes.sh`); a release tag whose version has no section here does not build. Write what changed
 for someone using the app, not for someone reading the code; the commits follow anyway.
 
+## Unreleased
+
+- **No copies of a tab in the rail.** A project an agent had left news for opened in one more tab every 30 seconds
+  while the window's tabs were still loading (on a first start, while macOS asked whether Artoo may read a folder),
+  until the rail was full of copies; a tab still loading now counts as open.
+
 ## 2.0.0-rc.3 — 2026-11-13
 
 - **The Inbox needs no GitLab.** Its news comes from plugins and agents too, so it opens without a token, a remote

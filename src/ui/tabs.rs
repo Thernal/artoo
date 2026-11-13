@@ -41,6 +41,8 @@ pub struct Tabs<T: Tab> {
     active: usize,
     /// Each tab's "on screen", shared with it: one behind another tab polls its repository seldom.
     shown: HashMap<EntityId, Rc<Cell<bool>>>,
+    /// The folder each tab was opened on: what it has open until it has loaded.
+    asked: HashMap<EntityId, PathBuf>,
     closed: Vec<PathBuf>,
     model: TabModel,
     /// The session as last written, so it is written again only when it changes.
@@ -62,6 +64,7 @@ impl<T: Tab> Tabs<T> {
             tabs: Vec::new(),
             active: 0,
             shown: HashMap::new(),
+            asked: HashMap::new(),
             closed: Vec::new(),
             model: Rc::default(),
             saved: String::new(),
@@ -74,11 +77,11 @@ impl<T: Tab> Tabs<T> {
             artoo_core::storage::session()
         };
         if tabs.is_empty() {
-            let tab = cx.new(|cx| T::make(path, true, window, cx));
+            let tab = this.make(path, true, window, cx);
             this.attach(tab, window, cx);
         } else {
             for path in tabs {
-                let tab = cx.new(|cx| T::make(Some(path), false, window, cx));
+                let tab = this.make(Some(path), false, window, cx);
                 this.attach(tab, window, cx);
             }
             this.select(active.min(this.tabs.len() - 1), window, cx);
@@ -88,6 +91,21 @@ impl<T: Tab> Tabs<T> {
 
     pub fn primary(&self) -> bool {
         self.primary
+    }
+
+    /// A new tab on `path`, kept as what it has open while it loads.
+    fn make(
+        &mut self,
+        path: Option<PathBuf>,
+        first: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<T> {
+        let tab = cx.new(|cx| T::make(path.clone(), first, window, cx));
+        if let Some(path) = path {
+            self.asked.insert(tab.entity_id(), path);
+        }
+        tab
     }
 
     /// Wraps a new tab into the window and shows it.
@@ -118,18 +136,20 @@ impl<T: Tab> Tabs<T> {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<T> {
-        let tab = cx.new(|cx| T::make(Some(path), false, window, cx));
+        let tab = self.make(Some(path), false, window, cx);
         self.wrap(tab.clone(), cx);
         tab
     }
 
-    /// Each tab's project: its main working tree, else its folder.
+    /// Each tab's project: its main working tree, else its folder; a tab still loading, the folder it was
+    /// opened on, so an agent's news about it opens no second tab however long it loads.
     pub fn projects(&self, cx: &App) -> Vec<PathBuf> {
         self.tabs
             .iter()
-            .filter_map(|t| {
-                let t = t.read(cx);
-                t.project().or_else(|| t.root())
+            .filter_map(|tab| {
+                let t = tab.read(cx);
+                (t.project().or_else(|| t.root()))
+                    .or_else(|| self.asked.get(&tab.entity_id()).cloned())
             })
             .collect()
     }
@@ -191,7 +211,7 @@ impl<T: Tab> Tabs<T> {
             self.select(ix, window, cx);
             return self.tabs[ix].clone();
         }
-        let tab = cx.new(|cx| T::make(Some(path), false, window, cx));
+        let tab = self.make(Some(path), false, window, cx);
         self.attach(tab.clone(), window, cx);
         tab
     }
@@ -228,6 +248,7 @@ impl<T: Tab> Tabs<T> {
         self.closed.extend(root);
         let gone = self.tabs.remove(ix);
         self.shown.remove(&gone.entity_id());
+        self.asked.remove(&gone.entity_id());
         if self.active > ix || self.active >= self.tabs.len() {
             self.active = self.active.saturating_sub(1);
         }
@@ -277,7 +298,7 @@ impl<T: Tab> Tabs<T> {
 
     pub fn reopen(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(path) = self.closed.pop() {
-            let tab = cx.new(|cx| T::make(Some(path), false, window, cx));
+            let tab = self.make(Some(path), false, window, cx);
             self.attach(tab, window, cx);
         }
     }
@@ -306,5 +327,60 @@ impl<T: Tab> Render for Tabs<T> {
         *self.model.borrow_mut() = infos;
         self.save_session(cx);
         div().size_full().child(self.tabs[self.active].clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A tab that never loads: no root, no project.
+    struct Loading(FocusHandle);
+
+    impl Render for Loading {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    impl Tab for Loading {
+        fn make(_: Option<PathBuf>, _: bool, _: &mut Window, cx: &mut Context<Self>) -> Self {
+            Loading(cx.focus_handle())
+        }
+        fn join(&mut self, _: WeakEntity<Tabs<Self>>, _: TabModel) -> Rc<Cell<bool>> {
+            Rc::default()
+        }
+        fn root(&self) -> Option<PathBuf> {
+            None
+        }
+        fn project(&self) -> Option<PathBuf> {
+            None
+        }
+        fn info(&self, _: &App) -> (String, bool, usize) {
+            (String::new(), false, 0)
+        }
+        fn focus(&self) -> FocusHandle {
+            self.0.clone()
+        }
+    }
+
+    /// A tab still loading has the folder it was opened on open, so an agent's news about that folder opens
+    /// no second tab: the window's beat opened one every 30 s while the tabs waited (a rail of copies).
+    #[test]
+    fn a_tab_still_loading_has_its_folder_open() {
+        let mut cx = gpui::TestAppContext::single();
+        let window =
+            cx.add_window(|window, cx| Tabs::<Loading>::new(Some("/a".into()), false, window, cx));
+        window
+            .update(&mut cx, |tabs, window, cx| {
+                tabs.open_behind("/b".into(), window, cx);
+                assert_eq!(
+                    tabs.projects(cx),
+                    [PathBuf::from("/a"), PathBuf::from("/b")]
+                );
+                tabs.close(0, window, cx);
+                assert_eq!(tabs.projects(cx), [PathBuf::from("/b")]);
+            })
+            .unwrap();
     }
 }

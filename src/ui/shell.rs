@@ -103,9 +103,6 @@ struct Beat {
     said_at: i64,
     /// The plugins' tools it said it has (#213).
     tools: Vec<crate::bus::PluginTool>,
-    /// Projects opened for an agent whose tabs are still loading (a tab has its root once loaded),
-    /// with when: not opened twice meanwhile.
-    opening: Vec<(PathBuf, i64)>,
 }
 
 impl Beat {
@@ -159,14 +156,12 @@ impl Beat {
                 ),
             }
         }
-        self.opening
-            .retain(|(path, at)| !projects.contains(path) && now - at < 30);
+        // A tab still loading counts as open on its folder (`Tabs::projects`).
         let elsewhere: Vec<PathBuf> = folder
             .running()
             .into_iter()
             .filter(|p| p.pid == pid)
             .flat_map(|p| p.projects)
-            .chain(self.opening.iter().map(|(path, _)| path.clone()))
             .collect();
         for event in folder.events() {
             let project = event.project.clone();
@@ -177,7 +172,6 @@ impl Beat {
                 }
                 shell.open_behind(project.clone(), window, cx);
                 projects.push(project.clone());
-                self.opening.push((project.clone(), now));
                 let said = format!(
                     "{} opened {} in a tab",
                     event.agent,
