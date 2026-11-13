@@ -102,7 +102,7 @@ impl Workspace {
 
     /// The page's commands, its acts first (`Frame::here`, #192): on a request what it asks of you — the
     /// discussion's when one is ringed —, on a list what starts one, in Code what reads the file.
-    pub(super) fn here_commands(&self) -> Vec<&'static str> {
+    pub(super) fn here_commands(&self, cx: &App) -> Vec<&'static str> {
         use super::nav::Page;
         use super::spaces::{BRANCHES, CODE, INBOX, REQUESTS};
         if self.settings_open {
@@ -144,7 +144,11 @@ impl Workspace {
                 "shell.open-in",
                 "shell.copy-link",
             ],
-            _ => Vec::new(),
+            (space, _) => self
+                .pages_drawing(space, self.nav_page())
+                .and_then(|p| p.here.clone())
+                .map(|here| here(self.nav_page(), cx))
+                .unwrap_or_default(),
         }
     }
 

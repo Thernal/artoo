@@ -102,6 +102,8 @@ pub fn pages(requests: Entity<Requests>, frame: Rc<dyn Frame>, cx: &mut App) -> 
             }
         }),
         keys: None,
+        here: None,
+        bar: None,
     }
 }
 

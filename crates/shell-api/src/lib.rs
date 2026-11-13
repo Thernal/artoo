@@ -242,6 +242,8 @@ pub mod when {
     pub const LISTS: &str = "Workspace && !Palette && !Caret";
     /// In ⌘K.
     pub const PALETTE: &str = "Palette";
+    // A space's own keys: the tab's context says the space on screen (`space == tasks`), so a plugin binds its bare
+    // letters to its space alone — `"Workspace && !Typing && space == tasks"` —, where they win over the app's.
 }
 
 /// An action's item in the menu bar (`Action::menu`).
@@ -865,6 +867,35 @@ pub struct Pages {
     /// ↑ ↓ and ↵ on the space's own page when it is a list the tab does not step itself (a plugin's): none where
     /// the page takes no keys.
     pub keys: Option<ListKeys>,
+    /// The commands ⌘K lists as `Here` on a route of theirs or the space's own page (`None`), by their ids
+    /// (`Action::id`), before anything is typed (#192); none where the app's own Here stands.
+    pub here: Option<HereOf>,
+    /// What the page bar holds besides the path on a route of theirs or the space's own page (`None`), where the tab
+    /// has nothing of its own to put there (a plugin's space): its view switch, its filter, its actions.
+    pub bar: Option<BarOf>,
+}
+
+/// A space's pages' commands for ⌘K's Here (`Pages::here`). Called as ⌘K opens: it reads the feature's own state.
+pub type HereOf = Rc<dyn Fn(Option<&Route>, &App) -> Vec<&'static str>>;
+
+/// What a space's pages put in the page bar (`Pages::bar`), called as the tab draws its bar: it reads the feature's
+/// own state, never the tab, and a click on what it draws goes to the feature's own entities or through the `Frame`.
+pub type BarOf = Rc<dyn Fn(Option<&Route>, &mut App) -> Option<BarParts>>;
+
+/// What a space's pages put in the page bar (`BarOf`): each part the tab draws where its own go.
+#[derive(Default)]
+pub struct BarParts {
+    /// The space's own page's path and name (`Tasks › Payments`), where its root would say the space's name alone.
+    pub path: Option<PagePath>,
+    /// The view switch after the title: `Mine 4 · All 14` and the people beside.
+    pub view: Option<AnyElement>,
+    /// The list's filter, by its placeholder (`Filter`): the tab draws it and takes ⌘F for it, its words read with
+    /// `Frame::filter`; its page says `Screen::List`.
+    pub filter: Option<&'static str>,
+    /// The actions, the primary one last, each folding into `⋯` as the tab's own do.
+    pub actions: Vec<bar::BarAction>,
+    /// Rows only `⋯` holds, after the actions folded into it.
+    pub more: Vec<MenuItem>,
 }
 
 /// ↑ (`false`) or ↓ on a list (`ListKeys::step`).

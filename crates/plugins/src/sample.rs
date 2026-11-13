@@ -81,6 +81,7 @@ fn rows() -> Vec<Listed> {
         about: about.to_owned(),
         text: text.to_owned(),
         at: now - minutes * 60,
+        ..Default::default()
     };
     vec![
         row(

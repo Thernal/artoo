@@ -196,6 +196,8 @@ pub enum InboxEvent {
     PickPart(u64),
     /// A part's row opened.
     OpenPart(u64),
+    /// Done with a part's row, at its source too (E).
+    DonePart(u64),
     /// The composer under the notice selected.
     Reply,
     /// Discussion `id` of request `iid` resolved, or opened again.

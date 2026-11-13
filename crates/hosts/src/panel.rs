@@ -1578,18 +1578,27 @@ fn here(frame: &dyn Frame, cx: &mut App) -> Here {
 struct WaysSettings {
     panel: Entity<Panel>,
     frame: Rc<dyn Frame>,
+    /// Under the group's heading, `Code hosts`: in the section, where a plugin's trackers may follow; not as a hit.
+    headed: bool,
 }
 
 impl Render for WaysSettings {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let here = here(&*self.frame, cx);
-        Handle(self.panel.clone()).settings(here, cx).unwrap_or_else(|| {
+        let rows = Handle(self.panel.clone()).settings(here, cx).unwrap_or_else(|| {
             div()
                 .text_size(px(12.))
                 .text_color(theme::muted())
                 .child("This repository has no GitLab or GitHub remote, so there are no merge requests to set up.")
                 .into_any_element()
-        })
+        });
+        div()
+            .flex()
+            .flex_col()
+            .when(self.headed, |d| {
+                d.child(artoo_ui_kit::controls::rows_heading("Code hosts"))
+            })
+            .child(rows)
     }
 }
 
@@ -1637,11 +1646,13 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, cx: &mut App) -> artoo_shell_api::Part
     let rows = cx.new(|_| WaysSettings {
         panel: panel.clone(),
         frame: frame.clone(),
+        headed: true,
     });
     // The hosts as Settings' search shows them, live (#203).
     let hit = cx.new(|_| WaysSettings {
         panel: panel.clone(),
         frame: frame.clone(),
+        headed: false,
     });
     let (looked, looking) = (Handle(panel.clone()), frame.clone());
     artoo_shell_api::Parts {

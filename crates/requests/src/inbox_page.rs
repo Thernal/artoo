@@ -73,6 +73,8 @@ pub fn pages(
         side: None,
         show: Rc::new(|_, _, _| {}),
         keys: None,
+        here: None,
+        bar: None,
     }
 }
 

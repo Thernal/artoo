@@ -387,6 +387,17 @@ pub fn subhead(title: &'static str, sub: &'static str) -> Div {
         }))
 }
 
+/// A group's heading among a Settings section's rows, its words in capitals: Accounts' `Code hosts` and a plugin's
+/// `Trackers` under them.
+pub fn rows_heading(text: &str) -> Div {
+    div()
+        .pb(px(6.))
+        .text_size(px(11.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(theme::muted())
+        .child(text.to_uppercase())
+}
+
 /// The foot of a tool window, under its body that scrolls: where its buttons are.
 pub fn tool_foot() -> Div {
     div()

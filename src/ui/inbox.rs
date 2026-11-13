@@ -269,6 +269,14 @@ impl Workspace {
                 self.inbox_select(InboxRow::Part(id), cx)
             }
             InboxEvent::OpenPart(id) => self.open_inbox_part(id, cx),
+            InboxEvent::DonePart(id) => {
+                if let Some((lister, row)) = self.inbox_part(id, cx)
+                    && let Some(done) = lister.done
+                {
+                    done(&row.key, cx);
+                }
+                self.inbox_step(true, cx);
+            }
             InboxEvent::Reply => self.reply_in_inbox(cx),
             InboxEvent::Resolve { iid, id, resolved } => self.inbox_resolve(iid, id, resolved, cx),
             InboxEvent::Menu { iid, at } => self.request_context(iid, at, cx),

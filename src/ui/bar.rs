@@ -33,6 +33,8 @@ impl Workspace {
         }
         let space = self.nav.space;
         let page = self.shown_page();
+        // A plugin's space says what its bar holds (`Pages::bar`).
+        let mut parts = self.pages_bar(space, cx).unwrap_or_default();
         let PagePath {
             up: path,
             name,
@@ -40,7 +42,10 @@ impl Workspace {
             hover,
             count,
             title: called,
-        } = self.path_of(space, cx);
+        } = match parts.path.take() {
+            Some(path) => path,
+            None => self.path_of(space, cx),
+        };
         // Narrow, the path is ‹ — one level up — and the id (#80).
         let up = (self.compact())
             .then(|| path.last().map(|c| c.to.clone()))
@@ -99,19 +104,37 @@ impl Workspace {
                 title: title(words::say(&name).into_owned(), called, mono, hover),
                 count,
                 lead: self.lead_of(page.as_ref(), cx),
-                view: self.view_of(space, page.as_ref(), cx).filter(|_| !lacking),
+                view: (self.view_of(space, page.as_ref(), cx))
+                    .or(parts.view.take())
+                    .filter(|_| !lacking),
                 actions: if lacking {
                     Vec::new()
                 } else {
-                    self.actions_of(space, page.as_ref(), cx)
+                    let mut actions = self.actions_of(space, page.as_ref(), cx);
+                    if let Some(placeholder) = parts.filter {
+                        actions.push(BarAction::new("filter", self.bar_filter(placeholder, cx)));
+                    }
+                    actions.append(&mut parts.actions);
+                    actions
                 },
-                more: self.more_of(page.as_ref(), cx),
+                more: {
+                    let mut more = self.more_of(page.as_ref(), cx);
+                    more.append(&mut parts.more);
+                    more
+                },
                 room: self.bar_room.clone(),
                 public,
             },
             host,
             cx,
         ))
+    }
+
+    /// What a space's pages put in the bar for the page on screen (`Pages::bar`): a plugin's, the tab's own having none.
+    fn pages_bar(&self, space: Space, cx: &mut Context<Self>) -> Option<artoo_shell_api::BarParts> {
+        let route = self.nav_page().cloned();
+        let bar = self.pages_drawing(space, route.as_ref())?.bar.clone()?;
+        bar(route.as_ref(), cx)
     }
 
     /// A folder of the path's right click: a note for your agent on it, its path, Finder.

@@ -195,7 +195,7 @@ impl Frame for TabFrame {
     fn here(&self, cx: &App) -> Vec<&'static str> {
         self.0
             .upgrade()
-            .map(|tab| tab.read(cx).here_commands())
+            .map(|tab| tab.read(cx).here_commands(cx))
             .unwrap_or_default()
     }
 

@@ -624,7 +624,41 @@ pub fn part_preview(
     on: &OnInbox,
 ) -> AnyElement {
     let id = artoo_shell_api::notices::row_id(&r.key);
-    let open = on.clone();
+    let (open, done) = (on.clone(), on.clone());
+    // The about line without the id the header says already (`PAY-412 Refund…` → `Refund…`).
+    let title = (r.about.strip_prefix(r.tag.as_str()))
+        .filter(|_| !r.tag.is_empty())
+        .map_or(r.about.as_str(), str::trim_start)
+        .to_owned();
+    let whence = if r.place.is_empty() {
+        source.to_owned()
+    } else {
+        format!("{source} · {}", r.place)
+    };
+    let facts = (r.facts.iter()).fold(
+        div().flex().flex_wrap().gap(px(24.)),
+        |row, (label, value)| {
+            row.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .text_size(px(12.))
+                    .child(div().text_color(theme::muted()).child(label.clone()))
+                    .child(
+                        div()
+                            .text_size(px(13.))
+                            .text_color(theme::text())
+                            .child(value.clone()),
+                    ),
+            )
+        },
+    );
+    let open_words = if r.open.is_empty() {
+        "Open"
+    } else {
+        r.open.as_str()
+    };
     div()
         .p(px(20.))
         .flex()
@@ -633,31 +667,48 @@ pub fn part_preview(
         .child(
             div()
                 .flex()
-                .gap_2()
+                .items_center()
+                .gap(px(12.))
                 .text_size(px(12.))
                 .text_color(theme::muted())
-                .child(source.to_owned())
-                .child(div().flex_1())
+                .when(!r.tag.is_empty(), |d| {
+                    d.child(div().text_color(theme::accent()).child(r.tag.clone()))
+                })
+                .child(whence)
+                .when(r.tag.is_empty(), |d| d.child(div().flex_1()))
                 .child(format::ago(r.at)),
         )
         .child(
             div()
                 .text_size(px(15.))
                 .font_weight(FontWeight::SEMIBOLD)
-                .child(r.about.clone()),
+                .child(title),
         )
-        .child(div().text_color(theme::text()).child(r.says.clone()))
-        .children((!r.text.trim().is_empty()).then(|| {
+        .when(r.facts.is_empty(), |d| {
+            d.child(div().text_color(theme::text()).child(r.says.clone()))
+        })
+        .children((!r.text.trim().is_empty() && r.facts.is_empty()).then(|| {
             div()
                 .text_size(px(13.))
                 .text_color(theme::muted())
                 .child(r.text.trim().to_owned())
         }))
+        .when(!r.facts.is_empty(), |d| {
+            d.child(facts.pb(px(14.)).border_b_1().border_color(theme::border()))
+        })
         .child(
-            div().flex().pt(px(4.)).child(
-                artoo_ui_kit::controls::primary_button("inbox-part-open", "Open", "↵")
-                    .on_click(move |_: &ClickEvent, _, cx| open(InboxEvent::OpenPart(id), cx)),
-            ),
+            div()
+                .flex()
+                .gap_2()
+                .pt(px(4.))
+                .child(
+                    artoo_ui_kit::controls::primary_button("inbox-part-open", open_words, "↵")
+                        .on_click(move |_: &ClickEvent, _, cx| open(InboxEvent::OpenPart(id), cx)),
+                )
+                .child(
+                    bar_button("inbox-part-done", "Done", "E", false)
+                        .on_click(move |_: &ClickEvent, _, cx| done(InboxEvent::DonePart(id), cx)),
+                ),
         )
         .into_any_element()
 }

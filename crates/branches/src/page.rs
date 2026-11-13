@@ -118,6 +118,8 @@ pub fn pages(
             }
         }),
         keys: None,
+        here: None,
+        bar: None,
     }
 }
 

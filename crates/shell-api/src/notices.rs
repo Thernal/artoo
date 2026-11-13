@@ -167,8 +167,10 @@ struct Registry {
 impl Global for Registry {}
 
 /// A row a part lists in the Inbox (#196): what waits for the person until they open it or are done with it. It is
-/// listed and counted while its kind's Inbox is on, read once looked at (a new `key` is new again).
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// listed and counted while its kind's Inbox is on, read once looked at (a new `key` is new again). Its preview says
+/// the item's id and where it is beside its source, its facts labelled, and what Open opens (`tag`, `place`,
+/// `facts`, `open`; empty, they are left out).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Listed {
     pub kind: &'static str,
     /// This one: `PAY-412:assigned`; the same key is the same row.
@@ -181,6 +183,14 @@ pub struct Listed {
     pub text: String,
     /// When, Unix seconds: the Inbox's order.
     pub at: i64,
+    /// The item's id, first in the preview: `PAY-412`.
+    pub tag: String,
+    /// Where it is, after the source's name: `Payments` (`Jira · Payments`).
+    pub place: String,
+    /// The item's facts, labelled: `State` `In progress`, `Assignee` `You · was Juniper Hale`.
+    pub facts: Vec<(String, String)>,
+    /// What Open says: `Open PAY-412`; empty, `Open`.
+    pub open: String,
 }
 
 /// A row's place among a tab's Inbox rows, kept while its key is the same.

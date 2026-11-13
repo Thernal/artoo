@@ -6,6 +6,11 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **Plugins: a space's own keys, its ⌘K Here, its page bar, its Inbox rows' facts.** A plugin binds bare letters to
+  its own space (`space == tasks` in the key's context), where they win over the app's; its pages say what ⌘K lists
+  under `Here` before anything is typed; its page bar holds its own path, view switch, filter (⌘F, ↑ ↓ ↵ in it) and
+  buttons, folding into `⋯` as the app's do; and a row it lists in the Inbox shows its item's id, where it is, its facts labelled and
+  `Open PAY-412`, with Done. Settings → Accounts heads the hosts `Code hosts`, for a plugin's trackers to follow.
 - **MCP: a plugin's own tools.** A plugin gives agents tools of its own — a tracker's plugin reads an issue whole, or
   searches — and Artoo's MCP server lists them beside its own while Artoo runs with the plugin on; the agent's call
   runs in Artoo, in the plugin. A plugin that stops as it installs takes its tools with it, and one turned off in

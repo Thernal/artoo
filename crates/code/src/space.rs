@@ -297,6 +297,8 @@ impl CodeSpace {
                 show.update(cx, |c, cx| c.show(route, opened, cx));
             }),
             keys: None,
+            here: None,
+            bar: None,
         }
     }
 
