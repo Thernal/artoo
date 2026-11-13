@@ -894,7 +894,7 @@ pub struct BarParts {
     pub filter: Option<&'static str>,
     /// The actions, the primary one last, each folding into `⋯` as the tab's own do.
     pub actions: Vec<bar::BarAction>,
-    /// Rows only `⋯` holds, after the actions folded into it.
+    /// Rows only `⋯` holds, after the actions folded into it; with any, `⋯` shows though nothing folds.
     pub more: Vec<MenuItem>,
 }
 

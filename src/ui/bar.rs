@@ -117,6 +117,7 @@ impl Workspace {
                     actions.append(&mut parts.actions);
                     actions
                 },
+                more_shown: !parts.more.is_empty(),
                 more: {
                     let mut more = self.more_of(page.as_ref(), cx);
                     more.append(&mut parts.more);

@@ -116,8 +116,10 @@ pub struct PageBar {
     pub view: Option<AnyElement>,
     pub actions: Vec<BarAction>,
     /// Rows only `⋯` holds, after the actions folded into it: Open in GitLab, Copy link. `⋯` shows only when an action
-    /// folds.
+    /// folds, unless `more_shown`.
     pub more: Vec<MenuItem>,
+    /// `⋯` shows though nothing folds: a plugin page's own rows (`BarParts::more`) are reached only there.
+    pub more_shown: bool,
     /// Its widths as last drawn.
     pub room: Rc<BarRoom>,
     /// Public: what is done here is seen on GitLab (#71).

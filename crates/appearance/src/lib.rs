@@ -105,7 +105,12 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
             (
                 Box::new(SaveTheme),
                 Rc::new(move |_, cx| {
-                    save.update(cx, |a, cx| a.save(cx)).ok();
+                    // ⌘S is the theme's while one is edited; otherwise it goes on, to a plugin's card or field.
+                    if save.upgrade().is_some_and(|a| a.read(cx).editing()) {
+                        save.update(cx, |a, cx| a.save(cx)).ok();
+                    } else {
+                        cx.propagate();
+                    }
                 }),
             ),
             (

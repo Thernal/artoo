@@ -6,6 +6,9 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **Plugins: a page's own `⋯` rows, and ⌘S in a plugin's card.** A plugin page's `⋯` holds its own rows (Copy key,
+  Copy branch name) though no button folds into it; ⌘S reaches a card a plugin shows over the window (New task keeps
+  a draft) unless a theme is being edited.
 - **Plugins: a space's own keys, its ⌘K Here, its page bar, its Inbox rows' facts.** A plugin binds bare letters to
   its own space (`space == tasks` in the key's context), where they win over the app's; its pages say what ⌘K lists
   under `Here` before anything is typed; its page bar holds its own path, view switch, filter (⌘F, ↑ ↓ ↵ in it) and

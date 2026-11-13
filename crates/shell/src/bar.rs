@@ -215,7 +215,7 @@ fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
     }
     items.sort_by_key(|(at, _)| *at);
     let items: Vec<_> = items.into_iter().map(|(_, item)| item).collect();
-    let more_button = (!items.is_empty()).then(|| {
+    let more_button = (!items.is_empty() || bar.more_shown).then(|| {
         let groups: Vec<_> = [items, bar.more]
             .into_iter()
             .filter(|g| !g.is_empty())
