@@ -4,8 +4,10 @@ What is new in each release of Artoo. A release's notes on GitHub are its sectio
 (`.github/release-notes.sh`); a release tag whose version has no section here does not build. Write what changed
 for someone using the app, not for someone reading the code; the commits follow anyway.
 
-## Unreleased
+## 2.0.0-rc.3 — 2026-11-13
 
+- **The Inbox needs no GitLab.** Its news comes from plugins and agents too, so it opens without a token, a remote
+  or git, and lists what they bring at once; with nothing from any of them it says `Nothing needs you`.
 - **Plugins: a page's own `⋯` rows, and ⌘S in a plugin's card.** A plugin page's `⋯` holds its own rows (Copy key,
   Copy branch name) though no button folds into it; ⌘S reaches a card a plugin shows over the window (New task keeps
   a draft) unless a theme is being edited.
@@ -25,9 +27,9 @@ for someone using the app, not for someone reading the code; the commits follow 
   context for it and the name of the plugin's tool that reads more; a click opens the plugin's page. The Agents
   window is in a plugin's space too, so a note added there opens it beside the page.
 - **A plain folder and a repository with no remote: every page opens and says what is missing.** The menu no longer
-  greys Inbox, Branches and Merge requests or writes under them; each opens like any page. A plain folder's pages say
-  `Not a git repository`, `notes has no .git folder`; a repository with no remote says `No remote` once, on Merge
-  requests and on the Inbox, with what they need it for. The bar over such a page is its name alone.
+  greys Branches and Merge requests or writes under them; each opens like any page. A plain folder's say `Not a git
+  repository`, `notes has no .git folder`; a repository with no remote says `No remote` once, on Merge requests, with
+  what they need it for. The bar over such a page is its name alone.
 - **Branches: a Viewed box on every file, kept while an agent commits.** A commit's, a branch's and the working
   tree's files each have a `☐ Viewed` box on their card instead of Mark reviewed; a tick folds the card to its head,
   and the list over them counts `1 of 3 viewed` (⌥⇧V still ticks them all). A tick stays while commits leave the file
