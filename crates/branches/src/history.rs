@@ -527,7 +527,7 @@ impl artoo_branches_api::Branches for Handle {
 
     fn toggle_remote(&self, remote: String, cx: &mut gpui::App) {
         if let Some(h) = self.0.upgrade() {
-            h.update(cx, |h, _| h.toggle_remote(remote));
+            h.update(cx, |h, cx| h.toggle_remote(remote, cx));
         }
     }
 

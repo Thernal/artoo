@@ -7,6 +7,8 @@
 
 use crate::{CheckForUpdates, Release};
 use artoo_shell_api::{Frame, Overlay, Parts, TitleItem};
+use artoo_ui_kit::motion::{self, Folds, Marks};
+use artoo_ui_kit::room::Heights;
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, format, hover, icons, keys, markdown, px, theme};
 use gpui::{
     App, ClickEvent, Context, Entity, FontWeight, KeyDownEvent, MouseButton, ScrollHandle,
@@ -26,6 +28,9 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
         open: open.clone(),
         checking: false,
         unfolded: Vec::new(),
+        motion: Marks::default(),
+        folds: Folds::default(),
+        heights: Heights::default(),
         scroll: ScrollHandle::new(),
         more: Rc::default(),
     });
@@ -97,13 +102,18 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
     }
 }
 
-/// The card: whether it is open, the releases whose commits are unfolded, and their scroll; whether a check
-/// asked from here is under way.
+/// The card: whether it is open, the releases whose commits are unfolded and how they fold, and their scroll;
+/// whether a check asked from here is under way.
 pub(crate) struct Card {
     frame: Rc<dyn Frame>,
     open: Rc<Cell<bool>>,
     checking: bool,
     unfolded: Vec<semver::Version>,
+    /// A release's commits fold in size and alpha (#110): its toggle's mark, what each fold was last drawn as, its
+    /// height then.
+    motion: Marks,
+    folds: Folds,
+    heights: Heights,
     scroll: ScrollHandle,
     /// More of the releases below what shows: the fade at their foot. Set as they are drawn.
     more: Rc<Cell<bool>>,
@@ -114,6 +124,7 @@ impl Card {
     fn show(&mut self, cx: &mut Context<Self>) {
         self.open.set(true);
         self.unfolded.clear();
+        self.folds = Folds::default();
         self.scroll = ScrollHandle::new();
         self.more.set(false);
         cx.notify();
@@ -286,41 +297,77 @@ impl Render for Card {
                     )
                 })
                 .when(r.count > 0, |s| {
+                    let key = format!("update-commits-{}", r.version);
+                    let moving = self.motion.recent(&key);
+                    // The commits fold in size and alpha, the space above them inside, so none is left once they
+                    // are shut (#110); the chevron turns as they do. Shut and still, they are not drawn.
+                    let commits =
+                        (open || moving).then(|| {
+                            motion::folding(
+                                &self.folds,
+                                &self.heights,
+                                moving,
+                                key.clone(),
+                                open,
+                                div().pt(px(6.)).pl(px(18.)).text_size(px(12.)).child(
+                                    markdown::body(
+                                        &r.commits,
+                                        true,
+                                        key.clone(),
+                                        None,
+                                        selecting.clone(),
+                                        cx,
+                                    ),
+                                ),
+                            )
+                        });
+                    let mark = key.clone();
                     s.child(
                         div()
-                            .id(SharedString::from(format!("update-commits-{}", r.version)))
                             .flex()
-                            .items_center()
-                            .gap(px(4.))
-                            .text_size(px(12.))
-                            .text_color(theme::muted())
-                            .cursor_pointer()
-                            .hover(|s| s.text_color(theme::text()))
+                            .flex_col()
                             .child(
-                                icons::icon(if open { "chevron" } else { "chevron-right" })
-                                    .size(px(14.))
-                                    .text_color(theme::muted()),
+                                div()
+                                    .id(SharedString::from(key.clone()))
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(4.))
+                                    .text_size(px(12.))
+                                    .text_color(theme::muted())
+                                    .cursor_pointer()
+                                    .hover(|s| s.text_color(theme::text()))
+                                    .child(motion::toward(
+                                        icons::icon("chevron")
+                                            .size(px(14.))
+                                            .text_color(theme::muted()),
+                                        SharedString::from(format!("{key}-chevron")),
+                                        open,
+                                        false,
+                                        motion::FAST,
+                                        |chevron, v| {
+                                            chevron.with_transformation(
+                                                gpui::Transformation::rotate(gpui::radians(
+                                                    -std::f32::consts::FRAC_PI_2 * (1. - v),
+                                                )),
+                                            )
+                                        },
+                                    ))
+                                    .child(format::plural(r.count, "commit"))
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                        if let Some(ix) =
+                                            this.unfolded.iter().position(|v| *v == version)
+                                        {
+                                            this.unfolded.remove(ix);
+                                        } else {
+                                            this.unfolded.push(version.clone());
+                                        }
+                                        this.motion.mark(mark.clone());
+                                        motion::redraw_after(cx);
+                                        cx.notify();
+                                    })),
                             )
-                            .child(format::plural(r.count, "commit"))
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                if let Some(ix) = this.unfolded.iter().position(|v| *v == version) {
-                                    this.unfolded.remove(ix);
-                                } else {
-                                    this.unfolded.push(version.clone());
-                                }
-                                cx.notify();
-                            })),
+                            .children(commits.flatten()),
                     )
-                    .when(open, |s| {
-                        s.child(div().pl(px(18.)).text_size(px(12.)).child(markdown::body(
-                            &r.commits,
-                            true,
-                            format!("update-commits-{}", r.version),
-                            None,
-                            selecting.clone(),
-                            cx,
-                        )))
-                    })
                 })
         });
         let since = newest

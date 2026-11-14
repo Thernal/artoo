@@ -13,6 +13,8 @@ use artoo_review_api::{FoundInFiles as Found, SEARCH};
 use artoo_shell_api::{Frame, Tool};
 use artoo_ui_kit::hover::{self, Tip};
 use artoo_ui_kit::input::{self, Area, Edit};
+use artoo_ui_kit::motion::{self, Folds, Marks};
+use artoo_ui_kit::room::Heights;
 use artoo_ui_kit::{ROW_RADIUS, icons, px, row, theme};
 use gpui::{
     AnyElement, App, ClickEvent, Context, Entity, FontStyle, FontWeight, HighlightStyle, Keystroke,
@@ -79,6 +81,11 @@ pub struct FindFiles {
     scroll: ScrollHandle,
     /// The files whose lines are folded under their head.
     folded: HashSet<usize>,
+    /// A file's lines fold in size and alpha (#110): its head's mark, what each line was last drawn as, its height
+    /// then.
+    motion: Marks,
+    folds: Folds,
+    heights: Heights,
 }
 
 /// What a key typed in the search came to: the window closes on esc.
@@ -203,7 +210,12 @@ impl FindFiles {
             .collect()
     }
 
-    /// The row hit `at` is in the list: the heads before it and the lines shown.
+    /// Whether file `file`'s lines are drawn: open, or folding shut a moment ago.
+    fn drawn(&self, file: usize) -> bool {
+        !self.folded.contains(&file) || self.motion.recent(&file_key(file))
+    }
+
+    /// The row hit `at` is in the list: the heads before it and the lines drawn.
     fn row_of(&self, at: usize) -> usize {
         let mut row = 0;
         let mut last = usize::MAX;
@@ -215,7 +227,7 @@ impl FindFiles {
             if ix == at {
                 return row;
             }
-            if !self.folded.contains(&hit.file) {
+            if self.drawn(hit.file) {
                 row += 1;
             }
         }
@@ -258,6 +270,7 @@ impl Review {
                         if *f.paths != paths {
                             f.clear_hits();
                             f.folded.clear();
+                            f.folds = Folds::default();
                         }
                         f.paths = Arc::new(paths);
                         f.listing = false;
@@ -292,6 +305,9 @@ impl Review {
             cache: Arc::default(),
             scroll: ScrollHandle::new(),
             folded: HashSet::new(),
+            motion: Marks::default(),
+            folds: Folds::default(),
+            heights: Heights::default(),
         });
         if f.query != query {
             f.narrow = None;
@@ -514,12 +530,14 @@ impl Review {
         cx.notify();
     }
 
-    /// File `file`'s lines folded under their head, or shown again.
+    /// File `file`'s lines folded under their head, or shown again; they move as they fold (#110).
     fn fold_found(&mut self, file: usize, cx: &mut Context<Self>) {
-        if let Some(f) = self.ffind.as_mut()
-            && !f.folded.remove(&file)
-        {
-            f.folded.insert(file);
+        if let Some(f) = self.ffind.as_mut() {
+            if !f.folded.remove(&file) {
+                f.folded.insert(file);
+            }
+            f.motion.mark(file_key(file));
+            motion::redraw_after(cx);
         }
         cx.notify();
     }
@@ -725,6 +743,11 @@ fn summary(f: &FindFiles) -> impl IntoElement + use<> {
         )
 }
 
+/// File `file`'s fold: its head's mark.
+fn file_key(file: usize) -> String {
+    format!("ffind-file-{file}")
+}
+
 /// The lines found under their files' heads: a head folds its lines.
 fn rows_of(f: &FindFiles, this: WeakEntity<Review>) -> Vec<AnyElement> {
     let mut rows = Vec::new();
@@ -759,11 +782,21 @@ fn rows_of(f: &FindFiles, this: WeakEntity<Review>) -> Vec<AnyElement> {
                 .on_click(move |_, _, cx| {
                     fold.update(cx, |rv, cx| rv.fold_found(file, cx)).ok();
                 })
-                .child(
-                    icons::icon(if folded { "chevron-right" } else { "chevron" })
+                // The chevron turns as its lines fold (#56, 1).
+                .child(motion::toward(
+                    icons::icon("chevron")
                         .size(px(13.))
                         .text_color(theme::faint()),
-                )
+                    ("ffind-chevron", file),
+                    !folded,
+                    false,
+                    motion::FAST,
+                    |chevron, v| {
+                        chevron.with_transformation(gpui::Transformation::rotate(gpui::radians(
+                            -std::f32::consts::FRAC_PI_2 * (1. - v),
+                        )))
+                    },
+                ))
                 .child(
                     div()
                         .flex_none()
@@ -787,9 +820,19 @@ fn rows_of(f: &FindFiles, this: WeakEntity<Review>) -> Vec<AnyElement> {
                 )
                 .into_any_element(),
         );
-        if !folded {
+        // Each line folds with its file, in size and alpha (#110): the group opens and shuts as one, and every line
+        // stays a child of its own, the list scrolled to it by its place (`row_of`).
+        if f.drawn(file) {
+            let moving = f.motion.recent(&file_key(file));
             for at in ix..end {
-                rows.push(hit_row(f, at, this.clone()));
+                rows.extend(motion::folding(
+                    &f.folds,
+                    &f.heights,
+                    moving,
+                    format!("ffind-{file}-{}", f.hits[at].line),
+                    !folded,
+                    hit_row(f, at, this.clone()),
+                ));
             }
         }
         ix = end;

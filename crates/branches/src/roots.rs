@@ -4,6 +4,8 @@
 use crate::history::History;
 use artoo_core::git::{BranchRef, ChangeKind, DiffSettings, RefKind, Repo};
 use artoo_core::rank;
+use artoo_ui_kit::motion::{self, Folds, Marks};
+use artoo_ui_kit::room::Heights;
 use gpui::{Context, Task};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -37,6 +39,11 @@ pub struct Roots {
     facts_task: Option<Task<()>>,
     /// The remotes whose branches the list shows; the rest are folded to their name.
     pub open_remotes: HashSet<String>,
+    /// How a remote's branches fold, in size and alpha (#110): its toggle's mark, what each fold was last drawn as,
+    /// its height then.
+    pub remote_motion: Marks,
+    pub remote_folds: Folds,
+    pub remote_heights: Heights,
     /// The row picked, previewed: by a click, by ↑ ↓, or the one open as you came back.
     pub picked: Option<BranchRow>,
     /// The working tree's files as last read, with the fingerprint they were read at.
@@ -132,12 +139,20 @@ impl History {
         }));
     }
 
-    /// A remote's branches listed, or folded to its name.
-    pub fn toggle_remote(&mut self, remote: String) {
+    /// A remote's branches listed, or folded to its name; they move as they fold (#110).
+    pub fn toggle_remote(&mut self, remote: String, cx: &mut Context<Self>) {
+        self.roots.remote_motion.mark(remote_key(&remote));
+        motion::redraw_after(cx);
         if !self.roots.open_remotes.remove(&remote) {
             self.roots.open_remotes.insert(remote);
         }
+        cx.notify();
     }
+}
+
+/// Remote `remote`'s fold in the list: its mark, and the key its height is kept by.
+pub fn remote_key(remote: &str) -> String {
+    format!("remote-{remote}")
 }
 
 impl History {

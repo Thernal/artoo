@@ -3,13 +3,13 @@
 //! draws the list's island, its handle and the preview's around them; a click asks it an `Act`.
 
 use crate::history::{Act, Acts, History};
-use crate::roots::BranchRow;
+use crate::roots::{BranchRow, remote_key};
 use artoo_core::git::{ChangeKind, RefKind};
 use artoo_ui_kit::controls::{empty_state, outline_button, primary_button, progress_badge};
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, CutInTip, Hover, RowTip};
 use artoo_ui_kit::room::Room;
-use artoo_ui_kit::{ROW_RADIUS, icons, px, theme, words};
+use artoo_ui_kit::{ROW_RADIUS, icons, motion, px, theme, words};
 use gpui::{
     AnyElement, AnyView, App, ClickEvent, Div, FontWeight, MouseButton, MouseDownEvent, Rgba,
     SharedString, Window, div, prelude::*,
@@ -82,10 +82,12 @@ pub fn rows(h: &History, rows: &[BranchRow], look: &ListLook, acts: &Acts) -> Ve
     );
     for (remote, ixs) in h.remote_branches() {
         let open = h.roots.open_remotes.contains(&remote);
+        let key = remote_key(&remote);
+        let moving = h.roots.remote_motion.recent(&key);
         let (name, acts) = (remote.clone(), acts.clone());
         list.push(
             div()
-                .id(SharedString::from(format!("remote-{remote}")))
+                .id(SharedString::from(key.clone()))
                 .flex()
                 .items_center()
                 .gap(px(4.))
@@ -96,11 +98,21 @@ pub fn rows(h: &History, rows: &[BranchRow], look: &ListLook, acts: &Acts) -> Ve
                 .text_color(theme::faint())
                 .cursor_pointer()
                 .hover(|s| s.text_color(theme::text()))
-                .child(
-                    icons::icon(if open { "chevron" } else { "chevron-right" })
+                // The chevron turns as its branches fold (#56, 1).
+                .child(motion::toward(
+                    icons::icon("chevron")
                         .size(px(14.))
                         .text_color(theme::faint()),
-                )
+                    SharedString::from(format!("{key}-chevron")),
+                    open,
+                    false,
+                    motion::FAST,
+                    |chevron, v| {
+                        chevron.with_transformation(gpui::Transformation::rotate(gpui::radians(
+                            -std::f32::consts::FRAC_PI_2 * (1. - v),
+                        )))
+                    },
+                ))
                 .child(format!(
                     "{remote} · {}{}",
                     ixs.len(),
@@ -113,8 +125,20 @@ pub fn rows(h: &History, rows: &[BranchRow], look: &ListLook, acts: &Acts) -> Ve
                 })
                 .into_any_element(),
         );
-        if open {
-            list.extend(ixs.into_iter().map(|ix| row(BranchRow::Branch(ix), false)));
+        // Its branches fold under it as one, in size and alpha (#110); shut and still, none is drawn.
+        if open || moving {
+            let rows = div()
+                .flex()
+                .flex_col()
+                .children(ixs.into_iter().map(|ix| row(BranchRow::Branch(ix), false)));
+            list.extend(motion::folding(
+                &h.roots.remote_folds,
+                &h.roots.remote_heights,
+                moving,
+                key,
+                open,
+                rows,
+            ));
         }
     }
     list

@@ -1000,11 +1000,21 @@ fn band(
         )
         .when(foldable, |s| {
             s.cursor_pointer()
-                .child(
-                    icons::icon(if folded { "chevron-right" } else { "chevron" })
+                // The chevron turns as the group's rows fold (#56, 1).
+                .child(motion::toward(
+                    icons::icon("chevron")
                         .size(px(14.))
                         .text_color(theme::faint()),
-                )
+                    "group-chevron",
+                    !folded,
+                    false,
+                    motion::FAST,
+                    |chevron, v| {
+                        chevron.with_transformation(gpui::Transformation::rotate(gpui::radians(
+                            -std::f32::consts::FRAC_PI_2 * (1. - v),
+                        )))
+                    },
+                ))
                 .on_click(
                     // A double click folds or opens it once, as one click does.
                     move |e: &ClickEvent, _, cx| {
