@@ -1850,7 +1850,10 @@ fn scope(page: Entity<Page>, frame: Rc<dyn Frame>) -> Search {
 fn untrusted(p: &Page, cx: &App) -> Option<Item> {
     let trusted = &cx.global::<Market>().trusted;
     (p.listed(cx).into_iter()).find(|i| {
-        i.offer.as_ref().is_some_and(|o| !trusted.contains(&o.owner)) && act_of(i, cx) == Act::Install
+        i.offer
+            .as_ref()
+            .is_some_and(|o| !trusted.contains(&o.owner))
+            && act_of(i, cx) == Act::Install
     })
 }
 
