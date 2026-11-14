@@ -6,6 +6,8 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **⌘Z undoes a plugin's toast too.** A toast a plugin raises with Undo (Tasks' reassignment) is undone by ⌘Z as
+  the app's own are; ⌘Z pressed only those before.
 - **The last folds that snapped move.** An update's commits, a remote's branches and a file's lines in Search open
   and shut in size and alpha as every other fold does, their chevrons turning, the requests list's groups' too.
 - **⌘K's tabs scroll.** When they do not fit, they scroll sideways: the tab you step to with ⇥ stays in sight,

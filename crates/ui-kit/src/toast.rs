@@ -123,6 +123,14 @@ impl<A> Toast<A> {
     }
 }
 
+/// Whether button `b` undoes: its words, or its act's (`label`), start with Undo.
+fn undoes<A>(b: &Button<A>, label: fn(&A) -> &'static str) -> bool {
+    match b {
+        Button::Run(words, _) => words.starts_with("Undo"),
+        Button::Act(act, _) => label(act).starts_with("Undo"),
+    }
+}
+
 /// What the tab does when a button with act `A` is pressed.
 pub type OnAct<A> = Rc<dyn Fn(A, &mut App)>;
 
@@ -309,13 +317,12 @@ impl<A: Clone + PartialEq + 'static> Toasts<A> {
             .map(|t| t.id)
     }
 
-    /// The newest toast with an Undo button still showing: what `⌘Z` presses (#191).
+    /// The newest toast with an Undo button still showing: what `⌘Z` presses (#191) — the app's own, or one whose
+    /// button is an action named Undo (a plugin's toast, raised through the frame).
     fn newest_undo(&self) -> Option<u64> {
+        let label = self.label;
         (self.list.iter().rev())
-            .find(|t| {
-                !t.leaving
-                    && matches!(&t.button, Some(Button::Run(label, _)) if label.starts_with("Undo"))
-            })
+            .find(|t| !t.leaving && t.button.as_ref().is_some_and(|b| undoes(b, label)))
             .map(|t| t.id)
     }
 
@@ -585,6 +592,27 @@ mod tests {
                 t.hold(id, false, cx);
                 assert!(t.list[0].since.is_some());
                 assert_eq!(t.list[0].left, held);
+            });
+        });
+    }
+
+    #[test]
+    fn cmd_z_presses_an_undo_that_is_an_act_too() {
+        gpui::TestAppContext::single().update(|cx| {
+            // A plugin's toast reaches the stack as an act whose label is its button's words.
+            let toasts = cx.new(|_| {
+                Toasts::new(
+                    |a: &u8| if *a == 1 { "Undo" } else { "Open" },
+                    Rc::new(|_, _| {}),
+                )
+            });
+            toasts.update(cx, |t, cx| {
+                t.show_act("Assigned to Ember", 2, 1, cx);
+                assert!(t.newest_undo().is_none());
+                t.show_act("Reassigned to Ember", 1, 1, cx);
+                let undo = t.newest_undo();
+                assert_eq!(undo, Some(t.list[1].id));
+                assert!(t.press_undo(cx));
             });
         });
     }
