@@ -71,6 +71,9 @@ pub struct PaletteView {
     pub hint: Option<&'static str>,
     /// The list's scroll, and whether it goes to the row picked (the keys moved it, or it opened).
     pub scroll: (gpui::ScrollHandle, bool),
+    /// The tabs' sideways scroll, and whether it goes to the tab on (it changed): tabs that grow with plugins
+    /// scroll when they do not fit (task management T8).
+    pub tabs_scroll: (gpui::ScrollHandle, bool),
 }
 
 /// What a click on the window does.

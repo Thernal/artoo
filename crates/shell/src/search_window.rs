@@ -180,6 +180,9 @@ pub(crate) struct Machine {
     /// window opened, never as the wheel scrolls it.
     list: ScrollHandle,
     follow: Cell<bool>,
+    /// The tabs' sideways scroll, and the tab on as last drawn: a tab come to is scrolled into sight once.
+    tabs: ScrollHandle,
+    tab_on: Cell<Option<usize>>,
 }
 
 /// The window in a new tab, its handle in the tab's services; it draws nothing of its own as a part.
@@ -195,6 +198,8 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
         scroll: Rc::default(),
         list: ScrollHandle::new(),
         follow: Cell::new(false),
+        tabs: ScrollHandle::new(),
+        tab_on: Cell::new(None),
     });
     frame
         .services()
@@ -858,6 +863,13 @@ impl Render for Machine {
             false => "↑↓ · ↵ · esc",
         });
         let follow = self.follow.replace(false);
+        // A tab come to (⇥, a click, the window opened on another) is scrolled into sight, once.
+        let on = (tabs.as_ref()).and_then(|t: &Vec<Tab>| t.iter().position(|t| t.lit));
+        let to_tab = on.is_some() && self.tab_on.replace(on) != on;
+        if to_tab {
+            // Its edges fade by where the row was scrolled to, known once it is laid out: drawn once more.
+            window.request_animation_frame();
+        }
         palette::palette(
             PaletteView {
                 title,
@@ -871,6 +883,7 @@ impl Render for Machine {
                 under,
                 hint,
                 scroll: (self.list.clone(), follow),
+                tabs_scroll: (self.tabs.clone(), to_tab),
             },
             Rc::new(Glue(cx.weak_entity())),
             cx,

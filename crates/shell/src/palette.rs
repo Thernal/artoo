@@ -260,7 +260,10 @@ fn palette(view: PaletteView, host: Rc<dyn PaletteHost>) -> AnyElement {
                 .shadow_lg()
                 .overflow_hidden()
                 .children(view.title.map(island_label))
-                .children(view.tabs.map(|tabs| scopes(tabs, host.clone())))
+                .children(
+                    view.tabs
+                        .map(|tabs| scopes(tabs, view.tabs_scroll, host.clone())),
+                )
                 .child(
                     div()
                         .h(px(44.))
@@ -304,22 +307,57 @@ fn palette(view: PaletteView, host: Rc<dyn PaletteHost>) -> AnyElement {
 }
 
 /// The tabs of search everywhere: names, and what each found in a badge; one that found
-/// nothing fades.
-fn scopes(tabs: Vec<Tab>, host: Rc<dyn PaletteHost>) -> AnyElement {
-    div()
+/// nothing fades. Past the window's width they scroll sideways (task management T8), the tab come to in sight,
+/// an edge with tabs beyond it fading out.
+fn scopes(
+    tabs: Vec<Tab>,
+    (scroll, to_tab): (gpui::ScrollHandle, bool),
+    host: Rc<dyn PaletteHost>,
+) -> AnyElement {
+    if to_tab && let Some(on) = tabs.iter().position(|t| t.lit) {
+        scroll.scroll_to_item(on);
+    }
+    // As last drawn: what lies beyond each edge.
+    let (at, most) = (scroll.offset().x, scroll.max_offset().x);
+    let (before, after) = (at < px(-1.), at > -most + px(1.));
+    // Steps of the panel's colour, solid at the edge and gone 40 px in.
+    let fade = |left: bool| {
+        const STEPS: usize = 10;
+        const WIDE: f32 = 40.;
+        div()
+            .absolute()
+            .top_0()
+            .bottom(px(1.))
+            .w(px(WIDE))
+            .when(left, |d| d.left_0())
+            .when(!left, |d| d.right_0())
+            .flex()
+            .when(!left, |d| d.flex_row_reverse())
+            .children((0..STEPS).map(|n| {
+                let a = 1. - n as f32 / STEPS as f32;
+                div().w(px(WIDE / STEPS as f32)).h_full().bg(gpui::Rgba {
+                    a,
+                    ..theme::panel()
+                })
+            }))
+    };
+    let row = div()
+        .id("search-scopes")
         .flex()
         .gap(px(2.))
         .px(px(10.))
-        .border_b_1()
-        .border_color(theme::island_border())
+        .overflow_x_scroll()
+        .track_scroll(&scroll)
         .children(tabs.into_iter().enumerate().map(|(i, tab)| {
             let (count, lit) = (tab.count, tab.lit);
             let none = count == Some(0);
             let pick = host.clone();
             let tab = div()
                 .id(("search-scope", i))
+                .flex_none()
                 .flex()
                 .items_center()
+                .whitespace_nowrap()
                 .gap(px(6.))
                 .px(px(10.))
                 .pt(px(10.))
@@ -362,7 +400,14 @@ fn scopes(tabs: Vec<Tab>, host: Rc<dyn PaletteHost>) -> AnyElement {
                     })
                 },
             )
-        }))
+        }));
+    div()
+        .relative()
+        .border_b_1()
+        .border_color(theme::island_border())
+        .child(row)
+        .children(before.then(|| fade(true)))
+        .children(after.then(|| fade(false)))
         .into_any_element()
 }
 

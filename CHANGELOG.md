@@ -6,6 +6,8 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **⌘K's tabs scroll.** When they do not fit, they scroll sideways: the tab you step to with ⇥ stays in sight,
+  and an edge with more tabs beyond it fades. Actions ran past the window's edge before.
 - **Commits folds as it moves.** On the branch checked out, the Commits section folds and opens moving, its rows
   fading, as every other section does; it snapped shut before.
 - **The way to connect an agent stays.** Settings → Agents keeps it once an agent is connected: `Connect again` for
