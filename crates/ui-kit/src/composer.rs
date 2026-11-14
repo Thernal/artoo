@@ -10,6 +10,7 @@ use crate::{hover, icons, markdown, px, theme};
 use artoo_core::markdown::Helper;
 use artoo_core::textedit::TextEdit;
 use gpui::{AnyElement, App, Div, Keystroke, Pixels, Point, Rgba, SharedString, div, prelude::*};
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 /// Who a comment is for.
@@ -73,9 +74,224 @@ pub struct Compose {
     pub file: Option<Option<git2::Oid>>,
     /// The agent's note it answers, carried into the comment (#151).
     pub answers: Option<String>,
+    /// What is attached to it (#214), each a tile under the text.
+    pub attachments: Vec<Attachment>,
+}
+
+/// A file attached to a comment being written (#214): a screenshot pasted, a file dropped on the composer or picked
+/// with its clip. The comment's owner uploads it and says how it goes (`Compose::upload_progress`, `uploaded`), and its Markdown goes into the text where the
+/// caret was when it was attached.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Attachment {
+    pub id: u64,
+    pub path: PathBuf,
+    pub name: String,
+    /// Its size, in bytes.
+    pub size: u64,
+    /// Where the caret was: its Markdown goes there.
+    pub at: usize,
+    pub state: Upload,
+}
+
+/// How far an attachment's upload has come.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Upload {
+    /// Going, how far (0 to 1).
+    Going(f32),
+    /// Done: the Markdown put into the text.
+    Done(String),
+    /// Failed, and why: its tile amber, `Try again`.
+    Failed(String),
+}
+
+impl Attachment {
+    /// Whether it is a picture: its tile shows it.
+    pub fn image(&self) -> bool {
+        let ext = (self.path.extension())
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        matches!(
+            ext.as_str(),
+            "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff"
+        )
+    }
+
+    /// `182 KB · 60%` while it goes, `182 KB` once done.
+    pub fn said(&self) -> String {
+        let size = size_words(self.size);
+        match &self.state {
+            Upload::Going(p) => format!("{size} · {}%", (p * 100.).round() as u32),
+            _ => size,
+        }
+    }
+}
+
+/// `182 KB`, `1.4 MB`.
+pub fn size_words(bytes: u64) -> String {
+    match bytes {
+        0..1024 => format!("{bytes} B"),
+        1024..1_048_576 => format!("{} KB", (bytes + 512) / 1024),
+        _ => format!("{:.1} MB", bytes as f64 / 1_048_576.),
+    }
+}
+
+/// ⌘V (Ctrl+V elsewhere) with a picture or files on the clipboard and no text: a screenshot. The picture saved under
+/// `dir` (`pasted-<time>.png`), or the files copied in Finder, to attach.
+pub fn pasted_files(key: &Keystroke, dir: &Path, cx: &App) -> Vec<PathBuf> {
+    let m = key.modifiers;
+    if key.key != "v" || !m.secondary() || m.number_of_modifiers() != 1 {
+        return Vec::new();
+    }
+    let Some(item) = cx.read_from_clipboard() else {
+        return Vec::new();
+    };
+    let mut files = Vec::new();
+    let mut text = false;
+    for entry in item.entries() {
+        match entry {
+            gpui::ClipboardEntry::String(s) => text |= !s.text().trim().is_empty(),
+            gpui::ClipboardEntry::ExternalPaths(paths) => {
+                files.extend(paths.paths().iter().cloned())
+            }
+            gpui::ClipboardEntry::Image(image) if files.is_empty() => {
+                let ext = match image.format {
+                    gpui::ImageFormat::Jpeg => "jpg",
+                    gpui::ImageFormat::Webp => "webp",
+                    gpui::ImageFormat::Gif => "gif",
+                    gpui::ImageFormat::Svg => "svg",
+                    gpui::ImageFormat::Bmp => "bmp",
+                    gpui::ImageFormat::Tiff => "tiff",
+                    _ => "png",
+                };
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_millis());
+                let path = dir.join(format!("pasted-{now}.{ext}"));
+                if std::fs::create_dir_all(dir).is_ok()
+                    && std::fs::write(&path, &image.bytes).is_ok()
+                {
+                    files.push(path);
+                }
+            }
+            gpui::ClipboardEntry::Image(_) => {}
+        }
+    }
+    // Text with it (a copied link to a picture, a cell): the text is what was meant.
+    if text && files.iter().all(|f| f.starts_with(dir)) {
+        for f in files.iter().filter(|f| f.starts_with(dir)) {
+            let _ = std::fs::remove_file(f);
+        }
+        return Vec::new();
+    }
+    files
 }
 
 impl Compose {
+    /// `path` attached where the caret is (#214); its id, by which its owner says how its upload goes.
+    pub fn attach(&mut self, path: PathBuf) -> u64 {
+        let id = self.attachments.iter().map(|a| a.id).max().unwrap_or(0) + 1;
+        let name = (path.file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        self.attachments.push(Attachment {
+            id,
+            size: std::fs::metadata(&path).map_or(0, |m| m.len()),
+            path,
+            name,
+            at: self.edit.caret(),
+            state: Upload::Going(0.),
+        });
+        id
+    }
+
+    /// Attachment `id`'s upload has gone `p` of the way.
+    pub fn upload_progress(&mut self, id: u64, p: f32) {
+        if let Some(a) = self.attachments.iter_mut().find(|a| a.id == id)
+            && matches!(a.state, Upload::Going(_))
+        {
+            a.state = Upload::Going(p.clamp(0., 1.));
+        }
+    }
+
+    /// Attachment `id` uploaded: `markdown` put where the caret was when it was attached, on a line of its own.
+    pub fn uploaded(&mut self, id: u64, markdown: String) {
+        let Some(ix) = self.attachments.iter().position(|a| a.id == id) else {
+            return;
+        };
+        let text = self.edit.text().to_owned();
+        let mut at = self.attachments[ix].at.min(text.len());
+        while !text.is_char_boundary(at) {
+            at -= 1;
+        }
+        let mut insert = markdown.clone();
+        if at > 0 && !text[..at].ends_with('\n') {
+            insert.insert(0, '\n');
+        }
+        if at < text.len() && !text[at..].starts_with('\n') {
+            insert.push('\n');
+        }
+        let caret = self.edit.caret();
+        let caret = if caret >= at {
+            caret + insert.len()
+        } else {
+            caret
+        };
+        self.edit.replace(at..at, &insert, caret..caret);
+        for other in self
+            .attachments
+            .iter_mut()
+            .filter(|a| a.id != id && a.at >= at)
+        {
+            other.at += insert.len();
+        }
+        self.attachments[ix].state = Upload::Done(markdown);
+    }
+
+    /// Attachment `id`'s upload failed: its tile amber, `Try again`.
+    pub fn upload_failed(&mut self, id: u64, why: String) {
+        if let Some(a) = self.attachments.iter_mut().find(|a| a.id == id) {
+            a.state = Upload::Failed(why);
+        }
+    }
+
+    /// Attachment `id` tried again: its file, to upload again.
+    pub fn retry(&mut self, id: u64) -> Option<PathBuf> {
+        let a = self.attachments.iter_mut().find(|a| a.id == id)?;
+        a.state = Upload::Going(0.);
+        Some(a.path.clone())
+    }
+
+    /// ✕ on attachment `id`: its tile goes, and its Markdown out of the text.
+    pub fn unattach(&mut self, id: u64) {
+        let Some(ix) = self.attachments.iter().position(|a| a.id == id) else {
+            return;
+        };
+        if let Upload::Done(markdown) = &self.attachments[ix].state
+            && let Some(at) = self.edit.text().find(markdown.as_str())
+        {
+            let text = self.edit.text();
+            let end = at + markdown.len();
+            let end = if text[end..].starts_with('\n') {
+                end + 1
+            } else {
+                end
+            };
+            let caret = self.edit.caret();
+            let caret = if caret >= end {
+                caret - (end - at)
+            } else {
+                caret.min(at)
+            };
+            self.edit.replace(at..end, "", caret..caret);
+        }
+        self.attachments.remove(ix);
+    }
+
+    /// An upload still going or failed: `Comment` waits for it, so no comment goes out without its image.
+    pub fn waiting(&self) -> bool {
+        (self.attachments.iter()).any(|a| !matches!(a.state, Upload::Done(_)))
+    }
+
     /// The discussion of the open request a reply, an edit or a note for the agent is in.
     pub fn thread(&self) -> Option<usize> {
         match self.target {
@@ -203,6 +419,7 @@ pub enum Typed {
 }
 
 /// What a press in the composer asks of the tab (`Compose::render_input`).
+#[derive(Clone)]
 pub enum ComposeAct {
     /// A markdown helper of its toolbar.
     Helper(Helper),
@@ -221,6 +438,14 @@ pub enum ComposeAct {
         drag: bool,
         lower: bool,
     },
+    /// The clip (`Attach a file or an image ⇧⌘A`): files to pick (#214).
+    Clip,
+    /// Files dropped on it (#214).
+    Dropped(Vec<PathBuf>),
+    /// ✕ on attachment `0` (`Compose::unattach`).
+    Unattach(u64),
+    /// `Try again` on attachment `0` (`Compose::retry`).
+    Retry(u64),
 }
 
 /// What answers the composer's presses.
@@ -251,6 +476,8 @@ pub struct Look {
     pub measure: AnyElement,
     /// Where a relative link in the preview points.
     pub link_base: Option<String>,
+    /// Its owner takes files (#214): the clip among its tools, a paste or a drop attaches. Not on a GitHub request.
+    pub clip: bool,
 }
 
 impl Compose {
@@ -271,6 +498,7 @@ impl Compose {
             completion,
             measure,
             link_base,
+            clip,
         } = look;
         let compose = self;
         let text = if compose.preview {
@@ -313,6 +541,31 @@ impl Compose {
         };
         let preview = compose.preview;
         let toggle = act.clone();
+        // The clip, last among the tools (#214): a file or an image picked; a paste or a drop does the same.
+        let clip_tool = clip.then(|| {
+            let act = act.clone();
+            div()
+                .id("compose-clip")
+                .size(px(26.))
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .rounded(px(6.))
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::hover()))
+                .child(
+                    icons::icon("paperclip")
+                        .size(px(15.))
+                        .text_color(theme::muted()),
+                )
+                .tooltip_show_delay(hover::LONG)
+                .tooltip(|_, cx| {
+                    cx.new(|_| hover::Tip("Attach a file or an image  ⇧⌘A; paste or drop one"))
+                        .into()
+                })
+                .on_click(move |_, _, cx| act(ComposeAct::Clip, cx))
+        });
         // One row at every width (Design shell round 6, #129): who sees it and the writing helpers
         // on the left, the buttons on the right; at S the helpers fold into T, a menu of them.
         let (open_format, format) = (act.clone(), tools.clone());
@@ -381,7 +634,8 @@ impl Compose {
                         .tooltip(|_, cx| cx.new(|_| hover::Tip("Preview  ⌘⇧P")).into())
                         .on_click(move |_, _, cx| toggle(ComposeAct::Preview, cx)),
                 )
-            });
+            })
+            .children(clip_tool);
         let edge = div()
             .flex()
             .items_center()
@@ -426,6 +680,7 @@ impl Compose {
                     .child(head)
             }))
             .child(text)
+            .children(self.tiles(act.clone()))
             .children(completion)
             .children(compose.error.clone().map(|e| {
                 div()
@@ -436,6 +691,147 @@ impl Compose {
                     .child(e)
             }))
             .child(edge)
+            // A file dropped on it attaches (#214).
+            .when(clip, |s| {
+                let act = act.clone();
+                s.on_drop(move |paths: &gpui::ExternalPaths, _, cx| {
+                    act(ComposeAct::Dropped(paths.paths().to_vec()), cx)
+                })
+                .drag_over::<gpui::ExternalPaths>(|s, _, _, _| s.border_color(theme::focus()))
+            })
+    }
+
+    /// Its attachments, a row of tiles under the text (#214): a thumbnail for an image, the name, `182 KB · 60%`
+    /// and an upload bar, ✕ to remove it. A failed one amber, with `Try again`.
+    fn tiles(&self, act: ComposeActs) -> Option<Div> {
+        if self.attachments.is_empty() {
+            return None;
+        }
+        let tile = |a: &Attachment| {
+            let failed = matches!(a.state, Upload::Failed(_));
+            let id = a.id;
+            let thumb = if a.image() {
+                gpui::img(a.path.clone())
+                    .w(px(64.))
+                    .h(px(40.))
+                    .rounded(px(4.))
+                    .object_fit(gpui::ObjectFit::Cover)
+                    .into_any_element()
+            } else {
+                div()
+                    .w(px(40.))
+                    .h(px(40.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(4.))
+                    .bg(theme::hover())
+                    .child(icons::file_icon(&a.name, 18.))
+                    .into_any_element()
+            };
+            let bar = match &a.state {
+                Upload::Going(p) => Some(
+                    div()
+                        .h(px(3.))
+                        .rounded(px(2.))
+                        .bg(theme::selected())
+                        .overflow_hidden()
+                        .child(
+                            div()
+                                .h_full()
+                                .w(gpui::relative(p.max(0.02)))
+                                .bg(theme::accent()),
+                        ),
+                ),
+                _ => None,
+            };
+            let about = div()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .min_w(px(120.))
+                .max_w(px(220.))
+                .text_size(px(11.))
+                .line_height(px(14.))
+                .child(
+                    hover::cut(("compose-tile-name", id as usize), a.name.clone())
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(theme::text()),
+                )
+                .child(match &a.state {
+                    Upload::Failed(why) => hover::cut(
+                        ("compose-tile-why", id as usize),
+                        format!("{} · {why}", size_words(a.size)),
+                    )
+                    .text_color(theme::warning()),
+                    _ => div()
+                        .id(("compose-tile-size", id as usize))
+                        .text_color(theme::faint())
+                        .child(a.said()),
+                })
+                .children(bar);
+            let button =
+                |key: &'static str, icon: &'static str, tip: &'static str, what: ComposeAct| {
+                    let act = act.clone();
+                    div()
+                        .id((key, id as usize))
+                        .size(px(22.))
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(5.))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(theme::hover()))
+                        .child(icons::icon(icon).size(px(13.)).text_color(theme::muted()))
+                        .tooltip_show_delay(hover::LONG)
+                        .tooltip(move |_, cx| cx.new(|_| hover::Tip(tip)).into())
+                        .on_click(move |_, _, cx| act(what.clone(), cx))
+                };
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(8.))
+                .p(px(4.))
+                .rounded(px(6.))
+                .border_1()
+                .border_color(if failed {
+                    theme::warning()
+                } else {
+                    theme::border()
+                })
+                .bg(if failed {
+                    theme::warning_bg()
+                } else {
+                    theme::panel()
+                })
+                .child(thumb)
+                .child(about)
+                .children(failed.then(|| {
+                    button(
+                        "compose-retry",
+                        "refresh",
+                        "Try again",
+                        ComposeAct::Retry(id),
+                    )
+                }))
+                .child(button(
+                    "compose-unattach",
+                    "x",
+                    "Remove",
+                    ComposeAct::Unattach(id),
+                ))
+        };
+        Some(
+            div()
+                .flex()
+                .flex_wrap()
+                .gap(px(8.))
+                .px(px(10.))
+                .pb(px(6.))
+                .children(self.attachments.iter().map(tile)),
+        )
     }
 
     /// The composer's text as a field: the text wrapping in its box, the selection tinted, the
@@ -592,6 +988,28 @@ pub enum FootEvent {
 /// What answers a foot's clicks.
 pub type OnFoot = Rc<dyn Fn(FootEvent, &mut App)>;
 
+/// While an upload goes (#214), what would post it does nothing: no comment goes out without its image.
+fn waiting_foot(waits: bool, on: OnFoot) -> OnFoot {
+    if !waits {
+        return on;
+    }
+    Rc::new(move |event, cx| {
+        if !event.posts() {
+            on(event, cx)
+        }
+    })
+}
+
+impl FootEvent {
+    /// It sends the comment somewhere: posted, added to the review, or for the agent.
+    pub fn posts(&self) -> bool {
+        matches!(
+            self,
+            FootEvent::Add | FootEvent::AddToReview | FootEvent::SendAll
+        )
+    }
+}
+
 impl Compose {
     /// Who sees the comment: your agent or everyone on the request.
     pub fn source(&self) -> Source {
@@ -671,6 +1089,8 @@ impl Compose {
     /// primary; who reads it is the `To:` chip over the text (#200, `audience_chip`). At S "Add to drafts" is "Add"
     /// (named in full in its tooltip), and the other ways to send fold into its own ▾.
     pub fn foot(&self, look: FootLook, on: OnFoot) -> Vec<AnyElement> {
+        let waits = self.waiting();
+        let on = waiting_foot(waits, on);
         let source = self.source();
         let tone = source.color();
         let narrow = look.narrow;
@@ -781,10 +1201,14 @@ impl Compose {
         )
         .h(px(28.))
         .px(px(10.))
-        .when(small, |s| {
+        // An upload going: dimmed, and it says why (#214).
+        .when(waits, |s| s.opacity(0.5).cursor_default())
+        .when(small || waits, |s| {
             s.tooltip_show_delay(hover::LONG).tooltip(move |_, cx| {
                 cx.new(|_| {
-                    hover::Tip(if agent {
+                    hover::Tip(if waits {
+                        "Waits for the upload"
+                    } else if agent {
                         "Add to drafts  ⌘↵"
                     } else {
                         "Comment  ⌘↵"
@@ -837,6 +1261,8 @@ impl Compose {
         inbox: bool,
         on: OnFoot,
     ) -> (Vec<AnyElement>, &'static str) {
+        let waits = self.waiting();
+        let on = waiting_foot(waits, on);
         // ⇥ turned it into a note for the agent: purple, and it stays on this Mac (#50 G).
         let agent = self.source() == Source::Agent;
         let tone = self.source().color();
@@ -901,9 +1327,18 @@ impl Compose {
         )
         .h(px(28.))
         .px(px(10.))
-        .when(!cap, |s| {
-            s.tooltip_show_delay(hover::LONG)
-                .tooltip(|_, cx| cx.new(|_| hover::Tip("Reply  ⌘↵")).into())
+        .when(waits, |s| s.opacity(0.5).cursor_default())
+        .when(!cap || waits, |s| {
+            s.tooltip_show_delay(hover::LONG).tooltip(move |_, cx| {
+                cx.new(|_| {
+                    hover::Tip(if waits {
+                        "Waits for the upload"
+                    } else {
+                        "Reply  ⌘↵"
+                    })
+                })
+                .into()
+            })
         })
         .on_click(move |_, _, cx| send(FootEvent::Add, cx));
         tail.push(if with_more {

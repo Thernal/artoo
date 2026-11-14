@@ -40,6 +40,7 @@ impl Workspace {
             page: None,
             file: None,
             answers: None,
+            attachments: Vec::new(),
         });
         self.take_keyboard(Input::Compose, cx);
         self.reset_field_edit();
@@ -85,6 +86,7 @@ impl Workspace {
             page: None,
             file: None,
             answers: None,
+            attachments: Vec::new(),
         });
         self.take_keyboard(Input::Compose, cx);
         self.reset_field_edit();
@@ -111,6 +113,9 @@ impl Workspace {
 
     /// Posts the Inbox's reply: to its discussion, or as a comment on the request.
     pub(super) fn post_inbox_reply(&mut self, cx: &mut Context<Self>) {
+        if self.compose_waits() {
+            return;
+        }
         let (Some(compose), Some((iid, discussion))) =
             (self.compose.as_ref(), self.inbox_reply(cx))
         else {
@@ -142,6 +147,9 @@ impl Workspace {
     /// Posts the comment being written to merge request `iid`, on its line.
     /// With `draft`, as a pending comment that only its author sees until the review is submitted.
     pub(super) fn post_comment(&mut self, iid: u64, draft: bool, cx: &mut Context<Self>) {
+        if self.compose_waits() {
+            return;
+        }
         let Some(compose) = self.compose.as_ref() else {
             return;
         };
@@ -190,6 +198,9 @@ impl Workspace {
 
     /// ⇧⌘↵ or Add to review in a reply: kept pending with the review, sent when it is (#200).
     pub(super) fn reply_to_review(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if self.compose_waits() {
+            return;
+        }
         let (Some(compose), Some(thread), Some(iid)) = (
             self.compose.as_ref(),
             self.request_thread(ix, cx),
@@ -206,6 +217,9 @@ impl Workspace {
 
     /// Writes the reply being composed to the discussion it answers.
     pub(super) fn post_reply(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if self.compose_waits() {
+            return;
+        }
         let (Some(compose), Some(thread), Some(iid)) = (
             self.compose.as_ref(),
             self.request_thread(ix, cx),

@@ -258,6 +258,23 @@ pub trait Reviews: Send + Sync {
     /// A comment on request `iid` as a whole (a review's summary).
     fn comment(&self, iid: u64, body: &str) -> Result<()>;
 
+    /// Whether a comment here can carry a file (#214): GitLab's project uploads. GitHub's REST API has no documented
+    /// upload for a comment's image, so a GitHub request offers no clip.
+    fn uploads(&self) -> bool {
+        false
+    }
+
+    /// File `path` uploaded for a comment (#214), `progress` told how far it has gone (0 to 1): the Markdown that
+    /// shows it, written where the comment's caret was.
+    fn upload(
+        &self,
+        path: &std::path::Path,
+        progress: &(dyn Fn(f32) + Send + Sync),
+    ) -> Result<String> {
+        let _ = (path, progress);
+        anyhow::bail!("This host takes no files in a comment")
+    }
+
     /// Submits a review of request `iid` (whose head the reviewer sees as `head`): one's pending
     /// comments when there are, the summary, the verdict. GitLab takes them as three calls; GitHub as
     /// one review. `approved` says the reviewer approved already, so approving again is skipped.

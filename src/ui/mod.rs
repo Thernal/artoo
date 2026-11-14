@@ -13,6 +13,7 @@ mod agent_comments;
 mod agent_events;
 mod agent_notes;
 mod annotate;
+mod attachments;
 mod bar;
 mod beside;
 mod bookmarks;
@@ -598,6 +599,36 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                                     c.edit = crate::textedit::TextEdit::new(
                                         "Name this after what it holds.",
                                     );
+                                }
+                                this.refresh_rows(cx);
+                            }
+                            continue;
+                        }
+                        // A comment being written with a screenshot uploading and a file that failed (#214).
+                        "attachments" => {
+                            let line = this.rv().rows(cx).iter().find_map(|row| match row {
+                                Row::Split { right: Some(c), .. }
+                                | Row::Unified {
+                                    cell: c,
+                                    old: false,
+                                    ..
+                                } if c.kind == crate::git::LineKind::Added => Some(c.line),
+                                _ => None,
+                            });
+                            if let Some(line) = line {
+                                this.start_comment(false, line, cx);
+                                let shot = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                                    .join(".github/readme/review.png");
+                                let log = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                                    .join("CHANGELOG.md");
+                                if let Some(c) = this.compose.as_mut() {
+                                    c.edit = crate::textedit::TextEdit::new(
+                                        "After the fix, the same replay refunds 10.00:",
+                                    );
+                                    let id = c.attach(shot);
+                                    c.upload_progress(id, 0.6);
+                                    let id = c.attach(log);
+                                    c.upload_failed(id, "GitLab answered 413".into());
                                 }
                                 this.refresh_rows(cx);
                             }

@@ -256,6 +256,7 @@ impl Workspace {
             page: Some(ix),
             file: None,
             answers: None,
+            attachments: Vec::new(),
         });
         self.take_keyboard(Input::Compose, cx);
         self.reset_field_edit();
@@ -298,6 +299,7 @@ impl Workspace {
             page: None,
             file: Some(view.rev),
             answers: None,
+            attachments: Vec::new(),
         });
         self.take_keyboard(Input::Compose, cx);
         self.reset_field_edit();
@@ -340,6 +342,7 @@ impl Workspace {
             page: None,
             file: Some(rev.map(|(_, id)| id)),
             answers: None,
+            attachments: Vec::new(),
         });
         self.take_keyboard(Input::Compose, cx);
         self.reset_field_edit();
@@ -393,6 +396,7 @@ impl Workspace {
             page: None,
             file: None,
             answers: None,
+            attachments: Vec::new(),
         });
         self.take_keyboard(Input::Compose, cx);
         self.refresh_rows(cx);
@@ -465,6 +469,7 @@ impl Workspace {
             page: None,
             file: None,
             answers: None,
+            attachments: Vec::new(),
         });
         self.take_keyboard(Input::Compose, cx);
         self.reset_field_edit();
@@ -491,6 +496,9 @@ impl Workspace {
 
     /// Saves an edit: an agent's comment here, a note on GitLab or GitHub.
     fn save_edit(&mut self, change: Change, cx: &mut Context<Self>) {
+        if self.compose_waits() {
+            return;
+        }
         let Some(compose) = self.compose.as_ref() else {
             return;
         };
@@ -613,6 +621,9 @@ impl Workspace {
     }
 
     pub(super) fn add_comment(&mut self, cx: &mut Context<Self>) {
+        if self.compose_waits() {
+            return;
+        }
         match self.compose.as_ref().map(|c| c.target) {
             Some(Target::Request(iid)) => return self.post_comment(iid, false, cx),
             Some(Target::Reply(ix)) => return self.post_reply(ix, cx),
@@ -674,6 +685,10 @@ impl Workspace {
             return;
         }
         if key.key == "enter" && m.secondary() {
+            // An upload still going: nothing posts it yet (#214).
+            if self.compose_waits() {
+                return;
+            }
             let target = self.compose.as_ref().map(|c| c.target);
             if m.shift
                 && let Some(Target::Request(iid)) = target
@@ -712,6 +727,13 @@ impl Workspace {
         }
         if key.key == "tab" {
             return self.toggle_target(cx);
+        }
+        // ⇧⌘A: a file or an image attached (#214); ⌘V with a screenshot on the clipboard attaches it.
+        if key.key == "a" && m.secondary() && m.shift && m.number_of_modifiers() == 2 {
+            return self.pick_attachment(cx);
+        }
+        if self.paste_attachment(key, cx) {
+            return;
         }
         if self.vertical_key(key, cx) {
             return;
@@ -1154,6 +1176,7 @@ impl Workspace {
             // Its own width decides its buttons' (`compose_narrow`).
             measure: self.widths.measure("composer").into_any_element(),
             link_base: self.link_base().map(str::to_owned),
+            clip: self.compose_clip(compose),
         };
         let keys = this.clone();
         let act: ComposeActs = std::rc::Rc::new(move |act, cx| {
@@ -1171,6 +1194,10 @@ impl Workspace {
                     drag,
                     lower,
                 } => this.compose_place(at, shift, clicks, drag, lower, cx),
+                ComposeAct::Clip => this.pick_attachment(cx),
+                ComposeAct::Dropped(paths) => this.attach_files(paths, cx),
+                ComposeAct::Unattach(id) => this.unattach(id, cx),
+                ComposeAct::Retry(id) => this.retry_attachment(id, cx),
             })
             .ok();
         });

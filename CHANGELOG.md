@@ -12,6 +12,11 @@ for someone using the app, not for someone reading the code; the commits follow 
   has its README, its versions and its one action (`Install`, `Update to 1.3.0`, `Turn off`, `Remove`). A first
   install from an author asks once whether you trust them; a restart bar says what waits for the next start. ⌘F is the
   page's search, ⌘K lists plugins under `Plugins`, and Settings' search finds the way there.
+- **A screenshot in a comment.** Every comment composer takes an image or a file: paste a screenshot with ⌘V, drop a
+  file on it, or pick one with its clip (⇧⌘A). Each is a tile under the text with its upload's progress and ✕;
+  `Comment` waits until every upload is done, and a failed one turns amber with `Try again`. A GitLab merge request's
+  comment uploads it to the project; a note for an agent keeps it on this Mac and gives the agent its path. A GitHub
+  request offers no clip: GitHub has no upload for a comment's image.
 - **No copies of a tab in the rail.** A project an agent had left news for opened in one more tab every 30 seconds
   while the window's tabs were still loading (on a first start, while macOS asked whether Artoo may read a folder),
   until the rail was full of copies; a tab still loading now counts as open.

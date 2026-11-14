@@ -290,6 +290,18 @@ impl Reviews for GitLab {
         gitlab::comment(&self.remote, iid, body)
     }
 
+    fn uploads(&self) -> bool {
+        true
+    }
+
+    fn upload(
+        &self,
+        path: &std::path::Path,
+        progress: &(dyn Fn(f32) + Send + Sync),
+    ) -> Result<String> {
+        gitlab::upload_file(&self.remote, path, progress)
+    }
+
     fn submit(
         &self,
         iid: u64,

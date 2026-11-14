@@ -1557,6 +1557,115 @@ pub fn comment(remote: &WebRemote, iid: u64, body: &str) -> Result<()> {
     Ok(())
 }
 
+/// File `path` uploaded to the project for a comment (#214): GitLab's `POST /projects/:id/uploads`, as a form, its
+/// progress read off curl's bar as it goes. The Markdown GitLab gives for it (`![shot.png](/uploads/…/shot.png)`),
+/// which the image viewer (#211) reads.
+pub fn upload_file(
+    remote: &WebRemote,
+    path: &std::path::Path,
+    progress: &(dyn Fn(f32) + Send + Sync),
+) -> Result<String> {
+    use std::io::Read;
+    let name = (path.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "file".to_owned());
+    if record(format!("upload {name}"))? {
+        progress(1.);
+        return Ok(format!("![{name}](/uploads/fixture/{name})"));
+    }
+    let (host, project) = api(remote)?;
+    let (token, _) = source(remote, true).ok_or_else(|| {
+        anyhow!("no GitLab token — add one in Settings, or put it in ~/.config/gitlab-token")
+    })?;
+    let config = format!(
+        "url = \"{host}/api/v4/projects/{project}/uploads\"\nheader = \"PRIVATE-TOKEN: {}\"\nform = \"file=@\\\"{}\\\"\"\n",
+        quote(&token),
+        quote(&path.display().to_string()),
+    );
+    // The token on stdin, as `send` does; the bar on stderr, the answer on stdout.
+    let mut child = Command::new("curl")
+        .args([
+            "-S",
+            "-#",
+            "--max-time",
+            "300",
+            "-K",
+            "-",
+            "-w",
+            "\n%{http_code}",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| anyhow!("curl is not installed"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(config.as_bytes())?;
+    }
+    let mut out = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("curl gave no output"))?;
+    let answer = std::thread::spawn(move || {
+        let mut body = Vec::new();
+        let _ = out.read_to_end(&mut body);
+        body
+    });
+    let mut said = String::new();
+    if let Some(mut err) = child.stderr.take() {
+        let (mut buf, mut line) = ([0u8; 256], String::new());
+        while let Ok(n) = err.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            for c in String::from_utf8_lossy(&buf[..n]).chars() {
+                if c != '\r' && c != '\n' {
+                    line.push(c);
+                    continue;
+                }
+                match percent(&line) {
+                    Some(p) => progress(p / 100.),
+                    None if !line.trim().is_empty() => said = line.trim().to_owned(),
+                    None => {}
+                }
+                line.clear();
+            }
+        }
+    }
+    let status = child.wait()?;
+    let body = answer.join().unwrap_or_default();
+    if !status.success() {
+        bail!(if said.is_empty() {
+            format!("Can't reach {host} — is the VPN on?")
+        } else {
+            said
+        });
+    }
+    let answer = String::from_utf8_lossy(&body);
+    let (body, code) = answer.rsplit_once('\n').unwrap_or((&answer, ""));
+    match code.trim() {
+        "200" | "201" => {
+            let value: Value = serde_json::from_str(body)?;
+            let markdown = text(&value, "markdown");
+            if markdown.is_empty() {
+                bail!("GitLab gave no link for the file");
+            }
+            progress(1.);
+            Ok(markdown)
+        }
+        "401" | "403" => bail!(REFUSED),
+        "413" => bail!("GitLab refused it: the file is too large"),
+        "400" | "422" => bail!("GitLab would not take that: {}", message(body)),
+        other => bail!("GitLab answered {other}"),
+    }
+}
+
+/// How far curl's bar says it is, `45.6` of `###   45.6%`.
+fn percent(line: &str) -> Option<f32> {
+    let token = line.split_whitespace().last()?;
+    token.strip_suffix('%')?.parse().ok()
+}
+
 /// Marks the token's user as asking for changes on request `iid` (GitLab 17 and later; an older
 /// one answers with an error that says so).
 pub fn request_changes(remote: &WebRemote, iid: u64) -> Result<()> {

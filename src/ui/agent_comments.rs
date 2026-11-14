@@ -33,6 +33,9 @@ impl Workspace {
 
     /// Adds the agent comment being written to the drafts, then sends it alone or with all.
     pub(super) fn add_and_send(&mut self, only: bool, cx: &mut Context<Self>) {
+        if self.compose_waits() {
+            return;
+        }
         // A chat picked in the `To:` list takes them, else each goes to its route (#200).
         let chosen = self.compose_chat.take().and_then(|s| {
             self.agents
@@ -118,6 +121,7 @@ impl Workspace {
             page: None,
             file: None,
             answers: None,
+            attachments: Vec::new(),
         });
         self.take_keyboard(Input::Compose, cx);
         self.reset_field_edit();
@@ -153,6 +157,9 @@ impl Workspace {
 
     /// The answer's note goes to the drafts with the comment, for the next send.
     pub(super) fn save_answer_note(&mut self, id: u64, cx: &mut Context<Self>) {
+        if self.compose_waits() {
+            return;
+        }
         let Some(compose) = self.compose.take() else {
             return;
         };
@@ -168,6 +175,9 @@ impl Workspace {
     /// A purple note on a GitLab / GitHub discussion: a comment for the agent on its line, with
     /// the discussion to read; never posted (#50 G).
     pub(super) fn add_thread_note(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if self.compose_waits() {
+            return;
+        }
         let Some(compose) = self.compose.take() else {
             return;
         };
