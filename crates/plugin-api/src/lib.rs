@@ -54,7 +54,7 @@ pub const STAMP_SECTION: &str = if cfg!(target_vendor = "apple") {
 pub struct Meta {
     /// Its stable id: `jira`. Its folder's name under the plugins' folder, and what turns it off.
     pub id: &'static str,
-    /// Its name in Settings → Plugins.
+    /// Its name on the plugins' page.
     pub name: &'static str,
     /// Its version: its crate's (`env!("CARGO_PKG_VERSION")`).
     pub version: &'static str,

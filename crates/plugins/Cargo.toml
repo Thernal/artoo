@@ -1,6 +1,6 @@
 [package]
 name = "artoo-plugins"
-description = "Plugins (#175): found in the plugins' folder, refused unless built against this SDK, loaded and installed after every feature; Settings → Plugins."
+description = "Plugins (#175): found in the plugins' folder, refused unless built against this SDK, loaded and installed after every feature; their page (#176)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -1061,6 +1061,7 @@ struct Registry {
     sections: Vec<settings::Section>,
     named: Vec<settings::Named>,
     spaces: Vec<spaces::SpaceInfo>,
+    feet: Vec<spaces::Foot>,
     /// What was offered a second time and refused: `action review.wrap (its id)`.
     refused: Vec<String>,
 }

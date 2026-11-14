@@ -431,6 +431,12 @@ fn overlap(a: &KeyBinding, b: &KeyBinding) -> bool {
     let context = |k: &KeyBinding| k.predicate().map(|p| p.to_string());
     let (ca, cb) = (context(a), context(b));
     let plain = |c: &Option<String>| c.as_deref().is_none_or(|c| c == "Workspace");
+    // A space's own key over the tab's (the plugins' page's ⌘F, its search, over Find): an override within that
+    // space, which the space asks for, not a clash.
+    let space = |c: &Option<String>| c.as_deref().is_some_and(|c| c.contains("space =="));
+    if (space(&ca) && plain(&cb)) || (space(&cb) && plain(&ca)) {
+        return false;
+    }
     ca == cb || plain(&ca) || plain(&cb)
 }
 

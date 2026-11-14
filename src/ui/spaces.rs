@@ -25,7 +25,7 @@ pub(super) const KEPT: [Space; 4] = [INBOX, CODE, BRANCHES, REQUESTS];
 
 /// A space's name as its owner offered it (`Merge requests`); its id when nobody did.
 pub(super) fn label(space: Space, cx: &App) -> &'static str {
-    spaces::all(cx)
+    spaces::known(cx)
         .into_iter()
         .find(|s| s.space == space)
         .map_or(space.name(), |s| s.label)
@@ -253,7 +253,7 @@ impl Workspace {
     /// One the project lacks a token for opens the connect panel; one it lacks a remote or git
     /// for opens too, and says so in its middle (#210).
     pub(super) fn go_space(&mut self, space: Space, cx: &mut Context<Self>) {
-        let offered = spaces::all(cx).iter().any(|s| s.space == space);
+        let offered = spaces::known(cx).iter().any(|s| s.space == space);
         match self.missing(space, cx) {
             _ if self.root.is_none() || !offered => {}
             Some(Missing::Token) => self.show(REQUESTS, None, cx),
@@ -349,6 +349,27 @@ impl Workspace {
                 opens_moving: self.motion.recent(&format!("opens-{}", space.id())),
             });
         }
+        // The foot's rows (#176): the app's, the same from every project; what is open under them is their page.
+        let foot = spaces::feet(cx)
+            .into_iter()
+            .map(|foot| SpaceRow {
+                space: foot.info.space,
+                label: foot.info.label,
+                icon: foot.info.icon,
+                key: actions
+                    .iter()
+                    .find(|a| a.id == foot.info.go)
+                    .zip(keymap)
+                    .map(|(a, keymap)| keymap.key_now(a.act.as_ref()))
+                    .unwrap_or_default(),
+                missing: None,
+                inert: false,
+                waiting: (foot.waiting)(cx),
+                shut: true,
+                opens: Vec::new(),
+                opens_moving: false,
+            })
+            .collect();
         let host = Rc::new(Glue {
             tab: cx.weak_entity(),
             items,
@@ -362,6 +383,7 @@ impl Workspace {
                 moving: self.motion.recent("places-fold"),
                 here: self.space(),
                 rows,
+                foot,
                 // The projects inside the menu of spaces went (#205).
                 projects: Vec::new(),
                 tabs: self.tabs_host(cx),

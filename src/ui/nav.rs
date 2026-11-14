@@ -1048,7 +1048,7 @@ impl Workspace {
             });
             match row {
                 Some(row) => row.label,
-                None => (artoo_shell_api::spaces::all(cx).iter())
+                None => (artoo_shell_api::spaces::known(cx).iter())
                     .find(|s| s.space == moment.space)
                     .map_or_else(|| moment.space.name().to_owned(), |s| s.label.to_owned()),
             }
@@ -1442,7 +1442,7 @@ impl Workspace {
     /// The project just opened: the space and pages it was left on, else its checked-out branch.
     pub(super) fn restore_nav(&mut self, head: Option<usize>, cx: &mut Context<Self>) {
         let repo = self.nav_repo();
-        let known: Vec<Space> = artoo_shell_api::spaces::all(cx)
+        let known: Vec<Space> = artoo_shell_api::spaces::known(cx)
             .iter()
             .map(|s| s.space)
             .collect();

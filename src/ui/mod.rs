@@ -744,7 +744,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             this.open_settings(cx);
                             continue;
                         }
-                        // Any section offered, by its id: `settings:plugins`.
+                        // Any section offered, by its id: `settings:requests`.
                         other if other.starts_with("settings:") => {
                             let id = &other["settings:".len()..];
                             let found = (artoo_shell_api::settings_sections(cx).into_iter())
@@ -3376,7 +3376,6 @@ mod tests {
                 "Projects",
                 "Accounts",
                 "Agents",
-                "Plugins",
                 "About"
             ]
         );

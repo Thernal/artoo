@@ -167,7 +167,7 @@ impl Frame for TabFrame {
     fn open_space(&self, space: &'static str, cx: &mut App) {
         self.later(cx, move |this, cx| {
             let space = Space(space);
-            if artoo_shell_api::spaces::all(cx)
+            if artoo_shell_api::spaces::known(cx)
                 .iter()
                 .any(|s| s.space == space)
             {

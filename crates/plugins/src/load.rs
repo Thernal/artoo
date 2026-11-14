@@ -2,8 +2,8 @@
 //!
 //! Where: a folder of its own under `<data>/plugins/` (`plugins/jira/libjira.dylib`), and for a plugin being written,
 //! which wins over an installed one of the same id, what `ARTOO_PLUGIN_DEV` names — a library or a folder of them,
-//! several apart as `PATH` is — and the local list of Settings → Plugins (`plugins-local.txt`). A plugin's stamp is read first: one built for another SDK is refused with words,
-//! before anything of it runs. Then the ones turned off (`plugins.txt`, Settings → Plugins) are left out, and the
+//! several apart as `PATH` is — and the local list of the plugins' page (`plugins-local.txt`). A plugin's stamp is read first: one built for another SDK is refused with words,
+//! before anything of it runs. Then the ones turned off (`plugins.txt`, the plugins' page) are left out, and the
 //! rest installed each after what it requires: loaded with every symbol bound (a missing one refuses it, rather than
 //! stopping the app at its first call), installed inside `catch_unwind`. A plugin refused or off takes the plugins
 //! needing it with it.
@@ -38,7 +38,7 @@ pub(crate) enum Origin {
 pub(crate) enum State {
     /// Installed.
     On,
-    /// Turned off in Settings: not loaded.
+    /// Turned off on the plugins' page: not loaded.
     Off,
     /// Off because it ended two starts as it installed.
     Struck,

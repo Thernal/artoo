@@ -82,7 +82,9 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
     let named = !folded || moving;
     let here = menu.here;
     let nested = !menu.projects.is_empty();
-    let draw = |row: SpaceRow| {
+    // A foot's row (Plugins) is drawn as a space's, but is never dragged nor dropped on, and its scroll is not
+    // the list's.
+    let draw = |row: SpaceRow, foot: bool| {
         let space = row.space;
         let id = space.id();
         let label = row.label;
@@ -157,7 +159,7 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
             })
             .when(on, |s| {
                 s.bg(theme::selected())
-                    .child(reveal(menu.places, id.to_string()))
+                    .when(!foot, |s| s.child(reveal(menu.places, id.to_string())))
             })
             .when(missing.is_some(), |s| s.opacity(0.5))
             .when(!row.inert, |s| {
@@ -253,12 +255,14 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
             .tooltip_show_delay(hover::LONG)
             .tooltip(move |_, cx| cx.new(|_| TipOwned(tip.clone())).into())
             // Dragged onto another space, it takes that place in the menu (kept).
-            .drag_over::<DragSpace>(|s, _, _, _| s.bg(theme::selected()))
-            .on_drag(DragSpace(space), move |_, _, _, cx| {
-                cx.new(|_| DragLabel(words::say(label).into_owned()))
-            })
-            .on_drop(move |dragged: &DragSpace, window, cx| {
-                moved.moved(dragged.0, space, window, cx)
+            .when(!foot, |s| {
+                s.drag_over::<DragSpace>(|s, _, _, _| s.bg(theme::selected()))
+                    .on_drag(DragSpace(space), move |_, _, _, cx| {
+                        cx.new(|_| DragLabel(words::say(label).into_owned()))
+                    })
+                    .on_drop(move |dragged: &DragSpace, window, cx| {
+                        moved.moved(dragged.0, space, window, cx)
+                    })
             })
             // A double click folds or opens what is open under it, as its chevron does.
             .on_click(move |e: &ClickEvent, window, cx| {
@@ -445,12 +449,20 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
             .children(opens)
             .into_any_element()
     };
-    let mut drawn = Some(menu.rows.into_iter().map(draw).collect::<Vec<_>>());
+    let mut drawn = Some(
+        (menu.rows.into_iter())
+            .map(|row| draw(row, false))
+            .collect::<Vec<_>>(),
+    );
+    let foot = (menu.foot.into_iter())
+        .map(|row| draw(row, true))
+        .collect::<Vec<_>>();
     let under = if nested { None } else { drawn.take() };
     let tabs = menu.tabs;
     let list = div()
         .id("places")
-        .flex_none()
+        .flex_1()
+        .min_h_0()
         .flex()
         .flex_col()
         .gap(px(2.))
@@ -553,6 +565,25 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
         .children(under.into_iter().flatten())
         // A narrow window's side panel, folded into this column (#80).
         .children(menu.panel_icons);
+    // The foot's rows, under the list and apart from it: they stay when the list scrolls (#176).
+    let foot = (!foot.is_empty()).then(|| {
+        div()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .gap(px(2.))
+            .px(px(EDGE))
+            .py(px(4.))
+            .border_t_1()
+            .border_color(theme::island_border())
+            .children(foot)
+    });
+    let list = div()
+        .flex_none()
+        .flex()
+        .flex_col()
+        .child(list)
+        .children(foot);
     // Folding to icons narrows it (#56, 2); zen slides it away (16).
     let list = motion::toward(
         list,

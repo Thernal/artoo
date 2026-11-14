@@ -44,7 +44,9 @@ pub struct SpaceInfo {
 /// Offers a space (its owner's `install`). An id offered already is refused, and the log says so.
 pub fn add(cx: &mut App, info: SpaceInfo) {
     let registry = cx.default_global::<crate::Registry>();
-    if registry.spaces.iter().any(|s| s.space == info.space) {
+    if registry.spaces.iter().any(|s| s.space == info.space)
+        || registry.feet.iter().any(|f| f.info.space == info.space)
+    {
         crate::refuse(registry, format!("space {}", info.space.name()));
         return;
     }
@@ -59,6 +61,46 @@ pub fn all(cx: &App) -> Vec<SpaceInfo> {
         .unwrap_or_default();
     spaces.sort_by_key(|s| s.order);
     spaces
+}
+
+/// A row at the menu's foot (#176): the app's rather than the project's, so it opens the same page from every
+/// project — Plugins. Not a space among the others: it is not dragged, takes no ⌃⌘ number and stays at the foot,
+/// folded as its icon; its pages are offered as a space's are (`Pages::space`).
+#[derive(Clone, Copy)]
+pub struct Foot {
+    pub info: SpaceInfo,
+    /// What waits there — the plugins' updates —: its number, a badge folded.
+    pub waiting: fn(&App) -> usize,
+}
+
+/// Offers a row at the menu's foot (its owner's `install`). An id offered already, as a space or a foot's, is refused.
+pub fn add_foot(cx: &mut App, foot: Foot) {
+    let registry = cx.default_global::<crate::Registry>();
+    let space = foot.info.space;
+    if registry.spaces.iter().any(|s| s.space == space)
+        || registry.feet.iter().any(|f| f.info.space == space)
+    {
+        crate::refuse(registry, format!("space {}", space.name()));
+        return;
+    }
+    registry.feet.push(foot);
+}
+
+/// The rows at the menu's foot, in their order.
+pub fn feet(cx: &App) -> Vec<Foot> {
+    let mut feet = cx
+        .try_global::<crate::Registry>()
+        .map(|r| r.feet.clone())
+        .unwrap_or_default();
+    feet.sort_by_key(|f| f.info.order);
+    feet
+}
+
+/// Every place a page can be in: the spaces, then the foot's rows.
+pub fn known(cx: &App) -> Vec<SpaceInfo> {
+    let mut known = all(cx);
+    known.extend(feet(cx).into_iter().map(|f| f.info));
+    known
 }
 
 /// The spaces `offered` in the order `kept` names them (dragged there), those it leaves out after them in their
@@ -150,6 +192,8 @@ pub struct SpacesMenu<'a> {
     pub here: Option<Space>,
     /// The spaces, in the menu's order.
     pub rows: Vec<SpaceRow>,
+    /// The rows at its foot, under the spaces and apart from them (`Foot`): never dragged, never scrolled away.
+    pub foot: Vec<SpaceRow>,
     /// Menu mode: the window's projects, the spaces under the active one's row (X13).
     pub projects: Vec<(usize, TabInfo)>,
     pub tabs: Rc<dyn TabsHost>,

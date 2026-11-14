@@ -95,13 +95,16 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   `crates/plugins` (`artoo-plugins`) loads them, the app's last `install`: a plugin's file in a folder of its own under
   `<data>/plugins/`, or what `ARTOO_PLUGIN_DEV` names (a library or a folder of them, several as in `PATH`; these win
   over an installed one of the same id); its stamp read and compared with the SDK this app loaded, then ordered by what
-  it requires, opened with every symbol bound, installed inside `catch_unwind`; what became of each is Settings →
-  Plugins, a switch there writing `plugins.txt` for the next start. A plugin that ends the app is named at the next
+  it requires, opened with every symbol bound, installed inside `catch_unwind`; what became of each is the plugins'
+  page (`page.rs`, #176: the row at the foot of the spaces' menu — `spaces::add_foot` —, not a space and the same from
+  every project), a switch there writing `plugins.txt` for the next start. A plugin that ends the app is named at the next
   start (`crash.rs`: a panic hook and fatal signals walk the stack, the first frame in a plugin's code naming it, in
   `last-crash.txt`; none of it is set up with no plugin to load), and one that ends two starts as it installs is off
-  before it loads (`plugins-starting.txt`). Settings → Plugins also finds plugins (`market.rs`: GitHub's topic
-  `artoo-plugin`, a release's asset `<id>-<artoo-version>-<target>.zip` for this Artoo), and what is installed, updated
-  or removed is staged in `plugins-staged/` and applied at the next start. Settings → Plugins → Local is for a plugin being written: `plugins-local.txt` lists a library, a folder of them or
+  before it loads (`plugins-starting.txt`). Its Discover tab finds plugins (`market.rs`: one search of GitHub's
+  topic `artoo-plugin` a session; a repository's releases and README read when it is selected or installed; the
+  installed ones' updates read at the start and daily; a release's asset `<id>-<artoo-version>-<target>.zip` for this
+  Artoo; an author asked about once, `plugins-trusted.txt`), and what is installed, updated or removed is staged in
+  `plugins-staged/` and applied at the next start. Its Local tab is for a plugin being written: `plugins-local.txt` lists a library, a folder of them or
   a plugin's project (the newest of what it built under `target/`), read at the start beside `ARTOO_PLUGIN_DEV`.
   `Artoo sdk-build` prints the identity a plugin built against this app must name (`ARTOO_SDK_BUILD`). Plugins start from the public template
   `Thernal/artoo-plugin-template`: a change to the plugin contract, the SDK's asset or a plugin asset's name changes it

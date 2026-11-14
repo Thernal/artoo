@@ -6,6 +6,12 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 ## Unreleased
 
+- **Plugins: a page of their own.** Plugins left Settings for their own page, at the foot of the menu under the
+  spaces: `Discover` finds plugins on GitHub (the `artoo-plugin` topic) with their stars, downloads and last release,
+  `Installed` lists yours with the updates waiting (`Update all`), `Local` the folders you build from. A plugin's page
+  has its README, its versions and its one action (`Install`, `Update to 1.3.0`, `Turn off`, `Remove`). A first
+  install from an author asks once whether you trust them; a restart bar says what waits for the next start. ⌘F is the
+  page's search, ⌘K lists plugins under `Plugins`, and Settings' search finds the way there.
 - **No copies of a tab in the rail.** A project an agent had left news for opened in one more tab every 30 seconds
   while the window's tabs were still loading (on a first start, while macOS asked whether Artoo may read a folder),
   until the rail was full of copies; a tab still loading now counts as open.

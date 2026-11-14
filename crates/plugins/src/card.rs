@@ -3,7 +3,7 @@
 
 use crate::crash::{self, Crash};
 use crate::load::State;
-use crate::settings::{self, Loaded};
+use crate::state::{self, Loaded};
 use artoo_shell_api::{Frame, Overlay, Parts, Snap, Toast};
 use artoo_ui_kit::controls::{outline_button, primary_button};
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, px, theme};
@@ -110,7 +110,7 @@ impl Card {
         let Some(shown) = self.shown.clone() else {
             return;
         };
-        settings::turn_off(&shown.crash.id, cx);
+        state::turn_off(&shown.crash.id, cx);
         self.frame.toast(
             Toast::new(format!("{} is off from the next start", shown.name)),
             cx,
@@ -125,7 +125,7 @@ impl Render for Card {
             return div().into_any_element();
         };
         let line = if shown.off {
-            "It ended Artoo as it started, so it is off now. Settings → Plugins turns it on again."
+            "It ended Artoo as it started, so it is off now. The Plugins page, at the foot of the menu, turns it on again."
         } else {
             "It was running when Artoo ended. Turned off, it stays out from the next start."
         };
