@@ -268,6 +268,14 @@ impl SearchWindow for Handle {
             m.refresh(cx);
         });
     }
+
+    fn again(&self, cx: &mut App) {
+        self.0.update(cx, |m, cx| {
+            if m.open.is_some() {
+                m.refresh(cx);
+            }
+        });
+    }
 }
 
 impl Machine {

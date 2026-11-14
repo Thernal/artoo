@@ -22,7 +22,12 @@ use std::rc::Rc;
 
 /// A tab as its parts reach it. What it changes waits until the update under way is over: a part asks from
 /// its own update, and the tab may be what called it.
-pub(super) struct TabFrame(pub WeakEntity<Workspace>, pub Rc<Services>);
+pub(super) struct TabFrame(
+    pub WeakEntity<Workspace>,
+    pub Rc<Services>,
+    /// `Workspace::side_shown`.
+    pub Rc<std::cell::Cell<bool>>,
+);
 
 impl TabFrame {
     fn later(
@@ -74,6 +79,14 @@ impl Frame for TabFrame {
             web: this.web.clone(),
             host: this.host.as_ref().map(|h| h.host()),
         }
+    }
+
+    fn side_shown(&self, _: &App) -> bool {
+        self.2.get()
+    }
+
+    fn show_side(&self, cx: &mut App) {
+        self.later(cx, |this, cx| this.bring_side(cx));
     }
 
     fn show_tool(&self, id: Option<&'static str>, cx: &mut App) {

@@ -311,6 +311,14 @@ pub trait Frame {
     /// What the tab has open, and had.
     fn places(&self, cx: &App) -> Places;
 
+    /// Whether the side panel is on screen, beside the page or as the drawer over it, as the tab was last drawn.
+    /// Read from anywhere: a key's handler, the tab's own drawing.
+    fn side_shown(&self, cx: &App) -> bool;
+
+    /// The side panel brought on screen, as a key into one of its lists asks: back beside the page when ⌘J hid it,
+    /// as the drawer when the window has no room for it; nothing while it is on screen.
+    fn show_side(&self, cx: &mut App);
+
     /// Opens a part's tool window by its id, or gives the open one the keyboard; `None` closes the one open.
     fn show_tool(&self, id: Option<&'static str>, cx: &mut App);
 

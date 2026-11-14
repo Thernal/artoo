@@ -1378,6 +1378,9 @@ pub struct Workspace {
     /// Whether the request's diff is on screen, as the tab began to draw: what the Discussions window's icon asks
     /// while the tab draws, when the tab cannot be read.
     discussions_showing: Rc<std::cell::Cell<bool>>,
+    /// Whether the side panel is on screen, docked or as the drawer, as the tab began to draw: what a part asks
+    /// (`Frame::side_shown`) from wherever it is, the tab being drawn or changed included.
+    side_shown: Rc<std::cell::Cell<bool>>,
     /// The search over all files of the diff, while it is open.
     /// The window's width in logical pixels, as of the last frame.
     win_width: f32,
@@ -1500,8 +1503,12 @@ impl Workspace {
         }
         let start = path.or_else(|| open_recent.then(|| recent.first().cloned()).flatten());
         let services = Rc::new(artoo_shell_api::Services::default());
-        let frame: Rc<dyn artoo_shell_api::Frame> =
-            Rc::new(parts::TabFrame(cx.weak_entity(), services.clone()));
+        let side_shown = Rc::new(std::cell::Cell::new(false));
+        let frame: Rc<dyn artoo_shell_api::Frame> = Rc::new(parts::TabFrame(
+            cx.weak_entity(),
+            services.clone(),
+            side_shown.clone(),
+        ));
         let mut this = Self {
             focus,
             layout: Layout::load(),
@@ -1550,6 +1557,7 @@ impl Workspace {
             open_with: open_in::load(artoo_shell_api::editors(cx)),
             open_cache: Default::default(),
             discussions_showing: Default::default(),
+            side_shown,
             motion: Default::default(),
             decorated: Default::default(),
             last_tool: None,

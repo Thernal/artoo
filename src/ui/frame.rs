@@ -213,6 +213,7 @@ impl Render for Workspace {
         markdown::set_me(self.request_login(cx).as_deref());
         // What the Discussions window's icon and title ask as they are drawn (`DiscussionsHost::showing`).
         self.discussions_showing.set(self.showing_request(cx));
+        self.side_shown.set(self.side_open());
         self.take_error(cx);
         self.poll_parts(cx);
         // Settings closed (esc, Done, a place): what a part's rows began ends (a theme edited: its preview).

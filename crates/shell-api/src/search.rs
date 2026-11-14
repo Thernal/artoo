@@ -45,6 +45,9 @@ pub trait SearchWindow {
     fn view(&self, cx: &App) -> Option<AnyView>;
     /// Its field's text set, as typing it would (UI checks).
     fn type_text(&self, text: &str, cx: &mut App);
+    /// What it lists found again for the text in its field, the row picked kept where it can be: a scope's finds
+    /// changed while it is open (a key read from a tracker). Nothing while it is closed.
+    fn again(&self, cx: &mut App);
 }
 
 /// A scope of search everywhere as its owner offers it in a tab.

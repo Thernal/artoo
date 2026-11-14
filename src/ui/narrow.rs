@@ -231,13 +231,24 @@ impl Workspace {
         cx.notify();
     }
 
+    /// The side panel brought on screen for a key into one of its lists, as ⌃2 ⌃3 do: back beside the page when
+    /// ⌘J hid it, the drawer when the window has no room for it; nothing while it is on screen.
+    pub(super) fn bring_side(&mut self, cx: &mut Context<Self>) {
+        if !self.layout.show_sidebar && !self.side_folded() {
+            self.show_side(None, cx);
+        }
+        if self.side_folded() && !self.narrowed.drawer {
+            self.toggle_drawer(None, cx);
+        }
+    }
+
     /// The side panel on screen: docked, or as the drawer.
     pub(super) fn side_open(&self) -> bool {
         self.side_docked() || self.side_drawer()
     }
 
-    /// The side panel as a drawer: over the content's left edge at its width, with a shadow; it
-    /// fades in.
+    /// The side panel as a drawer: over the content's left edge at its width, on the window's ground as it is docked
+    /// (a panel drawn without islands of its own, a plugin's, is not read through), with a shadow; it fades in.
     pub(super) fn drawer(&self, panel: impl IntoElement) -> AnyElement {
         super::motion::appear(
             div()
@@ -248,6 +259,7 @@ impl Workspace {
                 .w(px(self.layout.sidebar))
                 .flex()
                 .occlude()
+                .bg(theme::base())
                 .shadow_lg()
                 .child(panel),
             "drawer",
