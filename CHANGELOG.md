@@ -4,6 +4,11 @@ What is new in each release of Artoo. A release's notes on GitHub are its sectio
 (`.github/release-notes.sh`); a release tag whose version has no section here does not build. Write what changed
 for someone using the app, not for someone reading the code; the commits follow anyway.
 
+## Unreleased
+
+- **Commits folds as it moves.** On the branch checked out, the Commits section folds and opens moving, its rows
+  fading, as every other section does; it snapped shut before.
+
 ## 2.0.0-rc.4 — 2026-11-14
 
 - **Plugins: a page of their own.** Plugins left Settings for their own page, at the foot of the menu under the

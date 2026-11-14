@@ -405,6 +405,8 @@ impl History {
         let more = if self.older.is_some() { "+" } else { "" };
         end.push(count(format!("{}{more}", self.commits.len())));
         let folded = self.sections.commits;
+        // Folded or opened a moment ago: what was not drawn before comes in from the other end, as `folding` does.
+        let moving = self.sections.moving(Fold::Commits);
         let header = Head {
             title: format!("Commits{}", look.tag),
             summary,
@@ -424,19 +426,42 @@ impl History {
             })
             .child(head(Fold::Commits, header, &acts))
             .when(self.commits_drawn(), |s| {
-                s.children(look.field)
+                // The rows fade as the section folds and opens (#56, 1: every fold moves in size and in alpha).
+                let rows = div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .children(look.field)
                     .children(self.pill(&acts))
                     .child(self.render_commits(
                         self.widths.clone(),
                         look.web.clone(),
                         acts.clone(),
                         cx,
-                    ))
+                    ));
+                s.child(motion::toward(
+                    rows,
+                    "commits-rows",
+                    !folded,
+                    moving,
+                    motion::BASE,
+                    |rows, v| rows.opacity(v),
+                ))
             });
         if checked_out {
+            // As tall as its rows, and its height moves with the fold as the other sections' shares do.
             let rows = self.commit_rows().clamp(1, WORK_ROWS) as f32;
-            let tall = panel::HEADER + if folded { 0. } else { rows * COMMIT_ROW + 6. };
-            return section.flex_none().h(px(tall)).into_any_element();
+            let body = rows * COMMIT_ROW + 6.;
+            return motion::toward(
+                section.flex_none(),
+                "commits-tall",
+                !folded,
+                moving,
+                motion::BASE,
+                move |s, v| s.h(px(panel::HEADER + body * v)),
+            )
+            .into_any_element();
         }
         open_share(section, "commits-open", !folded).into_any_element()
     }
