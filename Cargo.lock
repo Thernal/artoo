@@ -201,7 +201,7 @@ checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
 name = "artoo"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "anyhow",
  "artoo-agents",
@@ -268,7 +268,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-agents"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "artoo-agents-api",
  "artoo-core",
@@ -286,7 +286,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-agents-api"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "artoo-core",
  "artoo-ui-kit",
@@ -297,7 +297,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-appearance"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "artoo-core",
  "artoo-shell-api",
@@ -307,7 +307,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-branches"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "anyhow",
  "artoo-branches-api",
@@ -323,7 +323,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-branches-api"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "artoo-core",
  "git2",
@@ -333,7 +333,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-code"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "artoo-agents-api",
  "artoo-branches-api",
@@ -348,7 +348,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-code-api"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "artoo-core",
  "git2",
@@ -358,7 +358,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-core"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "anyhow",
  "block2 0.6.2",
@@ -402,7 +402,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-hosts"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "anyhow",
  "artoo-core",
@@ -419,7 +419,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-hosts-api"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "anyhow",
  "artoo-core",
@@ -428,7 +428,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-images"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "artoo-core",
  "artoo-images-api",
@@ -442,21 +442,21 @@ dependencies = [
 
 [[package]]
 name = "artoo-images-api"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "gpui-pre",
 ]
 
 [[package]]
 name = "artoo-plugin-api"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "gpui-pre",
 ]
 
 [[package]]
 name = "artoo-plugin-sdk"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "artoo-agents-api",
  "artoo-branches-api",
@@ -477,7 +477,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-plugins"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "artoo-core",
  "artoo-plugin-api",
@@ -496,7 +496,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-reports"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "anyhow",
  "artoo-agents-api",
@@ -514,7 +514,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-requests"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "anyhow",
  "artoo-agents-api",
@@ -534,7 +534,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-requests-api"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "artoo-core",
  "artoo-ui-kit",
@@ -545,7 +545,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-review"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "anyhow",
  "artoo-core",
@@ -561,7 +561,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-review-api"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "artoo-core",
  "artoo-ui-kit",
@@ -571,7 +571,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-shell"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "artoo-core",
  "artoo-shell-api",
@@ -581,7 +581,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-shell-api"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "artoo-core",
  "artoo-ui-kit",
@@ -590,7 +590,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-ui-kit"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "artoo-core",
  "chrono",
@@ -601,7 +601,7 @@ dependencies = [
 
 [[package]]
 name = "artoo-updates"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 dependencies = [
  "anyhow",
  "artoo-core",
