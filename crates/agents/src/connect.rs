@@ -144,8 +144,10 @@ impl Render for AgentsSettings {
                         }),
                 )
         };
-        // One row an agent (#201): what is connected, as facts; Connect all while one is not; the by-hand command
-        // with a failure only; an agent connected by hand says its limit on its row.
+        // One row an agent (#201): what is connected, as facts; Connect all while one is not, Connect again once all
+        // are (the developer, 2026-11-14: the way to connect stays in sight); the by-hand command with a failure
+        // only; an agent connected by hand says its limit on its row, its command to copy whether it is connected
+        // or not.
         // Framed as every row of Settings is (#203): lit, ringed, walked by ⇥, what was searched marked.
         let row = |id: String, name: String, facts: String, end: Option<gpui::AnyElement>| {
             let named = SharedString::from(name.clone());
@@ -192,7 +194,7 @@ impl Render for AgentsSettings {
             let (name, word) = (provider.name(), word(provider.name()));
             let by_hand = provider.add_command(&server);
             let Some(about) = provider.connects() else {
-                // Connected by hand (Codex): its limit on its row, the command to copy while it is not.
+                // Connected by hand (Codex): its limit on its row, its command to copy.
                 let on = word == "codex" && crate::codex::connected();
                 let facts = match (on, provider.limits()) {
                     (true, _) => "connected".to_owned(),
@@ -201,7 +203,7 @@ impl Render for AgentsSettings {
                 };
                 let limits = provider.limits();
                 let copy = by_hand.clone();
-                let end = (!on).then(|| {
+                let end = Some(
                     div()
                         .id(SharedString::from(format!("agents-copy-{word}")))
                         .px_3()
@@ -221,8 +223,8 @@ impl Render for AgentsSettings {
                         .on_click(move |_, _, cx| {
                             cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
                         })
-                        .into_any_element()
-                });
+                        .into_any_element(),
+                );
                 rows = rows.child(row(
                     format!("agents-row-{word}"),
                     name.to_owned(),
@@ -257,8 +259,9 @@ impl Render for AgentsSettings {
             };
             let all_in = !profiles.is_empty() && profiles.iter().all(|(_, on)| *on);
             let to_connect = provider.clone();
-            // Space on the keyboard's row connects it (#203).
-            if !all_in && !(word == "claude" && profiles.is_empty()) {
+            let none = word == "claude" && profiles.is_empty();
+            // Space on the keyboard's row connects it (#203), again once it is.
+            if !none {
                 let (connect, provider) = (self.connect.clone(), provider.clone());
                 controls::setting_keys(
                     name,
@@ -270,25 +273,36 @@ impl Render for AgentsSettings {
                     }),
                 );
             }
-            let end = if all_in || (word == "claude" && profiles.is_empty()) {
+            let end = if none {
                 None
             } else {
-                Some(
-                    div()
-                        .id(SharedString::from(format!("agents-connect-{word}")))
-                        .px_3()
-                        .h(px(28.))
-                        .flex()
-                        .items_center()
-                        .rounded(px(ROW_RADIUS))
+                // Connected: the same act, quiet, for a profile added since or Artoo moved.
+                let button = div()
+                    .id(SharedString::from(format!("agents-connect-{word}")))
+                    .px_3()
+                    .h(px(28.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(ROW_RADIUS))
+                    .cursor_pointer();
+                let button = if all_in {
+                    button
+                        .border_1()
+                        .border_color(theme::island_border())
+                        .hover(|s| s.bg(theme::hover()))
+                } else {
+                    button
                         .bg(theme::agent())
                         .text_color(theme::base())
                         .font_weight(FontWeight::SEMIBOLD)
-                        .cursor_pointer()
-                        .child(match (busy, profiles.len()) {
-                            (true, _) => "Connecting…",
-                            (false, 0 | 1) => "Connect",
-                            (false, _) => "Connect all",
+                };
+                Some(
+                    button
+                        .child(match (busy, all_in, profiles.len()) {
+                            (true, ..) => "Connecting…",
+                            (false, true, _) => "Connect again",
+                            (false, false, 0 | 1) => "Connect",
+                            (false, false, _) => "Connect all",
                         })
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             let provider = to_connect.clone();

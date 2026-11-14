@@ -8,6 +8,8 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 - **Commits folds as it moves.** On the branch checked out, the Commits section folds and opens moving, its rows
   fading, as every other section does; it snapped shut before.
+- **The way to connect an agent stays.** Settings → Agents keeps it once an agent is connected: `Connect again` for
+  Claude Code (a profile added since, or Artoo moved), and Codex's command to copy.
 
 ## 2.0.0-rc.4 — 2026-11-14
 
