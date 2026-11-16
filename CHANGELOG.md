@@ -4,14 +4,14 @@ What is new in each release of Artoo. A release's notes on GitHub are its sectio
 (`.github/release-notes.sh`); a release tag whose version has no section here does not build. Write what changed
 for someone using the app, not for someone reading the code; the commits follow anyway.
 
-## Unreleased
+## 2.0.0-rc.5 — 2026-11-16
 
 - **A narrow window's side panel is solid.** Opened over the page as a drawer, a plugin's panel (Tasks' boards) is
   drawn on the window's ground; the page showed through its rows before.
 - **Plugins can bring the side panel back, and refresh ⌘K.** `Frame::side_shown` and `Frame::show_side` let a
   plugin's key into its panel's list show the panel hidden with ⌘J, or open the drawer in a narrow window;
   `SearchWindow::again` finds again for the text typed when a scope's finds have changed. For plugins built with
-  the next SDK.
+  this release's SDK.
 - **⌘Z undoes a plugin's toast too.** A toast a plugin raises with Undo (Tasks' reassignment) is undone by ⌘Z as
   the app's own are; ⌘Z pressed only those before.
 - **The last folds that snapped move.** An update's commits, a remote's branches and a file's lines in Search open
