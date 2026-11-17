@@ -4,6 +4,30 @@ What is new in each release of Artoo. A release's notes on GitHub are its sectio
 (`.github/release-notes.sh`); a release tag whose version has no section here does not build. Write what changed
 for someone using the app, not for someone reading the code; the commits follow anyway.
 
+## 2.0.0 — 2026-11-17
+
+- **GitLance is now Artoo.** The app, its window and its menus are Artoo's, and it lives at Thernal/artoo. The first
+  start takes everything GitLance remembered — the hosts' tokens, the marks of what you reviewed, the settings, the
+  keys, the pictures — from GitLance's folder, which stays as it was, so GitLance still opens beside it. Set up →
+  Agents connects your agents again under the new name, GitLance's entry and skill removed; Codex is given the
+  command that does the same.
+
+- **Plugins.** Artoo loads plugins as it starts: native libraries built against the SDK each release carries.
+  Plugins, at the foot of the menu, finds them on GitHub (the `artoo-plugin` topic), installs, updates, turns off and
+  removes them, and says why one was not loaded. One built for another Artoo is refused before any of it runs; one
+  that stops Artoo is named at the next start, with Turn it off and Report. The first is Tasks
+  (Thernal/artoo-tasks): Jira and Trello boards and issues beside the code. A plugin of your own starts from
+  Thernal/artoo-plugin-template.
+
+- **A round over the whole app.** The merge requests list says whose turn each one is, a request's Overview what is
+  in the way, and coming back after a push shows what changed since you read. Code goes to where a name is declared,
+  finds in the file and searches the repository. Settings finds a setting by its words, ⌘K knows where you are,
+  holding ⌘ shows the keys, the Inbox says what happened and from where, notifications are switched per source,
+  images open whole, and a comment takes a screenshot or a file.
+
+- Every change since GitLance 1.3.0 is told in the release candidates' sections, 2.0.0-rc.1 to 2.0.0-rc.5, and
+  listed in the commits.
+
 ## 2.0.0-rc.5 — 2026-11-16
 
 - **A narrow window's side panel is solid.** Opened over the page as a drawer, a plugin's panel (Tasks' boards) is
