@@ -12,10 +12,11 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-/// The relay's address (`relay/`); `GITLANCE_REPORT_URL` stands in for it.
-const RELAY: &str = "https://gitlance-reports.h-humbat0.workers.dev";
-/// Where a report goes when it is posted by hand.
-const NEW_ISSUE: &str = "https://github.com/Thernal/gitlance-desktop/issues/new";
+/// The relay's address: Artoo's, GitLance's new name (1.3.1; GitLance's own address is going);
+/// `GITLANCE_REPORT_URL` stands in for it.
+const RELAY: &str = "https://artoo-reports.h-humbat0.workers.dev";
+/// Where a report goes when it is posted by hand: Artoo's issues (GitLance's repository is archived).
+const NEW_ISSUE: &str = "https://github.com/Thernal/artoo/issues/new";
 /// The log lines a report carries.
 pub const LOG_LINES: usize = 200;
 /// GitHub refuses longer new-issue addresses; the log is cut first to fit.

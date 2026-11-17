@@ -84,6 +84,11 @@ pub fn data_dir() -> Option<PathBuf> {
     Some(std::env::home_dir()?.join("Library/Application Support/GitLance"))
 }
 
+/// Artoo's data folder, GitLance's new name: there once Artoo has run here.
+pub fn artoo_dir() -> Option<PathBuf> {
+    Some(std::env::home_dir()?.join("Library/Application Support/Artoo"))
+}
+
 /// The launcher inside the editor's bundle under `/Applications` or `~/Applications`, so nothing
 /// has to be installed on the PATH.
 pub fn launcher(launcher: &super::Launcher) -> Option<PathBuf> {

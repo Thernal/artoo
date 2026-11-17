@@ -93,6 +93,11 @@ pub fn data_dir() -> Option<PathBuf> {
     os::data_dir()
 }
 
+/// Artoo's data folder (GitLance's new name), whether or not Artoo has made it yet.
+pub fn artoo_dir() -> Option<PathBuf> {
+    os::artoo_dir()
+}
+
 /// The key window as a PNG, for a report (#118); `None` when it cannot be taken.
 pub fn window_picture() -> Option<Vec<u8>> {
     os::window_picture()

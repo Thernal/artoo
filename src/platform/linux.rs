@@ -28,6 +28,11 @@ pub fn data_dir() -> Option<PathBuf> {
     Some(base.join("gitlance"))
 }
 
+/// Artoo's data folder, GitLance's new name: there once Artoo has run here.
+pub fn artoo_dir() -> Option<PathBuf> {
+    Some(data_dir()?.parent()?.join("artoo"))
+}
+
 pub fn launcher(launcher: &super::Launcher) -> Option<PathBuf> {
     super::on_path(launcher.on_path, &[])
 }

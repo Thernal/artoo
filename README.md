@@ -7,6 +7,9 @@
 **Review commits, branches, merge requests and what your coding agent changed — in one desktop app.**<br>
 No IDE to open, no worktrees to create.
 
+**GitLance is now Artoo:** [github.com/Thernal/artoo](https://github.com/Thernal/artoo). This repository is an
+archived copy, kept so GitLance's links and its update check keep working.
+
 [![Latest release](https://img.shields.io/github/v/release/Thernal/gitlance-desktop?display_name=release&label=latest&color=4c8bf5)](https://github.com/Thernal/gitlance-desktop/releases/latest)
 [![CI](https://github.com/Thernal/gitlance-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/Thernal/gitlance-desktop/actions/workflows/ci.yml)
 ![macOS](https://img.shields.io/badge/macOS-universal-6e7781?logo=apple&logoColor=white)
@@ -17,7 +20,7 @@ No IDE to open, no worktrees to create.
 
 [**Download**](https://github.com/Thernal/gitlance-desktop/releases/latest) ·
 [What's new](CHANGELOG.md) ·
-[Report a problem](https://github.com/Thernal/gitlance-desktop/issues/new)
+[Report a problem](https://github.com/Thernal/artoo/issues/new)
 
 </div>
 

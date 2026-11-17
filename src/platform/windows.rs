@@ -27,6 +27,11 @@ pub fn data_dir() -> Option<PathBuf> {
     Some(base.join("GitLance"))
 }
 
+/// Artoo's data folder, GitLance's new name: there once Artoo has run here.
+pub fn artoo_dir() -> Option<PathBuf> {
+    Some(data_dir()?.parent()?.join("Artoo"))
+}
+
 /// `code` is `code.cmd`, so the PATHEXT extensions are tried too.
 pub fn launcher(launcher: &super::Launcher) -> Option<PathBuf> {
     let exts: Vec<String> = std::env::var("PATHEXT")

@@ -333,7 +333,9 @@ impl Workspace {
         // Esc closes the innermost thing — a card, menu or popover, the find bar, a filter, the
         // tool window with the keyboard — then goes one page up (#71).
         if key.key == "escape" {
-            if self.done_card {
+            if self.farewell {
+                self.close_farewell(cx);
+            } else if self.done_card {
                 self.done_card = false;
                 cx.notify();
             } else if self.label_edit.is_some() {

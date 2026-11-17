@@ -127,6 +127,10 @@ impl Shell {
         if !parts.is_empty() {
             shell.tabs[shell.active].update(cx, |w, cx| w.open_setup(parts, cx));
         }
+        // GitLance is now Artoo (1.3.1): said over the first window, until Artoo has run here.
+        if primary && super::farewell::due() {
+            shell.tabs[shell.active].update(cx, |w, cx| w.open_farewell(cx));
+        }
         shell
     }
 

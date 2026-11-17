@@ -31,6 +31,7 @@ impl Workspace {
     /// something is being written or another card is up, when it waits.
     pub(super) fn take_update_news(&mut self, cx: &mut Context<Self>) {
         let busy = self.update_card.is_some()
+            || self.farewell
             || self.shortcuts
             || self.label_edit.is_some()
             || self.typing().is_some();
@@ -456,8 +457,12 @@ fn watch_more(scroll: ScrollHandle, more: Rc<Cell<bool>>) -> impl IntoElement {
     .size_full()
 }
 
-/// A button of the card, as the naming card's.
-fn button(id: &'static str, label: &'static str, primary: bool) -> gpui::Stateful<gpui::Div> {
+/// A button of the card, as the naming card's (the farewell's too).
+pub(super) fn button(
+    id: &'static str,
+    label: &'static str,
+    primary: bool,
+) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .h(px(30.))

@@ -1122,6 +1122,7 @@ impl Render for Workspace {
             .children(self.render_agent_pick(cx))
             .children(self.render_label_card(cx))
             .children(self.render_update_card(cx))
+            .children(self.render_farewell(cx))
             .children(self.render_merge_card(cx))
             .children(self.render_create_quick(cx))
             .children(self.render_shortcuts(cx))

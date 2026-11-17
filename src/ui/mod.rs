@@ -17,6 +17,7 @@ mod connecting;
 mod create;
 mod diff_view;
 mod discussion;
+mod farewell;
 mod fetch;
 mod file_view;
 mod find;
@@ -997,6 +998,11 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                             this.settings_section = settings::Section::Repository;
                             continue;
                         }
+                        // The card saying GitLance is now Artoo (1.3.1).
+                        "farewell" => {
+                            this.open_farewell(cx);
+                            continue;
+                        }
                         // A newer release's card (#135), from GITLANCE_RELEASES_FIXTURE.
                         "update" | "update-commits" => {
                             crate::updates::check();
@@ -1889,6 +1895,8 @@ pub struct Workspace {
     /// The card of a newer GitLance (#135), and a check asked for by hand running.
     update_card: Option<updates::UpdateCard>,
     update_checking: bool,
+    /// The card saying GitLance is now Artoo (1.3.1, `farewell.rs`).
+    farewell: bool,
     /// The card before a request is merged (#164).
     merging: Option<merging::MergeCard>,
     /// The tree folder opened last, and a count of openings: its rows fade in (`tree_row`).
@@ -2127,6 +2135,7 @@ impl Workspace {
             update_card: None,
             merging: None,
             update_checking: false,
+            farewell: false,
             tree_opened: None,
             narrowed: Default::default(),
             keyboard: Default::default(),
