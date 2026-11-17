@@ -45,22 +45,14 @@ GET  /v1/report/<id>?install → 200 {state, url} · 404
 Closing the reports: `OPEN = "0"` in `wrangler.toml` and deploy (the app then offers GitHub's page). A key that
 leaked: revoke it in the App's settings and put a new one with `wrangler secret put APP_KEY` — the app needs no update.
 
-## GitLance's address
+## GitLance
 
-GitLance 1.3.0 sends its reports to `gitlance-reports.h-humbat0.workers.dev`, the relay's address before the name
-changed. `forward/` keeps that address: a Worker named `gitlance-reports` that hands every request to this one
-(`artoo-reports`) through a service binding, so GitLance's reports land in the same intake and their states are read
-from the same KV. It holds no key. Deploy it after this one: `cd forward && npx wrangler deploy`.
-
-How the name moved (2026-11-08): the Worker that was `gitlance-reports` was renamed `artoo-reports` (Cloudflare's API,
-`PATCH /accounts/<account>/workers/workers/<id>` with the new `name`). A rename keeps a Worker's secrets and bindings,
-so the App's key went with it and none was made again; the old address answers 404 from that moment until `forward/`
-is deployed under it, a few seconds.
-
-It goes once Artoo 2.0.0 is out (#173): `npx wrangler delete --name gitlance-reports`. GitLance then opens GitHub's
-page instead, as it does whenever the relay can't be reached.
+GitLance 1.3.1, its last release, sends its reports here directly, so an issue from it reads "Artoo 1.3.1".
+GitLance's own address (`gitlance-reports`, a Worker handing every request on to this one) was deleted on
+2026-11-17, once 1.3.1 and Artoo 2.0.0 were out; a GitLance 1.3.0 that never updated opens GitHub's page instead,
+as it does whenever the relay can't be reached.
 
 ## Tests
 
 `npm test` (Node 20+): the checks, the scrubbing, the issue's text, the App's JWT, the Worker against a GitHub and a
-KV in memory, and GitLance's address handing a request on.
+KV in memory.
