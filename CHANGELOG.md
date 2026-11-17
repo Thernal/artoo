@@ -4,6 +4,16 @@ What is new in each release of GitLance. A release's notes on GitHub are its sec
 (`.github/release-notes.sh`); a release tag whose version has no section here does not build. Write what changed
 for someone using the app, not for someone reading the code; the commits follow anyway.
 
+## 1.3.1 — 2026-11-17
+
+- **GitLance is now Artoo.** This is GitLance's last release: Artoo is the same app under its new name, and its
+  updates come as Artoo: [github.com/Thernal/artoo](https://github.com/Thernal/artoo). Its first start brings
+  over your tokens, review marks, settings and keys, and leaves GitLance as it is. GitLance now says this as it
+  starts, with Get Artoo; Later puts it off until the next start, and once Artoo has run on this computer it
+  is not said again.
+- **Report a problem goes to Artoo.** A report is filed with Artoo's, and Open in the browser opens Artoo's
+  new-issue page: GitLance's own address is going, and its repository is archived.
+
 ## 1.3.0 — 2026-10-29
 
 - **Pin a tab in Code.** Pin tab — in a tab's right click, ⌘K or ⌥⌘P — keeps a file or a folder first among the
