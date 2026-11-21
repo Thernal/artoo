@@ -357,7 +357,7 @@ impl Requests {
                         .into_any_element(),
                 );
             }
-            let item = comment_item_ending(("comment-mr", ix), tone, where_, line, end)
+            let item = comment_item_ending(("comment-mr", ix), tone, where_, line, end, true)
                 .when(whole, |s| s.bg(theme::selected()))
                 .when(waits, |s| s.opacity(FADED))
                 .on_click({
@@ -430,11 +430,13 @@ impl Requests {
         let draft_items = drafts.iter().enumerate().map(|(ix, d)| {
             let (where_, target, old) = self.draft_where(d);
             let id = d.id;
-            comment_item(
+            comment_item_ending(
                 ("comment-draft", ix),
                 theme::warning(),
                 where_,
                 draft_line(d, look.rich, look.agents.get(&d.id).map(String::as_str)),
+                Vec::new(),
+                false,
             )
             .relative()
             .group("pending-row")

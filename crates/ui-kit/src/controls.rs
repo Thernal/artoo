@@ -451,18 +451,34 @@ pub fn comment_item(
     where_: String,
     body: String,
 ) -> gpui::Stateful<gpui::Div> {
-    comment_item_ending(id, tone, where_, body, Vec::new())
+    comment_item_ending(id, tone, where_, body, Vec::new(), true)
 }
 
-/// `comment_item` with glyphs at the end of its first line: a count, whose turn it is (Design D2).
+/// `comment_item` with glyphs at the end of its first line: a count, whose turn it is (Design D2); `dot` off, the
+/// row's colour is a bar at its edge instead.
 pub fn comment_item_ending(
     id: (&'static str, usize),
     tone: gpui::Rgba,
     where_: String,
     body: String,
     end: Vec<gpui::AnyElement>,
+    dot: bool,
 ) -> gpui::Stateful<gpui::Div> {
     div()
+        .relative()
+        // No dot: a 2 px bar of its colour at the row's left edge, a pending comment's (Design C1).
+        .when(!dot, |s| {
+            s.child(
+                div()
+                    .absolute()
+                    .left(px(0.))
+                    .top(px(4.))
+                    .bottom(px(4.))
+                    .w(px(2.))
+                    .rounded_full()
+                    .bg(tone),
+            )
+        })
         .id(id)
         .mx(px(6.))
         .px(px(8.))
@@ -478,7 +494,13 @@ pub fn comment_item_ending(
                 .flex()
                 .items_center()
                 .gap_2()
-                .child(div().flex_none().size(px(6.)).rounded_full().bg(tone))
+                .child(
+                    div()
+                        .flex_none()
+                        .size(px(6.))
+                        .rounded_full()
+                        .when(dot, |s| s.bg(tone)),
+                )
                 .child(
                     hover::cut("where", where_)
                         .flex_1()
