@@ -1868,7 +1868,7 @@ impl Requests {
                                     Some(Focus::Source),
                                     // Typed, it scrolls with the caret; shown, its whole in a
                                     // long hover.
-                                    if n.focus == Focus::Source {
+                                    branch_field(if n.focus == Focus::Source {
                                         // clip: a field being typed in scrolls with its caret.
                                         div()
                                             .overflow_hidden()
@@ -1882,7 +1882,7 @@ impl Requests {
                                         hover::name("create-source-name", n.source.clone())
                                             .font_family(theme::code_font())
                                             .into_any_element()
-                                    },
+                                    }),
                                 ))
                                 .children(source_list),
                         )
@@ -1900,17 +1900,19 @@ impl Requests {
                                 .child(boxed(
                                     "create-target-field",
                                     Some(Focus::Target),
-                                    div()
-                                        .font_family(theme::code_font())
-                                        .child(n.area.field(
-                                            &n.target,
-                                            typing && n.focus == Focus::Target,
-                                            "main",
-                                            false,
-                                            area_of,
-                                            cx,
-                                        ))
-                                        .into_any_element(),
+                                    branch_field(
+                                        div()
+                                            .font_family(theme::code_font())
+                                            .child(n.area.field(
+                                                &n.target,
+                                                typing && n.focus == Focus::Target,
+                                                "main",
+                                                false,
+                                                area_of,
+                                                cx,
+                                            ))
+                                            .into_any_element(),
+                                    ),
                                 ))
                                 .children(target_list),
                         )
@@ -2159,6 +2161,26 @@ pub fn input(requests: Entity<Requests>, services: Rc<Services>) -> Input {
                 .is_some_and(|rq| rq.read(cx).typing_description())
         }),
     }
+}
+
+/// What a From or Into field holds, as the design draws it: the branch's glyph before the name, a chevron after it.
+fn branch_field(name: AnyElement) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .child(
+            icons::icon("branch")
+                .size(px(14.))
+                .text_color(theme::faint()),
+        )
+        .child(div().flex_1().min_w_0().child(name))
+        .child(
+            icons::icon("chevron")
+                .size(px(14.))
+                .text_color(theme::muted()),
+        )
+        .into_any_element()
 }
 
 #[cfg(test)]
