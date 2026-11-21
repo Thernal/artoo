@@ -1094,10 +1094,10 @@ fn discussions(threads: &[Thread]) -> (usize, usize) {
     (open, resolvable.count() - open)
 }
 
-/// A request's row (#189, Design L1): line one, its number, its title — muted for a draft, tagged `New` or
+/// A request's row (#189, Design L1): line one, its number, its title — muted for a draft, tagged
 /// `Draft` — and when, short, in the column every row shares; line two, its author, and at its end glyphs with
 /// their numbers: a conflict, the open discussions, the pipeline's state, a tooltip each. Whose turn it is, the
-/// size, the approvals and the target are in the row's tooltip. The dot: something new since you read it.
+/// size, the approvals and the target are in the row's tooltip. The dot: never opened, or news since you read it.
 fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement + use<> {
     let iid = m.iid;
     let picked = look.picked == Some(iid);
@@ -1106,7 +1106,7 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
     let me = rq.login.as_deref().unwrap_or_default();
     let mine = !me.is_empty() && m.author_login == me;
     let new_to_you = open && !opened_before(rq, iid, look.seen(iid));
-    let unread = open && !new_to_you && rq.rows.news(m);
+    let unread = open && (new_to_you || rq.rows.news(m));
     let turn = if open { rq.turn_of(m) } else { None };
     // The time shows while the list has room for it (#79); the tip holds the rest.
     let room = look.widths.room("requests");
@@ -1204,7 +1204,6 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
                                 )
                                 .when(m.draft, |s| s.text_color(theme::muted())),
                             )
-                            .when(new_to_you, |s| s.child(tag("New", theme::accent())))
                             .when(m.draft, |s| s.child(tag("Draft", theme::muted())))
                             .child(div().flex_1())
                             .children(room.second().then(|| {
@@ -1397,7 +1396,6 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
         }
     }
     let head = head
-        .child(div().flex_1())
         .child(discussion::avatar(author, mine, 16.))
         .child(
             div()
@@ -1407,6 +1405,7 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
                 .text_ellipsis()
                 .child(author.to_owned()),
         )
+        .child(div().flex_1())
         // A merged or closed one: what became of it, and when (#114).
         .children((!open).then(|| {
             div()
