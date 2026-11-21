@@ -155,7 +155,7 @@ impl Workspace {
             }))
     }
 
-    /// A face's menu: the default, a few installed faces, each in itself; Other… for all.
+    /// A face's menu: the default, a few installed faces, each in itself; Other… for all, with no heading or hint (as the design draws it).
     pub(super) fn open_faces(&mut self, code: bool, at: Point<Pixels>, cx: &mut Context<Self>) {
         let faces = theme::faces();
         let chosen = if code { faces.code } else { faces.ui };
@@ -174,16 +174,13 @@ impl Workspace {
         self.open_titled(
             at,
             vec![
-                (Some("Each in its own type"), entries),
+                (None, entries),
                 (
                     None,
-                    vec![
-                        Entry::new(
-                            "Other…",
-                            Act::new(move |this, _, cx| this.open_all_faces(code, cx)),
-                        )
-                        .key("any installed face"),
-                    ],
+                    vec![Entry::new(
+                        "Other…",
+                        Act::new(move |this, _, cx| this.open_all_faces(code, cx)),
+                    )],
                 ),
             ],
             cx,
