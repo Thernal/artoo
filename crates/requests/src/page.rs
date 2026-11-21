@@ -3,15 +3,15 @@
 //! a column of who reviews, its labels, its milestone and its discussions — and the request's identity in words for a
 //! long hover. Commits and Changes have no line of their own over them: the title is in the page bar (#188).
 
-use crate::bar::pipeline_word;
+use crate::bar::{pipeline_icon, pipeline_short, pipeline_word};
 use crate::merge::{Fix, Stand};
 use crate::requests::Requests;
 use crate::waiting::FADED;
 use artoo_hosts_api::{Details, Mr, MrState};
 use artoo_ui_kit::format::{self, plural};
-use artoo_ui_kit::hover;
+use artoo_ui_kit::hover::{self, Hover};
 use artoo_ui_kit::markdown::{self, Selecting};
-use artoo_ui_kit::{discussion, island, px, theme, words};
+use artoo_ui_kit::{discussion, icons, island, px, theme, words};
 use gpui::{AnyElement, App, ClickEvent, Div, FontWeight, Rgba, div, prelude::*};
 use std::rc::Rc;
 
@@ -36,8 +36,8 @@ pub struct OverviewLook {
 /// Overview's facts the tab keeps: the commits, how far your review is, the versions.
 pub struct Facts {
     pub commits: usize,
-    /// How far your own marks are: "3 of 8 files", or "—".
-    pub reviewed: String,
+    /// How far your own marks are: files done of the total.
+    pub reviewed: Option<(u32, u32)>,
     /// "v2 → v3", "v3", or "—".
     pub versions: String,
 }
@@ -123,41 +123,129 @@ impl Requests {
             .into_any_element()
     }
 
-    /// Overview's head: the title and its state, its author and branches beside it, once (#190); then the facts in a
-    /// row — pipeline, approvals, how far your own review is, the versions, the commits.
+    /// Overview's head (Design M2): the title and its state on a line of their own; the branches on the next; then
+    /// the facts as glyphs, each with its sentence in its tooltip — pipeline, approvals, how far your own review is,
+    /// the versions — the author last, the one that changes (#190).
     fn overview_identity(&self, m: &Mr, title: AnyElement, facts: &Facts) -> Div {
         let url = m.url.clone();
         let mine = self.login.as_deref().is_some_and(|me| me == m.author_login);
-        let pipeline = self.pipeline.as_ref().map_or_else(
-            || faint("—").into_any_element(),
-            |p| {
-                let (glyph, word, color) = pipeline_word(p);
+        let author = if mine { "You" } else { m.author.as_str() };
+        let glyph = |id: &'static str, icon: &'static str, color, text: String, tip: String| {
+            div()
+                .id(id)
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .text_color(color)
+                .child(icons::icon(icon).size(px(14.)).text_color(color))
+                .child(text)
+                .tip(tip)
+        };
+        let divider = || {
+            div()
+                .flex_none()
+                .w(px(1.))
+                .h(px(14.))
+                .bg(theme::island_border())
+        };
+        let mut row = div()
+            .flex()
+            .items_center()
+            .gap(px(14.))
+            .text_size(px(13.))
+            .text_color(theme::muted());
+        if let Some(p) = &self.pipeline {
+            let (icon, color) = pipeline_icon(p);
+            let (_, said, _) = pipeline_word(p);
+            let (_, short, _) = pipeline_short(p);
+            row = row.child(glyph(
+                "overview-pipeline",
+                icon,
+                color,
+                short,
+                format!("Pipeline {said}"),
+            ));
+        }
+        let approvals = self.approvals.as_ref().and_then(|a| {
+            let (count, said) = if a.required > 0 {
+                let done = a.required - a.left.min(a.required);
+                (
+                    format!("{done}/{}", a.required),
+                    format!("{done} of {} approvals", a.required),
+                )
+            } else if !a.by.is_empty() {
+                (a.by.len().to_string(), format!("{} approved", a.by.len()))
+            } else {
+                return None;
+            };
+            Some(match a.by.is_empty() {
+                true => (count, said),
+                false => (count, format!("{said} · {}", a.by.join(", "))),
+            })
+        });
+        if let Some((count, said)) = approvals {
+            row = row.child(divider()).child(
                 div()
-                    .text_color(color)
-                    .child(format!("{glyph} {word}"))
-                    .into_any_element()
-            },
+                    .when(self.approval_waits(), |s| s.opacity(FADED))
+                    .child(glyph(
+                        "overview-approvals",
+                        "circle-check",
+                        theme::muted(),
+                        count,
+                        said,
+                    )),
+            );
+        }
+        // Your own marks, not the team's state (#190).
+        if let Some((done, total)) = facts.reviewed {
+            row = row.child(divider()).child(glyph(
+                "overview-reviewed",
+                "eye",
+                theme::muted(),
+                format!("{done}/{total}"),
+                format!(
+                    "Reviewed by you: {done} of {}",
+                    plural(total as usize, "file")
+                ),
+            ));
+        }
+        if facts.versions != "\u{2014}" {
+            let said = match facts.versions.split_once(" \u{2192} ") {
+                Some((at, latest)) => format!("You reviewed {at}; the latest is {latest}"),
+                None => format!("The latest version is {}", facts.versions),
+            };
+            row = row.child(divider()).child(glyph(
+                "overview-versions",
+                "layers",
+                theme::muted(),
+                facts.versions.clone(),
+                format!("{said} · {}", plural(facts.commits, "commit")),
+            ));
+        }
+        let row = row.child(divider()).child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .min_w_0()
+                .child(discussion::avatar(&m.author, mine, 16.))
+                .child(
+                    div()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(author.to_owned()),
+                ),
         );
-        let approvals = match &self.approvals {
-            Some(a) if a.required > 0 => {
-                format!("{} of {}", a.required - a.left.min(a.required), a.required)
-            }
-            Some(a) if !a.by.is_empty() => format!("{} approved", a.by.len()),
-            Some(_) => "none yet".to_owned(),
-            None => "—".to_owned(),
-        };
-        let author = if mine {
-            "You".to_owned()
-        } else {
-            m.author.clone()
-        };
         div()
             .px(px(24.))
             .pt(px(20.))
             .pb(px(18.))
             .flex()
             .flex_col()
-            .gap(px(14.))
+            .gap(px(10.))
             .child(
                 div()
                     .flex()
@@ -170,25 +258,6 @@ impl Requests {
                             .font_weight(FontWeight::SEMIBOLD),
                     )
                     .child(state_chip(m))
-                    // Who and from where to where, once, beside the title.
-                    .child(
-                        div()
-                            .flex()
-                            .min_w_0()
-                            .items_center()
-                            .gap(px(6.))
-                            .text_size(px(13.))
-                            .text_color(theme::muted())
-                            .child(discussion::avatar(&m.author, false, 16.))
-                            .child(div().flex_none().child(author))
-                            .child(faint("·").flex_none())
-                            .child(
-                                hover::branches("overview-branches", &m.source, &m.target)
-                                    .min_w_0()
-                                    .font_family(theme::code_font())
-                                    .text_size(px(12.)),
-                            ),
-                    )
                     .child(div().flex_1())
                     .child(
                         div()
@@ -202,34 +271,27 @@ impl Requests {
                             .on_click(move |_: &ClickEvent, _, cx| cx.open_url(&url)),
                     ),
             )
+            // The branches, a line of their own: a long one is the subject.
             .child(
                 div()
                     .flex()
-                    .flex_wrap()
-                    .gap_x(px(32.))
-                    .gap_y(px(12.))
-                    .child(fact("Pipeline", pipeline))
-                    .child(fact(
-                        "Approvals",
-                        div()
-                            .when(self.approval_waits(), |s| s.opacity(FADED))
-                            .child(approvals)
-                            .into_any_element(),
-                    ))
-                    // Your own marks, not the team's state (#190).
-                    .child(fact(
-                        "Your review",
-                        div().child(facts.reviewed.clone()).into_any_element(),
-                    ))
-                    .child(fact(
-                        "Versions",
-                        div().child(facts.versions.clone()).into_any_element(),
-                    ))
-                    .child(fact(
-                        "Commits",
-                        div().child(facts.commits.to_string()).into_any_element(),
-                    )),
+                    .items_center()
+                    .gap(px(6.))
+                    .min_w_0()
+                    .text_size(px(12.))
+                    .text_color(theme::accent())
+                    .child(
+                        icons::icon("branch")
+                            .size(px(14.))
+                            .text_color(theme::muted()),
+                    )
+                    .child(
+                        hover::branches("overview-branches", &m.source, &m.target)
+                            .min_w_0()
+                            .font_family(theme::code_font()),
+                    ),
             )
+            .child(div().pt(px(4.)).child(row))
     }
 
     /// `In the way of merging`: a row for each reason, its facts and where it is fixed (#190, Design L4), between
@@ -478,22 +540,6 @@ fn state_chip(m: &Mr) -> Div {
         .child(word)
 }
 
-/// A fact of Overview's head: its label over its value.
-fn fact(label: &'static str, value: AnyElement) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(4.))
-        .child(
-            div()
-                .text_size(px(11.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::faint())
-                .child(label.to_uppercase()),
-        )
-        .child(div().text_size(px(13.)).child(value))
-}
-
 /// A block of Overview's column: its heading over its rows.
 fn block(title: &str, rows: impl IntoIterator<Item = AnyElement>) -> Div {
     div()
@@ -530,8 +576,4 @@ fn person(name: String, login: Option<String>, state: Option<(&'static str, Rgba
                 .child(format!("@{l}"))
         })))
         .children(state.map(|(word, color)| div().text_color(color).child(word)))
-}
-
-fn faint(text: &'static str) -> Div {
-    div().text_color(theme::faint()).child(text)
 }

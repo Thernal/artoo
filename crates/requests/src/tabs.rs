@@ -10,7 +10,6 @@ use artoo_hosts_api::Mr;
 use artoo_review_api::Review;
 use artoo_shell_api::Frame;
 use artoo_ui_kit::controls::skeleton;
-use artoo_ui_kit::format::plural;
 use artoo_ui_kit::markdown;
 use artoo_ui_kit::{gap, island, px, theme};
 use gpui::{AnyElement, App, Context, Entity, Render, Window, div, prelude::*};
@@ -74,16 +73,10 @@ impl Tabs {
             services.get::<Rc<dyn Branches>>(),
         );
         let head = git2::Oid::from_str(&m.head).ok();
-        let reviewed = review
-            .as_ref()
-            .and_then(|rv| {
-                rv.progress(cx)
-                    .or_else(|| head.and_then(|h| rv.head_part(h, cx)))
-            })
-            .map_or_else(
-                || "—".to_owned(),
-                |(done, total)| format!("{done} of {}", plural(total as usize, "file")),
-            );
+        let reviewed = review.as_ref().and_then(|rv| {
+            rv.progress(cx)
+                .or_else(|| head.and_then(|h| rv.head_part(h, cx)))
+        });
         let tips = branches.as_ref().map_or_else(Vec::new, |b| b.versions(cx));
         let latest = tips.last().map(|(number, _)| *number);
         let heads = review
