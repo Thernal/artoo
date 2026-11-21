@@ -63,6 +63,43 @@ pub fn links(cx: &App, text: &str) -> Vec<(Range<usize>, String)> {
     found
 }
 
+/// The keys in a branch's `name` (`feature/PAY-398-login-state`): where `-` joins the words of a name too, a key is
+/// asked for of each two words side by side (`PAY-398`), whole between `/`, `_` and `.`; by their bytes, none without
+/// a tracker.
+pub fn in_name(cx: &App, name: &str) -> Vec<Range<usize>> {
+    let trackers = all(cx);
+    if trackers.is_empty() {
+        return Vec::new();
+    }
+    let mut found: Vec<Range<usize>> = Vec::new();
+    let mut at = 0;
+    for part in name.split(['/', '_', '.']) {
+        let words: Vec<(usize, &str)> = part
+            .split('-')
+            .scan(0, |off, w| {
+                let from = *off;
+                *off += w.len() + 1;
+                Some((at + from, w))
+            })
+            .collect();
+        for pair in words.windows(2) {
+            let from = pair[0].0;
+            let candidate = &name[from..pair[1].0 + pair[1].1.len()];
+            let whole = trackers
+                .iter()
+                .any(|t| t.find(candidate, cx).contains(&(0..candidate.len())));
+            let taken = found
+                .iter()
+                .any(|r| r.start < from + candidate.len() && from < r.end);
+            if whole && !taken {
+                found.push(from..from + candidate.len());
+            }
+        }
+        at += part.len() + 1;
+    }
+    found
+}
+
 /// The key a link's address names, if it is one of a tracker's.
 pub fn key_of(address: &str) -> Option<&str> {
     address.strip_prefix(SCHEME)

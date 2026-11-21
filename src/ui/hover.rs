@@ -109,8 +109,14 @@ impl PersonCard {
 /// A mention under the pointer in comment text, and the person's card once the pointer rested on it
 /// (#51, X62): the card stays while the pointer is on the mention or on the card.
 /// An issue key's card (`artoo_shell_api::issues`), drawn by the kit; Open opens the issue under its tracker.
-struct KeyCard {
+pub(super) struct KeyCard {
     card: artoo_ui_kit::hover::IssueCard,
+}
+
+impl KeyCard {
+    pub(super) fn new(card: artoo_ui_kit::hover::IssueCard) -> Self {
+        Self { card }
+    }
 }
 
 impl Render for KeyCard {

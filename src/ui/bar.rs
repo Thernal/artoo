@@ -118,7 +118,15 @@ impl Workspace {
                 up: false,
                 crumbs,
                 title_text: words::say(&name).into_owned(),
-                title: title(words::say(&name).into_owned(), called, mono, hover),
+                title: title(
+                    words::say(&name).into_owned(),
+                    called,
+                    mono,
+                    hover,
+                    artoo_shell_api::issues::in_name(cx, &name)
+                        .into_iter()
+                        .next(),
+                ),
                 count,
                 lead: Vec::new(),
                 view: (self.view_of(space, page.as_ref(), cx))
@@ -283,7 +291,7 @@ impl Workspace {
                     out.push(
                         BarAction::new(
                             "read-all",
-                            self.bar_action("bar-read-all", "check", "Mark all read", "")
+                            bar_icon("bar-read-all", "check-check", "Mark all read".to_owned())
                                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                     this.read_all_notices(cx)
                                 })),
@@ -755,7 +763,13 @@ impl bar::BarHost for BarGlue {
 /// owner's (`NameHover`): a request's identity, a commit's or a branch's card, a file's or a folder's whole path.
 /// Without one, its own long hover gives the whole title when it is cut. `called`, after it: a request's title after
 /// its number (#188), cut first.
-fn title(text: String, called: Option<String>, mono: bool, hover: Option<NameHover>) -> AnyElement {
+fn title(
+    text: String,
+    called: Option<String>,
+    mono: bool,
+    hover: Option<NameHover>,
+    key: Option<std::ops::Range<usize>>,
+) -> AnyElement {
     use super::hover::{CutInTip, Hover};
     let style = |title: gpui::Stateful<gpui::Div>| {
         title
@@ -772,12 +786,59 @@ fn title(text: String, called: Option<String>, mono: bool, hover: Option<NameHov
                 .child(text.clone()),
         )
     };
-    let name = match hover {
-        Some(NameHover::Tip(tip)) => title().tip(tip).into_any_element(),
-        Some(NameHover::Card(card)) => title()
-            .card(move |window, cx| card(window, cx))
-            .into_any_element(),
-        None => style(super::hover::cut("bar-title", text.clone())).into_any_element(),
+    // An issue key in the name (a branch `feature/PAY-398-…`): its own words with the issue's card on a long hover;
+    // the rest of the name keeps the name's hover. With no tracker there is no key and the name stays plain.
+    let name = match key.filter(|k| text.is_char_boundary(k.start) && text.is_char_boundary(k.end))
+    {
+        Some(k) => {
+            let (before, key, after) = (
+                text[..k.start].to_owned(),
+                text[k.clone()].to_owned(),
+                text[k.end..].to_owned(),
+            );
+            let card_of = key.clone();
+            let part = |id: &'static str, words: String| {
+                let one = style(div().id(id).flex_none().whitespace_nowrap().child(words));
+                match &hover {
+                    Some(NameHover::Tip(tip)) => one.tip(tip.clone()).into_any_element(),
+                    Some(NameHover::Card(card)) => {
+                        let card = card.clone();
+                        one.card(move |window, cx| card(window, cx))
+                            .into_any_element()
+                    }
+                    None => one.into_any_element(),
+                }
+            };
+            let key_part = style(
+                div()
+                    .id("bar-title-key")
+                    .flex_none()
+                    .whitespace_nowrap()
+                    .underline()
+                    .child(key),
+            )
+            .card(
+                move |_, cx| match artoo_shell_api::issues::card(cx, &card_of) {
+                    Some(card) => cx.new(|_| super::hover::KeyCard::new(card)).into(),
+                    None => cx.new(|_| gpui::Empty).into(),
+                },
+            );
+            div()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .child(part("bar-title-before", before))
+                .child(key_part)
+                .child(style(super::hover::cut("bar-title-after", after)))
+                .into_any_element()
+        }
+        None => match hover {
+            Some(NameHover::Tip(tip)) => title().tip(tip).into_any_element(),
+            Some(NameHover::Card(card)) => title()
+                .card(move |window, cx| card(window, cx))
+                .into_any_element(),
+            None => style(super::hover::cut("bar-title", text.clone())).into_any_element(),
+        },
     };
     match called {
         Some(called) => div()
