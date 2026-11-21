@@ -5,7 +5,7 @@
 
 use artoo_shell_api::tabs::{TabInfo, TabsHost, TabsRenderer};
 use artoo_ui_kit::controls::DragLabel;
-use artoo_ui_kit::hover::{self, Tip, TipOwned};
+use artoo_ui_kit::hover::{self, CutInTip, Tip, TipOwned};
 use artoo_ui_kit::monogram::{hue, hue_at, initials, monogram};
 use artoo_ui_kit::{ROW_RADIUS, format, icons, keys, motion, px, theme};
 use gpui::{
@@ -244,10 +244,21 @@ fn title_tabs(tabs: Vec<TabInfo>, host: Rc<dyn TabsHost>) -> gpui::AnyElement {
                 .flex()
                 .items_center()
                 .gap(px(8.))
-                .pl(px(6.))
-                .pr(px(4.))
+                .pl(px(4.))
+                .pr(px(6.))
                 .rounded(px(ROW_RADIUS))
                 .cursor_pointer()
+                .tooltip_show_delay(hover::LONG)
+                .tooltip({
+                    let tip: gpui::SharedString = if ix < 9 {
+                        keys::text(&format!("{}  ⌘{}", tab.title, ix + 1))
+                            .into_owned()
+                            .into()
+                    } else {
+                        tab.title.clone().into()
+                    };
+                    move |_, cx| cx.new(|_| TipOwned(tip.clone())).into()
+                })
                 .when(tab.active, |s| {
                     s.bg(theme::panel())
                         .border_1()
@@ -257,8 +268,36 @@ fn title_tabs(tabs: Vec<TabInfo>, host: Rc<dyn TabsHost>) -> gpui::AnyElement {
                     s.text_color(theme::muted())
                         .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
                 })
+                .child(
+                    div()
+                        .id(("tab-close", ix))
+                        .flex_none()
+                        .w(px(18.))
+                        .h(px(18.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(4.))
+                        .text_size(px(12.))
+                        .text_color(theme::faint())
+                        .when(!tab.active, |s| {
+                            s.invisible().group_hover(group, |s| s.visible())
+                        })
+                        .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
+                        .child("×")
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(move |_: &ClickEvent, window, cx| close.close(ix, window, cx)),
+                )
                 .child(monogram(&mark, hue, 18.))
-                .child(hover::cut(("tab-title", ix), tab.title.clone()).flex_1())
+                // A name cut in its middle keeps what it ends in; the tab's own tooltip says it whole, with its key.
+                .child(
+                    div()
+                        .id(("tab-title", ix))
+                        .flex_1()
+                        .min_w_0()
+                        .name_in_tip()
+                        .child(tab.title.clone()),
+                )
                 .children((!tab.active && tab.unread > 0).then(|| {
                     div()
                         .flex_none()
@@ -282,26 +321,6 @@ fn title_tabs(tabs: Vec<TabInfo>, host: Rc<dyn TabsHost>) -> gpui::AnyElement {
                         .rounded_full()
                         .bg(theme::accent())
                 }))
-                .child(
-                    div()
-                        .id(("tab-close", ix))
-                        .flex_none()
-                        .w(px(18.))
-                        .h(px(18.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(4.))
-                        .text_size(px(12.))
-                        .text_color(theme::faint())
-                        .when(!tab.active, |s| {
-                            s.invisible().group_hover(group, |s| s.visible())
-                        })
-                        .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
-                        .child("×")
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .on_click(move |_: &ClickEvent, window, cx| close.close(ix, window, cx)),
-                )
                 // Dragged onto another tab, it takes that place, as on the rail.
                 .drag_over::<DragProject>(|s, _, _, _| s.bg(theme::selected()))
                 .on_drag(DragProject(ix), {
