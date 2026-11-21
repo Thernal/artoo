@@ -882,7 +882,6 @@ impl Panel {
             card = card.child(
                 way_row(
                     ("way-row", i),
-                    None,
                     icon,
                     name,
                     who,
@@ -1114,7 +1113,6 @@ impl Panel {
             card = card.child(
                 way_row(
                     "ways-own",
-                    Some(false),
                     "key",
                     name,
                     None,
@@ -1140,7 +1138,6 @@ impl Panel {
             let Row::Way(way) = row else {
                 let row = way_row(
                     ("ways-row", i),
-                    Some(false),
                     icon,
                     name,
                     who,
@@ -1163,7 +1160,6 @@ impl Panel {
             card = card.child(
                 way_row(
                     ("ways-row", i),
-                    Some(on),
                     icon,
                     name,
                     who,
@@ -1173,6 +1169,35 @@ impl Panel {
                     on,
                     false,
                 )
+                .when(!env && !used, |r| {
+                    let pick = key.clone();
+                    r.child(
+                        div()
+                            .id(("ways-use", i))
+                            .flex_none()
+                            .h(px(24.))
+                            .px(px(10.))
+                            .flex()
+                            .items_center()
+                            .rounded(px(6.))
+                            .text_size(px(12.))
+                            .text_color(theme::text())
+                            .bg(if on {
+                                theme::selected()
+                            } else {
+                                theme::hover()
+                            })
+                            .cursor_pointer()
+                            .hover(|s| s.bg(theme::selected()))
+                            .child("Use")
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.connecting.pick = Some(pick.clone());
+                                this.connecting.pick_scope = None;
+                                cx.notify();
+                            })),
+                    )
+                })
                 .when(!env, |r| {
                     r.cursor_pointer()
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -1395,13 +1420,12 @@ fn capital(text: &str) -> String {
         .unwrap_or_default()
 }
 
-/// A way's row: a pick mark when it is one to pick, its icon, the name with whose it is, then the scope
+/// A way's row: its icon, the name with whose it is, then the scope
 /// and how long it lasts as a quiet pair; what it does is its tooltip (a row that is no way says it as its
 /// line). The caller adds what goes at its end.
 #[allow(clippy::too_many_arguments)]
 fn way_row(
     id: impl Into<ElementId>,
-    picked: Option<bool>,
     icon: &'static str,
     name: String,
     who: Option<String>,
@@ -1436,19 +1460,6 @@ fn way_row(
         .py(px(10.))
         .when(on, |r| r.bg(theme::hover()))
         .when(dim, |r| r.opacity(0.6))
-        .children(picked.map(|p| {
-            div()
-                .flex_none()
-                .size(px(14.))
-                .rounded_full()
-                .border_1()
-                .border_color(if p {
-                    theme::accent()
-                } else {
-                    theme::selected()
-                })
-                .when(p, |d| d.border_4())
-        }))
         .child(
             div()
                 .flex_none()
