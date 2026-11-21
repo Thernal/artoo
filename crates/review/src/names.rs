@@ -13,6 +13,7 @@
 use crate::review::{Review, ReviewEvent};
 use artoo_core::symbols::{self, Declared, Names};
 use artoo_shell_api::{Input, Typed};
+use artoo_ui_kit::hover::{self, Hover};
 use artoo_ui_kit::{keys, px, theme};
 use gpui::{AnyElement, App, Context, Entity, Keystroke, WeakEntity, div, prelude::*};
 use std::cell::Cell;
@@ -454,6 +455,7 @@ pub fn peek_card(look: &PeekLook, left: f32, this: WeakEntity<Review>) -> AnyEle
         None => "…".to_owned(),
     };
     let head = div()
+        .id("peek-head")
         .flex()
         .items_center()
         .gap(px(8.))
@@ -463,9 +465,18 @@ pub fn peek_card(look: &PeekLook, left: f32, this: WeakEntity<Review>) -> AnyEle
         .border_color(theme::island_border())
         .child(
             div()
+                .flex_none()
+                .flex()
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .text_color(theme::text())
-                .child(format!("By name · {count}")),
+                .child("By name")
+                .child(
+                    div()
+                        .ml(px(6.))
+                        .font_weight(gpui::FontWeight::NORMAL)
+                        .text_color(theme::faint())
+                        .child(count),
+                ),
         )
         .child(
             div()
@@ -474,7 +485,7 @@ pub fn peek_card(look: &PeekLook, left: f32, this: WeakEntity<Review>) -> AnyEle
                 .child(look.word.clone()),
         )
         .child(div().flex_1())
-        .child(div().text_color(theme::faint()).child("⌘-click"));
+        .tip(keys::text("Where the name is declared · ⌘-click or F12 on a name").into_owned());
     let rows = (look.found.iter().flatten().enumerate()).map(|(ix, d)| {
         let (dir, name) = match d.path.rsplit_once('/') {
             Some((dir, name)) => (dir.to_owned(), name.to_owned()),
@@ -495,15 +506,23 @@ pub fn peek_card(look: &PeekLook, left: f32, this: WeakEntity<Review>) -> AnyEle
             .when(ix == look.sel, |s| s.bg(theme::selected()))
             .hover(|s| s.bg(theme::hover()))
             .child(
+                // The name gives way in its middle, its line stays: `Lega…Migration.kt:31`.
                 div()
+                    .flex()
                     .flex_none()
+                    .max_w(px(220.))
                     .font_family(theme::code_font())
                     .text_color(if d.path == look.here {
                         theme::accent()
                     } else {
                         theme::text()
                     })
-                    .child(format!("{name}:{}", d.line)),
+                    .child(
+                        hover::name(("peek-name", ix), name)
+                            .flex_shrink(1.)
+                            .min_w_0(),
+                    )
+                    .child(div().flex_none().child(format!(":{}", d.line))),
             )
             .child(
                 div()
@@ -515,7 +534,17 @@ pub fn peek_card(look: &PeekLook, left: f32, this: WeakEntity<Review>) -> AnyEle
                     // clip: the declaration's line, its file:line is whole beside it.
                     .child(d.text.clone()),
             )
-            .child(div().flex_none().text_color(theme::faint()).child(dir))
+            .child(
+                // The folder is held to 190 px and gives way in its middle.
+                div()
+                    .flex()
+                    .flex_initial()
+                    .min_w_0()
+                    .max_w(px(190.))
+                    .justify_end()
+                    .text_color(theme::faint())
+                    .child(hover::name(("peek-dir", ix), dir).min_w_0()),
+            )
             .on_click(move |ev, _, cx| {
                 let keep = ev.modifiers().platform;
                 open.update(cx, |rv, cx| rv.open_declared(ix, keep, cx))
