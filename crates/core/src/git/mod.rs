@@ -328,6 +328,28 @@ impl Repo {
         commits.into_iter().find(|c| c.id == id)
     }
 
+    /// The newest commit reachable from `rev` that touched `path`: the one whose version of the file differs from
+    /// each of its parents' (the first commit, or a merge that brought it unlike every side, counts). `None` when
+    /// `rev` has no such file. The file bar's `a41f9c0  Oct 15`.
+    pub fn last_commit_of(&self, rev: Oid, path: &str) -> Option<CommitInfo> {
+        let blob_in = |commit: &git2::Commit| {
+            let tree = commit.tree().ok()?;
+            tree.get_path(Path::new(path)).ok().map(|e| e.id())
+        };
+        let mut walk = self.inner.revwalk().ok()?;
+        walk.set_sorting(Sort::TOPOLOGICAL | Sort::TIME).ok()?;
+        walk.push(rev).ok()?;
+        blob_in(&self.inner.find_commit(rev).ok()?)?;
+        for id in walk {
+            let commit = self.inner.find_commit(id.ok()?).ok()?;
+            let here = blob_in(&commit);
+            if here.is_some() && commit.parents().all(|p| blob_in(&p) != here) {
+                return self.commit(commit.id()).ok();
+            }
+        }
+        None
+    }
+
     /// Every file of `HEAD`'s tree, by path (at most `limit`): search everywhere's Files tab.
     pub fn all_files(&self, limit: usize) -> Vec<String> {
         let Ok(tree) = self.inner.head().and_then(|h| h.peel_to_tree()) else {

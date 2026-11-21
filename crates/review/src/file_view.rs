@@ -43,7 +43,10 @@ pub struct FileView {
     /// A binary file that is no image: its size, and nothing to show (#78).
     pub binary: Option<u64>,
     /// The commit it was read at, or the working tree's HEAD, and its short age: the bar's `a41f9c0  1h`.
+    /// The revision's until the file's own last commit is read (`last_commit_of`), then that one.
     pub stamp: Option<(String, String, i64)>,
+    /// The read of the file's own last commit; it goes with the view.
+    pub own_stamp: Reading,
 }
 
 /// The file being read for the view.
@@ -197,8 +200,8 @@ pub fn widen(line: &str, spans: &[Span], tab: usize) -> (SharedString, Vec<Span>
     (out.into(), spans)
 }
 
-/// What the bar says of the revision: its short id and age, and its title for the tooltip. The working tree is read
-/// as HEAD's.
+/// What the bar says first, of the revision: its short id, its title for the tooltip and its time. The working
+/// tree is read as HEAD's.
 fn stamp_of(root: &std::path::Path, rev: Option<Oid>) -> Option<(String, String, i64)> {
     let repo = Repo::open(root).ok()?;
     let id = match rev {
@@ -207,6 +210,21 @@ fn stamp_of(root: &std::path::Path, rev: Option<Oid>) -> Option<(String, String,
     };
     let commit = repo.commit(id).ok()?;
     Some((format::short(id), commit.summary, commit.time))
+}
+
+/// What the bar then says: the last commit that touched `path` at the revision (HEAD for the working tree).
+fn own_stamp_of(
+    root: &std::path::Path,
+    rev: Option<Oid>,
+    path: &str,
+) -> Option<(String, String, i64)> {
+    let repo = Repo::open(root).ok()?;
+    let at = match rev {
+        Some(rev) => rev,
+        None => repo.resolve("HEAD").ok()?,
+    };
+    let commit = repo.last_commit_of(at, path)?;
+    Some((format::short(commit.id), commit.summary, commit.time))
 }
 
 impl Review {
@@ -274,6 +292,13 @@ impl Review {
                     Some((lines, spans, at, None, None, changed, scopes))
                 })
                 .await;
+            let fallback = cx
+                .background_executor()
+                .spawn({
+                    let root = root_for_stamp.clone();
+                    async move { stamp_of(&root, rev) }
+                })
+                .await;
             this.update(cx, |rv, cx| {
                 rv.file_reading = None;
                 cx.emit(match read {
@@ -289,6 +314,7 @@ impl Review {
                             })
                             .collect();
                         let plain = text.iter().map(|(l, _)| l.to_string()).collect();
+                        let own_path = path.clone();
                         rv.file_view = Some(FileView {
                             path,
                             at,
@@ -303,8 +329,31 @@ impl Review {
                             rendered: true,
                             image,
                             binary,
-                            stamp: stamp_of(&root_for_stamp, rev),
+                            stamp: fallback,
+                            own_stamp: None,
                         });
+                        // The file's own last commit takes the bar's place once read; the revision's holds it.
+                        let own_root = root_for_stamp.clone();
+                        let task = cx.spawn(async move |this, cx| {
+                            let asked = own_path.clone();
+                            let own = cx
+                                .background_executor()
+                                .spawn(async move { own_stamp_of(&own_root, rev, &own_path) })
+                                .await;
+                            this.update(cx, |rv, cx| {
+                                if let (Some(own), Some(view)) = (own, rv.file_view.as_mut())
+                                    && view.path == asked
+                                    && view.rev == rev
+                                {
+                                    view.stamp = Some(own);
+                                    cx.notify();
+                                }
+                            })
+                            .ok();
+                        });
+                        if let Some(view) = rv.file_view.as_mut() {
+                            view.own_stamp = Some(task);
+                        }
                         // The find open as it came finds in its lines too: its count, its marks on the minimap.
                         rv.recompute_matches();
                         ReviewEvent::FileRead

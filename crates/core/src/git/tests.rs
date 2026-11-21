@@ -946,3 +946,32 @@ fn a_name_is_on_the_host_as_its_remote_has_it() {
         Err("mine is only on this Mac: push it for a link".to_owned())
     );
 }
+
+#[test]
+fn a_files_last_commit_is_the_newest_that_touched_it() {
+    let mut f = Fixture::new();
+    let a = f.commit(
+        "refs/heads/main",
+        &[],
+        &[("a.txt", "one"), ("b.txt", "x")],
+        "first",
+    );
+    let b = f.commit(
+        "refs/heads/main",
+        &[a],
+        &[("a.txt", "two"), ("b.txt", "x")],
+        "second",
+    );
+    let c = f.commit(
+        "refs/heads/main",
+        &[b],
+        &[("a.txt", "two"), ("b.txt", "y")],
+        "third",
+    );
+    let repo = f.open();
+    assert_eq!(repo.last_commit_of(c, "a.txt").map(|i| i.id), Some(b));
+    assert_eq!(repo.last_commit_of(c, "b.txt").map(|i| i.id), Some(c));
+    assert_eq!(repo.last_commit_of(b, "b.txt").map(|i| i.id), Some(a));
+    assert_eq!(repo.last_commit_of(c, "missing.txt").map(|i| i.id), None);
+    assert_eq!(repo.last_commit_of(a, "a.txt").unwrap().summary, "first");
+}
