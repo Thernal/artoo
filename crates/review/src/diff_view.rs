@@ -549,23 +549,26 @@ pub fn change_color(file: &FileDiff, reviewed: bool) -> gpui::Rgba {
     }
 }
 
-/// How a working-tree file is tagged in the file list.
-pub fn tag_color(tag: &str) -> gpui::Rgba {
-    match tag {
-        "staged" => theme::added(),
-        "untracked" => theme::renamed(),
-        _ => theme::warning(),
-    }
-}
-
-/// The small word after a file's name.
-pub fn file_tag(tag: Option<&'static str>) -> Option<gpui::Div> {
+/// What a working-tree file's part is, as the glyph on its card's side (Design round 14, W2) with its sentence as the
+/// tip: staged a ring with a dot, not staged a dashed ring; untracked and partly staged take the nearer one.
+pub fn file_tag(tag: Option<&'static str>) -> Option<gpui::Stateful<gpui::Div>> {
+    use artoo_ui_kit::hover::Hover;
     tag.map(|t| {
+        let (glyph, tip) = match t {
+            "staged" => ("staged", "Staged: in the next commit"),
+            "partly staged" => ("staged", "Partly staged: some of it is in the next commit"),
+            "untracked" => ("not-staged", "Untracked: not in git yet"),
+            _ => ("not-staged", "Not staged: only on disk"),
+        };
         div()
+            .id(SharedString::from(format!("file-tag-{t}")))
+            .size(px(16.))
+            .flex()
             .flex_none()
-            .text_size(px(10.))
-            .text_color(tag_color(t))
-            .child(t)
+            .items_center()
+            .justify_center()
+            .child(icons::icon(glyph).size(px(14.)).text_color(theme::muted()))
+            .tip(tip)
     })
 }
 

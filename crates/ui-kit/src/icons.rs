@@ -17,6 +17,18 @@ macro_rules! lucide {
 }
 
 const ICONS: &[(&str, &str)] = &[
+    // The working tree's two parts (Design round 14, W2): a ring with a dot, in the next commit; a dashed ring, only on disk.
+    (
+        "staged",
+        lucide!(
+            r#"<circle cx="12" cy="12" r="8.5"/>"#
+            r#"<circle cx="12" cy="12" r="3.5" fill="black" stroke="none"/>"#
+        ),
+    ),
+    (
+        "not-staged",
+        lucide!(r#"<circle cx="12" cy="12" r="8.5" stroke-dasharray="3.4 3"/>"#),
+    ),
     (
         "columns",
         lucide!(
