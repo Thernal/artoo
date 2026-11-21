@@ -1146,36 +1146,26 @@ impl Compose {
     }
 
     /// A new comment's foot by its room (Design shell round 6, #129): Cancel, the other ways to send and the
-    /// primary; who reads it is the `To:` chip over the text (#200, `audience_chip`). At S "Add to drafts" is "Add"
-    /// (named in full in its tooltip), and the other ways to send fold into its own ▾.
+    /// primary; who reads it is the `To:` chip over the text (#200, `audience_chip`). For the agent the composer sends
+    /// first: `Send 3 ⌘↵`, its ▾ holding Send later, Send this only, Choose the chat…, Copy as markdown.
     pub fn foot(&self, look: FootLook, on: OnFoot) -> Vec<AnyElement> {
         let waits = self.waiting();
         let on = waiting_foot(waits, on);
         let source = self.source();
         let tone = source.color();
         let narrow = look.narrow;
-        let folded = look.room == Room::S;
-        let primary = match &self.target {
-            Target::Agent if folded => "Add",
-            Target::Agent => "Add to drafts",
-            _ => "Comment",
-        };
-        // An agent comment's bar (#50 F): Send all beside Add to drafts, Send this only in ▾.
         let agent = self.target == Target::Agent;
-        let send_label = if look.drafts > 0 {
-            format!("Send all {}", look.drafts + 1)
-        } else {
-            "Send".to_owned()
-        };
+        let small = look.room == Room::S;
         let request = match self.target {
             Target::Request(iid) => Some(iid),
             _ => None,
         };
         let pad = px(if narrow { 6. } else { 10. });
         let cancel = on.clone();
+        // Cancel is its ✕ icon, named in its tooltip, where the note is for the agent (the design's foot) or the
+        // diff is narrow.
         let mut tail = vec![
-            // Narrow, Cancel is its × icon, named in the tooltip.
-            if narrow {
+            if narrow || agent {
                 discussion::icon_button(
                     "compose-cancel",
                     "x",
@@ -1195,72 +1185,58 @@ impl Compose {
             .on_click(move |_, _, cx| cancel(FootEvent::Cancel, cx))
             .into_any_element(),
         ];
-        // The secondary buttons are one weight, bare as Cancel and ▾ are; only the primary is
-        // filled.
-        if agent && !folded {
-            let (send_all, more) = (on.clone(), on.clone());
-            tail.push(
-                discussion::icon_button(
-                    "compose-send-all",
-                    "send",
-                    send_label,
-                    Some("⇧⌘↵"),
-                    Some("Adds it and sends every draft to your agent's chat"),
-                    Kind::Quiet,
-                    narrow,
-                )
-                .h(px(28.))
-                .px(pad)
-                .on_click(move |_, _, cx| send_all(FootEvent::SendAll, cx))
-                .into_any_element(),
-            );
-            // ▾: Send this only, the chat it goes to, Copy as markdown (#50 F).
-            tail.push(
-                discussion::icon_button(
-                    "compose-more",
-                    "chevron",
-                    "Send this only, choose the chat, copy",
-                    None,
-                    None,
-                    Kind::Quiet,
-                    true,
-                )
-                .h(px(28.))
-                .px(px(6.))
-                .on_click(move |event, _, cx| more(FootEvent::More(event.position()), cx))
-                .into_any_element(),
-            );
-        }
         let add = on.clone();
-        // ⌘↵ is the composer's: its primary says so wherever there is room for it, the smallest box its tooltip (#183).
-        let small = look.room == Room::S;
+        let primary = if agent {
+            // The composer sends first (L3): `Send 3 ⌘↵` carries its count, its tooltip what goes with it; ▾ holds
+            // Send later, Send this only, Choose the chat…, Copy as markdown.
+            if look.drafts > 0 {
+                format!("Send {}", look.drafts + 1)
+            } else {
+                "Send".to_owned()
+            }
+        } else {
+            "Comment".to_owned()
+        };
+        let said: SharedString = if waits {
+            "Waits for the upload".into()
+        } else if agent && look.drafts > 0 {
+            format!(
+                "This and the {} not sent go to your agent  ⌘↵\nSend later, or this only",
+                if look.drafts == 1 {
+                    "note".to_owned()
+                } else {
+                    format!("{} notes", look.drafts)
+                }
+            )
+            .into()
+        } else if agent {
+            "Send to your agent  ⌘↵\nSend later, or this only".into()
+        } else {
+            "Comment  ⌘↵".into()
+        };
         let add_button = discussion::button(
             "compose-add",
             primary,
-            (!small).then_some("⌘↵"),
+            (!small && !agent).then_some("⌘↵"),
             Kind::Primary(tone),
         )
         .h(px(28.))
         .px(px(10.))
         // An upload going: dimmed, and it says why (#214).
         .when(waits, |s| s.opacity(0.5).cursor_default())
-        .when(small || waits, |s| {
-            s.tooltip_show_delay(hover::LONG).tooltip(move |_, cx| {
-                cx.new(|_| {
-                    hover::Tip(if waits {
-                        "Waits for the upload"
-                    } else if agent {
-                        "Add to drafts  ⌘↵"
-                    } else {
-                        "Comment  ⌘↵"
-                    })
-                })
-                .into()
-            })
-        })
-        .on_click(move |_, _, cx| add(FootEvent::Add, cx));
-        // At S, what folded: into the primary's own ▾.
-        let more = (folded && agent) || request.is_some();
+        .tooltip_show_delay(hover::LONG)
+        .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(said.clone())).into())
+        .on_click(move |_, _, cx| {
+            add(
+                if agent {
+                    FootEvent::SendAll
+                } else {
+                    FootEvent::Add
+                },
+                cx,
+            )
+        });
+        let more = agent || request.is_some();
         tail.push(if !more {
             add_button.into_any_element()
         } else {
@@ -1274,7 +1250,7 @@ impl Compose {
                         "compose-add-more",
                         "chevron",
                         if agent {
-                            "Send all, send this only, choose the chat, copy"
+                            "Send later, send this only, choose the chat, copy"
                         } else {
                             "Add to review  ⇧⌘↵"
                         },
@@ -1286,7 +1262,16 @@ impl Compose {
                     .h(px(28.))
                     .px(px(6.))
                     .rounded_l(px(0.))
-                    .on_click(move |event, _, cx| on(FootEvent::Folded(event.position()), cx)),
+                    .on_click(move |event, _, cx| {
+                        on(
+                            if agent {
+                                FootEvent::More(event.position())
+                            } else {
+                                FootEvent::Folded(event.position())
+                            },
+                            cx,
+                        )
+                    }),
                 )
                 .into_any_element()
         });

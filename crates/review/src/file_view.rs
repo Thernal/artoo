@@ -42,6 +42,8 @@ pub struct FileView {
     pub image: Option<Arc<gpui::Image>>,
     /// A binary file that is no image: its size, and nothing to show (#78).
     pub binary: Option<u64>,
+    /// The commit it was read at, or the working tree's HEAD, and its short age: the bar's `a41f9c0  1h`.
+    pub stamp: Option<(String, String, i64)>,
 }
 
 /// The file being read for the view.
@@ -195,6 +197,18 @@ pub fn widen(line: &str, spans: &[Span], tab: usize) -> (SharedString, Vec<Span>
     (out.into(), spans)
 }
 
+/// What the bar says of the revision: its short id and age, and its title for the tooltip. The working tree is read
+/// as HEAD's.
+fn stamp_of(root: &std::path::Path, rev: Option<Oid>) -> Option<(String, String, i64)> {
+    let repo = Repo::open(root).ok()?;
+    let id = match rev {
+        Some(rev) => rev,
+        None => repo.resolve("HEAD").ok()?,
+    };
+    let commit = repo.commit(id).ok()?;
+    Some((format::short(id), commit.summary, commit.time))
+}
+
 impl Review {
     /// Reads `path` at `rev` (the working tree when `None`) in the background; once read it is the file
     /// shown (`ReviewEvent::FileRead`), or why it could not be.
@@ -206,6 +220,7 @@ impl Review {
         cx: &mut Context<Self>,
     ) {
         let file = path.clone();
+        let root_for_stamp = root.clone();
         self.file_reading = Some(cx.spawn(async move |this, cx| {
             let read = cx
                 .background_executor()
@@ -288,6 +303,7 @@ impl Review {
                             rendered: true,
                             image,
                             binary,
+                            stamp: stamp_of(&root_for_stamp, rev),
                         });
                         // The find open as it came finds in its lines too: its count, its marks on the minimap.
                         rv.recompute_matches();
@@ -497,7 +513,8 @@ impl Review {
         cx: &Context<Self>,
     ) -> gpui::Div {
         let markdown = view.markdown() && view.image.is_none();
-        // What it is read at is the revision chip's to say, once (#208).
+        // What it is read at, said as the design's bar does: its path, then `a41f9c0  1h` and a lock; the facts a
+        // sentence once held (lines, image, read only) are the lock's tooltip.
         let facts = if view.image.is_some() {
             "image".to_owned()
         } else if let Some(size) = view.binary {
@@ -515,27 +532,20 @@ impl Review {
             .border_b_1()
             .border_color(theme::island_border())
             .text_size(px(12.))
-            // Its path is the bar's, its name the tab's (A, 2026-10-23). Its lines' count goes to a line (⌃G, #207).
             .child(
                 div()
-                    .id("file-facts")
+                    .flex_none()
                     .text_color(theme::faint())
-                    .when(self.file_lines_shown(), |s| {
-                        s.cursor_pointer()
-                            .hover(|s| s.text_color(theme::text()))
-                            .tooltip_show_delay(artoo_ui_kit::hover::LONG)
-                            .tooltip(|_, cx| {
-                                cx.new(|_| artoo_ui_kit::hover::Tip("Go to line  ⌃G"))
-                                    .into()
-                            })
-                            .on_click(cx.listener(|rv, _: &ClickEvent, _, cx| {
-                                rv.open_file_line();
-                                cx.emit(ReviewEvent::Changed);
-                            }))
-                    })
-                    .child(facts),
+                    .child(icons::file_icon(&view.path, 14.)),
             )
-            .child(div().flex_1())
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_color(theme::muted())
+                    .font_family(theme::code_font())
+                    .child(artoo_ui_kit::hover::path("file-path", view.path.clone())),
+            )
             .children(self.render_file_line(line_typing).map(|field| {
                 match self.frame.as_ref().and_then(std::rc::Weak::upgrade) {
                     Some(frame) => {
@@ -587,6 +597,46 @@ impl Review {
                         ),
                     )
             }))
+            .children(view.stamp.clone().map(|(id, title, time)| {
+                let tip = SharedString::from(format!(
+                    "{title}\n{}",
+                    artoo_ui_kit::hover::full_date(time)
+                ));
+                div()
+                    .id("file-stamp")
+                    .flex_none()
+                    .flex()
+                    .gap(px(8.))
+                    .whitespace_nowrap()
+                    .font_family(theme::code_font())
+                    .text_size(px(11.))
+                    .text_color(theme::faint())
+                    .tooltip_show_delay(artoo_ui_kit::hover::LONG)
+                    .tooltip(move |_, cx| {
+                        cx.new(|_| artoo_ui_kit::hover::TipOwned(tip.clone()))
+                            .into()
+                    })
+                    .child(id)
+                    .child(
+                        div()
+                            .w(px(format::SHORT_TIME_WIDTH))
+                            .text_right()
+                            .child(format::short_ago(time)),
+                    )
+            }))
+            .child({
+                let tip = SharedString::from(format!("Read only · {facts}"));
+                div()
+                    .id("file-readonly")
+                    .flex_none()
+                    .text_color(theme::faint())
+                    .tooltip_show_delay(artoo_ui_kit::hover::LONG)
+                    .tooltip(move |_, cx| {
+                        cx.new(|_| artoo_ui_kit::hover::TipOwned(tip.clone()))
+                            .into()
+                    })
+                    .child(icons::icon("lock").size(px(13.)).text_color(theme::faint()))
+            })
     }
 
     /// The scope line over the lines (#207): the declarations holding the top line, the outermost first, once their own

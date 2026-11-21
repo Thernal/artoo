@@ -302,28 +302,133 @@ impl Workspace {
                 format!("“{title}”")
             }
         };
-        let status = match (&comment.state, &comment.sent) {
-            (State::Draft, _) => "draft".to_owned(),
-            (State::Sent, Some(s)) if s.session.is_empty() => "sent to a new chat".to_owned(),
-            (State::Sent, Some(s)) if s.delivered => format!("with {}", chat(s)),
-            (State::Sent, Some(s)) => format!("sent to {} · waits for it to listen", chat(s)),
-            (State::Sent, None) => "sent".to_owned(),
-            (State::Addressed, _) => "the agent says it is done — check it".to_owned(),
-            (State::Resolved, _) => "resolved".to_owned(),
+        // One glyph a state, its sentence the tooltip (`docs/specs/agents-plain.md`).
+        let (state_icon, state_color, status): (&'static str, _, String) =
+            match (&comment.state, &comment.sent) {
+                (State::Draft, _) => ("circle-dashed", theme::faint(), "Not sent yet".to_owned()),
+                (State::Sent, Some(s)) if s.session.is_empty() => {
+                    ("clock", theme::muted(), "Sent to a new chat".to_owned())
+                }
+                (State::Sent, Some(s)) if s.delivered => {
+                    ("loader", theme::agent(), format!("{} is on it", chat(s)))
+                }
+                (State::Sent, Some(s)) => (
+                    "clock",
+                    theme::muted(),
+                    format!("Sent to {} · it picks this up when it listens", chat(s)),
+                ),
+                (State::Sent, None) => ("clock", theme::muted(), "Sent".to_owned()),
+                (State::Addressed, _) => (
+                    "circle-check",
+                    theme::agent(),
+                    "Your agent says it is done — check it".to_owned(),
+                ),
+                (State::Resolved, _) => ("circle-check", theme::faint(), "Closed".to_owned()),
+            };
+        let draft = comment.state == State::Draft;
+        let glyph = |icon: &'static str, color, tip: String, id: String| {
+            div()
+                .id(gpui::SharedString::from(id))
+                .flex_none()
+                .tooltip_show_delay(super::hover::LONG)
+                .tooltip(move |_, cx| {
+                    cx.new(|_| super::hover::TipOwned(tip.clone().into()))
+                        .into()
+                })
+                .child(super::icons::icon(icon).size(px(14.)).text_color(color))
         };
-        let bar = discussion::bar(("agent-bar", id), open)
-            .child(discussion::source_pill(Source::Agent))
-            .child(
-                super::hover::cut(
-                    "summary",
-                    if open {
-                        format!("· {status}")
-                    } else {
-                        self.one_line(&comment.body)
-                    },
-                )
-                .flex_1(),
+        // The head is a comment's: who wrote it, for whom (the agent's glyph) and in what state (its glyph), the
+        // time at the end and the ⋯ last. A click on it folds or opens the note.
+        let more = {
+            let (this, id) = (editing.clone(), id);
+            let state = comment.state.clone();
+            let unanswered = comment.replies.is_empty();
+            discussion::icon_button(
+                ("more-agent", id),
+                "ellipsis",
+                "More",
+                None,
+                None,
+                Kind::Quiet,
+                true,
             )
+            .h(px(24.))
+            .on_click(move |event, _, cx| {
+                use super::menu::{Act, Entry};
+                cx.stop_propagation();
+                let state = state.clone();
+                let at = event.position();
+                this.update(cx, |this, cx| {
+                    let mut now = vec![Entry::new(
+                        "Edit",
+                        Act::new(move |this, _, cx| this.start_edit(Change::Agent(id), cx)),
+                    )];
+                    if state == State::Sent && unanswered {
+                        now.push(Entry::new(
+                            "Take back",
+                            Act::new(move |this, _, cx| {
+                                this.erase_comment(id, Erase::Withdraw, cx)
+                            }),
+                        ));
+                    }
+                    if matches!(state, State::Addressed | State::Resolved) {
+                        now.push(Entry::new(
+                            "Reopen",
+                            Act::new(move |this, _, cx| this.reopen_agent_comment(id, cx)),
+                        ));
+                        now.push(Entry::new(
+                            "Archive",
+                            Act::new(move |this, _, cx| this.erase_comment(id, Erase::Archive, cx)),
+                        ));
+                    }
+                    this.open_menu(at, vec![now], cx);
+                })
+                .ok();
+            })
+        };
+        let head = div()
+            .id(("agent-bar", id))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .h(px(28.))
+            .cursor_pointer()
+            .child(discussion::avatar(&self.me, true, 22.))
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(px(13.))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(theme::text())
+                    .child("you"),
+            )
+            .child(glyph(
+                "bot",
+                theme::agent(),
+                if draft {
+                    "For your agent · not sent yet".to_owned()
+                } else {
+                    "For your agent".to_owned()
+                },
+                format!("agent-for-{id}"),
+            ))
+            .children((!draft).then(|| {
+                glyph(
+                    state_icon,
+                    state_color,
+                    status.clone(),
+                    format!("agent-state-{id}"),
+                )
+            }))
+            .child(if open {
+                div().flex_1().into_any_element()
+            } else {
+                super::hover::cut("summary", self.one_line(&comment.body))
+                    .flex_1()
+                    .text_size(px(12.))
+                    .text_color(theme::muted())
+                    .into_any_element()
+            })
             .children((open && markdown::has_markdown(&comment.body)).then(|| {
                 self.rich_switch(("agent-rich", id))
                     .on_click(move |_, _, cx| {
@@ -332,70 +437,16 @@ impl Workspace {
                             .ok();
                     })
             }))
-            .children((comment.state == State::Addressed).then(|| {
-                discussion::button(
-                    ("resolve-agent", id),
-                    "Resolve",
-                    None,
-                    Kind::Primary(theme::agent()),
-                )
-                .h(px(24.))
-                .px(px(8.))
-                .on_click(move |_, _, cx| {
-                    cx.stop_propagation();
-                    resolve
-                        .update(cx, |this, cx| this.resolve_agent_comment(id, cx))
-                        .ok();
-                })
-            }))
-            .children(
-                matches!(comment.state, State::Addressed | State::Resolved).then(|| {
-                    discussion::icon_button(
-                        ("reopen-agent", id),
-                        "rotate-ccw",
-                        "Reopen",
-                        None,
-                        None,
-                        Kind::Plain,
-                        self.tight(cx),
-                    )
-                    .h(px(24.))
-                    .px(px(8.))
-                    .on_click(move |_, _, cx| {
-                        cx.stop_propagation();
-                        reopen
-                            .update(cx, |this, cx| this.reopen_agent_comment(id, cx))
-                            .ok();
-                    })
-                }),
+            .child(
+                div()
+                    .flex_none()
+                    .w(px(44.))
+                    .text_right()
+                    .text_size(px(11.))
+                    .text_color(theme::faint())
+                    .child(comment.at.clone()),
             )
-            // By its state (#199): a draft is deleted (with Undo), one sent and not answered withdrawn, one the
-            // agent has read put away — never erased.
-            .child({
-                let (icon, label, kind) = match erase_of(comment) {
-                    Erase::Delete => ("trash", "Delete", Kind::Danger),
-                    Erase::Withdraw => ("rotate-ccw", "Withdraw", Kind::Plain),
-                    Erase::Archive => ("archive", "Archive", Kind::Plain),
-                };
-                let erase = erase_of(comment);
-                discussion::icon_button(
-                    ("delete-comment", id),
-                    icon,
-                    label,
-                    None,
-                    None,
-                    kind,
-                    self.tight(cx),
-                )
-                .h(px(24.))
-                .px(px(8.))
-                .on_click(move |_, _, cx| {
-                    cx.stop_propagation();
-                    delete
-                        .update(cx, |this, cx| this.erase_comment(id, erase, cx))
-                        .ok();
-                })
-            })
+            .children((!draft).then_some(more))
             // A double click folds or opens it once, as one click does.
             .on_click(move |e: &gpui::ClickEvent, _, cx| {
                 if e.click_count() > 1 {
@@ -413,27 +464,152 @@ impl Workspace {
             });
         let change = Change::Agent(id);
         let edit_box = self.edit_box(change, editing.clone(), cx);
-        let body = discussion::note(
-            &self.me,
-            true,
-            None,
-            comment.at.clone(),
-            match edit_box {
-                Some(edit_box) => edit_box.into_any_element(),
-                None => markdown::body(
-                    &comment.body,
-                    self.settings.rich_comments,
-                    format!("md-agent-{id}"),
-                    None,
-                    Some(selecting.clone()),
-                    cx,
+        let writing = edit_box.is_some();
+        let body = div().pb(px(6.)).child(match edit_box {
+            Some(edit_box) => edit_box.into_any_element(),
+            None => markdown::body(
+                &comment.body,
+                self.settings.rich_comments,
+                format!("md-agent-{id}"),
+                None,
+                Some(selecting.clone()),
+                cx,
+            ),
+        });
+        // The foot, one height (28 px): a draft's is ✎ at its start, ✕ and `Send N` at its end — `Send N` says it
+        // is not sent —; a note the agent did is `Not yet` and `Close`.
+        let foot = (self.compose.is_none() && !writing)
+            .then(|| match comment.state {
+                State::Draft => {
+                    let n = self.agent_drafts(cx).len().max(1);
+                    let (send, erase) = (delete.clone(), delete.clone());
+                    Some(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .pt(px(4.))
+                            .child(
+                                edit_button(
+                                    ("edit-agent", id),
+                                    None,
+                                    true,
+                                    change,
+                                    editing.clone(),
+                                )
+                                .into_any_element(),
+                            )
+                            .child(div().flex_1())
+                            .child(
+                                discussion::icon_button(
+                                    ("delete-comment", id),
+                                    "x",
+                                    "Delete",
+                                    None,
+                                    None,
+                                    Kind::Quiet,
+                                    true,
+                                )
+                                .h(px(28.))
+                                .on_click(move |_, _, cx| {
+                                    cx.stop_propagation();
+                                    erase
+                                        .update(cx, |this, cx| {
+                                            this.erase_comment(id, Erase::Delete, cx)
+                                        })
+                                        .ok();
+                                }),
+                            )
+                            .child(
+                                discussion::icon_button(
+                                    ("send-agent", id),
+                                    "send",
+                                    if n > 1 {
+                                        format!("Send {n}")
+                                    } else {
+                                        "Send".to_owned()
+                                    },
+                                    None,
+                                    None,
+                                    Kind::Primary(theme::agent()),
+                                    false,
+                                )
+                                .h(px(28.))
+                                .tooltip_show_delay(super::hover::LONG)
+                                .tooltip(move |_, cx| {
+                                    cx.new(|_| {
+                                        super::hover::TipOwned(
+                                            if n > 1 {
+                                                format!(
+                                                    "This and {} more not sent go to your agent",
+                                                    n - 1
+                                                )
+                                            } else {
+                                                "Send to your agent".to_owned()
+                                            }
+                                            .into(),
+                                        )
+                                    })
+                                    .into()
+                                })
+                                .on_click(move |_, _, cx| {
+                                    cx.stop_propagation();
+                                    send.update(cx, |this, cx| {
+                                        let ids = this.agent_drafts(cx);
+                                        this.send_agent(ids, cx)
+                                    })
+                                    .ok();
+                                }),
+                            ),
+                    )
+                }
+                State::Addressed => Some(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .pt(px(4.))
+                        .child(div().flex_1())
+                        .child(
+                            discussion::icon_button(
+                                ("reopen-agent", id),
+                                "rotate-ccw",
+                                "Not yet",
+                                None,
+                                Some("Not done yet — opens the note again"),
+                                Kind::Quiet,
+                                true,
+                            )
+                            .h(px(28.))
+                            .on_click(move |_, _, cx| {
+                                cx.stop_propagation();
+                                reopen
+                                    .update(cx, |this, cx| this.reopen_agent_comment(id, cx))
+                                    .ok();
+                            }),
+                        )
+                        .child(
+                            discussion::icon_button(
+                                ("resolve-agent", id),
+                                "circle-check",
+                                "Close",
+                                None,
+                                None,
+                                Kind::Primary(theme::agent()),
+                                false,
+                            )
+                            .h(px(28.))
+                            .on_click(move |_, _, cx| {
+                                cx.stop_propagation();
+                                resolve
+                                    .update(cx, |this, cx| this.resolve_agent_comment(id, cx))
+                                    .ok();
+                            }),
+                        ),
                 ),
-            },
-            comment.replies.is_empty(),
-            (self.compose.is_none())
-                .then(|| edit_button(("edit-agent", id), None, self.tight(cx), change, editing)),
-            None,
-        );
+                _ => None,
+            })
+            .flatten();
         // The last question is answered under it while the comment is open; an earlier one, or
         // the last once it is done, shows its form as it was answered.
         let last = comment.replies.len().saturating_sub(1);
@@ -497,7 +673,8 @@ impl Workspace {
             .child(body)
             .children(replies)
             .children(form)
-            .children(answer_box);
+            .children(answer_box)
+            .children(foot);
         div()
             .w_full()
             .pl(px(indent))
@@ -505,7 +682,7 @@ impl Workspace {
             .py(px(6.))
             .child(
                 discussion::frame(Source::Agent, false)
-                    .child(bar)
+                    .child(head)
                     // Its notes open and fold in size and alpha (#110).
                     .children(self.folding(
                         format!("agent-thread-body-{id}"),
@@ -527,32 +704,4 @@ pub(super) enum Erase {
     Withdraw,
     /// The agent read it (answered, done, resolved): put away, kept.
     Archive,
-}
-
-/// `comment`'s way out.
-pub(super) fn erase_of(comment: &Comment) -> Erase {
-    match comment.state {
-        State::Draft => Erase::Delete,
-        State::Sent if comment.replies.is_empty() => Erase::Withdraw,
-        _ => Erase::Archive,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_comment_goes_away_by_its_state() {
-        let mut c = Comment::default();
-        assert_eq!(erase_of(&c), Erase::Delete);
-        c.state = State::Sent;
-        assert_eq!(erase_of(&c), Erase::Withdraw);
-        // The agent answered: it is read, kept and put away, never erased.
-        c.replies.push(Default::default());
-        assert_eq!(erase_of(&c), Erase::Archive);
-        c.replies.clear();
-        c.state = State::Addressed;
-        assert_eq!(erase_of(&c), Erase::Archive);
-    }
 }

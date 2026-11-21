@@ -701,8 +701,9 @@ impl Workspace {
             {
                 return self.reply_to_review(ix, cx);
             }
-            // An agent comment: ⇧⌘↵ adds it and sends all drafts, ⌥⌘↵ sends this one only.
-            if target == Some(Target::Agent) && (m.shift || m.alt) {
+            // An agent comment: ⌘↵ and ⇧⌘↵ add it and send all drafts (the composer sends first), ⌥⌘↵ sends this
+            // one only; Send later is the ▾'s.
+            if target == Some(Target::Agent) {
                 return self.add_and_send(m.alt, cx);
             }
             // A reply: ⌥⌘↵ sends it and resolves its discussion, or opens it again when resolved (#199).
@@ -1010,11 +1011,12 @@ impl Workspace {
             },
             FootEvent::SendAll => self.add_and_send(false, cx),
             FootEvent::Add => self.add_comment(cx),
-            // ▾: Send this only, the chat it goes to, Copy as markdown (#50 F).
+            // ▾: Send later, Send this only, the chat it goes to, Copy as markdown (#50 F).
             FootEvent::More(at) => self.open_menu(
                 at,
                 vec![
                     vec![
+                        Entry::new("Send later", Act::new(|this, _, cx| this.add_comment(cx))),
                         Entry::new(
                             "Send this only",
                             Act::new(|this, _, cx| this.add_and_send(true, cx)),
