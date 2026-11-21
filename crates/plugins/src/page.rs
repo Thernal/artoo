@@ -1831,13 +1831,8 @@ fn scope(page: Entity<Page>, frame: Rc<dyn Frame>) -> Search {
                     continue;
                 }
                 seen.push(name.clone());
-                let mut detail = item.about.clone();
-                if !item.author.is_empty() {
-                    detail = format!("{detail} · {}", item.author);
-                }
-                if let Some(stars) = item.stars {
-                    detail = format!("{detail} · ★ {}", short_count(stars));
-                }
+                let detail = item.about.clone();
+                let stars = item.stars;
                 let (page, frame) = (find_page.clone(), frame.clone());
                 let open = Opens::Run(Rc::new(move |cx: &mut App| {
                     frame.go_space(SPACE, cx);
@@ -1855,11 +1850,18 @@ fn scope(page: Entity<Page>, frame: Rc<dyn Frame>) -> Search {
                         cx.notify();
                     });
                 }));
-                found.push(
-                    Find::new("Plugins", name, detail, open)
-                        .glyph("puzzle")
-                        .key("↵".to_owned()),
-                );
+                // What it does follows its name; its stars are at the end.
+                let find = Find::new("Plugins", name, detail, open)
+                    .glyph("puzzle")
+                    .in_folder();
+                found.push(match stars {
+                    Some(n) => find.badge_text(
+                        "star",
+                        short_count(n),
+                        format!("{} stars on GitHub", grouped(n)),
+                    ),
+                    None => find,
+                });
             }
             // Browse plugins, what is typed carried over.
             let (page, frame) = (find_page.clone(), frame.clone());

@@ -89,12 +89,15 @@ fn settings_search(tab: WeakEntity<Workspace>) -> Search {
                         this.settings_lit = Some(label.into());
                         cx.notify();
                     });
+                    // Its section follows its name, as a file's folder does.
                     Find::new(
                         "Settings",
                         n.label.to_owned(),
-                        format!("Settings → {}", title(section)),
+                        title(section).to_owned(),
                         open,
                     )
+                    .glyph("settings")
+                    .in_folder()
                 })
                 .collect()
         }),
@@ -213,12 +216,15 @@ fn recent(tab: WeakEntity<Workspace>) -> Finds {
             .is_some_and(|o| Some(&o.item) == shown.as_ref());
         let open = (opened.into_iter())
             .map(|o| (o.item.clone(), this.open_words(o, cx)))
-            .filter(|(_, (label, detail, _))| matches(&words, &format!("{label} {detail}")))
-            .map(|(item, (label, detail, dots))| {
+            .filter(|(_, w)| matches(&words, &format!("{} {}", w.label, w.detail)))
+            .map(|(item, w)| {
                 let glyph = page_glyph(super::nav::Page::from_route(&item).as_ref());
                 let open = doing(&picks, move |this, cx| this.show_open(&item, cx));
-                let find = Find::new("Open", label, detail, open);
-                let find = dots.into_iter().fold(find, Find::dot);
+                let mut find = Find::new("Open", w.label, w.detail, open);
+                if let Some((text, tip)) = w.review {
+                    find = find.badge_text("eye", text, tip);
+                }
+                let find = w.dots.into_iter().fold(find, Find::dot);
                 match glyph {
                     Some(glyph) => find.glyph(glyph),
                     None => find,
@@ -239,9 +245,16 @@ fn recent(tab: WeakEntity<Workspace>) -> Finds {
                 let open = doing(&picks, move |this, cx| {
                     this.open_recent(key.clone(), line, cx)
                 });
-                let find = Find::new("Recent", r.label.clone(), r.detail.clone(), open);
+                // A file is its name and the line, the request or folder it was in at the end.
+                let label = match (&r.key, r.line) {
+                    (super::recents::Key::File { .. }, Some(line)) => {
+                        format!("{}:{line}", r.label)
+                    }
+                    _ => r.label.clone(),
+                };
+                let find = Find::new("Recent", label, r.detail.clone(), open);
                 match &r.key {
-                    super::recents::Key::File { path, .. } => find.file(path.clone()),
+                    super::recents::Key::File { .. } => find.glyph("file"),
                     super::recents::Key::Commit(_) => find.glyph("commit"),
                     super::recents::Key::Request(_) => find.glyph("pull-request"),
                 }

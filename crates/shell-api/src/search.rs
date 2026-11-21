@@ -201,6 +201,23 @@ impl Find {
         self.badge = Some(crate::palette::Badge {
             glyph,
             number,
+            text: None,
+            tip: tip.into(),
+        });
+        self
+    }
+
+    /// A state as a glyph with a short word beside it (`3/8`, `1.2k`) and its sentence as tooltip.
+    pub fn badge_text(
+        mut self,
+        glyph: &'static str,
+        text: impl Into<SharedString>,
+        tip: impl Into<SharedString>,
+    ) -> Self {
+        self.badge = Some(crate::palette::Badge {
+            glyph,
+            number: None,
+            text: Some(text.into()),
             tip: tip.into(),
         });
         self

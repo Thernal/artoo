@@ -188,13 +188,9 @@ impl Workspace {
         rows
     }
 
-    /// An open item's words for ⌘E (#194): its row's, and how far its review got, what it is; its dots, drafts
-    /// and news, as its row in the menu wears them.
-    pub(super) fn open_words(
-        &self,
-        open: &super::nav::Opened,
-        cx: &App,
-    ) -> (String, String, Vec<artoo_shell_api::palette::Dot>) {
+    /// An open item's words for ⌘E (#194): its row's label, the review's part as a glyph with its sentence
+    /// (`3/8`, Reviewed by you: 3 of 8 files), and its dots, drafts and news, as its row in the menu wears them.
+    pub(super) fn open_words(&self, open: &super::nav::Opened, cx: &App) -> OpenWords {
         use artoo_shell_api::palette::Dot;
         let space = self.item_space(&open.item);
         let pages = space.and_then(|s| self.space_pages(s));
@@ -203,31 +199,40 @@ impl Workspace {
         let label = row.map_or_else(|| open.page.kind.clone(), |row| row.label);
         let drafts = (self.comments(cx).iter())
             .any(|c| c.state == crate::comment::State::Draft && open.paths.contains(&c.path));
-        let mut detail = match Page::from_route(&open.item) {
+        let review = match Page::from_route(&open.item) {
             Some(Page::Request(iid)) => {
                 let head = (self.requests_api())
                     .and_then(|r| r.find(iid, cx))
                     .and_then(|m| git2::Oid::from_str(&m.head).ok());
                 match head {
-                    Some(h) if self.rv().head_reviewed(h, cx) => "reviewed".to_owned(),
-                    Some(h) => match self.rv().head_part(h, cx) {
-                        Some((done, total)) => format!("{done} of {total} reviewed"),
-                        None => "not reviewed".to_owned(),
-                    },
-                    None => "merge request".to_owned(),
+                    Some(h) if self.rv().head_reviewed(h, cx) => {
+                        Some(("all".to_owned(), "Reviewed by you: every file".to_owned()))
+                    }
+                    Some(h) => self.rv().head_part(h, cx).map(|(done, total)| {
+                        (
+                            format!("{done}/{total}"),
+                            format!("Reviewed by you: {done} of {total} files"),
+                        )
+                    }),
+                    None => None,
                 }
             }
-            Some(Page::Branch(_)) => "branch".to_owned(),
-            _ => open.page.kind.clone(),
+            _ => None,
         };
-        if open.preview {
-            detail.push_str(" · looked at");
-        }
         let dots = [(drafts, Dot::Drafts), (news, Dot::News)]
             .into_iter()
             .filter_map(|(on, dot)| on.then_some(dot))
             .collect();
-        (label, detail, dots)
+        OpenWords {
+            label,
+            detail: if open.preview {
+                "looked at".to_owned()
+            } else {
+                String::new()
+            },
+            review,
+            dots,
+        }
     }
 
     /// `from` dragged onto `to` in the menu: it takes `to`'s place, kept in `layout.txt`.
@@ -469,4 +474,14 @@ impl SpacesHost for Glue {
                 .ok();
         }
     }
+}
+
+/// An open item as ⌘E lists it.
+pub(super) struct OpenWords {
+    pub label: String,
+    /// What is said at its end: `looked at`, or nothing.
+    pub detail: String,
+    /// How far the review got: the short word and its sentence.
+    pub review: Option<(String, String)>,
+    pub dots: Vec<artoo_shell_api::palette::Dot>,
 }

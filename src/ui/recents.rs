@@ -166,11 +166,8 @@ impl Workspace {
     }
 }
 
-/// A file's detail in Recent: `!398 · line 23`, `core/network · line 23`, or its owner alone.
-fn file_detail(owner: &str, line: Option<u32>) -> String {
-    match line {
-        Some(line) if owner.is_empty() => format!("line {line}"),
-        Some(line) => format!("{owner} · line {line}"),
-        None => owner.to_owned(),
-    }
+/// A file's detail in Recent, at the row's end: the request or folder it was read in (its line is in the row's
+/// words, `AuthApi.kt:23`).
+fn file_detail(owner: &str, _line: Option<u32>) -> String {
+    owner.to_owned()
 }

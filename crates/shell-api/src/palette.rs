@@ -41,6 +41,8 @@ pub struct Row {
 pub struct Badge {
     pub glyph: &'static str,
     pub number: Option<usize>,
+    /// A word beside the glyph (`3/8`, `1.2k`), after its number.
+    pub text: Option<SharedString>,
     pub tip: SharedString,
 }
 

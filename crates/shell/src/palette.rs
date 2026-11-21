@@ -77,7 +77,6 @@ fn rows(
         if selected {
             picked = Some(rows.len());
         }
-        let dotted = !item.dots.is_empty();
         let (run, aside) = (host.clone(), host.clone());
         rows.push(
             row(("palette-item", ix), selected)
@@ -94,18 +93,9 @@ fn rows(
                     hover::cut("label", keys::text(&item.label).into_owned())
                         // A face is drawn in itself (#24).
                         .when_some(item.face, |s, face| s.font_family(face))
-                        .when(!item.file && !dotted, |s| s.flex_1())
-                        // Its dots right after its words (#194).
-                        .when(!item.file && dotted, |s| s.flex_initial().min_w(px(0.)))
+                        .when(!item.file, |s| s.flex_1())
                         .when(item.file, |s| s.flex_none().max_w(px(320.))),
                 )
-                .children(
-                    item.dots
-                        .iter()
-                        .enumerate()
-                        .map(|(k, &d)| dot(ix * 2 + k, d)),
-                )
-                .children((dotted && !item.file).then(|| div().flex_1()))
                 .child(
                     // A file's folder gives way first; a command's key never does.
                     if item.file {
@@ -132,8 +122,16 @@ fn rows(
                                 .text_color(theme::muted()),
                         )
                         .children(b.number.map(|n| n.to_string()))
+                        .children(b.text)
                         .tip(b.tip)
                 }))
+                // Its dots at the end: drafts, news (#194).
+                .children(
+                    item.dots
+                        .iter()
+                        .enumerate()
+                        .map(|(k, &d)| dot(ix * 2 + k, d)),
+                )
                 // Its icon button while it is picked: a theme's Edit (#204).
                 .children((item.aside.filter(|_| selected)).map(|(glyph, tip)| {
                     div()
@@ -323,7 +321,7 @@ fn palette(view: PaletteView, host: Rc<dyn PaletteHost>) -> AnyElement {
                         .children(rows)
                         .children(empty),
                 )
-                .children(view.foot.map(foot)),
+                .child(foot(view.foot)),
             "palette-coming",
             motion::FAST,
             |panel, v| panel.w(px(motion::mix(627., 640., v))).opacity(v),
@@ -374,8 +372,8 @@ fn scopes(
         .overflow_x_scroll()
         .track_scroll(&scroll)
         .children(tabs.into_iter().enumerate().map(|(i, tab)| {
-            let (count, lit) = (tab.count, tab.lit);
-            let none = count == Some(0);
+            let (count, lit) = (tab.count.filter(|n| *n > 0), tab.lit);
+            let none = tab.count == Some(0);
             let pick = host.clone();
             let tab = div()
                 .id(("search-scope", i))
@@ -436,10 +434,20 @@ fn scopes(
         .into_any_element()
 }
 
-/// The tab on with its key, and how to move.
-fn foot(on: String) -> AnyElement {
+/// The foot: each key after its words, in a cap — the tab on with its key and how to move (a search), then
+/// open and close. A list without tabs says the last two.
+fn foot(on: Option<String>) -> AnyElement {
+    let hint = |say: &str, key: &str| {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .child(say.to_owned())
+            .children((!key.is_empty()).then(|| keys::caps(key, keys::On::Plain)))
+    };
     div()
         .flex()
+        .items_center()
         .gap(px(14.))
         .px(px(14.))
         .py(px(8.))
@@ -447,9 +455,18 @@ fn foot(on: String) -> AnyElement {
         .border_color(theme::island_border())
         .text_size(px(11.))
         .text_color(theme::muted())
-        .child(on)
-        .child("⇥ next tab · > actions")
+        .children(on.map(|on| {
+            let (label, key) = on.split_once(" · ").unwrap_or((on.as_str(), ""));
+            div()
+                .flex()
+                .items_center()
+                .gap(px(14.))
+                .child(hint(label, key))
+                .child(hint("next tab", "⇥"))
+                .child(hint("actions", ">"))
+        }))
         .child(div().flex_1())
-        .child("↵ open · esc")
+        .child(hint("open", "↵"))
+        .child(hint("close", "esc"))
         .into_any_element()
 }
