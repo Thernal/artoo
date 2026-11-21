@@ -131,7 +131,16 @@ impl Workspace {
                 lead: Vec::new(),
                 view: (self.view_of(space, page.as_ref(), cx))
                     .or(parts.view.take())
-                    .filter(|_| !lacking && writing.is_none()),
+                    .filter(|_| !lacking && writing.is_none())
+                    // A hairline before the tabs, as the design's `hd-view` has it.
+                    .map(|v| {
+                        div()
+                            .pl(px(12.))
+                            .border_l_1()
+                            .border_color(theme::island_border())
+                            .child(v)
+                            .into_any_element()
+                    }),
                 actions: if let Some(writing) = writing {
                     self.create_actions(writing, cx)
                 } else if lacking {
@@ -401,11 +410,18 @@ impl Workspace {
                 match ix.and_then(|ix| self.request_of_branch(ix, cx).map(|m| m.iid)) {
                     // Its request has a page of its own: the way there.
                     Some(iid) => {
-                        let label = format!("{} →", words::number(iid));
+                        let label = words::number(iid);
                         out.push(
                             BarAction::new(
                                 "request",
                                 self.bar_action("bar-request", "pull-request", &label, "")
+                                    .when(!self.compact(), |s| {
+                                        s.child(
+                                            super::icons::icon("chevron-right")
+                                                .size(px(14.))
+                                                .text_color(theme::muted()),
+                                        )
+                                    })
                                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                         this.open_request(iid, cx)
                                     })),

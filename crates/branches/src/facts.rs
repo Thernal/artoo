@@ -5,11 +5,10 @@ use crate::history::{Act, Acts, History, NamedTip};
 use artoo_branches_api::{BranchRoute, WorkingTreeRoute};
 use artoo_core::git::Repo;
 use artoo_core::route::{Place, Route};
-use artoo_requests_api::Requests;
 use artoo_shell_api::{Piece, Services, Slot};
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::Hover;
-use artoo_ui_kit::{icons, island, px, theme, words};
+use artoo_ui_kit::{icons, island, px, theme};
 use git2::Oid;
 use gpui::{AnyElement, App, Div, Entity, MouseButton, MouseDownEvent, div, prelude::*};
 use std::rc::Rc;
@@ -91,24 +90,18 @@ pub fn line_of(
     if !h.tabbed(&refname) {
         return None;
     }
-    let request = h
-        .branch
-        .and_then(|ix| h.branches.get(ix))
-        .and_then(|b| services.get::<Rc<dyn Requests>>()?.of_branch(b, cx))
-        .map(|(iid, _)| iid);
     let checked_out = checked_out.map(|s| s.branch.0);
-    let line = branch_line(h.page.as_ref()?, h.branch, request, checked_out, &acts)?;
+    let line = branch_line(h.page.as_ref()?, h.branch, checked_out, &acts)?;
     Some(line.into_any_element())
 }
 
 /// One line over a branch's Changes and Commits: `↑2 ↓0` how far it is from the main line, where it is pushed
-/// (a glyph and the remote's name), its `request`'s number; over the Working tree first the branch `checked_out`
+/// (a glyph and the remote's name); its request is the bar's chip; over the Working tree first the branch `checked_out`
 /// (#209) last; a right click on it branch `ix`'s menu. None for the main line itself. Each fact says its
 /// sentence in its tooltip.
 pub fn branch_line(
     f: &Facts,
     ix: Option<usize>,
-    request: Option<u64>,
     checked_out: Option<String>,
     acts: &Acts,
 ) -> Option<Div> {
@@ -137,13 +130,6 @@ pub fn branch_line(
                     .tip(ahead),
             )
             .child(origin_fact(f.upstream.as_ref()))
-            .children(request.map(|n| {
-                div()
-                    .id("fact-request")
-                    .text_color(theme::accent())
-                    .child(words::number(n))
-                    .tip("The merge request on this branch")
-            }))
             .children(checked_out.map(|name| {
                 div()
                     .flex()
