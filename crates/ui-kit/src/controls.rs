@@ -4,6 +4,7 @@
 //! far its review is), its preview's pills and buttons, a page's message when it has nothing to show, an on/off
 //! switch, a row of a list to choose from.
 
+use super::hover::Hover as _;
 use super::{ROW_RADIUS, hover, icons, keys, motion, px, theme, words};
 use artoo_core::platform;
 use gpui::{
@@ -81,8 +82,8 @@ pub fn bar_button(
         })
 }
 
-/// A labelled row of Settings: the name, and a line only where the name and the control do not say enough, on the
-/// left; the control on the right. 44 px, rows touching (#203).
+/// A labelled row of Settings: the name on the left, the control (24 px) on the right, one line; what the name does
+/// not say is the row's tooltip. 44 px, rows touching (#203).
 pub fn setting(
     title: &'static str,
     detail: impl Into<SharedString>,
@@ -95,7 +96,7 @@ pub fn setting(
 pub type Reset = Box<dyn Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static>;
 
 /// A row of Settings (`setting`) with its words as given; one off its default carries a dot before its name and
-/// `Reset` on hover, `reset` what that does (#203). While Settings searches, what was typed is marked in its words and
+/// an undo arrow (`Back to default`) on hover, `reset` what that does (#203). While Settings searches, what was typed is marked in its words and
 /// a word it answers to beyond them is said under them; a row a door led to is lit, the keyboard's has a ring
 /// (`settings_look`).
 pub fn setting_row(
@@ -113,8 +114,10 @@ pub fn setting_row(
         keys::text(&detail).into_owned(),
     );
     let why = found_by(&title, &format!("{shown} {line}"));
+    // The row is one line; what it said under its name is its tooltip.
     setting_frame(&title, div().id(gpui::ElementId::Name(group.clone())))
         .group(group.clone())
+        .when(!line.is_empty(), |r| r.tip(line.clone()))
         .flex()
         .items_center()
         .gap_3()
@@ -136,12 +139,6 @@ pub fn setting_row(
                 .flex()
                 .flex_col()
                 .child(found_marked(shown))
-                .children((!line.is_empty()).then(|| {
-                    div()
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child(found_marked(line))
-                }))
                 .children(why.map(|word| {
                     div()
                         .text_size(px(11.))
@@ -153,19 +150,22 @@ pub fn setting_row(
             div()
                 .id(gpui::ElementId::Name(format!("{group}-reset").into()))
                 .flex_none()
-                .px(px(8.))
-                .h(px(24.))
+                .size(px(24.))
                 .flex()
                 .items_center()
+                .justify_center()
                 .rounded(px(6.))
-                .border_1()
-                .border_color(theme::island_border())
-                .text_size(px(12.))
+                .text_color(theme::muted())
                 .cursor_pointer()
-                .hover(|s| s.bg(theme::hover()))
+                .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
                 .invisible()
                 .group_hover(group.clone(), |s| s.visible())
-                .child("Reset")
+                .child(
+                    icons::icon("rotate-ccw")
+                        .size(px(13.))
+                        .text_color(theme::muted()),
+                )
+                .tip("Back to default")
                 .on_click(reset)
         }))
         .child(div().flex_none().child(control))

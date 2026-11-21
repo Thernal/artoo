@@ -129,7 +129,7 @@ impl Workspace {
         div()
             .id(if code { "face-code" } else { "face-ui" })
             .min_w(px(190.))
-            .h(px(28.))
+            .h(px(24.))
             .px(px(10.))
             .flex()
             .items_center()
