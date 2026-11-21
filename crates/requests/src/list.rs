@@ -10,7 +10,7 @@ use crate::requests::{Act, Acts, Requests, Scope};
 use crate::turn::{self, Turn};
 use artoo_core::git::{DiffSettings, Repo};
 use artoo_core::{markdown, rank, storage};
-use artoo_hosts_api::{Approvals, Host, MergeState, Mr, MrState, Pipeline, Thread};
+use artoo_hosts_api::{Approvals, Host, Mr, MrState, Pipeline, Thread};
 use artoo_review_api::Seen;
 use artoo_ui_kit::controls::{empty_state, outline_button, primary_button, unread_dot};
 use artoo_ui_kit::format::{self, plural};
@@ -47,11 +47,10 @@ pub struct Facts {
     pub size: Option<Size>,
 }
 
-/// The picked request's preview, beyond its row: where merging it stands and what changed since your review, with
+/// The picked request's preview, beyond its row: what changed since your review, with
 /// its `updated` then.
 pub struct Preview {
     updated: i64,
-    pub merge: Option<MergeState>,
     /// Pushed since your review: the version you viewed, and how many files changed since then
     /// (X22).
     pub since: Option<(usize, usize)>,
@@ -457,7 +456,7 @@ impl Requests {
             return;
         }
         self.rows.preview_task = Some(cx.spawn(async move |this, cx| {
-            let (merge, since) = cx
+            let since = cx
                 .background_executor()
                 .spawn(async move {
                     let since = viewed.and_then(|(head, viewed)| {
@@ -480,18 +479,11 @@ impl Requests {
                         let diff = repo.version_diff(from, to, settings).ok()?;
                         Some((from.number, diff.files.len()))
                     });
-                    (host.merge_state(iid).ok(), since)
+                    since
                 })
                 .await;
             this.update(cx, |rq, cx| {
-                rq.rows.previews.insert(
-                    iid,
-                    Preview {
-                        updated,
-                        merge,
-                        since,
-                    },
-                );
+                rq.rows.previews.insert(iid, Preview { updated, since });
                 cx.notify();
             })
             .ok();
@@ -662,8 +654,6 @@ pub struct ListLook<'a> {
     /// A row folding with its group (#110): by its key, its group's motion and whether it is
     /// open; `None` once it is shut.
     pub fold: &'a dyn Fn(String, &str, bool, AnyElement) -> Option<AnyElement>,
-    /// How wide a text is drawn on a row's second line, in `px` units: measured by the window (#189).
-    pub text_width: &'a dyn Fn(&str) -> f32,
 }
 
 impl ListLook<'_> {
@@ -1026,15 +1016,6 @@ fn band(
         })
 }
 
-/// The colour whose turn a request is said in: yours the accent, approved green, someone else's muted.
-fn turn_color(t: &Turn) -> gpui::Rgba {
-    match t {
-        Turn::You { .. } => theme::accent(),
-        Turn::Approved => theme::added(),
-        Turn::Them { .. } => theme::muted(),
-    }
-}
-
 /// A small outlined tag after a title: `New`, `Draft`.
 fn tag(text: &'static str, color: gpui::Rgba) -> Div {
     div()
@@ -1049,15 +1030,6 @@ fn tag(text: &'static str, color: gpui::Rgba) -> Div {
         .text_size(px(11.))
         .text_color(color)
         .child(text)
-}
-
-/// A part of a row's second line.
-enum Part {
-    Text(String, gpui::Rgba),
-    /// The number or the author: muted, the filter's hits marked (#191).
-    Found(String),
-    /// Files, lines added, lines removed.
-    Size(usize, usize, usize),
 }
 
 /// Whether a request passes the list's filter, typed as `terms` (lower case): each matches its number, title,
@@ -1103,108 +1075,6 @@ fn marked(text: String, filter: &str) -> gpui::StyledText {
     gpui::StyledText::new(text).with_highlights(ranges.into_iter().map(|r| (r, mark)))
 }
 
-/// What a row draws beside its second line, in `px` units (`row`): its margin and its padding on both sides, the
-/// unread dot and the gap after it.
-const ROW_CHROME: f32 = 2. * 6. + 2. * 10. + 7. + 10.;
-/// The gap between a row's parts and whose turn it is; on each side of the `·` between two parts; inside a size.
-const TURN_GAP: f32 = 8.;
-const PART_GAP: f32 = 5.;
-const SIZE_GAP: f32 = 4.;
-
-/// Of a row's `parts`, those of least use leave whole — the target, the open discussions, the size — while the rest
-/// need more than `budget`, each text as wide as `text_width` measures it; the first three always stay. What left,
-/// in the words the row's tip says it.
-fn fit(
-    parts: &mut Vec<(Part, Option<String>)>,
-    budget: f32,
-    text_width: &dyn Fn(&str) -> f32,
-) -> Vec<String> {
-    let between = text_width("·") + 2. * PART_GAP;
-    let needs = |parts: &[(Part, Option<String>)]| {
-        parts.iter().map(|(p, _)| p.width(text_width)).sum::<f32>()
-            + between * parts.len().saturating_sub(1) as f32
-    };
-    let mut left = Vec::new();
-    while parts.len() > 3 && needs(parts) > budget {
-        let least = (parts.iter().enumerate().skip(3))
-            .min_by_key(|(n, (p, _))| (p.keep(), std::cmp::Reverse(*n)))
-            .map(|(n, _)| n);
-        match least {
-            Some(n) => left.extend(parts.remove(n).1),
-            None => break,
-        }
-    }
-    left
-}
-
-impl Part {
-    /// How wide it is drawn, its texts measured by `text_width`.
-    fn width(&self, text_width: &dyn Fn(&str) -> f32) -> f32 {
-        match self {
-            Part::Text(text, _) | Part::Found(text) => text_width(text),
-            Part::Size(files, added, removed) => {
-                text_width(&plural(*files, "file"))
-                    + text_width(&format!("+{added}"))
-                    + text_width(&format!("−{removed}"))
-                    + 2. * SIZE_GAP
-            }
-        }
-    }
-
-    /// How much it is worth keeping when the row is narrow: the number, author and pipeline most; a conflict; the
-    /// approvals; then the size, the discussions, the target.
-    fn keep(&self) -> u8 {
-        match self {
-            Part::Text(text, _) if text.starts_with('→') => 0,
-            Part::Text(text, _) if text.ends_with(" open") => 1,
-            Part::Size(..) => 2,
-            Part::Text(text, _) if text.starts_with('⚠') => 4,
-            _ => 3,
-        }
-    }
-
-    /// Drawn whole, or — the line's last — cut when the row has no room, saying so.
-    /// The part drawn; the `last` one cut to its room, measured into `was` for the row's tooltip (#202).
-    fn drawn(self, last: bool, filter: &str, was: &hover::WasCut) -> AnyElement {
-        let cut = |text: String, color| {
-            hover::cut_in_row(text.clone(), text, was)
-                .text_color(color)
-                .into_any_element()
-        };
-        match self {
-            Part::Found(text) if last => {
-                hover::cut_in_row(text.clone(), marked(text, filter), was).into_any_element()
-            }
-            Part::Found(text) => div()
-                .flex_none()
-                .child(marked(text, filter))
-                .into_any_element(),
-            Part::Text(text, color) if last => cut(text, color),
-            Part::Text(text, color) => div()
-                .flex_none()
-                .text_color(color)
-                .child(text)
-                .into_any_element(),
-            Part::Size(files, added, removed) if last => cut(
-                format!("{} +{added} −{removed}", plural(files, "file")),
-                theme::muted(),
-            ),
-            Part::Size(files, added, removed) => div()
-                .flex_none()
-                .flex()
-                .gap(px(SIZE_GAP))
-                .child(plural(files, "file"))
-                .child(div().text_color(theme::added()).child(format!("+{added}")))
-                .child(
-                    div()
-                        .text_color(theme::removed())
-                        .child(format!("−{removed}")),
-                )
-                .into_any_element(),
-        }
-    }
-}
-
 /// Approvals as a row and the preview say them: `1 of 2`, or how many approved where no rule asks.
 fn approvals_words(a: &Approvals) -> Option<String> {
     if a.required > 0 {
@@ -1225,9 +1095,10 @@ fn discussions(threads: &[Thread]) -> (usize, usize) {
     (open, resolvable.count() - open)
 }
 
-/// A request's row (#189, Design L1): its title — muted for a draft, tagged `New` or `Draft` — and when; under it
-/// its number, author, pipeline, approvals, size and open discussions, a conflict, a target that is not the
-/// default branch; at its end whose turn it is. The dot: something new since you read it.
+/// A request's row (#189, Design L1): line one, its number, its title — muted for a draft, tagged `New` or
+/// `Draft` — and when, short, in the column every row shares; line two, its author, and at its end glyphs with
+/// their numbers: a conflict, the open discussions, the pipeline's state, a tooltip each. Whose turn it is, the
+/// size, the approvals and the target are in the row's tooltip. The dot: something new since you read it.
 fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement + use<> {
     let iid = m.iid;
     let picked = look.picked == Some(iid);
@@ -1238,128 +1109,49 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
     let new_to_you = open && !opened_before(rq, iid, look.seen(iid));
     let unread = open && !new_to_you && rq.rows.news(m);
     let turn = if open { rq.turn_of(m) } else { None };
-    // Its anatomy (#79): the title and when always; the size, discussions and target leave first as the list
-    // narrows, then whose turn; the tooltip holds what left.
+    // The time shows while the list has room for it (#79); the tip holds the rest.
     let room = look.widths.room("requests");
     // The row's date says what is sorted (L17): an open one's opening under Oldest first.
-    // Short, in the row's last column; the tip holds the date.
     let when_time = if open && rq.rows.display.1 == SortBy::Oldest {
         m.created
     } else {
         m.updated
     };
-    // The tip holds what the row does not say (#202): who and where from, the parts the row has no room for, whose
-    // turn when it is not said, and when exactly; the title and the last part only when the row cut them.
-    let mut tip = vec![format!("{} · {} → {}", m.author, m.source, m.target)];
-    // Each part whole, but the last, which is cut and says so (#184); beside each, the tip's words for it should
-    // it leave.
-    let mut parts: Vec<(Part, Option<String>)> = vec![
-        (Part::Found(words::number(iid)), None),
-        (
-            Part::Found(if mine {
-                "You".to_owned()
-            } else {
-                m.author.clone()
-            }),
-            None,
-        ),
-    ];
-    let mut left: Vec<String> = Vec::new();
-    if let Some(p) = facts.and_then(|f| f.pipeline.as_ref()) {
-        let (glyph, short, color) = crate::bar::pipeline_short(p);
-        parts.push((
-            Part::Text(format!("{glyph} {short}"), color),
-            Some(format!(
-                "Pipeline {glyph} {}",
-                crate::bar::pipeline_word(p).1
-            )),
-        ));
-    }
-    if let Some(said) = facts
-        .and_then(|f| f.approvals.as_ref())
-        .and_then(approvals_words)
-    {
-        parts.push((
-            Part::Text(said.clone(), theme::muted()),
-            Some(format!("Approvals {said}")),
-        ));
-    }
-    if let Some((files, added, removed, _)) = facts.and_then(|f| f.size) {
-        let said = format!("{} +{added} −{removed}", plural(files, "file"));
-        if room.third() {
-            parts.push((Part::Size(files, added, removed), Some(said)));
-        } else {
-            left.push(said);
-        }
-    }
+    let pipeline = facts.and_then(|f| f.pipeline.as_ref());
     let (open_threads, _) = facts.map(|f| discussions(&f.threads)).unwrap_or_default();
+    // The tip holds what the row does not say (#202): who and where from, the pipeline, approvals, size, whose
+    // turn, and when exactly; the title only when the row cut it.
+    let author = if mine { "You" } else { m.author.as_str() };
+    let mut tip = vec![format!("{} · {} → {}", m.author, m.source, m.target)];
+    tip.extend(pipeline.map(|p| format!("Pipeline {}", crate::bar::pipeline_word(p).1)));
+    tip.extend(
+        facts
+            .and_then(|f| f.approvals.as_ref())
+            .and_then(approvals_words)
+            .map(|said| format!("Approvals {said}")),
+    );
+    if let Some((files, added, removed, _)) = facts.and_then(|f| f.size) {
+        tip.push(format!("{} +{added} −{removed}", plural(files, "file")));
+    }
     if open_threads > 0 {
-        let said = format!("{open_threads} open");
-        if room.third() {
-            parts.push((Part::Text(said.clone(), theme::muted()), Some(said)));
-        } else {
-            left.push(said);
-        }
+        tip.push(thread_words(open_threads));
     }
     if m.conflicts {
-        parts.push((
-            Part::Text("⚠ conflicts".into(), theme::warning()),
-            Some("Conflicts with its target".into()),
-        ));
+        tip.push("Conflicts with its target".to_owned());
     }
-    // A target that is not the main line; the tip's first line names it whether or not the row has room.
-    if room.third()
-        && rq
-            .rows
-            .main_line
-            .as_deref()
-            .is_some_and(|main| main != m.target)
-    {
-        parts.push((Part::Text(format!("→ {}", m.target), theme::muted()), None));
-    }
-    // What the row has room for, as the list was last measured and its texts as the window draws them (#189): the
-    // parts of least use leave whole, the last one left cut when even the rest does not fit.
-    let width = look.widths.width("requests");
-    if width > 0. {
-        let text_width = look.text_width;
-        // Whose turn, only where the row says it.
-        let turn_width = (turn.as_ref())
-            .filter(|_| room.second())
-            .map_or(0., |t| text_width(&t.words(mine)) + TURN_GAP);
-        left.extend(fit(&mut parts, width - ROW_CHROME - turn_width, text_width));
-    }
-    tip.extend(left);
-    if let Some(t) = turn.as_ref().filter(|_| !room.second()) {
-        tip.push(t.words(mine));
-    }
+    tip.extend(turn.as_ref().map(|t| t.words(mine)));
     tip.push(format!("updated {}", hover::full_date(m.updated)));
-    // The title and the last part are cut to their room; the tip says them only when they were: the title first,
-    // the last part after who and where from.
-    let (title_cut, last_cut) = (hover::WasCut::default(), hover::WasCut::default());
+    let title_cut = hover::WasCut::default();
     let mut lines: Vec<(Option<hover::WasCut>, SharedString)> =
         vec![(Some(title_cut.clone()), m.title.clone().into())];
-    let mut always = tip.into_iter();
-    lines.extend(always.next().map(|first| (None, first.into())));
-    lines.extend(
-        (parts.last().and_then(|(_, said)| said.clone()))
-            .map(|said| (Some(last_cut.clone()), said.into())),
-    );
-    lines.extend(always.map(|line| (None, line.into())));
-    let parts: Vec<Part> = parts.into_iter().map(|(p, _)| p).collect();
-    let last = parts.len().saturating_sub(1);
-    let mut line2: Vec<AnyElement> = Vec::new();
-    for (n, part) in parts.into_iter().enumerate() {
-        if n > 0 {
-            line2.push(
-                div()
-                    .flex_none()
-                    .text_color(theme::faint())
-                    .child("·")
-                    .into_any_element(),
-            );
-        }
-        line2.push(part.drawn(n == last, look.filter, &last_cut));
-    }
+    lines.extend(tip.into_iter().map(|line| (None, line.into())));
+    let glyph = |id: &'static str, name: &'static str, color, said: String| {
+        div()
+            .id((id, iid))
+            .flex_none()
+            .child(icons::icon(name).size(px(14.)).text_color(color))
+            .tip(said)
+    };
     let compact = look.compact;
     let (context, acts) = (acts.clone(), acts.clone());
     div().px(px(6.)).py(px(1.)).child(
@@ -1400,6 +1192,12 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
                             .items_center()
                             .gap(px(8.))
                             .child(
+                                div()
+                                    .flex_none()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(marked(words::number(iid), look.filter)),
+                            )
+                            .child(
                                 hover::cut_in_row(
                                     m.title.clone(),
                                     marked(m.title.clone(), look.filter),
@@ -1420,24 +1218,52 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
                         div()
                             .flex()
                             .items_center()
-                            .gap(px(TURN_GAP))
+                            .gap(px(8.))
+                            .h(px(16.))
                             .text_size(px(12.))
+                            .text_color(theme::muted())
                             .child(
                                 div()
                                     .flex_1()
                                     .min_w_0()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(PART_GAP))
                                     .overflow_hidden()
-                                    .text_color(theme::muted())
-                                    .children(line2),
+                                    .whitespace_nowrap()
+                                    .text_ellipsis()
+                                    .child(marked(author.to_owned(), look.filter)),
                             )
-                            .children(turn.filter(|_| room.second()).map(|t| {
-                                div()
-                                    .flex_none()
-                                    .text_color(turn_color(&t))
-                                    .child(t.words(mine))
+                            .when(m.conflicts, |s| {
+                                s.child(glyph(
+                                    "mr-conflicts",
+                                    "triangle-alert",
+                                    theme::warning(),
+                                    "Conflicts with its target".to_owned(),
+                                ))
+                            })
+                            .when(open_threads > 0, |s| {
+                                s.child(
+                                    div()
+                                        .id(("mr-threads", iid))
+                                        .flex_none()
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(3.))
+                                        .child(
+                                            icons::icon("message")
+                                                .size(px(14.))
+                                                .text_color(theme::muted()),
+                                        )
+                                        .child(open_threads.to_string())
+                                        .tip(thread_words(open_threads)),
+                                )
+                            })
+                            .children(pipeline.map(|p| {
+                                let (name, color) = crate::bar::pipeline_icon(p);
+                                glyph(
+                                    "mr-pipeline",
+                                    name,
+                                    color,
+                                    format!("Pipeline {}", crate::bar::pipeline_word(p).1),
+                                )
                             })),
                     ),
             )
@@ -1454,41 +1280,134 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
     )
 }
 
-/// The request picked (#189, Design L3): its number and branches, whose turn it is; its title; labelled rows —
-/// Size, Pipeline, Approvals, Reviewers, In the way, Discussions, Your review —; the description; Open. What waits for
-/// you on one of yours is its Overview's, not the preview's (W).
+/// `1 discussion open`, `2 discussions open`.
+fn thread_words(open: usize) -> String {
+    format!("{} open", plural(open, "discussion"))
+}
+
+/// A count in a preview's actions (Design M1): its glyph and its number in a 28 px button, what it counts in its
+/// tooltip. It keeps its place whatever the text; it opens the request, as Open does.
+fn count_chip(
+    id: &'static str,
+    icon: &'static str,
+    count: String,
+    tip: String,
+    iid: u64,
+    acts: &Acts,
+) -> impl IntoElement + use<> {
+    let acts = acts.clone();
+    div()
+        .id((id, iid))
+        .flex_none()
+        .h(px(28.))
+        .px(px(10.))
+        .flex()
+        .items_center()
+        .gap(px(5.))
+        .rounded(px(ROW_RADIUS))
+        .border_1()
+        .border_color(theme::island_border())
+        .text_size(px(13.))
+        .text_color(theme::muted())
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::hover()))
+        .child(icons::icon(icon).size(px(14.)).text_color(theme::muted()))
+        .child(count)
+        .tip(tip)
+        .on_click(move |_: &ClickEvent, _, cx| acts(Act::OpenRequest { iid, note: None }, cx))
+}
+
+/// The request picked (#189, Design L3, M1): its head — number, pipeline, approvals, the author's face and name on
+/// one line —; its title; the description; its branches on a line of their own; Open and the counts that keep
+/// their place, a tooltip each. What waits for you on one of yours is its Overview's, not the preview's (W).
 fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
     let iid = m.iid;
     let me = rq.login.as_deref().unwrap_or_default();
     let mine = !me.is_empty() && m.author_login == me;
     let open = m.state == MrState::Opened;
     let facts = rq.rows.facts(iid);
-    let turn = if open { rq.turn_of(m) } else { None };
-    let id_line = div()
+    let threads: &[Thread] = facts.map_or(&[], |f| f.threads.as_slice());
+    let approvals = facts.and_then(|f| f.approvals.as_ref());
+    let pipeline = facts.and_then(|f| f.pipeline.as_ref());
+    let preview = rq.rows.preview(iid);
+    let author = if mine { "You" } else { m.author.as_str() };
+    let mut head = div()
         .flex()
         .items_center()
-        .gap(px(8.))
+        .gap(px(10.))
         .text_size(px(12.))
         .text_color(theme::muted())
         .child(
             div()
+                .id(("preview-number", iid))
                 .flex_none()
                 .font_family(theme::code_font())
                 .text_color(theme::accent())
-                .child(words::number(iid)),
-        )
-        .child(
-            hover::branches("preview-branches", &m.source, &m.target)
-                .min_w_0()
-                .font_family(theme::code_font()),
-        )
-        .child(div().flex_1())
-        .children(turn.as_ref().map(|t| {
+                .child(words::number(iid))
+                .tip(format!("{} → {}", m.source, m.target)),
+        );
+    if let Some(p) = pipeline {
+        let (name, color) = crate::bar::pipeline_icon(p);
+        let (_, said, _) = crate::bar::pipeline_word(p);
+        let (_, short, _) = crate::bar::pipeline_short(p);
+        head = head.child(
             div()
+                .id(("preview-pipeline", iid))
                 .flex_none()
-                .text_color(turn_color(t))
-                .child(t.words(mine))
-        }))
+                .h(px(22.))
+                .px(px(8.))
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .rounded_full()
+                .bg(theme::hover())
+                .text_color(color)
+                .child(icons::icon(name).size(px(13.)).text_color(color))
+                .child(short)
+                .tip(format!("Pipeline {said}")),
+        );
+    }
+    if let Some(a) = approvals {
+        let count = if a.required > 0 {
+            format!("{}/{}", a.required - a.left.min(a.required), a.required)
+        } else {
+            a.by.len().to_string()
+        };
+        if a.required > 0 || !a.by.is_empty() {
+            let mut said = approvals_words(a)
+                .map(|w| format!("{w} approvals"))
+                .unwrap_or_default();
+            if !a.by.is_empty() {
+                said = format!("{said} · {}", a.by.join(", "));
+            }
+            head = head.child(
+                div()
+                    .id(("preview-approvals", iid))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .child(
+                        icons::icon("circle-check")
+                            .size(px(14.))
+                            .text_color(theme::muted()),
+                    )
+                    .child(count)
+                    .tip(said),
+            );
+        }
+    }
+    let head = head
+        .child(div().flex_1())
+        .child(discussion::avatar(author, mine, 16.))
+        .child(
+            div()
+                .min_w_0()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .child(author.to_owned()),
+        )
         // A merged or closed one: what became of it, and when (#114).
         .children((!open).then(|| {
             div()
@@ -1501,165 +1420,100 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
         .font_weight(FontWeight::SEMIBOLD)
         .when(m.draft, |s| s.text_color(theme::muted()))
         .child(m.title.clone());
-    let rule = || div().h(px(1.)).bg(theme::island_border());
-    // The labelled rows.
-    let mut facts_rows: Vec<(&'static str, AnyElement)> = Vec::new();
-    let text = |t: String| div().child(t).into_any_element();
-    if let Some((files, added, removed, commits)) = facts.and_then(|f| f.size) {
-        facts_rows.push((
-            "Size",
-            div()
-                .flex()
-                .flex_wrap()
-                .gap(px(6.))
-                .child(plural(files, "file"))
-                .child(div().text_color(theme::faint()).child("·"))
-                .child(div().text_color(theme::added()).child(format!("+{added}")))
-                .child(
-                    div()
-                        .text_color(theme::removed())
-                        .child(format!("−{removed}")),
-                )
-                .child(div().text_color(theme::faint()).child("·"))
-                .child(plural(commits, "commit"))
-                .into_any_element(),
-        ));
-    }
-    if let Some(p) = facts.and_then(|f| f.pipeline.as_ref()) {
-        let (glyph, word, color) = crate::bar::pipeline_word(p);
-        facts_rows.push((
-            "Pipeline",
-            div()
-                .text_color(color)
-                .child(format!("{glyph} {word}"))
-                .into_any_element(),
-        ));
-    }
-    let approvals = facts.and_then(|f| f.approvals.as_ref());
-    if let Some(a) = approvals {
-        let mut said: Vec<String> = approvals_words(a).into_iter().collect();
-        said.extend(a.by.iter().map(|by| format!("{by} ✓")));
-        if !said.is_empty() {
-            facts_rows.push(("Approvals", text(said.join(" · "))));
-        }
-    }
-    let threads: &[Thread] = facts.map_or(&[], |f| f.threads.as_slice());
-    if !m.reviewers.is_empty() {
-        // The host's name (#189), else the one its notes carry, else the login.
-        let name_of = |login: &str| {
-            if login == me {
-                return "You".to_owned();
-            }
-            if let Some(name) = m.reviewer_name(login) {
-                return name.to_owned();
-            }
-            threads
-                .iter()
-                .flat_map(|t| &t.notes)
-                .find(|n| n.login == login)
-                .map(|n| n.author.clone())
-                .unwrap_or_else(|| login.to_owned())
-        };
-        let people = m.reviewers.iter().map(|login| {
-            let name = name_of(login);
-            let approved =
-                approvals.is_some_and(|a| a.by.contains(&name) || (login == me && a.mine));
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .child(discussion::avatar(&name, login == me, 16.))
-                .child(name)
-                .child(if approved {
-                    div().text_color(theme::added()).child("✓ approved")
-                } else {
-                    div().text_color(theme::faint()).child("reviewing")
-                })
-        });
-        facts_rows.push((
-            "Reviewers",
-            div()
-                .flex()
-                .flex_wrap()
-                .gap_x(px(14.))
-                .gap_y(px(4.))
-                .children(people)
-                .into_any_element(),
-        ));
-    }
-    let preview = rq.rows.preview(iid);
-    if let Some(host) = preview.and_then(|p| p.merge.as_ref()).filter(|_| open) {
-        let (open_threads, _) = discussions(threads);
-        let stand = crate::merge::stand(
-            host,
-            &crate::merge::Known {
-                draft: m.draft,
-                approvals,
-                open_threads,
-                pipeline: facts.and_then(|f| f.pipeline.as_ref()),
-                url: &m.url,
-                target: &m.target,
-            },
-        );
-        if let crate::merge::Stand::InTheWay(blocks) = stand {
-            facts_rows.push((
-                "In the way",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .children(
-                        blocks
-                            .iter()
-                            .map(|b| div().child(format!("{}: {}", b.what, b.detail))),
+    // The branches, a line of their own: a long one is the subject (the checklist's seventh).
+    let branches = div()
+        .id(("preview-branches-line", iid))
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .min_w_0()
+        .text_size(px(12.))
+        .text_color(theme::muted())
+        .child(
+            icons::icon("branch")
+                .size(px(14.))
+                .text_color(theme::muted()),
+        )
+        .child(
+            hover::branches("preview-branches", &m.source, &m.target)
+                .min_w_0()
+                .font_family(theme::code_font()),
+        )
+        .tip(format!("{} into {}", m.source, m.target));
+    // The counts: files changed since you viewed (else the diff's files), the open discussions, the files reviewed.
+    let (open_threads, _) = discussions(threads);
+    let size = facts.and_then(|f| f.size);
+    let mut chips: Vec<AnyElement> = Vec::new();
+    match (look.seen(iid), preview.and_then(|p| p.since)) {
+        (Seen::Earlier, Some((viewed, n))) if n > 0 => chips.push(
+            count_chip(
+                "preview-files",
+                "files",
+                n.to_string(),
+                format!(
+                    "{} changed since you viewed v{viewed} · show them",
+                    plural(n, "file")
+                ),
+                iid,
+                acts,
+            )
+            .into_any_element(),
+        ),
+        _ => {
+            if let Some((files, added, removed, commits)) = size {
+                chips.push(
+                    count_chip(
+                        "preview-files",
+                        "files",
+                        files.to_string(),
+                        format!(
+                            "{} +{added} −{removed} in {}",
+                            plural(files, "file"),
+                            plural(commits, "commit")
+                        ),
+                        iid,
+                        acts,
                     )
                     .into_any_element(),
-            ));
+                );
+            }
         }
     }
-    let (open_threads, resolved) = discussions(threads);
-    if open_threads + resolved > 0 {
-        facts_rows.push((
-            "Discussions",
-            text(format!("{open_threads} open · {resolved} resolved")),
-        ));
+    if open_threads > 0 {
+        chips.push(
+            count_chip(
+                "preview-threads",
+                "message",
+                open_threads.to_string(),
+                format!("{} open · show them", plural(open_threads, "discussion")),
+                iid,
+                acts,
+            )
+            .into_any_element(),
+        );
     }
-    let review = match (look.seen(iid), look.parts.get(&iid).copied()) {
-        (Seen::Done, _) => Some("Reviewed at this push".to_owned()),
-        (Seen::Earlier, _) => Some(match preview.and_then(|p| p.since) {
-            Some((viewed, 0)) => format!("Pushed since you viewed v{viewed}, no file changed"),
-            Some((viewed, n)) => {
-                format!("{} changed since you viewed v{viewed}", plural(n, "file"))
-            }
-            None => "Pushed since your review".to_owned(),
-        }),
-        (_, Some((done, total))) => Some(format!("{done} of {}", plural(total as usize, "file"))),
-        (_, None) => facts
-            .and_then(|f| f.size)
-            .map(|(files, ..)| format!("0 of {}", plural(files, "file"))),
+    let reviewed = match (look.seen(iid), look.parts.get(&iid).copied(), size) {
+        (_, Some((done, total)), _) => Some((done as usize, total as usize)),
+        (Seen::Done, _, Some((files, ..))) => Some((files, files)),
+        (_, _, Some((files, ..))) => Some((0, files)),
+        _ => None,
     };
-    if let Some(review) = review.filter(|_| open && !mine) {
-        facts_rows.push(("Your review", text(review)));
+    if let Some((done, total)) = reviewed.filter(|_| open && !mine) {
+        chips.push(
+            count_chip(
+                "preview-reviewed",
+                "eye",
+                format!("{done}/{total}"),
+                format!(
+                    "{done} of {} reviewed · the next one",
+                    plural(total, "file")
+                ),
+                iid,
+                acts,
+            )
+            .into_any_element(),
+        );
     }
-    let labelled = div()
-        .flex()
-        .flex_col()
-        .gap(px(8.))
-        .text_size(px(12.))
-        .children(facts_rows.into_iter().map(|(label, value)| {
-            div()
-                .flex()
-                .items_start()
-                .gap(px(12.))
-                .child(
-                    div()
-                        .w(px(108.))
-                        .flex_none()
-                        .text_color(theme::muted())
-                        .child(label),
-                )
-                .child(div().flex_1().min_w_0().child(value))
-        }));
     let description = markdown::plain(&m.description);
     let description = description.trim();
     let acts = acts.clone();
@@ -1670,11 +1524,8 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
         .px(px(28.))
         .py(px(22.))
         .max_w(px(820.))
-        .child(id_line)
+        .child(head)
         .child(title)
-        .child(rule())
-        .child(labelled)
-        .child(rule())
         .children((!description.is_empty()).then(|| {
             hover::cut_to(
                 SharedString::from(format!("mr-description-{iid}")),
@@ -1685,14 +1536,20 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
             .line_height(px(20.))
             .text_color(theme::muted())
         }))
+        .child(branches)
         .child(
-            div().flex().items_center().gap(px(12.)).child(
-                primary_button("request-open", "Open", "↵")
-                    .tip("opens on its changes, at the first file not reviewed · ⌥↓ the next not reviewed")
-                    .on_click(move |_: &ClickEvent, _, cx| {
-                        acts(Act::OpenRequest { iid, note: None }, cx)
-                    }),
-            ),
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(
+                    primary_button("request-open", "Open", "↵")
+                        .tip("opens on its changes, at the first file not reviewed · ⌥↓ the next not reviewed")
+                        .on_click(move |_: &ClickEvent, _, cx| {
+                            acts(Act::OpenRequest { iid, note: None }, cx)
+                        }),
+                )
+                .children(chips),
         )
         .into_any_element()
 }
@@ -1702,18 +1559,16 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
 pub fn banner(rq: &Requests, acts: &Acts) -> Option<AnyElement> {
     let error = rq.error.as_ref()?;
     let offline = error.starts_with("Can't reach");
-    // Facts on the banner, `Can't reach gitlab.example.com · list from 14:32`; the guess after the dash (the VPN)
-    // and the whole date in its tip (#185).
-    let fact = error.split_once(" — ").map_or(error.as_str(), |(f, _)| f);
-    let fact = fact.trim_end_matches('.');
-    let text = match rq.listed_at {
-        Some(t) => format!("{fact} · list from {}", format::clock(t)),
-        None => fact.to_owned(),
-    };
-    let mut tip = vec![error.clone()];
-    if let Some(t) = rq.listed_at {
-        tip.push(format!("List from {}", hover::full_date(t)));
-    }
+    // One fact and the question the VPN guess asks (Design S2); when the list is from, a clock and its time at the
+    // end, the whole date and what happens next in its tip (#185).
+    let fact = error.trim_end_matches('.').to_owned();
+    let tip = rq.listed_at.map(|t| {
+        let mut tip = format!("The list is from {}", hover::full_date(t));
+        if offline {
+            tip.push_str("\nIt refreshes when the host is back");
+        }
+        tip
+    });
     let token = error.contains("token");
     let color = if offline {
         theme::accent()
@@ -1740,8 +1595,24 @@ pub fn banner(rq: &Requests, acts: &Acts) -> Option<AnyElement> {
                     .size(px(16.))
                     .text_color(color),
             )
-            .child(div().flex_1().min_w_0().child(text))
-            .tip(tip.join("\n"))
+            .child(div().flex_1().min_w_0().child(fact))
+            .children(rq.listed_at.map(|t| {
+                div()
+                    .id("banner-listed")
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(5.))
+                    .text_size(px(12.))
+                    .text_color(theme::muted())
+                    .child(
+                        icons::icon("clock")
+                            .size(px(14.))
+                            .text_color(theme::muted()),
+                    )
+                    .child(format::clock(t))
+                    .tip(tip.clone().unwrap_or_default())
+            }))
             .child(
                 div()
                     .id("banner-action")
@@ -1771,37 +1642,6 @@ fn next_to_review(open: &[bool], at: Option<usize>) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_rows_parts_leave_whole_by_their_use_until_the_rest_fit() {
-        // Ten px a character; the `·` between two parts and its gaps, twenty.
-        let width = |t: &str| t.chars().count() as f32 * 10.;
-        let said = |s: &str| Some(s.to_owned());
-        let parts = || {
-            vec![
-                (Part::Found("!398".into()), None),
-                (Part::Found("Ann".into()), None),
-                (
-                    Part::Text("✓ passed".into(), gpui::rgb(0)),
-                    said("Pipeline"),
-                ),
-                (Part::Text("1 of 2".into(), gpui::rgb(0)), said("Approvals")),
-                (Part::Size(3, 12, 4), said("Size")),
-                (Part::Text("2 open".into(), gpui::rgb(0)), said("Open")),
-            ]
-        };
-        // 40 + 30 + 80 + 60 + (70 + 30 + 20 + 8) + 60, and five `·`: 498.
-        let left = |budget| {
-            let mut p = parts();
-            let left = fit(&mut p, budget, &width);
-            (p.len(), left)
-        };
-        assert_eq!(left(498.), (6, vec![]));
-        assert_eq!(left(497.), (5, vec!["Open".to_owned()]));
-        assert_eq!(left(400.), (4, vec!["Open".to_owned(), "Size".to_owned()]));
-        let none = vec!["Open".to_owned(), "Size".to_owned(), "Approvals".to_owned()];
-        assert_eq!(left(10.), (3, none));
-    }
 
     #[test]
     fn a_projects_folds_reads_and_display_are_kept_on_its_own_line() {

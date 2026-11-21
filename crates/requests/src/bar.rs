@@ -287,6 +287,19 @@ pub fn pipeline_short(p: &Pipeline) -> (&'static str, String, gpui::Rgba) {
     (glyph, short, color)
 }
 
+/// A pipeline as a drawn glyph (a Lucide icon of the kit) and its colour: a request's rows and preview say its
+/// state with it, the sentence in a tooltip.
+pub fn pipeline_icon(p: &Pipeline) -> (&'static str, gpui::Rgba) {
+    match p.status.as_str() {
+        "success" => ("circle-check", theme::added()),
+        "failed" => ("circle-x", theme::removed()),
+        "running" => ("loader", theme::warning()),
+        "pending" | "created" | "waiting_for_resource" | "preparing" => ("circle", theme::muted()),
+        "canceled" => ("circle-slash", theme::muted()),
+        _ => ("dot", theme::muted()),
+    }
+}
+
 /// A pipeline as a glyph, a word and its colour: "✗ lint failed" in red.
 pub fn pipeline_word(p: &Pipeline) -> (&'static str, String, gpui::Rgba) {
     match p.status.as_str() {
