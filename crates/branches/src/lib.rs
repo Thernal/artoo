@@ -21,6 +21,7 @@ mod link;
 mod list;
 mod news;
 mod opening;
+mod overview;
 mod page;
 mod pairs;
 mod panel;
@@ -91,6 +92,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     let panel = panel::view(history.clone(), &frame, cx);
     services.set(panel.clone());
     services.set(commits_page::view(history.clone(), &frame, cx));
+    services.set(overview::view(history.clone(), &frame, cx));
     Parts {
         inputs: vec![find::input(history.clone())],
         // A branch's line before the head, which any diff has.

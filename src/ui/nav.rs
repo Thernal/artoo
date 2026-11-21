@@ -798,11 +798,10 @@ impl Workspace {
                 | Page::RequestCommits(..)
                 | Page::RequestVersions(..),
             ) => &Section::ALL,
-            Some(
-                Page::Branch(refname)
-                | Page::BranchCommit(refname, _)
-                | Page::BranchCommits(refname, ..),
-            ) if self.branches().is_some_and(|b| b.tabbed(&refname, cx)) => {
+            Some(Page::BranchCommit(..)) => &[Section::Overview, Section::Changes],
+            Some(Page::Branch(refname) | Page::BranchCommits(refname, ..))
+                if self.branches().is_some_and(|b| b.tabbed(&refname, cx)) =>
+            {
                 &[Section::Commits, Section::Changes]
             }
             _ => &[],
@@ -814,6 +813,15 @@ impl Workspace {
     pub(super) fn page_section(&self, cx: &App) -> Option<Section> {
         if self.item_sections(cx).is_empty() {
             return None;
+        }
+        // A branch's commit has its own two tabs, kept by the branches.
+        if matches!(self.shown_page(), Some(Page::BranchCommit(..))) {
+            let overview = self.branches().is_some_and(|b| b.commit_overview(cx));
+            return Some(if overview {
+                Section::Overview
+            } else {
+                Section::Changes
+            });
         }
         let item = self.item_of(self.nav_page()?)?;
         Some(
@@ -834,6 +842,13 @@ impl Workspace {
     pub(super) fn show_section(&mut self, section: Section, cx: &mut Context<Self>) {
         if !self.item_sections(cx).contains(&section) {
             return;
+        }
+        // A commit's Overview and Changes are its own, not the item's: the page stays.
+        if matches!(self.shown_page(), Some(Page::BranchCommit(..))) {
+            if let Some(b) = self.branches() {
+                b.set_commit_overview(section == Section::Overview, cx);
+            }
+            return cx.notify();
         }
         let Some(page) = self.nav_page().cloned() else {
             return;
@@ -945,6 +960,12 @@ impl Workspace {
                         seen: 0,
                     })
                 }
+            }
+            // A branch's commit opens on its Changes; its Overview is for that page only.
+            if !matches!(Page::from_route(&page), Some(Page::BranchCommit(..)))
+                && let Some(branches) = self.branches()
+            {
+                branches.set_commit_overview(false, cx);
             }
             // A commit of a request is a level under Commits, picked there when esc comes back to
             // it; two versions compared are Changes (#73).

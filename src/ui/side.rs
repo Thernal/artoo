@@ -22,6 +22,7 @@ impl Workspace {
                 | Act::Fold(_)
                 | Act::VersionTab(_)
                 | Act::Message => {}
+                Act::CommitChanges => this.show_section(super::nav::Section::Changes, cx),
                 Act::Commit(ix) => {
                     this.close_drawer(cx);
                     this.pick(Selection::Commit(ix), cx)

@@ -318,6 +318,12 @@ impl Workspace {
     /// The item's section on screen when it is a page of its own: its Overview or Commits (#73,
     /// #74); none on its Changes.
     fn item_tab(&self, cx: &App) -> Option<ItemTab> {
+        // A branch's commit on its Overview: a page of its own with the side panel kept.
+        if matches!(self.shown_page(), Some(super::nav::Page::BranchCommit(..)))
+            && self.branches().is_some_and(|b| b.commit_overview(cx))
+        {
+            return Some(ItemTab::CommitOverview);
+        }
         match self.page_tab(cx)? {
             super::nav::Section::Overview => Some(ItemTab::Overview),
             super::nav::Section::Commits => Some(ItemTab::Commits),
@@ -364,7 +370,10 @@ impl Workspace {
             !self.side_folded() && (self.layout.show_sidebar || self.motion.recent("side"));
         let route = self.nav_page().cloned();
         // An item's Overview or Commits is a page of its own, nothing beside it (#73, #74).
-        let tab_page = self.item_tab(cx).is_some();
+        let tab_page = matches!(
+            self.item_tab(cx),
+            Some(ItemTab::Overview | ItemTab::Commits)
+        );
         let side = pages.side.as_ref().filter(|_| !tab_page);
         // Zen's keys go under an item's changes.
         let item = (pages.screen)(route.as_ref()) == artoo_shell_api::Screen::Item;

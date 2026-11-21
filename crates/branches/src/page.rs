@@ -9,6 +9,7 @@ use crate::card::branch_card;
 use crate::commits_page::BranchCommits;
 use crate::history::{Acts, History};
 use crate::list::{self, Beside, Card, ListLook};
+use crate::overview::CommitOverview;
 use crate::panel::Panel;
 use artoo_branches_api::{
     BranchCommitRoute, BranchCommitsRoute, BranchRoute, Branches, CompareRoute, VersionsRoute,
@@ -18,7 +19,7 @@ use artoo_core::route::{Place, Route};
 use artoo_requests_api::Requests;
 use artoo_review_api::{ItemView, Review};
 use artoo_shell_api::{
-    Drawing, Frame, ItemRow, NameHover, PagePath, Pages, PathUp, Screen, Services,
+    Drawing, Frame, ItemRow, ItemTab, NameHover, PagePath, Pages, PathUp, Screen, Services,
 };
 use artoo_ui_kit::format::plural;
 use artoo_ui_kit::room::Widths;
@@ -136,6 +137,11 @@ impl RootPage {
     /// A branch's Commits, else the review's item page.
     fn item(&self, route: Route, cx: &mut Context<Self>) -> AnyElement {
         let services = self.frame.services();
+        if self.frame.item_tab(cx) == Some(ItemTab::CommitOverview)
+            && let Some(overview) = services.get::<Entity<CommitOverview>>()
+        {
+            return overview.into_any_element();
+        }
         if self.frame.item_tab(cx).is_some()
             && let Some(commits) = services.get::<Entity<BranchCommits>>()
         {

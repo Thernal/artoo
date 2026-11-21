@@ -148,11 +148,13 @@ impl History {
         Some(match (selection, shown) {
             (Selection::WorkingTree, _) => WorkingTreeRoute {}.route(),
             (Selection::Versions { from, to }, _) => VersionsRoute { refname, from, to }.route(),
-            (Selection::Commit(ix), _) if tabbed || ix > 0 => BranchCommitRoute {
-                refname,
-                commit: hex(self.commits.get(ix)?.id),
+            (Selection::Commit(ix), _) if tabbed || ix > 0 || self.main_line(&refname) => {
+                BranchCommitRoute {
+                    refname,
+                    commit: hex(self.commits.get(ix)?.id),
+                }
+                .route()
             }
-            .route(),
             (Selection::Commits { newest, oldest }, _) => BranchCommitsRoute {
                 refname,
                 newest: hex(self.commits.get(newest)?.id),

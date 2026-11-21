@@ -89,6 +89,8 @@ pub struct History {
     pub whole: Option<((git2::Oid, git2::Oid), usize)>,
     /// The main line's page shows its Changes tab, not its Commits (#208).
     pub main_changes: bool,
+    /// A branch's commit is on its Overview tab, not its Changes.
+    pub commit_overview: bool,
 }
 
 pub use artoo_branches_api::Event;
@@ -204,6 +206,7 @@ impl Default for History {
             widths: Default::default(),
             kept_read: None,
             main_changes: false,
+            commit_overview: false,
             whole: None,
         }
     }
@@ -263,6 +266,21 @@ impl artoo_branches_api::Branches for Handle {
         if let Some(h) = self.0.upgrade() {
             h.update(cx, |h, cx| {
                 h.main_changes = on;
+                cx.notify();
+            });
+        }
+    }
+
+    fn commit_overview(&self, cx: &gpui::App) -> bool {
+        self.0.upgrade().is_some_and(|h| h.read(cx).commit_overview)
+    }
+
+    fn set_commit_overview(&self, on: bool, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade()
+            && h.read(cx).commit_overview != on
+        {
+            h.update(cx, |h, cx| {
+                h.commit_overview = on;
                 cx.notify();
             });
         }
@@ -1070,6 +1088,10 @@ pub fn acts(history: &gpui::Entity<History>, tab: artoo_branches_api::TabActs) -
             Act::Fold(fold) => h.update(cx, |h, cx| h.fold(fold, cx)),
             Act::VersionTab(version_tab) => h.update(cx, |h, cx| {
                 h.version_tab = version_tab;
+                cx.notify()
+            }),
+            Act::CommitChanges => h.update(cx, |h, cx| {
+                h.commit_overview = false;
                 cx.notify()
             }),
             Act::Message => h.update(cx, |h, cx| {

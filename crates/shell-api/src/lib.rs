@@ -442,6 +442,8 @@ pub enum ItemTab {
     Overview,
     /// A request's or a branch's Commits.
     Commits,
+    /// A branch's commit's Overview: its message as a page, the side panel kept beside it.
+    CommitOverview,
 }
 
 /// A list of the side panel the keyboard can be in, each with its keys (⌃2, ⌃3).

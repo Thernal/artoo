@@ -197,6 +197,8 @@ pub enum Act {
     WorkingTree,
     /// The search's chip: the commits' search, their section open.
     FindCommits,
+    /// A commit's Overview, its Changes link: the commit's Changes tab.
+    CommitChanges,
     /// A click in the search's field: it takes the keyboard.
     FindField,
     /// A section of the side panel folded or opened.
@@ -317,6 +319,10 @@ pub trait Branches {
     /// The main line's page shows its Changes tab in the side panel, not its Commits (#208).
     fn main_changes(&self, cx: &App) -> bool;
     fn set_main_changes(&self, on: bool, cx: &mut App);
+
+    /// A commit of a branch is on its Overview tab, not its Changes.
+    fn commit_overview(&self, cx: &App) -> bool;
+    fn set_commit_overview(&self, on: bool, cx: &mut App);
 
     /// A commit, or a run of them (newest, oldest), came on screen as a page: its Commits page has it picked.
     fn pick_commits(&self, newest: git2::Oid, oldest: Option<git2::Oid>, cx: &mut App);

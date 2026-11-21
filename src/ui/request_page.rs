@@ -33,6 +33,10 @@ impl Workspace {
         let count = |section: Section| match section {
             Section::Overview => None,
             Section::Commits => loaded.then_some(self.commit_count(cx)),
+            // A branch's commit counts its own files.
+            Section::Changes if matches!(self.shown_page(), Some(Page::BranchCommit(..))) => {
+                self.shown_diff(cx).map(|d| d.files.len())
+            }
             Section::Changes => files,
         };
         Some(self.item_sections(cx).iter().copied().fold(

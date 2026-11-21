@@ -33,6 +33,14 @@ pub fn piece(history: Entity<History>, services: Rc<Services>) -> Piece {
             {
                 return None;
             }
+            // A branch's commit has its message on its Overview; its Changes are the diff alone.
+            if <artoo_branches_api::BranchCommitRoute as artoo_core::route::Place>::from_route(
+                route,
+            )
+            .is_some()
+            {
+                return None;
+            }
             let review = services.get::<Rc<dyn Review>>()?;
             let diff = review.shown(cx)?;
             let acts = services.get::<Acts>()?;
