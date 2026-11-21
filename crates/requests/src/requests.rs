@@ -1361,6 +1361,16 @@ impl artoo_requests_api::Requests for Handle {
             .is_some_and(|r| r.read(cx).creating.is_some())
     }
 
+    fn create_bar(&self, cx: &App) -> Option<artoo_requests_api::CreateBar> {
+        self.0.upgrade()?.read(cx).create_bar()
+    }
+
+    fn close_create(&self, cx: &mut App) {
+        if let Some(rq) = self.0.upgrade() {
+            rq.update(cx, |rq, cx| rq.close_create(cx));
+        }
+    }
+
     fn pick_branch(&self, name: String, source: bool, cx: &mut App) -> Option<Pair> {
         let branches = self.branch_list(cx);
         let here = self.0.upgrade()?.read(cx).here()?;

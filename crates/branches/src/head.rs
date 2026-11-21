@@ -27,6 +27,12 @@ pub fn piece(history: Entity<History>, services: Rc<Services>) -> Piece {
         id: "branches.head",
         slot: Slot::Identity,
         draw: Rc::new(move |route, drawing, cx| {
+            // A new merge request being written is a page of its own: its bar says what it is.
+            if (services.get::<Rc<dyn artoo_requests_api::Requests>>())
+                .is_some_and(|r| r.creating(cx))
+            {
+                return None;
+            }
             let review = services.get::<Rc<dyn Review>>()?;
             let diff = review.shown(cx)?;
             let acts = services.get::<Acts>()?;

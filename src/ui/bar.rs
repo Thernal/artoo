@@ -10,6 +10,7 @@ use artoo_core::route::{Place, Route};
 use artoo_requests_api::{RequestRoute, Stand};
 use artoo_shell_api::bar::BarAction;
 use artoo_shell_api::{MenuItem, NameHover, PagePath, PathUp, bar};
+use artoo_ui_kit::format::plural;
 use gpui::{
     AnyElement, App, ClickEvent, Context, FontWeight, Pixels, Point, WeakEntity, Window, div,
     prelude::*,
@@ -45,6 +46,20 @@ impl Workspace {
         } = match parts.path.take() {
             Some(path) => path,
             None => self.path_of(space, cx),
+        };
+        // A new merge request is a page of its own under Branches: its crumb, its totals, Cancel as an ×, Create.
+        let writing = self.requests_api().and_then(|r| r.create_bar(cx));
+        let (path, name, mono, hover, called, count) = if writing.is_some() {
+            (
+                vec![PathUp::new("Branches", None)],
+                "New merge request".to_owned(),
+                false,
+                None,
+                None,
+                None,
+            )
+        } else {
+            (path, name, mono, hover, called, count)
         };
         // A request's Changes: the title is its own line over the diff, the bar keeps the number (#212).
         let called = called.filter(|_| {
@@ -108,8 +123,10 @@ impl Workspace {
                 lead: Vec::new(),
                 view: (self.view_of(space, page.as_ref(), cx))
                     .or(parts.view.take())
-                    .filter(|_| !lacking),
-                actions: if lacking {
+                    .filter(|_| !lacking && writing.is_none()),
+                actions: if let Some(writing) = writing {
+                    self.create_actions(writing, cx)
+                } else if lacking {
                     Vec::new()
                 } else {
                     let mut actions = self.actions_of(space, page.as_ref(), cx);
@@ -498,6 +515,97 @@ impl Workspace {
             _ => {}
         }
         out
+    }
+
+    /// The bar of a new merge request being written: its commits, files and lines, Cancel as an ×, then Create (#190:
+    /// with nothing to merge it says so and is not a button).
+    fn create_actions(
+        &self,
+        writing: artoo_requests_api::CreateBar,
+        cx: &mut Context<Self>,
+    ) -> Vec<BarAction> {
+        use super::hover::Hover;
+        let totals = self
+            .shown_diff(cx)
+            .filter(|d| matches!(d.header, artoo_review_api::diff::Header::Compare { .. }));
+        let (files, added, removed) = totals.map_or((0, 0, 0), |d| {
+            d.files.iter().fold((d.files.len(), 0, 0), |(n, a, r), f| {
+                (n, a + f.added, r + f.removed)
+            })
+        });
+        let glyph = |icon: &'static str, n: usize, tip: String, id: &'static str| {
+            div()
+                .id(id)
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .text_size(px(12.))
+                .text_color(theme::muted())
+                .child(
+                    super::icons::icon(icon)
+                        .size(px(13.))
+                        .text_color(theme::muted()),
+                )
+                .child(n.to_string())
+                .tip(tip)
+        };
+        let counts = div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .child(glyph(
+                "commit",
+                writing.commits,
+                plural(writing.commits, "commit"),
+                "create-commits",
+            ))
+            .child(glyph("files", files, plural(files, "file"), "create-files"))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(4.))
+                    .text_size(px(12.))
+                    .child(div().text_color(theme::added()).child(format!("+{added}")))
+                    .child(
+                        div()
+                            .text_color(theme::removed())
+                            .child(format!("−{removed}")),
+                    ),
+            );
+        let close = bar_icon("create-cancel", "x", "Cancel  esc".to_owned()).on_click(cx.listener(
+            |this, _: &ClickEvent, _, cx| {
+                if let Some(requests) = this.requests_api() {
+                    requests.close_create(cx);
+                }
+                cx.notify();
+            },
+        ));
+        let go = if writing.nothing {
+            div()
+                .id("create-go")
+                .flex_none()
+                .h(px(28.))
+                .px(px(10.))
+                .flex()
+                .items_center()
+                .rounded(px(super::ROW_RADIUS))
+                .border_1()
+                .border_color(theme::island_border())
+                .text_size(px(13.))
+                .text_color(theme::faint())
+                .child(super::words::say(&writing.go).into_owned())
+        } else {
+            bar_button("create-go", &writing.go, "⌘↵", true)
+                .when(writing.blocked, |s| s.opacity(0.45))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.submit_create(cx)))
+        };
+        vec![
+            BarAction::new("create-counts", counts),
+            BarAction::new("create-cancel", close),
+            BarAction::new("create-go", go),
+        ]
     }
 
     /// Open in, and its row in `⋯`.

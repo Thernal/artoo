@@ -148,7 +148,6 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
         inputs: vec![create::input(requests.clone(), services.clone())],
         // The request being written first: it is over whatever page it was opened on.
         pieces: vec![
-            pieces::create_header(requests.clone(), services.clone()),
             pieces::create_switch(requests.clone(), services.clone()),
             pieces::create_form(requests.clone(), frame.clone()),
             pieces::title_line(requests.clone()),

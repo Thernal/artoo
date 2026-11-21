@@ -21,11 +21,12 @@ use artoo_shell_api::{Input, Services, Typed};
 use artoo_ui_kit::complete::{list_key, render_list};
 use artoo_ui_kit::controls::chip;
 use artoo_ui_kit::format::plural;
+use artoo_ui_kit::hover::Hover as _;
 use artoo_ui_kit::input::Area;
 use artoo_ui_kit::input::{self, Edit};
 use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::room::Widths;
-use artoo_ui_kit::{ROW_RADIUS, discussion, hover, island, keys, motion, px, theme, words};
+use artoo_ui_kit::{ROW_RADIUS, discussion, hover, icons, keys, motion, px, theme, words};
 use git2::Oid;
 use gpui::{
     AnyElement, App, ClickEvent, Context, Entity, FontWeight, KeyDownEvent, Pixels, div, prelude::*,
@@ -159,32 +160,6 @@ impl Repository {
             branches,
             github: self.github,
         }
-    }
-}
-
-/// The pair's diff as the tab shows it: its files, the lines added and removed.
-#[derive(Clone, Copy)]
-pub struct Totals {
-    pub files: usize,
-    pub added: usize,
-    pub removed: usize,
-}
-
-impl Totals {
-    /// The totals of a comparison's diff; none of any other.
-    pub fn of(d: &artoo_review_api::diff::Diff) -> Option<Totals> {
-        if !matches!(d.header, artoo_review_api::diff::Header::Compare { .. }) {
-            return None;
-        }
-        let (added, removed) = d
-            .files
-            .iter()
-            .fold((0, 0), |(a, r), f| (a + f.added, r + f.removed));
-        Some(Totals {
-            files: d.files.len(),
-            added,
-            removed,
-        })
     }
 }
 
@@ -990,17 +965,11 @@ impl Requests {
         self.creating.as_ref().is_some_and(|n| n.changes)
     }
 
-    /// The header row while a request is being written: its name, the pair, totals, Create.
-    pub fn render_create_header(
-        &self,
-        totals: Option<Totals>,
-        acts: Acts,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
+    /// What the page bar says while a request is being written: its commits and Create (#190: Create says why it
+    /// cannot, and is not a button, when there is nothing to merge).
+    pub fn create_bar(&self) -> Option<artoo_requests_api::CreateBar> {
         let n = self.creating.as_ref()?;
-        // Nothing to merge: Create says why it cannot, and is not a button (#190).
         let nothing = n.nothing && n.existing.is_none();
-        let blocked = n.local_only || n.posting;
         let go = if n.posting {
             "Creating…".to_owned()
         } else if let Some(iid) = n.existing {
@@ -1010,106 +979,12 @@ impl Requests {
         } else {
             "Create".to_owned()
         };
-        Some(
-            island()
-                .flex_none()
-                .flex_row()
-                .items_center()
-                .gap_3()
-                .px_4()
-                .py(px(10.))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap(px(4.))
-                        .child(
-                            div()
-                                .text_size(px(15.))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(words::say("New merge request").into_owned()),
-                        )
-                        .child(
-                            hover::branches("create-branches", &n.source, &n.target)
-                                .font_family(theme::code_font())
-                                .text_size(px(12.))
-                                .text_color(theme::muted()),
-                        ),
-                )
-                .children(self.render_create_totals(totals))
-                .child(
-                    div()
-                        .id("create-cancel")
-                        .flex_none()
-                        .px(px(10.))
-                        .h(px(28.))
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .rounded(px(ROW_RADIUS))
-                        .cursor_pointer()
-                        .hover(|s| s.bg(theme::hover()))
-                        .child("Cancel")
-                        .child(keys::caps("esc", keys::On::Plain))
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_create(cx))),
-                )
-                .child(
-                    div()
-                        .id("create-go")
-                        .flex_none()
-                        .px(px(10.))
-                        .h(px(28.))
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .rounded(px(ROW_RADIUS))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .when(nothing, |s| {
-                            s.border_1()
-                                .border_color(theme::island_border())
-                                .text_color(theme::faint())
-                        })
-                        .when(!nothing, |s| {
-                            s.bg(theme::accent())
-                                .text_color(theme::base())
-                                .when(blocked, |s| s.opacity(0.45))
-                                .when(!blocked, |s| s.cursor_pointer())
-                        })
-                        .child(go)
-                        .when(!nothing, |s| {
-                            s.child(keys::caps("⌘↵", keys::On::Filled))
-                                .on_click(move |_: &ClickEvent, _, cx| acts(Act::CreateGo, cx))
-                        }),
-                )
-                .into_any_element(),
-        )
-    }
-
-    /// "3 commits · 8 files · +46 −12" from the diff of the pair.
-    fn render_create_totals(&self, totals: Option<Totals>) -> Option<gpui::Div> {
-        let n = self.creating.as_ref()?;
-        let Totals {
-            files,
-            added: a,
-            removed: r,
-        } = totals?;
-        Some(
-            div()
-                .flex_none()
-                .flex()
-                .gap_2()
-                .text_size(px(12.))
-                .text_color(theme::muted())
-                .child(format!(
-                    "{} · {} ·",
-                    plural(n.commits, "commit"),
-                    plural(files, "file")
-                ))
-                .child(div().text_color(theme::added()).child(format!("+{a}")))
-                .child(div().text_color(theme::removed()).child(format!("−{r}"))),
-        )
+        Some(artoo_requests_api::CreateBar {
+            commits: n.commits,
+            go,
+            nothing,
+            blocked: n.local_only || n.posting,
+        })
     }
 
     /// The Request | Changes switch at the top of the pane.
@@ -1166,35 +1041,51 @@ impl Requests {
         )
     }
 
-    /// Beside From → Into: whether it merges cleanly, and how many commits are ahead.
+    /// Beside From › Into: whether it merges cleanly (a glyph, its sentence the tooltip) and how many commits are
+    /// ahead, `↑3`.
     fn render_merge_state(&self, n: &NewRequest) -> gpui::Div {
+        let target = n.target.clone();
         let ahead = if n.commits == 0 {
-            "nothing ahead of the target".to_owned()
+            format!("Nothing ahead of {target}")
         } else {
-            format!("{} ahead", plural(n.commits, "commit"))
+            format!("{} ahead of {target}", plural(n.commits, "commit"))
         };
-        let (text, color) = match &n.conflicts {
-            _ if n.commits == 0 => (ahead, theme::muted()),
-            Some(files) if files.is_empty() => {
-                (format!("✓ merges cleanly · {ahead}"), theme::added())
-            }
-            Some(files) => (
-                format!(
-                    "⚠ {} · {ahead}",
-                    match files.as_slice() {
-                        [one] => format!("conflicts in {}", one.rsplit('/').next().unwrap_or(one)),
-                        _ => format!("conflicts in {}", plural(files.len(), "file")),
-                    }
-                ),
+        let state = match &n.conflicts {
+            _ if n.commits == 0 => None,
+            Some(files) if files.is_empty() => Some((
+                "circle-check",
+                theme::added(),
+                format!("Merges cleanly into {target}"),
+            )),
+            Some(files) => Some((
+                "triangle-alert",
                 theme::warning(),
-            ),
-            None => (ahead, theme::muted()),
+                match files.as_slice() {
+                    [one] => format!("Conflicts in {}", one.rsplit('/').next().unwrap_or(one)),
+                    _ => format!("Conflicts in {}", plural(files.len(), "file")),
+                },
+            )),
+            None => None,
         };
         div()
             .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(8.))
             .text_size(px(12.))
-            .text_color(color)
-            .child(text)
+            .text_color(theme::muted())
+            .children(state.map(|(icon, color, tip)| {
+                div()
+                    .id("create-merge-state")
+                    .child(icons::icon(icon).size(px(16.)).text_color(color))
+                    .tip(tip)
+            }))
+            .child(
+                div()
+                    .id("create-ahead")
+                    .child(format!("↑{}", n.commits))
+                    .tip(ahead),
+            )
     }
 
     /// A list under a field: rows of `(label, chosen, swatch)`, each a click.
@@ -1517,51 +1408,81 @@ impl Requests {
             .bg(theme::panel())
             .shadow_lg()
             .text_size(px(13.))
-            .children(choices.into_iter().enumerate().map(|(i, (name, local))| {
-                let pick = name.clone();
-                let default = !source && ["main", "master"].contains(&name.as_str());
-                div()
-                    .id((id, i))
-                    .px(px(8.))
-                    .h(px(26.))
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .rounded(px(ROW_RADIUS))
-                    .cursor_pointer()
-                    .when(i == n.target_at, |s| s.bg(theme::selected()))
-                    .hover(|s| s.bg(theme::hover()))
-                    .child(
-                        hover::name(("create-target-name", i), name.clone())
-                            .flex_1()
-                            .font_family(theme::code_font()),
-                    )
-                    .children(default.then(|| {
-                        div()
-                            .text_size(px(11.))
-                            .text_color(theme::faint())
-                            .child("default")
-                    }))
-                    .children(local.then(|| {
-                        div()
-                            .text_size(px(11.))
-                            .text_color(theme::faint())
-                            .child("not on origin")
-                    }))
-                    .on_click({
-                        let acts = acts.clone();
-                        move |_: &ClickEvent, _, cx| {
-                            acts(
-                                if source {
-                                    Act::PickSource(pick.clone())
-                                } else {
-                                    Act::PickTarget(pick.clone())
-                                },
-                                cx,
-                            )
-                        }
+            .children(
+                choices
+                    .into_iter()
+                    .enumerate()
+                    .scan(None, |last: &mut Option<bool>, (i, (name, local))| {
+                        // A heading where the rows turn from what is on origin to what is only here.
+                        let heading = (*last != Some(local)).then_some(local);
+                        *last = Some(local);
+                        Some((i, name, local, heading))
                     })
-            }));
+                    .map(|(i, name, _, heading)| {
+                        let pick = name.clone();
+                        let default = !source && ["main", "master"].contains(&name.as_str());
+                        div()
+                            .flex()
+                            .flex_col()
+                            .children(heading.map(|local| {
+                                div()
+                                    .px(px(8.))
+                                    .h(px(24.))
+                                    .flex()
+                                    .items_center()
+                                    .text_size(px(11.))
+                                    .text_color(theme::faint())
+                                    .child(if local { "local only" } else { "origin" })
+                            }))
+                            .child(
+                                div()
+                                    .id((id, i))
+                                    .px(px(8.))
+                                    .h(px(26.))
+                                    .flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .rounded(px(ROW_RADIUS))
+                                    .cursor_pointer()
+                                    .when(i == n.target_at, |s| s.bg(theme::selected()))
+                                    .hover(|s| s.bg(theme::hover()))
+                                    .child(
+                                        icons::icon("branch")
+                                            .size(px(14.))
+                                            .text_color(theme::faint()),
+                                    )
+                                    .child(
+                                        hover::name(("create-target-name", i), name.clone())
+                                            .flex_1()
+                                            .font_family(theme::code_font()),
+                                    )
+                                    .children(default.then(|| {
+                                        div()
+                                            .id("create-default")
+                                            .flex_none()
+                                            .child(
+                                                icons::icon("house")
+                                                    .size(px(14.))
+                                                    .text_color(theme::faint()),
+                                            )
+                                            .tip("Default branch")
+                                    }))
+                                    .on_click({
+                                        let acts = acts.clone();
+                                        move |_: &ClickEvent, _, cx| {
+                                            acts(
+                                                if source {
+                                                    Act::PickSource(pick.clone())
+                                                } else {
+                                                    Act::PickTarget(pick.clone())
+                                                },
+                                                cx,
+                                            )
+                                        }
+                                    }),
+                            )
+                    }),
+            );
         Some(
             div()
                 .absolute()
@@ -1965,7 +1886,11 @@ impl Requests {
                                 ))
                                 .children(source_list),
                         )
-                        .child(div().text_color(theme::faint()).child("→"))
+                        .child(
+                            icons::icon("chevron-right")
+                                .size(px(14.))
+                                .text_color(theme::faint()),
+                        )
                         .child(
                             div()
                                 .relative()

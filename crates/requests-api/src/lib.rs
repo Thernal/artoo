@@ -921,6 +921,10 @@ pub trait Requests {
     fn open_create_menu(&self, name: &str, cx: &mut App);
     /// The form is open.
     fn creating(&self, cx: &App) -> bool;
+    /// What the page bar says of the form while it is open: how many commits it merges and its Create.
+    fn create_bar(&self, cx: &App) -> Option<CreateBar>;
+    /// The form is closed, what was written dropped.
+    fn close_create(&self, cx: &mut App);
     /// From's (`source`) or Into's list chose `name`: the pair; ↑ ↓ on the list open (`true`: taken).
     fn pick_branch(&self, name: String, source: bool, cx: &mut App) -> Option<Pair>;
     fn step_branch_list(&self, down: bool, cx: &mut App) -> bool;
@@ -981,4 +985,16 @@ pub struct RequestVersionsRoute {
 
 impl Place for RequestVersionsRoute {
     const KIND: &'static str = "requests.versions";
+}
+
+/// What the page bar holds while a new merge request is being written (`Requests::create_bar`).
+pub struct CreateBar {
+    /// The commits of the pair.
+    pub commits: usize,
+    /// Create's word: `Create`, `Creating…`, `Open !12`, `Create · Nothing to merge`.
+    pub go: String,
+    /// Nothing to merge, or the request is there already: Create is not a primary button.
+    pub nothing: bool,
+    /// Create cannot be pressed now.
+    pub blocked: bool,
 }

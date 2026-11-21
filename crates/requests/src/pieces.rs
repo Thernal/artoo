@@ -3,7 +3,7 @@
 //! last file, the card of what next. They read the review's diff and the tab's
 //! answers to the requests' acts from the tab's services.
 
-use crate::create::{self, CreateLook, Totals};
+use crate::create::{self, CreateLook};
 use crate::requests::{Act, Acts, Requests};
 use artoo_branches_api::Branches;
 use artoo_core::route::{Place, Route};
@@ -16,22 +16,6 @@ use artoo_ui_kit::done::{DoneEvent, DoneLook, render_done_card};
 use artoo_ui_kit::{island, theme};
 use gpui::{App, Entity, prelude::*};
 use std::rc::Rc;
-
-/// The header while a request is being written (`Requests::render_create_header`), whatever page it is over.
-pub fn create_header(requests: Entity<Requests>, services: Rc<Services>) -> Piece {
-    Piece {
-        id: "requests.create-header",
-        slot: Slot::Identity,
-        draw: Rc::new(move |_, _, cx| {
-            let totals = services
-                .get::<Rc<dyn Review>>()?
-                .shown(cx)
-                .and_then(|d| Totals::of(&d));
-            let acts = services.get::<Acts>()?;
-            requests.update(cx, |rq, cx| rq.render_create_header(totals, acts, cx))
-        }),
-    }
-}
 
 /// The Request | Changes switch at the top of the diff's column while a request is being written
 /// (`Requests::render_create_switch`), with the count of the files it changes.
