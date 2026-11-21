@@ -52,7 +52,7 @@ pub fn render_thread(
         .and_then(|iid| rq.find(iid))
         .map(|m| m.author.clone());
     let rich_notes = t.notes.iter().any(|n| markdown::has_markdown(&n.body));
-    let (fold, raw, fold_button) = (on.clone(), on.clone(), on.clone());
+    let (fold, raw) = (on.clone(), on.clone());
     let bar = discussion::bar(("thread-bar", ix), open)
         .child(discussion::source_pill(Source::GitLab))
         .children((!open).then(|| {
@@ -267,7 +267,7 @@ pub fn render_thread(
                     div()
                         .id(("thread-reply", ix))
                         .flex_1()
-                        .h(px(34.))
+                        .h(px(28.))
                         .pl(px(10.))
                         .pr(px(6.))
                         .flex()
@@ -297,25 +297,11 @@ pub fn render_thread(
                         focused.then_some("x"),
                         None,
                         Kind::Plain,
-                        tight,
+                        false,
                     )
-                    .h(px(34.))
+                    .h(px(28.))
                     .on_click(move |_, _, cx| resolve(ThreadEvent::Resolve, cx))
                 }))
-                .child({
-                    let fold = fold_button.clone();
-                    icon_button(
-                        ("thread-fold", ix),
-                        "chevron",
-                        "Fold",
-                        focused.then_some("o"),
-                        None,
-                        Kind::Plain,
-                        tight,
-                    )
-                    .h(px(34.))
-                    .on_click(move |_, _, cx| fold(ThreadEvent::Fold(false), cx))
-                })
         }),
     };
     let pick = on;
