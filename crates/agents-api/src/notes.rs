@@ -27,6 +27,13 @@ pub struct Note {
     /// The line's text when it was written: where it is found again.
     pub code: String,
     pub body: String,
+    /// Hidden by the reviewer: kept, out of view until Undo (Claude is not told).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hidden: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// One agent's notes on one set of changes.
@@ -39,6 +46,9 @@ pub struct Notes {
     #[serde(default)]
     pub summary: String,
     pub notes: Vec<Note>,
+    /// All of these hidden by the reviewer: kept, out of view until Undo.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hidden: bool,
 }
 
 impl Notes {
@@ -85,6 +95,7 @@ pub enum Shown {
 /// where the diff's head is its commit or bears its name.
 pub fn shown<'a>(all: &'a [Notes], shown: &Shown, branch: Option<String>) -> Vec<&'a Notes> {
     all.iter()
+        .filter(|n| !n.hidden)
         .filter(|n| match (&n.on, shown) {
             (On::WorkingTree, Shown::WorkingTree) => true,
             (_, Shown::WorkingTree) | (On::WorkingTree, _) => false,
@@ -105,17 +116,20 @@ pub fn note(all: &[Notes], id: u64) -> Option<(&Notes, &Note)> {
         .find_map(|n| Some((n, n.notes.iter().find(|x| x.id == id)?)))
 }
 
-/// Note `id` dismissed; its notes go with their last.
-pub fn dismiss(all: &mut Vec<Notes>, id: u64) {
-    for n in all.iter_mut() {
-        n.notes.retain(|x| x.id != id);
+/// Note `id` hidden (`hidden`) or brought back: kept either way, the agent is not told.
+pub fn hide(all: &mut [Notes], id: u64, hidden: bool) {
+    for note in all.iter_mut().flat_map(|n| n.notes.iter_mut()) {
+        if note.id == id {
+            note.hidden = hidden;
+        }
     }
-    all.retain(|n| !n.notes.is_empty() || !n.summary.is_empty());
 }
 
-/// Dismiss all on a summary: notes `uid` and their summary go.
-pub fn dismiss_all(all: &mut Vec<Notes>, uid: &str) {
-    all.retain(|n| n.uid != uid);
+/// Every note of notes `uid`, and their summary, hidden (`hidden`) or brought back.
+pub fn hide_all(all: &mut [Notes], uid: &str, hidden: bool) {
+    for n in all.iter_mut().filter(|n| n.uid == uid) {
+        n.hidden = hidden;
+    }
 }
 
 #[cfg(test)]
@@ -129,6 +143,7 @@ mod tests {
             at: 0,
             on,
             summary: "why".into(),
+            hidden: false,
             notes: (0..n)
                 .map(|i| Note {
                     path: "a.rs".into(),
@@ -166,21 +181,17 @@ mod tests {
     }
 
     #[test]
-    fn a_note_dismissed_takes_its_notes_with_its_last_unless_a_summary_stays() {
+    fn a_note_hidden_is_kept_and_comes_back() {
         let mut kept = Vec::new();
         take(&mut kept, notes("Claude", On::WorkingTree, 2));
-        take(&mut kept, notes("Codex", On::WorkingTree, 1));
-        kept[1].summary.clear();
-        dismiss(&mut kept, 3);
-        assert_eq!(
-            kept.len(),
-            1,
-            "Codex's last note gone, and no summary of it"
-        );
-        dismiss(&mut kept, 1);
-        dismiss(&mut kept, 2);
-        assert_eq!(kept.len(), 1, "Claude's summary stays");
-        dismiss_all(&mut kept, "Claude-2");
-        assert!(kept.is_empty());
+        hide(&mut kept, 1, true);
+        assert!(kept[0].notes[0].hidden && !kept[0].notes[1].hidden);
+        assert_eq!(kept[0].notes.len(), 2, "never deleted");
+        hide(&mut kept, 1, false);
+        assert!(!kept[0].notes[0].hidden);
+        hide_all(&mut kept, "Claude-2", true);
+        assert!(shown(&kept, &Shown::WorkingTree, None).is_empty());
+        hide_all(&mut kept, "Claude-2", false);
+        assert_eq!(shown(&kept, &Shown::WorkingTree, None).len(), 1);
     }
 }

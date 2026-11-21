@@ -2,8 +2,8 @@
 //! the agent's colour, apart from the reviewer's comments, with the summary over the diff, while
 //! the diff shows the changes they are on — the working tree, or a head the agent named (its
 //! branch's pages, a comparison or a request with that head). Answer opens a comment for the agent
-//! on the note's line; the reviewer dismisses one, or all of them at once. The notes kept — taken,
-//! dismissed —, which are on the diff and where they followed their lines are the agents' (`Agents`);
+//! on the note's line; the reviewer hides one, or all of them at once (kept, with Undo in a toast). The notes kept — taken,
+//! hidden —, which are on the diff and where they followed their lines are the agents' (`Agents`);
 //! the tab hears them changed (`on_notes`).
 
 use super::Workspace;
@@ -25,6 +25,14 @@ pub(super) struct ShowNotes {
     pub(super) page: Page,
     pub(super) unstaged: Option<bool>,
     agent: String,
+}
+
+/// Undo on the toast of notes hidden: they come back.
+#[derive(Clone, PartialEq, Debug, gpui::Action)]
+#[action(namespace = agents, no_json, no_register)]
+pub(super) struct UndoHide {
+    pub(super) id: Option<u64>,
+    pub(super) uid: String,
 }
 
 impl Workspace {
@@ -60,6 +68,7 @@ impl Workspace {
             on,
             summary,
             notes,
+            hidden: false,
         };
         self.agents.take_notes(notes, cx);
         self.map_agent_notes(cx);
@@ -117,7 +126,7 @@ impl Workspace {
         self.notes_shown(cx)
             .into_iter()
             .flat_map(|n| n.notes.iter())
-            .filter(|n| n.path == path)
+            .filter(|n| n.path == path && !n.hidden)
             .filter_map(|n| {
                 match crate::comment::find_line(n.line, &n.code, side.count(), |l| side.line(l).0) {
                     Place::Line(line) => Some((n.id, line)),
@@ -191,13 +200,37 @@ impl Workspace {
         }
     }
 
-    /// What answers a note's clicks: Answer the tab's composer, Dismiss the agents'.
+    /// Note `id`, or the notes `uid` with their summary, hidden or brought back: kept either way; hiding says so in
+    /// a toast with Undo.
+    pub(super) fn hide_notes(
+        &mut self,
+        id: Option<u64>,
+        uid: String,
+        hidden: bool,
+        cx: &mut Context<Self>,
+    ) {
+        match id {
+            Some(id) => self.agents.hide_note(id, hidden, cx),
+            None => self.agents.hide_notes(&uid, hidden, cx),
+        }
+        if hidden {
+            let what = if id.is_some() {
+                "Note hidden"
+            } else {
+                "Notes hidden"
+            };
+            let toast = artoo_shell_api::Toast::new(what).button("Undo", UndoHide { id, uid });
+            self.show_toast(toast, cx);
+        }
+    }
+
+    /// What answers a note's clicks: Reply the tab's composer, Hide the agents'.
     fn note_on(this: WeakEntity<Self>) -> OnNote {
         Rc::new(move |event, cx| {
             this.update(cx, |this, cx| match event {
                 NoteEvent::Answer(id) => this.answer_note(id, cx),
-                NoteEvent::Dismiss(id) => this.agents.dismiss_note(id, cx),
-                NoteEvent::DismissAll(uid) => this.agents.dismiss_notes(&uid, cx),
+                NoteEvent::Hide(id) => this.hide_notes(Some(id), String::new(), true, cx),
+                NoteEvent::HideAll(uid) => this.hide_notes(None, uid, true, cx),
             })
             .ok();
         })

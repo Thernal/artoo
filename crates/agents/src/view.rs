@@ -107,20 +107,22 @@ pub fn note_card(
             }),
         )
         .child(
-            discussion::icon_button(
-                ("note-dismiss", id as usize),
-                "x",
-                "Dismiss",
-                None,
+            discussion::button(
+                gpui::SharedString::from(format!("note-hide-{id}")),
+                "Hide",
                 None,
                 Kind::Quiet,
-                true,
             )
             .h(px(24.))
-            .px(px(6.))
+            .px(px(8.))
+            .tooltip_show_delay(hover::LONG)
+            .tooltip(|_, cx| {
+                cx.new(|_| hover::Tip("Hide this note; Claude is not told"))
+                    .into()
+            })
             .on_click(move |_, _, cx| {
                 cx.stop_propagation();
-                dismiss(NoteEvent::Dismiss(id), cx);
+                dismiss(NoteEvent::Hide(id), cx);
             }),
         );
     div()
@@ -140,7 +142,7 @@ pub fn note_card(
 }
 
 /// Over the diff, the summary of each agent's notes on these changes (`shown`, each with its agent's mark): the
-/// mark, how many notes on how many files, the summary, Dismiss all; `gap` apart and under.
+/// mark, how many notes on how many files, the summary, Hide; `gap` apart and under.
 pub fn notes_summary(
     shown: &[(&Notes, (char, Rgba))],
     rich: bool,
@@ -153,10 +155,15 @@ pub fn notes_summary(
         return None;
     }
     let cards = shown.iter().map(|&(n, (letter, hue))| {
-        let mut files: Vec<&str> = n.notes.iter().map(|x| x.path.as_str()).collect();
+        let mut files: Vec<&str> = n
+            .notes
+            .iter()
+            .filter(|x| !x.hidden)
+            .map(|x| x.path.as_str())
+            .collect();
         files.sort_unstable();
         files.dedup();
-        let count = match n.notes.len() {
+        let count = match n.notes.iter().filter(|x| !x.hidden).count() {
             0 => String::new(),
             notes => format!(
                 "· {} on {}",
@@ -186,14 +193,19 @@ pub fn notes_summary(
                     )
                     .child(
                         discussion::button(
-                            gpui::SharedString::from(format!("notes-dismiss-{}", n.uid)),
-                            "Dismiss all",
+                            gpui::SharedString::from(format!("notes-hide-{}", n.uid)),
+                            "Hide",
                             None,
                             Kind::Quiet,
                         )
                         .h(px(24.))
                         .px(px(8.))
-                        .on_click(move |_, _, cx| dismiss(NoteEvent::DismissAll(uid.clone()), cx)),
+                        .tooltip_show_delay(hover::LONG)
+                        .tooltip(|_, cx| {
+                            cx.new(|_| hover::Tip("Hide these notes; Claude is not told"))
+                                .into()
+                        })
+                        .on_click(move |_, _, cx| dismiss(NoteEvent::HideAll(uid.clone()), cx)),
                     ),
             )
             // A long one scrolls in its card; the diff keeps the room.

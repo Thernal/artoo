@@ -162,11 +162,11 @@ pub trait Agents {
     /// Where note `id`, on a head the diff has moved on from, is on the head shown (`follow`).
     fn followed(&self, id: u64, cx: &App) -> Option<u32>;
 
-    /// An agent's notes on its changes kept, its earlier ones on the same changes replaced; note `id` dismissed (its
-    /// notes go with their last); a summary's notes dismissed with it, `uid` theirs.
+    /// An agent's notes on its changes kept, its earlier ones on the same changes replaced; note `id` hidden or
+    /// brought back (kept either way); a summary's notes hidden with it, `uid` theirs.
     fn take_notes(&self, notes: Notes, cx: &mut App);
-    fn dismiss_note(&self, id: u64, cx: &mut App);
-    fn dismiss_notes(&self, uid: &str, cx: &mut App);
+    fn hide_note(&self, id: u64, hidden: bool, cx: &mut App);
+    fn hide_notes(&self, uid: &str, hidden: bool, cx: &mut App);
 
     /// Project `project`'s notes, read anew.
     fn load_notes(&self, project: PathBuf, cx: &mut App);

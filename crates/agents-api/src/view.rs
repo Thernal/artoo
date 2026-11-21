@@ -73,7 +73,7 @@ pub trait NotesHost {
     /// Comments drawn as markdown.
     fn rich(&self, cx: &App) -> bool;
 
-    /// A click on a note or a summary: answered, dismissed.
+    /// A click on a note or a summary: answered, hidden.
     fn note(&self, event: NoteEvent, cx: &mut App);
 }
 
@@ -82,10 +82,10 @@ pub trait NotesHost {
 pub enum NoteEvent {
     /// Answer: a comment for the agent on note `id`'s line.
     Answer(u64),
-    /// Note `id` dismissed.
-    Dismiss(u64),
-    /// Every note of the agent's notes `uid` dismissed.
-    DismissAll(String),
+    /// Note `id` hidden, kept (Undo brings it back).
+    Hide(u64),
+    /// Every note of the agent's notes `uid`, and their summary, hidden.
+    HideAll(String),
 }
 
 /// What answers a note's clicks.

@@ -274,6 +274,9 @@ impl Workspace {
         } else if let Some(a) = act.downcast_ref::<super::agent_notes::ShowNotes>() {
             let (page, unstaged) = (a.page.clone(), a.unstaged);
             self.show_agent_notes(page, unstaged, cx);
+        } else if let Some(a) = act.downcast_ref::<super::agent_notes::UndoHide>() {
+            let (id, uid) = (a.id, a.uid.clone());
+            self.hide_notes(id, uid, false, cx);
         } else if let Some(a) = act.downcast_ref::<OpenDraft>() {
             self.open_agent_draft(a.source.clone(), cx);
         } else if let Some(a) = act.downcast_ref::<ShowPlace>() {

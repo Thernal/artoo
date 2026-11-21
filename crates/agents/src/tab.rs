@@ -328,15 +328,15 @@ impl Agents for TabAgents {
         });
     }
 
-    fn dismiss_note(&self, id: u64, cx: &mut App) {
+    fn hide_note(&self, id: u64, hidden: bool, cx: &mut App) {
         crate::notes::change(&self.notes, cx, |all| {
-            artoo_agents_api::notes::dismiss(all, id)
+            artoo_agents_api::notes::hide(all, id, hidden)
         });
     }
 
-    fn dismiss_notes(&self, uid: &str, cx: &mut App) {
+    fn hide_notes(&self, uid: &str, hidden: bool, cx: &mut App) {
         crate::notes::change(&self.notes, cx, |all| {
-            artoo_agents_api::notes::dismiss_all(all, uid)
+            artoo_agents_api::notes::hide_all(all, uid, hidden)
         });
     }
 
