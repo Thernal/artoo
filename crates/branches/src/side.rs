@@ -80,8 +80,7 @@ pub fn version_rows(h: &History, new_from: Option<usize>, read: Option<usize>, a
                     });
                 }
             }
-            // When, short, last.
-            detail.push(format::short_ago(v.time));
+            // When goes out of the line, short, to the row's end (`time_cell`).
             // The rail: a dot per version and a line to the older one.
             let rail = div()
                 .flex_none()
@@ -173,10 +172,19 @@ pub fn version_rows(h: &History, new_from: Option<usize>, read: Option<usize>, a
                         .child(
                             div()
                                 .w_full()
-                                .cut_in_tip()
+                                .flex()
+                                .items_center()
+                                .gap_2()
                                 .text_size(px(11.))
                                 .text_color(theme::muted())
-                                .child(detail.join(" · ")),
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .cut_in_tip()
+                                        .child(detail.join(" · ")),
+                                )
+                                .child(format::time_cell(v.time)),
                         ),
                 )
                 .on_click(move |event: &ClickEvent, _, cx| {
