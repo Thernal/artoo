@@ -9,7 +9,7 @@ use artoo_core::git::{BranchRef, Repo, WebRemote};
 use artoo_core::route::{Place, Route};
 use artoo_review_api::{FileView, Review};
 use artoo_shell_api::{Frame, ItemRow, Link, MenuItem, NameHover, PagePath, Pages, PathUp, Screen};
-use artoo_ui_kit::hover::{CutInTip, Tip, TipOwned};
+use artoo_ui_kit::hover::{CutInTip, Hover, Tip, TipOwned};
 use artoo_ui_kit::{icons, island, keys, markdown, px, theme};
 use git2::Oid;
 use gpui::{
@@ -1581,7 +1581,17 @@ impl CodeSpace {
                             .child(path.clone()),
                     )
                     .child(div().flex_1())
-                    .child(div().text_color(theme::faint()).child("rendered")),
+                    .child(
+                        div()
+                            .id("folder-page-rendered")
+                            .flex_none()
+                            .child(
+                                icons::icon("book-open")
+                                    .size(px(14.))
+                                    .text_color(theme::faint()),
+                            )
+                            .tip_two("Rendered", "M shows its source"),
+                    ),
             )
             .child(
                 div()

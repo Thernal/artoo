@@ -1,6 +1,7 @@
 //! A context menu at the pointer (right click on a commit, a file or a line; the diff's View menu): entries in
 //! groups, each doing an act of the tab's kind `A`, handed to the runner the tab gave once the menu has let go.
 
+use crate::hover::Hover;
 use crate::{ISLAND_RADIUS, hover, keys, motion, px, row, theme, ui_zoom};
 use gpui::{
     App, Context, MouseButton, Pixels, Point, Render, Rgba, SharedString, Window, div, prelude::*,
@@ -25,6 +26,9 @@ pub struct Entry<A> {
     /// A second line under the label, faint, `true` in the code face (a chat's branch, #200). Its `detail` then
     /// stands at the row's right end instead of after the label.
     pub under: Option<(String, bool)>,
+    /// A glyph at the row's right end with its sentence as the tooltip, in place of `key` (Open in's
+    /// `This project's editor before`).
+    pub note: Option<(&'static str, String)>,
 }
 
 /// What an entry wears before its label (#200, the `To:` list).
@@ -47,6 +51,7 @@ impl<A> Entry<A> {
             act: Some(act),
             lead: None,
             under: None,
+            note: None,
         }
     }
 
@@ -61,6 +66,7 @@ impl<A> Entry<A> {
             act: None,
             lead: None,
             under: None,
+            note: None,
         }
     }
 
@@ -81,6 +87,12 @@ impl<A> Entry<A> {
 
     pub fn detail(mut self, detail: impl Into<String>) -> Self {
         self.detail = Some(detail.into());
+        self
+    }
+
+    /// A glyph, `icon`, at the right end, saying `tip` on a long hover.
+    pub fn note(mut self, icon: &'static str, tip: impl Into<String>) -> Self {
+        self.note = Some((icon, tip.into()));
         self
     }
 
@@ -348,12 +360,23 @@ impl<A: Clone + 'static> Menu<A> {
                                 )
                                 .into_any_element(),
                         })
-                        .child(
-                            div()
+                        .child(match entry.note.clone() {
+                            Some((icon, tip)) => div()
+                                .id("note")
+                                .flex_none()
+                                .child(
+                                    crate::icons::icon(icon)
+                                        .size(px(14.))
+                                        .text_color(theme::faint()),
+                                )
+                                .tip(tip)
+                                .into_any_element(),
+                            None => div()
                                 .text_size(px(11.))
                                 .text_color(theme::faint())
-                                .child(keys::text(entry.key).into_owned()),
-                        )
+                                .child(keys::text(entry.key).into_owned())
+                                .into_any_element(),
+                        })
                         .when_some(act.filter(|_| live), |s, act| {
                             s.on_click(cx.listener(move |this, _, window, cx| {
                                 this.press(act.clone(), window, cx)

@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 const FILE: &str = "open-with.txt";
 
 use artoo_ui_kit::controls::{self, REVEAL, chip};
-use artoo_ui_kit::hover;
+use artoo_ui_kit::hover::{self, Hover};
 
 /// An app a file opens in.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -276,24 +276,28 @@ impl Workspace {
         let kind = kind_of(&path);
         let editors = artoo_shell_api::editors(cx);
         let yours = self.editor(cx);
-        let mut apps: Vec<(App, &'static str)> = Vec::new();
+        let mut apps: Vec<(App, Option<(&'static str, &'static str)>)> = Vec::new();
         if matches!(kind, Kind::Text | Kind::Folder) {
             apps.extend(editors.iter().copied().filter(|e| e.installed()).map(|e| {
                 (
                     App::Editor(e),
-                    if Some(e) == yours { "your editor" } else { "" },
+                    if Some(e) == yours {
+                        Some(("user-check", "Your editor"))
+                    } else {
+                        None
+                    },
                 )
             }));
         }
         if kind != Kind::Folder {
             if !platform::NAMES_APPS {
-                apps.push((App::Default, ""));
+                apps.push((App::Default, None));
             }
             for (n, (name, at)) in platform::apps_for(&path).into_iter().enumerate() {
                 // An editor the system lists is the one above, which opens at the line.
                 let editor = editors.iter().any(|e| e.bundle() == name);
                 if !editor && !apps.iter().any(|(a, _)| a.name() == name) {
-                    let note = if n == 0 { "the default" } else { "" };
+                    let note = (n == 0).then_some(("star", "The default for this kind of file"));
                     apps.push((App::Other { name, path: at }, note));
                 }
             }
@@ -301,18 +305,21 @@ impl Workspace {
         if let Some(now) = &now
             && !apps.iter().any(|(a, _)| a == now)
         {
-            apps.insert(0, (now.clone(), ""));
+            apps.insert(0, (now.clone(), None));
         }
         let open = apps
             .into_iter()
             .map(|(app, note)| {
                 let on = now.as_ref() == Some(&app);
-                Entry::new(app.name(), {
+                let entry = Entry::new(app.name(), {
                     let app = app.clone();
                     Act::new(move |this, _, cx| this.open_with_app(app.clone(), cx))
                 })
-                .key(note)
-                .checked(on)
+                .checked(on);
+                match note {
+                    Some((icon, tip)) => entry.note(icon, tip),
+                    None => entry,
+                }
             })
             .collect();
         let places = vec![
@@ -483,7 +490,8 @@ impl Workspace {
         let known = app.is_some();
         let actions = div()
             .flex()
-            .gap_2()
+            .gap_1()
+            .items_center()
             .child(
                 super::bar::bar_button("binary-open", &label, "", false).on_mouse_down(
                     MouseButton::Left,
@@ -497,7 +505,26 @@ impl Workspace {
                 ),
             )
             .child(
-                super::bar::bar_button("binary-reveal", REVEAL, "", false)
+                // The diff toolbar's 28 px icon square (`review::toolbar::square`, private to that crate).
+                div()
+                    .id("binary-reveal")
+                    .size(px(28.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(artoo_ui_kit::ROW_RADIUS))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::hover()))
+                    .child(
+                        icons::icon("folder-search")
+                            .size(px(14.))
+                            .text_color(theme::muted()),
+                    )
+                    .tip(format!(
+                        "{REVEAL}  {}",
+                        artoo_ui_kit::keys::text("\u{2325}\u{2318}R")
+                    ))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.reveal_target(cx))),
             );
         controls::empty_state(

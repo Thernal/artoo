@@ -109,6 +109,29 @@ const ICONS: &[(&str, &str)] = &[
         ),
     ),
     ("check", lucide!(r#"<path d="M20 6 9 17l-5-5"/>"#)),
+    (
+        "book-open",
+        lucide!(
+            r#"<path d="M12 7v14"/>"#
+            r#"<path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>"#
+        ),
+    ),
+    (
+        "folder-search",
+        lucide!(
+            r#"<path d="M10.7 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v4.1"/>"#
+            r#"<path d="m21 21-1.9-1.9"/>"#
+            r#"<circle cx="17" cy="17" r="3"/>"#
+        ),
+    ),
+    (
+        "history",
+        lucide!(
+            r#"<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>"#
+            r#"<path d="M3 3v5h5"/>"#
+            r#"<path d="M12 7v5l4 2"/>"#
+        ),
+    ),
     // A theme that is light, and a theme's colours under the contrast floor (the code theme's list).
     (
         "sun",

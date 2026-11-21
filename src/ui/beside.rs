@@ -4,7 +4,9 @@
 //! folder chosen opens its page, a file its tab. It holds the keyboard while it is open, and a
 //! press anywhere else only closes it.
 
+use super::hover::Hover;
 use super::input::{self, Edit};
+use super::nav::Page;
 use super::{ISLAND_RADIUS, Workspace, icons, px, theme};
 use gpui::{
     AnyElement, ClickEvent, Context, KeyDownEvent, MouseButton, SharedString, div, prelude::*,
@@ -179,26 +181,30 @@ impl Workspace {
         let b = self.beside.as_ref().filter(|b| b.folder == folder)?;
         let rows = self.beside_rows(cx);
         let at = self.beside_at(&rows);
+        // The file the page shows, said in the glyph's tooltip of the folder it is in.
+        let here_name = match self.shown_page() {
+            Some(Page::File(path)) => name(&path).to_owned(),
+            _ => "The page".to_owned(),
+        };
         let up = div()
             .flex()
             .items_center()
             .gap_2()
             .child(
-                icons::icon("corner-left-up")
-                    .size(px(14.))
-                    .text_color(theme::muted()),
+                div()
+                    .id("beside-open-glyph")
+                    .flex_none()
+                    .child(
+                        icons::icon("corner-left-up")
+                            .size(px(14.))
+                            .text_color(theme::muted()),
+                    )
+                    .tip("Opens the folder\u{2019}s page"),
             )
             .child(
                 super::hover::cut("beside-open", format!("Open {}", name(folder)))
                     .flex_1()
                     .min_w_0(),
-            )
-            .child(
-                div()
-                    .flex_none()
-                    .text_size(px(11.))
-                    .text_color(theme::faint())
-                    .child("the folder\u{2019}s page"),
             );
         let row = |i: usize, body: gpui::Div| {
             super::row(SharedString::from(format!("beside-{i}")), i == at)
@@ -230,10 +236,14 @@ impl Workspace {
                     )
                     .children((path == folder).then(|| {
                         div()
+                            .id(SharedString::from(format!("beside-here-{i}")))
                             .flex_none()
-                            .text_size(px(11.))
-                            .text_color(theme::faint())
-                            .child("here")
+                            .size(px(14.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(div().size(px(5.)).rounded_full().bg(theme::faint()))
+                            .tip_two("Here", format!("{} is in it", here_name))
                     })),
             )
         });
@@ -282,11 +292,13 @@ impl Workspace {
             .child(line())
             .child(
                 div()
+                    .id("beside-keys")
                     .px(px(8.))
                     .py(px(2.))
                     .text_size(px(11.))
                     .text_color(theme::faint())
-                    .child("↑↓ ↵ · esc closes"),
+                    .child("↑↓  ↵  esc")
+                    .tip("↑↓ move · ↵ opens · esc closes"),
             );
         Some(
             div()
