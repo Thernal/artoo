@@ -343,6 +343,8 @@ impl Workspace {
             let (this, id) = (editing.clone(), id);
             let state = comment.state;
             let unanswered = comment.replies.is_empty();
+            let marked = open && markdown::has_markdown(&comment.body);
+            let rich = self.settings.rich_comments;
             discussion::icon_button(
                 ("more-agent", id),
                 "ellipsis",
@@ -380,7 +382,21 @@ impl Workspace {
                             Act::new(move |this, _, cx| this.erase_comment(id, Erase::Archive, cx)),
                         ));
                     }
-                    this.open_menu(at, vec![now], cx);
+                    let mut menu = vec![now];
+                    if marked {
+                        menu.push(vec![
+                            Entry::new(
+                                if rich {
+                                    "Show raw text"
+                                } else {
+                                    "Show markdown"
+                                },
+                                Act::new(|this, _, cx| this.toggle_rich_comments(cx)),
+                            )
+                            .key("⌥M"),
+                        ]);
+                    }
+                    this.open_menu(at, menu, cx);
                 })
                 .ok();
             })
@@ -428,14 +444,17 @@ impl Workspace {
                     .text_color(theme::muted())
                     .into_any_element()
             })
-            .children((open && markdown::has_markdown(&comment.body)).then(|| {
-                self.rich_switch(("agent-rich", id))
-                    .on_click(move |_, _, cx| {
-                        cx.stop_propagation();
-                        raw.update(cx, |this, cx| this.toggle_rich_comments(cx))
-                            .ok();
-                    })
-            }))
+            // A sent note has the ⋯, which holds the markdown switch; a draft has none, so it keeps it here.
+            .children(
+                (open && draft && markdown::has_markdown(&comment.body)).then(|| {
+                    self.rich_switch(("agent-rich", id))
+                        .on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            raw.update(cx, |this, cx| this.toggle_rich_comments(cx))
+                                .ok();
+                        })
+                }),
+            )
             .child(
                 div()
                     .flex_none()

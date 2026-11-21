@@ -701,10 +701,13 @@ impl Workspace {
             {
                 return self.reply_to_review(ix, cx);
             }
-            // An agent comment: ⌘↵ and ⇧⌘↵ add it and send all drafts (the composer sends first), ⌥⌘↵ sends this
-            // one only; Send later is the ▾'s.
+            // An agent comment: ⌘↵ and ⇧⌘↵ add it and send all drafts (the composer sends first), ⌥⌘↵ is Send
+            // later; Send this only is the ▾'s, with no key.
             if target == Some(Target::Agent) {
-                return self.add_and_send(m.alt, cx);
+                if m.alt {
+                    return self.add_comment(cx);
+                }
+                return self.add_and_send(false, cx);
             }
             // A reply: ⌥⌘↵ sends it and resolves its discussion, or opens it again when resolved (#199).
             if m.alt
@@ -1016,12 +1019,12 @@ impl Workspace {
                 at,
                 vec![
                     vec![
-                        Entry::new("Send later", Act::new(|this, _, cx| this.add_comment(cx))),
+                        Entry::new("Send later", Act::new(|this, _, cx| this.add_comment(cx)))
+                            .key("⌥⌘↵"),
                         Entry::new(
                             "Send this only",
                             Act::new(|this, _, cx| this.add_and_send(true, cx)),
-                        )
-                        .key("⌥⌘↵"),
+                        ),
                         Entry::new(
                             "Choose the chat…",
                             Act::new(|this, _, cx| this.add_and_pick_chat(cx)),
@@ -1044,11 +1047,12 @@ impl Workspace {
                                 Act::new(|this, _, cx| this.add_and_send(false, cx)),
                             )
                             .key("⇧⌘↵"),
+                            Entry::new("Send later", Act::new(|this, _, cx| this.add_comment(cx)))
+                                .key("⌥⌘↵"),
                             Entry::new(
                                 "Send this only",
                                 Act::new(|this, _, cx| this.add_and_send(true, cx)),
-                            )
-                            .key("⌥⌘↵"),
+                            ),
                             Entry::new(
                                 "Choose the chat…",
                                 Act::new(|this, _, cx| this.add_and_pick_chat(cx)),

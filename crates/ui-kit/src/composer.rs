@@ -1250,7 +1250,7 @@ impl Compose {
                         "compose-add-more",
                         "chevron",
                         if agent {
-                            "Send later, send this only, choose the chat, copy"
+                            "Send later  ⌥⌘↵ · Send this only · Choose the chat… · Copy as markdown"
                         } else {
                             "Add to review  ⇧⌘↵"
                         },
