@@ -488,6 +488,31 @@ const ICONS: &[(&str, &str)] = &[
             r#"<path d="M18 9a9 9 0 0 1-9 9"/>"#
         ),
     ),
+    (
+        "git-commit",
+        lucide!(
+            r#"<circle cx="12" cy="12" r="3"/>"#
+            r#"<line x1="3" x2="9" y1="12" y2="12"/><line x1="15" x2="21" y1="12" y2="12"/>"#
+        ),
+    ),
+    (
+        "lock",
+        lucide!(
+            r#"<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>"#
+            r#"<path d="M7 11V7a5 5 0 0 1 10 0v4"/>"#
+        ),
+    ),
+    (
+        "cloud",
+        lucide!(r#"<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>"#),
+    ),
+    (
+        "arrow-left-right",
+        lucide!(
+            r#"<path d="M8 3 4 7l4 4"/><path d="M4 7h16"/>"#
+            r#"<path d="m16 21 4-4-4-4"/><path d="M20 17H4"/>"#
+        ),
+    ),
     // A comment's secondary buttons keep only these when the diff is narrow (#69).
     (
         "pencil",

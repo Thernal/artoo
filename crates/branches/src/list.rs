@@ -74,7 +74,7 @@ pub fn rows(h: &History, rows: &[BranchRow], look: &ListLook, acts: &Acts) -> Ve
         .filter(|(_, b)| b.kind == RefKind::Local)
         .map(|(ix, _)| ix)
         .collect();
-    list.push(heading(format!("Local · {}", local.len())).into_any_element());
+    list.push(heading(format!("Local {}", local.len())).into_any_element());
     list.extend(
         local
             .into_iter()
@@ -113,11 +113,7 @@ pub fn rows(h: &History, rows: &[BranchRow], look: &ListLook, acts: &Acts) -> Ve
                         )))
                     },
                 ))
-                .child(format!(
-                    "{remote} · {}{}",
-                    ixs.len(),
-                    if open { "" } else { " · folded" }
-                ))
+                .child(format!("{remote} {}", ixs.len()))
                 .on_click(move |e: &ClickEvent, _, cx| {
                     if e.click_count() < 2 {
                         acts(Act::ToggleRemote(name.clone()), cx)
@@ -204,24 +200,18 @@ fn branch_row(
                             .child(plural(look.changes, "change"))
                             .into_any_element()
                     })
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .cut_in_tip()
-                            .text_color(theme::muted())
-                            .child(if look.changes == 0 {
-                                "nothing to commit"
-                            } else {
-                                "not committed"
-                            }),
-                    )
+                    .child(div().flex_1())
                     .children(head_name.filter(|_| room.second()).map(|n| {
                         div()
                             .flex_none()
+                            .flex()
+                            .items_center()
+                            .gap(px(4.))
                             .text_size(px(11.))
                             .text_color(theme::faint())
-                            .child(format!("on {n}"))
+                            .font_family(theme::code_font())
+                            .child(icons::icon("branch").size(px(12.)))
+                            .child(n)
                     }))
                     .into_any_element();
                 let line2 = files.filter(|f| !f.is_empty()).map(|f| {
@@ -438,15 +428,21 @@ fn tree_preview(h: &History, changes: usize, acts: &Acts) -> Div {
                 .size(px(15.))
                 .text_color(theme::muted()),
         )
-        .child(match &head {
-            Some(n) => format!("Working tree · on {n}"),
-            None => "Working tree".to_owned(),
-        })
-        .child(div().flex_1())
+        .child("Working tree")
+        .children(head.map(|n| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .font_family(theme::code_font())
+                .child(icons::icon("branch").size(px(13.)))
+                .child(n)
+        }))
         .child(
             div()
-                .text_color(theme::faint())
-                .child("read only: commit in your editor or terminal"),
+                .id("tree-read-only")
+                .child(icons::icon("lock").size(px(14.)).text_color(theme::faint()))
+                .tip("Read only · commit in your editor or terminal"),
         );
     let title = div()
         .text_size(px(19.))

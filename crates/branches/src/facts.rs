@@ -8,7 +8,8 @@ use artoo_core::route::{Place, Route};
 use artoo_requests_api::Requests;
 use artoo_shell_api::{Piece, Services, Slot};
 use artoo_ui_kit::format::{self, plural};
-use artoo_ui_kit::{island, px, theme, words};
+use artoo_ui_kit::hover::{self, Hover};
+use artoo_ui_kit::{icons, island, px, theme, words};
 use git2::Oid;
 use gpui::{AnyElement, App, Div, Entity, MouseButton, MouseDownEvent, div, prelude::*};
 use std::rc::Rc;
@@ -100,9 +101,10 @@ pub fn line_of(
     Some(line.into_any_element())
 }
 
-/// One line over a branch's Changes and Commits: ahead of the main line, behind it, where it is pushed, its
-/// `request`'s number; over the Working tree first the branch `checked_out` (#209); a right click on it branch
-/// `ix`'s menu. None for the main line itself.
+/// One line over a branch's Changes and Commits: `↑2 ↓0` how far it is from the main line, where it is pushed
+/// (a glyph and the remote's name), its `request`'s number; over the Working tree first the branch `checked_out`
+/// (#209) last; a right click on it branch `ix`'s menu. None for the main line itself. Each fact says its
+/// sentence in its tooltip.
 pub fn branch_line(
     f: &Facts,
     ix: Option<usize>,
@@ -111,8 +113,12 @@ pub fn branch_line(
     acts: &Acts,
 ) -> Option<Div> {
     let main = f.base.as_ref()?.0.trim_start_matches("origin/").to_owned();
-    let request = request.map_or_else(|| "none yet".to_owned(), words::number);
     let acts = acts.clone();
+    let ahead = format!(
+        "{} ahead of {main}, {} behind",
+        plural(f.ahead, "commit"),
+        f.behind
+    );
     Some(
         facts_row()
             // Its link, the branch's name, a request (#162).
@@ -121,48 +127,108 @@ pub fn branch_line(
                     acts(Act::BranchMenu { ix, at: e.position }, cx)
                 }
             })
-            .children(checked_out.map(|name| mono_fact("Checked out".to_owned(), name)))
-            .child(fact(format!("Ahead of {main}"), plural(f.ahead, "commit")))
-            .child(fact("Behind".to_owned(), f.behind.to_string()))
-            .child(fact("Remote".to_owned(), remote(f.upstream.as_ref())))
-            .child(fact(words::say("Request").into_owned(), request)),
+            .child(
+                div()
+                    .id("fact-ahead")
+                    .flex()
+                    .gap(px(8.))
+                    .child(format!("↑{}", f.ahead))
+                    .child(format!("↓{}", f.behind))
+                    .tip(ahead),
+            )
+            .child(origin_fact(f.upstream.as_ref()))
+            .children(request.map(|n| {
+                div()
+                    .id("fact-request")
+                    .text_color(theme::accent())
+                    .child(words::number(n))
+                    .tip("The merge request on this branch")
+            }))
+            .children(checked_out.map(|name| {
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .min_w_0()
+                    .child(
+                        icons::icon("branch")
+                            .size(px(14.))
+                            .text_color(theme::faint()),
+                    )
+                    .child(
+                        hover::name("fact-checked-out", name)
+                            .min_w_0()
+                            .font_family(theme::code_font()),
+                    )
+            })),
     )
 }
 
-/// The main line's own row over its page (#208): where it is pushed and its latest commit, `231a547 · 25 d ago`.
-/// None until its facts and commits are read.
+/// The main line's own row over its page (#208): where it is pushed and its latest commit, `231a547 25d`, its
+/// sentence the tooltip. None until its facts and commits are read.
 pub fn main_line(h: &History) -> Option<AnyElement> {
     let f = h.page.as_ref()?;
     let latest = h.commits.first()?;
+    let id = format::short(latest.id);
     Some(
         facts_row()
-            .child(fact("Remote".to_owned(), remote(f.upstream.as_ref())))
+            .child(origin_fact(f.upstream.as_ref()))
             .child(
                 div()
+                    .id("fact-latest")
                     .flex()
+                    .items_center()
                     .gap(px(6.))
-                    .child(div().text_color(theme::faint()).child("Latest"))
                     .child(
-                        div()
-                            .font_family(theme::code_font())
-                            .child(format::short(latest.id)),
+                        icons::icon("git-commit")
+                            .size(px(14.))
+                            .text_color(theme::faint()),
                     )
-                    .child(div().text_color(theme::faint()).child("·"))
-                    .child(div().child(format::short_ago(latest.time))),
+                    .child(div().font_family(theme::code_font()).child(id.clone()))
+                    .child(div().child(format::short_ago(latest.time)))
+                    .tip_two(
+                        "Latest commit on main",
+                        format!("{id}, {}", format::ago(latest.time)),
+                    ),
             )
             .into_any_element(),
     )
 }
 
-/// Where a branch is pushed, `upstream` its upstream with how far it is ahead of it and behind it: `origin · in
-/// sync`, `2 commits not pushed`, `3 behind origin/main`, `not pushed`.
-fn remote(upstream: Option<&(String, usize, usize)>) -> String {
-    match upstream {
-        None => "not pushed".to_owned(),
-        Some((up, 0, 0)) => format!("{} · in sync", up.split('/').next().unwrap_or(up)),
-        Some((_, ahead, 0)) => format!("{} not pushed", plural(*ahead, "commit")),
-        Some((up, _, behind)) => format!("{behind} behind {up}"),
-    }
+/// Where a branch is pushed, `upstream` its upstream with how far it is ahead of it and behind it: the cloud and
+/// the remote's name (`origin`), `↑2` after it while commits are not pushed, `↓3` while it is behind; `not pushed`
+/// without one. The sentence is its tooltip.
+fn origin_fact(upstream: Option<&(String, usize, usize)>) -> gpui::Stateful<Div> {
+    let (word, tip) = match upstream {
+        None => (
+            "not pushed".to_owned(),
+            "This branch was never pushed".to_owned(),
+        ),
+        Some((up, 0, 0)) => (
+            up.split('/').next().unwrap_or(up).to_owned(),
+            format!("In sync with {up}"),
+        ),
+        Some((up, ahead, 0)) => (
+            format!("{} ↑{ahead}", up.split('/').next().unwrap_or(up)),
+            format!("{} not pushed to {up}", plural(*ahead, "commit")),
+        ),
+        Some((up, ahead, behind)) => (
+            format!("{} ↑{ahead} ↓{behind}", up.split('/').next().unwrap_or(up)),
+            format!("{ahead} ahead of {up}, {behind} behind"),
+        ),
+    };
+    div()
+        .id("fact-origin")
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .child(
+            icons::icon("cloud")
+                .size(px(14.))
+                .text_color(theme::faint()),
+        )
+        .child(div().child(word))
+        .tip(tip)
 }
 
 /// A row of facts, one line over the page.
@@ -175,22 +241,4 @@ fn facts_row() -> Div {
         .h(px(40.))
         .px(px(14.))
         .text_size(px(12.))
-}
-
-/// A fact whose value is a name in code's font: a branch.
-fn mono_fact(label: String, value: String) -> Div {
-    div()
-        .flex()
-        .gap(px(6.))
-        .child(div().text_color(theme::faint()).child(label))
-        .child(div().font_family(theme::code_font()).child(value))
-}
-
-/// A fact, its label faint.
-fn fact(label: String, value: String) -> Div {
-    div()
-        .flex()
-        .gap(px(6.))
-        .child(div().text_color(theme::faint()).child(label))
-        .child(div().child(value))
 }
