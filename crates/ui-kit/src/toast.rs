@@ -100,6 +100,8 @@ struct Toast<A> {
     id: u64,
     words: Words,
     button: Option<Button<A>>,
+    /// A second button after the first (Show, then Stop listening): an act of the tab's.
+    second: Option<A>,
     /// News, not an error: no alert mark (#77).
     info: bool,
     /// Dismissed: drawn on its way out until it is removed (#56, 8).
@@ -202,6 +204,21 @@ impl<A: Clone + PartialEq + 'static> Toasts<A> {
         self.push(words.into(), Some(Button::Act(act, count)), true, cx);
     }
 
+    /// News with a button doing `act` and a second one doing `second`, about `count` things.
+    pub fn show_acts(
+        &mut self,
+        words: impl Into<Words>,
+        act: A,
+        second: A,
+        count: usize,
+        cx: &mut Context<Self>,
+    ) {
+        self.push(words.into(), Some(Button::Act(act, count)), true, cx);
+        if let Some(t) = self.list.last_mut() {
+            t.second = Some(second);
+        }
+    }
+
     /// The toasts whose button does what `over` picks go now: news another has taken in.
     pub fn drop_acts(&mut self, over: impl Fn(&A) -> bool, cx: &mut Context<Self>) {
         let ids: Vec<u64> = self
@@ -246,6 +263,7 @@ impl<A: Clone + PartialEq + 'static> Toasts<A> {
             id,
             words,
             button,
+            second: None,
             info,
             leaving: false,
             left: SHOWN,
@@ -308,6 +326,21 @@ impl<A: Clone + PartialEq + 'static> Toasts<A> {
         self.dismiss(id, cx);
         // What it does may reach the tab, whose update may be under way.
         cx.defer(run);
+    }
+
+    /// The second button of toast `id`: its act done, and the toast goes.
+    fn press_second(&mut self, id: u64, cx: &mut Context<Self>) {
+        let Some(act) = self
+            .list
+            .iter()
+            .find(|t| t.id == id)
+            .and_then(|t| t.second.clone())
+        else {
+            return;
+        };
+        let run = self.run.clone();
+        self.dismiss(id, cx);
+        cx.defer(move |cx| run(act, cx));
     }
 
     /// The newest toast with a button still showing: what `⌥↵` presses.
@@ -383,6 +416,7 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
                 Some(Button::Run(label, _)) => Some(*label),
                 None => None,
             };
+            let second = t.second.as_ref().map(|a| label(a));
             let more = t.words.more.clone();
             let left = t.left_now().as_secs_f32() / SHOWN.as_secs_f32();
             // `Jira · Assigned to you`, its source bold, as one text that wraps.
@@ -455,6 +489,25 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
                             .on_click(
                                 cx.listener(move |this, _: &ClickEvent, _, cx| this.press(id, cx)),
                             )
+                    }))
+                    .children(second.map(|label| {
+                        div()
+                            .id(("toast-second", id as usize))
+                            .flex_none()
+                            .px(px(8.))
+                            .py(px(1.))
+                            .rounded(px(6.))
+                            .border_1()
+                            .border_color(theme::border())
+                            .text_size(px(12.))
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .text_color(theme::text())
+                            .cursor_pointer()
+                            .hover(|s| s.bg(theme::hover()))
+                            .child(label)
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.press_second(id, cx)
+                            }))
                     }))
                     .children(more.map(|more| {
                         div()

@@ -41,6 +41,14 @@ pub(super) struct StopListening {
     session: String,
 }
 
+/// Show on the toast of a chat that began: the Agents window opens. It names the chat so two chats' toasts
+/// stay two (a toast with the same button is joined to the older one).
+#[derive(Clone, PartialEq, Debug, gpui::Action)]
+#[action(namespace = agents, no_json, no_register)]
+pub(super) struct ShowChat {
+    session: String,
+}
+
 /// The toast of a chat that began listening or went: what happened, the branch it works on under it, and for one
 /// that began Stop listening.
 pub(super) fn listening(said: &artoo_agents_api::tab::Said) -> Toast {
@@ -50,12 +58,20 @@ pub(super) fn listening(said: &artoo_agents_api::tab::Said) -> Toast {
         false => toast.about(said.branch.clone()),
     };
     match said.began {
-        true => toast.button(
-            "Stop listening",
-            StopListening {
-                session: said.session.clone(),
-            },
-        ),
+        // Show opens the Agents window; Stop listening ends the chat's listening.
+        true => toast
+            .button(
+                "Show",
+                ShowChat {
+                    session: said.session.clone(),
+                },
+            )
+            .second_button(
+                "Stop listening",
+                StopListening {
+                    session: said.session.clone(),
+                },
+            ),
         false => toast,
     }
 }
@@ -156,6 +172,7 @@ impl Workspace {
             words: words_of_button,
             act,
         };
+        let second = toast.second.map(|(words, act)| Press { words, act });
         let count = toast.count + self.toasts.update(cx, |t, _| t.take_count(&press));
         // An agent's news goes to the system's notifications too, the newer replacing the older
         // (#26).
@@ -169,8 +186,10 @@ impl Workspace {
                 text: (toast.say)(count).into(),
                 ..words
             };
-            self.toasts
-                .update(cx, |t, cx| t.show_act(words, press, count, cx));
+            self.toasts.update(cx, |t, cx| match second {
+                Some(second) => t.show_acts(words, press, second, count, cx),
+                None => t.show_act(words, press, count, cx),
+            });
         }
         cx.notify();
     }
@@ -275,6 +294,9 @@ impl Workspace {
             cx.notify();
             return;
         }
+        if act.as_any().is::<ShowChat>() {
+            return self.press(&artoo_agents::ToggleAgents, cx);
+        }
         if self.answer_agents(act, cx)
             || self.answer_settings(act, cx)
             || self.answer_notice(act, cx)
@@ -329,7 +351,9 @@ mod tests {
         let toast = listening(&said(true));
         assert_eq!((toast.say)(1), "Codex started listening");
         assert_eq!(toast.about.as_deref(), Some("feature/ledger-cache"));
-        let (words, act) = toast.button.expect("a button");
+        let (words, _) = toast.button.expect("a button");
+        assert_eq!(words, "Show");
+        let (words, act) = toast.second.expect("a second button");
         assert_eq!(words, "Stop listening");
         assert!(act.partial_eq(&StopListening {
             session: "s1".into()

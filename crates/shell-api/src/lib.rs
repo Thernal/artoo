@@ -502,6 +502,8 @@ pub struct Toast {
     pub count: usize,
     /// Its button: its words ("Review") and the action it runs.
     pub button: Option<(&'static str, Box<dyn gpui::Action>)>,
+    /// A second button after the first (Show, then Stop listening); only with a first.
+    pub second: Option<(&'static str, Box<dyn gpui::Action>)>,
     /// With a button, the tag it also goes to the system's notifications under while no window of Artoo's is in
     /// front, the newer replacing the older; a click there runs the button.
     pub system: Option<String>,
@@ -523,10 +525,17 @@ impl Toast {
             say: Rc::new(move |_| text.clone()),
             count: 1,
             button: None,
+            second: None,
             system: None,
             kind: None,
             about: None,
         }
+    }
+
+    /// With a second button after the first, saying `words`, running `act`; without a first it shows nothing.
+    pub fn second_button(mut self, words: &'static str, act: impl gpui::Action) -> Self {
+        self.second = Some((words, Box::new(act)));
+        self
     }
 
     /// With a button saying `words`, running `act`.
