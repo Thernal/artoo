@@ -349,6 +349,50 @@ impl Workspace {
                     ),
                 );
             }
+            // A comparison: Swap the sides and Change the range in the bar, not in the page's row (#149).
+            (BRANCHES, Some(Page::Compare(base, head, since))) => {
+                let (base, head, since) = (base.clone(), head.clone(), *since);
+                out.push(
+                    BarAction::new(
+                        "swap",
+                        bar_icon("bar-swap", "arrow-left-right", "Swap the sides".to_owned())
+                            .on_click({
+                                let (base, head) = (base.clone(), head.clone());
+                                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    this.run_compare(head.clone(), base.clone(), since, None, cx)
+                                })
+                            }),
+                    )
+                    .folds(MenuItem::new(
+                        "Swap the sides",
+                        on_tab(&tab, move |this, cx| {
+                            this.run_compare(head.clone(), base.clone(), since, None, cx)
+                        }),
+                    )),
+                );
+                out.push(
+                    BarAction::new(
+                        "range",
+                        self.bar_action("bar-range", "pencil", "Change the range", "")
+                            .when(!self.compact(), |s| {
+                                s.flex_row_reverse().child(
+                                    super::icons::icon("pencil")
+                                        .size(px(14.))
+                                        .text_color(theme::muted()),
+                                )
+                            })
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.search(artoo_branches_api::COMPARE, cx)
+                            })),
+                    )
+                    .folds(MenuItem::new(
+                        "Change the range",
+                        on_tab(&tab, |this, cx| {
+                            this.search(artoo_branches_api::COMPARE, cx)
+                        }),
+                    )),
+                );
+            }
             (BRANCHES, Some(Page::Branch(refname))) => {
                 let ix = self
                     .branch_list(cx)

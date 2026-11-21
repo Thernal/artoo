@@ -268,24 +268,6 @@ pub fn what(diff: &Diff, history: &History, narrowed: bool, acts: &Acts) -> AnyE
                                 .on_click(asks(acts, compare(base, head, false, request))),
                         ),
                 )
-                .child(
-                    chip("cmp-swap", "", false)
-                        .size(px(28.))
-                        .p_0()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(
-                            icons::icon("arrow-left-right")
-                                .size(px(14.))
-                                .text_color(theme::muted()),
-                        )
-                        .tip_two(
-                            "Swap the sides",
-                            "The base becomes the head and the other way round",
-                        )
-                        .on_click(asks(acts, compare(head, base, since, None))),
-                )
                 .into_any_element()
         }
         Header::Interdiff { from, to, .. } => chip("back-to-commits", "← Commits", false)
