@@ -46,6 +46,10 @@ impl Workspace {
 
     /// A link clicked in a comment: opened here when it is a host's link this app can follow.
     pub(super) fn open_url_here(&mut self, url: &str, cx: &mut Context<Self>) -> bool {
+        // A tracker's key: its issue opens under the tracker's space.
+        if let Some(key) = artoo_shell_api::issues::key_of(url) {
+            return artoo_shell_api::issues::open(cx, key);
+        }
         let Some(link) = artoo_hosts_api::get(cx).link(url) else {
             return false;
         };

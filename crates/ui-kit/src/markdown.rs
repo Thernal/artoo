@@ -91,6 +91,10 @@ pub type OnLink = Rc<dyn Fn(&str, &mut App) -> bool>;
 /// workspace shows the person's card when the pointer rests there (#51, X62).
 pub type OnMention = Rc<dyn Fn(Option<(String, gpui::Bounds<gpui::Pixels>)>, &mut App)>;
 
+/// The address a tracker's issue key is a link to (`artoo_shell_api::issues`): the app follows it, the browser never,
+/// and the pointer resting on it shows the issue's card, as it does on a mention.
+pub const ISSUE_SCHEME: &str = "artoo-issue:";
+
 /// A picture from the web clicked, by its address as the text writes it: the page opens it whole (#211).
 pub type OnImage = Rc<dyn Fn(&str, &mut gpui::Window, &mut App)>;
 
@@ -879,13 +883,22 @@ fn inline_drawn(i: &Inline, mentions: bool, ctx: &mut Ctx) -> AnyElement {
     links.sort_by_key(|(r, _)| r.start);
     let layout = styled.layout().clone();
     // The mentions a card can be shown for: (range, login).
-    let tagged: Vec<(Range<usize>, String)> = match ctx.sel.as_ref() {
+    let mut tagged: Vec<(Range<usize>, String)> = match ctx.sel.as_ref() {
         Some(_) if mentions => markdown::mentions(&i.text)
             .into_iter()
             .map(|r| (r.clone(), i.text[r.start + 1..r.end].to_owned()))
             .collect(),
         _ => Vec::new(),
     };
+    // A tracker's keys: the card is asked for by the link's address.
+    if ctx.sel.is_some() {
+        tagged.extend(
+            links
+                .iter()
+                .filter(|(_, url)| url.starts_with(ISSUE_SCHEME))
+                .cloned(),
+        );
+    }
     if links.is_empty() && tagged.is_empty() {
         return text_block(styled.into_any_element(), layout, &i.text, ctx);
     }
@@ -899,7 +912,11 @@ fn inline_drawn(i: &Inline, mentions: bool, ctx: &mut Ctx) -> AnyElement {
         .on_click(ranges, move |ix, window, cx| {
             if let Some(url) = urls.get(ix) {
                 let browser = window.modifiers().secondary();
-                if browser || !here.as_ref().is_some_and(|open| open(url, cx)) {
+                let key = url.starts_with(ISSUE_SCHEME);
+                if key && !here.as_ref().is_some_and(|open| open(url, cx)) {
+                    return;
+                }
+                if !key && (browser || !here.as_ref().is_some_and(|open| open(url, cx))) {
                     cx.open_url(url);
                 }
             }

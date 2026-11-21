@@ -45,6 +45,7 @@
 
 pub mod bar;
 pub mod frame;
+pub mod issues;
 pub mod keys;
 pub mod links;
 pub mod notices;

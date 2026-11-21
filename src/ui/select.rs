@@ -106,6 +106,12 @@ impl Workspace {
         let mention = this.clone();
         // The kinds of link the tab's features find in its texts, in their order (#171, D11).
         let mut patterns: Vec<_> = self.parts.iter().flat_map(|p| p.links.clone()).collect();
+        // A tracker's keys (#217): links to the tracker's issues, none while no tracker is offered.
+        patterns.push(artoo_shell_api::links::Pattern {
+            id: "issues.key",
+            order: 100,
+            find: std::rc::Rc::new(|text, cx| artoo_shell_api::issues::links(cx, text)),
+        });
         patterns.sort_by_key(|p| p.order);
         super::markdown::Selecting {
             find: std::rc::Rc::new(move |text, cx| {

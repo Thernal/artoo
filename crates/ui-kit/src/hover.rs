@@ -528,6 +528,166 @@ pub fn card_frame() -> gpui::Div {
         .text_color(theme::text())
 }
 
+/// An issue a tracker names by its key (`PAY-412`), as its card shows it (`issue_card`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct IssueCard {
+    pub key: String,
+    /// The glyph of its kind (`bug`), by its Lucide name.
+    pub icon: &'static str,
+    pub title: String,
+    /// Where it is kept: `Jira`, and its host under it as the tooltip of the source's mark.
+    pub source: String,
+    pub host: String,
+    /// Its state in the tracker's words, and whether it is a done one (drawn in the added colour).
+    pub state: Option<(String, bool)>,
+    /// Its other facts, label then value: `Assignee` `You`.
+    pub fields: Vec<(String, String)>,
+    /// The start of its description.
+    pub excerpt: String,
+    /// The tracker was not reached: the time of what is shown (`14:32`), as it was read then.
+    pub stale: Option<String>,
+    /// Its address on the web, when it has one.
+    pub url: Option<String>,
+}
+
+/// An issue's card (K1): its key and the source's mark in the head, the title, its facts, the start of its
+/// description, and Open with the web address's icon in the foot. When the tracker was not reached it says so
+/// above the title and shows what was read last (K5). `open` is what Open does.
+pub fn issue_card(card: &IssueCard, open: impl Fn(&mut Window, &mut App) + 'static) -> gpui::Div {
+    let field = |label: &str, value: &str| {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .child(
+                div()
+                    .w(px(56.))
+                    .flex_none()
+                    .text_color(theme::muted())
+                    .child(label.to_owned()),
+            )
+            .child(div().flex_1().min_w_0().child(value.to_owned()))
+    };
+    let mark = crate::monogram::monogram(
+        &crate::monogram::initials(&card.source),
+        crate::monogram::hue(&card.source),
+        16.,
+    );
+    card_frame()
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .child(
+                    crate::icons::icon(card.icon)
+                        .size(px(14.))
+                        .text_color(theme::muted()),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .font_family(theme::code_font())
+                        .text_color(theme::muted())
+                        .child(card.key.clone()),
+                )
+                .child(
+                    div()
+                        .id("issue-source")
+                        .flex_none()
+                        .child(mark)
+                        .tip_two(card.source.clone(), card.host.clone()),
+                ),
+        )
+        .children(card.stale.as_ref().map(|at| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .px(px(8.))
+                .py(px(5.))
+                .rounded(px(6.))
+                .bg(theme::warning_bg())
+                .text_color(theme::warning())
+                .text_size(px(11.))
+                .child(
+                    crate::icons::icon("triangle-alert")
+                        .size(px(12.))
+                        .flex_none(),
+                )
+                .child(format!("Can't reach {} · as read at {at}", card.host))
+        }))
+        .child(
+            cut_to("issue-title", card.title.clone(), 2)
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_size(px(13.)),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .children(card.state.as_ref().map(|(state, done)| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .child(
+                            div()
+                                .w(px(56.))
+                                .flex_none()
+                                .text_color(theme::muted())
+                                .child("State"),
+                        )
+                        .child(crate::controls::pill(
+                            state.clone(),
+                            if *done {
+                                theme::added()
+                            } else {
+                                theme::accent()
+                            },
+                        ))
+                }))
+                .children(card.fields.iter().map(|(l, v)| field(l, v))),
+        )
+        .children(
+            (!card.excerpt.is_empty()).then(|| {
+                cut_to("issue-excerpt", card.excerpt.clone(), 3).text_color(theme::muted())
+            }),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .child(
+                    div()
+                        .id("issue-open")
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .px(px(10.))
+                        .h(px(24.))
+                        .rounded(px(ROW_RADIUS))
+                        .bg(theme::accent())
+                        .text_color(theme::on_accent())
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .cursor_pointer()
+                        .child("Open")
+                        .child(keys::text("↵").into_owned())
+                        .on_click(move |_, window, cx| open(window, cx)),
+                )
+                .children(card.url.clone().map(|url| {
+                    card_action(
+                        "issue-web",
+                        "external",
+                        format!("Open {} on the web", card.key),
+                    )
+                    .on_click(move |_, _, cx| cx.open_url(&url))
+                })),
+        )
+}
+
 /// One of a card's actions, an icon at the head's end with its words as the tooltip: Copy, Open, Mention.
 pub fn card_action(
     id: &'static str,

@@ -35,7 +35,7 @@ pub fn issue_of(
             continue;
         }
         let last = url.rsplit('/').next().unwrap_or_default();
-        if url.contains("/browse/") && key(last).is_some() {
+        if url.contains("/browse/") && artoo_shell_api::issues::is_key(last) {
             return Some(Issue {
                 label: last.to_owned(),
                 url: Some(url.to_owned()),
@@ -84,20 +84,9 @@ pub fn issue_of(
             // A branch's key comes first in it: `PAY-123-login-state`.
             let mut parts = word.splitn(3, '-');
             let (project, number) = (parts.next()?, parts.next()?);
-            key(&format!("{project}-{number}")).map(|label| Issue { label, url: None })
+            let label = format!("{project}-{number}");
+            artoo_shell_api::issues::is_key(&label).then_some(Issue { label, url: None })
         })
-}
-
-/// `PAY-123`: capitals (a digit may follow the first), a dash, a number.
-fn key(word: &str) -> Option<String> {
-    let (project, number) = word.split_once('-')?;
-    let project_ok = project.len() >= 2
-        && project.starts_with(|c: char| c.is_ascii_uppercase())
-        && project
-            .chars()
-            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
-    let number_ok = !number.is_empty() && number.chars().all(|c| c.is_ascii_digit());
-    (project_ok && number_ok).then(|| word.to_owned())
 }
 
 impl Requests {

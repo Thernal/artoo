@@ -69,6 +69,7 @@ pub(crate) fn install(cx: &mut App) {
         notices::add_source(cx, source);
     }
     notices::guest(cx, None);
+    artoo_shell_api::issues::add(cx, Rc::new(Tracker));
     artoo_shell_api::add_parts(cx, |frame, _, _| {
         Listers::of(&frame.services()).add(Lister {
             rows: Rc::new(|_| rows()),
@@ -77,6 +78,55 @@ pub(crate) fn install(cx: &mut App) {
         });
         artoo_shell_api::Parts::default()
     });
+}
+
+/// A sample tracker's keys (#217): `PAY-412` and `PAY-398` have cards; `ARTOO_SNAPSHOT_SOURCES=stale` says the
+/// tracker could not be reached, the cards as read at 14:32.
+struct Tracker;
+
+impl artoo_shell_api::issues::Tracker for Tracker {
+    fn name(&self) -> String {
+        "Jira".into()
+    }
+
+    fn find(&self, text: &str, _: &App) -> Vec<std::ops::Range<usize>> {
+        artoo_shell_api::issues::scan(text)
+    }
+
+    fn card(&self, key: &str, _: &App) -> Option<artoo_shell_api::issues::IssueCard> {
+        let (title, state, excerpt) = match key {
+            "PAY-412" => (
+                "Refund rounds down on partial captures when one capture is split across three tenders, then refunded whole",
+                "In progress",
+                "A partial capture refunds less than it should: RefundCalculator rounds each part down before summing, so a three-way split of 10.00 refunds 9.99.",
+            ),
+            "PAY-398" => ("Login keeps the last error", "In review", ""),
+            _ => return None,
+        };
+        let stale = std::env::var("ARTOO_SNAPSHOT_SOURCES").is_ok_and(|v| v == "stale");
+        Some(artoo_shell_api::issues::IssueCard {
+            key: key.to_owned(),
+            icon: "bug",
+            title: match stale {
+                true => title.split(" when ").next().unwrap_or(title).to_owned(),
+                false => title.to_owned(),
+            },
+            source: "Jira".into(),
+            host: "acme.atlassian.net".into(),
+            state: Some((state.into(), false)),
+            fields: vec![
+                ("Assignee".into(), "You".into()),
+                ("Sub-tasks".into(), "1/3".into()),
+            ],
+            excerpt: excerpt.into(),
+            stale: stale.then(|| "14:32".to_owned()),
+            url: Some(format!("https://acme.atlassian.net/browse/{key}")),
+        })
+    }
+
+    fn open(&self, key: &str, _: &mut App) {
+        artoo_core::applog::line(&format!("sample tracker: open {key}"));
+    }
 }
 
 /// What the samples list, minutes ago: PagerDuty has nothing new.

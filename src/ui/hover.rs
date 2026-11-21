@@ -108,6 +108,25 @@ impl PersonCard {
 
 /// A mention under the pointer in comment text, and the person's card once the pointer rested on it
 /// (#51, X62): the card stays while the pointer is on the mention or on the card.
+/// An issue key's card (`artoo_shell_api::issues`), drawn by the kit; Open opens the issue under its tracker.
+struct KeyCard {
+    card: artoo_ui_kit::hover::IssueCard,
+}
+
+impl Render for KeyCard {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let key = self.card.key.clone();
+        super::motion::appear(
+            issue_card(&self.card, move |_, cx| {
+                artoo_shell_api::issues::open(cx, &key);
+            }),
+            "card-in",
+            super::motion::FAST,
+            |c, v| c.opacity(v),
+        )
+    }
+}
+
 pub struct MentionHover {
     login: String,
     /// Where the mention is drawn, in the window.
@@ -255,6 +274,19 @@ impl Workspace {
         let Some(login) = self.mention_hover.as_ref().map(|h| h.login.clone()) else {
             return;
         };
+        // A tracker's key: its issue's card, if the tracker knows the issue.
+        if let Some(key) = artoo_shell_api::issues::key_of(&login) {
+            let Some(card) = artoo_shell_api::issues::card(cx, key) else {
+                self.mention_hover = None;
+                return;
+            };
+            let view: AnyView = cx.new(|_| KeyCard { card }).into();
+            if let Some(h) = &mut self.mention_hover {
+                h.card = Some(view);
+            }
+            cx.notify();
+            return;
+        }
         let name = self
             .request_members(cx)
             .iter()

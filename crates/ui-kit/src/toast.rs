@@ -416,7 +416,7 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
                 Some(Button::Run(label, _)) => Some(*label),
                 None => None,
             };
-            let second = t.second.as_ref().map(|a| label(a));
+            let second = t.second.as_ref().map(label);
             let more = t.words.more.clone();
             let left = t.left_now().as_secs_f32() / SHOWN.as_secs_f32();
             // `Jira · Assigned to you`, its source bold, as one text that wraps.
