@@ -59,18 +59,18 @@ pub fn layout(
     tool_group()
         .child(
             glyph("split", "columns", !unified)
-                .tip("Split: the old and the new side by side")
+                .tip_two("Split", "The old and the new side by side")
                 .when(narrow, |c| {
-                    c.opacity(0.45).tip(format!(
-                        "Split needs {} px",
-                        artoo_review_api::SPLIT_WIDTH as u32
-                    ))
+                    c.opacity(0.45).tip_two(
+                        "Split",
+                        format!("Needs {} px", artoo_review_api::SPLIT_WIDTH as u32),
+                    )
                 })
                 .on_click(split),
         )
         .child(
             glyph("unified", "rows", unified)
-                .tip("Unified: one column")
+                .tip_two("Unified", "One column")
                 .on_click(one_column),
         )
         .into_any_element()

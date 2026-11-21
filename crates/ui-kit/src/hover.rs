@@ -24,6 +24,13 @@ pub trait Hover: StatefulInteractiveElement + Sized {
             .tooltip(move |_, cx| cx.new(|_| TipOwned(text.clone())).into())
     }
 
+    /// A title and, under it, a quieter line saying more (a layout switch: `Unified`, `One column`).
+    fn tip_two(self, title: impl Into<SharedString>, line: impl Into<SharedString>) -> Self {
+        let (title, line) = (title.into(), line.into());
+        self.tooltip_show_delay(LONG)
+            .tooltip(move |_, cx| cx.new(|_| TipTwo(title.clone(), line.clone())).into())
+    }
+
     /// A card that stays while the pointer is on it.
     fn card(self, build: impl Fn(&mut Window, &mut App) -> AnyView + 'static) -> Self {
         self.tooltip_show_delay(LONG).hoverable_tooltip(build)
@@ -559,6 +566,34 @@ impl Render for TipOwned {
             .text_color(theme::text())
             .child(SharedString::from(keys::text(&self.0).into_owned()));
         // It fades in after the long rest (#56, 7).
+        motion::appear(tip, "tip-in", motion::FAST, |tip, v| tip.opacity(v))
+    }
+}
+
+/// A tooltip of two lines: a title, then a line in the muted text.
+pub struct TipTwo(pub SharedString, pub SharedString);
+
+impl Render for TipTwo {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let tip = div()
+            .mt(px(6.))
+            .max_w(px(300.))
+            .px_2()
+            .py_1()
+            .rounded(px(ROW_RADIUS))
+            .border_1()
+            .border_color(theme::island_border())
+            .bg(theme::hover())
+            .text_size(px(11.))
+            .text_color(theme::text())
+            .flex()
+            .flex_col()
+            .child(SharedString::from(keys::text(&self.0).into_owned()))
+            .child(
+                div()
+                    .text_color(theme::muted())
+                    .child(SharedString::from(keys::text(&self.1).into_owned())),
+            );
         motion::appear(tip, "tip-in", motion::FAST, |tip, v| tip.opacity(v))
     }
 }
