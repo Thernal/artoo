@@ -135,11 +135,33 @@ impl Frame for TabFrame {
                             Some(run) => Entry::new(item.label, Act::part(run)),
                             None => Entry::off(item.label),
                         };
-                        let entry = entry.key(item.key);
-                        match item.checked {
-                            Some(on) => entry.checked(on),
-                            None => entry,
+                        let mut entry = entry.key(item.key);
+                        if let Some(on) = item.checked {
+                            entry = entry.checked(on);
                         }
+                        // Every part of the row the item carries: one drawing of a menu row, the kit's.
+                        if let Some(icon) = item.icon {
+                            entry = entry.lead(artoo_ui_kit::menu::Lead::Icon(
+                                icon,
+                                artoo_ui_kit::theme::muted(),
+                            ));
+                        }
+                        if let Some(under) = item.under {
+                            entry = entry.under(under);
+                        }
+                        if let Some(quiet) = item.quiet {
+                            entry = entry.quiet(quiet);
+                        }
+                        if let Some(on) = item.switch {
+                            entry = entry.switch(on);
+                        }
+                        if let Some((icon, tip)) = item.note {
+                            entry = entry.note(icon, tip);
+                        }
+                        if let Some((title, line)) = item.tip {
+                            entry = entry.tip_two(title, line);
+                        }
+                        entry
                     })
                     .collect();
                 (title, group)
