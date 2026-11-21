@@ -82,7 +82,7 @@ pub(crate) fn tool(
         })),
         count: Some(Rc::new(move |cx| {
             let (open, _) = counted(cx);
-            (open > 0).then(|| format!("{open} open"))
+            (open > 0).then(|| open.to_string())
         })),
         view: view.into(),
         opened: Rc::new(|_| {}),
@@ -101,6 +101,38 @@ pub(crate) fn tool(
             true
         })),
     }
+}
+
+/// A group's heading as the design draws it (`Pending 2`): the word, then its count apart and quieter, the count's
+/// tip saying both; a fold's chevron before the word, a key's caps at the end.
+fn heading(
+    word: &'static str,
+    count: usize,
+    chevron: Option<&'static str>,
+    keys: Option<&'static str>,
+) -> gpui::Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .px(px(14.))
+        .pt(px(10.))
+        .pb(px(4.))
+        .text_size(px(12.))
+        .text_color(theme::muted())
+        .children(chevron.map(|c| icons::icon(c).size(px(12.)).text_color(theme::faint())))
+        .child(word)
+        .child(
+            div()
+                .id(gpui::SharedString::from(format!(
+                    "discussions-count-{word}"
+                )))
+                .flex_1()
+                .text_color(theme::faint())
+                .child(count.to_string())
+                .tip(format!("{word} · {count}")),
+        )
+        .children(keys.map(|k| keys::caps(k, keys::On::Plain)))
 }
 
 /// What the window draws: the list, and Submit review under it while comments are pending.
@@ -589,17 +621,17 @@ impl Requests {
                 .min_h_0()
                 .overflow_y_scroll()
                 .py(px(6.))
-                .children(
-                    (pending > 0)
-                        .then(|| group_heading(format!("Pending · {pending}"), Some("⌥N"))),
-                )
+                .children((pending > 0).then(|| heading("Pending", pending, None, Some("⌥N"))))
                 .children(draft_items)
                 .children((!open_items.is_empty()).then(|| {
-                    group_heading(
-                        match open_count {
-                            0 => format!("Discussions · {}", open_items.len()),
-                            n => format!("Discussions · {n} open"),
+                    heading(
+                        "Discussions",
+                        if open_count == 0 {
+                            open_items.len()
+                        } else {
+                            open_count
                         },
+                        None,
                         Some("⇧N"),
                     )
                 }))
@@ -609,11 +641,14 @@ impl Requests {
                     div()
                         .id("resolved-fold")
                         .cursor_pointer()
-                        .child(group_heading(
-                            format!(
-                                "{} Resolved · {resolved_count}",
-                                if folds.resolved { "▾" } else { "▸" }
-                            ),
+                        .child(heading(
+                            "Resolved",
+                            resolved_count,
+                            Some(if folds.resolved {
+                                "chevron-down"
+                            } else {
+                                "chevron-right"
+                            }),
                             None,
                         ))
                         .on_click(move |_: &ClickEvent, _, cx| on_fold(Fold::Resolved, cx))
