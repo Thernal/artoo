@@ -12,13 +12,12 @@ use crate::git::WebRemote;
 use artoo_hosts_api::Host;
 use artoo_hosts_api::connect::{Connect, Here, INPUT, OnConnected};
 use artoo_shell_api::{Frame, Input, Typed};
-use artoo_ui_kit::controls::choice_row;
 use artoo_ui_kit::discussion::{self, Kind};
 use artoo_ui_kit::input::{self, Area, Edit, Look};
 use artoo_ui_kit::{hover, icons, keys, px, theme, words};
 use gpui::{
-    AnyElement, App, AppContext, ClickEvent, Context, Entity, FontWeight, SharedString, Stateful,
-    Window, div, prelude::*,
+    AnyElement, App, AppContext, ClickEvent, Context, ElementId, Entity, FontWeight, SharedString,
+    Stateful, Window, div, prelude::*,
 };
 use gpui::{Div, Rgba};
 use std::collections::HashMap;
@@ -642,15 +641,6 @@ impl Panel {
     ) -> (&'static str, String, Option<String>, String) {
         let host = self.host.as_ref().map(|h| h.host()).unwrap_or_default();
         let (cli, program) = connect::cli_name(remote.github);
-        let scope_until = |way: &Way| {
-            let mut out = main_scope(&way.scopes)
-                .map(|s| format!(" · {s}"))
-                .unwrap_or_default();
-            if let Some(day) = &way.expires {
-                out.push_str(&format!(" · until {day}"));
-            }
-            out
-        };
         let way = match row {
             Row::Way(way) => way,
             Row::Asking => {
@@ -669,24 +659,20 @@ impl Panel {
                 "terminal",
                 cli.to_owned(),
                 who,
-                format!(
-                    "{program} is signed in{} · nothing is asked",
-                    scope_until(way)
-                ),
+                format!("{program} is signed in · nothing is asked"),
             ),
             Via::Git(from) => (
                 "branch",
                 capital(from),
                 who,
-                format!("git keeps it{} · nothing is asked", scope_until(way)),
+                "git keeps it · nothing is asked".to_owned(),
             ),
             Via::Ssh => {
                 let what = match self.connecting.making {
                     Some(scope) => format!("making “{}” · {scope}…", token_name()),
                     None => format!(
-                        "makes “{}” · {} · {} days, Artoo renews it",
+                        "Makes “{}”, good for {} days; Artoo renews it",
                         token_name(),
-                        main_scope(&way.scopes).unwrap_or("api"),
                         connect::DAYS
                     ),
                 };
@@ -712,6 +698,22 @@ impl Panel {
                 },
             ),
         }
+    }
+
+    /// A row's scope and how long it lasts, as the pair under its name.
+    fn facts(&self, row: &Row) -> (Option<String>, Option<String>) {
+        let Row::Way(way) = row else {
+            return (None, None);
+        };
+        let scope = main_scope(&way.scopes).map(str::to_owned);
+        let span = match (&way.expires, &way.via) {
+            (Some(day), _) => Some(format!("until {day}")),
+            (None, Via::Ssh) if self.connecting.making.is_some() => Some("making…".to_owned()),
+            (None, Via::Ssh) => Some(format!("{} days", connect::DAYS)),
+            _ => None,
+        };
+        let scope = scope.or_else(|| (way.via == Via::Ssh).then(|| "api".to_owned()));
+        (scope, span)
     }
 
     /// What a way sets off, said before it happens (Settings, a row picked).
@@ -794,7 +796,7 @@ impl Panel {
         } else if rows.len() == 1 {
             format!("{host} · nothing on this computer connects it yet")
         } else {
-            format!("{host} · the easiest way first")
+            host.to_string()
         };
         let focus = self.focused(&rows);
         let can_read = {
@@ -820,7 +822,9 @@ impl Panel {
         for (i, row) in rows.iter().enumerate() {
             let on = i == focus && matches!(row, Row::Way(_));
             let (icon, name, who, what) = self.describe(row, &remote);
-            let dim = !matches!(row, Row::Way(_));
+            let facts = self.facts(row);
+            let is_way = matches!(row, Row::Way(_));
+            let dim = !is_way;
             let button: Option<AnyElement> = match row {
                 Row::Way(way) if way.via == Via::Ssh && way.write && can_read => Some(
                     div()
@@ -865,13 +869,24 @@ impl Panel {
                 c.child(div().h(px(1.)).bg(theme::island_border()))
             });
             card = card.child(
-                choice_row(("way-row", i), None, icon, name, who, what, on, dim)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.connecting.focus = i;
-                        // ↑ ↓ ↵ walk the ways from the token's field: it has the keyboard again.
-                        this.take_field(cx);
-                    }))
-                    .children(button),
+                way_row(
+                    ("way-row", i),
+                    None,
+                    icon,
+                    name,
+                    who,
+                    facts,
+                    what,
+                    is_way,
+                    on,
+                    dim,
+                )
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.connecting.focus = i;
+                    // ↑ ↓ ↵ walk the ways from the token's field: it has the keyboard again.
+                    this.take_field(cx);
+                }))
+                .children(button),
             );
             if let Row::Way(way) = row {
                 if way.via == Via::Ssh && self.connecting.read_menu {
@@ -1039,24 +1054,40 @@ impl Panel {
         let can_read = note.allowed.is_empty() || note.allowed.iter().any(|s| s == "read_api");
         let can_write = note.allowed.is_empty() || note.allowed.iter().any(|s| s == "api");
         let test = || {
-            div()
-                .id("ways-test")
-                .flex_none()
-                .text_size(px(12.))
-                .text_color(theme::accent())
-                .cursor_pointer()
-                .child("Test")
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.test(cx)))
+            tipped(
+                div()
+                    .id("ways-test")
+                    .flex_none()
+                    .size(px(24.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(6.))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::hover()))
+                    .child(
+                        icons::icon("activity")
+                            .size(px(14.))
+                            .text_color(theme::muted()),
+                    )
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.test(cx))),
+                "Test the token".to_owned(),
+            )
         };
-        let used_tag = || {
-            div()
-                .flex_none()
-                .px(px(6.))
-                .rounded(px(4.))
-                .bg(theme::added_bg())
-                .text_size(px(11.))
-                .text_color(theme::added())
-                .child("In use")
+        let used_mark = || {
+            tipped(
+                div()
+                    .id("ways-in-use")
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .child(
+                        icons::icon("circle-check")
+                            .size(px(16.))
+                            .text_color(theme::added()),
+                    ),
+                "In use".to_owned(),
+            )
         };
         let mut card = div()
             .w_full()
@@ -1070,17 +1101,19 @@ impl Panel {
         let has_own = own.is_some();
         if let Some((name, what)) = own {
             card = card.child(
-                choice_row(
+                way_row(
                     "ways-own",
                     Some(false),
                     "key",
                     name,
                     None,
+                    (None, None),
                     what,
                     false,
                     false,
+                    false,
                 )
-                .child(used_tag())
+                .child(used_mark())
                 .child(test()),
             );
         }
@@ -1089,17 +1122,20 @@ impl Panel {
         let mut first = !has_own;
         for (i, row) in rows.iter().enumerate() {
             let (icon, name, who, what) = self.describe(row, &remote);
+            let facts = self.facts(row);
             if !std::mem::take(&mut first) {
                 card = card.child(div().h(px(1.)).bg(theme::island_border()));
             }
             let Row::Way(way) = row else {
-                let row = choice_row(
+                let row = way_row(
                     ("ways-row", i),
                     Some(false),
                     icon,
                     name,
                     who,
+                    facts,
                     what,
+                    false,
                     false,
                     true,
                 );
@@ -1114,17 +1150,27 @@ impl Panel {
             }
             let pick = key.clone();
             card = card.child(
-                choice_row(("ways-row", i), Some(on), icon, name, who, what, on, false)
-                    .when(!env, |r| {
-                        r.cursor_pointer().on_click(cx.listener(
-                            move |this, _: &ClickEvent, _, cx| {
-                                this.connecting.pick = Some(pick.clone());
-                                this.connecting.pick_scope = None;
-                                cx.notify();
-                            },
-                        ))
-                    })
-                    .when(used, |r| r.child(used_tag()).child(test())),
+                way_row(
+                    ("ways-row", i),
+                    Some(on),
+                    icon,
+                    name,
+                    who,
+                    facts,
+                    what,
+                    true,
+                    on,
+                    false,
+                )
+                .when(!env, |r| {
+                    r.cursor_pointer()
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.connecting.pick = Some(pick.clone());
+                            this.connecting.pick_scope = None;
+                            cx.notify();
+                        }))
+                })
+                .when(used, |r| r.child(used_mark()).child(test())),
             );
             if on && !used {
                 let scopes = (way.via == Via::Ssh && can_write && can_read).then(|| {
@@ -1241,7 +1287,26 @@ impl Panel {
                 .child(card)
                 .children(go)
                 .children(status.map(|(text, color)| {
-                    div().text_size(px(12.)).text_color(color).child(text)
+                    if text == NO_TOKEN {
+                        return tipped(
+                            div()
+                                .id("ways-no-token")
+                                .flex()
+                                .items_center()
+                                .gap(px(6.))
+                                .text_size(px(12.))
+                                .text_color(color)
+                                .child(icons::icon("triangle-alert").size(px(14.)).text_color(color))
+                                .child(text),
+                            "Merge requests stay hidden until a token is in use".to_owned(),
+                        )
+                        .into_any_element();
+                    }
+                    div()
+                        .text_size(px(12.))
+                        .text_color(color)
+                        .child(text)
+                        .into_any_element()
                 }))
                 .children(not_here(&not, &remote))
                 .into_any_element(),
@@ -1263,14 +1328,14 @@ impl Panel {
         match (&self.check, web_host.token_source()) {
             (Some(Ok(who)), _) => Some((format!("Connected as {who}"), theme::added())),
             (Some(Err(e)), _) => Some((e.clone(), theme::removed())),
-            (None, None) => Some((
-                words::say("No token for this host yet — merge requests stay hidden.").into_owned(),
-                theme::warning(),
-            )),
+            (None, None) => Some((NO_TOKEN.to_owned(), theme::warning())),
             (None, Some(_)) => None,
         }
     }
 }
+
+/// What Settings says of a host with no token; the why is its tooltip.
+const NO_TOKEN: &str = "No token";
 
 /// The ways found that cannot be used, each with why.
 fn not_here(not: &[NotHere], remote: &WebRemote) -> Option<AnyElement> {
@@ -1296,11 +1361,14 @@ fn not_here(not: &[NotHere], remote: &WebRemote) -> Option<AnyElement> {
                     .gap(px(8.))
                     .text_size(px(12.))
                     .text_color(theme::faint())
+                    .id(SharedString::from(format!("not-here-{name}")))
                     .child(icons::icon(icon).size(px(14.)).text_color(theme::faint()))
-                    .child(hover::cut(
-                        gpui::SharedString::from(format!("not-here-{name}")),
-                        format!("{name} — {}", n.why),
-                    ))
+                    .child(name)
+                    .tooltip_show_delay(artoo_ui_kit::hover::LONG)
+                    .tooltip({
+                        let why = SharedString::from(n.why.clone());
+                        move |_, cx| cx.new(|_| hover::TipOwned(why.clone())).into()
+                    })
             }))
             .into_any_element()
     })
@@ -1314,6 +1382,114 @@ fn capital(text: &str) -> String {
         .next()
         .map(|c| c.to_uppercase().chain(chars).collect())
         .unwrap_or_default()
+}
+
+/// A way's row: a pick mark when it is one to pick, its icon, the name with whose it is, then the scope
+/// and how long it lasts as a quiet pair; what it does is its tooltip (a row that is no way says it as its
+/// line). The caller adds what goes at its end.
+#[allow(clippy::too_many_arguments)]
+fn way_row(
+    id: impl Into<ElementId>,
+    picked: Option<bool>,
+    icon: &'static str,
+    name: String,
+    who: Option<String>,
+    (scope, span): (Option<String>, Option<String>),
+    what: String,
+    is_way: bool,
+    on: bool,
+    dim: bool,
+) -> Stateful<Div> {
+    let pair = div()
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .text_size(px(11.))
+        .text_color(theme::muted())
+        .children(scope.map(|s| {
+            div()
+                .flex_none()
+                .px(px(5.))
+                .rounded(px(4.))
+                .bg(theme::hover())
+                .child(s)
+        }))
+        .children(span);
+    let tip = SharedString::from(what.clone());
+    let row = div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap(px(12.))
+        .px(px(14.))
+        .py(px(10.))
+        .when(on, |r| r.bg(theme::hover()))
+        .when(dim, |r| r.opacity(0.6))
+        .children(picked.map(|p| {
+            div()
+                .flex_none()
+                .size(px(14.))
+                .rounded_full()
+                .border_1()
+                .border_color(if p {
+                    theme::accent()
+                } else {
+                    theme::selected()
+                })
+                .when(p, |d| d.border_4())
+        }))
+        .child(
+            div()
+                .flex_none()
+                .size(px(28.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(6.))
+                .bg(theme::hover())
+                .child(icons::icon(icon).size(px(16.)).text_color(theme::muted())),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .min_w_0()
+                        .child(
+                            hover::cut("name", name)
+                                .text_size(px(13.))
+                                .font_weight(FontWeight::SEMIBOLD),
+                        )
+                        .children(who.map(|w| {
+                            div()
+                                .flex_none()
+                                .text_size(px(12.))
+                                .text_color(theme::muted())
+                                .child(w)
+                        })),
+                )
+                .child(if is_way {
+                    pair.into_any_element()
+                } else {
+                    hover::cut("what", what)
+                        .text_size(px(12.))
+                        .text_color(theme::muted())
+                        .into_any_element()
+                }),
+        );
+    if is_way {
+        row.tooltip_show_delay(artoo_ui_kit::hover::LONG)
+            .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(tip.clone())).into())
+    } else {
+        row
+    }
 }
 
 /// `button` with `tip` shown when hovered.
