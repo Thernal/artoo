@@ -2,8 +2,9 @@
 //! window refreshes itself. Designed in `../Design/mockups/settings/a-general.html`. Its frame — the sections, the
 //! heading, Done — is drawn by the shell (`artoo_shell_api::settings`).
 
+use super::hover::Hover as _;
 use super::px;
-use super::{ISLAND_RADIUS, Workspace, theme};
+use super::{ISLAND_RADIUS, Workspace, icons, theme};
 use crate::editor::Editor;
 use crate::storage::{DiffMode, MarkStyle};
 use artoo_ui_kit::controls::{SettingAct, SettingKey, SettingsLook, chip, group};
@@ -1110,6 +1111,36 @@ impl Workspace {
             )
     }
 
+    /// A 28 px icon button of the keyboard's tools; `on`: a toggle that is lit. Its words are its tooltip.
+    fn tool_icon(
+        id: &'static str,
+        icon: &'static str,
+        tip: &'static str,
+        on: bool,
+    ) -> gpui::Stateful<gpui::Div> {
+        use super::hover::Hover as _;
+        div()
+            .id(id)
+            .flex_none()
+            .size(px(28.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(6.))
+            .border_1()
+            .border_color(gpui::transparent_black())
+            .when(on, |s| s.border_color(theme::accent()))
+            .text_color(if on { theme::accent() } else { theme::muted() })
+            .cursor_pointer()
+            .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
+            .child(icons::icon(icon).size(px(14.)).text_color(if on {
+                theme::accent()
+            } else {
+                theme::muted()
+            }))
+            .tip(tip)
+    }
+
     /// The keymaps to start from, the one in use lit (Settings → Keyboard, and Set up's Keys).
     pub(super) fn key_presets(&self, cx: &mut Context<Self>) -> gpui::Div {
         use super::keymap::{self, Keymap};
@@ -1229,37 +1260,38 @@ impl Workspace {
             .flex()
             .gap(px(6.))
             .pb(px(8.))
-            // The next keys pressed filter the list (Design D, X55).
-            .child(
+            // The next keys pressed filter the list (Design D, X55): an icon; while it waits, the primary says so.
+            .child(if by_keys {
                 button(
                     "keys-by-keys",
-                    if by_keys {
-                        "Press the keys…"
-                    } else {
-                        "By keys"
-                    },
+                    "Press the keys…",
                     None,
-                    if by_keys {
-                        Kind::Primary(theme::accent())
-                    } else {
-                        Kind::Plain
-                    },
+                    Kind::Primary(theme::accent()),
                 )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.recording = if by_keys { None } else { Some(BY_KEYS) };
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.recording = None;
                     cx.notify();
-                })),
-            )
+                }))
+                .into_any_element()
+            } else {
+                Self::tool_icon(
+                    "keys-by-keys",
+                    "command",
+                    "By keys: one list, in the keys’ order, no headings",
+                    false,
+                )
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.recording = Some(BY_KEYS);
+                    cx.notify();
+                }))
+                .into_any_element()
+            })
             .child(
-                button(
+                Self::tool_icon(
                     "keys-changed-only",
-                    "Changed only",
-                    None,
-                    if changed_only {
-                        Kind::Primary(theme::accent())
-                    } else {
-                        Kind::Plain
-                    },
+                    "dot",
+                    "Changed only: the keys you changed",
+                    changed_only,
                 )
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.keys_changed_only = !this.keys_changed_only;
@@ -1268,12 +1300,16 @@ impl Workspace {
             )
             .child(div().flex_1())
             .child(
-                button("keys-export", "Copy keymap", None, Kind::Plain).on_click(cx.listener(
-                    |_, _: &ClickEvent, _, cx| {
-                        let text = cx.global::<Keymap>().export();
-                        cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
-                    },
-                )),
+                Self::tool_icon(
+                    "keys-export",
+                    "copy",
+                    "Copy keymap: every key, to paste in another Artoo",
+                    false,
+                )
+                .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
+                    let text = cx.global::<Keymap>().export();
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+                })),
             )
             .children((changed_count > 0).then(|| {
                 button(
@@ -1321,13 +1357,26 @@ impl Workspace {
                 .join(" · ");
             let waiting = self.recording == Some(name);
             let clash = e.clash.clone();
-            // A clash names the other command (#193).
+            // A clash is a warning glyph and the other command; its sentence is the tooltip (#193).
             let also = clash.as_ref().map(|(_, other)| {
+                let tip = gpui::SharedString::from(format!(
+                    "Also the key of {other}\nYours wins; Change picks another"
+                ));
                 div()
+                    .id(gpui::SharedString::from(format!("key-clash-{name}")))
                     .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
                     .text_size(px(11.))
                     .text_color(theme::warning())
-                    .child(format!("also {other} — yours wins"))
+                    .child(
+                        icons::icon("triangle-alert")
+                            .size(px(12.))
+                            .text_color(theme::warning()),
+                    )
+                    .child(other.to_string())
+                    .tip(tip)
             });
             let keys = e.keys.iter().map(|k| {
                 div()
@@ -1381,9 +1430,28 @@ impl Workspace {
                         .items_center()
                         .gap(px(6.))
                         .when(waiting, |s| {
-                            s.child(div().text_size(px(12.)).text_color(theme::muted()).child(
-                                keys::text("Press a key · esc cancels · ⌫ no key").into_owned(),
-                            ))
+                            s.gap(px(14.))
+                                .text_size(px(12.))
+                                .text_color(theme::muted())
+                                .child("Press a key")
+                                .child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(4.))
+                                        .text_color(theme::faint())
+                                        .child("cancel")
+                                        .child(keys::caps("esc", On::Plain)),
+                                )
+                                .child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(4.))
+                                        .text_color(theme::faint())
+                                        .child("no key")
+                                        .child(keys::caps("⌫", On::Plain)),
+                                )
                         })
                         .when(!waiting, |s| s.children(also))
                         .when(!waiting && e.changed && !was.is_empty(), |s| {

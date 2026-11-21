@@ -424,6 +424,31 @@ const ICONS: &[(&str, &str)] = &[
             r#"<path d="M14 2v4a2 2 0 0 0 2 2h4"/>"#
         ),
     ),
+    // Settings → Keyboard's tools and a clash.
+    (
+        "command",
+        lucide!(
+            r#"<path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/>"#
+        ),
+    ),
+    (
+        "dot",
+        lucide!(r#"<circle cx="12" cy="12" r="4" fill="black" stroke="none"/>"#),
+    ),
+    (
+        "copy",
+        lucide!(
+            r#"<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>"#
+            r#"<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>"#
+        ),
+    ),
+    (
+        "triangle-alert",
+        lucide!(
+            r#"<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/>"#
+            r#"<path d="M12 9v4"/><path d="M12 17h.01"/>"#
+        ),
+    ),
     (
         "user",
         lucide!(
