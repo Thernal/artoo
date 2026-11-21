@@ -56,6 +56,8 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
         tip.push(said.trim().to_owned());
     }
     let on = on.clone();
+    // The Inbox's own row (`artoo_requests::inbox_view`): a face, the title and the short time, the place, the gist.
+    let title = format!("{agent} {verb}");
     div()
         .id(("inbox-agent", id as usize))
         .mx(px(6.))
@@ -76,6 +78,21 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
                 .rounded_full()
                 .when(fresh, |s| s.bg(theme::agent())),
         )
+        // Claude's mark: the bot in the agent's colour.
+        .child(
+            div()
+                .flex_none()
+                .size(px(20.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_full()
+                .bg(gpui::Rgba {
+                    a: 0.22,
+                    ..theme::agent()
+                })
+                .child(icons::icon("bot").size(px(12.)).text_color(theme::agent())),
+        )
         .child(
             div()
                 .flex_1()
@@ -91,28 +108,22 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
                             div()
                                 .flex_1()
                                 .min_w_0()
-                                .flex()
-                                .gap(px(5.))
+                                .cut_in_tip()
+                                .text_color(if fresh { theme::text() } else { theme::muted() })
                                 .when(fresh, |s| s.font_weight(FontWeight::SEMIBOLD))
-                                // The agent's name gives way; what it did stays whole.
-                                .child(div().min_w_0().cut_in_tip().child(agent))
-                                .child(div().flex_none().text_color(theme::agent()).child(verb)),
+                                .child(title),
                         )
-                        // Its source before the time, as every row of the Inbox (#197).
-                        .children(wide.then(|| {
-                            div()
-                                .flex_none()
+                        .child(
+                            format::time_cell(at)
                                 .text_size(px(11.))
-                                .text_color(theme::faint())
-                                .child(format!("Agents · {}", format::ago(at)))
-                        })),
+                                .text_color(theme::faint()),
+                        ),
                 )
                 .child(
                     div()
                         .cut_in_tip()
                         .text_size(px(12.))
-                        .font_family(theme::code_font())
-                        .text_color(theme::agent())
+                        .text_color(theme::muted())
                         .child(place),
                 )
                 .children((wide && !gist.is_empty()).then(|| {
@@ -151,7 +162,8 @@ pub fn answer_preview(c: &Comment, from: From, thread: AnyElement, on: &OnAnswer
                     agent.clone()
                 } else {
                     format!("{agent} · {chat}")
-                }),
+                })
+                .child(div().text_color(theme::agent()).child(verb(c))),
         )
         .children(c.branch.clone().filter(|b| !b.is_empty()).map(|b| {
             div()
@@ -166,7 +178,7 @@ pub fn answer_preview(c: &Comment, from: From, thread: AnyElement, on: &OnAnswer
                 .child(div().font_family(theme::code_font()).child(b))
         }))
         .child(div().flex_1())
-        .child(format!("{agent} {} · {}", verb(c), format::ago(at)));
+        .child(div().text_color(theme::faint()).child(format::ago(at)));
     let title = div()
         .text_size(px(19.))
         .line_height(px(26.))
