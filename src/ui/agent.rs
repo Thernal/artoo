@@ -52,7 +52,11 @@ impl Workspace {
     }
 
     /// Another chat than the page's is changing file `path` (#77, `Agents::changing`): its name, letter and hue.
-    pub(super) fn changing(&self, path: &str, cx: &App) -> Option<(String, char, gpui::Rgba)> {
+    pub(super) fn changing(
+        &self,
+        path: &str,
+        cx: &App,
+    ) -> Option<(String, String, char, gpui::Rgba)> {
         let page = self
             .route_of(self.page_branch(cx).as_deref(), cx)
             .map(|c| c.session);
@@ -206,9 +210,8 @@ impl Workspace {
         // The Dock counts what waits in every tab's Inbox (#196).
         self.dock_count(cx);
         let (changed, said) = self.agents.beat(root.as_deref(), here, cx);
-        for text in said {
-            let notice =
-                artoo_shell_api::Toast::new(text).kind(artoo_agents_api::notices::PRESENCE);
+        for said in said {
+            let notice = super::toast::listening(&said);
             self.show_toast(notice, cx);
         }
         if changed {

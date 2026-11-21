@@ -47,7 +47,12 @@ pub fn run() {
         watcher: std::process::id(),
         beat: agents::now(),
     };
+    let mut written = false;
     loop {
+        // Its record taken away (Stop listening on the app's toast): the chat is no longer listening.
+        if written && !bus.knows(&session) {
+            return;
+        }
         chat.beat = agents::now();
         // The branch its folder is on now: the notes of that branch come here (#77).
         if let Some(branch) = crate::git::Repo::open(&root)
@@ -60,6 +65,7 @@ pub fn run() {
             eprintln!("artoo agent-watch: cannot write to Artoo's data folder");
             std::process::exit(1);
         }
+        written = true;
         let comments = bus.comments(&project);
         let waiting = agents::waiting(&comments, &session);
         if !waiting.is_empty() {

@@ -6,6 +6,7 @@
 use crate::agents::{self, Bus, Chat};
 use crate::review::{Comment, State};
 use artoo_agents_api::bus::Mark;
+use artoo_agents_api::tab::Said;
 use artoo_core::{git, labels};
 use artoo_ui_kit::theme;
 use gpui::{Context, Rgba, Task};
@@ -152,7 +153,7 @@ impl Chats {
         here: Option<PathBuf>,
         comments: &[Comment],
         cx: &mut Context<Self>,
-    ) -> (bool, Vec<String>) {
+    ) -> (bool, Vec<Said>) {
         let before = self.list.clone();
         let changed = self.refresh(root, comments);
         let said = if changed && self.known {
@@ -169,13 +170,12 @@ impl Chats {
 
     /// A line for each chat that began listening or went since `before`; one taking notes to work on says nothing
     /// (#77).
-    fn said(&self, before: &[Chat], comments: &[Comment]) -> Vec<String> {
-        let name = |c: &Chat| {
-            if c.title.is_empty() {
-                c.agent.clone()
-            } else {
-                format!("{} · {}", c.agent, c.title)
-            }
+    fn said(&self, before: &[Chat], comments: &[Comment]) -> Vec<Said> {
+        let said_of = |c: &Chat, what: &str, began: bool| Said {
+            text: format!("{} {what}", c.agent),
+            session: c.session.clone(),
+            branch: c.branch.clone(),
+            began,
         };
         let working = |session: &str| {
             comments.iter().any(|c| {
@@ -189,19 +189,27 @@ impl Chats {
         for c in &self.list {
             let was = before.iter().find(|b| b.session == c.session);
             match (was.map(Chat::listening), c.listening()) {
-                (None, true) => said.push(format!("{} is listening", name(c))),
+                (None, true) => said.push(said_of(c, "started listening", true)),
                 (Some(true), false) if !working(&c.session) => {
-                    said.push(format!("{} stopped listening", name(c)))
+                    said.push(said_of(c, "stopped listening", false))
                 }
                 _ => {}
             }
         }
         for b in before {
             if b.listening() && !self.list.iter().any(|c| c.session == b.session) {
-                said.push(format!("{} stopped listening", name(b)));
+                said.push(said_of(b, "stopped listening", false));
             }
         }
         said
+    }
+
+    /// Chat `session` stops listening: its record goes, and its watcher ends when it finds the record gone.
+    pub fn stop_listening(&mut self, session: &str) {
+        if let Some(bus) = Bus::new() {
+            bus.stop(session);
+        }
+        self.list.retain(|c| c.session != session);
     }
 
     /// Every fifth beat (10 s): what each chat in a worktree of its own has changed there, read in the background
@@ -260,4 +268,43 @@ pub fn named(mut chats: Vec<Chat>) -> Vec<Chat> {
         }
     }
     chats
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chat(session: &str, beat: i64) -> Chat {
+        Chat {
+            session: session.into(),
+            agent: "Codex".into(),
+            branch: "feature/ledger-cache".into(),
+            watcher: 4242,
+            beat,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_chat_that_began_is_told_with_its_branch_and_session() {
+        let chats = Chats {
+            list: vec![chat("s1", agents::now())],
+            ..Default::default()
+        };
+        let said = chats.said(&[], &[]);
+        assert_eq!(said.len(), 1);
+        assert_eq!(said[0].text, "Codex started listening");
+        assert_eq!(said[0].branch, "feature/ledger-cache");
+        assert_eq!(said[0].session, "s1");
+        assert!(said[0].began);
+    }
+
+    #[test]
+    fn a_chat_that_went_is_told_without_a_way_to_stop_it() {
+        let before = vec![chat("s1", agents::now())];
+        let said = Chats::default().said(&before, &[]);
+        assert_eq!(said.len(), 1);
+        assert_eq!(said[0].text, "Codex stopped listening");
+        assert!(!said[0].began);
+    }
 }

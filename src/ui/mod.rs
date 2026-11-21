@@ -1,6 +1,6 @@
 //! The Artoo window: branches, versions and commits on the left, the diff on the right.
 
-use artoo_ui_kit::hover::TipOwned;
+use artoo_ui_kit::hover::{Hover as _, TipOwned};
 pub(crate) use artoo_ui_kit::{apply_ui_zoom, flat, px, ui_zoom};
 mod hover;
 use artoo_ui_kit::format::plural;
@@ -3015,17 +3015,19 @@ impl artoo_review_api::Host for TabHost {
 
     fn badge(&self, path: &str, cx: &App) -> Option<gpui::AnyElement> {
         let workspace = self.0.upgrade()?;
-        let (name, letter, hue) = workspace.read(cx).changing(path, cx)?;
+        let (agent, line, letter, hue) = workspace.read(cx).changing(path, cx)?;
+        // The chat's mark and a pen: the words are the tooltip (Design round 21, J1).
         Some(
             div()
+                .id("changing-mark")
                 .flex_none()
                 .flex()
                 .items_center()
-                .gap(px(6.))
-                .text_size(px(12.))
+                .gap(px(4.))
                 .text_color(theme::muted())
                 .child(artoo_agents_api::view::chat_badge(letter, hue, false, cx))
-                .child(format!("{name} is changing it"))
+                .child(icons::icon("pencil").size(px(12.)))
+                .tip_two(format!("{agent} is changing this file too"), line)
                 .into_any_element(),
         )
     }

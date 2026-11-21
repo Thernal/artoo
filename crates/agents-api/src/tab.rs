@@ -12,6 +12,17 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+/// What to say of a chat that began listening or went (a toast): the words, and for one that began, which chat and
+/// on which branch, so the toast can offer to end its listening.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Said {
+    pub text: String,
+    pub session: String,
+    pub branch: String,
+    /// The chat began listening (else it stopped).
+    pub began: bool,
+}
+
 /// What the tab is told: the notes or the comments changed, their lines were found.
 pub type OnChange = Rc<dyn Fn(&mut App)>;
 
@@ -46,8 +57,11 @@ pub trait Agents {
     /// (`here` the tab's working tree); the chats that listen through the app handed what was sent to them (each
     /// provider's beat, #18); its marks read again when they changed. Whether any of it changed, and what to say of
     /// each chat that began listening or went.
-    fn beat(&self, root: Option<&Path>, here: Option<PathBuf>, cx: &mut App)
-    -> (bool, Vec<String>);
+    fn beat(&self, root: Option<&Path>, here: Option<PathBuf>, cx: &mut App) -> (bool, Vec<Said>);
+
+    /// Ends chat `session`'s listening: it is forgotten, and its watcher ends on its next look (Stop listening on
+    /// the toast of a chat that began).
+    fn stop_listening(&self, session: &str, cx: &mut App);
 
     /// The reviewer's comments to agents, oldest first.
     fn comments<'a>(&self, cx: &'a App) -> &'a [Comment];
@@ -123,7 +137,12 @@ pub trait Agents {
     /// Another chat than the page's (`page`, a session) changing file `path` (#77): one in a worktree of its own
     /// changed it there (#117: what it really edits); one in this working tree, where whose edit is whose cannot be
     /// told, took a note of its on the file and has not answered yet. Its name, letter and hue.
-    fn changing(&self, path: &str, page: Option<&str>, cx: &App) -> Option<(String, char, Rgba)>;
+    fn changing(
+        &self,
+        path: &str,
+        page: Option<&str>,
+        cx: &App,
+    ) -> Option<(String, String, char, Rgba)>;
 
     /// What the tab is told when the agents changed the comments — a comment added, a pick, a send, an archive — or
     /// found their lines.

@@ -314,6 +314,11 @@ impl Bus {
         std::fs::remove_file(file).is_ok()
     }
 
+    /// Whether chat `session` has its record (`stop` takes it away).
+    pub fn knows(&self, session: &str) -> bool {
+        self.chat_file(session).exists()
+    }
+
     pub fn stop(&self, session: &str) {
         let _ = std::fs::remove_file(self.chat_file(session));
     }

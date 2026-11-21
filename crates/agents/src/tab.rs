@@ -10,7 +10,7 @@ use crate::pick::SendCard;
 use artoo_agents_api::bus::{Chat, Mark};
 use artoo_agents_api::comment::{self, Comment, Kind, Place, State};
 use artoo_agents_api::notes::{Notes, Shown};
-use artoo_agents_api::tab::{Agents, OnChange};
+use artoo_agents_api::tab::{Agents, OnChange, Said};
 use artoo_core::rows::FileData;
 use gpui::{App, AppContext, Entity, Rgba};
 use std::any::Any;
@@ -78,12 +78,7 @@ impl Agents for TabAgents {
             .update(cx, |c, cx| c.refresh(root, &comments.read(cx).list))
     }
 
-    fn beat(
-        &self,
-        root: Option<&Path>,
-        here: Option<PathBuf>,
-        cx: &mut App,
-    ) -> (bool, Vec<String>) {
+    fn beat(&self, root: Option<&Path>, here: Option<PathBuf>, cx: &mut App) -> (bool, Vec<Said>) {
         let comments = self.comments.read(cx).list.clone();
         let (mut changed, said) = self
             .chats
@@ -95,6 +90,10 @@ impl Agents for TabAgents {
             });
         }
         (changed, said)
+    }
+
+    fn stop_listening(&self, session: &str, cx: &mut App) {
+        self.chats.update(cx, |c, _| c.stop_listening(session));
     }
 
     fn marks<'a>(&self, cx: &'a App) -> &'a [Mark] {
@@ -263,7 +262,12 @@ impl Agents for TabAgents {
             .map(|e| format!("Could not open a terminal for the new chat: {e}"))
     }
 
-    fn changing(&self, path: &str, page: Option<&str>, cx: &App) -> Option<(String, char, Rgba)> {
+    fn changing(
+        &self,
+        path: &str,
+        page: Option<&str>,
+        cx: &App,
+    ) -> Option<(String, String, char, Rgba)> {
         let chats = self.chats.read(cx);
         let alive = |session: &str| chats.listens(session);
         let edited = (chats.list.iter())
@@ -281,12 +285,13 @@ impl Agents for TabAgents {
         })?;
         let chat = chats.list.iter().find(|c| c.session == session)?;
         let (letter, hue) = chats.mark(&session);
-        let name = if chat.title.is_empty() {
-            chat.agent.clone()
-        } else {
-            chat.title.clone()
-        };
-        Some((name, letter, hue))
+        // The tooltip's second line: the branch it works on, and what it was asked.
+        let line = [chat.branch.as_str(), chat.title.as_str()]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(" \u{b7} ");
+        Some((chat.agent.clone(), line, letter, hue))
     }
 
     fn on_comments(&self, changed: OnChange, cx: &mut App) {

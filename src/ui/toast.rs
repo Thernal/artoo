@@ -34,6 +34,32 @@ impl PartialEq for Press {
     }
 }
 
+/// Stop listening on the toast of a chat that began: its listening ends (`Agents::stop_listening`).
+#[derive(Clone, PartialEq, Debug, gpui::Action)]
+#[action(namespace = agents, no_json, no_register)]
+pub(super) struct StopListening {
+    session: String,
+}
+
+/// The toast of a chat that began listening or went: what happened, the branch it works on under it, and for one
+/// that began Stop listening.
+pub(super) fn listening(said: &artoo_agents_api::tab::Said) -> Toast {
+    let toast = Toast::new(said.text.clone()).kind(artoo_agents_api::notices::PRESENCE);
+    let toast = match said.branch.is_empty() {
+        true => toast,
+        false => toast.about(said.branch.clone()),
+    };
+    match said.began {
+        true => toast.button(
+            "Stop listening",
+            StopListening {
+                session: said.session.clone(),
+            },
+        ),
+        false => toast,
+    }
+}
+
 /// A tab's toasts, their buttons answered by the tab.
 pub(super) fn toasts(cx: &mut Context<Workspace>) -> Entity<Toasts<Press>> {
     let tab = cx.weak_entity();
@@ -243,6 +269,12 @@ impl Workspace {
     /// to its action — the agents' while their code is the tab's, Settings' —, else the part's that
     /// runs it.
     pub(super) fn press(&mut self, act: &dyn Action, cx: &mut Context<Self>) {
+        if let Some(a) = act.as_any().downcast_ref::<StopListening>() {
+            self.agents.stop_listening(&a.session, cx);
+            self.refresh_chats(cx);
+            cx.notify();
+            return;
+        }
         if self.answer_agents(act, cx)
             || self.answer_settings(act, cx)
             || self.answer_notice(act, cx)
@@ -275,5 +307,37 @@ impl Workspace {
     /// The stack, over everything else, under the page bar's right end.
     pub(super) fn render_toasts(&self, cx: &App) -> Option<impl IntoElement + use<>> {
         (!self.toasts.read(cx).is_empty()).then(|| self.toasts.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use artoo_agents_api::tab::Said;
+
+    fn said(began: bool) -> Said {
+        Said {
+            text: "Codex started listening".into(),
+            session: "s1".into(),
+            branch: "feature/ledger-cache".into(),
+            began,
+        }
+    }
+
+    #[test]
+    fn the_listening_toast_names_the_branch_and_offers_stop_listening() {
+        let toast = listening(&said(true));
+        assert_eq!((toast.say)(1), "Codex started listening");
+        assert_eq!(toast.about.as_deref(), Some("feature/ledger-cache"));
+        let (words, act) = toast.button.expect("a button");
+        assert_eq!(words, "Stop listening");
+        assert!(act.partial_eq(&StopListening {
+            session: "s1".into()
+        }));
+    }
+
+    #[test]
+    fn a_chat_that_went_has_no_button() {
+        assert!(listening(&said(false)).button.is_none());
     }
 }
