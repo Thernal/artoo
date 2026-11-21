@@ -71,6 +71,10 @@ pub struct BarRoom {
     /// shorter than the room kept for it, the actions have the rest.
     pub left: Cell<f32>,
     pub left_whole: Cell<Option<f32>>,
+    /// What the left may take, as last drawn: its own width and the room beside it.
+    pub avail: Cell<f32>,
+    /// How many of the path's middle folders are folded into `…` (#16).
+    pub folded: Cell<usize>,
     /// The page the left was seen whole on: another forgets it.
     page: RefCell<String>,
 }
@@ -110,6 +114,8 @@ pub struct PageBar {
     pub crumbs: Vec<Crumb>,
     /// The page's title, with what its long hover says.
     pub title: AnyElement,
+    /// The words of `title`, measured to see how many folders of the path fold into `…`.
+    pub title_text: String,
     pub count: Option<String>,
     /// Actions on the left, after the title, folding into `⋯` as the others do: a request's Description ▾ (#188).
     pub lead: Vec<BarAction>,

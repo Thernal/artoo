@@ -102,6 +102,84 @@ fn measure(keep: impl Fn(f32) -> bool + 'static) -> impl IntoElement {
     .size_full()
 }
 
+/// A crumb's words, to measure.
+struct Sized {
+    text: String,
+    mono: bool,
+    /// A note's dot follows its words.
+    dot: bool,
+}
+
+/// A canvas over the left that sets how many of the `foldable` crumbs fold into `…`: the fewest with which the path,
+/// the title and the count fit the room the left may take (`BarRoom::avail`, as last drawn). The bar is drawn again
+/// on the next frame when it changed. It draws nothing and takes no pointer.
+fn fit(
+    room: Rc<BarRoom>,
+    crumbs: Vec<Sized>,
+    foldable: Vec<usize>,
+    title: String,
+    count: Option<String>,
+    up: bool,
+) -> impl IntoElement {
+    canvas(
+        move |_, window, _| {
+            let avail = room.avail.get();
+            if foldable.is_empty() || avail <= 0. {
+                return;
+            }
+            let style = window.text_style();
+            let size = style.font_size.to_pixels(window.rem_size());
+            let width = |text: &str, mono: bool, bold: bool, size: gpui::Pixels| -> f32 {
+                let line = SharedString::from(text.to_owned());
+                let mut run = style.to_run(line.len());
+                if mono {
+                    run.font.family = theme::code_font();
+                }
+                if bold {
+                    run.font.weight = gpui::FontWeight::SEMIBOLD;
+                }
+                f32::from(
+                    window
+                        .text_system()
+                        .shape_line(line, size, &[run], None)
+                        .width,
+                )
+            };
+            // Each crumb: its words, a note's dot, the gap, `›`, and the left's gap after it.
+            let sep = width("›", false, false, size) + 12.;
+            let own = |c: &Sized| {
+                width(&c.text, c.mono, false, size) + if c.dot { 10. } else { 0. } + sep
+            };
+            let mut fixed = width(&title, false, true, size);
+            if up {
+                fixed += 8. + width("‹", false, false, size) + 6.;
+            }
+            if let Some(count) = &count {
+                fixed += 10. + width(count, false, false, gpui::px(12.));
+            }
+            let dots = width("…", false, false, size) + sep;
+            let all: f32 = crumbs.iter().map(own).sum();
+            let mut need = fixed + all;
+            let mut k = 0;
+            while need > avail - 4. && k < foldable.len() {
+                need -= own(&crumbs[foldable[k]]);
+                if k == 0 {
+                    need += dots;
+                }
+                k += 1;
+            }
+            if room.folded.replace(k) != k {
+                window.request_animation_frame();
+            }
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
+}
+
 /// The bar's renderer, installed by `install`.
 pub(crate) struct Renderer;
 
@@ -113,55 +191,113 @@ impl BarRenderer for Renderer {
 
 /// The bar.
 fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
-    let crumbs = bar.crumbs.into_iter().enumerate().map(|(n, crumb)| {
+    // The folders between the repository and the last folder fold into one `…` as the bar narrows, before any name is
+    // cut (#16); `fit` decides how many from the widths.
+    let last_folder = bar.crumbs.iter().rposition(|c| c.folder);
+    let foldable: Vec<usize> = (0..bar.crumbs.len())
+        .filter(|&n| bar.crumbs[n].folder && Some(n) != last_folder)
+        .collect();
+    let gone = bar.room.folded.get().min(foldable.len());
+    let gone: Vec<usize> = foldable[..gone].to_vec();
+    let sized: Vec<Sized> = bar
+        .crumbs
+        .iter()
+        .map(|c| Sized {
+            text: words::say(&c.label).into_owned(),
+            mono: c.mono,
+            dot: c.noted,
+        })
+        .collect();
+    let fit_room = bar.room.clone();
+    let fit = fit(
+        fit_room,
+        sized,
+        foldable,
+        bar.title_text.clone(),
+        bar.count.clone(),
+        bar.up,
+    );
+    let dots = (!gone.is_empty()).then(|| {
+        let whole = gone
+            .iter()
+            .map(|&n| words::say(&bar.crumbs[n].label).into_owned())
+            .collect::<Vec<_>>()
+            .join("/");
+        let at = gone[0];
+        (at, whole)
+    });
+    let crumbs = bar.crumbs.into_iter().enumerate().filter_map(|(n, crumb)| {
+        if let Some((_, whole)) = dots.as_ref().filter(|(at, _)| *at == n) {
+            return Some(
+                div()
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(
+                        div()
+                            .id("crumb-fold")
+                            .child("…")
+                            .tooltip_show_delay(hover::LONG)
+                            .tooltip({
+                                let whole = SharedString::from(whole.clone());
+                                move |_, cx| cx.new(|_| hover::TipOwned(whole.clone())).into()
+                            }),
+                    )
+                    .child(div().flex_none().text_color(theme::faint()).child("›")),
+            );
+        }
+        if gone.contains(&n) {
+            return None;
+        }
         let (link, folder, menu) = (host.clone(), host.clone(), host.clone());
         // A crumb too long for the bar is cut, a branch or a path in its middle, never clipped (#184).
         let label = words::say(&crumb.label).into_owned();
-        let label = if crumb.mono {
-            hover::name(SharedString::from(format!("crumb-label-{n}")), label)
-        } else {
-            hover::cut(SharedString::from(format!("crumb-label-{n}")), label)
-        };
-        div()
-            .min_w_0()
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .child(
-                div()
-                    .id(SharedString::from(format!("crumb-{n}")))
-                    .relative()
-                    .min_w_0()
-                    .flex()
-                    .items_center()
-                    .gap(px(4.))
-                    .when(crumb.mono, |s| s.font_family(theme::code_font()))
-                    .when(crumb.open, |s| s.text_color(theme::accent()))
-                    .child(label)
-                    .when(crumb.noted, |s| {
-                        s.child(div().size(px(6.)).rounded_full().bg(theme::agent()))
-                    })
-                    .when(crumb.link && !crumb.folder, |s| {
-                        s.cursor_pointer()
-                            .hover(|s| s.text_color(theme::accent()))
-                            .on_click(move |_: &ClickEvent, window, cx| link.up_to(n, window, cx))
-                    })
-                    .when(crumb.folder, |s| {
-                        s.cursor_pointer()
-                            .hover(|s| s.text_color(theme::accent()))
-                            .on_click(move |_: &ClickEvent, window, cx| {
-                                folder.folder(n, window, cx)
-                            })
-                            .on_mouse_down(
-                                MouseButton::Right,
-                                move |e: &MouseDownEvent, window, cx| {
-                                    menu.folder_menu(n, e.position, window, cx)
-                                },
-                            )
-                    })
-                    .children(crumb.list),
-            )
-            .child(div().flex_none().text_color(theme::faint()).child("›"))
+        let label = hover::name(SharedString::from(format!("crumb-label-{n}")), label);
+        Some(
+            div()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .child(
+                    div()
+                        .id(SharedString::from(format!("crumb-{n}")))
+                        .relative()
+                        .min_w_0()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .when(crumb.mono, |s| s.font_family(theme::code_font()))
+                        .when(crumb.open, |s| s.text_color(theme::accent()))
+                        .child(label)
+                        .when(crumb.noted, |s| {
+                            s.child(div().size(px(6.)).rounded_full().bg(theme::agent()))
+                        })
+                        .when(crumb.link && !crumb.folder, |s| {
+                            s.cursor_pointer()
+                                .hover(|s| s.text_color(theme::accent()))
+                                .on_click(move |_: &ClickEvent, window, cx| {
+                                    link.up_to(n, window, cx)
+                                })
+                        })
+                        .when(crumb.folder, |s| {
+                            s.cursor_pointer()
+                                .hover(|s| s.text_color(theme::accent()))
+                                .on_click(move |_: &ClickEvent, window, cx| {
+                                    folder.folder(n, window, cx)
+                                })
+                                .on_mouse_down(
+                                    MouseButton::Right,
+                                    move |e: &MouseDownEvent, window, cx| {
+                                        menu.folder_menu(n, e.position, window, cx)
+                                    },
+                                )
+                        })
+                        .children(crumb.list),
+                )
+                .child(div().flex_none().text_color(theme::faint()).child("›")),
+        )
     });
     let (back, up, more) = (host.clone(), host.clone(), host.clone());
     // What the bar has no room for folds into ⋯, the last first, never clipped (#186).
@@ -286,6 +422,7 @@ fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
                     left.left.set(w);
                     false
                 }))
+                .child(fit)
                 .children(bar.up.then(|| {
                     div()
                         .id("crumb-up")
@@ -329,6 +466,7 @@ fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
         }))
         // Room to spare: the left is whole, as wide as it was just drawn (its measure comes first).
         .child(div().relative().flex_1().min_w_0().child(measure(move |w| {
+            spare.avail.set(spare.left.get() + w);
             let whole = Some(spare.left.get());
             w > 0. && spare.left_whole.replace(whole) != whole
         })))

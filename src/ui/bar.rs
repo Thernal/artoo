@@ -101,6 +101,7 @@ impl Workspace {
                 from: from.map(|s| super::spaces::label(s, cx)),
                 up: up.is_some(),
                 crumbs,
+                title_text: words::say(&name).into_owned(),
                 title: title(words::say(&name).into_owned(), called, mono, hover),
                 count,
                 lead: self.lead_of(page.as_ref(), cx),

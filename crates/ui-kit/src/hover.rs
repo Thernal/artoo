@@ -315,6 +315,47 @@ pub fn path(id: impl Into<ElementId>, path: impl Into<SharedString>) -> gpui::St
     cut_shown(id, parts, whole.clone(), whole, 1, CutAt::Parts)
 }
 
+/// A path cut in its middle to its room, as a name is (`name`): its first folders and its last words kept, the file
+/// name whole while the room allows — `money/src/…/payments/Money.kt` —, then cut in its middle itself, its extension
+/// kept. Its whole path in its long hover (#16).
+pub fn path_middle(
+    id: impl Into<ElementId>,
+    path: impl Into<SharedString>,
+) -> gpui::Stateful<gpui::Div> {
+    let whole: SharedString = path.into();
+    let (folder, file) = match whole.rfind('/') {
+        Some(at) => (&whole[..=at], &whole[at + 1..]),
+        None => ("", &whole[..]),
+    };
+    let parts = div()
+        .flex()
+        .min_w_0()
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .when(!folder.is_empty(), |d| {
+            d.child(
+                div()
+                    .flex_shrink(1.)
+                    .min_w_0()
+                    .overflow_hidden()
+                    .text_ellipsis_middle()
+                    .child(SharedString::from(folder.to_owned())),
+            )
+        })
+        .when(!file.is_empty(), |d| {
+            d.child(
+                div()
+                    .flex_none()
+                    .max_w_full()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .text_ellipsis_middle()
+                    .child(SharedString::from(file.to_owned())),
+            )
+        });
+    cut_shown(id, parts, whole.clone(), whole, 1, CutAt::Parts)
+}
+
 /// `shown` cut to its room, measured as `text`; `whole` in its long hover when the room cut it or
 /// `text` is already shorter than `whole`.
 fn cut_shown(
