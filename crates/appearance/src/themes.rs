@@ -93,15 +93,22 @@ fn list_of(code: bool, edit: EditTheme) -> List {
                             (Some(w), true) => themes::code_on(t, w),
                             _ => Vec::new(),
                         };
-                        // A fact, muted on its row: its problems, its contrast on the window's diff, light.
-                        let detail = if !t.problems.is_empty() && !t.built_in {
-                            plural(t.problems.len(), "problem")
+                        // A fact, a glyph on its row with its sentence as tooltip: its problems, its contrast on the
+                        // window's diff, light.
+                        let badge = if !t.problems.is_empty() && !t.built_in {
+                            Some((
+                                "triangle-alert",
+                                Some(t.problems.len()),
+                                plural(t.problems.len(), "problem"),
+                            ))
                         } else if !low.is_empty() {
-                            format!("{} under 4.5:1", low.len())
+                            let n = low.len();
+                            let tip = format!("{} under 4.5:1 contrast", plural(n, "colour"));
+                            Some(("contrast", Some(n), tip))
                         } else if t.light() {
-                            "light".to_owned()
+                            Some(("sun", None, "A light theme".to_owned()))
                         } else {
-                            String::new()
+                            None
                         };
                         let (tried, kept, edited) = (t.id.clone(), t.id.clone(), t.id.clone());
                         let keep = Opens::Run(Rc::new(move |cx| match code {
@@ -109,14 +116,22 @@ fn list_of(code: bool, edit: EditTheme) -> List {
                             false => window_theme(&kept, true, cx),
                         }));
                         let edit = edit.clone();
-                        Find::new(group_of(t), t.label.clone(), detail, keep)
+                        let mut find = Find::new(group_of(t), t.label.clone(), String::new(), keep)
                             .current(current)
                             .swatch(swatch_of(t))
-                            .aside("Edit", Rc::new(move |cx| edit(&edited, cx)))
+                            .aside(
+                                "pencil",
+                                format!("Edit {}", t.label),
+                                Rc::new(move |cx| edit(&edited, cx)),
+                            )
                             .tried(Rc::new(move |cx| match code {
                                 true => code_theme(Some(&tried), false, cx),
                                 false => window_theme(&tried, false, cx),
-                            }))
+                            }));
+                        if let Some((glyph, number, tip)) = badge {
+                            find = find.badge(glyph, number, tip);
+                        }
+                        find
                     }),
             );
             finds

@@ -97,6 +97,28 @@ const ICONS: &[(&str, &str)] = &[
         ),
     ),
     ("check", lucide!(r#"<path d="M20 6 9 17l-5-5"/>"#)),
+    // A theme that is light, and a theme's colours under the contrast floor (the code theme's list).
+    (
+        "sun",
+        lucide!(
+            r#"<circle cx="12" cy="12" r="4"/>"#
+            r#"<path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/>"#
+            r#"<path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/>"#
+            r#"<path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>"#
+        ),
+    ),
+    (
+        "palette",
+        lucide!(
+            r#"<circle cx="13.5" cy="6.5" r="1"/><circle cx="17.5" cy="10.5" r="1"/>"#
+            r#"<circle cx="8.5" cy="7.5" r="1"/><circle cx="6.5" cy="12.5" r="1"/>"#
+            r#"<path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.93 0 1.65-.75 1.65-1.69 0-.44-.18-.84-.44-1.13-.29-.29-.44-.65-.44-1.13a1.64 1.64 0 0 1 1.67-1.67h2c3.05 0 5.55-2.5 5.55-5.55C21.97 6.01 17.46 2 12 2z"/>"#
+        ),
+    ),
+    (
+        "contrast",
+        lucide!(r#"<circle cx="12" cy="12" r="9"/><path d="M12 17a5 5 0 0 0 0-10v10z"/>"#),
+    ),
     // Archive, a comment already read (#199).
     (
         "archive",

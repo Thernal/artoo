@@ -14,6 +14,7 @@ use crate::themes as lists;
 use artoo_core::themes::{self, T, TOKENS, Theme};
 use artoo_shell_api::{Frame, MenuItem, Typed};
 use artoo_ui_kit::controls::setting;
+use artoo_ui_kit::hover::Hover as _;
 use artoo_ui_kit::input::{self, Area, Edit};
 use artoo_ui_kit::motion::{self, Folds, Marks};
 use artoo_ui_kit::room::Heights;
@@ -285,16 +286,22 @@ impl Appearance {
                     .font_weight(FontWeight::SEMIBOLD)
                     .child("Your own"),
             )
-            .child(
-                div()
-                    .text_size(px(13.))
-                    .text_color(theme::muted())
-                    .child(format!(
-                        "{} · {}",
-                        format::plural(mine, "theme"),
-                        format::plural(icons_n, "file icon")
-                    )),
-            )
+            // What is in the folders: a glyph and its number each, the sentence its tooltip.
+            .child(own_count(
+                "own-themes",
+                "palette",
+                mine,
+                format!("{} in the themes folder", format::plural(mine, "theme")),
+            ))
+            .child(own_count(
+                "own-icons",
+                "file",
+                icons_n,
+                format!(
+                    "{} in the icons folder",
+                    format::plural(icons_n, "file icon")
+                ),
+            ))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.own_open = !this.own_open;
                 cx.notify();
@@ -1367,4 +1374,18 @@ fn in_force() -> (Theme, Option<Theme>) {
         .clone();
     let code = (choice.code.as_deref()).and_then(|id| all.iter().find(|t| t.id == id).cloned());
     (window, code)
+}
+
+/// A count in `Your own`'s head: a glyph, its number, the sentence as its tooltip.
+fn own_count(id: &'static str, glyph: &'static str, n: usize, tip: String) -> impl IntoElement {
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap(px(3.))
+        .text_size(px(13.))
+        .text_color(theme::muted())
+        .child(icons::icon(glyph).size(px(13.)).text_color(theme::muted()))
+        .child(n.to_string())
+        .tip(tip)
 }

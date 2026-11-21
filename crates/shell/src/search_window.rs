@@ -118,7 +118,9 @@ struct Item {
     /// A swatch before it (a theme's, #204).
     swatch: Option<[u32; 3]>,
     /// A word on it while picked, and what it does (a theme's Edit, #204).
-    aside: Option<(&'static str, Doing)>,
+    aside: Option<(&'static str, SharedString, Doing)>,
+    /// A state as a glyph (a theme's light, its contrast).
+    badge: Option<palette::Badge>,
     pick: Pick,
 }
 
@@ -152,6 +154,7 @@ fn found_items(finds: Vec<Find>) -> Vec<Item> {
             face: f.face,
             swatch: f.swatch,
             aside: f.aside,
+            badge: f.badge,
             pick: Pick::Found {
                 open: f.open,
                 tried: f.tried,
@@ -523,6 +526,7 @@ impl Machine {
                 face: None,
                 swatch: None,
                 aside: None,
+                badge: None,
                 pick: Pick::Command(ix),
             })
             .collect()
@@ -754,7 +758,7 @@ impl Machine {
 
     /// Row `ix`'s word (a theme's Edit): the window closes, what was tried put back, then the word's doing.
     fn aside(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let doing = (self.open.as_ref()).and_then(|p| Some(p.items.get(ix)?.aside.clone()?.1));
+        let doing = (self.open.as_ref()).and_then(|p| Some(p.items.get(ix)?.aside.clone()?.2));
         if let Some(doing) = doing {
             self.close(cx);
             cx.defer(move |cx| doing(cx));
@@ -824,7 +828,8 @@ impl Render for Machine {
                     face: item.face.clone(),
                     swatch: item.swatch,
                     checked: matches!(item.pick, Pick::Found { current: true, .. }),
-                    aside: item.aside.as_ref().map(|(word, _)| *word),
+                    aside: (item.aside.as_ref()).map(|(glyph, tip, _)| (*glyph, tip.clone())),
+                    badge: item.badge.clone(),
                 }
             })
             .collect();
@@ -867,8 +872,11 @@ impl Render for Machine {
         let tries = (p.items.get(p.at))
             .is_some_and(|i| matches!(i.pick, Pick::Found { tried: Some(_), .. }));
         let hint = under.map(|_| match tries {
-            true => "↑↓ preview · ↵ · esc",
-            false => "↑↓ · ↵ · esc",
+            true => (
+                "↑↓ preview ↵ esc",
+                "↑↓ previews a theme · ↵ keeps it · esc goes back",
+            ),
+            false => ("↑↓ ↵ esc", "↑↓ moves · ↵ picks · esc goes back"),
         });
         let follow = self.follow.replace(false);
         // A tab come to (⇥, a click, the window opened on another) is scrolled into sight, once.

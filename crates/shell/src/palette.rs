@@ -4,6 +4,7 @@
 
 use artoo_shell_api::palette::{Dot, PaletteHost, PaletteRenderer, PaletteView, Row, Tab};
 use artoo_ui_kit::controls;
+use artoo_ui_kit::hover::Hover as _;
 use artoo_ui_kit::{
     ISLAND_RADIUS, ROW_RADIUS, hover, icons, island_label, keys, motion, px, row, theme, words,
 };
@@ -115,16 +116,38 @@ fn rows(
                     .text_size(px(11.))
                     .text_color(theme::muted()),
                 )
-                // Its word while it is picked: a theme's Edit (#204).
-                .children((item.aside.filter(|_| selected)).map(|word| {
+                // Its state as a glyph, its number beside it, its sentence the tooltip (a theme's light, contrast).
+                .children(item.badge.map(|b| {
+                    div()
+                        .id(("palette-badge", ix))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(px(3.))
+                        .text_size(px(11.))
+                        .text_color(theme::muted())
+                        .child(
+                            icons::icon(b.glyph)
+                                .size(px(13.))
+                                .text_color(theme::muted()),
+                        )
+                        .children(b.number.map(|n| n.to_string()))
+                        .tip(b.tip)
+                }))
+                // Its icon button while it is picked: a theme's Edit (#204).
+                .children((item.aside.filter(|_| selected)).map(|(glyph, tip)| {
                     div()
                         .id(("palette-aside", ix))
                         .flex_none()
-                        .text_size(px(11.))
-                        .text_color(theme::accent())
+                        .size(px(18.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_color(theme::muted())
                         .cursor_pointer()
-                        .hover(|s| s.underline())
-                        .child(word)
+                        .hover(|s| s.text_color(theme::text()))
+                        .child(icons::icon(glyph).size(px(13.)).text_color(theme::muted()))
+                        .tip(tip)
                         .on_click(move |_, window, cx| {
                             cx.stop_propagation();
                             aside.aside(ix, window, cx)
@@ -194,12 +217,14 @@ fn palette(view: PaletteView, host: Rc<dyn PaletteHost>) -> AnyElement {
                     .text_color(theme::faint()),
             )
             .child(view.field)
-            .children(view.hint.map(|hint| {
+            .children(view.hint.map(|(hint, tip)| {
                 div()
+                    .id("palette-hint")
                     .flex_none()
                     .text_size(px(11.))
                     .text_color(theme::faint())
                     .child(hint)
+                    .tip(tip)
             }));
         let list = div()
             .occlude()

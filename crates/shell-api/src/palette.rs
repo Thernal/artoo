@@ -28,8 +28,20 @@ pub struct Row {
     pub swatch: Option<[u32; 3]>,
     /// The one in force: a check at its end (#204).
     pub checked: bool,
-    /// A word on it while it is picked, a click on it the host's `aside` (a theme's Edit, #204).
-    pub aside: Option<&'static str>,
+    /// An icon button on it while it is picked, with its sentence as tooltip; a click on it the host's `aside` (a
+    /// theme's Edit, #204).
+    pub aside: Option<(&'static str, SharedString)>,
+    /// A state as a glyph before the end, its number beside it, its sentence as tooltip (a theme is light, its
+    /// colours under 4.5:1).
+    pub badge: Option<Badge>,
+}
+
+/// A row's state: a glyph by the kit's name, an optional number, and the sentence that says it.
+#[derive(Clone)]
+pub struct Badge {
+    pub glyph: &'static str,
+    pub number: Option<usize>,
+    pub tip: SharedString,
 }
 
 /// A dot after a row's words, as the menu's open rows wear them (#194).
@@ -67,8 +79,8 @@ pub struct PaletteView {
     /// Dropped from a button rather than over the window's middle (#204): the button, in the window, and how tall
     /// the list may grow under it. It is narrow, its rows short, its groups counted, the field's keys at its right.
     pub under: Option<(gpui::Bounds<gpui::Pixels>, gpui::Pixels)>,
-    /// The field's keys at its right, when dropped: `↑↓ preview · ↵ · esc`.
-    pub hint: Option<&'static str>,
+    /// The field's keys at its right, when dropped (`↑↓ preview ↵ esc`), and the sentence that is their tooltip.
+    pub hint: Option<(&'static str, &'static str)>,
     /// The list's scroll, and whether it goes to the row picked (the keys moved it, or it opened).
     pub scroll: (gpui::ScrollHandle, bool),
     /// The tabs' sideways scroll, and whether it goes to the tab on (it changed): tabs that grow with plugins

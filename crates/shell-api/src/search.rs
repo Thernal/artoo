@@ -149,7 +149,9 @@ pub struct Find {
     pub swatch: Option<[u32; 3]>,
     /// A word on its row while the selection is on it, and what a click on that word does once the window has
     /// closed (a theme's `Edit`, #204).
-    pub aside: Option<(&'static str, Doing)>,
+    pub aside: Option<(&'static str, SharedString, Doing)>,
+    /// A state as a glyph with its number and sentence (a theme is light, its colours under 4.5:1).
+    pub badge: Option<crate::palette::Badge>,
     pub open: Opens,
 }
 
@@ -169,6 +171,7 @@ impl Find {
             tried: None,
             swatch: None,
             aside: None,
+            badge: None,
             open,
         }
     }
@@ -178,8 +181,28 @@ impl Find {
         self
     }
 
-    pub fn aside(mut self, word: &'static str, doing: Doing) -> Self {
-        self.aside = Some((word, doing));
+    /// An icon button (by the kit's name) with its tooltip.
+    pub fn aside(
+        mut self,
+        glyph: &'static str,
+        tip: impl Into<SharedString>,
+        doing: Doing,
+    ) -> Self {
+        self.aside = Some((glyph, tip.into(), doing));
+        self
+    }
+
+    pub fn badge(
+        mut self,
+        glyph: &'static str,
+        number: Option<usize>,
+        tip: impl Into<SharedString>,
+    ) -> Self {
+        self.badge = Some(crate::palette::Badge {
+            glyph,
+            number,
+            tip: tip.into(),
+        });
         self
     }
 
