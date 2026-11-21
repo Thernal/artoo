@@ -458,6 +458,13 @@ const ICONS: &[(&str, &str)] = &[
         lucide!(r#"<circle cx="12" cy="12" r="4" fill="black" stroke="none"/>"#),
     ),
     (
+        "at-sign",
+        lucide!(
+            r#"<circle cx="12" cy="12" r="4"/>"#
+            r#"<path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>"#
+        ),
+    ),
+    (
         "copy",
         lucide!(
             r#"<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>"#

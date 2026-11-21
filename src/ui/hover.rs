@@ -67,6 +67,8 @@ impl PersonCard {
                     .child(super::discussion::avatar(&self.name, false, 32.))
                     .child(
                         div()
+                            .flex_1()
+                            .min_w_0()
                             .flex()
                             .flex_col()
                             .child(
@@ -79,7 +81,17 @@ impl PersonCard {
                                     .text_color(theme::muted())
                                     .child(format!("@{}", self.login))
                             })),
-                    ),
+                    )
+                    .children((!login.is_empty()).then(|| {
+                        card_action("card-mention", "at-sign", format!("Mention {}", self.name))
+                            .on_click(move |_: &ClickEvent, _, cx| {
+                                ws.update(cx, |this, cx| this.mention(&login, cx)).ok();
+                            })
+                    }))
+                    .children(url.map(|url| {
+                        card_action("card-open-person", "external", "Open on the web")
+                            .on_click(move |_: &ClickEvent, _, cx| cx.open_url(&url))
+                    })),
             )
             .children(
                 self.role
@@ -90,22 +102,6 @@ impl PersonCard {
                 self.activity
                     .clone()
                     .map(|a| div().text_size(px(11.)).text_color(theme::faint()).child(a)),
-            )
-            .child(
-                div()
-                    .flex()
-                    .gap(px(6.))
-                    .children((!login.is_empty()).then(|| {
-                        card_action("card-mention", "Mention").on_click(
-                            move |_: &ClickEvent, _, cx| {
-                                ws.update(cx, |this, cx| this.mention(&login, cx)).ok();
-                            },
-                        )
-                    }))
-                    .children(url.map(|url| {
-                        card_action("card-open-person", "Open ↗")
-                            .on_click(move |_: &ClickEvent, _, cx| cx.open_url(&url))
-                    })),
             )
     }
 }

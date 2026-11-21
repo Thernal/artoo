@@ -135,6 +135,31 @@ impl CommitCard {
         card_frame()
             .child(
                 div()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .child(
+                        cut("card-sha", sha.chars().take(12).collect::<String>())
+                            .flex_1()
+                            .min_w_0()
+                            .font_family(theme::code_font())
+                            .text_size(px(11.))
+                            .text_color(theme::muted()),
+                    )
+                    .child(
+                        card_action("card-copy-sha", "copy", "Copy the SHA").on_click(
+                            move |_: &ClickEvent, _, cx| {
+                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(sha.clone()))
+                            },
+                        ),
+                    )
+                    .children(url.map(|url| {
+                        card_action("card-open-commit", "external", "Open on the web")
+                            .on_click(move |_: &ClickEvent, _, cx| cx.open_url(&url))
+                    })),
+            )
+            .child(
+                div()
                     .text_size(px(13.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(c.summary.clone()),
@@ -186,28 +211,6 @@ impl CommitCard {
                         tag(text, color)
                     }))
             }))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .child(
-                        cut("card-sha", sha.clone())
-                            .flex_1()
-                            .font_family(theme::code_font())
-                            .text_size(px(11.))
-                            .text_color(theme::muted()),
-                    )
-                    .child(card_action("card-copy-sha", "Copy").on_click(
-                        move |_: &ClickEvent, _, cx| {
-                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(sha.clone()))
-                        },
-                    ))
-                    .children(url.map(|url| {
-                        card_action("card-open-commit", "Open ↗")
-                            .on_click(move |_: &ClickEvent, _, cx| cx.open_url(&url))
-                    })),
-            )
     }
 }
 

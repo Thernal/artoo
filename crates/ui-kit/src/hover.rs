@@ -528,20 +528,28 @@ pub fn card_frame() -> gpui::Div {
         .text_color(theme::text())
 }
 
-/// One of a card's actions: Copy, Open ↗, Mention.
-pub fn card_action(id: &'static str, label: &'static str) -> gpui::Stateful<gpui::Div> {
+/// One of a card's actions, an icon at the head's end with its words as the tooltip: Copy, Open, Mention.
+pub fn card_action(
+    id: &'static str,
+    icon: &'static str,
+    tip: impl Into<SharedString>,
+) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
-        .px(px(8.))
-        .h(px(24.))
+        .flex_none()
+        .size(px(24.))
         .flex()
         .items_center()
+        .justify_center()
         .rounded(px(ROW_RADIUS))
-        .border_1()
-        .border_color(theme::island_border())
         .cursor_pointer()
         .hover(|s| s.bg(theme::hover()))
-        .child(label)
+        .child(
+            crate::icons::icon(icon)
+                .size(px(14.))
+                .text_color(theme::muted()),
+        )
+        .tip(tip)
 }
 
 /// A tooltip: a small panel with a line of text.
