@@ -63,6 +63,31 @@ pub fn all(cx: &App) -> Vec<SpaceInfo> {
     spaces
 }
 
+/// The items that hold a note for an agent not sent yet, as their owners say (`set_note`): the menu's row of each
+/// wears the note's dot, as a request's row does for its unsent drafts.
+#[derive(Default)]
+struct Notes(std::collections::HashSet<artoo_core::route::Route>);
+
+impl gpui::Global for Notes {}
+
+/// A plugin's item `item` (a route of its space: an issue) holds a note for an agent not sent yet (`held`), or no
+/// longer does. The menu's row of it wears the note's dot while it does; the plugin says it again when that changes.
+pub fn set_note(cx: &mut App, item: artoo_core::route::Route, held: bool) {
+    let notes = cx.default_global::<Notes>();
+    let changed = match held {
+        true => notes.0.insert(item),
+        false => notes.0.remove(&item),
+    };
+    if changed {
+        cx.refresh_windows();
+    }
+}
+
+/// Whether item `item` holds a note not sent (`set_note`).
+pub fn has_note(cx: &App, item: &artoo_core::route::Route) -> bool {
+    cx.try_global::<Notes>().is_some_and(|n| n.0.contains(item))
+}
+
 /// A row at the menu's foot (#176): the app's rather than the project's, so it opens the same page from every
 /// project — Plugins. Not a space among the others: it is not dragged, takes no ⌃⌘ number and stays at the foot,
 /// folded as its icon; its pages are offered as a space's are (`Pages::space`).
@@ -259,6 +284,18 @@ mod tests {
             order,
             go: name,
         }
+    }
+
+    #[test]
+    fn an_item_holds_a_note_until_its_owner_says_it_does_not() {
+        gpui::TestAppContext::single().update(|cx| {
+            let issue = artoo_core::route::Route::parse(r#"tasks.issue{"key":"PAY-412"}"#).unwrap();
+            assert!(!has_note(cx, &issue));
+            set_note(cx, issue.clone(), true);
+            assert!(has_note(cx, &issue));
+            set_note(cx, issue.clone(), false);
+            assert!(!has_note(cx, &issue));
+        });
     }
 
     #[test]

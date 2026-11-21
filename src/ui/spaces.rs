@@ -143,10 +143,12 @@ impl Workspace {
                 }
                 _ => &open.paths,
             };
+            // Unsent drafts on its files, or a note a plugin says its item holds (an issue's).
             let drafts = self
                 .comments(cx)
                 .iter()
-                .any(|c| c.state == crate::comment::State::Draft && paths.contains(&c.path));
+                .any(|c| c.state == crate::comment::State::Draft && paths.contains(&c.path))
+                || artoo_shell_api::spaces::has_note(cx, &open.item);
             let row = said(&open.item, &open.page).unwrap_or_else(|| ItemRow {
                 icon: icons::icon("layers")
                     .size(px(14.))
