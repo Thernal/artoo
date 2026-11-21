@@ -46,11 +46,11 @@ impl Workspace {
             Some(path) => path,
             None => self.path_of(space, cx),
         };
-        // Narrow, the path is ‹ — one level up — and the id (#80).
+        // Narrow, the path keeps its crumbs, its middle folders folded into `…` as the bar narrows (#16); esc still
+        // goes one level up, there is no ‹ for it.
         let up = (self.compact())
             .then(|| path.last().map(|c| c.to.clone()))
             .flatten();
-        let path = if self.compact() { Vec::new() } else { path };
         // A space the project lacks git or a remote for is its name alone; its middle says what is missing (#210).
         let lacking = self.missing_page(space, cx).is_some();
         let count = count
@@ -83,12 +83,8 @@ impl Workspace {
             })
             .collect();
         // Another page's left is another width (#186).
-        self.bar_room.page(format!(
-            "{}|{}|{}|{name}",
-            space.id(),
-            up.is_some(),
-            links.len()
-        ));
+        self.bar_room
+            .page(format!("{}|{}|{name}", space.id(), links.len()));
         let host = Rc::new(BarGlue {
             tab: cx.weak_entity(),
             space,
@@ -99,7 +95,7 @@ impl Workspace {
         Some(bar::page_bar(
             bar::PageBar {
                 from: from.map(|s| super::spaces::label(s, cx)),
-                up: up.is_some(),
+                up: false,
                 crumbs,
                 title_text: words::say(&name).into_owned(),
                 title: title(words::say(&name).into_owned(), called, mono, hover),
