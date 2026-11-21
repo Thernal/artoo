@@ -21,15 +21,24 @@ pub(crate) fn install(cx: &mut App) {
         Source::new(
             "slack",
             "Slack",
-            vec![Kind::listed("slack.mention", "Mentions you").why(Why::Mentions)],
-        ),
+            vec![
+                Kind::listed("slack.mention", "Mentions you")
+                    .why(Why::Mentions)
+                    .badge("at-sign"),
+            ],
+        )
+        .mark("#"),
         Source::new(
             "jira",
             "Jira",
             vec![
                 // Its toast on as declared (Design M1b).
-                Kind::listed("jira.assigned", "Assigned to you").toast(),
-                Kind::listed("jira.mention", "Mentions you").why(Why::Mentions),
+                Kind::listed("jira.assigned", "Assigned to you")
+                    .toast()
+                    .badge("user"),
+                Kind::listed("jira.mention", "Mentions you")
+                    .why(Why::Mentions)
+                    .badge("at-sign"),
                 Kind::listed("jira.changed", "Your issue changed"),
             ],
         ),
@@ -37,11 +46,12 @@ pub(crate) fn install(cx: &mut App) {
             "jenkins",
             "Jenkins",
             vec![Kind::listed("jenkins.failed", "Failed builds").why(Why::Failures)],
-        ),
+        )
+        .mark("CI"),
         Source::new(
             "confluence",
             "Confluence",
-            vec![Kind::listed("confluence.reply", "Replies to you")],
+            vec![Kind::listed("confluence.reply", "Replies to you").badge("message")],
         ),
         Source::new(
             "linear",
@@ -74,6 +84,7 @@ fn rows() -> Vec<Listed> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64);
+    // A person's face when the row names who it came from (`Kestrel Okafor mentioned you`).
     let row = |kind, key: &str, says: &str, about: &str, text: &str, minutes: i64| Listed {
         kind,
         key: key.to_owned(),
@@ -81,6 +92,10 @@ fn rows() -> Vec<Listed> {
         about: about.to_owned(),
         text: text.to_owned(),
         at: now - minutes * 60,
+        who: says
+            .split_once(" mentioned you")
+            .or_else(|| says.split_once(" replied"))
+            .map_or(String::new(), |(who, _)| who.to_owned()),
         ..Default::default()
     };
     vec![

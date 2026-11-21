@@ -1,6 +1,6 @@
 //! The Inbox, a place of the menu (#49), as the requests' page (Design L4, STYLE.md: "notifications listed, the
-//! selected one previewed and answerable"): the notifications on the left under New and Read (#197), each naming its
-//! source, the one selected on the right (`inbox_view`), a banner over them while the host cannot be read (#72);
+//! selected one previewed and answerable"): the notifications on the left in one list, each two lines with a face or
+//! its source's mark (#197), the one selected on the right (`inbox_view`), a banner over them while the host cannot be read (#72);
 //! Source ▾'s list over it while open. Among them your notes an
 //! agent answered (#116): which they are the agents say (`Agents::inbox_answers`, in the tab's services); their rows
 //! and previews, the composer and the answers to the clicks come through the tab's `InboxHost`.
@@ -235,24 +235,18 @@ impl InboxPage {
         let source = |r: &artoo_shell_api::notices::Listed| {
             artoo_shell_api::notices::kind(cx, r.kind).map_or("", |(_, s)| s.name)
         };
+        // Its mark and its kind's badge, for a row with no face of its own.
+        let marked = |r: &artoo_shell_api::notices::Listed| {
+            artoo_shell_api::notices::kind(cx, r.kind)
+                .map(|(k, s)| (inbox_view::source_mark(s.name, s.mark), k.badge))
+                .unwrap_or_default()
+        };
         let wide = self.widths.room("inbox").second();
         // The requests' notices' source is their host (`GitLab`).
         let named = self.host(cx).unwrap_or("Merge requests");
         let mut list: Vec<AnyElement> = Vec::new();
-        // New first, then Read (#197): the rows come grouped.
-        let new = |row: InboxRow| view.is_new(row, notices, answers, parts);
-        let news = rows.iter().filter(|&&r| new(r)).count();
-        let mut group = None;
+        // One list in time's order: a row read keeps its place (Design round 10, U4).
         for &row in rows {
-            let fresh_group = new(row);
-            if group != Some(fresh_group) {
-                group = Some(fresh_group);
-                list.push(inbox_view::heading(if fresh_group {
-                    format!("New {news}")
-                } else {
-                    "Read".to_owned()
-                }));
-            }
             let picked = current == Some(row);
             list.push(match row {
                 InboxRow::Notice(ix) => {
@@ -278,7 +272,9 @@ impl InboxPage {
                             on: picked,
                             wide,
                         };
-                        inbox_view::part_row(r, source(r), look, on).into_any_element()
+                        let (mark, badge) = marked(r);
+                        inbox_view::part_row(r, source(r), &mark, badge, look, on)
+                            .into_any_element()
                     }
                     None => div().into_any_element(),
                 },
@@ -306,7 +302,9 @@ impl InboxPage {
                     Some(notice_preview(n, look, on, cx).into_any_element())
                 }
                 InboxRow::Agent(id) => host.answer_preview(id, cx),
-                InboxRow::Part(id) => part(id).map(|r| inbox_view::part_preview(r, source(r), on)),
+                InboxRow::Part(id) => {
+                    part(id).map(|r| inbox_view::part_preview(r, source(r), &marked(r).0, on))
+                }
             })
             .unwrap_or_else(|| {
                 div()

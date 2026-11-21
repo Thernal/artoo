@@ -114,6 +114,8 @@ impl Counts {
 pub struct SourceRow {
     pub id: &'static str,
     pub name: String,
+    /// Its mark, a letter or two.
+    pub mark: String,
     /// Its rows not read yet.
     pub new: usize,
 }
@@ -125,6 +127,7 @@ pub fn sources(host: Option<&'static str>, counts: &Counts, cx: &App) -> Vec<Sou
         .map(|s| SourceRow {
             id: s.id,
             name: source_name(&s, host),
+            mark: crate::inbox_view::source_mark(&source_name(&s, host), s.mark),
             new: counts.source(s.id),
         })
         .collect()
@@ -281,8 +284,7 @@ pub struct InboxView {
 }
 
 impl InboxView {
-    /// What the Inbox lists under its filters and the text in Filter (`query`): new first, then read, each newest
-    /// first.
+    /// What the Inbox lists under its filters and the text in Filter (`query`): one list, newest first, read or not.
     pub fn rows(
         &self,
         notices: &Notices,
@@ -293,15 +295,16 @@ impl InboxView {
     ) -> Vec<InboxRow> {
         let InboxFilter { why, source } = self.filter;
         let query = query.trim().to_lowercase();
-        let mut rows: Vec<(bool, i64, InboxRow)> = items(notices, answers, parts, cx)
+        let mut rows: Vec<(i64, InboxRow)> = items(notices, answers, parts, cx)
             .into_iter()
             .filter(|i| why.is_none_or(|w| i.why == Some(w)))
             .filter(|i| source.is_none_or(|s| i.source == s))
             .filter(|i| query.is_empty() || i.text.to_lowercase().contains(&query))
-            .map(|i| (!(i.fresh || self.kept == Some(i.row)), i.at, i.row))
+            .map(|i| (i.at, i.row))
             .collect();
-        rows.sort_by_key(|(read, at, _)| (*read, std::cmp::Reverse(*at)));
-        rows.into_iter().map(|(_, _, row)| row).collect()
+        // One list, newest first: a row read keeps its place, only its dot and weight change (Design round 10, U4).
+        rows.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
+        rows.into_iter().map(|(_, row)| row).collect()
     }
 
     /// Whether `row` is listed under New: not read, or picked while it was.
@@ -698,7 +701,7 @@ mod tests {
             notice(30, Kind::Review),
             notice(20, Kind::Failed),
         ];
-        // The newest is read: it goes under Read, below every new row.
+        // The newest is read: it keeps its place, first.
         notices.mark_read("todo:50".into());
         let answers = [answer(7, 35, true, "Which rounding mode?")];
         let mut view = InboxView::default();
@@ -707,11 +710,11 @@ mod tests {
             assert_eq!(
                 view.rows(&notices, &answers, &[], "", cx),
                 [
+                    InboxRow::Notice(0),
                     InboxRow::Notice(1),
                     InboxRow::Agent(7),
                     InboxRow::Notice(2),
                     InboxRow::Notice(3),
-                    InboxRow::Notice(0),
                 ]
             );
             let counts = view.counts(&notices, &answers, &[], cx);
@@ -731,12 +734,12 @@ mod tests {
                 view.rows(&notices, &answers, &[], "", cx),
                 [InboxRow::Agent(7)]
             );
-            // Picked while new, a row stays under New once read.
+            // Read, a row keeps its place; picked while new it is still new until another is picked.
             view.filter = InboxFilter::default();
             notices.mark_read("todo:40".into());
             view.kept = Some(InboxRow::Notice(1));
             assert_eq!(
-                view.rows(&notices, &answers, &[], "", cx)[0],
+                view.rows(&notices, &answers, &[], "", cx)[1],
                 InboxRow::Notice(1)
             );
             assert!(view.is_new(InboxRow::Notice(1), &notices, &answers, &[]));
@@ -768,6 +771,7 @@ mod tests {
         let row = |id, name: &str, new| SourceRow {
             id,
             name: name.into(),
+            mark: name.chars().take(1).collect(),
             new,
         };
         let sources = [

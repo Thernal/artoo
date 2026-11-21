@@ -62,6 +62,9 @@ pub struct Kind {
     pub system: bool,
     /// What happened, the Inbox's filter it is listed under (#197); none: under All only.
     pub why: Option<Why>,
+    /// A small glyph at the corner of its rows' face in the Inbox: an icon's name from the kit (`at-sign`, `user`,
+    /// `circle-check`); none: no badge.
+    pub badge: Option<&'static str>,
 }
 
 impl Kind {
@@ -74,6 +77,7 @@ impl Kind {
             toast: false,
             system: false,
             why: None,
+            badge: None,
         }
     }
 
@@ -86,6 +90,7 @@ impl Kind {
             toast: false,
             system: false,
             why: None,
+            badge: None,
         }
     }
 
@@ -113,6 +118,14 @@ impl Kind {
         }
     }
 
+    /// Its rows' badge in the Inbox (a row says its own, `Listed::badge`, over it).
+    pub const fn badge(self, icon: &'static str) -> Self {
+        Self {
+            badge: Some(icon),
+            ..self
+        }
+    }
+
     /// What it does on `channel` unless the person said otherwise.
     pub fn default_on(&self, channel: Channel) -> bool {
         match channel {
@@ -135,6 +148,8 @@ pub struct Source {
     pub order: u16,
     /// A plugin's: set by the registry, from the loader.
     pub guest: bool,
+    /// Its mark in the Inbox and Source ▾, a letter or two (`J`, `GL`, `#`); none: the initials of its name.
+    pub mark: Option<&'static str>,
 }
 
 impl Source {
@@ -145,11 +160,20 @@ impl Source {
             kinds,
             order: 100,
             guest: false,
+            mark: None,
         }
     }
 
     pub fn order(self, order: u16) -> Self {
         Self { order, ..self }
+    }
+
+    /// Its mark, a letter or two, for rows with no face of their own.
+    pub fn mark(self, mark: &'static str) -> Self {
+        Self {
+            mark: Some(mark),
+            ..self
+        }
     }
 }
 
@@ -191,6 +215,10 @@ pub struct Listed {
     pub facts: Vec<(String, String)>,
     /// What Open says: `Open PAY-412`; empty, `Open`.
     pub open: String,
+    /// Whose face the row has, by name (`Ember Lind`); empty: its source's mark.
+    pub who: String,
+    /// The glyph at its face's corner, over its kind's `badge`; none: the kind's.
+    pub badge: Option<&'static str>,
 }
 
 /// A row's place among a tab's Inbox rows, kept while its key is the same.

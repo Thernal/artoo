@@ -12,7 +12,7 @@ use artoo_shell_api::notices::Why;
 use artoo_ui_kit::controls::{self, bar_button, chip, skeleton};
 use artoo_ui_kit::discussion::{self, Kind as Button, Source};
 use artoo_ui_kit::excerpt::excerpt_view;
-use artoo_ui_kit::hover::{self, CutInTip, RowTip, Tip, WasCut};
+use artoo_ui_kit::hover::{self, CutInTip, Hover, RowTip, Tip, WasCut};
 use artoo_ui_kit::keys::{self, On};
 use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::{ROW_RADIUS, format, gap, icons, island, px, theme, words};
@@ -162,11 +162,13 @@ pub fn source_picker(
     let rows = picked_sources(sources, &pick.text);
     pick.rows.replace(rows.clone());
     let row = |n: usize, id: Option<&'static str>| {
-        let (name, new) = match id {
-            None => ("All sources".to_owned(), everywhere),
+        let (name, new, mark) = match id {
+            None => ("All sources".to_owned(), everywhere, String::new()),
             Some(id) => (sources.iter())
                 .find(|s| s.id == id)
-                .map_or((String::new(), 0), |s| (s.name.clone(), s.new)),
+                .map_or((String::new(), 0, String::new()), |s| {
+                    (s.name.clone(), s.new, s.mark.clone())
+                }),
         };
         let (view, on) = (view.clone(), on.clone());
         div()
@@ -191,6 +193,7 @@ pub fn source_picker(
                             .text_color(theme::accent())
                     })),
             )
+            .children(id.map(|_| lead(Face::Mark(mark, name.clone()), None, 16.)))
             .child(div().flex_1().min_w_0().cut_in_tip().child(name))
             .children((new > 0).then(|| {
                 div()
@@ -395,36 +398,209 @@ pub fn empty(
         .into_any_element()
 }
 
-/// A group's heading in the list: `New 7`, `Read` (#197).
-pub fn heading(text: impl Into<gpui::SharedString>) -> AnyElement {
-    div()
-        .px(px(16.))
-        .pt(px(10.))
-        .pb(px(4.))
-        .text_size(px(11.))
-        .text_color(theme::faint())
-        .child(text.into())
-        .into_any_element()
+/// A row's face (Design round 12, I1): a person's, a glyph of what happened, or its source's mark, with a badge at
+/// its corner while the kind has one.
+pub enum Face {
+    /// A person by name, as the discussions draw them.
+    Person(String),
+    /// What happened, a glyph in a colour: `circle-x` for a pipeline that failed.
+    Glyph(&'static str, gpui::Rgba),
+    /// The source's mark and its name, which tints it.
+    Mark(String, String),
 }
 
-/// A row's tooltip (#202): what it does not say — exactly when, and, while the list is narrow, the source and what was
-/// written, which the row then leaves out.
-fn tip_words(source: &str, at: i64, text: &str, wide: bool) -> String {
-    let when = hover::full_date(at);
-    let mut tip = vec![if wide {
-        when
-    } else {
-        format!("{source} · {when}")
-    }];
+/// Source marks for the requests' host: `GitLab` is `GL`, `GitHub` `GH`.
+pub fn source_mark(name: &str, mark: Option<&str>) -> String {
+    match (mark, name) {
+        (Some(mark), _) => mark.to_owned(),
+        (None, "GitLab") => "GL".to_owned(),
+        (None, "GitHub") => "GH".to_owned(),
+        (None, name) => {
+            // One letter for one word (`Jira` is `J`), the first of each of two (`Merge requests`).
+            let letters = artoo_ui_kit::monogram::initials(name);
+            letters
+                .chars()
+                .take(if name.contains([' ', '-', '_']) { 2 } else { 1 })
+                .collect()
+        }
+    }
+}
+
+/// The face and its badge at the start of a row.
+pub fn lead(face: Face, badge: Option<&'static str>, size: f32) -> Div {
+    let size_px = size;
+    let body = match face {
+        Face::Person(name) => discussion::avatar(&name, false, size_px),
+        Face::Glyph(name, color) => div()
+            .size(px(size_px))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .bg(gpui::Rgba { a: 0.22, ..color })
+            .child(icons::icon(name).size(px(12.)).text_color(color)),
+        Face::Mark(mark, name) => {
+            let hue = artoo_ui_kit::monogram::hue(&name);
+            div()
+                .size(px(size_px))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_full()
+                .bg(gpui::Rgba { a: 0.3, ..hue })
+                .text_color(theme::text())
+                .text_size(px(if mark.chars().count() > 1 { 8. } else { 10. }))
+                .font_weight(FontWeight::BOLD)
+                .child(mark)
+        }
+    };
+    div()
+        .relative()
+        .flex_none()
+        .size(px(size_px))
+        .child(body)
+        .children(badge.map(|icon| {
+            div()
+                .absolute()
+                .right(px(-4.))
+                .bottom(px(-4.))
+                .size(px(12.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_full()
+                .bg(theme::base())
+                .child(icons::icon(icon).size(px(9.)).text_color(theme::muted()))
+        }))
+}
+
+/// What a row says besides its title: the tooltip (#202) names what happened, its source and exactly when, and,
+/// while the list is narrow, what was written, which the row then leaves out.
+fn tip_words(says: &str, source: &str, at: i64, text: &str, wide: bool) -> String {
+    let mut tip = vec![
+        says.to_owned(),
+        format!("{source} · {}", hover::full_date(at)),
+    ];
     if !wide && !text.is_empty() {
         tip.push(text.to_owned());
     }
     tip.join("\n")
 }
 
-/// Notice `ix`: unread dot, what happened, the request always; its `source` (`GitLab`) and when, and the start of
-/// what was written, while the list is `wide` (#197); in its tooltip what the row does not say (#202): exactly when,
-/// and the source and what was written when the list is narrow.
+/// One row of the Inbox, two lines: its face at the start, the title and the short time at the end, what was written
+/// under it; unread is a dot and a heavier title, read the same row with neither, in its place (Design round 10, U4).
+struct RowDraw<'a> {
+    id: gpui::ElementId,
+    lead: Div,
+    /// What it is about; what happened when it is about nothing.
+    title: String,
+    at: i64,
+    gist: &'a str,
+    /// What the tooltip says: what happened, the source, the text.
+    tip: String,
+    look: RowLook,
+}
+
+fn draw_row(row: RowDraw) -> Stateful<Div> {
+    let RowDraw {
+        id,
+        lead,
+        title,
+        at,
+        gist,
+        tip,
+        look,
+    } = row;
+    let RowLook { fresh, on, wide } = look;
+    let [title_cut, gist_cut] = [(); 2].map(|_| WasCut::default());
+    let mut cut: Vec<(Option<WasCut>, SharedString)> =
+        vec![(Some(title_cut.clone()), title.clone().into())];
+    let gist = (wide && !gist.is_empty()).then(|| gist.to_owned());
+    if let Some(gist) = &gist {
+        cut.push((Some(gist_cut.clone()), gist.clone().into()));
+    }
+    cut.push((None, tip.into()));
+    div()
+        .id(id)
+        .mx(px(6.))
+        .px(px(10.))
+        .py(px(8.))
+        .flex()
+        .items_start()
+        .gap(px(10.))
+        .rounded(px(ROW_RADIUS))
+        .cursor_pointer()
+        .when(on, |s| s.bg(theme::selected()))
+        .hover(|s| s.bg(theme::hover()))
+        .child(
+            div()
+                .flex_none()
+                .mt(px(6.))
+                .size(px(7.))
+                .rounded_full()
+                .when(fresh, |s| s.bg(theme::accent())),
+        )
+        .child(lead)
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .child(
+                    div()
+                        .flex()
+                        .gap_2()
+                        .child(
+                            hover::cut_in_row(title.clone(), title, &title_cut)
+                                .flex_1()
+                                .text_color(if fresh { theme::text() } else { theme::muted() })
+                                .when(fresh, |s| s.font_weight(FontWeight::SEMIBOLD)),
+                        )
+                        .child(
+                            format::time_cell(at)
+                                .text_size(px(11.))
+                                .text_color(theme::faint()),
+                        ),
+                )
+                .children(gist.map(|gist| {
+                    hover::cut_in_row(gist.clone(), gist, &gist_cut)
+                        .text_size(px(12.))
+                        .text_color(theme::muted())
+                })),
+        )
+        .row_tip_cut(on, cut)
+}
+
+/// The face of notice `n`: who it came from, or what happened when nobody is named.
+fn notice_face(n: &Notice) -> (Face, Option<&'static str>) {
+    use crate::notices::Kind;
+    let glyph = |icon, color| (Face::Glyph(icon, color), None);
+    match n.kind {
+        Kind::Failed => glyph("circle-x", theme::removed()),
+        Kind::Unmergeable => glyph("merge", theme::warning()),
+        Kind::Review => glyph("eye", theme::code(8).into()),
+        kind => {
+            let badge = match kind {
+                Kind::Mention => "at-sign",
+                Kind::Reply | Kind::OnYours => "message",
+                Kind::Resolved | Kind::Approval => "circle-check",
+                _ => "user",
+            };
+            if n.who.trim().is_empty() {
+                glyph("user", theme::muted())
+            } else {
+                (Face::Person(n.who.clone()), Some(badge))
+            }
+        }
+    }
+}
+
+/// Notice `ix`: its face, the request's number and title with the short time, the start of what was written under
+/// it while the list is `wide`; the tooltip says what happened, from `source` (`GitLab`) and exactly when (#202).
 pub fn notice_row(
     n: &Notice,
     ix: usize,
@@ -432,201 +608,82 @@ pub fn notice_row(
     look: RowLook,
     on: &OnInbox,
 ) -> Stateful<Div> {
-    let RowLook {
-        fresh,
-        on: picked,
-        wide,
-    } = look;
     let text = plain(&n.text);
     let gist = text
         .lines()
         .find(|l| !l.trim().is_empty())
         .unwrap_or("")
         .trim();
-    let tip = tip_words(source, n.created, text.trim(), wide);
-    // What happened, the request and the gist are cut to their room; the tip says them only when they were.
-    let [says_cut, about_cut, gist_cut] = [(); 3].map(|_| WasCut::default());
-    let about = format!("{} {}", words::number(n.iid), n.title);
-    let mut cut: Vec<(Option<WasCut>, SharedString)> = vec![
-        (Some(says_cut.clone()), n.says().into()),
-        (Some(about_cut.clone()), about.clone().into()),
-    ];
-    if wide && !gist.is_empty() {
-        cut.push((Some(gist_cut.clone()), text.trim().to_owned().into()));
-    }
-    cut.push((None, tip.into()));
+    let (face, badge) = notice_face(n);
+    let tip = tip_words(&n.says(), source, n.created, text.trim(), look.wide);
     let iid = n.iid;
     let (menu, pick) = (on.clone(), on.clone());
-    div()
-        .id(("inbox-row", ix))
-        .on_mouse_down(MouseButton::Right, move |e: &MouseDownEvent, _, cx| {
-            menu(
-                InboxEvent::Menu {
-                    iid,
-                    at: e.position,
-                },
-                cx,
-            )
-        })
-        .mx(px(6.))
-        .px(px(10.))
-        .py(px(8.))
-        .flex()
-        .items_start()
-        .gap(px(10.))
-        .rounded(px(ROW_RADIUS))
-        .cursor_pointer()
-        .when(picked, |s| s.bg(theme::selected()))
-        .hover(|s| s.bg(theme::hover()))
-        .child(
-            div()
-                .flex_none()
-                .mt(px(6.))
-                .size(px(7.))
-                .rounded_full()
-                .when(fresh, |s| s.bg(theme::accent())),
+    draw_row(RowDraw {
+        id: ("inbox-row", ix).into(),
+        lead: lead(face, badge, 20.),
+        title: format!("{} {}", words::number(n.iid), n.title),
+        at: n.created,
+        gist,
+        tip,
+        look,
+    })
+    .on_mouse_down(MouseButton::Right, move |e: &MouseDownEvent, _, cx| {
+        menu(
+            InboxEvent::Menu {
+                iid,
+                at: e.position,
+            },
+            cx,
         )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap(px(2.))
-                .child(
-                    div()
-                        .flex()
-                        .gap_2()
-                        .child(
-                            hover::cut_in_row(n.says(), n.says(), &says_cut)
-                                .flex_1()
-                                .when(fresh, |s| s.font_weight(FontWeight::SEMIBOLD)),
-                        )
-                        .children(wide.then(|| {
-                            div()
-                                .flex()
-                                .flex_none()
-                                .gap_2()
-                                .text_size(px(11.))
-                                .text_color(theme::faint())
-                                .child(source.to_owned())
-                                .child(format::time_cell(n.created))
-                        })),
-                )
-                .child(
-                    hover::cut_in_row(about.clone(), about, &about_cut)
-                        .text_size(px(12.))
-                        .text_color(theme::accent()),
-                )
-                .children((wide && !gist.is_empty()).then(|| {
-                    hover::cut_in_row(gist.to_owned(), gist.to_owned(), &gist_cut)
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                })),
-        )
-        .row_tip_cut(picked, cut)
-        .on_click(move |_: &ClickEvent, _, cx| pick(InboxEvent::Pick(ix), cx))
+    })
+    .on_click(move |_: &ClickEvent, _, cx| pick(InboxEvent::Pick(ix), cx))
 }
 
-/// A part's row (a plugin's, #196): its source and what happened, what it is about, the start of what was written;
-/// drawn as a notice's is, its source's name before the time.
+/// A part's row (a plugin's, #196), drawn as a notice's is: a person's face, or its source's mark, with the badge its
+/// kind or it names; what it is about, or what happened when it is about nothing.
 pub fn part_row(
     r: &artoo_shell_api::notices::Listed,
     source: &str,
+    mark: &str,
+    badge: Option<&'static str>,
     look: RowLook,
     on: &OnInbox,
 ) -> Stateful<Div> {
-    let RowLook {
-        fresh,
-        on: picked,
-        wide,
-    } = look;
     let id = artoo_shell_api::notices::row_id(&r.key);
     let gist = r
         .text
         .lines()
         .find(|l| !l.trim().is_empty())
         .unwrap_or("")
-        .trim()
-        .to_owned();
-    let tip = tip_words(source, r.at, r.text.trim(), wide);
-    let [says_cut, about_cut, gist_cut] = [(); 3].map(|_| WasCut::default());
-    let mut cut: Vec<(Option<WasCut>, SharedString)> =
-        vec![(Some(says_cut.clone()), r.says.clone().into())];
-    if !r.about.is_empty() {
-        cut.push((Some(about_cut.clone()), r.about.clone().into()));
-    }
-    if wide && !gist.is_empty() {
-        cut.push((Some(gist_cut.clone()), r.text.trim().to_owned().into()));
-    }
-    cut.push((None, tip.into()));
+        .trim();
+    let tip = tip_words(&r.says, source, r.at, r.text.trim(), look.wide);
+    let face = if r.who.trim().is_empty() {
+        Face::Mark(mark.to_owned(), source.to_owned())
+    } else {
+        Face::Person(r.who.clone())
+    };
     let pick = on.clone();
-    div()
-        .id(("inbox-part", id))
-        .mx(px(6.))
-        .px(px(10.))
-        .py(px(8.))
-        .flex()
-        .items_start()
-        .gap(px(10.))
-        .rounded(px(ROW_RADIUS))
-        .cursor_pointer()
-        .when(picked, |s| s.bg(theme::selected()))
-        .hover(|s| s.bg(theme::hover()))
-        .child(
-            div()
-                .flex_none()
-                .mt(px(6.))
-                .size(px(7.))
-                .rounded_full()
-                .when(fresh, |s| s.bg(theme::accent())),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap(px(2.))
-                .child(
-                    div()
-                        .flex()
-                        .gap_2()
-                        .child(
-                            hover::cut_in_row(r.says.clone(), r.says.clone(), &says_cut)
-                                .flex_1()
-                                .when(fresh, |s| s.font_weight(FontWeight::SEMIBOLD)),
-                        )
-                        .children(wide.then(|| {
-                            div()
-                                .flex()
-                                .flex_none()
-                                .gap_2()
-                                .text_size(px(11.))
-                                .text_color(theme::faint())
-                                .child(source.to_owned())
-                                .child(format::time_cell(r.at))
-                        })),
-                )
-                .children((!r.about.is_empty()).then(|| {
-                    hover::cut_in_row(r.about.clone(), r.about.clone(), &about_cut)
-                        .text_size(px(12.))
-                        .text_color(theme::accent())
-                }))
-                .children((wide && !gist.is_empty()).then(|| {
-                    hover::cut_in_row(gist.clone(), gist, &gist_cut)
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                })),
-        )
-        .row_tip_cut(picked, cut)
-        .on_click(move |_: &ClickEvent, _, cx| pick(InboxEvent::PickPart(id), cx))
+    draw_row(RowDraw {
+        id: ("inbox-part", id).into(),
+        lead: lead(face, r.badge.or(badge), 20.),
+        title: if r.about.is_empty() {
+            r.says.clone()
+        } else {
+            r.about.clone()
+        },
+        at: r.at,
+        gist,
+        tip,
+        look,
+    })
+    .on_click(move |_: &ClickEvent, _, cx| pick(InboxEvent::PickPart(id), cx))
 }
 
 /// A part's row selected: its source and when, what happened, what it is about, what was written, and `Open ↵`.
 pub fn part_preview(
     r: &artoo_shell_api::notices::Listed,
     source: &str,
+    mark: &str,
     on: &OnInbox,
 ) -> AnyElement {
     let id = artoo_shell_api::notices::row_id(&r.key);
@@ -636,10 +693,17 @@ pub fn part_preview(
         .filter(|_| !r.tag.is_empty())
         .map_or(r.about.as_str(), str::trim_start)
         .to_owned();
-    let whence = if r.place.is_empty() {
-        source.to_owned()
+    // The face says what it is in its tooltip: its source, where, and what happened.
+    let whence = [source, r.place.as_str(), r.says.as_str()]
+        .iter()
+        .filter(|w| !w.is_empty())
+        .map(|w| (*w).to_owned())
+        .collect::<Vec<_>>()
+        .join(" · ");
+    let face = if r.who.trim().is_empty() {
+        Face::Mark(mark.to_owned(), source.to_owned())
     } else {
-        format!("{source} · {}", r.place)
+        Face::Person(r.who.clone())
     };
     let facts = (r.facts.iter()).fold(
         div().flex().flex_wrap().gap(px(24.)),
@@ -680,9 +744,19 @@ pub fn part_preview(
                 .when(!r.tag.is_empty(), |d| {
                     d.child(div().text_color(theme::accent()).child(r.tag.clone()))
                 })
-                .child(whence)
-                .when(r.tag.is_empty(), |d| d.child(div().flex_1()))
-                .child(format::ago(r.at)),
+                .child(
+                    div()
+                        .id(("inbox-part-source", id))
+                        .child(lead(face, None, 16.))
+                        .tip(whence),
+                )
+                .child(div().flex_1())
+                .child(
+                    div()
+                        .id(("inbox-part-when", id))
+                        .child(format::short_ago(r.at))
+                        .tip(hover::full_date(r.at)),
+                ),
         )
         .child(
             div()
@@ -771,16 +845,16 @@ pub fn notice_preview(n: &Notice, look: NoticeLook, on: &OnInbox, cx: &App) -> D
                 .min_w_0()
                 .items_center()
                 .gap(px(6.))
-                .child(
-                    icons::icon("pull-request")
-                        .size(px(14.))
-                        .text_color(theme::muted()),
-                )
-                .child(div().flex_none().child(format!("{} ·", m.author)))
-                .child(hover::branches("inbox-branches", &m.source, &m.target))
+                .child(discussion::avatar(&m.author, false, 16.))
+                .child(div().flex_none().child(m.author.clone()))
         }))
-        // What happened and when are the row's; the preview does not repeat them (#202).
-        .child(div().flex_1());
+        // When, short, its full date in a tooltip; what happened is the row's (#202).
+        .child(
+            div()
+                .id("inbox-when")
+                .child(format::short_ago(n.created))
+                .tip(hover::full_date(n.created)),
+        );
     let title = div()
         .text_size(px(19.))
         .line_height(px(26.))
