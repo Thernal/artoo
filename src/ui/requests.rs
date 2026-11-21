@@ -1168,7 +1168,11 @@ impl Workspace {
     pub(super) fn connected(&mut self, said: Option<String>, cx: &mut Context<Self>) {
         self.load_requests(cx);
         if let Some(text) = said {
-            let toast = artoo_shell_api::Toast::new(text);
+            // Its two lines: what happened, then the way in.
+            let toast = match text.split_once('\n') {
+                Some((first, second)) => artoo_shell_api::Toast::new(first).about(second),
+                None => artoo_shell_api::Toast::new(text),
+            };
             self.show_toast(
                 toast.button("Settings", super::settings::RequestsSettings),
                 cx,

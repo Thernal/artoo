@@ -360,10 +360,20 @@ impl Panel {
         let made = self.made_in_use().is_some();
         let saved = crate::tokens::saved(&host).is_some();
         let key = way.via.key();
-        let said = match &way.via {
-            Via::Git(from) => format!("with the token {from} keeps"),
-            _ => format!("with {}’s token", connect::cli_name(remote.github).1),
-        };
+        let said = format!(
+            "{}{}{}",
+            match &way.via {
+                Via::Git(from) => capital(from),
+                _ => connect::cli_name(remote.github).0.to_owned(),
+            },
+            main_scope(&way.scopes)
+                .map(|s| format!(" · {s}"))
+                .unwrap_or_default(),
+            way.expires
+                .as_ref()
+                .map(|d| format!(" · until {d}"))
+                .unwrap_or_default(),
+        );
         cx.spawn(async move |this, cx| {
             let check_host = web_host.clone();
             cx.background_executor()
@@ -399,9 +409,10 @@ impl Panel {
         self.connecting.pick_scope = None;
         self.check = user.as_ref().map(|u| Ok(format!("@{u}")));
         self.typing = false;
+        // Two lines, the way's own on the second: `OnConnected`'s text splits at the line break.
         let text = match user {
-            Some(user) => format!("Connected as @{user} · {said}"),
-            None => format!("Connected · {said}"),
+            Some(user) => format!("Connected as @{user}\n{said}"),
+            None => format!("Connected\n{said}"),
         };
         self.tell(Some(text), cx);
         cx.notify();
@@ -458,7 +469,7 @@ impl Panel {
                             .unwrap_or_default();
                         this.connected(
                             Some(access.user),
-                            format!("copied {product}’s token{scope}{until}"),
+                            format!("{product}{scope}{until}"),
                             cx,
                         );
                     }
@@ -551,7 +562,7 @@ impl Panel {
                 match result {
                     Ok(name) => this.connected(
                         user,
-                        format!("made “{name}” on {at}, {scope}, {} days", connect::DAYS),
+                        format!("{name} · {scope} · {} days", connect::DAYS),
                         cx,
                     ),
                     Err(Refused::Off) => {

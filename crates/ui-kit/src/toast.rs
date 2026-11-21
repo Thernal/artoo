@@ -395,14 +395,29 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
                 font_weight: Some(gpui::FontWeight::SEMIBOLD),
                 ..Default::default()
             };
-            let what = div().text_color(theme::text()).child(
-                gpui::StyledText::new(said)
-                    .with_highlights((bold_len > 0).then_some((0..bold_len, bold))),
-            );
+            // Feedback with a second line and a button (a host connected) keeps its button at the right
+            // and its ok glyph in the first line: 380 × 64.
+            let two =
+                t.info && t.words.source.is_none() && t.words.about.is_some() && button.is_some();
+            let what = div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .text_color(theme::text())
+                .children(two.then(|| {
+                    icons::icon("circle-check")
+                        .flex_none()
+                        .size(px(14.))
+                        .text_color(theme::added())
+                }))
+                .child(
+                    gpui::StyledText::new(said)
+                        .with_highlights((bold_len > 0).then_some((0..bold_len, bold))),
+                );
             let actions = (button.is_some() || more.is_some()).then(|| {
                 div()
-                    .mt(px(6.))
-                    .ml(px(-6.))
+                    .when(!two, |d| d.mt(px(6.)).ml(px(-6.)))
+                    .flex_none()
                     .flex()
                     .items_center()
                     .gap(px(4.))
@@ -427,7 +442,7 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
                                 (if undo == Some(id) {
                                     Some("⌘Z")
                                 } else {
-                                    (newest == Some(id)).then_some("⌥↵")
+                                    (newest == Some(id) && !two).then_some("⌥↵")
                                 })
                                 .map(|key| {
                                     div()
@@ -464,14 +479,21 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
                             })
                     }))
             });
+            let (under, side) = if two {
+                (None, actions)
+            } else {
+                (actions, None)
+            };
             let toast = div()
                 .id(("toast", id as usize))
                 .occlude()
                 .relative()
                 .overflow_hidden()
-                .w(px(400.))
+                .w(px(if two { 380. } else { 400. }))
+                .when(two, |d| d.h(px(64.)))
                 .flex()
-                .items_start()
+                .when(!two, |d| d.items_start())
+                .when(two, |d| d.items_center())
                 .gap(px(10.))
                 .pl(px(12.))
                 .pr(px(8.))
@@ -499,14 +521,19 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
                         .flex_col()
                         .child(what)
                         .children(t.words.about.clone().map(|about| {
-                            hover::cut_to(("toast-about", id as usize), about, 2)
-                                .mt(px(2.))
-                                .text_size(px(12.))
-                                .line_height(px(17.))
-                                .text_color(theme::muted())
+                            hover::cut_to(
+                                ("toast-about", id as usize),
+                                about,
+                                if two { 1 } else { 2 },
+                            )
+                            .mt(px(2.))
+                            .text_size(px(12.))
+                            .line_height(px(17.))
+                            .text_color(theme::muted())
                         }))
-                        .children(actions),
+                        .children(under),
                 )
+                .children(side)
                 .child(
                     div()
                         .id(("toast-close", id as usize))
