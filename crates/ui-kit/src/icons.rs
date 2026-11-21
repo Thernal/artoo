@@ -472,6 +472,19 @@ const ICONS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "users",
+        lucide!(
+            r#"<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>"#
+            r#"<circle cx="9" cy="7" r="4"/>"#
+            r#"<path d="M22 21v-2a4 4 0 0 0-3-3.87"/>"#
+            r#"<path d="M16 3.13a4 4 0 0 1 0 7.75"/>"#
+        ),
+    ),
+    (
+        "reply",
+        lucide!(r#"<path d="M9 17 4 12l5-5"/>"# r#"<path d="M20 18v-2a4 4 0 0 0-4-4H4"/>"#),
+    ),
+    (
         "bot",
         lucide!(
             r#"<path d="M12 8V4H8"/>"#

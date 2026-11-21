@@ -451,6 +451,17 @@ pub fn comment_item(
     where_: String,
     body: String,
 ) -> gpui::Stateful<gpui::Div> {
+    comment_item_ending(id, tone, where_, body, Vec::new())
+}
+
+/// `comment_item` with glyphs at the end of its first line: a count, whose turn it is (Design D2).
+pub fn comment_item_ending(
+    id: (&'static str, usize),
+    tone: gpui::Rgba,
+    where_: String,
+    body: String,
+    end: Vec<gpui::AnyElement>,
+) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .mx(px(6.))
@@ -474,7 +485,8 @@ pub fn comment_item(
                         .font_family(theme::code_font())
                         .text_size(px(11.))
                         .text_color(theme::faint()),
-                ),
+                )
+                .children(end),
         )
         .child(
             div().pl(px(14.)).child(

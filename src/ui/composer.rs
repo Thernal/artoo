@@ -998,6 +998,11 @@ impl Workspace {
         match event {
             FootEvent::Cancel => self.cancel_comment(cx),
             FootEvent::Audience(at) => self.audience_menu(at, cx),
+            FootEvent::Everyone => {
+                if let Some(iid) = self.compose_request(cx) {
+                    self.set_audience(Some(iid), None, cx);
+                }
+            }
             FootEvent::AddToReview => match self.compose.as_ref().map(|c| c.target) {
                 Some(Target::Request(iid)) => self.post_comment(iid, true, cx),
                 Some(Target::Reply(ix)) => self.reply_to_review(ix, cx),

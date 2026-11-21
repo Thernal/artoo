@@ -973,6 +973,8 @@ pub enum FootEvent {
     Cancel,
     /// The `To:` chip's ▾ at a point: who can read it (#200).
     Audience(Point<Pixels>),
+    /// The request's segment of the audience: everyone on it reads the comment.
+    Everyone,
     /// Added to the review, pending until it is submitted: a comment on a line, a reply (#200).
     AddToReview,
     /// Added for the agent, and every draft sent.
@@ -1026,62 +1028,120 @@ impl Compose {
         }
     }
 
-    /// The `To:` chip over a new comment's text (#200): who reads it in words at every width, a chat's letter on its
-    /// hue or the request's icon before them, ▾ for the list of who can.
+    /// The audience over a new comment's text (#200, Design D1): two segments — everyone on the request, your
+    /// agent's chat — the one that reads it lit with its words (a chat's letter on its hue), the other its icon
+    /// alone with its tooltip; a click on either picks who (where the request lists them), ⇥ switches.
     pub fn audience_chip(&self, audience: &Audience, on: OnFoot) -> AnyElement {
         let tone = self.source().color();
-        let hue = audience.mark.map_or(tone, |(_, hue)| hue);
-        let said: SharedString = if audience.switch {
-            format!("Who reads it: {}  ·  ⇥ switches", audience.words).into()
-        } else {
-            format!("Who reads it: {}", audience.words).into()
-        };
+        let agent = self.source() == Source::Agent;
         let list = audience.list;
+        let switch = if audience.switch {
+            "  ·  ⇥ switches"
+        } else {
+            ""
+        };
+        let words = audience.words.clone();
+        let lit_words = move || {
+            hover::cut("compose-audience-words", words.clone())
+                .min_w_0()
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(theme::text())
+        };
+        let everyone = |lit: bool| {
+            let said: SharedString = if lit {
+                format!("Who reads it: {}{switch}", audience.words).into()
+            } else {
+                format!("Everyone on the request · a comment on the host{switch}").into()
+            };
+            let on = on.clone();
+            div()
+                .id("compose-audience-everyone")
+                .h(px(22.))
+                .min_w_0()
+                .px(px(6.))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .rounded(px(5.))
+                .text_size(px(12.))
+                .whitespace_nowrap()
+                .when(lit, |s| s.bg(theme::selected()))
+                .when(list, |s| s.cursor_pointer().hover(|s| s.bg(theme::hover())))
+                .child(
+                    icons::icon("users")
+                        .size(px(13.))
+                        .flex_none()
+                        .text_color(if lit { tone } else { theme::muted() }),
+                )
+                .when(lit, |s| s.child(lit_words()))
+                .tooltip_show_delay(hover::LONG)
+                .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(said.clone())).into())
+                .when(list, |s| {
+                    s.on_click(move |event, _, cx| {
+                        on(
+                            if lit {
+                                FootEvent::Audience(event.position())
+                            } else {
+                                FootEvent::Everyone
+                            },
+                            cx,
+                        )
+                    })
+                })
+        };
+        let bot = |lit: bool| {
+            let said: SharedString = if lit {
+                format!("Who reads it: {}{switch}", audience.words).into()
+            } else {
+                format!("A note for your agent, it stays on this Mac{switch}").into()
+            };
+            let on = on.clone();
+            let hue = audience.mark.map_or(tone, |(_, hue)| hue);
+            div()
+                .id("compose-audience-agent")
+                .h(px(22.))
+                .min_w_0()
+                .px(px(6.))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .rounded(px(5.))
+                .text_size(px(12.))
+                .whitespace_nowrap()
+                .when(lit, |s| s.bg(theme::selected()))
+                .when(list, |s| s.cursor_pointer().hover(|s| s.bg(theme::hover())))
+                .child(match audience.mark {
+                    Some((letter, hue)) if lit => {
+                        crate::monogram::letter(letter, hue, 16.).into_any_element()
+                    }
+                    _ => icons::icon("bot")
+                        .size(px(13.))
+                        .flex_none()
+                        .text_color(if lit { hue } else { theme::muted() })
+                        .into_any_element(),
+                })
+                .when(lit, |s| s.child(lit_words()))
+                .tooltip_show_delay(hover::LONG)
+                .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(said.clone())).into())
+                .when(list, |s| {
+                    s.on_click(move |event, _, cx| on(FootEvent::Audience(event.position()), cx))
+                })
+        };
         div()
             .id("compose-audience")
-            .h(px(24.))
+            .h(px(26.))
             .max_w_full()
             .min_w_0()
-            .px(px(8.))
+            .p(px(1.))
             .flex()
             .items_center()
-            .gap(px(6.))
+            .gap(px(2.))
             .rounded(px(6.))
             .border_1()
             .border_color(theme::selected())
-            .text_size(px(12.))
-            .whitespace_nowrap()
-            .child(div().flex_none().text_color(theme::muted()).child("To:"))
-            .child(match audience.mark {
-                Some((letter, hue)) => crate::monogram::letter(letter, hue, 16.).into_any_element(),
-                None => icons::icon(match self.source() {
-                    Source::Agent => "bot",
-                    _ => "pull-request",
-                })
-                .size(px(13.))
-                .flex_none()
-                .text_color(hue)
-                .into_any_element(),
-            })
-            .child(
-                hover::cut("compose-audience-words", audience.words.clone())
-                    .min_w_0()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .text_color(theme::text()),
-            )
-            .tooltip_show_delay(hover::LONG)
-            .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(said.clone())).into())
-            .when(list, |s| {
-                s.cursor_pointer()
-                    .hover(|s| s.bg(theme::hover()))
-                    .child(
-                        icons::icon("chevron")
-                            .size(px(12.))
-                            .flex_none()
-                            .text_color(theme::muted()),
-                    )
-                    .on_click(move |event, _, cx| on(FootEvent::Audience(event.position()), cx))
-            })
+            // Where the request lists who can read it, both segments; elsewhere only the one that does.
+            .when(list || !agent, |s| s.child(everyone(!agent)))
+            .when(list || agent, |s| s.child(bot(agent)))
             .into_any_element()
     }
 
@@ -1137,25 +1197,6 @@ impl Compose {
         ];
         // The secondary buttons are one weight, bare as Cancel and ▾ are; only the primary is
         // filled.
-        if request.is_some() && !folded {
-            let review = on.clone();
-            tail.push(
-                // Beside Comment in words wherever it is not folded (#200).
-                discussion::icon_button(
-                    "compose-review",
-                    "layers",
-                    "Add to review",
-                    (!narrow).then_some("⇧⌘↵"),
-                    Some("Pending until you submit the review"),
-                    Kind::Quiet,
-                    false,
-                )
-                .h(px(28.))
-                .px(pad)
-                .on_click(move |_, _, cx| review(FootEvent::AddToReview, cx))
-                .into_any_element(),
-            );
-        }
         if agent && !folded {
             let (send_all, more) = (on.clone(), on.clone());
             tail.push(
@@ -1219,7 +1260,7 @@ impl Compose {
         })
         .on_click(move |_, _, cx| add(FootEvent::Add, cx));
         // At S, what folded: into the primary's own ▾.
-        let more = folded && (agent || request.is_some());
+        let more = (folded && agent) || request.is_some();
         tail.push(if !more {
             add_button.into_any_element()
         } else {
@@ -1235,7 +1276,7 @@ impl Compose {
                         if agent {
                             "Send all, send this only, choose the chat, copy"
                         } else {
-                            "Add to review"
+                            "Add to review  ⇧⌘↵"
                         },
                         None,
                         None,

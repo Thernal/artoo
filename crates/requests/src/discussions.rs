@@ -10,10 +10,12 @@ use artoo_branches_api::Branches;
 use artoo_hosts_api::{Draft, Thread};
 use artoo_requests_api::{DISCUSSIONS, DiscussionsHost};
 use artoo_shell_api::{Badge, ListKey, Services, Tool};
-use artoo_ui_kit::controls::{comment_item, group_heading, skeleton, tool_foot};
+use artoo_ui_kit::controls::{
+    comment_item, comment_item_ending, group_heading, skeleton, tool_foot,
+};
 use artoo_ui_kit::format::one_line;
 use artoo_ui_kit::hover::{self, Hover, Tip};
-use artoo_ui_kit::{ROW_RADIUS, keys, px, theme, words};
+use artoo_ui_kit::{ROW_RADIUS, icons, keys, px, theme, words};
 use gpui::{
     AnyElement, App, ClickEvent, Context, Entity, FontWeight, MouseButton, MouseDownEvent, Window,
     div, prelude::*,
@@ -310,19 +312,53 @@ impl Requests {
             } else {
                 format!("{}: {}", first.author, one_line(&first.body, look.rich))
             };
-            let item = comment_item(("comment-mr", ix), tone, where_, line)
-                .when(whole, |s| s.bg(theme::selected()))
-                .children(waiting.map(|w| {
+            // At the first line's end (Design D2): how many notes, and whose turn as a glyph, its words the tooltip.
+            let mut end: Vec<AnyElement> = Vec::new();
+            if t.notes.len() > 1 {
+                end.push(
                     div()
-                        .pl(px(14.))
+                        .id(("comment-mr-count", ix))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(px(3.))
                         .text_size(px(11.))
-                        .text_color(if w == "waiting on you" {
-                            theme::warning()
+                        .text_color(theme::muted())
+                        .child(
+                            icons::icon("message")
+                                .size(px(13.))
+                                .text_color(theme::muted()),
+                        )
+                        .child(t.notes.len().to_string())
+                        .tip(format!("{} notes", t.notes.len()))
+                        .into_any_element(),
+                );
+            }
+            if let Some(w) = &waiting {
+                let you = w == "waiting on you";
+                end.push(
+                    div()
+                        .id(("comment-mr-turn", ix))
+                        .flex_none()
+                        .child(
+                            icons::icon(if you { "reply" } else { "clock" })
+                                .size(px(13.))
+                                .text_color(if you {
+                                    theme::warning()
+                                } else {
+                                    theme::faint()
+                                }),
+                        )
+                        .tip(if you {
+                            "Waiting on you".to_owned()
                         } else {
-                            theme::faint()
+                            w.replacen('w', "W", 1)
                         })
-                        .child(w)
-                }))
+                        .into_any_element(),
+                );
+            }
+            let item = comment_item_ending(("comment-mr", ix), tone, where_, line, end)
+                .when(whole, |s| s.bg(theme::selected()))
                 .when(waits, |s| s.opacity(FADED))
                 .on_click({
                     let (acts, on_fold) = (acts.clone(), on_fold.clone());
