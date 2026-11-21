@@ -5,7 +5,8 @@
 use crate::agents;
 use artoo_agents_api::provider::Provider;
 use artoo_shell_api::settings::Rows;
-use artoo_ui_kit::{ROW_RADIUS, controls, hover, px, theme};
+use artoo_ui_kit::hover::Hover as _;
+use artoo_ui_kit::{ROW_RADIUS, controls, hover, icons, px, theme};
 use gpui::{
     App, ClickEvent, ClipboardItem, Context, Entity, FontWeight, Render, SharedString, Window, div,
     prelude::*,
@@ -144,19 +145,19 @@ impl Render for AgentsSettings {
                         }),
                 )
         };
-        // One row an agent (#201): what is connected, as facts; Connect all while one is not, Connect again once all
-        // are (the developer, 2026-11-14: the way to connect stays in sight); the by-hand command with a failure
-        // only; an agent connected by hand says its limit on its row, its command to copy whether it is connected
-        // or not.
-        // Framed as every row of Settings is (#203): lit, ringed, walked by ⇥, what was searched marked.
-        let row = |id: String, name: String, facts: String, end: Option<gpui::AnyElement>| {
+        // One row an agent (#201), on one line: its name, then its state as a glyph with its sentence as tooltip, and
+        // what can be done — Connect all while one is not (the developer, 2026-11-14: the way to connect stays in
+        // sight), the rest icons. Framed as every row of Settings is (#203): lit, ringed, walked by ⇥, what was
+        // searched marked.
+        let row = |id: String, name: String, facts: String, end: Vec<gpui::AnyElement>| {
             let named = SharedString::from(name.clone());
             let why = controls::found_by(&name, &format!("{name} {facts}"));
             controls::setting_frame(&named, div().id(SharedString::from(id)))
                 .flex()
                 .items_center()
-                .gap_4()
-                .py(px(10.))
+                .gap_3()
+                .min_h(px(44.))
+                .py(px(5.))
                 .border_b_1()
                 .border_color(theme::island_border())
                 .child(
@@ -165,18 +166,7 @@ impl Render for AgentsSettings {
                         .min_w_0()
                         .flex()
                         .flex_col()
-                        .gap(px(2.))
-                        .child(
-                            div()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(controls::found_marked(name)),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(12.))
-                                .text_color(theme::muted())
-                                .child(controls::found_marked(facts)),
-                        )
+                        .child(div().child(controls::found_marked(name)))
                         .children(why.map(|word| {
                             div()
                                 .text_size(px(11.))
@@ -184,7 +174,14 @@ impl Render for AgentsSettings {
                                 .child(controls::found_marked(word))
                         })),
                 )
-                .children(end)
+                .child(
+                    div()
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .children(end),
+                )
         };
         let mut rows = div().flex().flex_col();
         for provider in artoo_agents_api::provider::all(cx) {
@@ -201,30 +198,40 @@ impl Render for AgentsSettings {
                     (false, Some(_)) => "limited · Only a Codex running in a terminal".to_owned(),
                     (false, None) => "not yet".to_owned(),
                 };
-                let limits = provider.limits();
                 let copy = by_hand.clone();
-                let end = Some(
-                    div()
-                        .id(SharedString::from(format!("agents-copy-{word}")))
-                        .px_3()
-                        .h(px(28.))
-                        .flex()
-                        .items_center()
-                        .rounded(px(ROW_RADIUS))
-                        .border_1()
-                        .border_color(theme::island_border())
-                        .cursor_pointer()
-                        .hover(|s| s.bg(theme::hover()))
-                        .child("Copy the command")
-                        .when_some(limits, |d, tip| {
-                            d.tooltip_show_delay(artoo_ui_kit::hover::LONG)
-                                .tooltip(move |_, cx| cx.new(|_| hover::Tip(tip)).into())
-                        })
-                        .on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
-                        })
-                        .into_any_element(),
-                );
+                // Connected: the ok glyph; else the dashed ring, its sentence the tooltip, the command to copy as an
+                // icon and Look again, which reads whether Codex has it now.
+                let mut end = Vec::new();
+                if on {
+                    end.push(state(
+                        "agents-state-codex",
+                        "circle-check",
+                        "Connected: a Codex running in a terminal listens by itself".into(),
+                    ));
+                } else {
+                    end.push(state(
+                        "agents-state-codex",
+                        "circle-dashed",
+                        match provider.limits() {
+                            Some(_) => {
+                                "Not found: a Codex session open here listens by itself".into()
+                            }
+                            None => "Not connected yet".into(),
+                        },
+                    ));
+                    end.push(
+                        icon_button("agents-copy-codex", "copy", "Copy the command")
+                            .on_click(move |_, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
+                            })
+                            .into_any_element(),
+                    );
+                    end.push(
+                        text_button("agents-look-codex", "Look again")
+                            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.notify()))
+                            .into_any_element(),
+                    );
+                }
                 rows = rows.child(row(
                     format!("agents-row-{word}"),
                     name.to_owned(),
@@ -236,13 +243,7 @@ impl Render for AgentsSettings {
             // Claude Code: each profile, connected or not yet.
             let profiles: Vec<(String, bool)> = if word == "claude" {
                 (crate::claude::profiles().iter())
-                    .map(|p| {
-                        let name = p
-                            .file_name()
-                            .map(|n| format!("~/{}", n.to_string_lossy()))
-                            .unwrap_or_default();
-                        (name, crate::claude::connected(p))
-                    })
+                    .map(|p| (profile_name(p), crate::claude::connected(p)))
                     .collect()
             } else {
                 Vec::new()
@@ -273,44 +274,66 @@ impl Render for AgentsSettings {
                     }),
                 );
             }
-            let end = if none {
-                None
-            } else {
-                // Connected: the same act, quiet, for a profile added since or Artoo moved.
+            let mut end = Vec::new();
+            if !none {
+                // Each profile's state, or the one glyph when all are in.
+                if all_in {
+                    end.push(state(
+                        "agents-state-claude",
+                        "circle-check",
+                        "Connected: listens with Artoo agent-watch".into(),
+                    ));
+                } else {
+                    for (ix, (path, on)) in profiles.iter().enumerate() {
+                        end.push(state(
+                            format!("agents-state-claude-{ix}"),
+                            if *on { "circle-check" } else { "circle-dashed" },
+                            format!(
+                                "{path}: {}",
+                                if *on {
+                                    "connected"
+                                } else {
+                                    "not connected yet"
+                                }
+                            ),
+                        ));
+                    }
+                }
                 let button = div()
                     .id(SharedString::from(format!("agents-connect-{word}")))
-                    .px_3()
-                    .h(px(28.))
-                    .flex()
-                    .items_center()
-                    .rounded(px(ROW_RADIUS))
                     .cursor_pointer();
-                let button = if all_in {
-                    button
-                        .border_1()
-                        .border_color(theme::island_border())
-                        .hover(|s| s.bg(theme::hover()))
+                let on_click = cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    let provider = to_connect.clone();
+                    this.connect.update(cx, |c, cx| c.connect(provider, cx))
+                });
+                end.push(if all_in {
+                    // Connected: the same act, quiet, for a profile added since or Artoo moved.
+                    icon_button(
+                        format!("agents-connect-{word}"),
+                        "rotate-ccw",
+                        "Connect again",
+                    )
+                    .on_click(on_click)
+                    .into_any_element()
                 } else {
                     button
+                        .px_3()
+                        .h(px(24.))
+                        .flex()
+                        .items_center()
+                        .rounded(px(ROW_RADIUS))
                         .bg(theme::agent())
                         .text_color(theme::base())
                         .font_weight(FontWeight::SEMIBOLD)
-                };
-                Some(
-                    button
-                        .child(match (busy, all_in, profiles.len()) {
-                            (true, ..) => "Connecting…",
-                            (false, true, _) => "Connect again",
-                            (false, false, 0 | 1) => "Connect",
-                            (false, false, _) => "Connect all",
+                        .child(match (busy, profiles.len()) {
+                            (true, _) => "Connecting…",
+                            (false, 0 | 1) => "Connect",
+                            (false, _) => "Connect all",
                         })
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            let provider = to_connect.clone();
-                            this.connect.update(cx, |c, cx| c.connect(provider, cx))
-                        }))
-                        .into_any_element(),
-                )
-            };
+                        .on_click(on_click)
+                        .into_any_element()
+                });
+            }
             let failed = said
                 .as_ref()
                 .filter(|(by, text)| *by == name && text.starts_with("Not connected"));
@@ -344,4 +367,78 @@ impl Render for AgentsSettings {
         }
         rows
     }
+}
+
+/// A profile's folder as it is shown: under the home folder, `~/…`, the whole of it (cut in its middle where the room
+/// is short, `hover::name`).
+pub(crate) fn profile_name(path: &std::path::Path) -> String {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    match home.as_deref().and_then(|h| path.strip_prefix(h).ok()) {
+        Some(rest) => format!("~/{}", rest.display()),
+        None => path.display().to_string(),
+    }
+}
+
+/// A state as a glyph, its sentence the tooltip: the ok circle in the added colour, the dashed ring faint.
+pub(crate) fn state(
+    id: impl Into<SharedString>,
+    glyph: &'static str,
+    tip: String,
+) -> gpui::AnyElement {
+    let ok = glyph == "circle-check";
+    div()
+        .id(id.into())
+        .flex_none()
+        .flex()
+        .items_center()
+        .child(icons::icon(glyph).size(px(16.)).text_color(if ok {
+            theme::added()
+        } else {
+            theme::faint()
+        }))
+        .tip(tip)
+        .into_any_element()
+}
+
+/// A 24 px icon button with its box (the edge and fill of the text button beside it), its sentence the tooltip.
+pub(crate) fn icon_button(
+    id: impl Into<SharedString>,
+    glyph: &'static str,
+    tip: &'static str,
+) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id.into())
+        .flex_none()
+        .size(px(24.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(ROW_RADIUS))
+        .border_1()
+        .border_color(theme::island_border())
+        .bg(theme::hover())
+        .cursor_pointer()
+        .child(icons::icon(glyph).size(px(13.)).text_color(theme::muted()))
+        .tip(tip)
+}
+
+/// A 24 px text button, as the settings rows have them.
+pub(crate) fn text_button(
+    id: impl Into<SharedString>,
+    label: &'static str,
+) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id.into())
+        .flex_none()
+        .h(px(24.))
+        .px(px(8.))
+        .flex()
+        .items_center()
+        .rounded(px(ROW_RADIUS))
+        .border_1()
+        .border_color(theme::island_border())
+        .bg(theme::hover())
+        .text_size(px(12.))
+        .cursor_pointer()
+        .child(label)
 }

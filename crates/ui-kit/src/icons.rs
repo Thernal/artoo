@@ -115,6 +115,15 @@ const ICONS: &[(&str, &str)] = &[
             r#"<path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.93 0 1.65-.75 1.65-1.69 0-.44-.18-.84-.44-1.13-.29-.29-.44-.65-.44-1.13a1.64 1.64 0 0 1 1.67-1.67h2c3.05 0 5.55-2.5 5.55-5.55C21.97 6.01 17.46 2 12 2z"/>"#
         ),
     ),
+    // An agent connected, and one not yet (a dashed ring).
+    (
+        "circle-check",
+        lucide!(r#"<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>"#),
+    ),
+    (
+        "circle-dashed",
+        lucide!(r#"<circle cx="12" cy="12" r="8.5" stroke-dasharray="3.4 3"/>"#),
+    ),
     (
         "contrast",
         lucide!(r#"<circle cx="12" cy="12" r="9"/><path d="M12 17a5 5 0 0 0 0-10v10z"/>"#),

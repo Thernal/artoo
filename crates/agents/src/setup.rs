@@ -3,15 +3,16 @@
 //! GitLance, the name Artoo had.
 
 use crate::connect::Connect;
+use crate::connect::state;
 use crate::{agents, claude, codex};
 use artoo_agents_api::provider::Provider;
 use artoo_core::storage;
 use artoo_shell_api::setup::Part;
 use artoo_shell_api::{Frame, Toast};
-use artoo_ui_kit::controls::{choice_row, tag};
 use artoo_ui_kit::discussion::{Kind, button};
-use artoo_ui_kit::{px, theme};
-use gpui::{AnyElement, App, AppContext, ClickEvent, Entity, div, prelude::*};
+use artoo_ui_kit::hover::{self, Hover as _};
+use artoo_ui_kit::{icons, px, theme};
+use gpui::{AnyElement, App, AppContext, ClickEvent, Entity, FontWeight, div, prelude::*};
 use std::rc::Rc;
 
 /// Each Claude Code profile (`~/.claude`) and whether Artoo is in it; whether Codex has it — looked at as the page
@@ -26,13 +27,7 @@ impl Seen {
     fn look(&mut self) {
         self.profiles = claude::profiles()
             .iter()
-            .map(|p| {
-                let name = p
-                    .file_name()
-                    .map(|n| format!("~/{}", n.to_string_lossy()))
-                    .unwrap_or_default();
-                (name, claude::connected(p))
-            })
+            .map(|p| (crate::connect::profile_name(p), claude::connected(p)))
             .collect();
         self.codex = codex::connected();
     }
@@ -91,17 +86,12 @@ fn body(
     };
     let s = seen.read(cx);
     let all_in = !s.profiles.is_empty() && s.profiles.iter().all(|(_, on)| *on);
-    let what = if s.profiles.is_empty() {
-        "No Claude Code profile found (~/.claude)".to_owned()
-    } else {
-        s.profiles
-            .iter()
-            .map(|(name, on)| format!("{name} {}", if *on { "connected" } else { "not yet" }))
-            .collect::<Vec<_>>()
-            .join(" · ")
-    };
     let claude_end: Option<AnyElement> = if all_in {
-        Some(tag("Connected", theme::added()).into_any_element())
+        Some(state(
+            "setup-claude-state",
+            "circle-check",
+            "Connected: listens with Artoo agent-watch".into(),
+        ))
     } else if s.profiles.is_empty() {
         None
     } else {
@@ -130,7 +120,11 @@ fn body(
         )
     };
     let codex_end: AnyElement = if s.codex {
-        tag("Ready", theme::added()).into_any_element()
+        state(
+            "setup-codex-state",
+            "circle-check",
+            "Ready: a Codex running in a terminal listens by itself".into(),
+        )
     } else {
         let frame = frame.clone();
         button("setup-codex-copy", "Copy the command", None, Kind::Plain)
@@ -143,9 +137,77 @@ fn body(
             })
             .into_any_element()
     };
-    let row = |id: &'static str, icon, name: &str, what: String| {
-        choice_row(id, None, icon, name.to_owned(), None, what, false, false)
-    };
+    // Claude Code's profiles under its name: a glyph and the folder, cut in its middle, its sentence the tooltip.
+    let profiles = div()
+        .flex()
+        .items_center()
+        .gap(px(12.))
+        .min_w_0()
+        .text_size(px(12.))
+        .text_color(theme::muted())
+        .children(s.profiles.iter().enumerate().map(|(ix, (path, on))| {
+            div()
+                .id(("setup-profile", ix))
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .min_w_0()
+                // A short folder keeps all of its name; a long one gives way, in its middle.
+                .when(path.chars().count() <= 24, |d| d.flex_none())
+                .child(
+                    icons::icon(if *on { "circle-check" } else { "circle-dashed" })
+                        .size(px(13.))
+                        .flex_none()
+                        .text_color(if *on { theme::added() } else { theme::faint() }),
+                )
+                .child(
+                    hover::name(("setup-profile-name", ix), path.clone())
+                        .font_family(theme::code_font()),
+                )
+                .tip(format!(
+                    "{path}: {}",
+                    if *on {
+                        "connected, Artoo’s MCP server in its settings"
+                    } else {
+                        "not connected yet"
+                    }
+                ))
+        }))
+        .when(s.profiles.is_empty(), |d| {
+            d.child("No Claude Code profile found (~/.claude)")
+        });
+    let row =
+        |id: &'static str, icon, name: &str, under: Option<AnyElement>, end: Option<AnyElement>| {
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .gap(px(12.))
+                .px(px(14.))
+                .py(px(10.))
+                .child(
+                    icons::icon(icon)
+                        .flex_none()
+                        .size(px(18.))
+                        .text_color(theme::muted()),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(
+                            div()
+                                .text_size(px(13.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(name.to_owned()),
+                        )
+                        .children(under),
+                )
+                .children(end)
+        };
     div()
         .flex()
         .flex_col()
@@ -159,21 +221,21 @@ fn body(
                 .border_1()
                 .border_color(theme::island_border())
                 .overflow_hidden()
-                .child(row("setup-claude", "bot", "Claude Code", what).children(claude_end))
+                .child(row(
+                    "setup-claude",
+                    "bot",
+                    "Claude Code",
+                    Some(profiles.into_any_element()),
+                    claude_end,
+                ))
                 .child(div().h(px(1.)).bg(theme::island_border()))
-                .child(
-                    row(
-                        "setup-codex",
-                        "terminal",
-                        "Codex",
-                        if s.codex {
-                            "a Codex running in a terminal listens by itself".to_owned()
-                        } else {
-                            "codex mcp add, in a terminal".to_owned()
-                        },
-                    )
-                    .child(codex_end),
-                ),
+                .child(row(
+                    "setup-codex",
+                    "terminal",
+                    "Codex",
+                    None,
+                    Some(codex_end),
+                )),
         )
         .children(said.map(|said| {
             div()
