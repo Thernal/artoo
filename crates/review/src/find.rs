@@ -3,13 +3,14 @@
 //! the tab's inputs (`input`).
 
 use crate::review::{Review, ReviewEvent};
+use crate::toolbar;
 use artoo_core::rows::Row;
 use artoo_core::{rows, search};
 use artoo_shell_api::{Input, Typed};
 use artoo_ui_kit::controls::chip;
-use artoo_ui_kit::hover::{self, Hover};
+use artoo_ui_kit::hover::Hover;
 use artoo_ui_kit::input::{self, Area, Edit};
-use artoo_ui_kit::{ROW_RADIUS, icons, px, theme};
+use artoo_ui_kit::{ROW_RADIUS, icons, keys, px, theme};
 use gpui::{App, ClickEvent, Context, Div, Entity, WeakEntity, div, prelude::*};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -38,29 +39,34 @@ impl Review {
             |rv: &mut Review| Some(&mut rv.find_area),
             this.clone(),
         );
-        let count = if let Some(error) = &self.dfind_error {
-            format!("Not a regular expression: {error}")
+        let (count, count_tip) = if let Some(error) = &self.dfind_error {
+            (format!("Not a regular expression: {error}"), String::new())
         } else if self.dterms.is_empty() {
-            String::new()
+            (String::new(), String::new())
         } else if in_file && self.file_matches.is_empty() {
-            "No matches".to_owned()
+            ("No matches".to_owned(), String::new())
         } else if in_file {
-            format!("{} of {}", self.match_at + 1, self.file_matches.len())
+            let (at, all) = (self.match_at + 1, self.file_matches.len());
+            (
+                format!("{at}/{all}"),
+                format!("{at} of {all} in this file · ↵ next, ⇧↵ previous"),
+            )
         } else if let Some(count) = self.stack_match_count() {
             count
         } else if self.matches.is_empty() {
-            "No matches".to_owned()
+            ("No matches".to_owned(), String::new())
         } else {
-            format!("{} of {} lines", self.match_at + 1, self.matches.len())
+            let (at, all) = (self.match_at + 1, self.matches.len());
+            (
+                format!("{at}/{all}"),
+                format!("{at} of {all} lines · ↵ next, ⇧↵ previous"),
+            )
         };
         let click = |act: fn(&mut Review, &mut Context<Review>)| {
             let this = this.clone();
             move |_: &ClickEvent, _: &mut gpui::Window, cx: &mut App| {
                 this.update(cx, act).ok();
             }
-        };
-        let step = |id: &'static str, label: &'static str, act| {
-            chip(id, label, false).on_click(click(act))
         };
         Some(
             div()
@@ -105,26 +111,45 @@ impl Review {
                         ),
                 )
                 .child(
-                    hover::cut("find-count", count.clone())
+                    div()
+                        .id("find-count")
+                        .flex_none()
                         .text_size(px(12.))
                         .text_color(if count == "No matches" || self.dfind_error.is_some() {
                             theme::removed()
                         } else {
                             theme::muted()
-                        }),
+                        })
+                        .child(count)
+                        .when(!count_tip.is_empty(), |d| d.tip(count_tip)),
                 )
-                .child(step("dfind-prev", "↑", |rv, cx| {
-                    let found = rv.step_find(false);
-                    rv.found(found, cx)
-                }))
-                .child(step("dfind-next", "↓", |rv, cx| {
-                    let found = rv.step_find(true);
-                    rv.found(found, cx)
-                }))
-                .child(chip("dfind-close", "✕", false).on_click(click(|rv, cx| {
-                    rv.close_find();
-                    cx.notify();
-                }))),
+                .child(toolbar::square(
+                    "dfind-prev",
+                    "up",
+                    keys::text("Previous  ⇧↵").into_owned(),
+                    click(|rv, cx| {
+                        let found = rv.step_find(false);
+                        rv.found(found, cx)
+                    }),
+                ))
+                .child(toolbar::square(
+                    "dfind-next",
+                    "down",
+                    keys::text("Next  ↵").into_owned(),
+                    click(|rv, cx| {
+                        let found = rv.step_find(true);
+                        rv.found(found, cx)
+                    }),
+                ))
+                .child(toolbar::square(
+                    "dfind-close",
+                    "x",
+                    keys::text("Close  esc").into_owned(),
+                    click(|rv, cx| {
+                        rv.close_find();
+                        cx.notify();
+                    }),
+                )),
         )
     }
 }

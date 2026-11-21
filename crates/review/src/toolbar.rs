@@ -47,6 +47,28 @@ fn glyph(id: &'static str, name: &'static str, active: bool) -> Stateful<Div> {
         .child(icons::icon(name).size(px(14.)).text_color(colour))
 }
 
+/// A quiet icon button on its own: a 28 px square, the glyph centred, its words the tip (find's ↑ ↓ ✕).
+pub fn square(
+    id: &'static str,
+    name: &'static str,
+    tip: impl Into<gpui::SharedString>,
+    click: impl Fn(&ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
+) -> Stateful<Div> {
+    gpui::div()
+        .id(id)
+        .size(px(HEIGHT))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(artoo_ui_kit::ROW_RADIUS))
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::hover()))
+        .child(icons::icon(name).size(px(14.)).text_color(theme::muted()))
+        .tip(tip)
+        .on_click(click)
+}
+
 /// Split and Unified, the one drawing of the layout switch (Design round 21, F1; every toolbar that shows it calls
 /// this): two glyphs in one 28 px group, a tip each. The one on screen is marked (`unified`); `narrow` dims Split
 /// with the room it needs.
@@ -59,13 +81,16 @@ pub fn layout(
     tool_group()
         .child(
             glyph("split", "columns", !unified)
-                .tip_two("Split", "The old and the new side by side")
-                .when(narrow, |c| {
-                    c.opacity(0.45).tip_two(
-                        "Split",
-                        format!("Needs {} px", artoo_review_api::SPLIT_WIDTH as u32),
-                    )
-                })
+                // One tooltip: GPUI panics when an element sets it twice.
+                .tip_two(
+                    "Split",
+                    if narrow {
+                        format!("Needs {} px", artoo_review_api::SPLIT_WIDTH as u32)
+                    } else {
+                        "The old and the new side by side".to_owned()
+                    },
+                )
+                .when(narrow, |c| c.opacity(0.45))
                 .on_click(split),
         )
         .child(

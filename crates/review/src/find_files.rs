@@ -11,7 +11,7 @@ use artoo_core::highlight::{self, Span};
 use artoo_core::rows;
 use artoo_review_api::{FoundInFiles as Found, SEARCH};
 use artoo_shell_api::{Frame, Tool};
-use artoo_ui_kit::hover::{self, Tip};
+use artoo_ui_kit::hover::{self, Hover, Tip};
 use artoo_ui_kit::input::{self, Area, Edit};
 use artoo_ui_kit::motion::{self, Folds, Marks};
 use artoo_ui_kit::room::Heights;
@@ -685,42 +685,85 @@ fn option(
         .child(label)
 }
 
-/// What it found, over the lines: `LoginState · 12 in 3 files`, and where it looked, the working tree.
+/// What it found, over the lines: where it looked, the working tree, and the files and the matches as glyphs with
+/// their counts (Design round 15, S1; the sentences are the tips). While it looks it says `Searching…`.
 fn summary(f: &FindFiles) -> impl IntoElement + use<> {
     let matches: usize = f.hits.iter().map(|h| h.marks.len()).sum();
-    let left = if let Some(error) = &f.error {
+    let looked = || {
         div()
-            .text_color(theme::removed())
-            .child(format!("Not a regular expression: {error}"))
-            .into_any_element()
+            .id("ffind-looked")
+            .flex_none()
+            .text_color(theme::faint())
+            .child("working tree")
+            .tip("Searched in the working tree")
+    };
+    let count = |id: &'static str, glyph: &'static str, n: usize, tip: String| {
+        div()
+            .id(id)
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(3.))
+            .text_size(px(11.))
+            .child(icons::icon(glyph).size(px(12.)).text_color(theme::faint()))
+            .child(n.to_string())
+            .tip(tip)
+    };
+    let (left, right) = if let Some(error) = &f.error {
+        (
+            div()
+                .text_color(theme::removed())
+                .child(format!("Not a regular expression: {error}"))
+                .into_any_element(),
+            looked().into_any_element(),
+        )
     } else if f.listing && f.hits.is_empty() {
-        div().child("Listing the files…").into_any_element()
+        (
+            div().child("Listing the files…").into_any_element(),
+            looked().into_any_element(),
+        )
     } else if f.query.is_empty() {
-        div().into_any_element()
+        (div().into_any_element(), looked().into_any_element())
     } else if (f.hits.is_empty() || f.stale)
         && let Some((done, total)) = f.searching
     {
-        div()
-            .child(format!("Searching… {done} of {total} files"))
-            .into_any_element()
+        (
+            div()
+                .id("ffind-searching")
+                .child("Searching…")
+                .tip(format!("{done} of {total} files"))
+                .into_any_element(),
+            looked().into_any_element(),
+        )
     } else {
         let files = f.files_with_hits;
-        div()
-            .min_w_0()
-            .flex()
-            .child(
-                hover::cut("ffind-query", f.query.clone())
-                    .flex_shrink(1.)
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme::text()),
-            )
-            .child(div().flex_none().whitespace_nowrap().child(format!(
-                " · {}{matches} in {files} file{}{}",
-                if f.capped { "first " } else { "" },
-                if files == 1 { "" } else { "s" },
-                if f.searching.is_some() { " so far" } else { "" },
-            )))
-            .into_any_element()
+        let plural = if files == 1 { "" } else { "s" };
+        let (first, so_far) = (
+            if f.capped { "first " } else { "" },
+            if f.searching.is_some() { " so far" } else { "" },
+        );
+        (
+            looked().into_any_element(),
+            div()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .text_color(theme::muted())
+                .child(count(
+                    "ffind-files",
+                    "files",
+                    files,
+                    format!("{files} file{plural}{so_far}"),
+                ))
+                .child(count(
+                    "ffind-total",
+                    "search",
+                    matches,
+                    format!("{first}{matches} matches in {files} file{plural}{so_far}"),
+                ))
+                .into_any_element(),
+        )
     };
     div()
         .flex_none()
@@ -735,12 +778,7 @@ fn summary(f: &FindFiles) -> impl IntoElement + use<> {
         .border_b_1()
         .border_color(theme::island_border())
         .child(div().flex_1().min_w_0().overflow_hidden().child(left))
-        .child(
-            div()
-                .flex_none()
-                .text_color(theme::faint())
-                .child("working tree"),
-        )
+        .child(right)
 }
 
 /// File `file`'s fold: its head's mark.
@@ -805,7 +843,7 @@ fn rows_of(f: &FindFiles, this: WeakEntity<Review>) -> Vec<AnyElement> {
                         .child(name),
                 )
                 .child(
-                    hover::cut(("ffind-folder", file), folder)
+                    hover::name(("ffind-folder", file), folder)
                         .flex_shrink(1.)
                         .min_w_0()
                         .text_size(px(11.))

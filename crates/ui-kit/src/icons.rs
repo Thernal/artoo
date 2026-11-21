@@ -163,6 +163,10 @@ const ICONS: &[(&str, &str)] = &[
         lucide!(r#"<path d="M12 5v14"/>"# r#"<path d="m19 12-7 7-7-7"/>"#),
     ),
     (
+        "up",
+        lucide!(r#"<path d="m5 12 7-7 7 7"/>"# r#"<path d="M12 19V5"/>"#),
+    ),
+    (
         "x",
         lucide!(r#"<path d="M18 6 6 18"/><path d="m6 6 12 12"/>"#),
     ),

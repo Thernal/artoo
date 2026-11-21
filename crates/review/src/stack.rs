@@ -599,10 +599,10 @@ impl Review {
     }
 
     /// The find bar's count with all files in one scroll: "2 of 9 lines · 3 files".
-    pub fn stack_match_count(&self) -> Option<String> {
+    pub fn stack_match_count(&self) -> Option<(String, String)> {
         let stack = self.stack.as_ref()?;
         if stack.matches.is_empty() {
-            return Some("No matches".to_owned());
+            return Some(("No matches".to_owned(), String::new()));
         }
         let files = stack
             .matches
@@ -610,11 +610,14 @@ impl Review {
             .map(|(file, _)| file)
             .collect::<HashSet<_>>()
             .len();
-        Some(format!(
-            "{} of {} lines · {}",
-            stack.match_at + 1,
-            stack.matches.len(),
-            artoo_ui_kit::format::plural(files, "file")
+        Some((
+            format!("{}/{}", stack.match_at + 1, stack.matches.len()),
+            format!(
+                "{} of {} lines · {} · ↵ next, ⇧↵ previous",
+                stack.match_at + 1,
+                stack.matches.len(),
+                artoo_ui_kit::format::plural(files, "file")
+            ),
         ))
     }
 
