@@ -2349,7 +2349,10 @@ impl Workspace {
                         .checked(since_merge_base),
                     Entry::new("Direct", compare(&base, &head, false, request))
                         .checked(!since_merge_base),
-                    Entry::new("⇄ Swap", compare(&head, &base, since_merge_base, None)),
+                    Entry::new(
+                        "Swap the sides",
+                        compare(&head, &base, since_merge_base, None),
+                    ),
                 ],
             ));
         }

@@ -809,10 +809,21 @@ fn viewed_count(done: usize, total: usize) -> gpui::Div {
         )
         .child(
             div()
+                .id("viewed-count")
                 .flex_none()
                 .text_size(px(11.))
                 .text_color(theme::muted())
-                .child(format!("{done} of {total} viewed")),
+                .child(format!("{done}/{total}"))
+                .tooltip_show_delay(LONG)
+                .tooltip(move |_, cx| {
+                    cx.new(|_| {
+                        TipOwned(
+                            format!("{done} of {total} files viewed · V ticks the file you are on")
+                                .into(),
+                        )
+                    })
+                    .into()
+                }),
         )
 }
 

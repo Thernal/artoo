@@ -15,7 +15,7 @@ use artoo_ui_kit::controls::{chip, group};
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, Hover};
 use artoo_ui_kit::markdown;
-use artoo_ui_kit::{ROW_RADIUS, island, px, theme};
+use artoo_ui_kit::{ROW_RADIUS, icons, island, px, theme};
 use gpui::{AnyElement, App, ClickEvent, Entity, FontWeight, IntoElement, Window, div, prelude::*};
 use std::rc::Rc;
 
@@ -236,7 +236,21 @@ pub fn what(diff: &Diff, history: &History, narrowed: bool, acts: &Acts) -> AnyE
                         ),
                 )
                 .child(
-                    chip("cmp-swap", "⇄ Swap", false)
+                    chip("cmp-swap", "", false)
+                        .size(px(28.))
+                        .p_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            icons::icon("arrow-left-right")
+                                .size(px(14.))
+                                .text_color(theme::muted()),
+                        )
+                        .tip_two(
+                            "Swap the sides",
+                            "The base becomes the head and the other way round",
+                        )
                         .on_click(asks(acts, compare(head, base, since, None))),
                 )
                 .into_any_element()
@@ -522,7 +536,7 @@ fn summary(diff: &Diff, look: &HeadLook, text: Selectable, acts: &Acts) -> gpui:
                         "{} has nothing {} lacks: are the sides swapped?",
                         head.0, base.0
                     ),
-                    chip("cmp-swap-hint", "⇄ Swap", false).on_click(asks(acts, swap)),
+                    chip("cmp-swap-hint", "Swap", false).on_click(asks(acts, swap)),
                 )
             });
             header

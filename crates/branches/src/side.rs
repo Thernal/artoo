@@ -12,7 +12,7 @@ use artoo_ui_kit::controls::{section_chip, tag};
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, CutInTip, Hover, RowTip};
 use artoo_ui_kit::room::{Room, Widths};
-use artoo_ui_kit::{icons, keys, px, row, theme};
+use artoo_ui_kit::{icons, px, row, theme};
 use gpui::{
     AnyElement, ClickEvent, Context, Div, FontWeight, MouseButton, MouseDownEvent, Stateful,
     UniformList, div, prelude::*, uniform_list,
@@ -370,19 +370,28 @@ pub fn commit_row(
     div().w_full().h(px(64.)).px(px(6.)).py(px(1.)).child(item)
 }
 
-/// What a commit's row says of how much of it you viewed (#209): `1 of 3`, `✓ viewed`, nothing before the first.
-pub fn viewed_word(done: usize, total: usize) -> Option<Div> {
+/// What a commit's row says of how much of it you viewed (#209): an eye and `1/3`, a tick when every file is, its
+/// sentence the tooltip; nothing before the first.
+pub fn viewed_word(done: usize, total: usize) -> Option<gpui::Stateful<Div>> {
     (done > 0 && total > 0).then(|| {
         let all = done >= total;
-        div()
+        let cell = div()
+            .id("commit-viewed")
             .flex_none()
-            .whitespace_nowrap()
-            .text_color(if all { theme::accent() } else { theme::muted() })
-            .child(if all {
-                "✓ viewed".to_owned()
-            } else {
-                format!("{done} of {total}")
-            })
+            .flex()
+            .items_center()
+            .gap(px(3.))
+            .whitespace_nowrap();
+        if all {
+            cell.text_color(theme::accent())
+                .child(icons::icon("check").size(px(13.)))
+                .tip("Every file of this commit viewed")
+        } else {
+            cell.text_color(theme::muted())
+                .child(icons::icon("eye").size(px(13.)))
+                .child(format!("{done}/{total}"))
+                .tip(format!("{done} of {total} files of this commit viewed"))
+        }
     })
 }
 
@@ -393,15 +402,6 @@ pub fn compare_commits(list: UniformList, n: usize) -> Div {
         .flex()
         .flex_col()
         .child(list.h(px(n.min(COMPARE_ROWS) as f32 * COMPARE_ROW)))
-        .child(
-            div()
-                .px(px(14.))
-                .pt(px(2.))
-                .pb(px(8.))
-                .text_size(px(11.))
-                .text_color(theme::faint())
-                .child(keys::text("a click shows one · ⇧-click a span · esc all")),
-        )
 }
 
 /// Commit `ix` of the comparison's commits `c`: its id, subject and age, `card` on a long hover.
