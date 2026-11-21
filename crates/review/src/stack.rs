@@ -325,9 +325,9 @@ impl Review {
                     // they are when a card becomes the current one.
                     .map(|s| {
                         if active {
-                            s.children(self.change_nav(host)).children(open_in)
+                            s.children(self.change_nav()).children(open_in)
                         } else {
-                            s.children(self.change_nav(host).map(|nav| nav.invisible()))
+                            s.children(self.change_nav().map(|nav| nav.invisible()))
                                 .children(host.open_in(cx).map(|open| {
                                     div().flex_none().invisible().child(open).into_any_element()
                                 }))

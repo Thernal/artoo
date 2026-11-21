@@ -222,7 +222,7 @@ impl Review {
                             .flatten()
                             .map(|n| div().text_color(theme::warning()).child(n)),
                     )
-                    .children(self.change_nav(&host))
+                    .children(self.change_nav())
                     // The file in the app it belongs to, at the change (#78); ▾ the others.
                     .children(open_in)
                     .children(mode_note.clone().map(|n| {
@@ -367,16 +367,9 @@ impl Review {
             ))
     }
 
-    /// The file's changes and the way between them: `1 change ↑ ↓`, `± 2/3` once stepped; the words go in a
+    /// The file's changes and the way between them: `1 change`, `± 2/3` once stepped (n and p step, no arrows); the words go in a
     /// diff under 600 px (#80). On the file's line, or on the active card's header (#188).
-    pub(crate) fn change_nav(&self, host: &Rc<dyn Host>) -> Option<Div> {
-        let event = |forward: bool| {
-            let host = host.clone();
-            move |_: &ClickEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
-                cx.stop_propagation();
-                host.pane(PaneEvent::Step { forward }, cx)
-            }
-        };
+    pub(crate) fn change_nav(&self) -> Option<Div> {
         (!self.changes.is_empty()).then(|| {
             div()
                 .flex_none()
@@ -404,11 +397,6 @@ impl Review {
                             .when_some(tip, |d, tip| d.tip(tip)),
                     )
                 })
-                .child(
-                    group()
-                        .child(chip("prev-change", "↑", false).on_click(event(false)))
-                        .child(chip("next-change", "↓", false).on_click(event(true))),
-                )
         })
     }
 
