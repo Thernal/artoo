@@ -106,7 +106,7 @@ impl artoo_shell_api::issues::Tracker for Tracker {
         let stale = std::env::var("ARTOO_SNAPSHOT_SOURCES").is_ok_and(|v| v == "stale");
         Some(artoo_shell_api::issues::IssueCard {
             key: key.to_owned(),
-            icon: "bug",
+            icon: "alert",
             title: match stale {
                 true => title.split(" when ").next().unwrap_or(title).to_owned(),
                 false => title.to_owned(),

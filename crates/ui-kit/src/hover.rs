@@ -561,7 +561,7 @@ pub fn issue_card(card: &IssueCard, open: impl Fn(&mut Window, &mut App) + 'stat
             .gap(px(10.))
             .child(
                 div()
-                    .w(px(56.))
+                    .w(px(68.))
                     .flex_none()
                     .text_color(theme::muted())
                     .child(label.to_owned()),
