@@ -11,7 +11,7 @@ use artoo_hosts_api::{Draft, Thread};
 use artoo_requests_api::{DISCUSSIONS, DiscussionsHost};
 use artoo_shell_api::{Badge, ListKey, Services, Tool};
 use artoo_ui_kit::controls::{
-    comment_item, comment_item_ending, group_heading, skeleton, tool_foot,
+    comment_item, comment_item_glyph, group_heading, skeleton, tool_foot,
 };
 use artoo_ui_kit::format::one_line;
 use artoo_ui_kit::hover::{self, Hover, Tip};
@@ -292,8 +292,7 @@ impl Requests {
             let whole = general && folds.general.contains(&t.id);
             let where_ = match &target {
                 Some((p, n)) => format!("{}:{n}", p.rsplit('/').next().unwrap_or(p)),
-                None if whole => "General ▾".to_owned(),
-                None => "General ▸".to_owned(),
+                None => "General".to_owned(),
             };
             let first = &t.notes[0];
             // Faded while a change to it waits on the host (#139).
@@ -308,7 +307,7 @@ impl Requests {
             let id = t.id.clone();
             // Read whole, the row is its heading: who began it; the notes follow in full.
             let line = if whole {
-                first.author.clone()
+                String::new()
             } else {
                 format!("{}: {}", first.author, one_line(&first.body, look.rich))
             };
@@ -357,41 +356,95 @@ impl Requests {
                         .into_any_element(),
                 );
             }
-            let item = comment_item_ending(("comment-mr", ix), tone, where_, line, end, true)
-                .when(whole, |s| s.bg(theme::selected()))
-                .when(waits, |s| s.opacity(FADED))
-                .on_click({
-                    let (acts, on_fold) = (acts.clone(), on_fold.clone());
-                    move |_: &ClickEvent, _, cx| match target.clone() {
-                        Some((path, line)) => acts(Act::JumpToLine { path, line, old }, cx),
-                        None => on_fold(Fold::General(id.clone()), cx),
-                    }
-                });
+            let item = comment_item_glyph(
+                ("comment-mr", ix),
+                tone,
+                Some(if general { "message" } else { "file" }),
+                where_,
+                line,
+                end,
+                true,
+            )
+            .when(whole, |s| s.bg(theme::selected()))
+            .when(waits, |s| s.opacity(FADED))
+            .on_click({
+                let (acts, on_fold) = (acts.clone(), on_fold.clone());
+                move |_: &ClickEvent, _, cx| match target.clone() {
+                    Some((path, line)) => acts(Act::JumpToLine { path, line, old }, cx),
+                    None => on_fold(Fold::General(id.clone()), cx),
+                }
+            });
             if !whole {
                 return item.into_any_element();
             }
-            // A general discussion read whole: every note, then Reply… and Resolve, or its composer (#199).
-            let notes = t.notes.iter().skip(1).map(|n| {
+            // A general discussion read whole: every note with its avatar and short time, then a Reply field with
+            // Resolve, or its composer (#199, Design D2).
+            let note_row = |n: &artoo_hosts_api::Note, ix2: usize| {
                 div()
-                    .pl(px(28.))
-                    .pr(px(14.))
-                    .py(px(3.))
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .child(format!("{}: {}", n.author, n.body.trim()))
-            });
+                    .id(("general-note", ix * 1000 + ix2))
+                    .px(px(14.))
+                    .py(px(4.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .child(artoo_ui_kit::discussion::avatar(&n.author, false, 18.))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_size(px(12.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(theme::text())
+                                    .child(n.author.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(11.))
+                                    .text_color(theme::faint())
+                                    .child(artoo_ui_kit::format::short_ago(n.created)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .pl(px(26.))
+                            .text_size(px(12.))
+                            .text_color(theme::muted())
+                            .child(n.body.trim().to_owned()),
+                    )
+            };
+            let notes = t.notes.iter().enumerate().map(|(i, n)| note_row(n, i));
             let replying = reply_box.as_ref().is_some_and(|(r, _)| *r == ix);
             let composer = replying.then(|| reply_box.take().map(|(_, e)| e)).flatten();
             let buttons = (!replying).then(|| {
                 let (reply, resolve) = (acts.clone(), acts.clone());
                 div()
-                    .pl(px(28.))
-                    .pr(px(14.))
+                    .px(px(14.))
                     .py(px(4.))
                     .flex()
+                    .items_center()
                     .gap(px(6.))
                     .child(
-                        small_button(("general-reply", ix), "Reply…")
+                        div()
+                            .id(("general-reply", ix))
+                            .flex_1()
+                            .min_w_0()
+                            .h(px(26.))
+                            .px(px(8.))
+                            .flex()
+                            .items_center()
+                            .rounded(px(ROW_RADIUS))
+                            .border_1()
+                            .border_color(theme::island_border())
+                            .bg(theme::editor())
+                            .cursor_text()
+                            .text_size(px(12.))
+                            .text_color(theme::faint())
+                            .child("Reply…")
                             .on_click(move |_: &ClickEvent, _, cx| reply(Act::Reply(ix), cx)),
                     )
                     .children(t.resolvable.then(|| {
@@ -399,6 +452,7 @@ impl Requests {
                             ("general-resolve", ix),
                             if t.resolved { "Reopen" } else { "Resolve" },
                         )
+                        .h(px(26.))
                         .on_click(move |_: &ClickEvent, _, cx| resolve(Act::ToggleResolved(ix), cx))
                     }))
             });
@@ -407,15 +461,6 @@ impl Requests {
                 .flex_col()
                 .pb(px(4.))
                 .child(item)
-                .child(
-                    div()
-                        .pl(px(28.))
-                        .pr(px(14.))
-                        .pb(px(3.))
-                        .text_size(px(12.))
-                        .text_color(theme::text())
-                        .child(first.body.trim().to_owned()),
-                )
                 .children(notes)
                 .children(buttons)
                 .children(composer.map(|c| div().px(px(8.)).py(px(4.)).child(c)))
@@ -430,9 +475,10 @@ impl Requests {
         let draft_items = drafts.iter().enumerate().map(|(ix, d)| {
             let (where_, target, old) = self.draft_where(d);
             let id = d.id;
-            comment_item_ending(
+            comment_item_glyph(
                 ("comment-draft", ix),
                 theme::warning(),
+                Some("file"),
                 where_,
                 draft_line(d, look.rich, look.agents.get(&d.id).map(String::as_str)),
                 Vec::new(),

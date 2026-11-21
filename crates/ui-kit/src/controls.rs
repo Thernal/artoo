@@ -464,6 +464,20 @@ pub fn comment_item_ending(
     end: Vec<gpui::AnyElement>,
     dot: bool,
 ) -> gpui::Stateful<gpui::Div> {
+    comment_item_glyph(id, tone, None, where_, body, end, dot)
+}
+
+/// `comment_item_ending` with a glyph before where it is: a file's for a comment on a line, a speech bubble for a
+/// general one (Design D2).
+pub fn comment_item_glyph(
+    id: (&'static str, usize),
+    tone: gpui::Rgba,
+    glyph: Option<&'static str>,
+    where_: String,
+    body: String,
+    end: Vec<gpui::AnyElement>,
+    dot: bool,
+) -> gpui::Stateful<gpui::Div> {
     div()
         .relative()
         // No dot: a 2 px bar of its colour at the row's left edge, a pending comment's (Design C1).
@@ -501,6 +515,12 @@ pub fn comment_item_ending(
                         .rounded_full()
                         .when(dot, |s| s.bg(tone)),
                 )
+                .children(glyph.map(|name| {
+                    icons::icon(name)
+                        .flex_none()
+                        .size(px(12.))
+                        .text_color(theme::faint())
+                }))
                 .child(
                     hover::cut("where", where_)
                         .flex_1()
