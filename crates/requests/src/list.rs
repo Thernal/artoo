@@ -459,7 +459,7 @@ impl Requests {
             let since = cx
                 .background_executor()
                 .spawn(async move {
-                    let since = viewed.and_then(|(head, viewed)| {
+                    viewed.and_then(|(head, viewed)| {
                         let pushes: Vec<_> = host
                             .versions(iid)
                             .ok()?
@@ -478,8 +478,7 @@ impl Requests {
                         let to = versions.iter().find(|v| v.tip == head)?;
                         let diff = repo.version_diff(from, to, settings).ok()?;
                         Some((from.number, diff.files.len()))
-                    });
-                    since
+                    })
                 })
                 .await;
             this.update(cx, |rq, cx| {

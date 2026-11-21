@@ -7,10 +7,12 @@ use super::typing::Input;
 use super::{Workspace, px};
 use crate::mr::Merge;
 use artoo_requests_api::{CardLook, Fix, Stand};
+use artoo_ui_kit::menu::Lead;
+use artoo_ui_kit::theme;
 use gpui::{Context, KeyDownEvent, Pixels, Point};
 
 /// The width of the list of reasons: each says what and why on one line.
-const REASONS_WIDTH: f32 = 400.;
+const REASONS_WIDTH: f32 = 320.;
 
 impl Workspace {
     /// The open repository's host is GitHub: its words in what an action writes, before a frame
@@ -34,29 +36,31 @@ impl Workspace {
         let Some(Stand::InTheWay(blocks)) = requests.merge_stand(cx) else {
             return;
         };
-        let pipeline = requests.pipeline_url(cx);
-        let github = self.on_github();
-        let host = if github { "GitHub →" } else { "GitLab →" };
         let entries = blocks
             .into_iter()
             .map(|b| {
-                let key = match &b.fix {
+                let (icon, value) = reason_look(b.what, &b.detail);
+                let go = match &b.fix {
                     Fix::Nowhere => "",
-                    Fix::Discussions => "Discussions →",
-                    Fix::Page(url) if Some(url) == pipeline.as_ref() => "Pipeline →",
-                    Fix::Page(_) => host,
+                    _ => "\u{203a}",
                 };
                 Entry::new(b.what, {
                     let fix = b.fix;
                     Act::new(move |this, _, cx| this.go_fix(fix.clone(), cx))
                 })
-                .detail(b.detail)
-                .key(key)
+                .lead(Lead::Icon(icon, theme::muted()))
+                .detail(value)
+                .key(go)
             })
             .collect();
-        // A list of facts under its heading (#188, Design A7).
+        // A list of facts under its heading, a glyph and a short value each (Design M1).
         self.ctx_menu.update(cx, |m, cx| {
-            m.open(at, vec![(Some("In the way"), entries)], REASONS_WIDTH, cx)
+            m.open(
+                at,
+                vec![(Some("In the way of merging"), entries)],
+                REASONS_WIDTH,
+                cx,
+            )
         });
     }
 
@@ -153,5 +157,31 @@ impl Workspace {
             active: self.has_keyboard(Input::Merge, cx),
         };
         self.requests_api()?.merge_card(look, cx)
+    }
+}
+
+/// A reason in the way as a row says it: its glyph and a value short enough for one line — `1/2`, `2`, `lint` —,
+/// else its words; the whole sentence is the Merge button's tooltip.
+fn reason_look(what: &str, detail: &str) -> (&'static str, String) {
+    let first = |text: &str| {
+        text.split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_owned()
+    };
+    match what {
+        "Approvals" => {
+            let nums: Vec<&str> = detail
+                .split(|c: char| !c.is_ascii_digit())
+                .filter(|n| !n.is_empty())
+                .collect();
+            match nums.as_slice() {
+                [have, required, ..] => ("circle-check", format!("{have}/{required}")),
+                _ => ("circle-check", detail.to_owned()),
+            }
+        }
+        "Discussions" => ("message", first(detail)),
+        "Pipeline" => ("circle-x", first(detail)),
+        _ => ("circle-slash", detail.to_owned()),
     }
 }

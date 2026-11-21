@@ -9,6 +9,7 @@ use crate::waiting::FADED;
 use artoo_hosts_api::Host;
 use artoo_ui_kit::discussion::{Kind, button};
 use artoo_ui_kit::format::plural;
+use artoo_ui_kit::hover::Hover;
 use artoo_ui_kit::input::Area;
 use artoo_ui_kit::input::{self, Edit};
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, icons, keys, px, theme};
@@ -153,10 +154,6 @@ impl Requests {
             .and_then(|(_, v)| v.iter().find(|v| v.tip.to_string() == m.head))
             .map(|v| format!("v{}", v.number));
         let commits = look.commits;
-        let seen = match &version {
-            Some(v) => format!(" · {v}, the latest you have"),
-            None => " · the latest you have".to_owned(),
-        };
         let head = div()
             .flex()
             .items_center()
@@ -193,11 +190,29 @@ impl Requests {
                     .tooltip(|_, cx| cx.new(|_| artoo_ui_kit::hover::Tip("Cancel  esc")).into())
                     .on_click(cx.listener(|rq, _: &ClickEvent, _, cx| rq.close_merge(cx))),
             );
+        // The route, then its two facts as glyphs with their sentences in tooltips (Design M2).
+        let fact = |id: &'static str, icon: &'static str, text: String, tip: String| {
+            div()
+                .id(id)
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .text_size(px(12.))
+                .text_color(theme::muted())
+                .child(icons::icon(icon).size(px(14.)).text_color(theme::muted()))
+                .child(text)
+                .tip(tip)
+        };
         let route = div()
             .flex()
-            .flex_wrap()
             .items_center()
             .gap(px(6.))
+            .child(
+                icons::icon("branch")
+                    .size(px(14.))
+                    .text_color(theme::faint()),
+            )
             .child(mono(&m.source).text_color(theme::accent()))
             .child(
                 icons::icon("forward")
@@ -205,22 +220,28 @@ impl Requests {
                     .text_color(theme::faint()),
             )
             .child(mono(&m.target))
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .text_color(theme::faint())
-                    .child(format!("{}{seen}", plural(commits, "commit"))),
-            );
+            .child(div().flex_1())
+            .child(fact(
+                "merge-commits",
+                "commit",
+                commits.to_string(),
+                plural(commits, "commit"),
+            ))
+            .children(version.clone().map(|v| {
+                div().ml(px(8.)).child(fact(
+                    "merge-version",
+                    "layers",
+                    v.clone(),
+                    format!("{v}, the latest you have"),
+                ))
+            }));
         let label = |text: &'static str| {
             div()
-                .w(px(112.))
-                .flex_none()
-                .pt(px(2.))
                 .text_size(px(12.))
                 .text_color(theme::muted())
                 .child(text)
         };
-        let field_row = || div().flex().items_start().gap(px(8.));
+        let field_row = || div().flex().flex_col().gap(px(6.));
         let mut options = Vec::new();
         if host.github {
             let default = host.methods.first().copied();
@@ -440,22 +461,20 @@ impl Requests {
             (false, true) => "Merge when it succeeds",
             (false, false) => "Merge",
         };
+        // The sentence beside the buttons is Merge's tooltip: what it does, and when it refuses.
+        let into = format!(
+            "Merges {after} into {}\nEveryone sees it, and it cannot be undone.\nA push after {after} makes it refuse.",
+            m.target
+        );
         let foot = div()
             .flex()
             .items_center()
+            .justify_end()
             .gap(px(8.))
             .px(px(16.))
             .py(px(12.))
             .border_t_1()
             .border_color(theme::island_border())
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_size(px(12.))
-                    .text_color(theme::faint())
-                    .child(format!("A push after {after} makes it refuse.")),
-            )
             .child(
                 button("merge-cancel", "Cancel", Some("esc"), Kind::Quiet)
                     .on_click(cx.listener(|rq, _: &ClickEvent, _, cx| rq.close_merge(cx))),
@@ -468,6 +487,7 @@ impl Requests {
                     Kind::Primary(theme::accent()),
                 )
                 .when(card.busy, |s| s.opacity(FADED))
+                .tip(into)
                 .on_click(move |_: &ClickEvent, _, cx| acts(Act::RunMerge, cx)),
             );
         Some(
@@ -548,13 +568,11 @@ fn check(
                 .child(if on { "✓" } else { "" }),
         )
         .child(div().child(keys::text(&text).into_owned()))
+        // What it is — the project's default, the host's rule — is its tooltip.
         .when(!sub.is_empty(), |s| {
-            s.child(
-                div()
-                    .text_size(px(12.))
-                    .text_color(theme::faint())
-                    .child(format!("· {sub}")),
-            )
+            let mut tip = sub.clone();
+            tip[..1].make_ascii_uppercase();
+            s.tip(tip)
         })
 }
 

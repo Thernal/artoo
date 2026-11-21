@@ -4,7 +4,6 @@
 //! long hover. Commits and Changes have no line of their own over them: the title is in the page bar (#188).
 
 use crate::bar::{pipeline_icon, pipeline_short, pipeline_word};
-use crate::merge::{Fix, Stand};
 use crate::requests::Requests;
 use crate::waiting::FADED;
 use artoo_hosts_api::{Details, Mr, MrState};
@@ -78,7 +77,6 @@ impl Requests {
                     .min_h_0()
                     .overflow_y_scroll()
                     .child(self.overview_identity(m, look.title, &look.facts))
-                    .children(self.in_the_way(look.discussions.clone()))
                     .child(div().h(px(1.)).bg(theme::island_border()))
                     // The description sets the height; the facts and discussions beside it are no
                     // taller and scroll in their own column (the developer, 2026-10-23).
@@ -292,82 +290,6 @@ impl Requests {
                     ),
             )
             .child(div().pt(px(4.)).child(row))
-    }
-
-    /// `In the way of merging`: a row for each reason, its facts and where it is fixed (#190, Design L4), between
-    /// rules; none while nothing is in the way or the host's word is not in.
-    fn in_the_way(&self, discussions: Rc<dyn Fn(&mut App)>) -> Option<Div> {
-        let Some(Stand::InTheWay(blocks)) = self.merge_stand() else {
-            return None;
-        };
-        let pipeline = self.pipeline.as_ref().map(|p| p.url.clone());
-        let github = self.web.as_ref().is_some_and(|w| w.github);
-        Some(
-            div()
-                .border_t_1()
-                .border_color(theme::island_border())
-                .px(px(24.))
-                .py(px(16.))
-                .flex()
-                .flex_col()
-                .gap(px(8.))
-                .child(
-                    div()
-                        .text_size(px(11.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::warning())
-                        .child("IN THE WAY OF MERGING"),
-                )
-                .children(blocks.into_iter().enumerate().map(|(i, b)| {
-                    let link = match &b.fix {
-                        Fix::Nowhere => None,
-                        Fix::Discussions => Some("Discussions →"),
-                        Fix::Page(url) if Some(url) == pipeline.as_ref() => Some("Pipeline →"),
-                        Fix::Page(_) if github => Some("GitHub ↗"),
-                        Fix::Page(_) => Some("GitLab ↗"),
-                    };
-                    // A failure or a conflict is the red of what broke; a count to reach is plain.
-                    let broke = matches!(b.what, "Pipeline" | "Conflicts");
-                    let fix = b.fix.clone();
-                    let discussions = discussions.clone();
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(10.))
-                        .text_size(px(13.))
-                        .child(
-                            div()
-                                .flex_none()
-                                .w(px(82.))
-                                .text_color(theme::muted())
-                                .child(b.what),
-                        )
-                        .child(
-                            div()
-                                .min_w_0()
-                                .text_color(if broke {
-                                    theme::removed()
-                                } else {
-                                    theme::text()
-                                })
-                                .child(b.detail),
-                        )
-                        .children(link.map(|link| {
-                            div()
-                                .id(("overview-fix", i))
-                                .flex_none()
-                                .text_color(theme::accent())
-                                .cursor_pointer()
-                                .hover(|s| s.text_color(theme::text()))
-                                .child(link)
-                                .on_click(move |_: &ClickEvent, _, cx| match &fix {
-                                    Fix::Nowhere => {}
-                                    Fix::Discussions => discussions(cx),
-                                    Fix::Page(url) => cx.open_url(url),
-                                })
-                        }))
-                })),
-        )
     }
 
     /// Overview's column (#137, #190): who reviews and how far, the labels, the milestone, and the discussions —

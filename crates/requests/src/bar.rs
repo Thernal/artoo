@@ -193,14 +193,18 @@ impl Requests {
                     .text_color(theme::muted())
                     .child(merge_icon(theme::muted()))
                     .child("Merge")
-                    // One reason is named; more are counted (#188, Design A7).
-                    .child(word(
-                        match blocks.as_slice() {
-                            [one] => format!("· {}", one.short),
-                            _ => format!("· {n} in the way"),
-                        },
-                        theme::faint(),
-                    ))
+                    // What is in the way, counted: a glyph and its number; the sentences are the tooltip's (Design M1).
+                    .child(
+                        row()
+                            .gap(px(3.))
+                            .text_color(theme::warning())
+                            .child(
+                                icons::icon("circle-slash")
+                                    .size(px(14.))
+                                    .text_color(theme::warning()),
+                            )
+                            .child(n.to_string()),
+                    )
                     .child(
                         icons::icon("chevron")
                             .size(px(13.))
