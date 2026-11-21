@@ -22,12 +22,30 @@ pub(super) struct Whole {
 pub struct PersonCard {
     pub name: String,
     pub login: String,
-    /// What they are in the open request: author, reviewer (approved), …
-    pub role: Option<String>,
-    /// What they did last in it: "Pushed v4 35 min ago · wrote 12 min ago" (X58).
-    pub activity: Option<String>,
+    /// What they are in the open request: a glyph, its number, and the sentence for its tooltip (`Reviewer of !398`).
+    pub role: Option<Role>,
+    /// What they did in it, newest first: a row each, its time at the end.
+    pub acts: Vec<Act>,
     pub url: Option<String>,
     pub ws: WeakEntity<Workspace>,
+}
+
+/// A person's part in a request.
+#[derive(Clone)]
+pub struct Role {
+    pub icon: &'static str,
+    pub number: String,
+    pub tip: String,
+}
+
+/// One thing a person did in a request: `Commented on !398, 4 h ago`.
+#[derive(Clone)]
+pub struct Act {
+    pub icon: &'static str,
+    pub number: String,
+    /// Its short time (`4h`); none when it is not known.
+    pub time: Option<String>,
+    pub tip: String,
 }
 
 impl PersonCard {
@@ -36,7 +54,7 @@ impl PersonCard {
             name: other.name.clone(),
             login: other.login.clone(),
             role: other.role.clone(),
-            activity: other.activity.clone(),
+            acts: other.acts.clone(),
             url: other.url.clone(),
             ws: other.ws.clone(),
         }
@@ -76,11 +94,31 @@ impl PersonCard {
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child(self.name.clone()),
                             )
-                            .children((!self.login.is_empty()).then(|| {
+                            .child(
                                 div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.))
                                     .text_color(theme::muted())
-                                    .child(format!("@{}", self.login))
-                            })),
+                                    .children(
+                                        (!self.login.is_empty())
+                                            .then(|| format!("@{}", self.login)),
+                                    )
+                                    .children(self.role.clone().map(|role| {
+                                        div()
+                                            .id("card-role")
+                                            .flex()
+                                            .items_center()
+                                            .gap(px(4.))
+                                            .child(
+                                                super::icons::icon(role.icon)
+                                                    .size(px(12.))
+                                                    .text_color(theme::muted()),
+                                            )
+                                            .child(role.number)
+                                            .tip(role.tip)
+                                    })),
+                            ),
                     )
                     .children((!login.is_empty()).then(|| {
                         card_action("card-mention", "at-sign", format!("Mention {}", self.name))
@@ -93,16 +131,33 @@ impl PersonCard {
                             .on_click(move |_: &ClickEvent, _, cx| cx.open_url(&url))
                     })),
             )
-            .children(
-                self.role
-                    .clone()
-                    .map(|r| div().text_color(theme::muted()).child(r)),
-            )
-            .children(
-                self.activity
-                    .clone()
-                    .map(|a| div().text_size(px(11.)).text_color(theme::faint()).child(a)),
-            )
+            .children((!self.acts.is_empty()).then(|| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .children(self.acts.iter().enumerate().map(|(i, act)| {
+                        div()
+                            .id(("card-act", i))
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .child(
+                                super::icons::icon(act.icon)
+                                    .size(px(12.))
+                                    .text_color(theme::muted()),
+                            )
+                            .child(act.number.clone())
+                            .child(div().flex_1())
+                            .children(act.time.clone().map(|time| {
+                                div()
+                                    .text_size(px(11.))
+                                    .text_color(theme::faint())
+                                    .child(time)
+                            }))
+                            .tip(act.tip.clone())
+                    }))
+            }))
     }
 }
 
@@ -174,49 +229,81 @@ impl Workspace {
             .and_then(|r| r.approvals(cx))
             .as_ref()
             .is_some_and(|a| a.by.iter().any(|b| b == name));
+        let number = m
+            .as_ref()
+            .map(|m| super::words::number(m.iid))
+            .unwrap_or_default();
         let role = m.as_ref().and_then(|m| {
             let mine = |l: &str| !login.is_empty() && l == login;
             if mine(&m.author_login) || m.author == name {
-                Some("Author of this merge request".to_owned())
+                Some(Role {
+                    icon: "pencil",
+                    tip: format!("Author of {number}"),
+                    number: number.clone(),
+                })
             } else if m
                 .reviewers
                 .iter()
                 .any(|r| mine(r) || r == name || m.reviewer_name(r) == Some(name))
                 || approved
             {
-                Some(if approved {
-                    "Reviewer · approved".to_owned()
-                } else {
-                    "Reviewer · reviewing".to_owned()
+                Some(Role {
+                    icon: "eye",
+                    tip: format!("Reviewer of {number}"),
+                    number: number.clone(),
                 })
             } else {
                 None
             }
         });
-        // What they did last here: the author's last push, anyone's last note.
+        // What they did here: the author's last push, anyone's last note, an approval.
         let theirs = |l: &str, n: &str| (!login.is_empty() && l == login) || n == name;
-        let pushed = m
+        let mut acts: Vec<(i64, Act)> = Vec::new();
+        if let Some(v) = m
             .as_ref()
             .filter(|m| theirs(&m.author_login, &m.author))
             .and_then(|_| self.branches().and_then(|b| b.latest_version(cx)))
             .filter(|v| v.time > 0)
-            .map(|v| format!("Pushed v{} {}", v.number, format::ago(v.time)));
-        let wrote = m
-            .and_then(|_| {
-                self.request_threads(cx)
-                    .iter()
-                    .flat_map(|t| &t.notes)
-                    .filter(|n| theirs(&n.login, &n.author))
-                    .map(|n| n.created)
-                    .max()
-            })
-            .map(|t| format!("wrote {}", format::ago(t)));
-        let activity = match (pushed, wrote) {
-            (Some(p), Some(w)) => Some(format!("{p} · {w}")),
-            (Some(p), None) => Some(p),
-            (None, Some(w)) => Some(format!("{}{}", w[..1].to_uppercase(), &w[1..])),
-            (None, None) => None,
-        };
+        {
+            acts.push((
+                v.time,
+                Act {
+                    icon: "git-commit",
+                    number: number.clone(),
+                    time: Some(format::short_ago(v.time)),
+                    tip: format!("Pushed v{} to {number}, {}", v.number, format::ago(v.time)),
+                },
+            ));
+        }
+        if m.is_some()
+            && let Some(t) = self
+                .request_threads(cx)
+                .iter()
+                .flat_map(|t| &t.notes)
+                .filter(|n| theirs(&n.login, &n.author))
+                .map(|n| n.created)
+                .max()
+        {
+            acts.push((
+                t,
+                Act {
+                    icon: "message",
+                    number: number.clone(),
+                    time: Some(format::short_ago(t)),
+                    tip: format!("Commented on {number}, {}", format::ago(t)),
+                },
+            ));
+        }
+        acts.sort_by_key(|(t, _)| std::cmp::Reverse(*t));
+        let mut acts: Vec<Act> = acts.into_iter().map(|(_, a)| a).collect();
+        if approved && m.is_some() {
+            acts.push(Act {
+                icon: "circle-check",
+                number: number.clone(),
+                time: None,
+                tip: format!("Approved {number}"),
+            });
+        }
         let url = self.web.as_ref().filter(|_| !login.is_empty()).map(|w| {
             let host_end = w
                 .base
@@ -229,7 +316,7 @@ impl Workspace {
             name: name.to_owned(),
             login,
             role,
-            activity,
+            acts,
             url,
             ws,
         }

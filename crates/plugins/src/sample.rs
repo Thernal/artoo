@@ -107,6 +107,7 @@ impl artoo_shell_api::issues::Tracker for Tracker {
         Some(artoo_shell_api::issues::IssueCard {
             key: key.to_owned(),
             icon: "alert",
+            kind_tint: Some(artoo_ui_kit::theme::removed()),
             title: match stale {
                 true => title.split(" when ").next().unwrap_or(title).to_owned(),
                 false => title.to_owned(),
@@ -114,6 +115,13 @@ impl artoo_shell_api::issues::Tracker for Tracker {
             source: "Jira".into(),
             host: "acme.atlassian.net".into(),
             state: Some((state.into(), false)),
+            state_tint: None,
+            epic: (key == "PAY-412").then(|| {
+                (
+                    "Reconcile merchant reports with the ledger every night".to_owned(),
+                    artoo_ui_kit::theme::code(3).into(),
+                )
+            }),
             fields: vec![
                 ("Assignee".into(), "You".into()),
                 ("Sub-tasks".into(), "1/3".into()),

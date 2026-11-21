@@ -4,8 +4,8 @@
 
 use super::{ROW_RADIUS, format, keys, motion, px, theme};
 use gpui::{
-    AnyView, App, Bounds, Context, ElementId, Global, IntoElement, Pixels, Render, SharedString,
-    StatefulInteractiveElement, Window, WindowId, canvas, div, prelude::*,
+    AnyView, App, Bounds, Context, ElementId, Global, IntoElement, Pixels, Render, Rgba,
+    SharedString, StatefulInteractiveElement, Window, WindowId, canvas, div, prelude::*,
 };
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -532,14 +532,20 @@ pub fn card_frame() -> gpui::Div {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct IssueCard {
     pub key: String,
-    /// The glyph of its kind (`bug`), by its Lucide name.
+    /// The glyph of its kind (`bug`), by its Lucide name, drawn on a small square of `kind_tint`.
     pub icon: &'static str,
+    /// The colour of its kind's square (a bug's red); none draws the glyph alone.
+    pub kind_tint: Option<gpui::Rgba>,
     pub title: String,
     /// Where it is kept: `Jira`, and its host under it as the tooltip of the source's mark.
     pub source: String,
     pub host: String,
     /// Its state in the tracker's words, and whether it is a done one (drawn in the added colour).
     pub state: Option<(String, bool)>,
+    /// The tracker's colour of the state; none takes the added colour for a done one, else the accent.
+    pub state_tint: Option<gpui::Rgba>,
+    /// Its epic, with the tracker's colour of it: a tinted pill in a row of its own.
+    pub epic: Option<(String, gpui::Rgba)>,
     /// Its other facts, label then value: `Assignee` `You`.
     pub fields: Vec<(String, String)>,
     /// The start of its description.
@@ -561,7 +567,7 @@ pub fn issue_card(card: &IssueCard, open: impl Fn(&mut Window, &mut App) + 'stat
             .gap(px(10.))
             .child(
                 div()
-                    .w(px(68.))
+                    .w(px(56.))
                     .flex_none()
                     .text_color(theme::muted())
                     .child(label.to_owned()),
@@ -579,11 +585,26 @@ pub fn issue_card(card: &IssueCard, open: impl Fn(&mut Window, &mut App) + 'stat
                 .flex()
                 .items_center()
                 .gap(px(6.))
-                .child(
-                    crate::icons::icon(card.icon)
+                .child(match card.kind_tint {
+                    Some(tint) => div()
+                        .flex_none()
                         .size(px(14.))
-                        .text_color(theme::muted()),
-                )
+                        .rounded(px(3.))
+                        .bg(tint)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            crate::icons::icon(card.icon)
+                                .size(px(10.))
+                                .text_color(theme::on_accent()),
+                        )
+                        .into_any_element(),
+                    None => crate::icons::icon(card.icon)
+                        .size(px(14.))
+                        .text_color(theme::muted())
+                        .into_any_element(),
+                })
                 .child(
                     div()
                         .flex_1()
@@ -639,16 +660,47 @@ pub fn issue_card(card: &IssueCard, open: impl Fn(&mut Window, &mut App) + 'stat
                                 .text_color(theme::muted())
                                 .child("State"),
                         )
-                        .child(crate::controls::pill(
-                            state.clone(),
-                            if *done {
+                        .child({
+                            let tint = card.state_tint.unwrap_or(if *done {
                                 theme::added()
                             } else {
                                 theme::accent()
-                            },
-                        ))
+                            });
+                            div()
+                                .flex_none()
+                                .h(px(22.))
+                                .px(px(8.))
+                                .flex()
+                                .items_center()
+                                .rounded(px(6.))
+                                .bg(Rgba { a: 0.16, ..tint })
+                                .text_color(tint)
+                                .child(state.clone())
+                        })
                 }))
-                .children(card.fields.iter().map(|(l, v)| field(l, v))),
+                .children(card.fields.iter().map(|(l, v)| field(l, v)))
+                .children(card.epic.as_ref().map(|(epic, tint)| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .child(
+                            div()
+                                .w(px(56.))
+                                .flex_none()
+                                .text_color(theme::muted())
+                                .child("Epic"),
+                        )
+                        .child(
+                            cut_to("issue-epic", epic.clone(), 1)
+                                .min_w_0()
+                                .h(px(18.))
+                                .px(px(6.))
+                                .rounded(px(6.))
+                                .bg(Rgba { a: 0.16, ..*tint })
+                                .text_color(*tint),
+                        )
+                })),
         )
         .children(
             (!card.excerpt.is_empty()).then(|| {
