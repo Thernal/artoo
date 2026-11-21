@@ -858,11 +858,15 @@ impl Render for Machine {
                     .zip(keys_now.as_ref())
                     .map(|(a, keys)| keys.foot(a.act.as_ref(), cx))
                     .unwrap_or_default();
-                let foot = format!(
-                    "{} · {}",
-                    words::say(self.scope_label(on)),
-                    keys::text(&key)
-                );
+                // A tab with no key of its own is only its place: no key after it.
+                let foot = match key.is_empty() {
+                    true => words::say(self.scope_label(on)).to_string(),
+                    false => format!(
+                        "{} · {}",
+                        words::say(self.scope_label(on)),
+                        keys::text(&key)
+                    ),
+                };
                 (Some(tabs), Some(foot))
             }
             Kind::List(_) => (None, None),

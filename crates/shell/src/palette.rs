@@ -455,6 +455,7 @@ fn scopes(
 /// The foot: each key after its words, in a cap — the tab on with its key and how to move (a search), then
 /// open and close. A list without tabs says the last two.
 fn foot(on: Option<String>, verb: &str) -> AnyElement {
+    let bare = on.as_ref().is_some_and(|o| !o.contains(" · "));
     let hint = |say: &str, key: &str| {
         div()
             .flex()
@@ -475,17 +476,24 @@ fn foot(on: Option<String>, verb: &str) -> AnyElement {
         .text_color(theme::muted())
         .children(on.map(|on| {
             let (label, key) = on.split_once(" · ").unwrap_or((on.as_str(), ""));
-            div()
-                .flex()
-                .items_center()
-                .gap(px(14.))
-                .child(hint(label, key))
-                .child(hint("next tab", "⇥"))
-                .child(hint("back", "⇧⇥"))
-                .child(hint("actions", ">"))
+            // A tab with a key of its own says it first and can run an action (`>`); one without is a place
+            // ⇥ moves through and ⇧⇥ back from.
+            let keyed = !key.is_empty();
+            let mut hints = div().flex().items_center().gap(px(14.));
+            if keyed {
+                hints = hints.child(hint(label, key));
+            }
+            hints = hints.child(hint("next tab", "⇥"));
+            match keyed {
+                true => hints.child(hint("actions", ">")),
+                false => hints.child(hint("back", "⇧⇥")),
+            }
         }))
         .child(div().flex_1())
         .child(hint(verb, "↵"))
-        .child(hint("close", "esc"))
+        .child(match bare {
+            true => hint("", "esc"),
+            false => hint("close", "esc"),
+        })
         .into_any_element()
 }
