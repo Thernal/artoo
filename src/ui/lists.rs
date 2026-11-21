@@ -73,6 +73,11 @@ impl Workspace {
         // A composer or a find open beside it keeps its text, not the keyboard (#168).
         self.take_keyboard(Input::Field, cx);
         self.field = Some(field);
+        // A page's name opens selected: typing replaces it, an arrow key keeps it (Design U2).
+        if field == Field::Rename {
+            self.field_edit = crate::textedit::TextEdit::new(self.label_name.clone());
+            self.field_edit.select_all();
+        }
         cx.notify();
     }
 
