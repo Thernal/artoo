@@ -17,6 +17,28 @@ macro_rules! lucide {
 }
 
 const ICONS: &[(&str, &str)] = &[
+    (
+        "columns",
+        lucide!(
+            r#"<rect width="18" height="18" x="3" y="3" rx="2"/>"#
+            r#"<path d="M12 3v18"/>"#
+        ),
+    ),
+    (
+        "rows",
+        lucide!(
+            r#"<rect width="18" height="18" x="3" y="3" rx="2"/>"#
+            r#"<path d="M3 12h18"/>"#
+        ),
+    ),
+    (
+        "chevrons-up-down",
+        lucide!(r#"<path d="m7 15 5 5 5-5"/>"# r#"<path d="m7 9 5-5 5 5"/>"#),
+    ),
+    (
+        "chevrons-down-up",
+        lucide!(r#"<path d="m7 20 5-5 5 5"/>"# r#"<path d="m7 4 5 5 5-5"/>"#),
+    ),
     // `⋯`: what a bar had no room for (#186).
     (
         "ellipsis",

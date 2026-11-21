@@ -4,14 +4,96 @@
 //! back when that fits.
 
 use artoo_review_api::ToolbarFold;
-use gpui::{IntoElement, canvas, prelude::*};
+use artoo_ui_kit::controls::{chip, group};
+use artoo_ui_kit::hover::Hover;
+use artoo_ui_kit::{icons, keys, px, theme};
+use gpui::{AnyElement, ClickEvent, Div, IntoElement, Stateful, canvas, prelude::*};
 use std::cell::Cell;
 
 /// A width not measured yet, taken as wide enough: Split · Unified, Collapse all, View ▾.
-const GUESS: [f32; 3] = [120., 96., 72.];
+const GUESS: [f32; 3] = [60., 32., 72.];
+/// One control height in a bar (Design `SYSTEM.md`, One control, one source): the group's, the icon buttons' side.
+const HEIGHT: f32 = 28.;
 /// The toolbar's gap between its parts and its side padding (`render_toolbar`, `render_options`).
 const GAP: f32 = 8.;
 const PADDING: f32 = 24.;
+
+/// The 28 px track every control of the toolbar's right sits in: Split · Unified, Expand all, View ▾.
+pub fn tool_group() -> Div {
+    group().h(px(HEIGHT))
+}
+
+/// A text chip as tall as the track's inside (24 px), its words centred: View ▾.
+pub fn text_chip(id: &'static str, label: &'static str, active: bool) -> Stateful<Div> {
+    chip(id, label, active)
+        .h(px(HEIGHT - 4.))
+        .flex()
+        .items_center()
+}
+
+/// An icon chip: a square of the track's inside, the glyph centred.
+fn glyph(id: &'static str, name: &'static str, active: bool) -> Stateful<Div> {
+    let colour = if active {
+        theme::text()
+    } else {
+        theme::muted()
+    };
+    chip(id, "", active)
+        .size(px(HEIGHT - 4.))
+        .p_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(icons::icon(name).size(px(14.)).text_color(colour))
+}
+
+/// Split and Unified, the one drawing of the layout switch (Design round 21, F1; every toolbar that shows it calls
+/// this): two glyphs in one 28 px group, a tip each. The one on screen is marked (`unified`); `narrow` dims Split
+/// with the room it needs.
+pub fn layout(
+    unified: bool,
+    narrow: bool,
+    split: impl Fn(&ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
+    one_column: impl Fn(&ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
+) -> AnyElement {
+    tool_group()
+        .child(
+            glyph("split", "columns", !unified)
+                .tip("Split: the old and the new side by side")
+                .when(narrow, |c| {
+                    c.opacity(0.45).tip(format!(
+                        "Split needs {} px",
+                        artoo_review_api::SPLIT_WIDTH as u32
+                    ))
+                })
+                .on_click(split),
+        )
+        .child(
+            glyph("unified", "rows", unified)
+                .tip("Unified: one column")
+                .on_click(one_column),
+        )
+        .into_any_element()
+}
+
+/// Expand all (`folded`: a file is folded) or Collapse all: one glyph in a 28 px square, its words as the tip.
+pub fn expand_all(
+    folded: bool,
+    click: impl Fn(&ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
+) -> AnyElement {
+    let (name, tip) = if folded {
+        ("chevrons-up-down", "Expand all".to_string())
+    } else {
+        (
+            "chevrons-down-up",
+            keys::text("Collapse all  ⌥⇧A").into_owned(),
+        )
+    };
+    tool_group()
+        .w(px(HEIGHT))
+        .child(glyph("expand-all", name, false).tip(tip).on_click(click))
+        .into_any_element()
+}
 
 /// What the toolbar was last drawn at, in pixels.
 #[derive(Default)]

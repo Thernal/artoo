@@ -323,51 +323,31 @@ impl Review {
             .flex()
             .items_center()
             .gap_2()
-            .when(fold < ToolbarFold::Layout, |s| {
-                s.child(measured(
-                    |t| &t.layout,
-                    group()
-                        .child(
-                            chip("split", "Split", !unified)
-                                .when(self.narrow, |c| {
-                                    use artoo_ui_kit::hover::Hover;
-                                    c.opacity(0.45).tip(format!(
-                                        "Split needs {} px",
-                                        artoo_review_api::SPLIT_WIDTH as u32
-                                    ))
-                                })
-                                .on_click(event(PaneEvent::Unified(false))),
-                        )
-                        .child(
-                            chip("unified", "Unified", unified)
-                                .on_click(event(PaneEvent::Unified(true))),
-                        )
-                        .into_any_element(),
-                ))
-            })
             .children(
                 (self.stack.is_some() && fold < ToolbarFold::Collapse).then(|| {
                     let folded = self.any_folded();
                     measured(
                         |t| &t.collapse,
-                        group()
-                            .child(
-                                chip(
-                                    "expand-all",
-                                    if folded { "Expand all" } else { "Collapse all" },
-                                    false,
-                                )
-                                .on_click(event(PaneEvent::ExpandAll { folded })),
-                            )
-                            .into_any_element(),
+                        crate::toolbar::expand_all(folded, event(PaneEvent::ExpandAll { folded })),
                     )
                 }),
             )
+            .when(fold < ToolbarFold::Layout, |s| {
+                s.child(measured(
+                    |t| &t.layout,
+                    crate::toolbar::layout(
+                        unified,
+                        self.narrow,
+                        event(PaneEvent::Unified(false)),
+                        event(PaneEvent::Unified(true)),
+                    ),
+                ))
+            })
             .child(measured(
                 |t| &t.view,
-                group()
+                crate::toolbar::tool_group()
                     .child(
-                        chip("view", "View ▾", menu_open)
+                        crate::toolbar::text_chip("view", "View ▾", menu_open)
                             .relative()
                             .child({
                                 let bounds = bounds.clone();
