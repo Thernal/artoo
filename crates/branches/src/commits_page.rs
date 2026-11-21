@@ -5,7 +5,7 @@
 use crate::history::{Act, Acts, History};
 use artoo_core::route::Route;
 use artoo_shell_api::Frame;
-use artoo_ui_kit::format::{self, plural};
+use artoo_ui_kit::format;
 use artoo_ui_kit::hover::{self, Hover, RowTip};
 use artoo_ui_kit::{gap, icons, island, px, row, theme};
 use gpui::{
@@ -276,15 +276,20 @@ impl History {
                             .pb(px(6.))
                             .text_size(px(11.))
                             .text_color(theme::faint())
-                            .child(match run {
-                                Some((newest, oldest)) => format!(
-                                    "{} of {} picked · ↵ reviews them as one",
-                                    oldest - newest + 1,
-                                    plural(self.commits.len(), "commit")
-                                ),
-                                None => plural(self.commits.len(), "commit"),
-                            })
-                            .tip("Newest first · ↵ opens one, esc comes back here · shift and a click picks a run of them to review as one"),
+                            .flex()
+                            .gap(px(6.))
+                            .child("Commits")
+                            .child(self.commits.len().to_string())
+                            .children(run.map(|(newest, oldest)| {
+                                format!(
+                                    "· {} picked · ↵ reviews them as one",
+                                    oldest - newest + 1
+                                )
+                            }))
+                            .tip_two(
+                                "Newest first",
+                                "↵ opens one, esc comes back here · shift and a click picks a run of them",
+                            ),
                     )
                     .children(rows),
             )

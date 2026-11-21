@@ -376,11 +376,11 @@ impl Workspace {
                     out.push(
                         BarAction::new(
                             id,
-                            self.bar_action(id, icon, label, key).on_click(cx.listener(
-                                move |this, _: &ClickEvent, _, cx| {
+                            bar_icon(id, icon, format!("{label} commit  {key}")).on_click(
+                                cx.listener(move |this, _: &ClickEvent, _, cx| {
                                     this.step_item_commit(next, cx);
-                                },
-                            )),
+                                }),
+                            ),
                         )
                         .folds(
                             MenuItem::new(
