@@ -86,10 +86,10 @@ pub fn record(form: &Form, answered: Option<&Answered>) -> AnyElement {
 }
 
 /// Under the agent's question: its form, answered with clicks; the foot sends (#10 C).
-/// `drafts` the comments the next sending takes; `lines` the file's own lines, when it is the one open.
+/// `lines` the file's own lines, when it is the one open.
 pub fn form(
     c: &Comment,
-    drafts: &[u64],
+    _drafts: &[u64],
     lines: Option<&dyn Fn(u32) -> Option<String>>,
     on: OnForm,
 ) -> Option<AnyElement> {
@@ -102,7 +102,6 @@ pub fn form(
     let form = reply.form.as_ref();
     let answer = c.answer.clone().unwrap_or_default();
     let answered = c.answer.is_some();
-    let others = drafts.iter().filter(|d| **d != id).count();
     let order: Vec<usize> = match form {
         Some(f) if f.kind == FormKind::Order => {
             if answer.picks.len() == f.choices().len() {
@@ -156,7 +155,7 @@ pub fn form(
             })
             .into_any_element()
     });
-    let (call, note, only, all) = (on.clone(), on.clone(), on.clone(), on);
+    let (call, note, only) = (on.clone(), on.clone(), on);
     let button = |idn: (&'static str, usize), label: String, primary: bool| {
         div()
             .id(idn)
@@ -197,70 +196,96 @@ pub fn form(
             .gap(px(4.))
             .children(rows)
             .children(own)
-            .children((!answer.note.is_empty()).then(|| {
+            // The last choice, and a line that is always there (L1): `0 Up to you · Claude decides`.
+            .child(
                 div()
+                    .id(("form-call", id as usize))
+                    .mx(px(8.))
+                    .h(px(28.))
                     .px(px(8.))
-                    .pt(px(4.))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .rounded(px(ROW_RADIUS))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::hover()))
+                    .when(answer.your_call, |s| s.bg(theme::agent_bg()))
+                    .child(
+                        div()
+                            .w(px(14.))
+                            .flex_none()
+                            .text_size(px(11.))
+                            .text_color(theme::faint())
+                            .child("0"),
+                    )
+                    .child(mark(answer.your_call, false))
+                    .child("Up to you")
+                    .child(div().text_color(theme::faint()).child("Claude decides"))
+                    .on_click(move |_, _, cx| {
+                        call(FormEvent::Pick(id, None), cx);
+                    }),
+            )
+            .child(
+                div()
+                    .id(("form-note", id as usize))
+                    .mx(px(8.))
+                    .mt(px(4.))
+                    .min_h(px(30.))
+                    .px(px(10.))
+                    .py(px(5.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(ROW_RADIUS))
+                    .border_1()
+                    .border_color(theme::island_border())
+                    .bg(theme::editor())
+                    .cursor_text()
                     .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .child(format!("Your note: {}", answer.note))
-            }))
+                    .tooltip_show_delay(hover::LONG)
+                    .tooltip(|_, cx| {
+                        cx.new(|_| hover::Tip("Add a note to your answer  ⇧N"))
+                            .into()
+                    })
+                    .child(if answer.note.is_empty() {
+                        div()
+                            .text_color(theme::faint())
+                            .child("Anything to add — optional")
+                    } else {
+                        div().child(answer.note.clone())
+                    })
+                    .on_click(move |_, _, cx| {
+                        note(FormEvent::Note(id), cx);
+                    }),
+            )
+            // An answer goes at once (round 11): the foot says so, and `Send answer ↵` is the whole of it.
             .child(
                 div()
                     .pt(px(6.))
+                    .px(px(8.))
                     .flex()
-                    .flex_wrap()
                     .items_center()
                     .gap_2()
                     .child(
-                        button(("form-call", id as usize), "0  Your call".to_owned(), false)
-                            .when(answer.your_call, |s| s.bg(theme::agent_bg()))
-                            .on_click(move |_, _, cx| {
-                                call(FormEvent::Pick(id, None), cx);
-                            }),
+                        div()
+                            .flex_1()
+                            .text_size(px(12.))
+                            .text_color(theme::faint())
+                            .child("Goes to your agent at once"),
                     )
                     .child(
                         button(
-                            ("form-note", id as usize),
-                            keys::text("⇧N  Add a note").into_owned(),
-                            false,
-                        )
-                        .on_click(move |_, _, cx| {
-                            note(FormEvent::Note(id), cx);
-                        }),
-                    )
-                    .children(answered.then(|| {
-                        div()
-                            .text_size(px(12.))
-                            .text_color(theme::agent())
-                            .child("✓ In drafts")
-                    }))
-                    .child(div().flex_1())
-                    .children((answered && others > 0).then(|| {
-                        button(
-                            ("form-only", id as usize),
-                            keys::text("Send this only  ⌥⌘↵").into_owned(),
-                            false,
-                        )
-                        .on_click(move |_, _, cx| {
-                            only(FormEvent::SendOnly(id), cx);
-                        })
-                    }))
-                    .children(answered.then(|| {
-                        let label = if others > 0 {
-                            format!("Send all {}  ⇧⌘↵", others + 1)
-                        } else {
-                            "Send  ⇧⌘↵".to_owned()
-                        };
-                        button(
                             ("form-all", id as usize),
-                            keys::text(&label).into_owned(),
+                            keys::text("Send answer  ↵").into_owned(),
                             true,
                         )
-                        .on_click(move |_, _, cx| {
-                            all(FormEvent::SendAll, cx);
-                        })
-                    })),
+                        .h(px(28.))
+                        .when(!answered, |s| s.opacity(0.5))
+                        .when(answered, |s| {
+                            s.on_click(move |_, _, cx| {
+                                only(FormEvent::SendOnly(id), cx);
+                            })
+                        }),
+                    ),
             )
             .into_any_element(),
     )

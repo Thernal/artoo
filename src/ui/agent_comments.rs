@@ -341,7 +341,7 @@ impl Workspace {
         // time at the end and the ⋯ last. A click on it folds or opens the note.
         let more = {
             let (this, id) = (editing.clone(), id);
-            let state = comment.state.clone();
+            let state = comment.state;
             let unanswered = comment.replies.is_empty();
             discussion::icon_button(
                 ("more-agent", id),
@@ -356,7 +356,6 @@ impl Workspace {
             .on_click(move |event, _, cx| {
                 use super::menu::{Act, Entry};
                 cx.stop_propagation();
-                let state = state.clone();
                 let at = event.position();
                 this.update(cx, |this, cx| {
                     let mut now = vec![Entry::new(
@@ -440,7 +439,8 @@ impl Workspace {
             .child(
                 div()
                     .flex_none()
-                    .w(px(44.))
+                    .min_w(px(44.))
+                    .whitespace_nowrap()
                     .text_right()
                     .text_size(px(11.))
                     .text_color(theme::faint())
@@ -614,6 +614,14 @@ impl Workspace {
         // the last once it is done, shows its form as it was answered.
         let last = comment.replies.len().saturating_sub(1);
         let asking_now = comment.open();
+        // Claude's name wherever the chat has one; `Agent` only when it has none.
+        let agent_name = comment
+            .sent
+            .as_ref()
+            .and_then(|s| s.title.split(" · ").next().map(str::to_owned))
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| "Agent".to_owned());
+        let unnamed = agent_name == "Agent";
         let replies = comment.replies.iter().enumerate().map(|(ix, reply)| {
             let record = reply
                 .form
@@ -631,10 +639,10 @@ impl Workspace {
                 .flex()
                 .flex_col()
                 .child(discussion::note(
-                    "Agent",
+                    &agent_name,
                     false,
-                    Some("agent"),
-                    super::format::ago(reply.at),
+                    unnamed.then_some("agent"),
+                    super::format::short_ago(reply.at),
                     markdown::body(
                         &reply.body,
                         self.settings.rich_comments,

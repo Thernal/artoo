@@ -87,17 +87,20 @@ pub fn note_card(
                 .text_color(theme::muted()),
         )
         .child(
-            discussion::icon_button(
-                ("note-answer", id as usize),
-                "message",
-                "Answer",
+            // The one word of the head; the rest are icons (Reply is Answer: a comment for the agent on this line).
+            discussion::button(
+                gpui::SharedString::from(format!("note-answer-{id}")),
+                "Reply",
                 None,
-                Some("A comment for the agent on this line"),
-                Kind::Plain,
-                look.tight,
+                Kind::Quiet,
             )
             .h(px(24.))
             .px(px(8.))
+            .tooltip_show_delay(hover::LONG)
+            .tooltip(|_, cx| {
+                cx.new(|_| hover::Tip("A comment for the agent on this line"))
+                    .into()
+            })
             .on_click(move |_, _, cx| {
                 cx.stop_propagation();
                 answer(NoteEvent::Answer(id), cx);
@@ -221,9 +224,8 @@ pub fn notes_summary(
     )
 }
 
-/// A note's frame: a discussion's, its rail in the agent's colour.
+/// A note's frame: a card, its hairline in the agent's colour.
 fn note_frame(hue: Rgba) -> gpui::Div {
-    const RAIL: f32 = 3.;
     div()
         .w_full()
         .max_w(px(720.))
@@ -232,10 +234,10 @@ fn note_frame(hue: Rgba) -> gpui::Div {
         .gap(px(6.))
         .rounded(px(10.))
         .bg(theme::panel())
-        .border_l(px(RAIL))
-        .border_color(hue)
-        .pl(px(14. - RAIL))
-        .pr(px(14.))
+        // A card is its own surface, a hairline round it: no stripe down its left (round 11, T1).
+        .border_1()
+        .border_color(gpui::Rgba { a: 0.45, ..hue })
+        .px(px(14.))
         .pt(px(8.))
         .pb(px(10.))
         .font_family(theme::ui_font())

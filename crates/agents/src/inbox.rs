@@ -194,19 +194,21 @@ pub fn answer_preview(c: &Comment, from: From, thread: AnyElement, on: &OnAnswer
         excerpt_view(&c.path, c.line, Some(Some(&Excerpt { lines })))
     });
     let (open_on, done_on) = (on.clone(), on.clone());
-    let open = bar_button("inbox-agent-open", "Open at the line", "↵", true)
-        .on_click(move |_: &ClickEvent, _, cx| open_on(AnswerEvent::Open(id), cx));
-    let later = bar_button(
-        "inbox-agent-done",
-        if c.state == State::Addressed {
-            "Resolve"
+    // The question is asked on its line: the button says where it leads (I1).
+    let asking = c.state != State::Addressed && c.replies.last().is_some_and(|r| r.form.is_some());
+    let open = bar_button(
+        "inbox-agent-open",
+        if asking {
+            "Open at the question"
         } else {
-            "Later"
+            "Open at the line"
         },
-        "E",
-        false,
+        "↵",
+        true,
     )
-    .on_click(move |_: &ClickEvent, _, cx| done_on(AnswerEvent::Done, cx));
+    .on_click(move |_: &ClickEvent, _, cx| open_on(AnswerEvent::Open(id), cx));
+    let later = bar_button("inbox-agent-done", "Done", "E", false)
+        .on_click(move |_: &ClickEvent, _, cx| done_on(AnswerEvent::Done, cx));
     div()
         .flex()
         .flex_col()
