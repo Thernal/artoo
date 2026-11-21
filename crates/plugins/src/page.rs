@@ -310,8 +310,6 @@ enum Act {
     Switch(bool, Option<&'static str>),
     /// Not loaded, the reason on its page.
     NotLoaded,
-    /// Found on a team's host: its builds are read and installed from there, which comes with the host's releases.
-    OnHost(String),
     Nothing,
 }
 
@@ -350,9 +348,6 @@ fn act_of(item: &Item, cx: &App) -> Act {
             Some(update) => Act::Update(update.version.clone()),
             None => Act::Installed,
         });
-    }
-    if !offer.host.is_empty() {
-        return Act::OnHost(offer.host.clone());
     }
     if market.starting.contains(&offer.repo) {
         return Act::Progress;
@@ -494,12 +489,14 @@ impl Page {
     fn read_picked(&mut self, cx: &mut Context<Self>) {
         let list = self.listed(cx);
         let repo = self.picked_of(&list).and_then(|i| {
-            (i.offer.as_ref().map(|o| o.repo.clone())).or_else(|| {
-                (i.plugin.as_ref()?.stamp.as_ref()).and_then(|s| market::github_repo(&s.repository))
+            (i.offer.as_ref().map(|o| (o.repo.clone(), o.host.clone()))).or_else(|| {
+                (i.plugin.as_ref()?.stamp.as_ref())
+                    .and_then(|s| market::github_repo(&s.repository))
+                    .map(|r| (r, String::new()))
             })
         });
-        if let Some(repo) = repo {
-            market::read(&repo, cx);
+        if let Some((repo, host)) = repo {
+            market::read(&repo, &host, cx);
         }
     }
 
@@ -614,7 +611,7 @@ impl Page {
                 } else {
                     self.from_row = from_row;
                     self.picked = Some(item.key.clone());
-                    market::read(&offer.repo, cx);
+                    market::read(&offer.repo, &offer.host, cx);
                     cx.global_mut::<Market>().question = Some(offer.repo.clone());
                 }
             }
@@ -953,13 +950,6 @@ impl Page {
                     )
                     .into_any_element(),
             ),
-            Act::OnHost(host) => Some(state_glyph(
-                ("plugin-state", n),
-                "lock",
-                theme::muted(),
-                "Private",
-                Some(format!("Installing from {host} is not in this version yet")),
-            )),
             Act::Nothing => None,
         };
         let stars = item.stars.map(|n| {
@@ -1638,9 +1628,6 @@ impl Page {
                     )
                     .into_any_element()
             }
-            Act::OnHost(host) => {
-                faint(format!("Installing from {host} comes next")).into_any_element()
-            }
             Act::Nothing => div().into_any_element(),
         }
     }
@@ -1675,7 +1662,8 @@ impl Page {
         if let Some(stars) = item.stars {
             facts.push(("Stars", stat("star", stars)));
         }
-        if let Some(d) = got {
+        // A host's release does not count its downloads.
+        if let Some(d) = got.filter(|d| d.from.is_empty()) {
             facts.push(("Downloads", stat("download", d.downloads)));
         }
         let installed = item
@@ -2232,6 +2220,13 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
                         let item = p.listed(cx).into_iter().nth(n);
                         if let Some(item) = item {
                             p.picked = Some(item.key.clone());
+                        }
+                    }
+                    // A team's repository picked before its host has answered: `pick-repo=<owner/name>@<host>`.
+                    other if other.starts_with("pick-repo=") => {
+                        if let Some((repo, host)) = other["pick-repo=".len()..].split_once('@') {
+                            p.picked = Some(Key::Offer(repo.to_owned()));
+                            market::read(repo, host, cx);
                         }
                     }
                     other if other.starts_with("search=") => {

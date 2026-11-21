@@ -37,6 +37,24 @@ pub struct TeamRepo {
     pub private: bool,
 }
 
+/// A file a release holds, as the host names it.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct TeamAsset {
+    pub name: String,
+    /// What `Team::download` takes to fetch it: the host's own address for the file, not a public one.
+    pub url: String,
+}
+
+/// A repository's latest release.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct TeamRelease {
+    /// `v0.9.2`.
+    pub tag: String,
+    /// Seconds since the epoch; 0 unknown.
+    pub published: i64,
+    pub assets: Vec<TeamAsset>,
+}
+
 /// What can be read of the hosts held.
 pub trait Team: Send + Sync {
     /// The hosts a token is held for, as known now: nothing is asked of a host.
@@ -44,6 +62,15 @@ pub trait Team: Send + Sync {
 
     /// The repositories `host`'s token can see that carry `topic`: a read.
     fn search(&self, host: &str, topic: &str) -> Result<Vec<TeamRepo>>;
+
+    /// `repo`'s (`owner/name`) latest release with the token's view of it; none when it has no release: a read.
+    fn release(&self, host: &str, repo: &str) -> Result<Option<TeamRelease>>;
+
+    /// `repo`'s README as written; none when it has none: a read.
+    fn readme(&self, host: &str, repo: &str) -> Result<Option<String>>;
+
+    /// An asset's bytes into the file `to`, with the token: a read. `url` is a `TeamAsset`'s.
+    fn download(&self, host: &str, url: &str, to: &std::path::Path) -> Result<()>;
 }
 
 #[derive(Default)]

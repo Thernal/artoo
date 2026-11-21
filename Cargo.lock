@@ -479,6 +479,7 @@ dependencies = [
 name = "artoo-plugins"
 version = "2.0.0"
 dependencies = [
+ "anyhow",
  "artoo-core",
  "artoo-hosts-api",
  "artoo-plugin-api",

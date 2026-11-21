@@ -104,6 +104,8 @@ pub(crate) struct Detail {
     pub published: i64,
     /// Its README, as written; none when it has none or it could not be read.
     pub readme: Option<String>,
+    /// The team's host its build is fetched from with the token; empty for GitHub's public one.
+    pub from: String,
 }
 
 /// A repository's details, as far as they have come.
@@ -386,6 +388,39 @@ fn detail(repo: &str) -> Result<Detail, String> {
             .and_then(|r| r.published_at.as_deref())
             .map_or(0, epoch),
         readme: get(&format!("https://api.github.com/repos/{repo}/readme")).ok(),
+        from: String::new(),
+    })
+}
+
+/// A team host's repository: its latest release and README through the host's token (off the window's thread). Its
+/// build is the asset the public path looks for; `{artoo}` and `{target}` in an asset's name stand for this Artoo's,
+/// so a fixture is the same on every system.
+fn team_detail(
+    team: &dyn artoo_hosts_api::team::Team,
+    host: &str,
+    repo: &str,
+) -> Result<Detail, String> {
+    let release = team.release(host, repo).map_err(|e| e.to_string())?;
+    let releases: Vec<Release> = (release.iter())
+        .map(|r| Release {
+            tag_name: r.tag.clone(),
+            draft: false,
+            published_at: None,
+            assets: (r.assets.iter())
+                .map(|a| Asset {
+                    name: a.name.replace("{artoo}", ARTOO).replace("{target}", TARGET),
+                    browser_download_url: a.url.clone(),
+                    download_count: 0,
+                })
+                .collect(),
+        })
+        .collect();
+    Ok(Detail {
+        build: build_for(&releases, ARTOO, TARGET),
+        downloads: 0,
+        published: release.as_ref().map_or(0, |r| r.published),
+        readme: team.readme(host, repo).ok().flatten(),
+        from: host.to_owned(),
     })
 }
 
@@ -488,22 +523,39 @@ fn stage(zip: &Path, id: &str, into: &Path, ours: Option<&str>) -> Result<(), St
     checked
 }
 
+/// Where a build comes from: a public address, or a team host's asset fetched with its token.
+enum Source {
+    Public(String),
+    Team(
+        std::sync::Arc<dyn artoo_hosts_api::team::Team>,
+        String,
+        String,
+    ),
+}
+
 /// Downloads a build and stages it for the next start (off the window's thread).
-fn download(id: &str, url: &str) -> Result<(), String> {
+fn download(id: &str, source: &Source) -> Result<(), String> {
     let root = staged_root().ok_or("no data folder")?;
     std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     let zip = root.join(format!("{id}.zip.part"));
-    let got = Command::new("curl")
-        .args(["-fsSL", "--max-time", "300", "-o"])
-        .arg(&zip)
-        .arg(url)
-        .stdin(Stdio::null())
-        .status();
-    let staged = match got {
-        Ok(status) if status.success() => stage(&zip, id, &root, file::sdk_build().as_deref()),
-        Ok(_) => Err("the download failed".to_owned()),
-        Err(_) => Err("curl is not installed".to_owned()),
+    let got = match source {
+        Source::Public(url) => match Command::new("curl")
+            .args(["-fsSL", "--max-time", "300", "-o"])
+            .arg(&zip)
+            .arg(url)
+            .stdin(Stdio::null())
+            .status()
+        {
+            Ok(status) if status.success() => Ok(()),
+            Ok(_) => Err("the download failed".to_owned()),
+            Err(_) => Err("curl is not installed".to_owned()),
+        },
+        Source::Team(team, host, url) => team
+            .download(host, url, &zip)
+            .map_err(|e| format!("the download failed: {e}")),
     };
+    // Everything after the bytes is one path: the stamp check, the folder, the restart.
+    let staged = got.and_then(|()| stage(&zip, id, &root, file::sdk_build().as_deref()));
     let _ = std::fs::remove_file(&zip);
     staged
 }
@@ -703,6 +755,18 @@ pub(crate) fn ask(cx: &mut App) {
 
 /// Installs or updates: applied at the next start.
 pub(crate) fn install(id: String, url: String, cx: &mut App) {
+    install_from(id, url, "", cx);
+}
+
+/// `install`, a build of a team's host (`host`) fetched with its token, or GitHub's public one (`host` empty).
+fn install_from(id: String, url: String, host: &str, cx: &mut App) {
+    let source = if host.is_empty() {
+        Source::Public(url.clone())
+    } else if let Some(team) = artoo_hosts_api::team::get(cx) {
+        Source::Team(team, host.to_owned(), url.clone())
+    } else {
+        return;
+    };
     let market = cx.global_mut::<Market>();
     market.question = None;
     market.done.insert(id.clone(), Done::Installing);
@@ -714,7 +778,7 @@ pub(crate) fn install(id: String, url: String, cx: &mut App) {
         let key = id.clone();
         let result = cx
             .background_executor()
-            .spawn(async move { download(&key, &url) })
+            .spawn(async move { download(&key, &source) })
             .await;
         if let Err(why) = &result {
             applog::line(&format!("plugin {id}: not installed: {why}"));
@@ -742,30 +806,47 @@ pub(crate) fn install_found(wanted: &str, cx: &mut App) {
 }
 
 /// `repo`'s releases and README read, once a run (a row selected, its page opened).
-pub(crate) fn read(repo: &str, cx: &mut App) {
+pub(crate) fn read(repo: &str, host: &str, cx: &mut App) {
     if cx.global::<Market>().details.contains_key(repo) {
         return;
     }
-    if !may_ask() {
-        return;
-    }
+    // A team's repository is read from its own host, with its token: a snapshot only from the hosts' fixture.
+    let team = if host.is_empty() {
+        if !may_ask() {
+            return;
+        }
+        None
+    } else {
+        match artoo_hosts_api::team::get(cx).filter(|_| may_ask_team()) {
+            Some(team) => Some(team),
+            None => return,
+        }
+    };
     cx.global_mut::<Market>()
         .details
         .insert(repo.to_owned(), Read::Reading);
     let key = repo.to_owned();
+    let host = host.to_owned();
     cx.spawn(async move |cx| {
         let asked = key.clone();
+        let from = host.clone();
         let got = cx
             .background_executor()
-            .spawn(async move { detail(&asked) })
+            .spawn(async move {
+                match team {
+                    Some(team) => team_detail(team.as_ref(), &from, &asked),
+                    None => detail(&asked),
+                }
+            })
             .await;
         cx.update(|cx| {
             let read = got.map_or_else(Read::Failed, Read::Got);
             let ready = match &read {
                 Read::Got(Detail {
                     build: Build::Ready { id, zip, .. },
+                    from,
                     ..
-                }) => Some((id.clone(), zip.clone())),
+                }) => Some((id.clone(), zip.clone(), from.clone())),
                 _ => None,
             };
             let market = cx.global_mut::<Market>();
@@ -773,7 +854,7 @@ pub(crate) fn read(repo: &str, cx: &mut App) {
             // Install was pressed before its build was known.
             if market.starting.remove(&key) {
                 match ready {
-                    Some((id, zip)) => install(id, zip, cx),
+                    Some((id, zip, from)) => install_from(id, zip, &from, cx),
                     None => {
                         let why = "it has no build for this Artoo".to_owned();
                         applog::line(&format!("plugin {key}: not installed: {why}"));
@@ -793,23 +874,24 @@ pub(crate) fn install_offer(offer: &Offer, cx: &mut App) {
     match market.details.get(&offer.repo) {
         Some(Read::Got(Detail {
             build: Build::Ready { id, zip, .. },
+            from,
             ..
         })) => {
-            let (id, zip) = (id.clone(), zip.clone());
-            install(id, zip, cx);
+            let (id, zip, from) = (id.clone(), zip.clone(), from.clone());
+            install_from(id, zip, &from, cx);
         }
         Some(Read::Got(_)) => {}
         Some(Read::Failed(_)) => {
             market.details.remove(&offer.repo);
             market.starting.insert(offer.repo.clone());
-            read(&offer.repo, cx);
+            read(&offer.repo, &offer.host, cx);
         }
         Some(Read::Reading) => {
             market.starting.insert(offer.repo.clone());
         }
         None => {
             market.starting.insert(offer.repo.clone());
-            read(&offer.repo, cx);
+            read(&offer.repo, &offer.host, cx);
         }
     }
 }
@@ -895,6 +977,7 @@ pub(crate) fn sample() -> Market {
             downloads,
             published: now - days * day,
             readme: Some(readme.to_owned()),
+            from: String::new(),
         })
     };
     const README: &str = "## What it does\n\nShows an issue's status, assignee and sprint beside the request that \
@@ -1197,5 +1280,55 @@ mod tests {
         assert!(plugins.join("old/is").exists() && !plugins.join("old/was").exists());
         assert!(!plugins.join("gone").exists());
         assert_eq!(std::fs::read_dir(&staged).unwrap().count(), 0);
+    }
+
+    struct Fake(Option<artoo_hosts_api::team::TeamRelease>);
+
+    impl artoo_hosts_api::team::Team for Fake {
+        fn hosts(&self) -> Vec<artoo_hosts_api::team::TeamHost> {
+            Vec::new()
+        }
+        fn search(&self, _: &str, _: &str) -> anyhow::Result<Vec<artoo_hosts_api::team::TeamRepo>> {
+            Ok(Vec::new())
+        }
+        fn release(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> anyhow::Result<Option<artoo_hosts_api::team::TeamRelease>> {
+            Ok(self.0.clone())
+        }
+        fn readme(&self, _: &str, _: &str) -> anyhow::Result<Option<String>> {
+            Ok(Some("## What it does".to_owned()))
+        }
+        fn download(&self, _: &str, _: &str, _: &Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_team_repositorys_release_gives_the_same_build_as_a_public_ones() {
+        use artoo_hosts_api::team::{TeamAsset, TeamRelease};
+        let team = Fake(Some(TeamRelease {
+            tag: "v0.9.2".to_owned(),
+            published: 100,
+            assets: vec![TeamAsset {
+                name: "jira-{artoo}-{target}.zip".to_owned(),
+                url: "https://gl/x/jira.zip".to_owned(),
+            }],
+        }));
+        let d = team_detail(&team, "gl", "platform/artoo-jira").unwrap();
+        assert_eq!(
+            d.build,
+            Build::Ready {
+                id: "jira".to_owned(),
+                version: "0.9.2".to_owned(),
+                zip: "https://gl/x/jira.zip".to_owned()
+            }
+        );
+        assert_eq!((d.from.as_str(), d.published), ("gl", 100));
+        assert_eq!(d.readme.as_deref(), Some("## What it does"));
+        let none = team_detail(&Fake(None), "gl", "platform/artoo-jira").unwrap();
+        assert_eq!(none.build, Build::Nothing);
     }
 }
