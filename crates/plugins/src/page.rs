@@ -201,9 +201,9 @@ pub(crate) fn items(cx: &App) -> Vec<Item> {
     let offers = offers.as_slice();
     let mut out: Vec<Item> = (offers.iter())
         .map(|o| Item {
-            key: Key::Offer(o.repo.clone()),
+            key: Key::Offer(o.key()),
             tab: Tab::Discover,
-            id: o.repo.clone(),
+            id: o.key(),
             name: o.name.clone(),
             author: o.owner.clone(),
             about: o.about.clone(),
@@ -244,7 +244,7 @@ pub(crate) fn items(cx: &App) -> Vec<Item> {
     }
     // Installed this run, loaded at the next start: on Installed already, `Restart to finish`.
     for o in offers {
-        if let Some(id) = built_id(market, &o.repo)
+        if let Some(id) = built_id(market, &o.key())
             && matches!(
                 market.done.get(&id),
                 Some(Done::Installed | Done::Installing)
@@ -255,7 +255,7 @@ pub(crate) fn items(cx: &App) -> Vec<Item> {
                 tab: Tab::Installed,
                 ..out
                     .iter()
-                    .find(|i| i.key == Key::Offer(o.repo.clone()))
+                    .find(|i| i.key == Key::Offer(o.key()))
                     .cloned()
                     .expect("offered")
             });
@@ -349,10 +349,10 @@ fn act_of(item: &Item, cx: &App) -> Act {
             None => Act::Installed,
         });
     }
-    if market.starting.contains(&offer.repo) {
+    if market.starting.contains(&offer.key()) {
         return Act::Progress;
     }
-    match market.details.get(&offer.repo) {
+    match market.details.get(&offer.key()) {
         Some(Read::Got(d)) => match &d.build {
             Build::Ready { id, .. } => done_act(id).unwrap_or(Act::Install),
             _ => Act::NoBuild,
@@ -404,14 +404,14 @@ impl Page {
             // One installed from the market is its Installed row, not its Discover one too.
             let covered: Vec<String> = (all.iter())
                 .filter(|i| i.tab != Tab::Discover)
-                .filter_map(|i| i.offer.as_ref().map(|o| o.repo.clone()))
+                .filter_map(|i| i.offer.as_ref().map(Offer::key))
                 .collect();
             let mut seen: Vec<Key> = Vec::new();
             (all.into_iter())
                 .filter(|i| matches(i, &self.text))
                 .filter(|i| {
                     i.tab != Tab::Discover
-                        || !i.offer.as_ref().is_some_and(|o| covered.contains(&o.repo))
+                        || !i.offer.as_ref().is_some_and(|o| covered.contains(&o.key()))
                 })
                 .filter(|i| {
                     let fresh = !seen.contains(&i.key);
@@ -553,7 +553,7 @@ impl Page {
         };
         let asked = cx.global::<Market>().question.clone();
         if let (Some(repo), Some(offer)) = (asked, &item.offer)
-            && repo == offer.repo
+            && repo == offer.key()
         {
             market::install_offer(offer, cx);
             return;
@@ -602,17 +602,13 @@ impl Page {
                 let Some(offer) = &item.offer else {
                     return;
                 };
-                if cx
-                    .global::<Market>()
-                    .trusted
-                    .contains(&offer.owner.to_lowercase())
-                {
+                if cx.global::<Market>().trusted.contains(&offer.trust_key()) {
                     market::install_offer(offer, cx);
                 } else {
                     self.from_row = from_row;
                     self.picked = Some(item.key.clone());
                     market::read(&offer.repo, &offer.host, cx);
-                    cx.global_mut::<Market>().question = Some(offer.repo.clone());
+                    cx.global_mut::<Market>().question = Some(offer.key());
                 }
             }
             Act::Update(_) => update(item, cx),
@@ -979,7 +975,7 @@ impl Page {
         let question = (self.from_row)
             .then(|| cx.global::<Market>().question.clone())
             .flatten()
-            .filter(|repo| item.offer.as_ref().is_some_and(|o| o.repo == *repo) && picked)
+            .filter(|repo| item.offer.as_ref().is_some_and(|o| o.key() == *repo) && picked)
             .map(|_| self.question(item, cx));
         let tip = if item.author.is_empty() {
             item.name.clone()
@@ -1396,7 +1392,7 @@ impl Page {
     /// The selected plugin's page (P4): its head with the one action, its facts, its README.
     fn detail(&self, item: &Item, cx: &mut Context<Self>) -> AnyElement {
         let market = cx.global::<Market>();
-        let repo = (item.offer.as_ref().map(|o| o.repo.clone())).or_else(|| {
+        let repo = (item.offer.as_ref().map(Offer::key)).or_else(|| {
             (item.plugin.as_ref()?.stamp.as_ref()).and_then(|s| market::github_repo(&s.repository))
         });
         let read = repo.as_ref().and_then(|r| market.details.get(r)).cloned();
@@ -1473,7 +1469,7 @@ impl Page {
         let asked = (!self.from_row)
             .then(|| question.clone())
             .flatten()
-            .filter(|r| item.offer.as_ref().is_some_and(|o| o.repo == *r))
+            .filter(|r| item.offer.as_ref().is_some_and(|o| o.key() == *r))
             .map(|_| {
                 div()
                     .flex()
@@ -1826,7 +1822,7 @@ impl Page {
                     return None;
                 };
                 (offers.iter())
-                    .find(|o| built_id(market, &o.repo).as_deref() == Some(id))
+                    .find(|o| built_id(market, &o.key()).as_deref() == Some(id))
                     .map(|o| o.name.clone())
             })
             .unwrap_or_else(|| id.to_owned())
@@ -2138,7 +2134,7 @@ fn untrusted(p: &Page, cx: &App) -> Option<Item> {
     (p.listed(cx).into_iter()).find(|i| {
         i.offer
             .as_ref()
-            .is_some_and(|o| !trusted.contains(&o.owner))
+            .is_some_and(|o| !trusted.contains(&o.trust_key()))
             && act_of(i, cx) == Act::Install
     })
 }
@@ -2225,7 +2221,7 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
                     // A team's repository picked before its host has answered: `pick-repo=<owner/name>@<host>`.
                     other if other.starts_with("pick-repo=") => {
                         if let Some((repo, host)) = other["pick-repo=".len()..].split_once('@') {
-                            p.picked = Some(Key::Offer(repo.to_owned()));
+                            p.picked = Some(Key::Offer(market::detail_key(host, repo)));
                             market::read(repo, host, cx);
                         }
                     }

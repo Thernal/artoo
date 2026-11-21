@@ -94,6 +94,34 @@ pub(crate) struct Offer {
     pub private: bool,
 }
 
+impl Offer {
+    /// What its state (details, install under way, the trust question) is kept under: `owner/name` for GitHub's
+    /// public search, `host/owner/name` for a team's host. A public repository can be named like a team's, so the
+    /// source is part of it.
+    pub(crate) fn key(&self) -> String {
+        detail_key(&self.host, &self.repo)
+    }
+
+    /// The author trusted, by source too: trusting `acme` on GitHub is not trusting `acme` on a team's host. A public
+    /// author is the login alone, as the file has kept them.
+    pub(crate) fn trust_key(&self) -> String {
+        if self.host.is_empty() {
+            self.owner.to_lowercase()
+        } else {
+            format!("{}/{}", self.host, self.owner).to_lowercase()
+        }
+    }
+}
+
+/// `repo`'s state key on `host` (empty: GitHub's public search).
+pub(crate) fn detail_key(host: &str, repo: &str) -> String {
+    if host.is_empty() {
+        repo.to_owned()
+    } else {
+        format!("{host}/{repo}")
+    }
+}
+
 /// What a repository's releases and README say, read when it is selected or installed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Detail {
@@ -807,7 +835,8 @@ pub(crate) fn install_found(wanted: &str, cx: &mut App) {
 
 /// `repo`'s releases and README read, once a run (a row selected, its page opened).
 pub(crate) fn read(repo: &str, host: &str, cx: &mut App) {
-    if cx.global::<Market>().details.contains_key(repo) {
+    let key = detail_key(host, repo);
+    if cx.global::<Market>().details.contains_key(&key) {
         return;
     }
     // A team's repository is read from its own host, with its token: a snapshot only from the hosts' fixture.
@@ -824,11 +853,11 @@ pub(crate) fn read(repo: &str, host: &str, cx: &mut App) {
     };
     cx.global_mut::<Market>()
         .details
-        .insert(repo.to_owned(), Read::Reading);
-    let key = repo.to_owned();
+        .insert(key.clone(), Read::Reading);
+    let repo = repo.to_owned();
     let host = host.to_owned();
     cx.spawn(async move |cx| {
-        let asked = key.clone();
+        let asked = repo.clone();
         let from = host.clone();
         let got = cx
             .background_executor()
@@ -868,10 +897,10 @@ pub(crate) fn read(repo: &str, host: &str, cx: &mut App) {
 
 /// `offer` installed (P5): its build for this Artoo, read first when it is not known yet; its author trusted.
 pub(crate) fn install_offer(offer: &Offer, cx: &mut App) {
-    trust(&offer.owner, cx);
+    trust(&offer.trust_key(), cx);
     let market = cx.global_mut::<Market>();
     market.question = None;
-    match market.details.get(&offer.repo) {
+    match market.details.get(&offer.key()) {
         Some(Read::Got(Detail {
             build: Build::Ready { id, zip, .. },
             from,
@@ -882,15 +911,15 @@ pub(crate) fn install_offer(offer: &Offer, cx: &mut App) {
         }
         Some(Read::Got(_)) => {}
         Some(Read::Failed(_)) => {
-            market.details.remove(&offer.repo);
-            market.starting.insert(offer.repo.clone());
+            market.details.remove(&offer.key());
+            market.starting.insert(offer.key());
             read(&offer.repo, &offer.host, cx);
         }
         Some(Read::Reading) => {
-            market.starting.insert(offer.repo.clone());
+            market.starting.insert(offer.key());
         }
         None => {
-            market.starting.insert(offer.repo.clone());
+            market.starting.insert(offer.key());
             read(&offer.repo, &offer.host, cx);
         }
     }
@@ -1330,5 +1359,41 @@ mod tests {
         assert_eq!(d.readme.as_deref(), Some("## What it does"));
         let none = team_detail(&Fake(None), "gl", "platform/artoo-jira").unwrap();
         assert_eq!(none.build, Build::Nothing);
+    }
+
+    #[test]
+    fn a_public_and_a_team_repository_named_alike_stay_apart() {
+        let public = Offer {
+            repo: "acme/jira".to_owned(),
+            owner: "acme".to_owned(),
+            name: "Jira".to_owned(),
+            about: String::new(),
+            stars: 0,
+            url: "https://github.com/acme/jira".to_owned(),
+            license: String::new(),
+            pushed: 0,
+            host: String::new(),
+            private: false,
+        };
+        let team = Offer {
+            host: "gl.example.com".to_owned(),
+            url: "https://gl.example.com/acme/jira".to_owned(),
+            private: true,
+            ..public.clone()
+        };
+        assert_eq!(public.key(), "acme/jira");
+        assert_eq!(team.key(), "gl.example.com/acme/jira");
+        assert_ne!(public.key(), team.key());
+        // Trusting the public author is not trusting the team's, and the file's old lines stay public.
+        assert_eq!(public.trust_key(), "acme");
+        assert_eq!(team.trust_key(), "gl.example.com/acme");
+        // What was read of one is not what the other shows.
+        let mut details = BTreeMap::new();
+        details.insert(public.key(), Read::Reading);
+        assert!(!details.contains_key(&team.key()));
+        assert!(
+            !same_repository(&public.url, &team.url),
+            "an installed plugin is told by its repository's address, host included"
+        );
     }
 }
