@@ -386,18 +386,19 @@ pub(crate) fn state(
     tip: String,
 ) -> gpui::AnyElement {
     let ok = glyph == "circle-check";
-    div()
-        .id(id.into())
-        .flex_none()
-        .flex()
-        .items_center()
-        .child(icons::icon(glyph).size(px(16.)).text_color(if ok {
+    let el = div().id(id.into()).flex_none().flex().items_center().child(
+        icons::icon(glyph).size(px(16.)).text_color(if ok {
             theme::added()
         } else {
             theme::faint()
-        }))
-        .tip(tip)
-        .into_any_element()
+        }),
+    );
+    // "Title: the sentence" is drawn as the design draws it: a title and, under it, a quieter line.
+    match tip.split_once(": ") {
+        Some((title, line)) => el.tip_two(title.to_owned(), line.to_owned()),
+        None => el.tip(tip),
+    }
+    .into_any_element()
 }
 
 /// A 24 px icon button with its box (the edge and fill of the text button beside it), its sentence the tooltip.

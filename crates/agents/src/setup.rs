@@ -164,14 +164,14 @@ fn body(
                     hover::name(("setup-profile-name", ix), path.clone())
                         .font_family(theme::code_font()),
                 )
-                .tip(format!(
-                    "{path}: {}",
+                .tip_two(
+                    path.clone(),
                     if *on {
                         "connected, Artoo’s MCP server in its settings"
                     } else {
                         "not connected yet"
-                    }
-                ))
+                    },
+                )
         }))
         .when(s.profiles.is_empty(), |d| {
             d.child("No Claude Code profile found (~/.claude)")
