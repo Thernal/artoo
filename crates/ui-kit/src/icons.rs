@@ -374,6 +374,10 @@ const ICONS: &[(&str, &str)] = &[
     ),
     ("forward", lucide!(r#"<path d="m9 18 6-6-6-6"/>"#)),
     ("chevron", lucide!(r#"<path d="m6 9 6 6 6-6"/>"#)),
+    (
+        "text-align-start",
+        lucide!(r#"<path d="M21 6H3"/><path d="M15 12H3"/><path d="M17 18H3"/>"#),
+    ),
     ("chevron-right", lucide!(r#"<path d="m9 18 6-6-6-6"/>"#)),
     (
         "sidebar",

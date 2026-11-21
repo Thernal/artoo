@@ -93,6 +93,26 @@ pub fn create_form(requests: Entity<Requests>, frame: Rc<dyn Frame>) -> Piece {
     }
 }
 
+/// A request's title, its own line at the top of its Changes, with the description's button at its end; the page's bar
+/// keeps the number alone.
+pub fn title_line(requests: Entity<Requests>) -> Piece {
+    Piece {
+        id: "requests.title-line",
+        slot: Slot::DiffTop,
+        draw: Rc::new(move |route, drawing, cx| {
+            let iid = RequestRoute::from_route(route)
+                .map(|r| r.number)
+                .or_else(|| RequestVersionsRoute::from_route(route).map(|r| r.number))?;
+            requests.update(cx, |rq, cx| {
+                if rq.creating.is_some() || rq.current != Some(iid) {
+                    return None;
+                }
+                rq.render_title_line(Some(drawing.selecting.clone()), cx)
+            })
+        }),
+    }
+}
+
 /// The request a route of the requests' kinds is of.
 fn request_of(route: &Route) -> Option<u64> {
     RequestRoute::from_route(route)

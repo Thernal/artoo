@@ -320,8 +320,17 @@ impl Review {
                             ),
                     )
                     // The file the keyboard works in: its changes and Open in, from the file's line (#188).
-                    .when(active, |s| {
-                        s.children(self.change_nav(host)).children(open_in)
+                    // Every card's bar is the same: the others keep the room, so the counts and the mark stay where
+                    // they are when a card becomes the current one.
+                    .map(|s| {
+                        if active {
+                            s.children(self.change_nav(host)).children(open_in)
+                        } else {
+                            s.children(self.change_nav(host).map(|nav| nav.invisible()))
+                                .children(host.open_in(cx).map(|open| {
+                                    div().flex_none().invisible().child(open).into_any_element()
+                                }))
+                        }
                     })
                     // Branches' files: a `☐ Viewed` box; a tick folds the card to its head (#209).
                     .children(state.filter(|_| viewing).map(|state| {
@@ -374,12 +383,12 @@ impl Review {
                                 State::Open => "Mark reviewed".to_owned(),
                             })
                             // Its key on the active card, as the file's line had it.
-                            .when(active, |s| {
-                                s.child(artoo_ui_kit::keys::caps(
+                            .child(div().flex_none().when(!active, |s| s.invisible()).child(
+                                artoo_ui_kit::keys::caps(
                                     if state == State::Done { "⇧V" } else { "V" },
                                     artoo_ui_kit::keys::On::Plain,
-                                ))
-                            })
+                                ),
+                            ))
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .on_click(move |_: &ClickEvent, _, cx| {
                                 cx.stop_propagation();

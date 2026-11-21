@@ -4,7 +4,7 @@
 
 use crate::requests::Requests;
 use artoo_core::git::WebRemote;
-use artoo_ui_kit::hover::{self, Tip};
+use artoo_ui_kit::hover::{self, Hover as _};
 use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, icons, px, theme};
 use gpui::{AnyElement, ClickEvent, Context, FontWeight, MouseButton, div, prelude::*};
@@ -126,22 +126,16 @@ impl Requests {
             .items_center()
             .gap(px(4.))
             .rounded(px(ROW_RADIUS))
-            .text_size(px(13.))
-            .text_color(theme::accent())
+            .text_color(theme::muted())
             .cursor_pointer()
-            .hover(|s| s.bg(theme::hover()))
-            .when(open, |s| s.bg(theme::selected()))
-            .child("Description")
-            .child(
-                icons::icon("chevron")
-                    .size(px(13.))
-                    .text_color(theme::accent()),
+            .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
+            .when(open, |s| s.bg(theme::selected()).text_color(theme::text()))
+            .child(icons::icon("text-align-start").size(px(16.)))
+            .child(icons::icon("chevron").size(px(13.)))
+            .tip_two(
+                "Description",
+                "What the request is for, over the diff  esc closes",
             )
-            .tooltip_show_delay(hover::LONG)
-            .tooltip(|_, cx| {
-                cx.new(|_| Tip("What the request is for, over the diff  esc closes"))
-                    .into()
-            })
             .on_click(cx.listener(|rq, _: &ClickEvent, _, cx| {
                 rq.description_open = !rq.description_open;
                 cx.notify();
@@ -235,6 +229,39 @@ impl Requests {
                         .with_priority(2),
                     ),
                 )
+                .into_any_element(),
+        )
+    }
+
+    /// The title of the open request's Changes, its own line over the diff's toolbar, the description's button at its
+    /// end (the title is not in the page's bar there).
+    pub fn render_title_line(
+        &mut self,
+        selecting: Option<Selecting>,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let title = self.find(self.current?)?.title.clone();
+        let button = self.render_description(selecting, cx);
+        Some(
+            div()
+                .flex_none()
+                .h(px(44.))
+                .px(px(12.))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .border_b_1()
+                .border_color(theme::island_border())
+                .text_size(px(13.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::text())
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(hover::cut("changes-title", title)),
+                )
+                .children(button)
                 .into_any_element(),
         )
     }

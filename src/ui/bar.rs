@@ -3,7 +3,7 @@
 //! page's view switch; its actions and one primary action. Nothing else: the item's facts are the
 //! first block of its content. A request's bar carries the public orange along its top.
 
-use super::nav::{Page, Section};
+use super::nav::Page;
 use super::spaces::{BRANCHES, CODE, INBOX, REQUESTS, Space};
 use super::{Workspace, px, theme, words};
 use artoo_core::route::{Place, Route};
@@ -46,6 +46,11 @@ impl Workspace {
             Some(path) => path,
             None => self.path_of(space, cx),
         };
+        // A request's Changes: the title is its own line over the diff, the bar keeps the number (#212).
+        let called = called.filter(|_| {
+            !matches!(page, Some(Page::Request(_) | Page::RequestVersions(..)))
+                || !self.on_request_changes(cx)
+        });
         // Narrow, the path keeps its crumbs, its middle folders folded into `…` as the bar narrows (#16); esc still
         // goes one level up, there is no ‹ for it.
         let up = (self.compact())
@@ -100,7 +105,7 @@ impl Workspace {
                 title_text: words::say(&name).into_owned(),
                 title: title(words::say(&name).into_owned(), called, mono, hover),
                 count,
-                lead: self.lead_of(page.as_ref(), cx),
+                lead: Vec::new(),
                 view: (self.view_of(space, page.as_ref(), cx))
                     .or(parts.view.take())
                     .filter(|_| !lacking),
@@ -493,30 +498,6 @@ impl Workspace {
             _ => {}
         }
         out
-    }
-
-    /// The actions after the title: a request's `Description ▾` on its Changes (#188), its row in `⋯` its Overview,
-    /// where the description is.
-    fn lead_of(&self, page: Option<&Page>, cx: &mut Context<Self>) -> Vec<BarAction> {
-        if !matches!(page, Some(Page::Request(_) | Page::RequestVersions(..)))
-            || !self.on_request_changes(cx)
-        {
-            return Vec::new();
-        }
-        let selecting = Some(self.selecting(cx.weak_entity()));
-        let tab = cx.weak_entity();
-        (self.requests_api())
-            .and_then(|r| r.description_button(selecting, cx))
-            .map(|button| {
-                BarAction::new("description", button)
-                    .folds(MenuItem::new(
-                        "Description",
-                        on_tab(&tab, |this, cx| this.show_section(Section::Overview, cx)),
-                    ))
-                    .fold_order(2)
-            })
-            .into_iter()
-            .collect()
     }
 
     /// Open in, and its row in `⋯`.
