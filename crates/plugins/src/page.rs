@@ -759,6 +759,28 @@ fn word(text: &'static str, color: Rgba) -> gpui::Div {
     div().text_size(px(11.)).text_color(color).child(text)
 }
 
+/// A row's state as a glyph in a button's place: its sentence the tooltip, a second line when it has one.
+fn state_glyph(
+    id: impl Into<gpui::ElementId>,
+    glyph: &'static str,
+    color: Rgba,
+    title: &'static str,
+    line: Option<String>,
+) -> AnyElement {
+    let el = div()
+        .id(id)
+        .size(px(24.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(icons::icon(glyph).size(px(16.)).text_color(color));
+    match line {
+        Some(line) => el.tip_two(title, line),
+        None => el.tip(title),
+    }
+    .into_any_element()
+}
+
 /// A thin bar in a button's place while it installs.
 fn progress() -> AnyElement {
     artoo_ui_kit::motion::breathe(
@@ -833,10 +855,37 @@ impl Page {
                     .into_any_element(),
             ),
             Act::Progress => Some(progress()),
-            Act::Restart => Some(word("Restart to finish", theme::added()).into_any_element()),
-            Act::NoBuild => Some(word("No build yet", theme::warning()).into_any_element()),
-            Act::Installed => Some(word("Installed", theme::added()).into_any_element()),
-            Act::NotLoaded => Some(word("Not loaded", theme::warning()).into_any_element()),
+            Act::Restart => Some(state_glyph(
+                ("plugin-state", n),
+                "refresh-cw",
+                theme::warning(),
+                "Restart to finish",
+                Some(format!(
+                    "Restart Artoo, in the bar above, turns {} on",
+                    item.name
+                )),
+            )),
+            Act::NoBuild => Some(state_glyph(
+                ("plugin-state", n),
+                "package-x",
+                theme::muted(),
+                "No build for this Artoo yet",
+                None,
+            )),
+            Act::Installed => Some(state_glyph(
+                ("plugin-state", n),
+                "check",
+                theme::muted(),
+                "Installed",
+                None,
+            )),
+            Act::NotLoaded => Some(state_glyph(
+                ("plugin-state", n),
+                "triangle-alert",
+                theme::warning(),
+                "Not loaded",
+                Some("The reason is on its page".to_owned()),
+            )),
             Act::Switch(on, said) => Some(
                 div()
                     .flex()
@@ -859,12 +908,13 @@ impl Page {
         let stars = item.stars.map(|n| {
             div()
                 .id(("plugin-stars", n as usize))
+                .flex_none()
                 .flex()
                 .items_center()
                 .gap(px(3.))
-                .text_size(px(12.))
-                .text_color(theme::muted())
-                .child(icons::icon("star").size(px(12.)).text_color(theme::muted()))
+                .text_size(px(11.))
+                .text_color(theme::faint())
+                .child(icons::icon("star").size(px(11.)).text_color(theme::faint()))
                 .child(short_count(n))
                 .tip(format!("{} stars on GitHub", grouped(n)))
         });
@@ -927,6 +977,7 @@ impl Page {
                                             .text_color(theme::faint()),
                                         )
                                     })
+                                    .children(stars)
                                     .when(
                                         matches!(&item.plugin, Some(p) if p.origin == Origin::Env),
                                         |s| s.child(tag("dev", theme::agent())),
@@ -941,16 +992,13 @@ impl Page {
                                 )
                             }),
                     )
-                    .when(stars.is_some() || action.is_some(), |s| {
+                    .when(action.is_some(), |s| {
                         s.child(
                             div()
                                 .flex_none()
                                 .w(px(72.))
                                 .flex()
-                                .flex_col()
-                                .items_end()
-                                .gap(px(4.))
-                                .children(stars)
+                                .justify_end()
                                 .children(action),
                         )
                     })
