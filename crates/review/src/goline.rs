@@ -9,8 +9,9 @@ use crate::review::{Review, ReviewEvent};
 use artoo_core::rows::Segment;
 use artoo_core::textedit::TextEdit;
 use artoo_shell_api::{Input, Typed};
+use artoo_ui_kit::hover::Hover;
 use artoo_ui_kit::input::{self, Area, Edit};
-use artoo_ui_kit::{ROW_RADIUS, hover, px, theme};
+use artoo_ui_kit::{ROW_RADIUS, hover, keys, px, theme};
 use gpui::{App, Div, Entity, Keystroke, WeakEntity, div, prelude::*};
 use std::rc::Rc;
 
@@ -243,9 +244,20 @@ impl Review {
                     }))
                     .child(
                         div()
+                            .flex()
+                            .items_center()
+                            .gap(px(10.))
                             .text_size(px(11.))
                             .text_color(theme::faint())
-                            .child("· ↵ write · ↑↓ step · ⇧↑↓ range · esc"),
+                            .child(key_hint("write", "↵"))
+                            .child(key_hint("step", "↑↓"))
+                            .child(key_hint("range", "⇧↑↓"))
+                            .child(
+                                div()
+                                    .id("goline-esc")
+                                    .child(keys::caps("esc", keys::On::Plain))
+                                    .tip("esc puts the marker away"),
+                            ),
                     ),
             ),
         )
@@ -367,4 +379,14 @@ pub fn input(review: Entity<Review>) -> Input {
         }),
         caret: Rc::new(|_| true),
     }
+}
+
+/// A word and its key as a cap, the prompt's hint (Design round 17, K3): `write ↵`.
+fn key_hint(word: &'static str, key: &'static str) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(4.))
+        .child(word)
+        .child(keys::caps(key, keys::On::Plain))
 }

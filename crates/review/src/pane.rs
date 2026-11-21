@@ -12,6 +12,7 @@ use artoo_review_api::ToolbarFold;
 use artoo_review_api::viewers::Drawing;
 use artoo_ui_kit::controls::{chip, group};
 use artoo_ui_kit::format::plural;
+use artoo_ui_kit::hover::Hover;
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, hover, icons, island, keys, px, theme};
 use gpui::{
     AnyElement, ClickEvent, Context, Div, FontWeight, MouseButton, Rgba, Stateful, canvas, div,
@@ -366,7 +367,7 @@ impl Review {
             ))
     }
 
-    /// The file's changes and the way between them: `1 change ↑ ↓`, `change 2 of 3` once stepped; the words go in a
+    /// The file's changes and the way between them: `1 change ↑ ↓`, `± 2/3` once stepped; the words go in a
     /// diff under 600 px (#80). On the file's line, or on the active card's header (#188).
     pub(crate) fn change_nav(&self, host: &Rc<dyn Host>) -> Option<Div> {
         let event = |forward: bool| {
@@ -383,12 +384,25 @@ impl Review {
                 .items_center()
                 .gap_2()
                 .when(!self.tight, |s| {
-                    s.child(div().text_size(px(12.)).text_color(theme::muted()).child(
-                        match self.change_at {
-                            Some(at) => format!("change {} of {}", at + 1, self.changes.len()),
-                            None => plural(self.changes.len(), "change"),
-                        },
-                    ))
+                    let (words, tip) = match self.change_at {
+                        Some(at) => (
+                            format!("± {}/{}", at + 1, self.changes.len()),
+                            Some(format!(
+                                "Change {} of {} in this file · n the next, p the one before",
+                                at + 1,
+                                self.changes.len()
+                            )),
+                        ),
+                        None => (plural(self.changes.len(), "change"), None),
+                    };
+                    s.child(
+                        div()
+                            .id("change-at")
+                            .text_size(px(12.))
+                            .text_color(theme::muted())
+                            .child(words)
+                            .when_some(tip, |d, tip| d.tip(tip)),
+                    )
                 })
                 .child(
                     group()
