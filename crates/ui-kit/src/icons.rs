@@ -437,10 +437,6 @@ const ICONS: &[(&str, &str)] = &[
     ),
     // A pipeline's and an approval's state: passed, failed, running, pending, canceled (requests' rows).
     (
-        "circle-check",
-        lucide!(r#"<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>"#),
-    ),
-    (
         "circle-x",
         lucide!(r#"<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>"#),
     ),
@@ -612,13 +608,6 @@ const ICONS: &[(&str, &str)] = &[
     (
         "dot",
         lucide!(r#"<circle cx="12" cy="12" r="4" fill="black" stroke="none"/>"#),
-    ),
-    (
-        "lock",
-        lucide!(
-            r#"<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>"#
-            r#"<path d="M7 11V7a5 5 0 0 1 10 0v4"/>"#
-        ),
     ),
     (
         "at-sign",
