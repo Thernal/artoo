@@ -11,6 +11,7 @@
 //! - Every call blocks (curl): off the window's thread.
 
 pub mod connect;
+pub mod team;
 
 use anyhow::Result;
 use artoo_core::git::WebRemote;

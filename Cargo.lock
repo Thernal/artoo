@@ -480,6 +480,7 @@ name = "artoo-plugins"
 version = "2.0.0"
 dependencies = [
  "artoo-core",
+ "artoo-hosts-api",
  "artoo-plugin-api",
  "artoo-shell-api",
  "artoo-ui-kit",

@@ -12,6 +12,7 @@ mod ide;
 mod json;
 mod panel;
 mod pictures;
+mod team;
 mod tokens;
 mod welcome;
 
@@ -26,6 +27,7 @@ pub fn install(cx: &mut gpui::App) {
     for (order, kind) in hosts::kinds() {
         artoo_hosts_api::add_kind(cx, order, kind);
     }
+    artoo_hosts_api::team::provide(cx, Arc::new(team::Held));
     artoo_ui_kit::pictures::provide(cx, Arc::new(pictures::WebPictures));
     artoo_ui_kit::people::provide(Arc::new(avatars::Avatars));
     artoo_shell_api::add_settings_section(

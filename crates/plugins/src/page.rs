@@ -115,6 +115,31 @@ pub(crate) struct Item {
     pub plugin: Option<Plugin>,
 }
 
+/// A group's heading in Discover (`From your team`, `From GitHub`); the team's has a lock.
+fn source_heading(text: &'static str, lock: bool) -> AnyElement {
+    div()
+        .px(px(16.))
+        .pt(px(10.))
+        .pb(px(4.))
+        .flex()
+        .items_center()
+        .gap(px(5.))
+        .text_size(px(11.))
+        .text_color(theme::faint())
+        .children(lock.then(|| icons::icon("lock").size(px(11.)).text_color(theme::faint())))
+        .child(text)
+        .into_any_element()
+}
+
+/// Why a host was not searched, in a word and in a sentence: a refused token says so.
+fn not_searched_words(why: &str, host: &str) -> (&'static str, String) {
+    if why.contains("refused") {
+        ("token refused", format!("{host} refused its token"))
+    } else {
+        ("not reached", format!("{host} can't be reached: {why}"))
+    }
+}
+
 /// `path` with the home folder as `~`.
 fn tilde(path: &Path) -> String {
     let text = path.display().to_string();
@@ -158,6 +183,22 @@ pub(crate) fn items(cx: &App) -> Vec<Item> {
             .find(|o| o.repo.eq_ignore_ascii_case(&repo))
             .cloned()
     };
+    // The team's: what each host that is on found, after GitHub's public search (Sources, #179).
+    let team: Vec<&Offer> = (market.team.iter())
+        .filter(|s| s.on)
+        .filter_map(|s| match &s.found {
+            Found::Got(found) => Some(found),
+            _ => None,
+        })
+        .flatten()
+        .filter(|o| !offers.iter().any(|p| p.url == o.url))
+        .collect();
+    let offers: Vec<Offer> = offers
+        .iter()
+        .cloned()
+        .chain(team.into_iter().cloned())
+        .collect();
+    let offers = offers.as_slice();
     let mut out: Vec<Item> = (offers.iter())
         .map(|o| Item {
             key: Key::Offer(o.repo.clone()),
@@ -167,7 +208,7 @@ pub(crate) fn items(cx: &App) -> Vec<Item> {
             author: o.owner.clone(),
             about: o.about.clone(),
             folder: false,
-            stars: Some(o.stars),
+            stars: (!o.private).then_some(o.stars),
             offer: Some(o.clone()),
             plugin: None,
         })
@@ -269,6 +310,8 @@ enum Act {
     Switch(bool, Option<&'static str>),
     /// Not loaded, the reason on its page.
     NotLoaded,
+    /// Found on a team's host: its builds are read and installed from there, which comes with the host's releases.
+    OnHost(String),
     Nothing,
 }
 
@@ -307,6 +350,9 @@ fn act_of(item: &Item, cx: &App) -> Act {
             Some(update) => Act::Update(update.version.clone()),
             None => Act::Installed,
         });
+    }
+    if !offer.host.is_empty() {
+        return Act::OnHost(offer.host.clone());
     }
     if market.starting.contains(&offer.repo) {
         return Act::Progress;
@@ -390,6 +436,10 @@ impl Page {
                 list.sort_by_key(|i| std::cmp::Reverse(i.offer.as_ref().map_or(0, |o| o.pushed)))
             }
             Sort::Name => list.sort_by_key(|i| i.name.to_lowercase()),
+        }
+        // The team's first on Discover, GitHub's after (Sources, #179).
+        if self.tab == Tab::Discover && !self.typed() {
+            list.sort_by_key(|i| i.offer.as_ref().is_none_or(|o| o.host.is_empty()));
         }
         // Updates first on Installed (P10).
         if self.tab == Tab::Installed && !self.typed() {
@@ -903,6 +953,13 @@ impl Page {
                     )
                     .into_any_element(),
             ),
+            Act::OnHost(host) => Some(state_glyph(
+                ("plugin-state", n),
+                "lock",
+                theme::muted(),
+                "Private",
+                Some(format!("Installing from {host} is not in this version yet")),
+            )),
             Act::Nothing => None,
         };
         let stars = item.stars.map(|n| {
@@ -917,6 +974,17 @@ impl Page {
                 .child(icons::icon("star").size(px(11.)).text_color(theme::faint()))
                 .child(short_count(n))
                 .tip(format!("{} stars on GitHub", grouped(n)))
+        });
+        // A private repository shows a lock where the stars would be: only those with access see it (Sources).
+        let lock = item.offer.as_ref().filter(|o| o.private).map(|o| {
+            div()
+                .id(("plugin-lock", n))
+                .flex_none()
+                .child(icons::icon("lock").size(px(11.)).text_color(theme::faint()))
+                .tip(format!(
+                    "Private · visible to those with access on {}",
+                    o.host
+                ))
         });
         let question = (self.from_row)
             .then(|| cx.global::<Market>().question.clone())
@@ -978,6 +1046,7 @@ impl Page {
                                         )
                                     })
                                     .children(stars)
+                                    .children(lock)
                                     .when(
                                         matches!(&item.plugin, Some(p) if p.origin == Origin::Env),
                                         |s| s.child(tag("dev", theme::agent())),
@@ -1167,9 +1236,34 @@ impl Page {
             }
             _ => {
                 let picked = self.picked_of(list).map(|i| i.key.clone());
-                let rows: Vec<AnyElement> = (list.iter().enumerate())
-                    .map(|(n, item)| self.row(n, item, picked.as_ref() == Some(&item.key), cx))
-                    .collect();
+                let team_row = |i: &Item| i.offer.as_ref().is_some_and(|o| !o.host.is_empty());
+                // Discover with a team's host: its rows first under `From your team`, a host not searched said there,
+                // then GitHub's under `From GitHub` (Sources, #179).
+                let grouped = discover && cx.global::<Market>().team.iter().any(|s| s.on);
+                let mut rows: Vec<AnyElement> = Vec::new();
+                let mut was: Option<bool> = None;
+                for (n, item) in list.iter().enumerate() {
+                    let team = team_row(item);
+                    if grouped && was != Some(team) {
+                        if team {
+                            rows.push(source_heading("From your team", true));
+                            rows.extend(self.not_searched(cx));
+                        } else {
+                            rows.push(source_heading("From GitHub", false));
+                        }
+                    }
+                    was = Some(team);
+                    rows.push(self.row(n, item, picked.as_ref() == Some(&item.key), cx));
+                }
+                if grouped && was != Some(true) {
+                    // Nothing found on the team's hosts: the heading still says why not.
+                    let said = self.not_searched(cx);
+                    if !said.is_empty() {
+                        let mut head = vec![source_heading("From your team", true)];
+                        head.extend(said);
+                        rows.splice(0..0, head);
+                    }
+                }
                 div()
                     .id("plugins-rows")
                     .flex_1()
@@ -1192,6 +1286,92 @@ impl Page {
             .child(self.field(cx))
             .child(body)
             .into_any_element()
+    }
+
+    /// A line for each host that is on and could not be searched: its name, why in a word and `Accounts…`, the
+    /// sentence in a tooltip (Sources, #179).
+    fn not_searched(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let failed: Vec<(String, String)> = (cx.global::<Market>().team.iter())
+            .filter(|s| s.on)
+            .filter_map(|s| match &s.found {
+                Found::Failed(why) => Some((s.host.clone(), why.clone())),
+                _ => None,
+            })
+            .collect();
+        (failed.into_iter().enumerate())
+            .map(|(n, (host, why))| {
+                let (word, sentence) = not_searched_words(&why, &host);
+                let frame = self.frame.clone();
+                div()
+                    .id(("plugins-not-searched", n))
+                    .mx(px(8.))
+                    .mb(px(4.))
+                    .px(px(8.))
+                    .h(px(26.))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .rounded(px(ROW_RADIUS))
+                    .bg(theme::warning_bg())
+                    .text_size(px(12.))
+                    .child(
+                        icons::icon("circle-x")
+                            .size(px(12.))
+                            .text_color(theme::warning()),
+                    )
+                    .child(
+                        hover::cut(("plugins-not-searched-host", n), host)
+                            .flex_1()
+                            .min_w_0()
+                            .text_color(theme::text()),
+                    )
+                    .child(div().flex_none().text_color(theme::warning()).child(word))
+                    .child(
+                        div()
+                            .id(("plugins-accounts", n))
+                            .flex_none()
+                            .cursor_pointer()
+                            .text_color(theme::accent())
+                            .hover(|s| s.underline())
+                            .child("Accounts…")
+                            .on_click(move |_: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                frame.open_settings(artoo_hosts_api::connect::SETTINGS, cx)
+                            }),
+                    )
+                    .tip_two("Not searched", sentence)
+                    .into_any_element()
+            })
+            .collect()
+    }
+
+    /// Sources' menu under its button: GitHub's public search, always on, and each host with a token, switched on or
+    /// off; `Sign in to another host…` is Settings → Accounts.
+    fn sources_menu(&mut self, at: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
+        let market = cx.global::<Market>();
+        let mut items = vec![
+            MenuItem::new("GitHub · Public repositories, always searched", |_, _| {}).checked(true),
+        ];
+        items.extend(market.team.iter().map(|s| {
+            let host = s.host.clone();
+            let who = if s.who.is_empty() {
+                String::new()
+            } else {
+                format!(" · @{}", s.who)
+            };
+            MenuItem::new(format!("{} · {}{who}", s.host, s.holds), move |_, cx| {
+                let on = (cx.global::<Market>().team.iter())
+                    .find(|s| s.host == host)
+                    .is_some_and(|s| !s.on);
+                market::set_team(&host, on, cx)
+            })
+            .checked(s.on)
+        }));
+        let frame = self.frame.clone();
+        let accounts = vec![MenuItem::new("Sign in to another host…", move |_, cx| {
+            frame.open_settings(artoo_hosts_api::connect::SETTINGS, cx)
+        })];
+        self.frame.menu(at, vec![items, accounts], cx);
     }
 
     /// One labelled fact of a plugin's page.
@@ -1458,6 +1638,9 @@ impl Page {
                     )
                     .into_any_element()
             }
+            Act::OnHost(host) => {
+                faint(format!("Installing from {host} comes next")).into_any_element()
+            }
             Act::Nothing => div().into_any_element(),
         }
     }
@@ -1475,6 +1658,20 @@ impl Page {
                 .child(grouped(n))
                 .into_any_element()
         };
+        if let Some(o) = item.offer.as_ref().filter(|o| o.private) {
+            facts.push((
+                "Source",
+                div()
+                    .id("plugin-private")
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .child(icons::icon("lock").size(px(12.)).text_color(theme::muted()))
+                    .child("Private")
+                    .tip(format!("On {}, visible to those with access", o.host))
+                    .into_any_element(),
+            ));
+        }
         if let Some(stars) = item.stars {
             facts.push(("Stars", stat("star", stars)));
         }
@@ -1768,6 +1965,57 @@ fn bar(page: &Entity<Page>, cx: &mut App) -> BarParts {
                 .folds(MenuItem::new("Update all", |_, cx| market::update_all(cx))),
             );
         }
+        // Sources: GitHub's and each host searched; a dot when one could not be (Sources, #179).
+        let sources_page = page.clone();
+        let (searched, failed) = {
+            let market = cx.global::<Market>();
+            let on = market.team.iter().filter(|s| s.on);
+            (
+                1 + on.clone().count(),
+                on.clone().any(|s| matches!(s.found, Found::Failed(_))),
+            )
+        };
+        if !cx.global::<Market>().team.is_empty() {
+            actions.push(BarAction::new(
+                "plugins-sources",
+                div()
+                    .id("plugins-sources")
+                    .h(px(28.))
+                    .px(px(8.))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .rounded(px(ROW_RADIUS))
+                    .cursor_pointer()
+                    .text_size(px(13.))
+                    .text_color(theme::muted())
+                    .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
+                    .children(
+                        failed.then(|| div().size(px(6.)).rounded_full().bg(theme::warning())),
+                    )
+                    .child("Sources")
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(theme::faint())
+                            .child(searched.to_string()),
+                    )
+                    .child(
+                        icons::icon("chevron")
+                            .size(px(12.))
+                            .text_color(theme::faint()),
+                    )
+                    .tip(if failed {
+                        "A host could not be searched"
+                    } else {
+                        "Where plugins are searched"
+                    })
+                    .on_click(move |e: &ClickEvent, _, cx| {
+                        let position = e.position();
+                        sources_page.update(cx, |p, cx| p.sources_menu(position, cx))
+                    }),
+            ));
+        }
         let at = page.clone();
         actions.push(BarAction::new(
             "plugins-sort",
@@ -1973,6 +2221,8 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts
                         market.done.insert("sprint".to_owned(), Done::Installing);
                     }
                     "loading" => cx.global_mut::<Market>().found = Found::Asking,
+                    // The hosts with a token searched, as the hosts' fixture answers (Sources, #179).
+                    "team" => market::ask_team(cx),
                     "offline" => {
                         cx.global_mut::<Market>().found =
                             Found::Failed("GitHub can't be reached".to_owned())

@@ -757,7 +757,7 @@ fn api(remote: &WebRemote) -> Result<(String, String)> {
     Ok((format!("{scheme}://{host}"), path.replace('/', "%2F")))
 }
 
-fn get(remote: &WebRemote, endpoint: &str) -> Result<Value> {
+pub(crate) fn get(remote: &WebRemote, endpoint: &str) -> Result<Value> {
     request(remote, endpoint, &[])
 }
 

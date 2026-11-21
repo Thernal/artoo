@@ -127,7 +127,7 @@ fn rest(remote: &WebRemote, method: &str, endpoint: &str, body: Option<&Value>) 
     send(remote, &url, method, body)
 }
 
-fn get(remote: &WebRemote, endpoint: &str) -> Result<Value> {
+pub(crate) fn get(remote: &WebRemote, endpoint: &str) -> Result<Value> {
     rest(remote, "GET", endpoint, None)
 }
 

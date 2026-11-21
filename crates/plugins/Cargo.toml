@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 artoo-core = { path = "../core" }
+artoo-hosts-api = { path = "../hosts-api" }
 # What a plugin is: its stamp, read from its file (`read_stamp`), and the ABI it must have been built for.
 artoo-plugin-api = { path = "../plugin-api" }
 artoo-shell-api = { path = "../shell-api" }

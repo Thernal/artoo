@@ -88,6 +88,10 @@ pub(crate) struct Offer {
     pub license: String,
     /// Its last push, in seconds since the epoch; 0 unknown.
     pub pushed: i64,
+    /// The host of a team's repository, without the scheme (`gitlab.example.com`); empty for GitHub's public search.
+    pub host: String,
+    /// Seen only with a token: a lock beside it.
+    pub private: bool,
 }
 
 /// What a repository's releases and README say, read when it is selected or installed.
@@ -306,8 +310,46 @@ fn offer_of(repo: Repo) -> Offer {
         url: repo.html_url,
         license,
         pushed: repo.pushed_at.as_deref().map_or(0, epoch),
+        host: String::new(),
+        private: false,
     }
 }
+
+/// The topic a plugin's repository carries.
+const TOPIC: &str = "artoo-plugin";
+
+/// A repository a team's host found, as a row has it.
+fn team_offer(host: &str, r: artoo_hosts_api::team::TeamRepo) -> Offer {
+    Offer {
+        name: name_of(&r.name),
+        repo: r.full_name,
+        owner: r.owner,
+        about: r.description,
+        stars: r.stars,
+        url: r.url,
+        license: r.license,
+        pushed: r.pushed,
+        host: host.to_owned(),
+        private: r.private,
+    }
+}
+
+/// A host Artoo holds a token for and whether plugins are searched on it (Sources).
+#[derive(Clone, Default)]
+pub(crate) struct TeamSource {
+    /// `gitlab.payments-platform-eng.example.com`.
+    pub host: String,
+    /// Whose token, by username; empty when not known.
+    pub who: String,
+    /// What searching it reaches: `Private repositories`.
+    pub holds: String,
+    /// Searched; the person can switch it off.
+    pub on: bool,
+    pub found: Found,
+}
+
+/// The file of the hosts switched off in Sources: a host a line.
+const SOURCES_OFF: &str = "plugin-sources-off.txt";
 
 /// Every repository offering a plugin, as the search says them (off the window's thread).
 fn find() -> Result<Vec<Offer>, String> {
@@ -526,6 +568,8 @@ pub(crate) struct Market {
     pub(crate) updates: BTreeMap<String, Update>,
     /// The authors a plugin was installed from: not asked again (`plugins-trusted.txt`).
     pub(crate) trusted: BTreeSet<String>,
+    /// The hosts with a token, each searched or switched off (Sources, #179).
+    pub(crate) team: Vec<TeamSource>,
 }
 
 impl Global for Market {}
@@ -560,6 +604,82 @@ fn may_ask() -> bool {
 pub(crate) fn opened(cx: &mut App) {
     if matches!(cx.global::<Market>().found, Found::NotAsked) {
         ask(cx);
+    }
+    if cx.global::<Market>().team.is_empty() {
+        ask_team(cx);
+    }
+}
+
+/// Whether this run may reach the team's hosts: a test or a snapshot only answers from the hosts' fixture.
+fn may_ask_team() -> bool {
+    !(platform::sandboxed() || storage::snapshot_run())
+        || std::env::var_os("ARTOO_MR_FIXTURE").is_some()
+}
+
+/// Reads which hosts hold a token (nothing is asked of a host), then searches each that is on, off the window's
+/// thread. Reads only.
+pub(crate) fn ask_team(cx: &mut App) {
+    let Some(team) = artoo_hosts_api::team::get(cx).filter(|_| may_ask_team()) else {
+        return;
+    };
+    let off: BTreeSet<String> = storage::read(SOURCES_OFF)
+        .lines()
+        .map(|l| l.trim().to_owned())
+        .collect();
+    let held = team.hosts();
+    cx.global_mut::<Market>().team = (held.iter())
+        .map(|h| TeamSource {
+            host: h.host.clone(),
+            who: h.who.clone(),
+            holds: h.holds.clone(),
+            on: !off.contains(&h.host),
+            found: if off.contains(&h.host) {
+                Found::NotAsked
+            } else {
+                Found::Asking
+            },
+        })
+        .collect();
+    for h in held.into_iter().filter(|h| !off.contains(&h.host)) {
+        search_team(team.clone(), h.host, cx);
+    }
+}
+
+fn search_team(team: std::sync::Arc<dyn artoo_hosts_api::team::Team>, host: String, cx: &mut App) {
+    cx.spawn(async move |cx| {
+        let asked = host.clone();
+        let found = cx
+            .background_executor()
+            .spawn(async move { team.search(&asked, TOPIC) })
+            .await;
+        cx.update(|cx| {
+            let found = match found {
+                Ok(repos) => Found::Got(repos.into_iter().map(|r| team_offer(&host, r)).collect()),
+                Err(why) => Found::Failed(why.to_string()),
+            };
+            if let Some(s) = (cx.global_mut::<Market>().team.iter_mut()).find(|s| s.host == host) {
+                s.found = found;
+            }
+        });
+    })
+    .detach();
+}
+
+/// A host switched on or off in Sources: kept, and searched when it comes on.
+pub(crate) fn set_team(host: &str, on: bool, cx: &mut App) {
+    let market = cx.global_mut::<Market>();
+    let Some(source) = market.team.iter_mut().find(|s| s.host == host) else {
+        return;
+    };
+    source.on = on;
+    source.found = if on { Found::Asking } else { Found::NotAsked };
+    let off: String = (market.team.iter())
+        .filter(|s| !s.on)
+        .map(|s| format!("{}\n", s.host))
+        .collect();
+    storage::save(SOURCES_OFF, off);
+    if on && let Some(team) = artoo_hosts_api::team::get(cx).filter(|_| may_ask_team()) {
+        search_team(team, host.to_owned(), cx);
     }
 }
 
@@ -760,6 +880,8 @@ pub(crate) fn sample() -> Market {
             url: format!("https://github.com/{repo}"),
             license: license.to_owned(),
             pushed: now - days * day,
+            host: String::new(),
+            private: false,
         }
     };
     let ready = |id: &str, version: &str| Build::Ready {
@@ -884,6 +1006,7 @@ pub(crate) fn sample() -> Market {
             ),
         ]),
         trusted: BTreeSet::from(["someone".to_owned()]),
+        team: Vec::new(),
     }
 }
 
