@@ -21,6 +21,46 @@ pub fn ago(time: i64) -> String {
     }
 }
 
+/// Width of the time column every list row shares, wide enough for ``Nov 21` at 11 px.
+pub const SHORT_TIME_WIDTH: f32 = 44.;
+
+/// A list row's time, short and tabular: `now`, `12m`, `2h`, `3d` (under a week), then `Nov 3` within the year,
+/// then the year alone (`2025`). The long form is `ago`, the full date the tooltip's.
+pub fn short_ago(time: i64) -> String {
+    short_at(now(), time)
+}
+
+fn short_at(now: i64, time: i64) -> String {
+    let secs = (now - time).max(0);
+    match secs {
+        0..60 => "now".to_owned(),
+        60..3600 => format!("{}m", secs / 60),
+        3600..86400 => format!("{}h", secs / 3600),
+        86400..604_800 => format!("{}d", secs / 86400),
+        604_800..31_536_000 => {
+            let (_, m, d) = civil_from_days((time + local_offset(time)).div_euclid(86400));
+            format!("{} {d}", MONTHS[m as usize - 1])
+        }
+        _ => date(time)[..4].to_owned(),
+    }
+}
+
+const MONTHS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/// The time cell of a list row: `short_ago`, right-aligned in the column every row shares.
+pub fn time_cell(time: i64) -> gpui::Div {
+    use gpui::{ParentElement, Styled, div, px};
+    div()
+        .flex_none()
+        .w(px(SHORT_TIME_WIDTH))
+        .flex()
+        .justify_end()
+        .whitespace_nowrap()
+        .child(short_ago(time))
+}
+
 /// `YYYY-MM-DD` in local time.
 pub fn date(time: i64) -> String {
     date_at(time + local_offset(time))
@@ -128,6 +168,33 @@ pub fn bytes(n: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn short_times_cross_each_threshold() {
+        let now = 1_795_000_000;
+        let at = |ago: i64| short_at(now, now - ago);
+        assert_eq!(at(0), "now");
+        assert_eq!(at(59), "now");
+        assert_eq!(at(60), "1m");
+        assert_eq!(at(12 * 60), "12m");
+        assert_eq!(at(3599), "59m");
+        assert_eq!(at(3600), "1h");
+        assert_eq!(at(86399), "23h");
+        assert_eq!(at(86400), "1d");
+        assert_eq!(at(172_800), "2d");
+        assert_eq!(at(604_799), "6d");
+        // A week and more: month and day, then the year alone past a year.
+        let time = now - 604_800;
+        let want = chrono::DateTime::from_timestamp(time, 0)
+            .unwrap()
+            .with_timezone(&chrono::Local)
+            .format("%b %-d")
+            .to_string();
+        assert_eq!(at(604_800), want);
+        assert_eq!(at(31_536_000), date(now - 31_536_000)[..4]);
+        // The future reads as now.
+        assert_eq!(short_at(now, now + 500), "now");
+    }
 
     #[test]
     fn plurals_read_naturally() {

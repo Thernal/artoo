@@ -148,7 +148,7 @@ pub fn main_line(h: &History) -> Option<AnyElement> {
                             .child(format::short(latest.id)),
                     )
                     .child(div().text_color(theme::faint()).child("·"))
-                    .child(div().child(format::ago(latest.time))),
+                    .child(div().child(format::short_ago(latest.time))),
             )
             .into_any_element(),
     )

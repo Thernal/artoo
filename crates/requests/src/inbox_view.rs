@@ -504,10 +504,13 @@ pub fn notice_row(
                         )
                         .children(wide.then(|| {
                             div()
+                                .flex()
                                 .flex_none()
+                                .gap_2()
                                 .text_size(px(11.))
                                 .text_color(theme::faint())
-                                .child(format!("{source} · {}", format::ago(n.created)))
+                                .child(source.to_owned())
+                                .child(format::time_cell(n.created))
                         })),
                 )
                 .child(
@@ -596,10 +599,13 @@ pub fn part_row(
                         )
                         .children(wide.then(|| {
                             div()
+                                .flex()
                                 .flex_none()
+                                .gap_2()
                                 .text_size(px(11.))
                                 .text_color(theme::faint())
-                                .child(format!("{source} · {}", format::ago(r.at)))
+                                .child(source.to_owned())
+                                .child(format::time_cell(r.at))
                         })),
                 )
                 .children((!r.about.is_empty()).then(|| {

@@ -1242,10 +1242,11 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
     // narrows, then whose turn; the tooltip holds what left.
     let room = look.widths.room("requests");
     // The row's date says what is sorted (L17): an open one's opening under Oldest first.
-    let when = if open && rq.rows.display.1 == SortBy::Oldest {
-        format!("opened {}", format::ago(m.created))
+    // Short, in the row's last column; the tip holds the date.
+    let when_time = if open && rq.rows.display.1 == SortBy::Oldest {
+        m.created
     } else {
-        format::ago(m.updated)
+        m.updated
     };
     // The tip holds what the row does not say (#202): who and where from, the parts the row has no room for, whose
     // turn when it is not said, and when exactly; the title and the last part only when the row cut them.
@@ -1410,11 +1411,9 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
                             .when(m.draft, |s| s.child(tag("Draft", theme::muted())))
                             .child(div().flex_1())
                             .children(room.second().then(|| {
-                                div()
-                                    .flex_none()
+                                format::time_cell(when_time)
                                     .text_size(px(11.))
                                     .text_color(theme::faint())
-                                    .child(when)
                             })),
                     )
                     .child(

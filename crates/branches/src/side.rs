@@ -58,7 +58,6 @@ pub fn version_rows(h: &History, new_from: Option<usize>, read: Option<usize>, a
             if several {
                 detail.push(v.author.clone());
             }
-            detail.push(format::ago(v.time));
             match ix.checked_sub(1).and_then(|p| h.versions.get(p)) {
                 None => detail.push(plural(v.commits, "commit")),
                 Some(prev) => {
@@ -81,6 +80,8 @@ pub fn version_rows(h: &History, new_from: Option<usize>, read: Option<usize>, a
                     });
                 }
             }
+            // When, short, last.
+            detail.push(format::short_ago(v.time));
             // The rail: a dot per version and a line to the older one.
             let rail = div()
                 .flex_none()
@@ -345,12 +346,7 @@ pub fn commit_row(
                             .get(&commit.id)
                             .and_then(|&(done, total)| viewed_word(done, total)),
                     )
-                    .child(
-                        div()
-                            .flex_none()
-                            .whitespace_nowrap()
-                            .child(format::ago(commit.time)),
-                    )
+                    .child(format::time_cell(commit.time))
                 }),
         )
         .on_mouse_down(MouseButton::Right, move |event: &MouseDownEvent, _, cx| {
@@ -447,11 +443,9 @@ pub fn compare_row(
                 .child(info.summary.clone()),
         )
         .child(
-            div()
-                .flex_none()
+            format::time_cell(info.time)
                 .text_size(px(11.))
-                .text_color(theme::faint())
-                .child(format::ago(info.time)),
+                .text_color(theme::faint()),
         )
         .on_click(move |e: &ClickEvent, _, cx| {
             let span = e.modifiers().shift;

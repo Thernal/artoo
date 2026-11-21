@@ -278,11 +278,9 @@ fn branch_row(
                             .child("✓ reviewed")
                     }))
                     .children(fact.filter(|_| room.second()).map(|f| {
-                        div()
-                            .flex_none()
+                        format::time_cell(f.time)
                             .text_size(px(11.))
                             .text_color(theme::faint())
-                            .child(format::ago(f.time))
                     }))
                     .into_any_element();
                 let mut parts: Vec<AnyElement> = Vec::new();
@@ -599,7 +597,7 @@ fn branch_preview(
                         "{} · {} · {}",
                         format::short(b.tip),
                         f.author,
-                        format::ago(f.time)
+                        format::short_ago(f.time)
                     )),
             )
     });

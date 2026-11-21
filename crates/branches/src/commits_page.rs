@@ -230,11 +230,9 @@ impl History {
                                 .map(|w| w.text_size(px(11.))),
                         )
                         .child(
-                            div()
-                                .flex_none()
+                            format::time_cell(c.time)
                                 .text_size(px(11.))
-                                .text_color(theme::faint())
-                                .child(format::ago(c.time)),
+                                .text_color(theme::faint()),
                         )
                     })
                     .row_tip_cut(selected, tip)
