@@ -106,6 +106,19 @@ pub fn setting_row(
     control: impl IntoElement,
     reset: Option<Reset>,
 ) -> gpui::Stateful<Div> {
+    setting_row_to(id, title, detail, control, reset, None)
+}
+
+/// `setting_row` that names its default: Reset's tooltip says `Back to <default>` (`Back to Words`), `Back to default`
+/// without a name.
+pub fn setting_row_to(
+    id: impl Into<SharedString>,
+    title: impl Into<SharedString>,
+    detail: impl Into<SharedString>,
+    control: impl IntoElement,
+    reset: Option<Reset>,
+    default: Option<SharedString>,
+) -> gpui::Stateful<Div> {
     let id: SharedString = id.into();
     let group: SharedString = format!("setting-{id}").into();
     let (title, detail): (SharedString, SharedString) = (title.into(), detail.into());
@@ -165,7 +178,10 @@ pub fn setting_row(
                         .size(px(13.))
                         .text_color(theme::muted()),
                 )
-                .tip("Back to default")
+                .tip(match default {
+                    Some(name) => format!("Back to {name}").into(),
+                    None => SharedString::from("Back to default"),
+                })
                 .on_click(reset)
         }))
         .child(div().flex_none().child(control))

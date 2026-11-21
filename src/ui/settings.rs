@@ -476,7 +476,7 @@ impl Workspace {
             None,
         );
         vec![
-            Own::row(
+            Own::row_to(
                 CHANGED_WORDS,
                 10,
                 marks,
@@ -488,9 +488,10 @@ impl Workspace {
                         )
                     })
                 }),
+                d.mark_style.label(),
             ),
             Own::part(REVIEW, 11, preview),
-            Own::row(
+            Own::row_to(
                 DEFAULT_MODE,
                 20,
                 modes,
@@ -501,8 +502,9 @@ impl Workspace {
                         this.set_mode(mode, cx);
                     })
                 }),
+                d.default_mode.label(),
             ),
-            Own::row(
+            Own::row_to(
                 MARK_REVIEWED,
                 40,
                 scrolled,
@@ -511,13 +513,14 @@ impl Workspace {
                         this.change_settings(|this| this.settings.auto_reviewed = false, cx)
                     })
                 }),
+                "Off",
             ),
             Own::part(APPEARANCE, 40, subhead("Fonts and size")),
             Own::named(INTERFACE_FONT, 41, ui_face),
             Own::named(CODE_FONT, 42, code_face),
             Own::named(INTERFACE_SIZE, 43, ui_size),
             Own::part(APPEARANCE, 59, subhead("Window")),
-            Own::row(
+            Own::row_to(
                 PANES,
                 60,
                 panes,
@@ -526,13 +529,15 @@ impl Workspace {
                         this.change_settings(|this| this.settings.flat = false, cx)
                     })
                 }),
+                "Islands",
             ),
-            Own::row(
+            Own::row_to(
                 ANIMATIONS,
                 70,
                 animations,
                 (s.animations != d.animations)
                     .then(|| reset(cx, |this, _, cx| this.set_animations(true, cx))),
+                "On",
             ),
         ]
         .into_iter()
@@ -570,7 +575,7 @@ impl Workspace {
                 }),
             ),
             Own::part(PROJECTS, 40, subhead(repo)),
-            Own::row(
+            Own::row_to(
                 REFRESH,
                 41,
                 refresh,
@@ -579,6 +584,7 @@ impl Workspace {
                         this.change_settings(|this| this.settings.auto_refresh = true, cx)
                     })
                 }),
+                "On",
             ),
             Own::row(
                 FETCH,
@@ -591,7 +597,7 @@ impl Workspace {
             // The rows of the sections drawn by hand, as search shows them (#203).
             Own::named(SYSTEM_NOTES, 10, self.notice_system_row(cx)),
             Own::named(HELPERS, 10, self.key_helpers_row(cx).into_any_element()),
-            Own::row(
+            Own::row_to(
                 UPDATES,
                 5,
                 updates,
@@ -600,6 +606,7 @@ impl Workspace {
                         this.change_settings(|this| this.settings.check_updates = true, cx)
                     })
                 }),
+                "On",
             ),
         ])
         .collect()
@@ -849,6 +856,29 @@ impl Own {
                 named.detail,
                 control,
                 reset,
+            )
+            .into_any_element(),
+        )
+    }
+
+    /// `row`, Reset's tooltip naming the default it goes back to.
+    fn row_to(
+        named: Named,
+        order: u16,
+        control: impl IntoElement,
+        reset: Option<Reset>,
+        default: &'static str,
+    ) -> Self {
+        Self::named(
+            named,
+            order,
+            artoo_ui_kit::controls::setting_row_to(
+                named.label,
+                named.label,
+                named.detail,
+                control,
+                reset,
+                Some(default.into()),
             )
             .into_any_element(),
         )
@@ -1128,11 +1158,12 @@ impl Workspace {
             .justify_center()
             .rounded(px(6.))
             .border_1()
-            .border_color(gpui::transparent_black())
+            .border_color(theme::selected())
+            .bg(theme::hover())
             .when(on, |s| s.border_color(theme::accent()))
             .text_color(if on { theme::accent() } else { theme::muted() })
             .cursor_pointer()
-            .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
+            .hover(|s| s.bg(theme::selected()))
             .child(icons::icon(icon).size(px(14.)).text_color(if on {
                 theme::accent()
             } else {
@@ -1141,43 +1172,40 @@ impl Workspace {
             .tip(tip)
     }
 
-    /// The keymaps to start from, the one in use lit (Settings → Keyboard, and Set up's Keys).
-    pub(super) fn key_presets(&self, cx: &mut Context<Self>) -> gpui::Div {
+    /// The keymaps to start from as one segmented group, the one in use filled (Settings → Keyboard's line, and
+    /// Set up's Keys).
+    pub(super) fn key_presets_group(&self, cx: &mut Context<Self>) -> gpui::Div {
         use super::keymap::{self, Keymap};
         let map = cx.global::<Keymap>();
         let (preset, changed_count) = (map.preset(), map.changed_count());
-        div().flex().flex_wrap().gap(px(6.)).pb(px(12.)).children(
-            keymap::Preset::ALL.into_iter().enumerate().map(|(i, p)| {
+        group()
+            .h(px(28.))
+            .children(keymap::Preset::ALL.into_iter().enumerate().map(|(i, p)| {
                 let on = p == preset;
-                div()
-                    .id(("key-preset", i))
-                    .px(px(12.))
-                    .h(px(26.))
-                    .flex()
-                    .items_center()
-                    .rounded_full()
-                    .border_1()
-                    .border_color(if on {
-                        theme::accent()
-                    } else {
-                        theme::island_border()
-                    })
-                    .when(on, |s| s.bg(theme::info_bg()))
-                    .text_size(px(12.))
-                    .text_color(if on { theme::text() } else { theme::muted() })
-                    .cursor_pointer()
-                    .child(if on && changed_count > 0 {
+                chip(
+                    ("key-preset", i),
+                    if on && changed_count > 0 {
                         format!("{} · {changed_count} changed", p.label())
                     } else {
                         p.label().to_owned()
-                    })
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        keymap::set_preset(p, cx);
-                        this.refresh_menus(cx);
-                        cx.notify();
-                    }))
-            }),
-        )
+                    },
+                    on,
+                )
+                .h(px(24.))
+                .flex()
+                .items_center()
+                .px(px(10.))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    keymap::set_preset(p, cx);
+                    this.refresh_menus(cx);
+                    cx.notify();
+                }))
+            }))
+    }
+
+    /// `key_presets_group` on a line of its own (Set up's Keys).
+    pub(super) fn key_presets(&self, cx: &mut Context<Self>) -> gpui::Div {
+        div().pb(px(12.)).flex().child(self.key_presets_group(cx))
     }
 
     /// Settings → Keyboard's rows as listed: the filter's and Changed only's, under their headings (Move · Comment ·
@@ -1253,13 +1281,29 @@ impl Workspace {
         let sel = (self.keys_sel)
             .filter(|s| entries.iter().any(|e| e.name == *s))
             .or(entries.first().map(|e| e.name));
-        let presets = self.key_presets(cx);
+        let presets = self.key_presets_group(cx);
         let helpers = self.key_helpers_row(cx);
         let by_keys = self.recording == Some(BY_KEYS);
         let tools = div()
             .flex()
+            .items_center()
             .gap(px(6.))
             .pb(px(8.))
+            .child(presets)
+            .child(div().flex_1())
+            .children((changed_count > 0).then(|| {
+                button(
+                    "keys-reset-all",
+                    format!("Reset to {}", preset.label()),
+                    None,
+                    Kind::Plain,
+                )
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    keymap::reset(cx);
+                    this.refresh_menus(cx);
+                    cx.notify();
+                }))
+            }))
             // The next keys pressed filter the list (Design D, X55): an icon; while it waits, the primary says so.
             .child(if by_keys {
                 button(
@@ -1298,7 +1342,6 @@ impl Workspace {
                     cx.notify();
                 })),
             )
-            .child(div().flex_1())
             .child(
                 Self::tool_icon(
                     "keys-export",
@@ -1310,20 +1353,7 @@ impl Workspace {
                     let text = cx.global::<Keymap>().export();
                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
                 })),
-            )
-            .children((changed_count > 0).then(|| {
-                button(
-                    "keys-reset-all",
-                    format!("Reset to {}", preset.label()),
-                    None,
-                    Kind::Plain,
-                )
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    keymap::reset(cx);
-                    this.refresh_menus(cx);
-                    cx.notify();
-                }))
-            }));
+            );
         let count = entries.len();
         let mut last_heading = None;
         let rows = entries.into_iter().enumerate().map(|(ix, e)| {
@@ -1518,7 +1548,6 @@ impl Workspace {
             .flex()
             .flex_col()
             .child(helpers)
-            .child(presets)
             .child(tools)
             .child(div().pb(px(8.)).child(self.render_field(
                 "keys-filter",
