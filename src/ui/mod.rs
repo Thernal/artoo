@@ -1123,6 +1123,34 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             });
             wait(1000).await;
         }
+        // A chat that began listening, as its toast (`toast-chat`): the words, the branch under them, Show and Stop
+        // listening.
+        if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("toast-chat")) {
+            ws.update(cx, |this, cx| {
+                let said = artoo_agents_api::tab::Said {
+                    text: "Codex started listening".into(),
+                    session: "snapshot".into(),
+                    branch: "feature/ledger-cache".into(),
+                    began: true,
+                };
+                this.show_toast(toast::listening(&said), cx);
+            });
+            wait(1000).await;
+        }
+        // The open page called by a name of the reviewer's (`renamed`), as `names.txt` would have it: its row says the
+        // name with the number kept.
+        if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("renamed")) {
+            ws.update(cx, |this, cx| {
+                if let Some(item) = this.nav_page().and_then(|p| this.item_of(p))
+                    && let Some(root) = this.root.clone()
+                {
+                    let key = storage::name_key(&root, &item.text());
+                    this.page_names.insert(key, "Refund rounding".to_owned());
+                    cx.notify();
+                }
+            });
+            wait(500).await;
+        }
         // The newest toast's button pressed: where an agent's news leads (#150).
         if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("toast-act")) {
             ws.update(cx, |this, cx| {
