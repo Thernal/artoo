@@ -291,6 +291,10 @@ pub struct Repo {
     inner: Repository,
 }
 
+/// How many commits, newest first, `Repo::last_commit_of` looks through before it gives up on a file not touched
+/// in that many: every file opened reads it.
+pub const LAST_COMMIT_WALK: usize = 5_000;
+
 impl Repo {
     /// Opens the repository that contains `path`.
     pub fn open(path: &Path) -> Result<Self> {
@@ -330,17 +334,19 @@ impl Repo {
 
     /// The newest commit reachable from `rev` that touched `path`: the one whose version of the file differs from
     /// each of its parents' (the first commit, or a merge that brought it unlike every side, counts). `None` when
-    /// `rev` has no such file. The file bar's `a41f9c0  Oct 15`.
+    /// `rev` has no such file, or none of the newest [`LAST_COMMIT_WALK`] commits touched it (the bar then keeps the
+    /// revision's). The file bar's `a41f9c0  Oct 15`.
     pub fn last_commit_of(&self, rev: Oid, path: &str) -> Option<CommitInfo> {
         let blob_in = |commit: &git2::Commit| {
             let tree = commit.tree().ok()?;
             tree.get_path(Path::new(path)).ok().map(|e| e.id())
         };
         let mut walk = self.inner.revwalk().ok()?;
-        walk.set_sorting(Sort::TOPOLOGICAL | Sort::TIME).ok()?;
+        // Newest first, streamed: a topological order would read the whole history before the first answer.
+        walk.set_sorting(Sort::TIME).ok()?;
         walk.push(rev).ok()?;
         blob_in(&self.inner.find_commit(rev).ok()?)?;
-        for id in walk {
+        for id in walk.take(LAST_COMMIT_WALK) {
             let commit = self.inner.find_commit(id.ok()?).ok()?;
             let here = blob_in(&commit);
             if here.is_some() && commit.parents().all(|p| blob_in(&p) != here) {
