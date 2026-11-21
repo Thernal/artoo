@@ -19,6 +19,10 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
 
+/// The room Open in takes on the current card's header: its icon's 24 px square and the ▾'s 16
+/// (`Workspace::open_in_chips`).
+const OPEN_IN_ROOM: f32 = 40.;
+
 /// The ground between two files' cards.
 pub const CARD_GAP: f32 = 16.;
 /// The card's inset from the sides of the diff.
@@ -323,14 +327,19 @@ impl Review {
                     // The file the keyboard works in: its changes and Open in, from the file's line (#188).
                     // Every card's bar is the same: the others keep the room, so the counts and the mark stay where
                     // they are when a card becomes the current one.
+                    // Open in is not asked of the tab for the others: a header pinned over the rows is drawn while
+                    // the review updates, and the tab reads the review for it. Its room is its two squares.
                     .map(|s| {
                         if active {
+                            self.open_in_room.set(open_in.is_some());
                             s.children(self.change_nav()).children(open_in)
                         } else {
                             s.children(self.change_nav().map(|nav| nav.invisible()))
-                                .children(host.open_in(cx).map(|open| {
-                                    div().flex_none().invisible().child(open).into_any_element()
-                                }))
+                                .children(
+                                    self.open_in_room
+                                        .get()
+                                        .then(|| div().flex_none().w(px(OPEN_IN_ROOM))),
+                                )
                         }
                     })
                     // Branches' files: a `☐ Viewed` box; a tick folds the card to its head (#209).

@@ -84,6 +84,8 @@ pub struct Review {
     pub view_button: Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
     /// The toolbar's widths as last drawn: what folds into View ▾ (#187).
     pub tools: Rc<crate::toolbar::ToolRoom>,
+    /// The current card's header was last drawn with Open in: the other cards keep its room (`render_header`).
+    pub open_in_room: Cell<bool>,
     /// The diff is what changed since the version you read of a request, as the tab said (#187).
     pub since: Option<artoo_review_api::SinceRead>,
     /// The line number being typed for a quick comment.
@@ -209,6 +211,7 @@ impl Review {
             notes: Vec::new(),
             images: Default::default(),
             view_button: Default::default(),
+            open_in_room: Cell::new(false),
             tools: Default::default(),
             since: None,
             page: Default::default(),
