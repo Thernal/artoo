@@ -99,6 +99,16 @@ impl Workspace {
     /// them, the merged ones (#194).
     pub(super) fn item_context(&mut self, item: &Route, at: Point<Pixels>, cx: &mut Context<Self>) {
         let mut groups = self.item_groups(item, cx);
+        // Rename… first, alone (Design round 10, U1).
+        let rename = {
+            let item = item.clone();
+            Entry::new(
+                "Rename\u{2026}",
+                Act::new(move |this, _, cx| this.start_rename(item.clone(), cx)),
+            )
+            .key("or double-click")
+        };
+        groups.insert(0, vec![rename]);
         groups.push(self.close_entries(item, cx));
         self.open_menu(at, groups, cx);
     }

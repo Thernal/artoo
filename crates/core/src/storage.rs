@@ -40,6 +40,37 @@ pub fn read(name: &str) -> String {
 /// How the side panel's sections were left folded, each kept by the feature whose section it is.
 pub const PANEL: &str = "panel.txt";
 
+/// The names the reviewer gave to open pages under a space (`Rename…`), one `key<TAB>name` line each.
+pub const NAMES: &str = "names.txt";
+
+/// The page names kept, by page key (`name_key`).
+pub fn load_names() -> std::collections::BTreeMap<String, String> {
+    parse_names(&read(NAMES))
+}
+
+/// Keeps `names`.
+pub fn save_names(names: &std::collections::BTreeMap<String, String>) {
+    save(NAMES, names_text(names));
+}
+
+fn parse_names(text: &str) -> std::collections::BTreeMap<String, String> {
+    text.lines()
+        .filter_map(|l| l.split_once('\t'))
+        .filter(|(k, v)| !k.is_empty() && !v.trim().is_empty())
+        .map(|(k, v)| (k.to_owned(), v.trim().to_owned()))
+        .collect()
+}
+
+fn names_text(names: &std::collections::BTreeMap<String, String>) -> String {
+    names.iter().map(|(k, v)| format!("{k}\t{v}\n")).collect()
+}
+
+/// A page's key among the names: its project's folder and its route, so the same request of two projects keeps
+/// two names.
+pub fn name_key(root: &Path, route: &str) -> String {
+    format!("{}|{route}", root.display())
+}
+
 /// The tab's panes (`Layout`); it kept the side panel's folds before `PANEL` did.
 pub const LAYOUT: &str = "layout.txt";
 
@@ -601,6 +632,17 @@ fn pairs(text: &str) -> impl Iterator<Item = (&str, &str)> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn page_names_are_kept_one_per_line_and_a_blank_one_is_none() {
+        let mut names = std::collections::BTreeMap::new();
+        names.insert(
+            super::name_key(std::path::Path::new("/p"), "requests.request{\"n\":398}"),
+            "Login fix".to_owned(),
+        );
+        assert_eq!(super::parse_names(&super::names_text(&names)), names);
+        assert!(super::parse_names("/p|x\t  \n").is_empty());
+    }
+
     use super::*;
 
     #[test]

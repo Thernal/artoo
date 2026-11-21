@@ -307,7 +307,8 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
             .map(|(n, open)| {
                 let group: gpui::SharedString = format!("{id}-open-{n}").into();
                 let (on, picked) = (open.on, open.picked);
-                let (pick, close, menu_row) = (host.clone(), host.clone(), host.clone());
+                let (pick, close, menu_row, rename) =
+                    (host.clone(), host.clone(), host.clone(), host.clone());
                 let dot = |color: gpui::Rgba, tip: &'static str| {
                     div()
                         .id(SharedString::from(format!("{id}-dot-{n}-{tip}")))
@@ -353,16 +354,18 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                             .text_color(theme::text())
                     })
                     .child(open.icon)
-                    // The row's long hover holds the whole of it.
-                    .child(
-                        div()
+                    // The row's long hover holds the whole of it; renamed, the field takes its place.
+                    .child(match open.editing {
+                        Some(field) => field,
+                        None => div()
                             .flex_1()
                             .min_w_0()
                             .cut_in_tip()
                             .when(open.mono, |s| s.font_family(theme::code_font()))
                             .when(open.preview, |s| s.italic())
-                            .child(open.label),
-                    )
+                            .child(open.label)
+                            .into_any_element(),
+                    })
                     .children(open.agent.map(|(badge, waiting)| {
                         div()
                             .flex_none()
@@ -420,6 +423,9 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                     })
                     // Shift picks a run of them to close together with ⌘W.
                     .on_click(move |e: &ClickEvent, window, cx| {
+                        if e.click_count() >= 2 {
+                            return rename.rename(space, n, window, cx);
+                        }
                         pick.open(space, n, e.modifiers().shift, window, cx)
                     })
                     .into_any_element()

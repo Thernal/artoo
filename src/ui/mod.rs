@@ -1456,6 +1456,10 @@ pub struct Workspace {
     /// The card naming a project or a chat (`labeling.rs`), and the name being typed.
     label_edit: Option<labeling::LabelEdit>,
     label_name: String,
+    /// The names given to open pages under a space (`storage::NAMES`), and the page being renamed in its row, its
+    /// name typed in `label_name` (`Field::Rename`).
+    page_names: std::collections::BTreeMap<String, String>,
+    renaming: Option<artoo_core::route::Route>,
     /// What features draw in this tab (#165): title-bar items, cards over it, Settings rows.
     parts: Vec<artoo_shell_api::Parts>,
     /// The tab's frame, as its parts see it, held for them — ⌘K's window holds it weakly (its handle is in the
@@ -1598,6 +1602,8 @@ impl Workspace {
             folds: Default::default(),
             label_edit: None,
             label_name: String::new(),
+            page_names: storage::load_names(),
+            renaming: None,
             parts: Vec::new(),
             frame: frame.clone(),
             tree_opened: None,

@@ -501,7 +501,72 @@ impl Nav {
 
 const FILE: &str = "nav.txt";
 
+/// A row's words split into its number (`!398`, `#412`: kept when it is named) and its title.
+pub(super) fn split_number(label: &str) -> (&str, &str) {
+    match label.split_once(' ') {
+        Some((number, title)) if number.starts_with(['!', '#']) => (number, title),
+        _ => ("", label),
+    }
+}
+
+/// An open page's row as the reviewer's name gives it: `!398 Login fix` for `!398 Refactor the login screen`.
+pub(super) fn named_label(label: &str, name: &str) -> String {
+    match split_number(label).0 {
+        "" => name.to_owned(),
+        number => format!("{number} {name}"),
+    }
+}
+
 impl Workspace {
+    fn page_name_key(&self, item: &Route) -> Option<String> {
+        Some(artoo_core::storage::name_key(
+            self.root.as_deref()?,
+            &item.text(),
+        ))
+    }
+
+    /// The name the reviewer gave open page `item`.
+    pub(super) fn page_name(&self, item: &Route) -> Option<&str> {
+        let key = self.page_name_key(item)?;
+        self.page_names.get(&key).map(String::as_str)
+    }
+
+    /// Rename… or a double click: the page's row becomes a field, its name or its title typed in it.
+    pub(super) fn start_rename(&mut self, item: Route, cx: &mut Context<Self>) {
+        let own = self.page_name(&item).map(str::to_owned);
+        self.label_name = own
+            .or_else(|| self.row_title(&item, cx))
+            .unwrap_or_default();
+        self.renaming = Some(item);
+        self.start_field(super::lists::Field::Rename, cx);
+    }
+
+    /// ↵: the name kept; empty, the page is called by its own words again.
+    pub(super) fn save_rename(&mut self, cx: &mut Context<Self>) {
+        if let Some(item) = self.renaming.clone()
+            && let Some(key) = self.page_name_key(&item)
+        {
+            let name = self.label_name.trim().to_owned();
+            if name.is_empty() {
+                self.page_names.remove(&key);
+            } else {
+                self.page_names.insert(key, name);
+            }
+            artoo_core::storage::save_names(&self.page_names);
+        }
+        self.cancel_rename(cx);
+    }
+
+    /// Esc or a click elsewhere: the row as it was.
+    pub(super) fn cancel_rename(&mut self, cx: &mut Context<Self>) {
+        self.renaming = None;
+        self.label_name.clear();
+        if self.field == Some(super::lists::Field::Rename) {
+            self.field = None;
+        }
+        cx.notify();
+    }
+
     /// The page of the space on screen; None at its root.
     pub(super) fn nav_page(&self) -> Option<&Route> {
         self.nav.pages.get(&self.nav.space)
@@ -1974,6 +2039,17 @@ mod tests {
         nav.remember(at(CODE, None));
         assert_eq!(nav.time.len(), 2);
         assert!(!nav.can_forward());
+    }
+
+    #[test]
+    fn a_renamed_request_keeps_its_number_and_a_branch_has_none() {
+        assert_eq!(
+            named_label("!398 Refactor the login screen state", "Login fix"),
+            "!398 Login fix"
+        );
+        assert_eq!(named_label("feature/login-state", "Login"), "Login");
+        assert_eq!(split_number("!398 Refactor"), ("!398", "Refactor"));
+        assert_eq!(split_number("feature/a b"), ("", "feature/a b"));
     }
 
     #[test]

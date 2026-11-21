@@ -156,6 +156,8 @@ pub struct Open {
     pub agent: Option<(AnyElement, usize)>,
     /// What an agent put there for the reviewer, not opened since (#160).
     pub call: Option<String>,
+    /// While the page is renamed in its row (`SpacesHost::rename`): the row's words, replaced by the field.
+    pub editing: Option<AnyElement>,
 }
 
 /// A space's row, with what is open under it.
@@ -217,6 +219,8 @@ pub trait SpacesHost {
     fn moved(&self, from: Space, to: Space, window: &mut Window, cx: &mut App);
     /// Row `n` under `space` clicked; with shift it is picked, for ⌘W.
     fn open(&self, space: Space, n: usize, shift: bool, window: &mut Window, cx: &mut App);
+    /// Row `n` double-clicked: it is renamed in place.
+    fn rename(&self, space: Space, n: usize, window: &mut Window, cx: &mut App);
     /// Row `n`'s ×.
     fn close(&self, space: Space, n: usize, window: &mut Window, cx: &mut App);
     /// Row `n`'s right click, at `at`: its link, and a request's number (#162).

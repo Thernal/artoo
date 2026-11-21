@@ -30,7 +30,7 @@ pub(super) fn label(space: Space, cx: &App) -> &'static str {
         .find(|s| s.space == space)
         .map_or(space.name(), |s| s.label)
 }
-use gpui::{App, Context, Pixels, Point, WeakEntity, Window, prelude::*};
+use gpui::{App, Context, Pixels, Point, WeakEntity, Window, div, prelude::*};
 use std::rc::Rc;
 
 /// What a project lacks for a space.
@@ -157,15 +157,24 @@ impl Workspace {
                 tip: open.page.kind.clone(),
                 news: false,
             });
+            // A name the reviewer gave it replaces its title, its number kept.
+            let named = self.page_name(&open.item).map(str::to_owned);
+            let (row_label, row_tip) = match &named {
+                Some(name) => (
+                    super::nav::named_label(&row.label, name),
+                    format!("{}  named by you", row.tip),
+                ),
+                None => (row.label.clone(), row.tip.clone()),
+            };
             // A request an agent gathered: its line under the title, its mark and its comments waiting (#148).
             let gathered = match Page::from_route(&open.item) {
                 Some(Page::Request(iid)) => self.gathered(iid, cx).map(|g| (iid, g)),
                 _ => None,
             };
             let tip = match gathered.and_then(|(_, g)| g.note.as_deref().map(|n| (g, n))) {
-                Some((g, note)) if !note.is_empty() => format!("{}\n{}: {note}", row.tip, g.agent),
-                Some((g, _)) => format!("{}\nGathered by {}", row.tip, g.agent),
-                None => row.tip,
+                Some((g, note)) if !note.is_empty() => format!("{row_tip}\n{}: {note}", g.agent),
+                Some((g, _)) => format!("{row_tip}\nGathered by {}", g.agent),
+                None => row_tip,
             };
             let agent = gathered.map(|(iid, g)| {
                 let (letter, hue) = self.agents.agent_mark(&g.agent, cx);
@@ -174,8 +183,8 @@ impl Workspace {
             OpenRow {
                 item: Some(open.item.clone()),
                 icon: row.icon,
-                label: row.label,
-                mono: row.mono,
+                label: row_label,
+                mono: row.mono && named.is_none(),
                 tip,
                 on,
                 drafts,
@@ -186,6 +195,67 @@ impl Workspace {
             }
         }));
         rows
+    }
+
+    /// The title of open item `item`'s row, without its number: what Rename… starts from.
+    pub(super) fn row_title(&self, item: &Route, cx: &App) -> Option<String> {
+        let space = self.item_space(item)?;
+        let row = self
+            .open_rows(space, cx)
+            .into_iter()
+            .find(|o| o.item.as_ref() == Some(item))?;
+        Some(super::nav::split_number(&row.label).1.to_owned())
+    }
+
+    /// The row of `item` while it is renamed: its number, then the field its name is typed in.
+    fn rename_row(&self, item: &Route, cx: &Context<Self>) -> Option<gpui::AnyElement> {
+        if self.renaming.as_ref() != Some(item) || self.field != Some(super::lists::Field::Rename) {
+            return None;
+        }
+        let space = self.item_space(item)?;
+        let label = self
+            .open_rows(space, cx)
+            .into_iter()
+            .find(|o| o.item.as_ref() == Some(item))?
+            .label;
+        let number = super::nav::split_number(&label).0.to_owned();
+        let field = div()
+            .id("rename-field")
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .px_2()
+            .h(px(24.))
+            .rounded(px(super::ROW_RADIUS))
+            .border_2()
+            .border_color(theme::focus())
+            .bg(theme::base())
+            .text_color(theme::text())
+            .cursor_text()
+            .child(self.field_look(
+                &self.label_name,
+                true,
+                "Name",
+                super::input::Look::default(),
+                cx.entity().downgrade(),
+            ))
+            .on_mouse_down_out(cx.listener(|this, _: &gpui::MouseDownEvent, _, cx| {
+                if this.renaming.is_some() {
+                    this.save_rename(cx);
+                }
+            }));
+        Some(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .children((!number.is_empty()).then(|| div().flex_none().child(number)))
+                .child(field)
+                .into_any_element(),
+        )
     }
 
     /// An open item's words for ⌘E (#194): its row's label, the review's part as a glyph with its sentence
@@ -330,6 +400,7 @@ impl Workspace {
                             .text_size(px(8.));
                         (badge.into_any_element(), waiting)
                     }),
+                    editing: open.item.as_ref().and_then(|i| self.rename_row(i, &*cx)),
                     label: open.label,
                     mono: open.mono,
                     tip: open.tip,
@@ -465,6 +536,14 @@ impl SpacesHost for Glue {
                 None => this.close_shown(cx),
             })
             .ok();
+    }
+
+    fn rename(&self, space: Space, n: usize, _: &mut Window, cx: &mut App) {
+        if let Some(Some(item)) = self.item(space, n) {
+            self.tab
+                .update(cx, |this, cx| this.start_rename(item, cx))
+                .ok();
+        }
     }
 
     fn row_menu(&self, space: Space, n: usize, at: Point<Pixels>, _: &mut Window, cx: &mut App) {
