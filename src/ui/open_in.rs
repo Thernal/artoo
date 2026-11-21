@@ -19,8 +19,8 @@ use std::path::{Path, PathBuf};
 
 const FILE: &str = "open-with.txt";
 
-use artoo_ui_kit::controls::{self, REVEAL, chip};
-use artoo_ui_kit::hover::{self, Hover};
+use artoo_ui_kit::controls::{self, REVEAL};
+use artoo_ui_kit::hover::Hover;
 
 /// An app a file opens in.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -434,8 +434,8 @@ impl Workspace {
         )
     }
 
-    /// The file's line's chips: the app the diff's file opens in, ▾ the others. A diff under 600 px
-    /// keeps its ↗, the app in its tooltip (#80).
+    /// The file's line's Open in: the app's icon with `Open in {app}  ⌥⌘O` as its tip, and a small ▾ for the
+    /// others. Icons, not words (Design round 21, F1; the same quiet 24 px squares as the card's other marks).
     pub(super) fn open_in_chips(
         &self,
         this: gpui::WeakEntity<Self>,
@@ -444,21 +444,33 @@ impl Workspace {
         let app = self
             .open_target(cx)
             .and_then(|(path, _)| self.open_app(&path, cx))?;
-        let label = if self.tight(cx) {
-            "↗".to_owned()
-        } else {
-            format!("Open in {} ↗", app.name())
-        };
         let tip: SharedString = format!("Open in {}  ⌥⌘O", app.name()).into();
         let menu = this.clone();
+        let quiet = |id: &'static str, w: f32| {
+            div()
+                .id(id)
+                .h(px(24.))
+                .w(px(w))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(super::ROW_RADIUS))
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::hover()))
+        };
         Some(
             div()
                 .flex()
                 .flex_none()
                 .child(
-                    chip("open-editor", label, false)
-                        .tooltip_show_delay(hover::LONG)
-                        .tooltip(move |_, cx| cx.new(|_| super::TipOwned(tip.clone())).into())
+                    quiet("open-editor", 24.)
+                        .child(
+                            icons::icon("external")
+                                .size(px(14.))
+                                .text_color(theme::muted()),
+                        )
+                        .tip(tip)
                         // On a card's header: not its fold.
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_click(move |_: &ClickEvent, _, cx| {
@@ -466,14 +478,20 @@ impl Workspace {
                             this.update(cx, |this, cx| this.open_in(cx)).ok();
                         }),
                 )
-                .child(chip("open-in-more", "▾", false).on_mouse_down(
-                    MouseButton::Left,
-                    move |e: &MouseDownEvent, _, cx| {
-                        cx.stop_propagation();
-                        let at = e.position;
-                        menu.update(cx, |this, cx| this.open_in_menu(at, cx)).ok();
-                    },
-                ))
+                .child(
+                    quiet("open-in-more", 16.)
+                        .child(
+                            icons::icon("chevron")
+                                .size(px(12.))
+                                .text_color(theme::muted()),
+                        )
+                        .tip("Open in another app…")
+                        .on_mouse_down(MouseButton::Left, move |e: &MouseDownEvent, _, cx| {
+                            cx.stop_propagation();
+                            let at = e.position;
+                            menu.update(cx, |this, cx| this.open_in_menu(at, cx)).ok();
+                        }),
+                )
                 .into_any_element(),
         )
     }

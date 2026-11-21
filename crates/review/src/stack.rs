@@ -8,6 +8,7 @@ use crate::reviewed::State;
 use artoo_core::git::FileDiff;
 use artoo_core::rows::{self, FileData, Row};
 use artoo_review_api::viewers::Drawing;
+use artoo_ui_kit::hover::Hover;
 use artoo_ui_kit::{ROW_RADIUS, px, theme};
 use gpui::{
     App, ClickEvent, Context, FontWeight, ListOffset, MouseButton, Task, WeakEntity, div,
@@ -355,51 +356,44 @@ impl Review {
                                 }
                             })
                     }))
+                    // A request's and the working tree's files: the same `☐ Viewed` box, its tip the sentence and
+                    // the key (Design round 13, D3). A file changed since the mark keeps its `↻ v2` before the box.
                     .children(state.filter(|_| !viewing).map(|state| {
+                        let ticked = state == State::Done;
+                        let tip = if ticked {
+                            "Reviewed — click to unmark  ⇧V"
+                        } else {
+                            "Mark reviewed  V"
+                        };
+                        let chip = (state == State::Stale).then(|| {
+                            div()
+                                .flex_none()
+                                .text_size(px(12.))
+                                .text_color(theme::warning())
+                                .child(self.stale_chip(ix, host, cx))
+                        });
                         div()
-                            .id(id("file-header-mark"))
                             .flex_none()
-                            .px_2()
-                            .h(px(24.))
                             .flex()
                             .items_center()
-                            .rounded(px(ROW_RADIUS))
-                            .text_size(px(12.))
-                            .text_color(match state {
-                                State::Done => theme::added(),
-                                State::Stale => theme::warning(),
-                                State::Open => theme::muted(),
-                            })
-                            .font_weight(if state == State::Done {
-                                FontWeight::SEMIBOLD
-                            } else {
-                                FontWeight::NORMAL
-                            })
-                            .hover(|s| s.bg(theme::selected()).text_color(theme::text()))
-                            .gap(px(6.))
-                            .child(match state {
-                                State::Done => "✓ Reviewed".to_owned(),
-                                State::Stale => self.stale_chip(ix, host, cx),
-                                State::Open => "Mark reviewed".to_owned(),
-                            })
-                            // Its key on the active card, as the file's line had it.
-                            .child(div().flex_none().when(!active, |s| s.invisible()).child(
-                                artoo_ui_kit::keys::caps(
-                                    if state == State::Done { "⇧V" } else { "V" },
-                                    artoo_ui_kit::keys::On::Plain,
-                                ),
-                            ))
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .on_click(move |_: &ClickEvent, _, cx| {
-                                cx.stop_propagation();
-                                mark.update(cx, |rv, cx| {
-                                    let done = rv.review_state(ix) == Some(State::Done);
-                                    if rv.set_reviewed(ix, !done) {
-                                        cx.emit(ReviewEvent::Changed);
-                                    }
-                                })
-                                .ok();
-                            })
+                            .children(chip)
+                            .child(
+                                crate::reviewed::viewed_box(id("file-header-mark"), ticked)
+                                    .tip(tip)
+                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation()
+                                    })
+                                    .on_click(move |_: &ClickEvent, _, cx| {
+                                        cx.stop_propagation();
+                                        mark.update(cx, |rv, cx| {
+                                            let done = rv.review_state(ix) == Some(State::Done);
+                                            if rv.set_reviewed(ix, !done) {
+                                                cx.emit(ReviewEvent::Changed);
+                                            }
+                                        })
+                                        .ok();
+                                    }),
+                            )
                     })),
             )
             // A double click folds or opens it once, as one click does.
