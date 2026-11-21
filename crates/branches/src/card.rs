@@ -5,9 +5,9 @@
 use crate::history::History;
 use artoo_core::git::{CommitInfo, Deco, DecoKind, Repo};
 use artoo_ui_kit::controls::tag;
-use artoo_ui_kit::format::{self, plural};
-use artoo_ui_kit::hover::{CutInTip, card_action, card_frame, cut, full_date};
-use artoo_ui_kit::{discussion, motion, px, theme, words};
+use artoo_ui_kit::format;
+use artoo_ui_kit::hover::{CutInTip, Hover, card_action, card_frame, cut, full_date};
+use artoo_ui_kit::{discussion, icons, motion, px, theme, words};
 use gpui::{
     AnyView, App, ClickEvent, Context, FontWeight, IntoElement, Render, Rgba, Window, div,
     prelude::*,
@@ -73,6 +73,8 @@ pub struct CommitCard {
     pub refs: Vec<Deco>,
     /// The commit on GitLab or GitHub.
     pub url: Option<String>,
+    /// The host's name where it is known (`GitLab`, `GitHub`), for Open's tooltip.
+    pub host: Option<&'static str>,
     /// The repository, to read what it changed when the card shows.
     pub root: Option<std::path::PathBuf>,
     /// (files, lines added, lines removed), once read (X58).
@@ -85,6 +87,7 @@ impl CommitCard {
             info: other.info.clone(),
             refs: other.refs.clone(),
             url: other.url.clone(),
+            host: other.host,
             root: other.root.clone(),
             stat: other.stat,
         }
@@ -132,6 +135,9 @@ impl CommitCard {
             .collect();
         let sha = c.id.to_string();
         let url = self.url.clone();
+        let open = self
+            .host
+            .map_or("Open on the web".to_owned(), |h| format!("Open in {h}"));
         card_frame()
             .child(
                 div()
@@ -154,7 +160,7 @@ impl CommitCard {
                         ),
                     )
                     .children(url.map(|url| {
-                        card_action("card-open-commit", "external", "Open on the web")
+                        card_action("card-open-commit", "external", open)
                             .on_click(move |_: &ClickEvent, _, cx| cx.open_url(&url))
                     })),
             )
@@ -172,46 +178,73 @@ impl CommitCard {
             .child(
                 div()
                     .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(discussion::avatar(&c.author, false, 20.))
-                    .child(
-                        div().flex().flex_col().child(c.author.clone()).child(
-                            div()
-                                .text_size(px(11.))
-                                .text_color(theme::faint())
-                                .child(format!("{} · {}", c.email, full_date(c.time))),
-                        ),
-                    ),
-            )
-            .children(self.stat.map(|(files, added, removed)| {
-                div()
-                    .flex()
+                    .flex_col()
                     .gap(px(6.))
-                    .text_size(px(11.))
+                    .text_size(px(12.))
+                    // Who, to the commit's short time at the row's end.
                     .child(
-                        div()
-                            .text_color(theme::muted())
-                            .child(plural(files, "file")),
+                        row("Author")
+                            .child(
+                                div()
+                                    .id("card-author")
+                                    .flex_1()
+                                    .min_w_0()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(6.))
+                                    .child(discussion::avatar(&c.author, false, 16.))
+                                    .child(cut("card-author-name", c.author.clone()).min_w_0())
+                                    .tip(format!("{} · {}", c.email, full_date(c.time))),
+                            )
+                            .child(format::time_cell(c.time).text_color(theme::muted())),
                     )
-                    .child(div().text_color(theme::added()).child(format!("+{added}")))
-                    .child(
-                        div()
-                            .text_color(theme::removed())
-                            .child(format!("−{removed}")),
-                    )
-            }))
-            .children((!self.refs.is_empty()).then(|| {
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap(px(4.))
-                    .children(self.refs.iter().map(|d| {
-                        let (text, color) = label(d);
-                        tag(text, color)
+                    .children((!self.refs.is_empty()).then(|| {
+                        row("Refs").items_start().child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .gap(px(4.))
+                                .children(self.refs.iter().map(|d| {
+                                    let (text, color) = label(d);
+                                    div().flex().child(tag(text, color))
+                                })),
+                        )
                     }))
-            }))
+                    .children(self.stat.map(|(files, added, removed)| {
+                        row("Changes").child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(6.))
+                                .child(
+                                    icons::icon("files")
+                                        .size(px(13.))
+                                        .text_color(theme::muted()),
+                                )
+                                .child(div().text_color(theme::muted()).child(files.to_string()))
+                                .child(div().text_color(theme::added()).child(format!("+{added}")))
+                                .child(
+                                    div()
+                                        .text_color(theme::removed())
+                                        .child(format!("−{removed}")),
+                                ),
+                        )
+                    })),
+            )
     }
+}
+
+/// A row of a card's table: its label in a quiet column, what it says after it.
+fn row(label: &'static str) -> gpui::Div {
+    div().flex().items_center().gap(px(8.)).child(
+        div()
+            .flex_none()
+            .w(px(56.))
+            .text_color(theme::muted())
+            .child(label),
+    )
 }
 
 impl crate::history::History {
@@ -220,6 +253,13 @@ impl crate::history::History {
         CommitCard {
             refs: self.decor.get(&info.id).cloned().unwrap_or_default(),
             url: web.map(|w| w.commit(&info.id.to_string())),
+            host: web.and_then(|w| {
+                if w.github {
+                    Some("GitHub")
+                } else {
+                    w.base.contains("gitlab").then_some("GitLab")
+                }
+            }),
             info,
             root: self.root.clone(),
             stat: None,
