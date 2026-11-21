@@ -515,6 +515,8 @@ pub struct Toast {
     pub kind: Option<&'static str>,
     /// What it is about, under what happened (#198): `PAY-412 Refund rounds down on partial captures`.
     pub about: Option<String>,
+    /// Drawn as one flat line (a chat that began listening): no source, no ⋯, no ✕.
+    pub flat: Option<artoo_ui_kit::toast::Flat>,
 }
 
 /// Which toasts go (`Frame::drop_toasts`): those whose button runs an action it picks.
@@ -532,7 +534,14 @@ impl Toast {
             system: None,
             kind: None,
             about: None,
+            flat: None,
         }
+    }
+
+    /// Drawn as one flat line, its face, words, branch and buttons side by side.
+    pub fn flat(mut self, flat: artoo_ui_kit::toast::Flat) -> Self {
+        self.flat = Some(flat);
+        self
     }
 
     /// With a second button after the first, saying `words`, running `act`; without a first it shows nothing.

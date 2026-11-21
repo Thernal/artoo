@@ -1133,7 +1133,18 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                     branch: "feature/ledger-cache".into(),
                     began: true,
                 };
-                this.show_toast(toast::listening(&said), cx);
+                let mark = this.agents.mark(&said.session, cx);
+                this.show_toast(toast::listening(&said, mark), cx);
+            });
+            wait(1000).await;
+        }
+        // A host connected, as its toast (`toast-connected`): Connected as, the way in, Settings at the right.
+        if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("toast-connected")) {
+            ws.update(cx, |this, cx| {
+                this.connected(
+                    Some("Connected as @you\nArtoo (MacBook) · api · 30 days".into()),
+                    cx,
+                );
             });
             wait(1000).await;
         }

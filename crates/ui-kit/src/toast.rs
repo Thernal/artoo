@@ -6,10 +6,10 @@
 //! (Undo of a deleted draft, #76).
 
 use crate::hover::{LONG, Tip};
-use crate::{hover, icons, keys, motion, px, theme};
+use crate::{hover, icons, keys, monogram, motion, px, theme};
 use gpui::{
-    App, ClickEvent, Context, Pixels, Point, Render, SharedString, Task, Window, div, prelude::*,
-    relative,
+    AnyElement, App, ClickEvent, Context, Pixels, Point, Render, Rgba, SharedString, Task, Window,
+    div, prelude::*, relative,
 };
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -33,6 +33,20 @@ pub struct Words {
     pub about: Option<SharedString>,
     /// `⋯`: what its kind offers — its toasts turned off, Settings.
     pub more: Option<More>,
+    /// A chat's toast drawn as one flat line (a chat began listening): its face, what happened with its first
+    /// letters bold, the branch, `Show` as a link and a second button; no ⋯, no ✕, no bar.
+    pub flat: Option<Flat>,
+}
+
+/// What a flat toast adds to its words.
+#[derive(Clone)]
+pub struct Flat {
+    /// The chat's face: its agent's letter on a hue of its own.
+    pub mark: (char, Rgba),
+    /// How many bytes of the text, from its start, are the chat's name, in bold.
+    pub bold: usize,
+    /// The branch the chat works on, after the words.
+    pub branch: SharedString,
 }
 
 impl Words {
@@ -53,6 +67,13 @@ impl Words {
     pub fn about(self, about: impl Into<SharedString>) -> Self {
         Self {
             about: Some(about.into()),
+            ..self
+        }
+    }
+
+    pub fn flat(self, flat: Flat) -> Self {
+        Self {
+            flat: Some(flat),
             ..self
         }
     }
@@ -397,6 +418,139 @@ impl<A: Clone + PartialEq + 'static> Toasts<A> {
     }
 }
 
+/// In from the right as it fades in, and out the same way (#56, 8).
+fn arriving(toast: gpui::Stateful<gpui::Div>, id: u64, leaving: bool) -> AnyElement {
+    motion::toward(
+        toast,
+        ("toast-motion", id as usize),
+        !leaving,
+        true,
+        motion::BASE,
+        |toast, v| toast.relative().left(px(24. * (1. - v))).opacity(v),
+    )
+    .into_any_element()
+}
+
+/// A chat's toast as one flat line: its face with a live dot, `Codex` bold and what it did, the branch with its
+/// glyph, `Show` as a link, then a second button (`Stop listening`).
+fn flat_row<A: Clone + PartialEq + 'static>(
+    id: u64,
+    text: &SharedString,
+    flat: Flat,
+    button: Option<&'static str>,
+    second: Option<&'static str>,
+    info: bool,
+    cx: &Context<Toasts<A>>,
+) -> gpui::Stateful<gpui::Div> {
+    let bold = flat.bold.min(text.len());
+    let (name, rest) = text.split_at(bold);
+    let (letter, hue) = flat.mark;
+    div()
+        .id(("toast", id as usize))
+        .occlude()
+        .self_end()
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .px(px(14.))
+        .py(px(8.))
+        .max_w(px(520.))
+        .rounded(px(10.))
+        .border_1()
+        .border_color(theme::island_border())
+        .bg(theme::panel())
+        .shadow_lg()
+        .text_size(px(13.))
+        .line_height(px(19.))
+        .text_color(theme::text())
+        .children((!info).then(|| {
+            icons::icon("alert")
+                .size(px(16.))
+                .text_color(theme::removed())
+        }))
+        .child(
+            div()
+                .relative()
+                .flex_none()
+                .child(monogram::letter(letter, hue, 18.))
+                .child(
+                    div()
+                        .absolute()
+                        .right(px(-2.))
+                        .bottom(px(-2.))
+                        .size(px(7.))
+                        .rounded_full()
+                        .border_1()
+                        .border_color(theme::panel())
+                        .bg(theme::added()),
+                ),
+        )
+        .child(
+            div().flex_none().child(
+                div()
+                    .flex()
+                    .gap(px(4.))
+                    .child(
+                        div()
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .child(name.to_owned()),
+                    )
+                    .child(rest.trim_start().to_owned()),
+            ),
+        )
+        .children((!flat.branch.is_empty()).then(|| {
+            div()
+                .min_w_0()
+                .max_w(px(240.))
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .text_size(px(12.))
+                .text_color(theme::muted())
+                .child(
+                    icons::icon("branch")
+                        .flex_none()
+                        .size(px(12.))
+                        .text_color(theme::muted()),
+                )
+                .child(
+                    hover::name(("toast-branch", id as usize), flat.branch.clone())
+                        .font_family(theme::code_font())
+                        .flex_none()
+                        .w(px((flat.branch.chars().count() as f32 * 7.4).min(220.)))
+                        .min_w_0(),
+                )
+        }))
+        .children(button.map(|label| {
+            div()
+                .id(("toast-button", id as usize))
+                .flex_none()
+                .text_size(px(12.))
+                .text_color(theme::accent())
+                .cursor_pointer()
+                .child(label)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.press(id, cx)))
+        }))
+        .children(second.map(|label| {
+            div()
+                .id(("toast-second", id as usize))
+                .flex_none()
+                .h(px(24.))
+                .flex()
+                .items_center()
+                .px(px(10.))
+                .rounded(px(6.))
+                .border_1()
+                .border_color(theme::border())
+                .text_size(px(12.))
+                .text_color(theme::text())
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::hover()))
+                .child(label)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.press_second(id, cx)))
+        }))
+}
+
 impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
     /// The stack, over everything else, under the page bar's right end, clear of the right stripe (#198).
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -433,6 +587,17 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
             // and its ok glyph in the first line: 380 × 64.
             let two =
                 t.info && t.words.source.is_none() && t.words.about.is_some() && button.is_some();
+            if let Some(flat) = t.words.flat.clone() {
+                let text: SharedString = keys::text(&t.words.text).into_owned().into();
+                let toast = flat_row(id, &text, flat, button, second, t.info, cx);
+                return arriving(
+                    toast.on_hover(
+                        cx.listener(move |this, held: &bool, _, cx| this.hold(id, *held, cx)),
+                    ),
+                    id,
+                    leaving,
+                );
+            }
             let what = div()
                 .flex()
                 .items_center()
@@ -467,7 +632,8 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
                             .rounded(px(6.))
                             .text_size(px(12.))
                             .font_weight(gpui::FontWeight::MEDIUM)
-                            .text_color(theme::accent())
+                            .text_color(if two { theme::text() } else { theme::accent() })
+                            .when(two, |d| d.px(px(10.)).py(px(4.)).bg(theme::hover()))
                             .cursor_pointer()
                             .hover(|s| s.bg(theme::hover()))
                             .child(label)
@@ -574,20 +740,36 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
                         .flex_col()
                         .child(what)
                         .children(t.words.about.clone().map(|about| {
-                            hover::cut_to(
-                                ("toast-about", id as usize),
-                                about,
-                                if two { 1 } else { 2 },
-                            )
-                            .mt(px(2.))
-                            .text_size(px(12.))
-                            .line_height(px(17.))
-                            .text_color(theme::muted())
+                            // A host's way in has its key glyph before it.
+                            div()
+                                .mt(px(2.))
+                                .flex()
+                                .items_start()
+                                .gap(px(6.))
+                                .children(two.then(|| {
+                                    icons::icon("key")
+                                        .flex_none()
+                                        .mt(px(2.))
+                                        .size(px(12.))
+                                        .text_color(theme::muted())
+                                }))
+                                .child(
+                                    hover::cut_to(
+                                        ("toast-about", id as usize),
+                                        about,
+                                        if two { 1 } else { 2 },
+                                    )
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_size(px(12.))
+                                    .line_height(px(17.))
+                                    .text_color(theme::muted()),
+                                )
                         }))
                         .children(under),
                 )
                 .children(side)
-                .child(
+                .children((!two).then(|| {
                     div()
                         .id(("toast-close", id as usize))
                         .flex_none()
@@ -604,10 +786,11 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
                         .tooltip(|_, cx| cx.new(|_| Tip("Dismiss")).into())
                         .on_click(
                             cx.listener(move |this, _: &ClickEvent, _, cx| this.dismiss(id, cx)),
-                        ),
-                )
-                // The time left: it stops while the pointer is on the toast.
-                .child(
+                        )
+                }))
+                // The time left: it stops while the pointer is on the toast; feedback with a second line has
+                // none, it goes on its time.
+                .children((!two).then(|| {
                     div()
                         .absolute()
                         .left(px(12.))
@@ -622,17 +805,9 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
                                 .h_full()
                                 .w(relative(left.clamp(0., 1.)))
                                 .bg(theme::accent()),
-                        ),
-                );
-            // In from the right as it fades in, and out the same way (#56, 8).
-            motion::toward(
-                toast,
-                ("toast-motion", id as usize),
-                !leaving,
-                true,
-                motion::BASE,
-                |toast, v| toast.relative().left(px(24. * (1. - v))).opacity(v),
-            )
+                        )
+                }));
+            arriving(toast, id, leaving)
         });
         gpui::deferred(
             div()

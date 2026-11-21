@@ -51,12 +51,20 @@ pub(super) struct ShowChat {
 
 /// The toast of a chat that began listening or went: what happened, the branch it works on under it, and for one
 /// that began Stop listening.
-pub(super) fn listening(said: &artoo_agents_api::tab::Said) -> Toast {
-    let toast = Toast::new(said.text.clone()).kind(artoo_agents_api::notices::PRESENCE);
-    let toast = match said.branch.is_empty() {
-        true => toast,
-        false => toast.about(said.branch.clone()),
-    };
+pub(super) fn listening(said: &artoo_agents_api::tab::Said, mark: (char, gpui::Rgba)) -> Toast {
+    // The chat's name is bold: what comes before ` started` or ` stopped`.
+    let bold = said
+        .text
+        .find(" started")
+        .or_else(|| said.text.find(" stopped"))
+        .unwrap_or(0);
+    let toast = Toast::new(said.text.clone())
+        .kind(artoo_agents_api::notices::PRESENCE)
+        .flat(artoo_ui_kit::toast::Flat {
+            mark,
+            bold,
+            branch: said.branch.clone().into(),
+        });
     match said.began {
         // Show opens the Agents window; Stop listening ends the chat's listening.
         true => toast
@@ -142,9 +150,13 @@ impl Workspace {
             }
             None => (true, send && toast.system.is_some(), None, Words::default()),
         };
-        let words = Words {
-            about: toast.about.clone().map(Into::into),
-            ..words
+        // A flat toast has no source and no ⋯: the chat's face, its words and branch are its whole line.
+        let words = match toast.flat.clone() {
+            Some(flat) => Words::default().flat(flat),
+            None => Words {
+                about: toast.about.clone().map(Into::into),
+                ..words
+            },
         };
         let say = toast.say.clone();
         // The system's notification names a plugin first, as Artoo's own need not.
@@ -348,9 +360,11 @@ mod tests {
 
     #[test]
     fn the_listening_toast_names_the_branch_and_offers_stop_listening() {
-        let toast = listening(&said(true));
+        let toast = listening(&said(true), ('X', gpui::rgb(0x112233)));
         assert_eq!((toast.say)(1), "Codex started listening");
-        assert_eq!(toast.about.as_deref(), Some("feature/ledger-cache"));
+        let flat = toast.flat.as_ref().expect("a flat line");
+        assert_eq!(flat.branch, "feature/ledger-cache");
+        assert_eq!(&"Codex started listening"[..flat.bold], "Codex");
         let (words, _) = toast.button.expect("a button");
         assert_eq!(words, "Show");
         let (words, act) = toast.second.expect("a second button");
@@ -362,6 +376,10 @@ mod tests {
 
     #[test]
     fn a_chat_that_went_has_no_button() {
-        assert!(listening(&said(false)).button.is_none());
+        assert!(
+            listening(&said(false), ('X', gpui::rgb(0x112233)))
+                .button
+                .is_none()
+        );
     }
 }

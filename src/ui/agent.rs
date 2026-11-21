@@ -211,7 +211,8 @@ impl Workspace {
         self.dock_count(cx);
         let (changed, said) = self.agents.beat(root.as_deref(), here, cx);
         for said in said {
-            let notice = super::toast::listening(&said);
+            let mark = self.agents.mark(&said.session, cx);
+            let notice = super::toast::listening(&said, mark);
             self.show_toast(notice, cx);
         }
         if changed {
