@@ -167,10 +167,14 @@ pub fn setting_row_to(
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(px(6.))
+                .rounded(px(ROW_RADIUS))
+                // Its box, as the text button beside it has: an edge and a fill.
+                .border_1()
+                .border_color(theme::island_border())
+                .bg(theme::hover())
                 .text_color(theme::muted())
                 .cursor_pointer()
-                .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
+                .hover(|s| s.text_color(theme::text()))
                 .invisible()
                 .group_hover(group.clone(), |s| s.visible())
                 .child(
