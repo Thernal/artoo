@@ -824,6 +824,20 @@ fn state_glyph(
     .into_any_element()
 }
 
+/// The detail head's `Restart to finish`: the row's glyph, its sentence two lines in the tooltip.
+fn restart_glyph(id: &'static str, item: &Item) -> AnyElement {
+    state_glyph(
+        id,
+        "refresh-cw",
+        theme::warning(),
+        "Restart to finish",
+        Some(format!(
+            "Restart Artoo, in the bar above, turns {} on",
+            item.name
+        )),
+    )
+}
+
 /// A thin bar in a button's place while it installs.
 fn progress() -> AnyElement {
     artoo_ui_kit::motion::breathe(
@@ -1558,7 +1572,7 @@ impl Page {
                 false if matches!(&item.plugin, Some(p) if p.origin == Origin::Env) => {
                     div().into_any_element()
                 }
-                false => word("Restart to finish", theme::added()).into_any_element(),
+                false => restart_glyph("plugin-head-state", item),
             };
         }
         match act {
@@ -1597,7 +1611,7 @@ impl Page {
             .on_click(cx.listener(move |p, _: &ClickEvent, _, cx| p.act(&i1, false, cx)))
             .into_any_element(),
             Act::Progress => div().pt(px(10.)).child(progress()).into_any_element(),
-            Act::Restart => word("Restart to finish", theme::added()).into_any_element(),
+            Act::Restart => restart_glyph("plugin-head-state", item),
             Act::Installed | Act::Switch(..) | Act::NotLoaded => {
                 let plugin = item.plugin.clone().or_else(|| {
                     let offer = item.offer.as_ref()?;
