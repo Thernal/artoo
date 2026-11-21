@@ -1221,13 +1221,12 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
                             .text_size(px(12.))
                             .text_color(theme::muted())
                             .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .overflow_hidden()
-                                    .whitespace_nowrap()
-                                    .text_ellipsis()
-                                    .child(marked(author.to_owned(), look.filter)),
+                                hover::cut_with(
+                                    ("mr-author", iid),
+                                    author.to_owned(),
+                                    marked(author.to_owned(), look.filter),
+                                )
+                                .flex_1(),
                             )
                             .when(m.conflicts, |s| {
                                 s.child(glyph(
@@ -1397,14 +1396,7 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
     }
     let head = head
         .child(discussion::avatar(author, mine, 16.))
-        .child(
-            div()
-                .min_w_0()
-                .overflow_hidden()
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .child(author.to_owned()),
-        )
+        .child(hover::cut(("preview-author", iid), author.to_owned()).min_w_0())
         .child(div().flex_1())
         // A merged or closed one: what became of it, and when (#114).
         .children((!open).then(|| {

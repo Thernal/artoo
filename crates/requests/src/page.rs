@@ -228,14 +228,7 @@ impl Requests {
                 .gap(px(8.))
                 .min_w_0()
                 .child(discussion::avatar(&m.author, mine, 16.))
-                .child(
-                    div()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .child(author.to_owned()),
-                ),
+                .child(hover::cut(("page-author", m.iid), author.to_owned()).min_w_0()),
         );
         div()
             .px(px(24.))
