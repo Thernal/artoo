@@ -124,6 +124,14 @@ const ICONS: &[(&str, &str)] = &[
         "circle-dashed",
         lucide!(r#"<circle cx="12" cy="12" r="8.5" stroke-dasharray="3.4 3"/>"#),
     ),
+    // A plugin's group in Settings → Notifications.
+    (
+        "plug",
+        lucide!(
+            r#"<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/>"#
+            r#"<path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>"#
+        ),
+    ),
     (
         "contrast",
         lucide!(r#"<circle cx="12" cy="12" r="9"/><path d="M12 17a5 5 0 0 0 0-10v10z"/>"#),

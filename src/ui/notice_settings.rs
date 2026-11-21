@@ -76,10 +76,23 @@ impl Workspace {
             div()
                 .flex()
                 .items_center()
-                .gap(px(4.))
+                .gap(px(8.))
                 .text_size(px(12.))
-                .text_color(theme::warning())
-                .child("macOS has notifications off for Artoo ·")
+                .child(
+                    div()
+                        .id("macos-refuses")
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .text_color(theme::warning())
+                        .child(
+                            icons::icon("triangle-alert")
+                                .size(px(13.))
+                                .text_color(theme::warning()),
+                        )
+                        .child("Off in macOS")
+                        .tip("macOS has notifications off for Artoo: System stays silent until it is on there"),
+                )
                 .child(
                     div()
                         .id("open-notification-settings")
@@ -245,12 +258,6 @@ fn from_plugins(n: usize) -> AnyElement {
 
 /// A source's group: its name, a plugin's with its letter mark.
 fn group_row(source: &Source) -> AnyElement {
-    let letter = source
-        .name
-        .chars()
-        .next()
-        .map(|c| c.to_uppercase().to_string())
-        .unwrap_or_default();
     div()
         .flex()
         .items_center()
@@ -260,23 +267,17 @@ fn group_row(source: &Source) -> AnyElement {
         .text_size(px(12.))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(theme::text())
+        .child(source.name)
+        // A plugin's group wears a plug, its sentence the tooltip.
         .when(source.guest, |s| {
             s.child(
                 div()
+                    .id(SharedString::from(format!("notices-plug-{}", source.name)))
                     .flex_none()
-                    .size(px(18.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(4.))
-                    .bg(theme::selected())
-                    .text_size(px(11.))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(theme::accent())
-                    .child(letter),
+                    .child(icons::icon("plug").size(px(13.)).text_color(theme::faint()))
+                    .tip(format!("A plugin’s: {} declares these kinds", source.name)),
             )
         })
-        .child(source.name)
         .into_any_element()
 }
 
@@ -298,7 +299,14 @@ fn kind_row(kind: &Kind, ix: usize, system_off: bool, cx: &mut Context<Workspace
     for (channel, _, _) in COLUMNS {
         let cell = div().w(px(COLUMN)).flex().justify_center();
         if channel == Channel::Inbox && kind.inbox.is_none() {
-            row = row.child(cell.text_color(theme::faint()).child("–"));
+            row = row.child(
+                cell.text_color(theme::faint()).child(
+                    div()
+                        .id(SharedString::from(format!("notice-{ix}-dash")))
+                        .child("–")
+                        .tip("Not in the Inbox: it has a place of its own"),
+                ),
+            );
             continue;
         }
         let on = notices::is_on(cx, kind.id, channel);
