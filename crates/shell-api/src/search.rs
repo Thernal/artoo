@@ -152,6 +152,7 @@ pub struct Find {
     pub aside: Option<(&'static str, SharedString, Doing)>,
     /// A state as a glyph with its number and sentence (a theme is light, its colours under 4.5:1).
     pub badge: Option<crate::palette::Badge>,
+    pub wear: crate::palette::Wear,
     pub open: Opens,
 }
 
@@ -172,8 +173,27 @@ impl Find {
             swatch: None,
             aside: None,
             badge: None,
+            wear: Default::default(),
             open,
         }
+    }
+
+    /// A monogram of `mark` on `hue` before its words, in place of a glyph.
+    pub fn mark(mut self, mark: impl Into<String>, hue: gpui::Rgba) -> Self {
+        self.wear.mark = Some((mark.into(), hue));
+        self
+    }
+
+    /// A value quiet at its end (a setting's).
+    pub fn value(mut self, value: impl Into<String>) -> Self {
+        self.wear.value = value.into();
+        self
+    }
+
+    /// What ↵ does here, said in the foot: `install`.
+    pub fn verb(mut self, verb: &'static str) -> Self {
+        self.wear.verb = verb;
+        self
     }
 
     pub fn swatch(mut self, colors: [u32; 3]) -> Self {

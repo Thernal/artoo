@@ -97,6 +97,7 @@ fn settings_search(tab: WeakEntity<Workspace>) -> Search {
                         open,
                     )
                     .glyph("settings")
+                    .value(n.value.map(|v| v()).unwrap_or_default())
                     .in_folder()
                 })
                 .collect()

@@ -1009,14 +1009,17 @@ const DEFAULT_MODE: Named =
 const MARK_REVIEWED: Named = Named::new(REVIEW, "Mark reviewed as I scroll past")
     .detail("With all files in one scroll.")
     .words("diff viewed");
-const INTERFACE_FONT: Named =
-    Named::new(APPEARANCE, "Interface").words("interface font face typeface");
+const INTERFACE_FONT: Named = Named::new(APPEARANCE, "Interface")
+    .words("interface font face typeface")
+    .value(|| artoo_ui_kit::theme::ui_font().to_string());
 const CODE_FONT: Named = Named::new(APPEARANCE, "Code")
+    .value(|| artoo_ui_kit::theme::code_font().to_string())
     .detail("Grows with the interface size.")
     .words("code font face typeface monospace size points");
 const INTERFACE_SIZE: Named = Named::new(APPEARANCE, "Interface size")
     .detail("⌘+ and ⌘− change it from anywhere; ⌘0 back to 100 %")
-    .words("zoom scale bigger smaller");
+    .words("zoom scale bigger smaller")
+    .value(|| format!("{:.0} %", artoo_ui_kit::ui_zoom() * 100.));
 const PANES: Named = Named::new(APPEARANCE, "Panes").words("islands flat borders gaps layout");
 const ANIMATIONS: Named = Named::new(APPEARANCE, "Animations").words("motion reduce");
 const OPEN_FILES: Named = Named::new(PROJECTS, "Open files in").words("general editor program");

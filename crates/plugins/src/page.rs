@@ -2087,6 +2087,19 @@ fn scope(page: Entity<Page>, frame: Rc<dyn Frame>) -> Search {
                 seen.push(name.clone());
                 let detail = item.about.clone();
                 let stars = item.stars;
+                let lock = item.offer.as_ref().is_some_and(|o| o.private);
+                let mark = item
+                    .name
+                    .chars()
+                    .next()
+                    .map(|c| c.to_uppercase().collect::<String>())
+                    .unwrap_or_default();
+                let hue = hue(&item.id);
+                let verb = if act_of(&item, cx) == Act::Install {
+                    "install"
+                } else {
+                    ""
+                };
                 let (page, frame) = (find_page.clone(), frame.clone());
                 let open = Opens::Run(Rc::new(move |cx: &mut App| {
                     frame.go_space(SPACE, cx);
@@ -2107,8 +2120,15 @@ fn scope(page: Entity<Page>, frame: Rc<dyn Frame>) -> Search {
                 // What it does follows its name; its stars are at the end.
                 let find = Find::new("Plugins", name, detail, open)
                     .glyph("puzzle")
+                    .mark(mark, hue)
+                    .verb(verb)
                     .in_folder();
                 found.push(match stars {
+                    None if lock => find.badge(
+                        "lock",
+                        None,
+                        "Private: from your team's repository, no stars",
+                    ),
                     Some(n) => find.badge_text(
                         "star",
                         short_count(n),

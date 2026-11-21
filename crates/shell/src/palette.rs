@@ -86,7 +86,12 @@ fn rows(
                 .children(item.swatch.map(|c| controls::swatch(c, true)))
                 .children(item.icon.map(|p| icons::file_icon(&p, 16.)))
                 .children(
+                    (item.wear.mark.clone())
+                        .map(|(mark, hue)| artoo_ui_kit::monogram::monogram(&mark, hue, 18.)),
+                )
+                .children(
                     (item.glyph)
+                        .filter(|_| item.wear.mark.is_none())
                         .map(|name| icons::icon(name).size(px(16.)).text_color(theme::muted())),
                 )
                 .child(
@@ -106,6 +111,14 @@ fn rows(
                     .text_size(px(11.))
                     .text_color(theme::muted()),
                 )
+                .children((!item.wear.value.is_empty()).then(|| {
+                    div()
+                        .id(("palette-value", ix))
+                        .flex_none()
+                        .text_size(px(12.))
+                        .text_color(theme::muted())
+                        .child(item.wear.value.clone())
+                }))
                 // Its state as a glyph, its number beside it, its sentence the tooltip (a theme's light, contrast).
                 .children(item.badge.map(|b| {
                     div()
@@ -175,6 +188,11 @@ fn rows(
 /// The window, over everything; or a list dropped from its button (`PaletteView::under`).
 fn palette(view: PaletteView, host: Rc<dyn PaletteHost>) -> AnyElement {
     let dropped = view.under.is_some();
+    // What ↵ does on the row picked, as the foot says it.
+    let verb = (view.rows.get(view.at))
+        .map(|r| r.wear.verb)
+        .filter(|v| !v.is_empty())
+        .unwrap_or("open");
     let (rows, picked) = rows(view.rows, view.at, dropped, &host);
     let (scroll, follow) = view.scroll;
     if follow && let Some(picked) = picked {
@@ -321,7 +339,7 @@ fn palette(view: PaletteView, host: Rc<dyn PaletteHost>) -> AnyElement {
                         .children(rows)
                         .children(empty),
                 )
-                .child(foot(view.foot)),
+                .child(foot(view.foot, verb)),
             "palette-coming",
             motion::FAST,
             |panel, v| panel.w(px(motion::mix(627., 640., v))).opacity(v),
@@ -436,7 +454,7 @@ fn scopes(
 
 /// The foot: each key after its words, in a cap — the tab on with its key and how to move (a search), then
 /// open and close. A list without tabs says the last two.
-fn foot(on: Option<String>) -> AnyElement {
+fn foot(on: Option<String>, verb: &str) -> AnyElement {
     let hint = |say: &str, key: &str| {
         div()
             .flex()
@@ -463,10 +481,11 @@ fn foot(on: Option<String>) -> AnyElement {
                 .gap(px(14.))
                 .child(hint(label, key))
                 .child(hint("next tab", "⇥"))
+                .child(hint("back", "⇧⇥"))
                 .child(hint("actions", ">"))
         }))
         .child(div().flex_1())
-        .child(hint("open", "↵"))
+        .child(hint(verb, "↵"))
         .child(hint("close", "esc"))
         .into_any_element()
 }

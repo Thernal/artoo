@@ -121,6 +121,7 @@ struct Item {
     aside: Option<(&'static str, SharedString, Doing)>,
     /// A state as a glyph (a theme's light, its contrast).
     badge: Option<palette::Badge>,
+    wear: palette::Wear,
     pick: Pick,
 }
 
@@ -155,6 +156,7 @@ fn found_items(finds: Vec<Find>) -> Vec<Item> {
             swatch: f.swatch,
             aside: f.aside,
             badge: f.badge,
+            wear: f.wear,
             pick: Pick::Found {
                 open: f.open,
                 tried: f.tried,
@@ -527,6 +529,7 @@ impl Machine {
                 swatch: None,
                 aside: None,
                 badge: None,
+                wear: palette::Wear::default(),
                 pick: Pick::Command(ix),
             })
             .collect()
@@ -830,6 +833,7 @@ impl Render for Machine {
                     checked: matches!(item.pick, Pick::Found { current: true, .. }),
                     aside: (item.aside.as_ref()).map(|(glyph, tip, _)| (*glyph, tip.clone())),
                     badge: item.badge.clone(),
+                    wear: item.wear.clone(),
                 }
             })
             .collect();

@@ -24,7 +24,7 @@ pub const ABOUT: &str = "about";
 
 /// A setting by its words (`add_setting`): what Settings' search and ⌘K find, and the section that holds it (#203).
 /// The window root's rows are found with their live controls; another owner's lead to their section.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy)]
 pub struct Named {
     /// The section's id (`Section::id`).
     pub section: &'static str,
@@ -34,6 +34,24 @@ pub struct Named {
     pub detail: &'static str,
     /// What it answers to beyond its label: what it is about, the old section's name.
     pub words: &'static str,
+    /// What it holds now, said at its row's end in ⌘K (`SF Pro`); none for a row with no short value.
+    pub value: Option<fn() -> String>,
+}
+
+/// Named by its words; the value shown is not part of what it is.
+impl PartialEq for Named {
+    fn eq(&self, other: &Self) -> bool {
+        (self.section, self.label, self.detail, self.words)
+            == (other.section, other.label, other.detail, other.words)
+    }
+}
+
+impl Eq for Named {}
+
+impl std::fmt::Debug for Named {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Named({}, {})", self.section, self.label)
+    }
 }
 
 impl Named {
@@ -43,6 +61,14 @@ impl Named {
             label,
             detail: "",
             words: "",
+            value: None,
+        }
+    }
+
+    pub const fn value(self, value: fn() -> String) -> Self {
+        Self {
+            value: Some(value),
+            ..self
         }
     }
 

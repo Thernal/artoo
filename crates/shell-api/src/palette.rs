@@ -3,7 +3,7 @@
 //! What it lists, what the field holds and what a row does are the tab's; the frame draws it.
 
 use crate::render;
-use gpui::{AnyElement, App, SharedString, Window, div, prelude::*};
+use gpui::{AnyElement, App, Rgba, SharedString, Window, div, prelude::*};
 use std::rc::Rc;
 
 /// A row of the list.
@@ -34,6 +34,18 @@ pub struct Row {
     /// A state as a glyph before the end, its number beside it, its sentence as tooltip (a theme is light, its
     /// colours under 4.5:1).
     pub badge: Option<Badge>,
+    pub wear: Wear,
+}
+
+/// What a row wears beyond its words: a monogram before them, a value at its end, the verb its ↵ does.
+#[derive(Clone, Default)]
+pub struct Wear {
+    /// A monogram in place of a glyph: its letters and its hue (a plugin's).
+    pub mark: Option<(String, Rgba)>,
+    /// A setting's value in force, quiet at the row's end (`SF Pro`); empty for none.
+    pub value: String,
+    /// What ↵ does on it, as the foot says it (`install`); empty: `open`.
+    pub verb: &'static str,
 }
 
 /// A row's state: a glyph by the kit's name, an optional number, and the sentence that says it.
