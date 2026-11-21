@@ -44,7 +44,22 @@ pub fn piece(history: Entity<History>, services: Rc<Services>) -> Piece {
             {
                 return None;
             }
+            // A commit of a request: the version it was pushed as, said beside its time.
+            let of_request =
+                <artoo_requests_api::RequestCommitRoute as artoo_core::route::Place>::from_route(
+                    route,
+                );
+            let version = of_request.as_ref().and_then(|r| {
+                let requests = services.get::<Rc<dyn artoo_requests_api::Requests>>()?;
+                let (iid, versions) = requests.versions(cx)?;
+                let tip = git2::Oid::from_str(&r.commit).ok()?;
+                (iid == r.number)
+                    .then(|| versions.iter().find(|v| v.tip == tip).map(|v| v.number))
+                    .flatten()
+            });
             let look = HeadLook {
+                of_request: of_request.is_some(),
+                version,
                 message_open: h.message_open,
                 web: drawing.web.as_ref(),
                 compare_title: h.compare_title(route),
@@ -114,6 +129,10 @@ pub fn bar_piece(history: Entity<History>, services: Rc<Services>) -> Piece {
 
 /// What the head reads of the tab.
 pub struct HeadLook<'a> {
+    /// The commit is one of a request's: its head reads `hash · version · time · author`.
+    pub of_request: bool,
+    /// The version of the request the commit was pushed as.
+    pub version: Option<usize>,
     /// The commit's message open under its title.
     pub message_open: bool,
     /// Where the repository is on the web: a commit's page there.
@@ -401,10 +420,44 @@ fn summary(diff: &Diff, look: &HeadLook, text: Selectable, acts: &Acts) -> gpui:
                                 .font_family(theme::code_font())
                                 .cursor_pointer()
                                 .hover(|s| s.text_color(theme::text()))
+                                .flex()
+                                .items_center()
+                                .gap(px(4.))
+                                .children(look.of_request.then(|| {
+                                    icons::icon("commit")
+                                        .size(px(13.))
+                                        .text_color(theme::faint())
+                                }))
                                 .child(short)
                                 .tip("Copy the whole id")
                                 .on_click(asks(acts, Act::Copy(full))),
                         )
+                        .children(look.of_request.then(|| {
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(12.))
+                                .children(look.version.map(|n| {
+                                    div()
+                                        .id("commit-version")
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(4.))
+                                        .child(
+                                            icons::icon("layers")
+                                                .size(px(13.))
+                                                .text_color(theme::faint()),
+                                        )
+                                        .child(format!("v{n}"))
+                                        .tip(format!("Pushed as version {n}"))
+                                }))
+                                .child(
+                                    div()
+                                        .id("commit-time")
+                                        .child(format::short_ago(commit.time))
+                                        .tip(hover::full_date(commit.time)),
+                                )
+                        }))
                         .child(commit.author.clone())
                         .children(body.is_some().then(|| {
                             let acts = acts.clone();
@@ -430,7 +483,7 @@ fn summary(diff: &Diff, look: &HeadLook, text: Selectable, acts: &Acts) -> gpui:
                                     acts(Act::Message, cx)
                                 })
                         }))
-                        .child(format::date(commit.time))
+                        .children((!look.of_request).then(|| format::date(commit.time)))
                         .child(stats)
                         .children(look.web.map(|web| {
                             let url = web.commit(&commit.id.to_string());
