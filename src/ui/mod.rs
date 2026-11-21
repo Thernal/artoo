@@ -1162,6 +1162,15 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             });
             wait(500).await;
         }
+        // The open page's rename field open in its row (`rename-edit`), its name selected.
+        if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("rename-edit")) {
+            ws.update(cx, |this, cx| {
+                if let Some(item) = this.nav_page().and_then(|p| this.item_of(p)) {
+                    this.start_rename(item, cx);
+                }
+            });
+            wait(500).await;
+        }
         // The newest toast's button pressed: where an agent's news leads (#150).
         if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("toast-act")) {
             ws.update(cx, |this, cx| {
