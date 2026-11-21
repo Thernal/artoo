@@ -1336,27 +1336,35 @@ impl Page {
     fn sources_menu(&mut self, at: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
         let market = cx.global::<Market>();
         let mut items = vec![
-            MenuItem::new("GitHub · Public repositories, always searched", |_, _| {}).checked(true),
+            MenuItem::off("Search for plugins on"),
+            MenuItem::new("GitHub", |_, _| {})
+                .under("Public repositories")
+                .note("check", "Always searched")
+                .tip_two("Always searched", "Public repositories need no account"),
         ];
         items.extend(market.team.iter().map(|s| {
             let host = s.host.clone();
-            let who = if s.who.is_empty() {
-                String::new()
-            } else {
-                format!(" · @{}", s.who)
-            };
-            MenuItem::new(format!("{} · {}{who}", s.host, s.holds), move |_, cx| {
+            let item = MenuItem::new(s.host.clone(), move |_, cx| {
                 let on = (cx.global::<Market>().team.iter())
                     .find(|s| s.host == host)
                     .is_some_and(|s| !s.on);
                 market::set_team(&host, on, cx)
             })
-            .checked(s.on)
+            .under(s.holds.clone())
+            .switch(s.on);
+            if s.who.is_empty() {
+                item
+            } else {
+                item.quiet(format!("@{}", s.who))
+            }
         }));
         let frame = self.frame.clone();
-        let accounts = vec![MenuItem::new("Sign in to another host…", move |_, cx| {
-            frame.open_settings(artoo_hosts_api::connect::SETTINGS, cx)
-        })];
+        let accounts = vec![
+            MenuItem::new("Sign in to another host…", move |_, cx| {
+                frame.open_settings(artoo_hosts_api::connect::SETTINGS, cx)
+            })
+            .icon("settings"),
+        ];
         self.frame.menu(at, vec![items, accounts], cx);
     }
 

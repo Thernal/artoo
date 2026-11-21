@@ -29,6 +29,27 @@ pub struct Entry<A> {
     /// A glyph at the row's right end with its sentence as the tooltip, in place of `key` (Open in's
     /// `This project's editor before`).
     pub note: Option<(&'static str, String)>,
+    /// A switch at the row's end: whether it is on (a plugin source). Clicking the row flips it.
+    pub switch: Option<bool>,
+    /// Said quiet before the end's glyphs (`@you`).
+    pub quiet: Option<String>,
+    /// A fact at the end: a glyph and a short word, the sentence its tooltip (Merge's list: `✓ 1/2`).
+    pub value: Option<Value>,
+    /// A chevron of its own at the very end with its own tooltip; `Some(None)` keeps its room, drawn empty.
+    pub go: Option<Option<String>>,
+    /// The whole row's tooltip: a title and, under it, a line.
+    pub tip: Option<(String, Option<String>)>,
+}
+
+/// A fact at a row's end.
+#[derive(Clone)]
+pub struct Value {
+    pub icon: &'static str,
+    pub text: String,
+    /// What it says, on a long hover.
+    pub tip: String,
+    /// `Some`: drawn as a pill in this colour (what is wrong); `None`: quiet.
+    pub tone: Option<Rgba>,
 }
 
 /// What an entry wears before its label (#200, the `To:` list).
@@ -42,32 +63,84 @@ pub enum Lead {
 
 impl<A> Entry<A> {
     pub fn new(label: impl Into<String>, act: A) -> Self {
-        Self {
-            label: label.into(),
-            key: "",
-            checked: None,
-            face: None,
-            detail: None,
-            act: Some(act),
-            lead: None,
-            under: None,
-            note: None,
-        }
+        Self::blank(label.into(), Some(act))
     }
 
     /// What cannot be done here, and why: `Copy link — only on this Mac`.
     pub fn off(label: impl Into<String>) -> Self {
+        Self::blank(label.into(), None)
+    }
+
+    fn blank(label: String, act: Option<A>) -> Self {
         Self {
-            label: label.into(),
+            label,
             key: "",
             checked: None,
             face: None,
             detail: None,
-            act: None,
+            act,
             lead: None,
             under: None,
             note: None,
+            switch: None,
+            quiet: None,
+            value: None,
+            go: None,
+            tip: None,
         }
+    }
+
+    /// A switch at the end, `on` or off.
+    pub fn switch(mut self, on: bool) -> Self {
+        self.switch = Some(on);
+        self
+    }
+
+    /// Quiet words before the end's glyphs.
+    pub fn quiet(mut self, quiet: impl Into<String>) -> Self {
+        self.quiet = Some(quiet.into());
+        self
+    }
+
+    /// A fact at the end: `icon` and `text`, `tip` its sentence; `tone` makes it a pill.
+    pub fn value(
+        mut self,
+        icon: &'static str,
+        text: impl Into<String>,
+        tip: impl Into<String>,
+        tone: Option<Rgba>,
+    ) -> Self {
+        self.value = Some(Value {
+            icon,
+            text: text.into(),
+            tip: tip.into(),
+            tone,
+        });
+        self
+    }
+
+    /// A chevron at the very end, `tip` its own sentence.
+    pub fn go(mut self, tip: impl Into<String>) -> Self {
+        self.go = Some(Some(tip.into()));
+        self
+    }
+
+    /// The chevron's room without a chevron, so the rows' ends line up.
+    pub fn go_blank(mut self) -> Self {
+        self.go = Some(None);
+        self
+    }
+
+    /// The row's tooltip: one line.
+    pub fn tip(mut self, title: impl Into<String>) -> Self {
+        self.tip = Some((title.into(), None));
+        self
+    }
+
+    /// The row's tooltip: a title and a quieter line.
+    pub fn tip_two(mut self, title: impl Into<String>, line: impl Into<String>) -> Self {
+        self.tip = Some((title.into(), Some(line.into())));
+        self
     }
 
     pub fn key(mut self, key: &'static str) -> Self {
@@ -113,11 +186,84 @@ impl<A> Entry<A> {
     }
 }
 
+/// A row's end: quiet words, a fact, a switch, a note or its keys, a chevron.
+fn end<A>(entry: &Entry<A>) -> impl IntoElement {
+    div()
+        .flex_none()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .children(
+            entry
+                .quiet
+                .clone()
+                .map(|q| div().text_size(px(11.)).text_color(theme::faint()).child(q)),
+        )
+        .children(entry.value.clone().map(|v| {
+            let hue = v.tone.unwrap_or_else(theme::muted);
+            div()
+                .id("value")
+                .flex()
+                .items_center()
+                .gap(px(3.))
+                .text_size(px(12.))
+                .text_color(hue)
+                .when(v.tone.is_some(), |s| {
+                    s.h(px(20.))
+                        .px(px(6.))
+                        .rounded_full()
+                        .border_1()
+                        .border_color(hue)
+                })
+                .child(crate::icons::icon(v.icon).size(px(14.)).text_color(hue))
+                .child(v.text)
+                .tip(v.tip)
+        }))
+        .children(
+            entry
+                .switch
+                .map(|on| crate::controls::switch("menu-switch", on)),
+        )
+        .child(match entry.note.clone() {
+            Some((icon, tip)) => div()
+                .id("note")
+                .flex_none()
+                .child(
+                    crate::icons::icon(icon)
+                        .size(px(14.))
+                        .text_color(theme::faint()),
+                )
+                .tip(tip)
+                .into_any_element(),
+            None if entry.key.is_empty() => div().into_any_element(),
+            None => div()
+                .text_size(px(11.))
+                .text_color(theme::faint())
+                .child(keys::text(entry.key).into_owned())
+                .into_any_element(),
+        })
+        .children(entry.go.clone().map(|tip| {
+            let chevron = div().id("go").flex_none().size(px(14.));
+            match tip {
+                Some(tip) => chevron
+                    .child(
+                        crate::icons::icon("chevron-right")
+                            .size(px(14.))
+                            .text_color(theme::faint()),
+                    )
+                    .tip(tip),
+                None => chevron,
+            }
+        }))
+}
+
 /// Entries in groups; a rule is drawn between groups, a group may have a heading.
 struct Panel<A> {
     at: Point<Pixels>,
     groups: Vec<Vec<Entry<A>>>,
     titles: Vec<Option<&'static str>>,
+    /// `Some`: headings in sentence case, the first with an info glyph whose tooltip is this (Merge's list).
+    plain: Option<String>,
     /// `WIDTH`, or wider for entries with a detail (#164).
     width: f32,
 }
@@ -179,10 +325,26 @@ impl<A: Clone + 'static> Menu<A> {
                 at,
                 groups,
                 titles,
+                plain: None,
                 width,
             });
             self.leaving = None;
             cx.notify();
+        }
+    }
+
+    /// `open` with headings in sentence case, the first one ending in an info glyph saying `info`.
+    pub fn open_plain(
+        &mut self,
+        at: Point<Pixels>,
+        groups: Vec<(Option<&'static str>, Vec<Entry<A>>)>,
+        width: f32,
+        info: impl Into<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.open(at, groups, width, cx);
+        if let Some(panel) = self.open.as_mut() {
+            panel.plain = Some(info.into());
         }
     }
 
@@ -260,9 +422,22 @@ impl<A: Clone + 'static> Menu<A> {
                         .flex()
                         .items_center()
                         .text_size(px(11.))
-                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .when(menu.plain.is_none(), |s| {
+                            s.font_weight(gpui::FontWeight::SEMIBOLD)
+                        })
                         .text_color(theme::faint())
-                        .child(t.to_uppercase())
+                        .child(div().flex_1().child(if menu.plain.is_some() {
+                            t.to_owned()
+                        } else {
+                            t.to_uppercase()
+                        }))
+                        .children((g == 0).then_some(()).and(menu.plain.clone()).map(|info| {
+                            div()
+                                .id("head-info")
+                                .flex_none()
+                                .child(crate::icons::icon("info").size(px(14.)))
+                                .tip(info)
+                        }))
                 }))
                 .children(entries.iter().enumerate().map(|(i, entry)| {
                     let act = entry.act.clone();
@@ -277,13 +452,20 @@ impl<A: Clone + 'static> Menu<A> {
                                 .text_color(theme::faint())
                                 .cursor_default()
                         })
-                        .child(div().w(px(14.)).text_color(theme::accent()).child(
-                            if entry.checked == Some(true) {
-                                "✓"
-                            } else {
-                                ""
+                        // The mark's column, unless the row begins with a glyph of its own or has two lines.
+                        .when(
+                            entry.checked.is_some()
+                                || (entry.lead.is_none() && entry.under.is_none()),
+                            |s| {
+                                s.child(div().w(px(14.)).text_color(theme::accent()).child(
+                                    if entry.checked == Some(true) {
+                                        "✓"
+                                    } else {
+                                        ""
+                                    },
+                                ))
                             },
-                        ))
+                        )
                         // A gone one's lead is dimmed with its words.
                         .children(entry.lead.map(|lead| {
                             div()
@@ -360,22 +542,10 @@ impl<A: Clone + 'static> Menu<A> {
                                 )
                                 .into_any_element(),
                         })
-                        .child(match entry.note.clone() {
-                            Some((icon, tip)) => div()
-                                .id("note")
-                                .flex_none()
-                                .child(
-                                    crate::icons::icon(icon)
-                                        .size(px(14.))
-                                        .text_color(theme::faint()),
-                                )
-                                .tip(tip)
-                                .into_any_element(),
-                            None => div()
-                                .text_size(px(11.))
-                                .text_color(theme::faint())
-                                .child(keys::text(entry.key).into_owned())
-                                .into_any_element(),
+                        .child(end(entry))
+                        .when_some(entry.tip.clone(), |s, (title, line)| match line {
+                            Some(line) => s.tip_two(title, line),
+                            None => s.tip(title),
                         })
                         .when_some(act.filter(|_| live), |s, act| {
                             s.on_click(cx.listener(move |this, _, window, cx| {

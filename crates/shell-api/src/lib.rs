@@ -595,6 +595,18 @@ pub struct MenuItem {
     pub checked: Option<bool>,
     /// What it does; `None` for one shown dimmed, its label saying why.
     pub run: Option<Run>,
+    /// A glyph before the label (Lucide, by name).
+    pub icon: Option<&'static str>,
+    /// A quieter line under the label.
+    pub under: Option<String>,
+    /// Quiet words before the end's glyphs (`@you`).
+    pub quiet: Option<String>,
+    /// A switch at the end: whether it is on.
+    pub switch: Option<bool>,
+    /// A glyph at the end with its sentence as the tooltip (a check on what is always on).
+    pub note: Option<(&'static str, String)>,
+    /// The row's tooltip: a title and a line.
+    pub tip: Option<(String, String)>,
 }
 
 impl MenuItem {
@@ -604,6 +616,12 @@ impl MenuItem {
             key: "",
             checked: None,
             run: Some(Rc::new(run)),
+            icon: None,
+            under: None,
+            quiet: None,
+            switch: None,
+            note: None,
+            tip: None,
         }
     }
 
@@ -614,6 +632,54 @@ impl MenuItem {
             key: "",
             checked: None,
             run: None,
+            icon: None,
+            under: None,
+            quiet: None,
+            switch: None,
+            note: None,
+            tip: None,
+        }
+    }
+
+    pub fn icon(self, icon: &'static str) -> Self {
+        Self {
+            icon: Some(icon),
+            ..self
+        }
+    }
+
+    pub fn under(self, under: impl Into<String>) -> Self {
+        Self {
+            under: Some(under.into()),
+            ..self
+        }
+    }
+
+    pub fn quiet(self, quiet: impl Into<String>) -> Self {
+        Self {
+            quiet: Some(quiet.into()),
+            ..self
+        }
+    }
+
+    pub fn switch(self, on: bool) -> Self {
+        Self {
+            switch: Some(on),
+            ..self
+        }
+    }
+
+    pub fn note(self, icon: &'static str, tip: impl Into<String>) -> Self {
+        Self {
+            note: Some((icon, tip.into())),
+            ..self
+        }
+    }
+
+    pub fn tip_two(self, title: impl Into<String>, line: impl Into<String>) -> Self {
+        Self {
+            tip: Some((title.into(), line.into())),
+            ..self
         }
     }
 

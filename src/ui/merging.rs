@@ -40,25 +40,33 @@ impl Workspace {
             .into_iter()
             .map(|b| {
                 let (icon, value) = reason_look(b.what, &b.detail);
-                let go = match &b.fix {
-                    Fix::Nowhere => "",
-                    _ => "\u{203a}",
+                // A failing pipeline is a pill in red; the others are quiet facts.
+                let tone = (b.what == "Pipeline").then(theme::removed);
+                let go = match (&b.fix, b.what) {
+                    (Fix::Nowhere, _) => None,
+                    (Fix::Discussions, _) => Some(format!("Show the {value} discussions")),
+                    (Fix::Page(_), "Pipeline") => Some(format!("Open the {value} job")),
+                    (Fix::Page(_), _) => Some(format!("Open the {}", b.what.to_lowercase())),
                 };
-                Entry::new(b.what, {
+                let entry = Entry::new(b.what, {
                     let fix = b.fix;
                     Act::new(move |this, _, cx| this.go_fix(fix.clone(), cx))
                 })
                 .lead(Lead::Icon(icon, theme::muted()))
-                .detail(value)
-                .key(go)
+                .value(icon, value, b.detail, tone);
+                match go {
+                    Some(tip) => entry.go(tip),
+                    None => entry.go_blank(),
+                }
             })
             .collect();
         // A list of facts under its heading, a glyph and a short value each (Design M1).
         self.ctx_menu.update(cx, |m, cx| {
-            m.open(
+            m.open_plain(
                 at,
                 vec![(Some("In the way of merging"), entries)],
                 REASONS_WIDTH,
+                "The host asks again on every push",
                 cx,
             )
         });
