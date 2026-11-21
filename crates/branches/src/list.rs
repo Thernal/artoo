@@ -244,16 +244,19 @@ fn branch_row(
                     .items_center()
                     .gap(px(8.))
                     .child(
-                        hover::name(
-                            SharedString::from(format!("branch-name-{ix}")),
-                            name.to_owned(),
-                        )
-                        .flex_1()
-                        .font_family(theme::code_font())
-                        .when(b.kind == RefKind::Local, |s| {
-                            s.font_weight(FontWeight::SEMIBOLD)
-                        })
-                        .when(b.kind == RefKind::Remote, |s| s.text_color(theme::muted())),
+                        div()
+                            .flex()
+                            .min_w_0()
+                            .child(crate::key::name(
+                                SharedString::from(format!("branch-name-{ix}")),
+                                name.to_owned(),
+                            ))
+                            .flex_1()
+                            .font_family(theme::code_font())
+                            .when(b.kind == RefKind::Local, |s| {
+                                s.font_weight(FontWeight::SEMIBOLD)
+                            })
+                            .when(b.kind == RefKind::Remote, |s| s.text_color(theme::muted())),
                     )
                     .children(
                         beside
@@ -560,7 +563,7 @@ fn branch_preview(
         .line_height(px(26.))
         .font_weight(FontWeight::SEMIBOLD)
         .font_family(theme::code_font())
-        .child(b.name.clone());
+        .child(crate::key::name("branch-preview-name", b.name.clone()));
     let mut facts: Vec<String> = Vec::new();
     if let Some((against, ahead, behind)) = fact.and_then(|f| f.against.as_ref()) {
         facts.push(if (*ahead, *behind) == (0, 0) {

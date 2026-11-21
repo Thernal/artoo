@@ -1,0 +1,80 @@
+//! A branch's name with its issue key as its own words (`feature/PAY-398-login-state`, #217): underlined, the issue's
+//! card on a long hover, as the page bar's crumb draws it. With no tracker, or no key in the name, the name stays
+//! one cut name (`hover::name`).
+
+use artoo_shell_api::issues;
+use artoo_ui_kit::hover::{self, Hover};
+use gpui::{
+    App, Context, IntoElement, ParentElement, Render, RenderOnce, SharedString, Styled, Window,
+    div, prelude::*,
+};
+
+/// The name `text`, cut in its middle to its room, its key (if a tracker names one) apart.
+#[derive(IntoElement)]
+pub struct KeyedName {
+    id: SharedString,
+    text: SharedString,
+}
+
+/// A branch's name for a row or a fact; style it through its parent (the text style is inherited).
+pub fn name(id: impl Into<SharedString>, text: impl Into<SharedString>) -> KeyedName {
+    KeyedName {
+        id: id.into(),
+        text: text.into(),
+    }
+}
+
+/// The issue's card, drawn by the kit; Open opens the issue under its tracker.
+struct Card(hover::IssueCard);
+
+impl Render for Card {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let key = self.0.key.clone();
+        hover::issue_card(&self.0, move |_, cx| {
+            issues::open(cx, &key);
+        })
+    }
+}
+
+impl RenderOnce for KeyedName {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        let key = issues::in_name(cx, &self.text)
+            .into_iter()
+            .next()
+            .filter(|k| self.text.is_char_boundary(k.start) && self.text.is_char_boundary(k.end));
+        let Some(k) = key else {
+            return hover::name(self.id, self.text).into_any_element();
+        };
+        let (before, key, after) = (
+            self.text[..k.start].to_owned(),
+            self.text[k.clone()].to_owned(),
+            self.text[k.end..].to_owned(),
+        );
+        let card_of = key.clone();
+        div()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .children(
+                (!before.is_empty())
+                    .then(|| hover::name(SharedString::from(format!("{}-0", self.id)), before)),
+            )
+            .child(
+                div()
+                    .id(SharedString::from(format!("{}-1", self.id)))
+                    .flex_none()
+                    .whitespace_nowrap()
+                    .underline()
+                    .child(key)
+                    .card(move |_, cx| match issues::card(cx, &card_of) {
+                        Some(card) => cx.new(|_| Card(card)).into(),
+                        None => cx.new(|_| gpui::Empty).into(),
+                    }),
+            )
+            .children(
+                (!after.is_empty())
+                    .then(|| hover::name(SharedString::from(format!("{}-2", self.id)), after)),
+            )
+            .into_any_element()
+    }
+}

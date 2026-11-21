@@ -8,7 +8,7 @@ use artoo_core::route::{Place, Route};
 use artoo_requests_api::Requests;
 use artoo_shell_api::{Piece, Services, Slot};
 use artoo_ui_kit::format::{self, plural};
-use artoo_ui_kit::hover::{self, Hover};
+use artoo_ui_kit::hover::Hover;
 use artoo_ui_kit::{icons, island, px, theme, words};
 use git2::Oid;
 use gpui::{AnyElement, App, Div, Entity, MouseButton, MouseDownEvent, div, prelude::*};
@@ -156,9 +156,11 @@ pub fn branch_line(
                             .text_color(theme::faint()),
                     )
                     .child(
-                        hover::name("fact-checked-out", name)
+                        div()
+                            .flex()
                             .min_w_0()
-                            .font_family(theme::code_font()),
+                            .font_family(theme::code_font())
+                            .child(crate::key::name("fact-checked-out", name)),
                     )
             })),
     )
