@@ -1,0 +1,8 @@
+repo=git@github.com:Thernal/knowledge.git
+kind=skill
+skill=token-economy
+path=skills/token-economy
+ref=default
+commit=bc0f7c7702e08c1d43772112a5c8694db6286880
+tree=0185a2f4d2c05dafdc59bd20a698b8f25f7ce6f4
+installed_at=2026-11-22T20:11:05Z
