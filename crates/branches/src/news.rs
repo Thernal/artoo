@@ -100,6 +100,7 @@ impl History {
             let seen = self.versions.len();
             self.mark_new_versions(versions.len());
             self.versions = versions;
+            self.keep_versions_selection();
             return Reloaded::Versions { seen };
         }
         self.pending = Some(Pending {
@@ -142,7 +143,9 @@ impl History {
                     None => Applied::Newest,
                 }
             }
-            (Selection::Versions { to, .. }, _) if to < self.versions.len() => Applied::Kept,
+            (Selection::Versions { from, to }, _) if from.max(to) < self.versions.len() => {
+                Applied::Kept
+            }
             (Selection::WorkingTree, _) => Applied::Kept,
             _ => Applied::Cleared,
         };
@@ -154,6 +157,16 @@ impl History {
         self.pending = None;
         self.new_from = None;
         self.reload = None;
+    }
+
+    /// The versions were replaced: a selection of versions past the new list falls back to none, so nothing reads
+    /// past it (the list may have shrunk under it).
+    pub fn keep_versions_selection(&mut self) {
+        if let Selection::Versions { from, to } = self.selection
+            && from.max(to) >= self.versions.len()
+        {
+            self.selection = Selection::None;
+        }
     }
 
     /// Versions of `len` arrived: those past the ones listed are new.
@@ -199,5 +212,57 @@ impl History {
                 .child(div().text_color(theme::muted()).child("Show"))
                 .on_click(move |_, _, cx| acts(Act::ShowNew, cx)),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn version(number: usize) -> Version {
+        Version {
+            number,
+            tip: git2::Oid::ZERO_SHA1,
+            base: None,
+            commits: 1,
+            time: 0,
+            reason: String::new(),
+            author: String::new(),
+        }
+    }
+
+    fn history(versions: usize, selection: Selection) -> History {
+        History {
+            versions: (1..=versions).map(version).collect(),
+            selection,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_list_that_shrinks_under_the_versions_selected_drops_the_selection() {
+        // The list read again holds fewer versions, the commits the same: `from` and `to` point past it.
+        let mut h = history(4, Selection::Versions { from: 2, to: 3 });
+        let open = Some((
+            String::from("topic"),
+            vec![version(1), version(2)],
+            Vec::new(),
+        ));
+        let reloaded = h.reloaded(Vec::new(), Some(String::from("topic")), open);
+        assert!(matches!(reloaded, Reloaded::Versions { seen: 4 }));
+        assert_eq!(h.versions.len(), 2);
+        assert_eq!(h.selection, Selection::None);
+    }
+
+    #[test]
+    fn a_selection_inside_the_new_list_is_kept() {
+        let mut h = history(4, Selection::Versions { from: 0, to: 1 });
+        h.versions.truncate(2);
+        h.keep_versions_selection();
+        assert_eq!(h.selection, Selection::Versions { from: 0, to: 1 });
+        // Only `from` past the list, which the old guard let through.
+        let mut h = history(2, Selection::Versions { from: 3, to: 1 });
+        h.keep_versions_selection();
+        assert_eq!(h.selection, Selection::None);
     }
 }

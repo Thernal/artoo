@@ -93,6 +93,7 @@ impl History {
             keep,
         } = self.read.take()?;
         self.versions = versions;
+        self.keep_versions_selection();
         let tabbed = own.is_some()
             && !request
             && keep.is_none_or(|id| own.as_ref().is_some_and(|o| o.iter().any(|c| c.id == id)));
@@ -146,6 +147,7 @@ impl History {
         };
         if let Some((_, list)) = versions.filter(|(of, list)| *of == iid && list.len() > 1) {
             self.versions = list.clone();
+            self.keep_versions_selection();
         }
     }
 

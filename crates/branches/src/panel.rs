@@ -329,16 +329,23 @@ impl History {
     /// user last looked.
     pub fn versions_section(&self, read: Option<usize>, acts: &Acts) -> AnyElement {
         let folded = self.sections.versions;
+        // `.get()`: a selection can outlive the list it pointed into; it then reads as none.
         let summary = match self.selection {
-            Selection::Versions { from, to } => format!(
-                "v{} → v{}",
-                self.versions[from].number, self.versions[to].number
-            ),
-            _ => format!("latest v{}", self.versions[self.versions.len() - 1].number),
-        };
+            Selection::Versions { from, to } => self
+                .versions
+                .get(from)
+                .zip(self.versions.get(to))
+                .map(|(a, b)| format!("v{} → v{}", a.number, b.number)),
+            _ => None,
+        }
+        .or_else(|| {
+            self.versions
+                .last()
+                .map(|v| format!("latest v{}", v.number))
+        });
         let look = Head {
             title: "Versions".into(),
-            summary: Some(summary),
+            summary,
             end: vec![count(self.versions.len().to_string())],
             folded,
             opens: true,
