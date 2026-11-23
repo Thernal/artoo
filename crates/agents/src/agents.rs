@@ -169,7 +169,6 @@ impl Bus {
         append_line(&self.said_file(root), said)
     }
 
-    #[allow(dead_code, reason = "the conversation's tab (#220) reads it")]
     pub fn said(&self, root: &Path) -> Vec<Said> {
         std::fs::read_to_string(self.said_file(root))
             .unwrap_or_default()

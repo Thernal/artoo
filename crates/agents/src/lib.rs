@@ -21,6 +21,7 @@ mod mcp;
 mod notes;
 mod pick;
 mod review;
+mod sessions;
 mod setup;
 mod summary;
 mod tab;

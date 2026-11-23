@@ -33,6 +33,10 @@ pub struct Chats {
     /// #150) —, as last read, and when they last changed (none: read on the next beat).
     pub marks: Vec<Mark>,
     pub marks_stamp: Option<std::time::SystemTime>,
+    /// The reviewer's messages and what agents said of their own accord (#220), as last read: the sessions' last
+    /// words.
+    pub messages: Vec<artoo_agents_api::conversation::Message>,
+    pub spoken: Vec<artoo_agents_api::conversation::Said>,
 }
 
 impl Chats {
@@ -141,6 +145,14 @@ impl Chats {
         });
         let changed = chats != self.list;
         self.list = chats;
+        if let (Some(root), Some(bus)) = (root, Bus::new()) {
+            let (messages, spoken) = (bus.messages(root), bus.said(root));
+            if messages != self.messages || spoken != self.spoken {
+                self.messages = messages;
+                self.spoken = spoken;
+                return true;
+            }
+        }
         changed
     }
 

@@ -1,23 +1,21 @@
-//! The Agents window (#76, #77, #94): a tool window on the right in Code, Branches and Merge requests — the chats
-//! here, who listens, who works, who is gone; where a note written now goes; the reviewer's comments to agents in
-//! one list by what they wait on, the row picked with what can be done with it. Its filter, the row and the chat
-//! picked are its own; what a row's buttons do to a comment, and a comment shown on its line, are the tab's
-//! (`AgentsHost`).
+//! The Agents tab (#76, #77, #94, #220): a tool window on the right in Code, Branches and Merge requests, in two
+//! levels as a messenger has them — this project's sessions, each with what it is doing in words, those waiting for
+//! you first; and one session's conversation, under a head with `‹` back to the list and the switch between the
+//! conversation and the comments not sent. Its level and the view are its own; what a click does to a comment is
+//! the tab's (`AgentsHost`).
 
 use crate::agents::Chat;
 use crate::chats::Chats;
 use crate::comments::AgentComments;
-use crate::review::{Comment, Kind, State, kind_of};
-use crate::view::{chat_badge, limited, limits_of};
+use crate::review::{Kind, kind_of};
+use crate::sessions::{self, Session};
+use crate::view::chat_badge;
 use artoo_agents_api::view::WINDOW;
 /// What the window asks of the tab, the contract's.
 pub use artoo_agents_api::view::{Act, AgentsHost};
 use artoo_shell_api::{Badge, Frame, ListKey, MenuItem, Tool};
-use artoo_ui_kit::controls::{group_heading, tool_foot};
 use artoo_ui_kit::format::{self, plural};
-use artoo_ui_kit::hover::{self, CutInTip, Hover, RowTip};
-use artoo_ui_kit::motion::{self, Folds, Marks};
-use artoo_ui_kit::room::{Heights, Widths};
+use artoo_ui_kit::hover::{self, CutInTip};
 use artoo_ui_kit::{ROW_RADIUS, icons, px, theme};
 use gpui::{
     AnyElement, App, ClickEvent, Context, Entity, FontWeight, MouseButton, Render, Window, div,
@@ -26,30 +24,32 @@ use gpui::{
 use std::cell::Cell;
 use std::rc::Rc;
 
-/// The chats the Agents window shows before "N more" (#94).
-const CHATS_SHOWN: usize = 3;
+/// Which level of the tab is on screen.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Level {
+    /// The one session when there is one, else the list.
+    Auto,
+    List,
+    /// A session's conversation, by session id.
+    Chat(String),
+}
 
-/// The Agents window in one tab.
+/// What a conversation's body shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum View {
+    Conversation,
+    NotSent,
+}
+
+/// The Agents tab.
 pub struct AgentsWindow {
     chats: Entity<Chats>,
     comments: Entity<AgentComments>,
     frame: Rc<dyn Frame>,
-    /// Done folded to its heading (#201).
-    done_folded: bool,
-    /// The row picked.
-    row: Option<u64>,
-    /// The archived ones listed instead.
-    archived: bool,
-    /// The chat whose notes alone are listed (a click on it), and whether every chat shows rather than the first
-    /// few (#94).
-    chat: Option<String>,
-    all_chats: bool,
-    /// The list's width as last drawn: the room its rows have (#79).
-    widths: Widths,
-    /// What folds open and shut, and when it moved (#110).
-    marks: Marks,
-    folds: Folds,
-    heights: Heights,
+    level: Level,
+    view: View,
+    /// The session picked in the list (↑ ↓, ↵ opens it).
+    row: Option<String>,
 }
 
 /// The Agents window as a tab's tool window.
@@ -66,15 +66,9 @@ pub fn tool(
             chats: chats.clone(),
             comments: comments.clone(),
             frame,
-            done_folded: false,
+            level: Level::Auto,
+            view: View::Conversation,
             row: None,
-            archived: false,
-            chat: None,
-            all_chats: false,
-            widths: Widths::default(),
-            marks: Marks::default(),
-            folds: Folds::default(),
-            heights: Heights::default(),
         }
     });
     let (opened, keys) = (window.clone(), window.clone());
@@ -107,25 +101,6 @@ pub fn tool(
             keys.update(cx, |w, cx| w.list_key(key, cx))
         })),
     }
-}
-
-/// `act` done when it is the agents' own — a comment withdrawn, archived or back, resolved; the resolved archived —:
-/// whether it was. The tab hears the comments changed (`Agents::on_comments`).
-fn own(comments: &Entity<AgentComments>, act: &Act, cx: &mut App) -> bool {
-    use crate::comments::change;
-    match *act {
-        Act::Withdraw(id) => change(comments, cx, |c| c.withdraw(id)),
-        Act::Archive(id, on) => change(comments, cx, |c| c.change(id, |c| c.archived = on)),
-        Act::ArchiveResolved => change(comments, cx, |c| {
-            c.archive_resolved();
-            true
-        }),
-        Act::Resolve(id) => change(comments, cx, |c| {
-            c.change(id, |c| c.state = State::Resolved)
-        }),
-        _ => return false,
-    };
-    true
 }
 
 /// The stripe's icon: what needs you — the questions an agent asks, the drafts, the notes a gone chat never took —
@@ -176,59 +151,7 @@ impl AgentsWindow {
         self.frame.services().get::<Rc<dyn AgentsHost>>()
     }
 
-    /// `act` from a click: done here when it is the agents' own, else asked of the tab; a draft deleted is no longer
-    /// picked.
-    fn act(&mut self, act: Act, cx: &mut App) {
-        if let Act::Delete(id) = act
-            && self.row == Some(id)
-        {
-            self.row = None;
-        }
-        if own(&self.comments, &act, cx) {
-            return;
-        }
-        if let Some(host) = self.host() {
-            host.act(act, cx);
-        }
-    }
-
-    /// `act` done once the tab's update is over: from a key, which the tab hands in.
-    fn act_later(&self, act: Act, cx: &mut App) {
-        let (host, comments) = (self.host(), self.comments.clone());
-        cx.defer(move |cx| {
-            if !own(&comments, &act, cx)
-                && let Some(host) = host
-            {
-                host.act(act, cx);
-            }
-        });
-    }
-
-    /// `key` opened or closed now: drawn on its way, and again once it is still.
-    fn mark_motion(&mut self, key: &str, cx: &mut Context<Self>) {
-        self.marks.mark(key);
-        motion::redraw_after(cx);
-    }
-
-    /// Something that folds open and shut (the kit's `folding`): `moving` names the mark its toggle set.
-    fn folding(
-        &self,
-        key: impl Into<String>,
-        moving: &str,
-        open: bool,
-        content: impl IntoElement + 'static,
-    ) -> Option<AnyElement> {
-        motion::folding(
-            &self.folds,
-            &self.heights,
-            self.marks.recent(moving),
-            key,
-            open,
-            content,
-        )
-    }
-
-    /// The project's main working tree, whatever worktree of it is open: where a note's route is read.
+    /// The project's main working tree, whatever worktree of it is open.
     fn main(&self, cx: &App) -> Option<std::path::PathBuf> {
         let places = self.frame.places(cx);
         places.project.or(places.root)
@@ -245,872 +168,431 @@ impl AgentsWindow {
         });
     }
 
-    /// The chat a note on `branch` goes to (`Chats::route_of`).
-    fn route_of(&self, branch: Option<&str>, cx: &App) -> Option<Chat> {
-        let main = self.main(cx)?;
-        self.chats.read(cx).route_of(branch, &main).cloned()
+    /// The sessions of the list, in its order.
+    fn sessions(&self, cx: &App) -> Vec<Session> {
+        let chats = self.chats.read(cx);
+        sessions::sessions(
+            &chats.list,
+            &self.comments.read(cx).list,
+            &chats.messages,
+            &chats.spoken,
+            format::now(),
+        )
     }
 
-    /// The chat picked, while it is still one of this repository's.
-    fn chat_filter<'a>(&'a self, cx: &'a App) -> Option<&'a str> {
-        let chats = &self.chats.read(cx).list;
-        self.chat
-            .as_deref()
-            .filter(|s| chats.iter().any(|c| c.session == *s))
+    /// The session whose conversation is open, if any: the one asked for while it is still listed, the only one
+    /// when there is one and the list was not asked for.
+    fn open_session<'a>(&self, list: &'a [Session]) -> Option<&'a Session> {
+        match &self.level {
+            Level::Chat(id) => list.iter().find(|s| s.chat.session == *id),
+            Level::Auto if list.len() == 1 => list.first(),
+            _ => None,
+        }
     }
 
-    /// Whether comment `c` was sent to the chat picked; any is, with none picked.
-    fn of_chat_picked(&self, c: &Comment, cx: &App) -> bool {
-        self.chat_filter(cx)
-            .is_none_or(|s| c.sent.as_ref().is_some_and(|sent| sent.session == s))
-    }
-
-    /// The comments the window lists, newest first: the filter's, or the archived ones.
-    fn listed(&self, cx: &App) -> Vec<u64> {
-        let listening = self.chats.read(cx).listening();
-        let alive = |s: &str| listening.contains(s);
-        let mut ids: Vec<u64> = self
-            .comments
-            .read(cx)
-            .list
-            .iter()
-            .filter(|c| c.archived == self.archived)
-            .filter(|c| self.of_chat_picked(c, cx))
-            .filter(|c| {
-                self.archived || !self.done_folded || Group::of(kind_of(c, &alive)) != Group::Done
-            })
-            .map(|c| c.id)
-            .collect();
-        // By what you owe, newest first in each (#201).
-        let group = |id: u64| {
-            (self.comments.read(cx).list.iter())
-                .find(|c| c.id == id)
-                .map_or(Group::Done, |c| Group::of(kind_of(c, &alive)))
-        };
-        ids.sort_by_key(|&id| (group(id), std::cmp::Reverse(id)));
-        ids
-    }
-
-    /// ↑ ↓ ↵ ⌫ the tab hands in.
+    /// ↑ ↓ pick a session in the list, ↵ opens it.
     fn list_key(&mut self, key: ListKey, cx: &mut Context<Self>) -> bool {
+        let list = self.sessions(cx);
+        if self.open_session(&list).is_some() || list.is_empty() {
+            return false;
+        }
+        let at = self
+            .row
+            .as_ref()
+            .and_then(|id| list.iter().position(|s| s.chat.session == *id));
         match key {
-            ListKey::Up | ListKey::Down => self.step(key == ListKey::Down, cx),
-            ListKey::Enter => self.row_action(cx),
-            // ⌫ on the draft picked deletes it; Undo is in its toast (#76).
-            ListKey::Delete => {
-                let Some(id) = self.row.filter(|id| {
-                    self.comments
-                        .read(cx)
-                        .list
-                        .iter()
-                        .any(|c| c.id == *id && c.state == State::Draft)
-                }) else {
-                    return false;
+            ListKey::Up | ListKey::Down => {
+                let to = match (at, key == ListKey::Down) {
+                    (Some(i), true) => (i + 1).min(list.len() - 1),
+                    (Some(i), false) => i.saturating_sub(1),
+                    (None, _) => 0,
                 };
-                self.row = None;
-                self.act_later(Act::Delete(id), cx);
+                self.row = Some(list[to].chat.session.clone());
             }
+            ListKey::Enter => {
+                let Some(i) = at else { return false };
+                self.level = Level::Chat(list[i].chat.session.clone());
+            }
+            ListKey::Delete => return false,
         }
         cx.notify();
         true
     }
 
-    /// ↑ ↓: another row picked, shown on its line.
-    fn step(&mut self, down: bool, cx: &mut Context<Self>) {
-        let ids = self.listed(cx);
-        let at = self.row.and_then(|id| ids.iter().position(|&i| i == id));
-        let to = match (at, down) {
-            (Some(i), true) => (i + 1).min(ids.len().saturating_sub(1)),
-            (Some(i), false) => i.saturating_sub(1),
-            (None, _) => 0,
-        };
-        if let Some(&id) = ids.get(to) {
-            self.mark_motion("agent-row", cx);
-            self.row = Some(id);
-            self.act_later(Act::Show(id), cx);
+    /// The time a session's last message is shown at: the clock today, else the date.
+    fn when(time: i64) -> String {
+        if format::date(time) == format::date(format::now()) {
+            format::clock(time)
+        } else {
+            format::date(time)
         }
     }
 
-    /// ↵: the picked row's first action — Send, Answer, Withdraw, Resolve, Archive.
-    fn row_action(&mut self, cx: &mut Context<Self>) {
-        let listening = self.chats.read(cx).listening();
-        let alive = |s: &str| listening.contains(s);
-        let Some((id, kind, archived)) = self
-            .row
-            .and_then(|id| self.comments.read(cx).list.iter().find(|c| c.id == id))
-            .map(|c| (c.id, kind_of(c, &alive), c.archived))
-        else {
-            return;
-        };
-        let act = match (archived, kind) {
-            (true, _) => Act::Archive(id, false),
-            (false, Kind::Draft) => Act::Send(vec![id]),
-            (false, Kind::Asks) => Act::Show(id),
-            (false, Kind::Waiting) => Act::Resend(id),
-            (false, Kind::Sent) => Act::Show(id),
-            (false, Kind::Addressed) => Act::Resolve(id),
-            (false, Kind::Working) => Act::Show(id),
-            (false, Kind::Resolved) => Act::Archive(id, true),
-        };
-        self.act_later(act, cx);
+    /// A session's mark, hollow once it ended.
+    fn avatar(&self, chat: &Chat, ended: bool, size: f32, cx: &App) -> gpui::Div {
+        let (letter, hue) = self.chats.read(cx).mark(&chat.session);
+        chat_badge(letter, hue, ended)
+            .size(px(size))
+            .text_size(px(size * 0.5))
     }
 
-    /// A row of the window (#201): the agent's own last words — or yours, while it has said nothing —, two lines at
-    /// most; where and how long ago; the one thing to do as its button, the rest in its right click.
-    fn comment_row(
-        &self,
-        c: &Comment,
-        kind: Kind,
-        rich: bool,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let id = c.id;
-        let picked = self.row == Some(id);
-        // A folder's note by the folder, with its slash (#97); a plugin's place by its words (#212).
-        let place = c.reads();
-        let last = c.replies.last();
-        // The agent's last word, else when you wrote it (#201).
-        let when = last.map(|r| r.at).or(Some(c.written)).filter(|&at| at > 0);
-        let theirs = last.is_some();
-        let words = last.map_or(c.body.as_str(), |r| r.body.as_str());
-        let room = self.widths.room("agents");
-        let chat = c.sent.as_ref().filter(|s| !s.session.is_empty());
-        let whole = c.reads_whole();
-        // Your answer to its question, picked and not sent yet: it goes with the next send (#201).
-        let mine = (c.answer.as_ref())
-            .map(|a| a.gist(last.and_then(|r| r.form.as_ref())))
-            .filter(|g| !g.is_empty());
-        // The tip holds what the row does not: where in full, your note under the agent's words, the chat.
-        let mut tip = vec![whole];
-        if theirs {
-            tip.push(format!("You: {}", c.body.trim()));
-        }
-        if let Some(s) = chat {
-            let to = (self.chats.read(cx).list.iter())
-                .find(|ch| ch.session == s.session)
-                .map(|ch| {
-                    if ch.title.is_empty() {
-                        ch.agent.clone()
-                    } else {
-                        ch.title.clone()
-                    }
-                });
-            tip.push(match to {
-                Some(to) => format!("to {to}"),
-                None => "to a chat that is gone".to_owned(),
-            });
-        }
-        if let Some(at) = when {
-            tip.push(hover::full_date(at));
-        }
-        // Where a note its gone chat never took would go now (#77).
-        let instead = self.route_of(c.branch.as_deref(), cx).map(|chat| {
-            if chat.title.is_empty() {
-                chat.agent
-            } else {
-                chat.title
-            }
-        });
-        // The one thing to do, on rows that need you (#201).
-        let one: Option<(String, Act)> = if c.archived {
-            Some(("Unarchive".to_owned(), Act::Archive(id, false)))
+    /// A row of the list: the avatar, the name and the time of its last message, under it what it is doing.
+    fn row(&self, ix: usize, s: &Session, cx: &mut Context<Self>) -> AnyElement {
+        let chat = &s.chat;
+        let on = self.row.as_deref() == Some(chat.session.as_str());
+        let (session, agent) = (chat.session.clone(), chat.agent.clone());
+        let named = (session.clone(), agent);
+        let said: gpui::SharedString = format!(
+            "{}\n{} in {} · last heard {}",
+            sessions::name(chat),
+            chat.agent,
+            format::home_relative(&chat.repo),
+            hover::full_date(chat.beat)
+        )
+        .into();
+        let colour = if s.waits() {
+            theme::warning()
+        } else if s.ended() {
+            theme::faint()
         } else {
-            match kind {
-                Kind::Asks => Some(("Answer".to_owned(), Act::Show(id))),
-                Kind::Draft => Some(("Send".to_owned(), Act::Send(vec![id]))),
-                Kind::Waiting => Some(match &instead {
-                    Some(to) => (format!("Send to {to}"), Act::Resend(id)),
-                    None => ("Back to drafts".to_owned(), Act::Withdraw(id)),
-                }),
-                _ => None,
-            }
+            theme::muted()
         };
-        // Everything else, in its right click.
-        let mut more: Vec<(&'static str, Act)> = Vec::new();
-        if !c.archived {
-            match kind {
-                Kind::Draft => {
-                    more.push(("Edit", Act::Edit(id)));
-                    more.push(("Delete", Act::Delete(id)));
-                }
-                Kind::Asks | Kind::Addressed => {
-                    more.push(("Resolve", Act::Resolve(id)));
-                    more.push(("Archive", Act::Archive(id, true)));
-                }
-                Kind::Sent => more.push(("Withdraw", Act::Withdraw(id))),
-                Kind::Waiting => more.push(("Back to drafts", Act::Withdraw(id))),
-                Kind::Working | Kind::Resolved => more.push(("Archive", Act::Archive(id, true))),
-            }
-        }
-        let button = one.map(|(label, act)| {
-            row_button(("agent-act", id as usize), label, true)
-                .flex_none()
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    cx.stop_propagation();
-                    this.act(act.clone(), cx)
-                }))
-        });
-        let chats = self.chats.read(cx);
-        let mark = chat.filter(|_| room.third()).map(|s| {
-            let (letter, hue) = chats.mark(&s.session);
-            chat_badge(letter, hue, !chats.listens(&s.session))
-        });
-        let face = if theirs {
-            div()
-                .flex_none()
-                .size(px(20.))
-                .rounded_full()
-                .bg(theme::agent_bg())
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(icons::icon("bot").size(px(12.)).text_color(theme::agent()))
-        } else {
-            artoo_ui_kit::discussion::avatar("You", true, 20.)
-        };
-        let window = cx.entity();
         div()
-            .id(("agent-row", id as usize))
-            .px(px(12.))
-            .py(px(8.))
+            .id(("session-row", ix))
+            // Its right click names it (the developer, 2026-10-23: chats mixed up).
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
+                    let host = this.host();
+                    let (session, agent) = named.clone();
+                    this.frame.menu(
+                        e.position,
+                        vec![vec![MenuItem::new("Name this chat…", move |_, cx| {
+                            if let Some(host) = &host {
+                                host.act(
+                                    Act::NameChat {
+                                        session: session.clone(),
+                                        agent: agent.clone(),
+                                    },
+                                    cx,
+                                );
+                            }
+                        })]],
+                        cx,
+                    )
+                }),
+            )
+            .mx(px(6.))
+            .px(px(8.))
+            .py(px(6.))
             .flex()
-            .items_start()
-            .gap(px(8.))
-            .border_b_1()
-            .border_color(theme::island_border())
+            .items_center()
+            .gap(px(10.))
+            .rounded(px(ROW_RADIUS))
             .cursor_pointer()
-            .when(picked, |s| s.bg(theme::hover()))
-            .when(!picked, |s| s.hover(|s| s.bg(theme::hover())))
-            .child(face)
+            .when(on, |d| d.bg(theme::selected()))
+            .when(!on, |d| d.hover(|d| d.bg(theme::hover())))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.level = Level::Chat(session.clone());
+                this.row = Some(session.clone());
+                cx.notify();
+            }))
+            .tooltip_show_delay(hover::LONG)
+            .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(said.clone())).into())
+            .child(self.avatar(chat, s.ended(), 28., cx))
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
                     .flex()
                     .flex_col()
-                    .gap(px(3.))
+                    .gap(px(2.))
                     .child(
                         div()
-                            .text_size(px(12.))
-                            .clamp_in_tip(2)
-                            .child(format::one_line(words, rich)),
-                    )
-                    // Your answer picked and not sent yet, under the agent's question (#201).
-                    .children(mine.map(|mine| {
-                        div()
                             .flex()
-                            .gap(px(4.))
-                            .text_size(px(11.))
-                            .text_color(theme::muted())
-                            .child(div().flex_none().child("Your answer:"))
+                            .items_center()
+                            .gap_2()
                             .child(
                                 div()
+                                    .flex_1()
                                     .min_w_0()
                                     .cut_in_tip()
-                                    .font_weight(gpui::FontWeight::MEDIUM)
-                                    .text_color(theme::text())
-                                    .child(mine),
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .when(s.ended(), |d| d.text_color(theme::faint()))
+                                    .child(sessions::name(chat)),
                             )
-                    }))
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_size(px(11.))
+                                    .text_color(theme::faint())
+                                    .child(Self::when(s.last)),
+                            ),
+                    )
                     .child(
                         div()
                             .flex()
                             .items_center()
                             .gap(px(6.))
-                            .text_size(px(11.))
-                            .text_color(theme::faint())
-                            .child(
-                                div()
-                                    .min_w_0()
-                                    .cut_in_tip()
-                                    .font_family(theme::code_font())
-                                    .text_color(theme::muted())
-                                    .child(place),
+                            .text_size(px(12.))
+                            .text_color(colour)
+                            .children(
+                                (s.waits() || matches!(s.doing, sessions::Doing::Working(_))).then(
+                                    || {
+                                        div().flex_none().size(px(6.)).rounded_full().bg(
+                                            if s.waits() {
+                                                theme::warning()
+                                            } else {
+                                                theme::agent()
+                                            },
+                                        )
+                                    },
+                                ),
                             )
-                            .children(when.map(|at| {
-                                div().flex_none().child(format!("· {}", format::ago(at)))
-                            }))
-                            // The chat it went to (#77).
-                            .children(mark),
+                            .child(hover::cut(("session-line", ix), s.line())),
                     ),
             )
-            .children(button)
-            .row_tip(picked, tip.join("\n"))
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
-                    if more.is_empty() {
-                        return;
-                    }
-                    let items = (more.iter())
-                        .map(|(label, act)| {
-                            let (window, act) = (window.clone(), act.clone());
-                            MenuItem::new(*label, move |_, cx| {
-                                window.update(cx, |w, cx| w.act(act.clone(), cx));
-                            })
-                        })
-                        .collect();
-                    this.frame.menu(e.position, vec![items], cx)
-                }),
-            )
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.mark_motion("agent-row", cx);
-                this.row = Some(id);
-                cx.notify();
-                this.act(Act::Show(id), cx)
-            }))
             .into_any_element()
     }
-}
 
-impl Render for AgentsWindow {
-    /// The chats that listen here, then the purple comments by state; under them, the foot.
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let host = self.host();
-        let rich = host.as_ref().is_some_and(|h| h.rich(cx));
-        let comments = self.comments.read(cx).list.clone();
-        // A chat works while it has comments it took and has not answered, and is not listening:
-        // the watcher wakes it with them and runs again when it is done.
-        let working = |session: &str| {
-            comments
-                .iter()
-                .filter(|c| c.state == State::Sent)
-                .filter(|c| {
-                    c.sent
-                        .as_ref()
-                        .is_some_and(|s| s.delivered && s.session == session)
-                })
-                .filter(|c| c.replies.is_empty() || c.answer.is_some())
-                .count()
-        };
-        // Each chat here, in any worktree: its mark, what it works on, its state and branch (#77).
-        // Many of them (#94): those listening, then those working, then the gone, the latest heard
-        // first in each; the first few show, the rest under "N more", the one picked always.
-        let busy_of = |c: &Chat| {
-            if c.listening() {
-                0
-            } else {
-                working(&c.session)
-            }
-        };
-        let chats_here = self.chats.read(cx).list.clone();
-        let mut ordered: Vec<&Chat> = chats_here.iter().collect();
-        ordered.sort_by_key(|c| {
-            let rank = if c.listening() {
-                0
-            } else if busy_of(c) > 0 {
-                1
-            } else {
-                2
-            };
-            (rank, std::cmp::Reverse(c.beat))
-        });
-        let picked_chat = self.chat_filter(cx).map(str::to_owned);
-        let hidden = if self.all_chats {
-            0
-        } else {
-            ordered.len().saturating_sub(CHATS_SHOWN)
-        };
-        // Every chat, each shown or folded away with N more (#110: in size and alpha).
-        let shown: Vec<(&Chat, bool)> = ordered
-            .iter()
-            .enumerate()
-            .map(|(i, c)| {
-                let shows = i < CHATS_SHOWN
-                    || hidden == 0
-                    || picked_chat.as_deref() == Some(c.session.as_str());
-                (*c, shows)
-            })
-            .collect();
-        let more = (ordered.len() > CHATS_SHOWN).then(|| {
-            div()
-                .id("chats-more")
-                .mx(px(6.))
-                .px(px(8.))
-                .py(px(4.))
-                .rounded(px(ROW_RADIUS))
-                .text_size(px(12.))
-                .text_color(theme::accent())
-                .cursor_pointer()
-                .hover(|s| s.bg(theme::hover()))
-                .child(if hidden > 0 {
-                    format!(
-                        "{hidden} more {} ▾",
-                        if hidden == 1 { "chat" } else { "chats" }
-                    )
-                } else {
-                    "Fewer ▴".to_owned()
-                })
-                .on_click(cx.listener(|this, e: &ClickEvent, _, cx| {
-                    if e.click_count() > 1 {
-                        return;
-                    }
-                    this.mark_motion("chats-more", cx);
-                    this.all_chats = !this.all_chats;
-                    cx.notify();
-                }))
-        });
-        let chats: Vec<_> = shown
-            .into_iter()
-            .enumerate()
-            .filter_map(|(ix, (c, shows))| {
-                let busy = busy_of(c);
-                let on = picked_chat.as_deref() == Some(c.session.as_str());
-                let session = c.session.clone();
-                let (letter, hue) = self.chats.read(cx).mark(&c.session);
-                let state = if c.listening() {
-                    "listening".to_owned()
-                } else if busy > 0 {
-                    format!("working · {}", plural(busy, "comment"))
-                } else {
-                    "gone".to_owned()
-                };
-                // A long hover: the whole title, where it works, when it was last heard (X59).
-                let said: gpui::SharedString = format!(
-                    "{}\n{} in {} · last heard {}",
-                    c.title,
-                    c.agent,
-                    format::home_relative(&c.repo),
-                    hover::full_date(c.beat)
-                )
-                .into();
-                let (named_session, named_agent) = (c.session.clone(), c.agent.clone());
-                let row = div()
-                    .id(("chat-row", ix))
-                    // Its right click names it (the developer, 2026-10-23: chats mixed up).
-                    .on_mouse_down(
-                        MouseButton::Right,
-                        cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
-                            let host = this.host();
-                            let (session, agent) = (named_session.clone(), named_agent.clone());
-                            this.frame.menu(
-                                e.position,
-                                vec![vec![MenuItem::new("Name this chat…", move |_, cx| {
-                                    if let Some(host) = &host {
-                                        host.act(
-                                            Act::NameChat {
-                                                session: session.clone(),
-                                                agent: agent.clone(),
-                                            },
-                                            cx,
-                                        );
-                                    }
-                                })]],
-                                cx,
-                            )
-                        }),
-                    )
-                    .mx(px(6.))
-                    .px(px(8.))
-                    .py(px(6.))
-                    .flex()
-                    .items_start()
-                    .gap(px(8.))
-                    .rounded(px(ROW_RADIUS))
-                    .cursor_pointer()
-                    .when(on, |s| s.bg(theme::selected()))
-                    .when(!on, |s| s.hover(|s| s.bg(theme::hover())))
-                    // A click lists that chat's notes alone; again, every chat's.
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.chat = (this.chat_filter(cx) != Some(session.as_str()))
-                            .then(|| session.clone());
-                        this.row = None;
-                        cx.notify();
-                    }))
-                    .tooltip_show_delay(hover::LONG)
-                    .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(said.clone())).into())
-                    .child(chat_badge(letter, hue, !c.listening() && busy == 0))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.))
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap_2()
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .cut_in_tip()
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .child(if c.title.is_empty() {
-                                                c.agent.clone()
-                                            } else {
-                                                c.title.clone()
-                                            }),
-                                    )
-                                    .child(
-                                        div()
-                                            .flex_none()
-                                            .text_size(px(11.))
-                                            .text_color(if c.listening() {
-                                                theme::added()
-                                            } else if busy > 0 {
-                                                theme::agent()
-                                            } else {
-                                                theme::faint()
-                                            })
-                                            .child(state),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .gap_2()
-                                    .text_size(px(11.))
-                                    .text_color(theme::faint())
-                                    .child(c.agent.clone())
-                                    .when(c.limited(), |s| {
-                                        s.child(limited(
-                                            gpui::SharedString::from(format!(
-                                                "chat-limited-{}",
-                                                c.session
-                                            )),
-                                            limits_of(&c.agent, cx),
-                                        ))
-                                    })
-                                    .children((!c.branch.is_empty()).then(|| {
-                                        div()
-                                            .font_family(theme::code_font())
-                                            .child(c.branch.clone())
-                                    })),
-                            ),
-                    );
-                self.folding(format!("chat-row-{}", c.session), "chats-more", shows, row)
-            })
-            .collect();
-        // Where a note written here goes, and the way to change it (#77).
-        let branch = host.as_ref().and_then(|h| h.branch(cx));
-        // "Goes to" the chat; why, in its tooltip (#79).
-        let route = self.route_of(branch.as_deref(), cx).map(|chat| {
-            let (letter, hue) = self.chats.read(cx).mark(&chat.session);
-            let on = branch.clone().unwrap_or_default();
-            let name = if chat.title.is_empty() {
-                chat.agent.clone()
-            } else {
-                chat.title.clone()
-            };
-            let routes = &self.chats.read(cx).routes;
-            let picked = routes
-                .get(on.as_str())
-                .or(routes.get(""))
-                .is_some_and(|s| *s == chat.session);
-            let notes = match &branch {
-                Some(b) => format!("Notes on {b} go to {name}"),
-                None => format!("Notes go to {name}"),
-            };
-            let why = if picked {
-                format!("{notes}: you picked it.")
-            } else if branch.as_deref().is_some_and(|b| chat.branch == b) {
-                format!("{notes}, the chat working on that branch.")
-            } else {
-                format!("{notes}, the project's default chat: none works on that branch.")
-            };
-            div()
-                .id("agents-route")
-                .mx(px(14.))
-                .mt(px(6.))
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .text_size(px(12.))
-                .text_color(theme::muted())
-                .child("Goes to")
-                .child(chat_badge(letter, hue, false))
-                .child(hover::cut("goes-to", name).text_color(theme::text()))
-                .child(
-                    div()
-                        .id("route-change")
-                        .flex_none()
-                        .text_color(theme::accent())
-                        .cursor_pointer()
-                        .child("Change")
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.act(Act::Route(on.clone()), cx)
-                        })),
-                )
-                .tip(why)
-        });
-        // Grouped by what you owe (#201): Needs you, Working, Done — Done folds to its heading.
-        let listening = self.chats.read(cx).listening();
-        let alive = |s: &str| listening.contains(s);
-        let archived = comments.iter().filter(|c| c.archived).count();
-        let listed: Vec<&Comment> = self
-            .listed(cx)
-            .into_iter()
-            .filter_map(|id| comments.iter().find(|c| c.id == id))
-            .collect();
-        let counted: Vec<Group> = (comments.iter())
-            .filter(|c| !c.archived && self.of_chat_picked(c, cx))
-            .map(|c| Group::of(kind_of(c, &alive)))
-            .collect();
-        let count = |g: Group| counted.iter().filter(|&&x| x == g).count();
+    /// The list: its head counts the sessions and those waiting; the ended ones come under `Ended today`.
+    fn list(&self, list: &[Session], cx: &mut Context<Self>) -> AnyElement {
+        let waiting = list.iter().filter(|s| s.waits()).count();
+        let mut head = plural(list.len(), "session");
+        if waiting > 0 {
+            head = format!("{head} · {waiting} wait for you");
+        }
         let mut rows: Vec<AnyElement> = Vec::new();
-        if self.archived {
-            rows.extend((listed.iter()).map(|c| self.comment_row(c, kind_of(c, &alive), rich, cx)));
-        } else {
-            for g in [Group::Needs, Group::Working, Group::Done] {
-                let n = count(g);
-                if n == 0 {
-                    continue;
-                }
-                let folded = g == Group::Done && self.done_folded;
+        let mut ended_shown = false;
+        for (ix, s) in list.iter().enumerate() {
+            if s.ended() && !ended_shown {
+                ended_shown = true;
                 rows.push(
                     div()
-                        .id(g.label())
-                        .flex()
-                        .items_center()
-                        .when(g == Group::Done, |s| {
-                            s.cursor_pointer().on_click(cx.listener(
-                                |this, _: &ClickEvent, _, cx| {
-                                    this.done_folded = !this.done_folded;
-                                    cx.notify();
-                                },
-                            ))
-                        })
-                        .child(
-                            group_heading(format!("{} {n}", g.label()), None)
-                                .flex_1()
-                                .text_color(if g == Group::Needs {
-                                    theme::agent()
-                                } else {
-                                    theme::muted()
-                                }),
-                        )
-                        .children((g == Group::Done).then(|| {
-                            div().pr(px(14.)).pt(px(6.)).child(
-                                icons::icon(if folded { "chevron-right" } else { "chevron" })
-                                    .size(px(12.))
-                                    .text_color(theme::faint()),
-                            )
-                        }))
+                        .px(px(14.))
+                        .pt(px(10.))
+                        .pb(px(4.))
+                        .text_size(px(11.))
+                        .text_color(theme::faint())
+                        .child("Ended today")
                         .into_any_element(),
                 );
-                for c in listed.iter().filter(|c| Group::of(kind_of(c, &alive)) == g) {
-                    rows.push(self.comment_row(c, kind_of(c, &alive), rich, cx));
-                }
             }
+            rows.push(self.row(ix, s, cx));
         }
-        let empty = rows.is_empty();
-        let named = self
-            .route_of(branch.as_deref(), cx)
-            .or_else(|| chats_here.first().cloned());
-        let header = {
-            let frame = self.frame.clone();
-            div()
-                .px(px(14.))
-                .pt(px(4.))
-                .pb(px(2.))
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .text_size(px(12.))
-                .map(|s| match &named {
-                    Some(chat) => {
-                        let repo = (chat.repo.file_name())
-                            .map(|n| n.to_string_lossy().into_owned())
-                            .unwrap_or_default();
-                        let agent = chat.agent.split_whitespace().next().unwrap_or("Agent");
-                        s.child(div().flex_none().size(px(7.)).rounded_full().bg(
-                            if chat.listening() {
-                                theme::added()
-                            } else {
-                                theme::faint()
-                            },
-                        ))
-                        .child(
-                            hover::cut("agents-chat", format!("{agent} · {repo}"))
-                                .font_weight(FontWeight::SEMIBOLD),
-                        )
-                    }
-                    None => s.text_color(theme::muted()).child("No chat").child(
-                        div()
-                            .id("agents-set-up")
-                            .text_color(theme::accent())
-                            .cursor_pointer()
-                            .child("Set up…")
-                            .on_click(move |_: &ClickEvent, _, cx| {
-                                frame.open_settings(artoo_agents_api::view::SETTINGS, cx)
-                            }),
-                    ),
-                })
-        };
-        let body = div()
-            .id("agents-list")
-            .relative()
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .py(px(6.))
-            .child(self.widths.measure("agents"))
-            // The header names the chat a note goes to (#201): `Claude · payments-service`, its dot green while it
-            // listens; the others listed only when there are several.
-            .child(header)
-            .when(chats_here.len() > 1, |s| s.children(chats).children(more))
-            .children(route.filter(|_| chats_here.len() > 1))
-            .children(rows)
-            .children(empty.then(|| {
-                div()
-                    .px(px(14.))
-                    .py(px(10.))
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .child(if comments.is_empty() {
-                        "No comments for your agent"
-                    } else {
-                        "No comments match"
-                    })
-            }));
-        let foot = div()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap_2()
-            .child(div().flex_1())
-            .children(
-                comments
-                    .iter()
-                    .any(|c| !c.archived && c.state == State::Resolved)
-                    .then(|| {
-                        foot_button("archive-resolved", "Archive resolved".to_owned()).on_click(
-                            cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.act(Act::ArchiveResolved, cx)
-                            }),
-                        )
-                    }),
-            )
-            .children((archived > 0 || self.archived).then(|| {
-                foot_button(
-                    "show-archived",
-                    if self.archived {
-                        "Back to the list".to_owned()
-                    } else {
-                        format!("Archived · {archived}")
-                    },
-                )
-                .text_color(theme::accent())
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.archived = !this.archived;
-                    this.row = None;
-                    cx.notify();
-                }))
-            }));
         div()
             .flex_1()
             .min_h_0()
             .flex()
             .flex_col()
-            .child(body)
-            .child(tool_foot().child(foot))
-    }
-}
-
-/// What a row owes, the window's groups (#201): what needs you (an answer, a send, a note a gone chat never took),
-/// what an agent works on, what is done.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum Group {
-    Needs,
-    Working,
-    Done,
-}
-
-impl Group {
-    fn of(kind: Kind) -> Self {
-        match kind {
-            Kind::Asks | Kind::Draft | Kind::Waiting => Group::Needs,
-            Kind::Sent | Kind::Working => Group::Working,
-            Kind::Addressed | Kind::Resolved => Group::Done,
-        }
+            .child(
+                div()
+                    .flex_none()
+                    .px(px(14.))
+                    .pt(px(8.))
+                    .pb(px(6.))
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(head),
+            )
+            .child(
+                div()
+                    .id("agents-list")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .children(rows),
+            )
+            .into_any_element()
     }
 
-    fn label(self) -> &'static str {
-        match self {
-            Group::Needs => "Needs you",
-            Group::Working => "Working",
-            Group::Done => "Done",
-        }
+    /// No session in this project.
+    fn empty(&self) -> AnyElement {
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap(px(4.))
+            .px(px(24.))
+            .child(icons::icon("bot").size(px(24.)).text_color(theme::faint()))
+            .child(
+                div()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("No agent session yet"),
+            )
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(theme::muted())
+                    .text_center()
+                    .child("Start an agent in this project. Its session shows up here by itself."),
+            )
+            .into_any_element()
     }
-}
 
-/// A button of a picked row: Send filled, the rest plain.
-fn row_button(
-    id: impl Into<gpui::ElementId>,
-    label: String,
-    primary: bool,
-) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .px_2()
-        .h(px(24.))
-        .flex()
-        .items_center()
-        .rounded(px(ROW_RADIUS))
-        .text_size(px(12.))
-        .cursor_pointer()
-        .when(primary, |s| {
-            s.bg(theme::agent())
-                .text_color(theme::base())
-                .font_weight(FontWeight::SEMIBOLD)
-        })
-        .when(!primary, |s| {
-            s.border_1()
-                .border_color(theme::island_border())
-                .hover(|s| s.bg(theme::selected()))
-        })
-        .child(label)
-}
-
-fn foot_button(id: &'static str, label: String) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .px_2()
-        .h(px(24.))
-        .flex()
-        .items_center()
-        .rounded(px(ROW_RADIUS))
-        .text_size(px(12.))
-        .text_color(theme::muted())
-        .cursor_pointer()
-        .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
-        .child(label)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use artoo_agents_api::comment::{Reply, Sent};
-
-    #[test]
-    fn a_comment_is_of_the_kind_its_life_says() {
-        let alive = |s: &str| s == "chat-1";
-        let sent = |session: &str, delivered: bool| Comment {
-            state: State::Sent,
-            sent: Some(Sent {
-                session: session.to_owned(),
-                delivered,
-                ..Default::default()
-            }),
-            ..Default::default()
+    /// A session's conversation: its head, the switch, and (until the conversation is drawn) a placeholder.
+    fn conversation(&self, s: &Session, others_wait: usize, cx: &mut Context<Self>) -> AnyElement {
+        let not_sent = sessions::not_sent(&self.comments.read(cx).list);
+        let chats = self.chats.read(cx);
+        let talk = artoo_agents_api::conversation::conversation(
+            &self.comments.read(cx).list,
+            &chats.messages,
+            &chats.spoken,
+            &s.chat.session,
+        );
+        let back = div()
+            .id("agents-back")
+            .flex_none()
+            .h(px(28.))
+            .px(px(4.))
+            .flex()
+            .items_center()
+            .gap(px(2.))
+            .rounded(px(ROW_RADIUS))
+            .cursor_pointer()
+            .text_color(theme::muted())
+            .hover(|d| d.bg(theme::hover()))
+            .tooltip_show_delay(hover::LONG)
+            .tooltip(|_, cx| cx.new(|_| hover::Tip("Sessions")).into())
+            .child(icons::icon("chevron-left").size(px(16.)))
+            .children((others_wait > 0).then(|| {
+                div()
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme::warning())
+                    .child(others_wait.to_string())
+            }))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.level = Level::List;
+                cx.notify();
+            }));
+        let head = div()
+            .flex_none()
+            .px(px(8.))
+            .pt(px(8.))
+            .pb(px(6.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .child(back)
+            .child(self.avatar(&s.chat, s.ended(), 28., cx))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .cut_in_tip()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(sessions::name(&s.chat)),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(if s.waits() {
+                                theme::warning()
+                            } else {
+                                theme::muted()
+                            })
+                            .child(s.head_line()),
+                    ),
+            );
+        let tab = |id: &'static str, label: &'static str, count: usize, on: bool, view: View| {
+            div()
+                .id(id)
+                .h(px(24.))
+                .px(px(10.))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .rounded(px(ROW_RADIUS))
+                .text_size(px(12.))
+                .cursor_pointer()
+                .when(on, |d| {
+                    d.bg(theme::selected()).font_weight(FontWeight::SEMIBOLD)
+                })
+                .when(!on, |d| {
+                    d.text_color(theme::muted()).hover(|d| d.bg(theme::hover()))
+                })
+                .child(label)
+                .children((count > 0).then(|| {
+                    div()
+                        .text_size(px(11.))
+                        .text_color(theme::faint())
+                        .child(count.to_string())
+                }))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.view = view;
+                    cx.notify();
+                }))
         };
-        assert_eq!(kind_of(&Comment::default(), &alive), Kind::Draft);
-        assert_eq!(kind_of(&sent("chat-1", false), &alive), Kind::Sent);
-        assert_eq!(kind_of(&sent("gone", false), &alive), Kind::Waiting);
-        assert_eq!(kind_of(&sent("chat-1", true), &alive), Kind::Working);
-        let asks = Comment {
-            replies: vec![Reply::default()],
-            ..sent("chat-1", true)
+        let switch = div()
+            .flex_none()
+            .px(px(14.))
+            .pb(px(6.))
+            .flex()
+            .gap(px(4.))
+            .child(tab(
+                "view-conversation",
+                "Conversation",
+                0,
+                self.view == View::Conversation,
+                View::Conversation,
+            ))
+            .child(tab(
+                "view-not-sent",
+                "Not sent",
+                not_sent,
+                self.view == View::NotSent,
+                View::NotSent,
+            ));
+        // The body is drawn by the conversation (A3) and Not sent (A5).
+        let words = match self.view {
+            View::Conversation => format!("{} in this conversation", plural(talk.len(), "message")),
+            View::NotSent => format!("{} not sent", plural(not_sent, "comment")),
         };
-        assert_eq!(kind_of(&asks, &alive), Kind::Asks);
-        assert_eq!(Group::of(Kind::Asks), Group::Needs);
-        assert_eq!(Group::of(Kind::Draft), Group::Needs);
-        assert_eq!(Group::of(Kind::Waiting), Group::Needs);
-        assert_eq!(Group::of(Kind::Working), Group::Working);
-        assert_eq!(Group::of(Kind::Resolved), Group::Done);
-        assert!(Group::Needs < Group::Working && Group::Working < Group::Done);
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .child(head)
+            .child(switch)
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .px(px(14.))
+                    .py(px(10.))
+                    .border_t_1()
+                    .border_color(theme::island_border())
+                    .text_size(px(12.))
+                    .text_color(theme::muted())
+                    .child(words),
+            )
+            .into_any_element()
+    }
+}
+
+impl Render for AgentsWindow {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let list = self.sessions(cx);
+        let body = if list.is_empty() {
+            self.empty()
+        } else if let Some(open) = self.open_session(&list) {
+            let others = list
+                .iter()
+                .filter(|s| s.waits() && s.chat.session != open.chat.session)
+                .count();
+            self.conversation(open, others, cx)
+        } else {
+            self.list(&list, cx)
+        };
+        div().flex_1().min_h_0().flex().flex_col().child(body)
     }
 }
