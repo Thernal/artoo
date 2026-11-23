@@ -3,6 +3,7 @@
 //! request's bar carries the public orange along its top. What the path is and what a click does are the tab's
 //! (`artoo_shell_api::bar`, its contract).
 
+use artoo_shell_api::MenuItem;
 use artoo_shell_api::bar::{BarAction, BarHost, BarRenderer, BarRoom, PageBar};
 use artoo_ui_kit::hover::{self, Tip};
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, flat, icons, island, px, theme, words};
@@ -217,6 +218,17 @@ fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
         bar.count.clone(),
         bar.up,
     );
+    // A click on `…` lists the folded folders, each opening as its crumb does (#225).
+    let fold_items: Vec<MenuItem> = gone
+        .iter()
+        .map(|&n| {
+            let host = host.clone();
+            MenuItem::new(
+                words::say(&bar.crumbs[n].label).into_owned(),
+                move |w, cx| host.folder(n, w, cx),
+            )
+        })
+        .collect();
     let dots = (!gone.is_empty()).then(|| {
         let whole = gone
             .iter()
@@ -238,6 +250,14 @@ fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
                         div()
                             .id("crumb-fold")
                             .child("…")
+                            .cursor_pointer()
+                            .hover(|s| s.text_color(theme::accent()))
+                            .on_click({
+                                let (host, items) = (host.clone(), fold_items.clone());
+                                move |e: &ClickEvent, window, cx| {
+                                    host.menu(e.position(), vec![items.clone()], window, cx)
+                                }
+                            })
                             .tooltip_show_delay(hover::LONG)
                             .tooltip({
                                 let whole = SharedString::from(whole.clone());
