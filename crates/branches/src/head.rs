@@ -232,44 +232,9 @@ pub fn what(diff: &Diff, history: &History, narrowed: bool, acts: &Acts) -> AnyE
             .and_then(|c| only_pill(c, acts))
             .map(IntoElement::into_any_element)
             .unwrap_or_else(|| div().into_any_element()),
-        // A request's whole diff away from its page: its sides are in View ▾ (#187).
-        Header::Compare {
-            request: Some(_), ..
-        } => div().into_any_element(),
-        Header::Compare {
-            base,
-            head,
-            since_merge_base,
-            request,
-            ..
-        } => {
-            let (since, request) = (*since_merge_base, *request);
-            let compare =
-                |base: &(String, git2::Oid), head: &(String, git2::Oid), since, request| {
-                    Act::Compare {
-                        base: base.clone(),
-                        head: head.clone(),
-                        since,
-                        request,
-                    }
-                };
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(
-                    group()
-                        .child(
-                            chip("cmp-since", "Since merge base", since)
-                                .on_click(asks(acts, compare(base, head, true, request))),
-                        )
-                        .child(
-                            chip("cmp-direct", "Direct", !since)
-                                .on_click(asks(acts, compare(base, head, false, request))),
-                        ),
-                )
-                .into_any_element()
-        }
+        // A compare has no Since · Direct switch (Design, `branch.html?crange=b&cpick=1`): its sides are in View ▾ for
+        // a request's, and a branch's own page shows it since it left the main line (#226).
+        Header::Compare { .. } => div().into_any_element(),
         Header::Interdiff { from, to, .. } => chip("back-to-commits", "← Commits", false)
             .on_click(asks(
                 acts,
@@ -713,6 +678,14 @@ pub(crate) fn is_trailer(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_compare_draws_no_since_direct_switch() {
+        let src = include_str!("head.rs");
+        let body = src.split("#[cfg(test)]").next().unwrap();
+        assert!(!body.contains(concat!("\"cmp-", "since\"")));
+        assert!(!body.contains(concat!("\"cmp-", "direct\"")));
+    }
 
     #[test]
     fn trailers_are_told_from_prose() {
