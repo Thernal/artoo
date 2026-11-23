@@ -177,6 +177,11 @@ const ICONS: &[(&str, &str)] = &[
         "circle-check",
         lucide!(r#"<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>"#),
     ),
+    // A profile with part of Artoo in it.
+    (
+        "circle-dot",
+        lucide!(r#"<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="1"/>"#),
+    ),
     (
         "circle-dashed",
         lucide!(r#"<circle cx="12" cy="12" r="8.5" stroke-dasharray="3.4 3"/>"#),
@@ -757,7 +762,7 @@ mod tests {
 
     #[test]
     fn the_laptop_and_the_compare_are_in_the_kit() {
-        for name in ["laptop", "git-compare"] {
+        for name in ["laptop", "git-compare", "circle-dot"] {
             assert!(ICONS.iter().any(|(n, _)| *n == name), "{name}");
             assert!(Icons.load(&format!("icons/{name}.svg")).unwrap().is_some());
         }

@@ -3,6 +3,7 @@
 //! it, where it was found, and the command that does it by hand; only the command for one connected by hand (Codex).
 
 use crate::agents;
+use crate::claude::Link;
 use artoo_agents_api::provider::Provider;
 use artoo_shell_api::settings::Rows;
 use artoo_ui_kit::hover::Hover as _;
@@ -241,9 +242,12 @@ impl Render for AgentsSettings {
                 continue;
             };
             // Claude Code: each profile, connected or not yet.
-            let profiles: Vec<(String, bool)> = if word == "claude" {
+            let profiles: Vec<(String, crate::claude::Link, bool, bool)> = if word == "claude" {
                 (crate::claude::profiles().iter())
-                    .map(|p| (profile_name(p), crate::claude::connected(p)))
+                    .map(|p| {
+                        let (state, server, skill) = crate::claude::link(p);
+                        (profile_name(p), state, server, skill)
+                    })
                     .collect()
             } else {
                 Vec::new()
@@ -254,11 +258,19 @@ impl Render for AgentsSettings {
                 "No profile found (~/.claude)".to_owned()
             } else {
                 (profiles.iter())
-                    .map(|(n, on)| format!("{n} {}", if *on { "connected" } else { "not yet" }))
+                    .map(|(n, state, ..)| {
+                        let word = match state {
+                            Link::Whole => "connected",
+                            Link::Partly => "partly",
+                            Link::Not => "not yet",
+                        };
+                        format!("{n} {word}")
+                    })
                     .collect::<Vec<_>>()
                     .join(" · ")
             };
-            let all_in = !profiles.is_empty() && profiles.iter().all(|(_, on)| *on);
+            let all_in =
+                !profiles.is_empty() && profiles.iter().all(|(_, s, ..)| *s == Link::Whole);
             let to_connect = provider.clone();
             let none = word == "claude" && profiles.is_empty();
             // Space on the keyboard's row connects it (#203), again once it is.
@@ -284,19 +296,9 @@ impl Render for AgentsSettings {
                         "Connected: listens with Artoo agent-watch".into(),
                     ));
                 } else {
-                    for (ix, (path, on)) in profiles.iter().enumerate() {
-                        end.push(state(
-                            format!("agents-state-claude-{ix}"),
-                            if *on { "circle-check" } else { "circle-dashed" },
-                            format!(
-                                "{path}: {}",
-                                if *on {
-                                    "connected"
-                                } else {
-                                    "not connected yet"
-                                }
-                            ),
-                        ));
+                    for (ix, (path, link, server, skill)) in profiles.iter().enumerate() {
+                        let (glyph, tip) = profile_state(path, *link, *server, *skill);
+                        end.push(state(format!("agents-state-claude-{ix}"), glyph, tip));
                     }
                 }
                 let button = div()
@@ -371,6 +373,28 @@ impl Render for AgentsSettings {
 
 /// A profile's folder as it is shown: under the home folder, `~/…`, the whole of it (cut in its middle where the room
 /// is short, `hover::name`).
+/// A profile's glyph and tooltip: one glyph for connected, partly, not; the tooltip names the parts.
+pub(crate) fn profile_state(
+    path: &str,
+    link: Link,
+    server: bool,
+    skill: bool,
+) -> (&'static str, String) {
+    let yes = |on: bool| if on { "yes" } else { "not yet" };
+    match link {
+        Link::Whole => ("circle-check", format!("{path}: connected")),
+        Link::Not => ("circle-dashed", format!("{path}: not connected yet")),
+        Link::Partly => (
+            "circle-dot",
+            format!(
+                "Partly connected: {path} · Server {} · Skill {}",
+                yes(server),
+                yes(skill)
+            ),
+        ),
+    }
+}
+
 pub(crate) fn profile_name(path: &std::path::Path) -> String {
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
     match home.as_deref().and_then(|h| path.strip_prefix(h).ok()) {
@@ -442,4 +466,23 @@ pub(crate) fn text_button(
         .text_size(px(12.))
         .cursor_pointer()
         .child(label)
+}
+
+#[cfg(test)]
+mod state_tests {
+    use super::*;
+
+    #[test]
+    fn each_state_has_its_glyph_and_names_its_parts() {
+        let whole = profile_state(".claude", Link::Whole, true, true);
+        assert_eq!(whole, ("circle-check", ".claude: connected".to_owned()));
+        let not = profile_state(".claude", Link::Not, false, false);
+        assert_eq!(not.0, "circle-dashed");
+        let partly = profile_state(".claude-work", Link::Partly, true, false);
+        assert_eq!(partly.0, "circle-dot");
+        assert_eq!(
+            partly.1,
+            "Partly connected: .claude-work · Server yes · Skill not yet"
+        );
+    }
 }

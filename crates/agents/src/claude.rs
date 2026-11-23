@@ -242,6 +242,40 @@ pub(crate) fn connected(profile: &Path) -> bool {
     profile.join("skills/artoo/SKILL.md").is_file()
 }
 
+/// How much of Artoo is in a Claude Code profile: both its parts, one of them, or neither.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Link {
+    Whole,
+    Partly,
+    Not,
+}
+
+/// Whether profile `profile` has Artoo's MCP server: `artoo` among the `mcpServers` of the profile's `.claude.json`
+/// (`~/.claude`'s sits beside it in the home folder, a `CLAUDE_CONFIG_DIR` profile's inside it).
+pub(crate) fn has_server(profile: &Path) -> bool {
+    let mut files = vec![profile.join(".claude.json")];
+    if profile.file_name().is_some_and(|n| n == ".claude") {
+        files.extend(profile.parent().map(|home| home.join(".claude.json")));
+    }
+    files.iter().any(|f| {
+        std::fs::read_to_string(f)
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            .is_some_and(|v| v["mcpServers"]["artoo"].is_object())
+    })
+}
+
+/// The profile's state, from its two parts: the server and the skill. Returned with the parts for the tooltip.
+pub(crate) fn link(profile: &Path) -> (Link, bool, bool) {
+    let (server, skill) = (has_server(profile), connected(profile));
+    let state = match (server, skill) {
+        (true, true) => Link::Whole,
+        (false, false) => Link::Not,
+        _ => Link::Partly,
+    };
+    (state, server, skill)
+}
+
 /// Adds Artoo's MCP server to every Claude Code profile, for every project (user scope),
 /// replacing an older entry, and the skill beside it. Returns what happened, per profile.
 pub(crate) fn connect() -> Result<String, String> {
@@ -331,5 +365,29 @@ mod tests {
         for moment in ["after a commit", "rewritten", "addressed", "to approve"] {
             assert!(front.contains(moment), "{moment}");
         }
+    }
+
+    #[test]
+    fn a_profile_is_connected_partly_or_not_from_its_server_and_its_skill() {
+        let profile = tempfile::tempdir().unwrap();
+        let p = profile.path();
+        // Neither.
+        assert_eq!(link(p), (Link::Not, false, false));
+        // The skill only.
+        write_skill(p).unwrap();
+        assert_eq!(link(p), (Link::Partly, false, true));
+        // Both.
+        std::fs::write(
+            p.join(".claude.json"),
+            r#"{"mcpServers":{"artoo":{"command":"artoo","args":["mcp"]}}}"#,
+        )
+        .unwrap();
+        assert_eq!(link(p), (Link::Whole, true, true));
+        // The server only.
+        std::fs::remove_dir_all(p.join("skills")).unwrap();
+        assert_eq!(link(p), (Link::Partly, true, false));
+        // Another server is not Artoo's.
+        std::fs::write(p.join(".claude.json"), r#"{"mcpServers":{"other":{}}}"#).unwrap();
+        assert_eq!(link(p), (Link::Not, false, false));
     }
 }
