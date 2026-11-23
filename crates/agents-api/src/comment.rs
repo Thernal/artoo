@@ -251,6 +251,10 @@ pub struct Sent {
     /// The chat's watcher has handed it over.
     #[serde(default)]
     pub delivered: bool,
+    /// When it was sent, seconds since the epoch: its place in the conversation. 0 for one sent before it was kept
+    /// (the conversation then reads `Comment::written`).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub at: i64,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -339,6 +343,7 @@ pub fn next_id(comments: &[Comment]) -> u64 {
 /// Marks `ids` as sent to `session` in one new batch; returns the batch.
 pub fn send(comments: &mut [Comment], ids: &[u64], session: &str, title: &str) -> String {
     let batch = artoo_core::platform::uid();
+    let at = crate::bus::now();
     for c in comments.iter_mut().filter(|c| ids.contains(&c.id)) {
         c.state = State::Sent;
         c.sent = Some(Sent {
@@ -346,6 +351,7 @@ pub fn send(comments: &mut [Comment], ids: &[u64], session: &str, title: &str) -
             title: title.to_owned(),
             batch: batch.clone(),
             delivered: false,
+            at,
         });
     }
     batch

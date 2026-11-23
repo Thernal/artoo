@@ -68,7 +68,23 @@ pub fn run() {
         written = true;
         let comments = bus.comments(&project);
         let waiting = agents::waiting(&comments, &session);
-        if !waiting.is_empty() {
+        let messages = bus.messages(&project);
+        let said = agents::waiting_messages(&messages, &session);
+        if !waiting.is_empty() || !said.is_empty() {
+            for m in &said {
+                let _ = bus.answer(
+                    &project,
+                    &Answer {
+                        uid: agents::uid(),
+                        id: m.id,
+                        batch: String::new(),
+                        kind: Kind::MessageDelivered,
+                        body: String::new(),
+                        form: None,
+                        at: agents::now(),
+                    },
+                );
+            }
             for c in &waiting {
                 let batch = c.sent.as_ref().map(|s| s.batch.clone()).unwrap_or_default();
                 let _ = bus.answer(
@@ -87,7 +103,8 @@ pub fn run() {
             // The chat stays known while it works on them: its beat goes stale and the app says
             // it is working (#77); it listens again when the agent starts this again.
             println!(
-                "Artoo: the reviewer sent {} review comment(s) to this chat. Call the artoo list_comments tool, change the code for each, answer each with address_comment, then start `agent-watch` again in the background.",
+                "Artoo: the reviewer sent {} message(s) and {} review comment(s) to this chat. Call the artoo list_comments tool, read the messages, change the code for each comment, answer each with address_comment, then start `agent-watch` again in the background.",
+                said.len(),
                 waiting.len()
             );
             return;

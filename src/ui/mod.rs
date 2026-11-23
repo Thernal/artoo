@@ -673,6 +673,7 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
                                         title: "Claude · payments-service".into(),
                                         batch: "b".into(),
                                         delivered: true,
+                                        at: 0,
                                     }),
                                     // An earlier question, answered, before the one asked now.
                                     replies: vec![

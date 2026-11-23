@@ -11,10 +11,11 @@
 //! of its chat that are not delivered yet, then exits so the agent wakes.
 
 use crate::review::{self, Comment, Reply, State};
-/// What goes over the folder, the contract's model.
 pub use artoo_agents_api::bus::{
     Chat, Event, Mark, Place, PluginTool, Presence, RequestDraft, ToolAnswer, ToolCall, What, now,
 };
+/// What goes over the folder, the contract's model.
+pub use artoo_agents_api::conversation::{Message, Said};
 use artoo_agents_api::provider::{Me, Provider};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
@@ -47,6 +48,10 @@ pub enum Kind {
     Reply,
     /// The agent says it is done.
     Addressed,
+    /// The chat's watcher handed a message of the reviewer over (`id` is the message's, #220).
+    MessageDelivered,
+    /// The agent read a message of the reviewer (`list_comments`).
+    MessageRead,
 }
 
 /// A string no other answer or batch has.
@@ -142,6 +147,53 @@ impl Bus {
             .unwrap_or(&self.dir)
             .join("comments")
             .join(format!("{}.json", review::key(root)))
+    }
+
+    /// The reviewer's messages the app keeps (`review::load_messages`), read as they are now.
+    pub fn messages_file(&self, root: &Path) -> PathBuf {
+        self.dir
+            .parent()
+            .unwrap_or(&self.dir)
+            .join("messages")
+            .join(format!("{}.json", review::key(root)))
+    }
+
+    fn said_file(&self, root: &Path) -> PathBuf {
+        self.dir
+            .join("said")
+            .join(format!("{}.jsonl", review::key(root)))
+    }
+
+    /// What an agent says of its own accord (`say`, #220): appended by the MCP server, read by the app.
+    pub fn say(&self, root: &Path, said: &Said) -> std::io::Result<()> {
+        append_line(&self.said_file(root), said)
+    }
+
+    #[allow(dead_code, reason = "the conversation's tab (#220) reads it")]
+    pub fn said(&self, root: &Path) -> Vec<Said> {
+        std::fs::read_to_string(self.said_file(root))
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|l| serde_json::from_str(l).ok())
+            .collect()
+    }
+
+    /// When what agents said last changed, to read it only then.
+    #[allow(dead_code, reason = "the conversation's tab (#220) reads it")]
+    pub fn said_stamp(&self, root: &Path) -> Option<std::time::SystemTime> {
+        std::fs::metadata(self.said_file(root))
+            .and_then(|m| m.modified())
+            .ok()
+    }
+
+    /// The reviewer's messages as the app saved them, with the agents' receipts since applied.
+    pub fn messages(&self, root: &Path) -> Vec<Message> {
+        let mut messages: Vec<Message> = std::fs::read_to_string(self.messages_file(root))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        apply_messages(&mut messages, &self.answers(root));
+        messages
     }
 
     /// Says the chat is listening (again).
@@ -442,6 +494,9 @@ fn safe(name: &str) -> String {
 pub fn apply(comments: &mut [Comment], answers: &[Answer]) -> bool {
     let mut changed = false;
     for answer in answers {
+        if matches!(answer.kind, Kind::MessageDelivered | Kind::MessageRead) {
+            continue;
+        }
         let Some(c) = comments.iter_mut().find(|c| c.id == answer.id) else {
             continue;
         };
@@ -455,6 +510,7 @@ pub fn apply(comments: &mut [Comment], answers: &[Answer]) -> bool {
                     changed = true;
                 }
             }
+            Kind::MessageDelivered | Kind::MessageRead => {}
             Kind::Reply | Kind::Addressed => {
                 if c.replies.iter().any(|r| r.uid == answer.uid) {
                     continue;
@@ -485,6 +541,31 @@ pub fn apply(comments: &mut [Comment], answers: &[Answer]) -> bool {
         }
     }
     changed
+}
+
+/// Applies the receipts in `answers` to `messages`; whether anything changed.
+pub fn apply_messages(messages: &mut [Message], answers: &[Answer]) -> bool {
+    let mut changed = false;
+    for answer in answers {
+        let Some(m) = messages.iter_mut().find(|m| m.id == answer.id) else {
+            continue;
+        };
+        match answer.kind {
+            Kind::MessageDelivered if !m.delivered => m.delivered = true,
+            Kind::MessageRead if !m.read => (m.delivered, m.read) = (true, true),
+            _ => continue,
+        }
+        changed = true;
+    }
+    changed
+}
+
+/// The messages waiting for `session`: sent to it (or to no chat in particular) and not handed over yet.
+pub fn waiting_messages<'a>(messages: &'a [Message], session: &str) -> Vec<&'a Message> {
+    messages
+        .iter()
+        .filter(|m| !m.delivered && (m.session.is_empty() || m.session == session))
+        .collect()
 }
 
 /// Where a note on `branch` goes (#77): the chat picked for that branch (`chosen`) while it
@@ -1006,5 +1087,60 @@ mod tests {
         };
         bus.answer(&root, &answer).unwrap();
         assert_eq!(bus.comments(&root)[0].state, State::Addressed);
+    }
+
+    #[test]
+    fn a_message_wakes_its_chat_once_and_is_read_once_and_the_agents_words_are_kept() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let bus = Bus::at(dir.path().join("agents"));
+        let root = Path::new("/p");
+        let message = Message {
+            id: 1,
+            session: "s1".into(),
+            text: "Start with the form.".into(),
+            at: 5,
+            ..Default::default()
+        };
+        std::fs::create_dir_all(bus.messages_file(root).parent().unwrap()).unwrap();
+        std::fs::write(
+            bus.messages_file(root),
+            serde_json::to_string(&[message]).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(waiting_messages(&bus.messages(root), "s1").len(), 1);
+        assert!(waiting_messages(&bus.messages(root), "s2").is_empty());
+        let receipt = |kind| Answer {
+            uid: uid(),
+            id: 1,
+            batch: String::new(),
+            kind,
+            body: String::new(),
+            form: None,
+            at: 6,
+        };
+        bus.answer(root, &receipt(Kind::MessageDelivered)).unwrap();
+        let after = bus.messages(root);
+        assert!(after[0].delivered && !after[0].read);
+        assert!(waiting_messages(&after, "s1").is_empty());
+        bus.answer(root, &receipt(Kind::MessageRead)).unwrap();
+        assert!(bus.messages(root)[0].read);
+        // A receipt for a message is no answer to a comment of the same number.
+        let mut comments = vec![comment(1)];
+        let batch = send(&mut comments, &[1], "s1", "t");
+        let mut stray = receipt(Kind::MessageRead);
+        stray.batch = batch;
+        assert!(!apply(&mut comments, &[stray]));
+        bus.say(
+            root,
+            &Said {
+                uid: uid(),
+                session: "s1".into(),
+                text: "Done · 2 files changed".into(),
+                at: 9,
+                status: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(bus.said(root).len(), 1);
     }
 }

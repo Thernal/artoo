@@ -9,6 +9,7 @@
 
 pub mod bus;
 pub mod comment;
+pub mod conversation;
 pub mod notes;
 pub mod notices;
 pub mod places;

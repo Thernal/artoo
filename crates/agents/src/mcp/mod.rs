@@ -30,12 +30,13 @@ change the diff alone does not explain: why this way, what you left alone, what 
 Artoo is the reviewer's diff app. The reviewer writes comments on lines there and sends them to a chat. \
 So that they reach this chat, start the watcher once, in the background, as soon as you work in a git repository: \
 run `\"{exe}\" agent-watch` with the Monitor tool if you have it, otherwise with Bash and run_in_background. \
-Do not wait for it. When it prints (review comments arrived), call list_comments, change the code for each comment, \
+Do not wait for it. When it prints (review comments or messages arrived), call list_comments — it gives the reviewer's messages first, then the comments — change the code for each comment, \
 call address_comment with its id and one line on what you did — or reply_comment to ask the reviewer — then start the \
 watcher again. Read each comment for what it wants: a question gets an answer (reply_comment); a clear change gets made \
 (then address_comment); a change that is large or unclear is asked about first, with a form (reply_comment with \
 `form`: a plan to approve, a confirm, versions of code …); after explaining, you may offer the fix as a confirm. \
-Never claim a comment is resolved: the reviewer confirms each one in Artoo. \
+Never claim a comment is resolved: the reviewer confirms each one in Artoo. What you want the reviewer to know that is no \
+answer to a comment — what you are starting, what you finished (a status) — you say with say; the reviewer reads the whole conversation in Artoo. \
 When Artoo itself fails (one of these tools, or the app), you may draft a report of it with report_problem; it only \
 opens in the app for the reviewer to check and send. \
 To review a merge request, read it with get_request — its diff as GitLab or GitHub compares it, its discussions \
@@ -117,6 +118,18 @@ fn tools() -> Value {
                     }
                 },
                 "required": ["id", "text"]
+            }
+        },
+        {
+            "name": "say",
+            "description": "Tell the reviewer something in the conversation with them, apart from any comment: a remark, what you are about to do, or a status line (`status`: true, e.g. `Done · 3 files changed`). Not for answering a comment: that is address_comment or reply_comment.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "What to say, in a sentence or two"},
+                    "status": {"type": "boolean", "description": "A short status line instead of words"}
+                },
+                "required": ["text"]
             }
         },
         {
@@ -336,6 +349,7 @@ fn call(
         "annotate_changes" => return changes::annotate_changes(bus, &here, &root, args),
         "draft_request" => return requests::draft_request(hosts, bus, &here, &root, args),
         "show" => return show::show(hosts, bus, &here, &root, args),
+        "say" => return say(bus, &root, args),
         _ => {}
     }
     let comments = bus.comments(&root);
@@ -350,7 +364,39 @@ fn call(
         })
         .collect();
     if name == "list_comments" {
-        return Ok(agents::brief(&here, &open));
+        // The reviewer's messages to this chat that it has not read, with the comments: their words come first.
+        let session = me.clone().unwrap_or_default();
+        let messages = bus.messages(&root);
+        let unread: Vec<&agents::Message> = messages
+            .iter()
+            .filter(|m| !m.read && (m.session.is_empty() || m.session == session))
+            .collect();
+        for m in &unread {
+            let _ = bus.answer(
+                &root,
+                &Answer {
+                    uid: agents::uid(),
+                    id: m.id,
+                    batch: String::new(),
+                    kind: Kind::MessageRead,
+                    body: String::new(),
+                    form: None,
+                    at: agents::now(),
+                },
+            );
+        }
+        let brief = agents::brief(&here, &open);
+        if unread.is_empty() {
+            return Ok(brief);
+        }
+        let mut out = String::from("Messages from the reviewer, in the order sent:\n");
+        for m in &unread {
+            out.push_str(&format!(
+                "\n{}\n",
+                artoo_agents_api::comment::quote(&m.text)
+            ));
+        }
+        return Ok(format!("{out}\n{brief}"));
     }
     let id = args["id"].as_u64().ok_or("id is missing")?;
     let comment = open
@@ -383,6 +429,33 @@ fn call(
         Kind::Addressed => format!("Comment {id} marked done; the reviewer will check it."),
         _ => format!("Reply to comment {id} sent to the reviewer."),
     })
+}
+
+/// `say` (#220): what the agent tells the reviewer of its own accord, kept in Artoo's own record of the
+/// conversation (not Claude Code's transcript, so Codex has it too).
+fn say(bus: &Bus, root: &Path, args: &Value) -> Result<String, String> {
+    let text = args["text"].as_str().unwrap_or_default().trim();
+    if text.is_empty() {
+        return Err("text is missing".to_owned());
+    }
+    let session = agents::whoami()
+        .map(|(_, me)| me.session)
+        .unwrap_or_default();
+    bus.say(
+        root,
+        &agents::Said {
+            uid: agents::uid(),
+            session,
+            text: text.to_owned(),
+            at: agents::now(),
+            status: args["status"].as_bool().unwrap_or(false),
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(format!(
+        "The reviewer sees it in the conversation.{}",
+        unseen(bus)
+    ))
 }
 
 /// A report of Artoo's own problem, drafted for the reviewer to check in the app (#118).
@@ -578,7 +651,7 @@ mod tests {
         };
         bus.present(1, &presence).unwrap();
         let names = list(&bus);
-        assert_eq!(names.len(), 13);
+        assert_eq!(names.len(), 14);
         assert_eq!(names.last().map(String::as_str), Some("jira_issue"));
         // The window takes the call and answers it, as the app's beat does.
         let window = Bus::at(dir.clone());
@@ -630,7 +703,7 @@ mod tests {
         let (first, _) = said.split_once("\n\n").unwrap();
         assert!(first.contains("open_changes") && first.contains("after you commit"));
         let list = handle(&*hosts, &bus, "", &json!({"id": 2, "method": "tools/list"})).unwrap();
-        assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 12);
+        assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 13);
         assert!(
             handle(
                 &*hosts,
