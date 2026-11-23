@@ -7,6 +7,7 @@
 use crate::agents::Chat;
 use crate::chats::Chats;
 use crate::comments::AgentComments;
+use crate::notsent;
 use crate::review::{self, Kind, kind_of};
 use crate::sessions::{self, Session};
 use crate::talk;
@@ -60,8 +61,25 @@ pub struct AgentsWindow {
     /// The message being written to the open session, and its field's caret and layout.
     draft: String,
     area: Area,
+    /// The message to go with the comments not sent, and its field.
+    note: String,
+    note_area: Area,
     /// Whether the composer takes typed keys: a conversation is open on its Conversation view.
     typing: Rc<Cell<bool>>,
+    /// A snapshot run's first act (`ARTOO_SNAPSHOT_AGENTS`: `not-sent`, `send-all`), done once.
+    snapshot: Cell<Option<&'static str>>,
+}
+
+/// What a snapshot run does on the tab first, named by `ARTOO_SNAPSHOT_AGENTS`.
+fn snapshot_act() -> Option<&'static str> {
+    if !artoo_core::storage::snapshot_run() {
+        return None;
+    }
+    match std::env::var("ARTOO_SNAPSHOT_AGENTS").ok()?.as_str() {
+        "not-sent" => Some("not-sent"),
+        "send-all" => Some("send-all"),
+        _ => None,
+    }
 }
 
 /// The Agents window as a tab's tool window.
@@ -85,7 +103,10 @@ pub fn tool(
             shown: Cell::new(0),
             draft: String::new(),
             area: Area::default(),
+            note: String::new(),
+            note_area: Area::default(),
             typing: Rc::new(Cell::new(false)),
+            snapshot: Cell::new(snapshot_act()),
         }
     });
     let (opened, keys, typed) = (window.clone(), window.clone(), window.clone());
@@ -569,18 +590,9 @@ impl AgentsWindow {
                 self.view == View::NotSent,
                 View::NotSent,
             ));
-        // Not sent is A5's; until then a count.
         let body = match self.view {
             View::Conversation => self.talk(s, &talk, cx),
-            View::NotSent => div()
-                .flex_1()
-                .min_h_0()
-                .px(px(14.))
-                .py(px(10.))
-                .text_size(px(12.))
-                .text_color(theme::muted())
-                .child(format!("{} not sent", plural(not_sent, "comment")))
-                .into_any_element(),
+            View::NotSent => self.not_sent(s, cx),
         };
         div()
             .flex_1()
@@ -603,31 +615,136 @@ impl AgentsWindow {
             .into_any_element()
     }
 
-    /// The session a message written now goes to: the open conversation's, on its Conversation view.
-    fn writing_to(&self, cx: &App) -> Option<Chat> {
-        if self.view != View::Conversation {
-            return None;
+    /// The Not sent view: the comments in the order written, under them the message to go with them and Send all.
+    fn not_sent(&self, s: &Session, cx: &mut Context<Self>) -> AnyElement {
+        let comments = self.comments.read(cx).list.clone();
+        let host = self.host();
+        let n = notsent::drafts(&comments).len();
+        let to = notsent::To {
+            session: s.chat.session.clone(),
+            title: s.chat.title.clone(),
+            rich: host.as_ref().is_none_or(|h| h.rich(cx)),
+            host,
+        };
+        let rows = notsent::view(&comments, &to, cx);
+        let tone = self.chats.read(cx).mark(&s.chat.session).1;
+        let all = discussion::button("agents-send-all", "Send all", None, Button::Primary(tone))
+            .h(px(26.))
+            .px(px(10.))
+            .tooltip_show_delay(hover::LONG)
+            .tooltip(move |_, cx| {
+                cx.new(|_| {
+                    hover::TipOwned(format!("{}  \u{21b5}", notsent::send_all_tip(n)).into())
+                })
+                .into()
+            })
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.send_all(cx)));
+        let field = div().flex_none().px(px(10.)).pb(px(10.)).pt(px(6.)).child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .p(px(8.))
+                .rounded(px(ROW_RADIUS))
+                .border_1()
+                .border_color(theme::island_border())
+                .text_size(px(12.))
+                .child(self.note_area.field_of(
+                    &self.note,
+                    true,
+                    "A message to go with them\u{2026}",
+                    true,
+                    |w: &mut AgentsWindow| Some(&mut w.note_area),
+                    cx.entity().downgrade(),
+                ))
+                .child(div().flex().justify_end().child(all)),
+        );
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .id("agents-not-sent")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .py(px(6.))
+                    .flex()
+                    .flex_col()
+                    .children(rows),
+            )
+            .children((n > 0).then_some(field))
+            .into_any_element()
+    }
+
+    /// Send all: your message first when there is one, then each comment as a message of its own, to the open
+    /// session; the tab then shows the conversation.
+    fn send_all(&mut self, cx: &mut Context<Self>) {
+        let list = self.sessions(cx);
+        let Some(chat) = self.open_session(&list).map(|s| s.chat.clone()) else {
+            return;
+        };
+        let ids: Vec<u64> = notsent::drafts(&self.comments.read(cx).list)
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        let (Some(main), Some(host)) = (self.main(cx), self.host()) else {
+            return;
+        };
+        if ids.is_empty() {
+            return;
         }
+        review::send_all_message(&main, &chat.session, &self.note, &ids, format::now());
+        host.act(
+            Act::SendTo {
+                ids,
+                session: chat.session,
+                title: chat.title,
+            },
+            cx,
+        );
+        self.note.clear();
+        self.note_area = Area::default();
+        self.view = View::Conversation;
+        self.refresh_chats(cx);
+        cx.notify();
+    }
+
+    /// The session a message written now goes to: the open conversation's.
+    fn writing_to(&self, cx: &App) -> Option<Chat> {
         let list = self.sessions(cx);
         self.open_session(&list).map(|s| s.chat.clone())
     }
 
-    /// A typed key while the tab has the keyboard: the message's field. ↵ sends it, ⇧↵ breaks the line.
+    /// A typed key while the tab has the keyboard: the open view's field. ↵ sends it (Send on the conversation,
+    /// Send all on Not sent), ⇧↵ breaks the line.
     fn key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
         let key = &event.keystroke;
         if self.writing_to(cx).is_none() {
             return;
         }
+        let not_sent = self.view == View::NotSent;
+        let (text, area) = if not_sent {
+            (&mut self.note, &mut self.note_area)
+        } else {
+            (&mut self.draft, &mut self.area)
+        };
         if key.key == "enter" {
             if key.modifiers.shift {
-                input::sync(&self.draft, &mut self.area.edit);
-                self.area.edit.insert("\n");
-                self.draft = self.area.edit.text().to_owned();
+                input::sync(text, &mut area.edit);
+                area.edit.insert("\n");
+                *text = area.edit.text().to_owned();
                 return cx.notify();
             }
-            return self.send_message(cx);
+            return if not_sent {
+                self.send_all(cx)
+            } else {
+                self.send_message(cx)
+            };
         }
-        input::edit_area(&mut self.draft, &mut self.area.edit, key, cx);
+        input::edit_area(text, &mut area.edit, key, cx);
         cx.notify();
     }
 
@@ -733,8 +850,18 @@ impl AgentsWindow {
 impl Render for AgentsWindow {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let list = self.sessions(cx);
-        self.typing
-            .set(self.view == View::Conversation && self.open_session(&list).is_some());
+        self.typing.set(self.open_session(&list).is_some());
+        if self.open_session(&list).is_some()
+            && let Some(act) = self.snapshot.take()
+        {
+            self.view = View::NotSent;
+            if act == "send-all" {
+                cx.spawn(async move |this, cx| {
+                    let _ = this.update(cx, |w, cx| w.send_all(cx));
+                })
+                .detach();
+            }
+        }
         let body = if list.is_empty() {
             self.empty()
         } else if let Some(open) = self.open_session(&list) {

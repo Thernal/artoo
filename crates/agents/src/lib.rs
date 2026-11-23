@@ -19,6 +19,7 @@ mod form;
 mod inbox;
 mod mcp;
 mod notes;
+mod notsent;
 mod pick;
 mod review;
 mod sessions;
