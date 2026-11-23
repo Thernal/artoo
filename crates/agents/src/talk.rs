@@ -170,6 +170,8 @@ pub struct Look {
     /// Comments and messages drawn as markdown.
     pub rich: bool,
     pub host: Option<Rc<dyn AgentsHost>>,
+    /// The session's folder, where a `path:line` in its words is looked for.
+    pub folder: std::path::PathBuf,
 }
 
 /// A comment's place, short: `LoginViewModel.kt:51`.
@@ -513,6 +515,7 @@ fn bubble(key: usize, s: &Say, comments: &[Comment], look: &Look, cx: &App) -> A
         }),
     });
     let words = markdown::body(&s.text, true, format!("say-{key}"), None, None, cx);
+    let words = with_cites(words, key, &s.text, look);
     let card = match open_form(s, comments) {
         // Plan and question open: an orange border, the form under the words.
         Some(c) => {
@@ -583,6 +586,103 @@ fn bubble(key: usize, s: &Say, comments: &[Comment], look: &Look, cx: &App) -> A
             .child(words),
     };
     card.into_any_element()
+}
+
+/// The words, and under them a chip for each `path:line` they name: the file's glyph and `name:line` in a
+/// hairline; hovered, the lines around; a click opens it in Code.
+fn with_cites(words: AnyElement, key: usize, text: &str, look: &Look) -> AnyElement {
+    let cites = crate::cites::scan(text, &look.folder);
+    if cites.is_empty() {
+        return words;
+    }
+    let chips = cites.into_iter().enumerate().map(|(i, cite)| {
+        let host = look.host.clone();
+        let lines = crate::cites::around(&look.folder, &cite);
+        let name = cite
+            .path
+            .rsplit('/')
+            .next()
+            .unwrap_or(&cite.path)
+            .to_owned();
+        let shown = format!("{name}:{}", cite.line);
+        let card = (cite.path.clone(), lines);
+        let (path, line) = (cite.path.clone(), cite.line);
+        div()
+            .id(("talk-cite", key * 100 + i))
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .px(px(6.))
+            .py(px(1.))
+            .rounded(px(4.))
+            .border_1()
+            .border_color(theme::island_border())
+            .text_size(px(11.))
+            .cursor_pointer()
+            .hover(|d| d.bg(theme::base()))
+            .tooltip_show_delay(hover::LONG)
+            .tooltip(move |_, cx| {
+                let card = card.clone();
+                cx.new(|_| CiteCard {
+                    path: card.0,
+                    lines: card.1,
+                })
+                .into()
+            })
+            .child(icons::file_icon(&cite.path, 12.))
+            .child(SharedString::from(shown))
+            .on_click(move |_, _, cx| {
+                if let Some(host) = &host {
+                    host.act(
+                        Act::OpenCode {
+                            path: path.clone(),
+                            line,
+                        },
+                        cx,
+                    );
+                }
+            })
+    });
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(6.))
+        .child(words)
+        .child(div().flex().flex_wrap().gap(px(4.)).children(chips))
+        .into_any_element()
+}
+
+/// The hover card of a `path:line`: the path, the lines around it with the named one marked.
+struct CiteCard {
+    path: String,
+    lines: Vec<(u32, String, bool)>,
+}
+
+impl Render for CiteCard {
+    fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        hover::card_frame()
+            .gap(px(6.))
+            .child(
+                div()
+                    .text_color(theme::muted())
+                    .child(SharedString::from(self.path.clone())),
+            )
+            .children(self.lines.iter().map(|(n, text, own)| {
+                div()
+                    .flex()
+                    .gap(px(8.))
+                    .font_family("monospace")
+                    .text_size(px(11.))
+                    .when(*own, |d| d.bg(theme::hover()))
+                    .child(
+                        div()
+                            .w(px(28.))
+                            .text_color(theme::faint())
+                            .child(SharedString::from(n.to_string())),
+                    )
+                    .child(SharedString::from(text.clone()))
+            }))
+    }
 }
 
 #[cfg(test)]

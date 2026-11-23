@@ -10,6 +10,7 @@
 
 mod agents;
 mod chats;
+mod cites;
 mod claude;
 mod codex;
 mod comments;

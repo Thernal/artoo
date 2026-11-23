@@ -839,6 +839,7 @@ impl AgentsWindow {
             mark: self.chats.read(cx).mark(&s.chat.session),
             rich: host.as_ref().is_none_or(|h| h.rich(cx)),
             host,
+            folder: s.chat.repo.clone(),
         };
         let items = talk::view(&blocks, &comments, &look, cx);
         // A new block takes the view to the end, as a messenger does.

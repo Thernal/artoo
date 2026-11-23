@@ -65,6 +65,11 @@ pub enum Act {
     },
     /// A click on a form in the conversation (#220).
     Form(FormEvent),
+    /// A `path:line` in the agent's words (#220): the file opened in Code at the line.
+    OpenCode {
+        path: String,
+        line: u32,
+    },
 }
 
 /// What the notes' summary asks of the tab (`Rc<dyn NotesHost>` in its services).

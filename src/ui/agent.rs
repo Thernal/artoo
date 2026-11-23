@@ -254,10 +254,24 @@ impl Workspace {
             // The agents' own: their window does them.
             Act::Withdraw(_) | Act::Archive(..) | Act::ArchiveResolved | Act::Resolve(_) => {}
             Act::Form(event) => self.form_event(event, cx),
+            Act::OpenCode { path, line } => self.open_cited(path, line, cx),
             Act::NameChat { session, agent } => {
                 self.open_label(super::labeling::Target::Chat { session, agent }, cx)
             }
         }
+    }
+
+    /// A `path:line` in an agent's words (#220): the file, as it is on disk, in Code at the line.
+    fn open_cited(&mut self, path: String, line: u32, cx: &mut Context<Self>) {
+        self.file_jump = Some((path.clone(), line));
+        self.nav.space = super::spaces::CODE;
+        if let Some(code) = self.code()
+            && code.revision(cx).is_some()
+        {
+            code.follow(None, cx);
+            code.read_files(false, cx);
+        }
+        self.open_code_file(path, false, cx);
     }
 
     /// A draft goes, no question asked; the toast's Undo brings it back (#76).
