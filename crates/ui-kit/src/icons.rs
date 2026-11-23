@@ -555,6 +555,19 @@ const ICONS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "git-compare",
+        lucide!(
+            r#"<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/>"#
+            r#"<path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M11 18H8a2 2 0 0 1-2-2V9"/>"#
+        ),
+    ),
+    (
+        "laptop",
+        lucide!(
+            r#"<path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"/>"#
+        ),
+    ),
+    (
         "git-commit",
         lucide!(
             r#"<circle cx="12" cy="12" r="3"/>"#
@@ -740,5 +753,13 @@ mod tests {
             );
         }
         assert!(Icons.load("icons/nope.svg").unwrap().is_none());
+    }
+
+    #[test]
+    fn the_laptop_and_the_compare_are_in_the_kit() {
+        for name in ["laptop", "git-compare"] {
+            assert!(ICONS.iter().any(|(n, _)| *n == name), "{name}");
+            assert!(Icons.load(&format!("icons/{name}.svg")).unwrap().is_some());
+        }
     }
 }

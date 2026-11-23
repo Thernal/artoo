@@ -5,8 +5,10 @@ use super::Workspace;
 use super::keymap::{self, Keymap, Preset};
 use artoo_shell_api::shortcuts::{self, Group, Keys};
 use gpui::{Context, prelude::*};
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
+use std::sync::{Mutex, OnceLock};
 
 /// The card was shown at launch in this run already (a new tab does not show it again).
 pub(super) static SHOWN: AtomicBool = AtomicBool::new(false);
@@ -66,7 +68,7 @@ const GROUPS: &[Group] = &[
             ),
             ("⌥M", "comments as markdown / raw text"),
             ("⌥⌘A", "send the comments for your agent to its chat"),
-            ("⇧⌘A", "show or hide the Agents window"),
+            ("⇧⌘A", AGENTS_ROW),
             ("⌘B ⌘I ⌘⇧X ⌘⇧E ⌘⇧K", "bold, italic, strike, code, link"),
             ("⌘⇧P in the box", "preview the markdown"),
         ],
@@ -109,6 +111,49 @@ const GROUPS: &[Group] = &[
     ),
 ];
 
+/// The words of the Agents window's row; its keys are the ones in use.
+pub(super) const AGENTS_ROW: &str = "show or hide the Agents window";
+
+/// `GROUPS` with the Agents window's row showing `agents_key` (the preset's or the user's key, not the shipped
+/// one); one copy is kept per key, since the card takes its groups for good.
+pub(super) fn groups(agents_key: &str) -> &'static [Group] {
+    static KEPT: OnceLock<Mutex<HashMap<String, &'static [Group]>>> = OnceLock::new();
+    let mut kept = KEPT.get_or_init(Default::default).lock().unwrap();
+    if let Some(groups) = kept.get(agents_key) {
+        return groups;
+    }
+    let key: &'static str = Box::leak(agents_key.to_owned().into_boxed_str());
+    let groups: Vec<Group> = GROUPS
+        .iter()
+        .map(|&(title, rows)| {
+            let rows: Vec<(&'static str, &'static str)> = rows
+                .iter()
+                .map(|&(keys, what)| {
+                    if what == AGENTS_ROW {
+                        (key, what)
+                    } else {
+                        (keys, what)
+                    }
+                })
+                .collect();
+            (title, &*Box::leak(rows.into_boxed_slice()))
+        })
+        .collect();
+    let groups: &'static [Group] = Box::leak(groups.into_boxed_slice());
+    kept.insert(agents_key.to_owned(), groups);
+    groups
+}
+
+/// The key the Agents window has now, as the card writes it.
+pub(super) fn agents_key(keymap: &Keymap) -> String {
+    // The card writes a letter key in capitals (`⇧⌘A`), as `symbols` leaves it.
+    let mut key = keymap.key_now(&artoo_agents::ToggleAgents);
+    if key.ends_with(|c: char| c.is_ascii_lowercase()) {
+        key = key.to_uppercase();
+    }
+    key
+}
+
 impl Workspace {
     pub(super) fn toggle_shortcuts(&mut self, cx: &mut Context<Self>) {
         self.shortcuts = !self.shortcuts;
@@ -136,7 +181,7 @@ impl Workspace {
                 .collect(),
         };
         Some(shortcuts::card(
-            GROUPS,
+            groups(&agents_key(keymap)),
             keys,
             Rc::new(move |cx| {
                 tab.update(cx, |this, cx| {

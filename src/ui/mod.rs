@@ -3510,6 +3510,23 @@ mod tests {
     }
 
     #[test]
+    fn the_card_names_the_agents_key_of_the_preset_in_use() {
+        for (preset, want) in [
+            (keymap::Preset::Artoo, "⇧⌘A"),
+            (keymap::Preset::AndroidStudio, "⌥⇧⌘A"),
+        ] {
+            let map = keymap::Keymap::with_preset(shipped(str::to_owned), true, preset);
+            assert_eq!(shortcuts::agents_key(&map), want, "{preset:?}");
+            let row = shortcuts::groups(want)
+                .iter()
+                .flat_map(|(_, rows)| rows.iter())
+                .find(|(_, what)| *what == shortcuts::AGENTS_ROW)
+                .unwrap();
+            assert_eq!(row.0, want);
+        }
+    }
+
+    #[test]
     fn no_preset_clashes_and_each_names_real_actions() {
         // macOS's keys and Windows and Linux's, whichever OS runs the test.
         for mac in [true, false] {
