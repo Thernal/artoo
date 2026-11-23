@@ -66,7 +66,9 @@ pub struct AgentsWindow {
     note_area: Area,
     /// Whether the composer takes typed keys: a conversation is open on its Conversation view.
     typing: Rc<Cell<bool>>,
-    /// A snapshot run's first act (`ARTOO_SNAPSHOT_AGENTS`: `not-sent`, `send-all`), done once.
+    /// The Not sent rows whose place is open.
+    peeked: std::collections::HashSet<u64>,
+    /// A snapshot run's first act (`ARTOO_SNAPSHOT_AGENTS`: `not-sent`, `send-all`, `peek`), done once.
     snapshot: Cell<Option<&'static str>>,
 }
 
@@ -78,6 +80,7 @@ fn snapshot_act() -> Option<&'static str> {
     match std::env::var("ARTOO_SNAPSHOT_AGENTS").ok()?.as_str() {
         "not-sent" => Some("not-sent"),
         "send-all" => Some("send-all"),
+        "peek" => Some("peek"),
         _ => None,
     }
 }
@@ -106,6 +109,7 @@ pub fn tool(
             note: String::new(),
             note_area: Area::default(),
             typing: Rc::new(Cell::new(false)),
+            peeked: Default::default(),
             snapshot: Cell::new(snapshot_act()),
         }
     });
@@ -620,7 +624,18 @@ impl AgentsWindow {
         let comments = self.comments.read(cx).list.clone();
         let host = self.host();
         let n = notsent::drafts(&comments).len();
+        let this = cx.entity().downgrade();
         let to = notsent::To {
+            peeked: self.peeked.clone(),
+            peek: Rc::new(move |id, cx| {
+                this.update(cx, |t, cx| {
+                    if !t.peeked.remove(&id) {
+                        t.peeked.insert(id);
+                    }
+                    cx.notify();
+                })
+                .ok();
+            }),
             session: s.chat.session.clone(),
             title: s.chat.title.clone(),
             rich: host.as_ref().is_none_or(|h| h.rich(cx)),
@@ -855,6 +870,12 @@ impl Render for AgentsWindow {
             && let Some(act) = self.snapshot.take()
         {
             self.view = View::NotSent;
+            if act == "peek" {
+                let first = notsent::drafts(&self.comments.read(cx).list)
+                    .first()
+                    .map(|c| c.id);
+                self.peeked.extend(first);
+            }
             if act == "send-all" {
                 cx.spawn(async move |this, cx| {
                     let _ = this.update(cx, |w, cx| w.send_all(cx));

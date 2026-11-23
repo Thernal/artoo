@@ -6,6 +6,7 @@ use crate::review::{Comment, State};
 use artoo_agents_api::view::{Act, AgentsHost};
 use artoo_ui_kit::{ROW_RADIUS, hover, icons, markdown, px, theme};
 use gpui::{AnyElement, App, ClickEvent, SharedString, div, prelude::*};
+use std::collections::HashSet;
 use std::rc::Rc;
 
 /// The comments not sent, in the order they were written (ids only grow).
@@ -23,19 +24,97 @@ pub fn send_all_tip(n: usize) -> String {
     format!("Send all {n} to Claude: your message first, then each comment as a message of its own")
 }
 
+/// What a click on a place does: toggles that row's peek.
+pub type Peek = Rc<dyn Fn(u64, &mut App)>;
+
 /// Where the sends of the rows go: the open session.
 pub struct To {
     pub session: String,
     pub title: String,
     pub host: Option<Rc<dyn AgentsHost>>,
     pub rich: bool,
+    /// The rows whose place is open (#220): five lines under the words.
+    pub peeked: HashSet<u64>,
+    /// A click on a row's place opens or closes its peek.
+    pub peek: Peek,
+}
+
+/// The lines a peek shows: up to four above the comment's own line, then that line, which is marked. Only what the
+/// comment kept — the lines as they were when it was written.
+pub fn peek_lines(c: &Comment) -> Vec<(u32, String, bool)> {
+    let above = c.above.len().min(4);
+    let first = c.line.saturating_sub(above as u32);
+    let mut out: Vec<(u32, String, bool)> = c.above[c.above.len() - above..]
+        .iter()
+        .enumerate()
+        .map(|(i, l)| (first + i as u32, l.clone(), false))
+        .collect();
+    out.push((c.line, c.code.clone(), true));
+    out
+}
+
+/// The open peek: the lines with their numbers, the comment's own marked, and Open in Changes.
+fn peek_card(c: &Comment, host: Option<Rc<dyn AgentsHost>>) -> AnyElement {
+    let id = c.id;
+    let lines = peek_lines(c).into_iter().map(|(n, text, own)| {
+        div()
+            .flex()
+            .gap(px(8.))
+            .px(px(8.))
+            .when(own, |d| d.bg(theme::hover()))
+            .text_size(px(12.))
+            .child(
+                div()
+                    .w(px(28.))
+                    .flex_none()
+                    .text_color(theme::faint())
+                    .child(n.to_string()),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .text_color(if own { theme::text() } else { theme::muted() })
+                    .child(SharedString::from(text)),
+            )
+    });
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .py(px(4.))
+                .rounded(px(ROW_RADIUS))
+                .border_1()
+                .border_color(theme::island_border())
+                .children(lines),
+        )
+        .child(
+            div()
+                .id(("not-sent-open", id as usize))
+                .text_size(px(12.))
+                .text_color(theme::muted())
+                .cursor_pointer()
+                .hover(|d| d.text_color(theme::text()))
+                .child("Open in Changes")
+                .on_click(move |_: &ClickEvent, _, cx| {
+                    if let Some(host) = &host {
+                        host.act(Act::Show(id), cx);
+                    }
+                }),
+        )
+        .into_any_element()
 }
 
 /// A comment's row: its place, Edit and Send only this one on hover, its words under.
 fn row(c: &Comment, to: &To, cx: &App) -> AnyElement {
     let id = c.id;
     let group: SharedString = format!("not-sent-{id}").into();
-    let (shown, edited, sent) = (to.host.clone(), to.host.clone(), to.host.clone());
+    let (edited, sent) = (to.host.clone(), to.host.clone());
+    let peek = to.peek.clone();
+    let open = to.peeked.contains(&id);
     let (session, title) = (to.session.clone(), to.title.clone());
     let icon = |name: &'static str, tip: &'static str, key: u64| {
         div()
@@ -79,18 +158,29 @@ fn row(c: &Comment, to: &To, cx: &App) -> AnyElement {
                         .cursor_pointer()
                         .hover(|d| d.text_color(theme::text()))
                         .tooltip_show_delay(hover::LONG)
-                        .tooltip(|_, cx| cx.new(|_| hover::Tip("Go to it in Changes")).into())
+                        .tooltip(move |_, cx| {
+                            cx.new(|_| {
+                                hover::Tip(if open {
+                                    "Close the lines"
+                                } else {
+                                    "Show its lines"
+                                })
+                            })
+                            .into()
+                        })
                         .child(
-                            icons::icon("chevron-right")
-                                .size(px(12.))
-                                .text_color(theme::faint()),
+                            icons::icon(if open {
+                                "chevron-down"
+                            } else {
+                                "chevron-right"
+                            })
+                            .size(px(12.))
+                            .text_color(theme::faint()),
                         )
                         .child(icons::icon("file").size(px(13.)).text_color(theme::muted()))
                         .child(hover::cut(("not-sent-what", id as usize), c.reads()))
                         .on_click(move |_: &ClickEvent, _, cx| {
-                            if let Some(host) = &shown {
-                                host.act(Act::Show(id), cx);
-                            }
+                            peek(id, cx);
                         }),
                 )
                 .child(div().flex_1())
@@ -133,6 +223,7 @@ fn row(c: &Comment, to: &To, cx: &App) -> AnyElement {
             None,
             cx,
         )))
+        .children(open.then(|| peek_card(c, to.host.clone())))
         .into_any_element()
 }
 
@@ -211,6 +302,26 @@ mod tests {
             artoo_agents_api::conversation::working_on(&all, "s1"),
             [1, 2, 3]
         );
+    }
+
+    #[test]
+    fn a_peek_marks_the_comments_own_line_under_the_lines_above() {
+        let mut c = draft(1, "x");
+        c.line = 12;
+        c.code = "val c = 3".into();
+        c.above = vec![
+            "a".into(),
+            "b".into(),
+            "c".into(),
+            "d".into(),
+            "e".into(),
+            "f".into(),
+        ];
+        let lines = peek_lines(&c);
+        assert_eq!(lines.len(), 5);
+        assert_eq!(lines[0].0, 8);
+        assert_eq!(lines[4], (12, "val c = 3".into(), true));
+        assert!(lines[..4].iter().all(|l| !l.2));
     }
 
     #[test]

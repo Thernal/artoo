@@ -239,7 +239,7 @@ impl Workspace {
     /// A click in the Agents window (`artoo_agents_api::view::Act`).
     fn agents_act(&mut self, act: Act, cx: &mut Context<Self>) {
         match act {
-            Act::Show(id) => self.jump_to(id, cx),
+            Act::Show(id) => self.jumping(cx, |this, cx| this.jump_to(id, cx)),
             Act::Send(ids) => self.send_agent(ids, cx),
             Act::PickChat => self.open_agent_pick(cx),
             Act::SendTo {

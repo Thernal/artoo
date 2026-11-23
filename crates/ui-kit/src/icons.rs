@@ -415,6 +415,7 @@ const ICONS: &[(&str, &str)] = &[
     ),
     ("chevron-right", lucide!(r#"<path d="m9 18 6-6-6-6"/>"#)),
     ("chevron-left", lucide!(r#"<path d="m15 18-6-6 6-6"/>"#)),
+    ("chevron-down", lucide!(r#"<path d="m6 9 6 6 6-6"/>"#)),
     (
         "sidebar",
         lucide!(r#"<rect width="18" height="18" x="3" y="3" rx="2"/>"# r#"<path d="M9 3v18"/>"#),
