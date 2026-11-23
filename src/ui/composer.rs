@@ -701,14 +701,7 @@ impl Workspace {
             {
                 return self.reply_to_review(ix, cx);
             }
-            // An agent comment: ⌘↵ and ⇧⌘↵ add it and send all drafts (the composer sends first), ⌥⌘↵ is Send
-            // later; Send this only is the ▾'s, with no key.
-            if target == Some(Target::Agent) {
-                if m.alt {
-                    return self.add_comment(cx);
-                }
-                return self.add_and_send(false, cx);
-            }
+            // An agent comment is kept in Not sent, whatever the modifiers: its own send is on the comment (#220).
             // A reply: ⌥⌘↵ sends it and resolves its discussion, or opens it again when resolved (#199).
             if m.alt
                 && let Some(Target::Reply(ix)) = target
@@ -960,7 +953,6 @@ impl Workspace {
             audience,
             narrow: self.compose_narrow(cx),
             room: self.compose_room(cx),
-            drafts: self.agent_drafts(cx).len(),
         };
         let tail = compose.foot(look, on);
         let placeholder: gpui::SharedString = match (compose.target, &chat) {
@@ -993,12 +985,6 @@ impl Workspace {
     /// A click on a new comment's foot (`Compose::foot`).
     fn foot_event(&mut self, event: FootEvent, cx: &mut Context<Self>) {
         use super::menu::{Act, Entry};
-        let drafts = self.agent_drafts(cx).len();
-        let send_label = if drafts > 0 {
-            format!("Send all {}", drafts + 1)
-        } else {
-            "Send".to_owned()
-        };
         match event {
             FootEvent::Cancel => self.cancel_comment(cx),
             FootEvent::Audience(at) => self.audience_menu(at, cx),
@@ -1012,24 +998,15 @@ impl Workspace {
                 Some(Target::Reply(ix)) => self.reply_to_review(ix, cx),
                 _ => {}
             },
-            FootEvent::SendAll => self.add_and_send(false, cx),
             FootEvent::Add => self.add_comment(cx),
-            // ▾: Send later, Send this only, the chat it goes to, Copy as markdown (#50 F).
+            // ▾: the chat it goes to, Copy as markdown (#50 F).
             FootEvent::More(at) => self.open_menu(
                 at,
                 vec![
-                    vec![
-                        Entry::new("Send later", Act::new(|this, _, cx| this.add_comment(cx)))
-                            .key("⌥⌘↵"),
-                        Entry::new(
-                            "Send this only",
-                            Act::new(|this, _, cx| this.add_and_send(true, cx)),
-                        ),
-                        Entry::new(
-                            "Choose the chat…",
-                            Act::new(|this, _, cx| this.add_and_pick_chat(cx)),
-                        ),
-                    ],
+                    vec![Entry::new(
+                        "Choose the chat…",
+                        Act::new(|this, _, cx| this.add_and_pick_chat(cx)),
+                    )],
                     vec![Entry::new(
                         "Copy as markdown",
                         Act::new(|this, _, cx| this.add_and_copy(cx)),
@@ -1041,23 +1018,10 @@ impl Workspace {
             FootEvent::Folded(at) => {
                 let more = match self.compose.as_ref().map(|c| c.target) {
                     Some(Target::Agent) => vec![
-                        vec![
-                            Entry::new(
-                                send_label,
-                                Act::new(|this, _, cx| this.add_and_send(false, cx)),
-                            )
-                            .key("⇧⌘↵"),
-                            Entry::new("Send later", Act::new(|this, _, cx| this.add_comment(cx)))
-                                .key("⌥⌘↵"),
-                            Entry::new(
-                                "Send this only",
-                                Act::new(|this, _, cx| this.add_and_send(true, cx)),
-                            ),
-                            Entry::new(
-                                "Choose the chat…",
-                                Act::new(|this, _, cx| this.add_and_pick_chat(cx)),
-                            ),
-                        ],
+                        vec![Entry::new(
+                            "Choose the chat…",
+                            Act::new(|this, _, cx| this.add_and_pick_chat(cx)),
+                        )],
                         vec![Entry::new(
                             "Copy as markdown",
                             Act::new(|this, _, cx| this.add_and_copy(cx)),

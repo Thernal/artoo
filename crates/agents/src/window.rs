@@ -7,7 +7,7 @@
 use crate::agents::Chat;
 use crate::chats::Chats;
 use crate::comments::AgentComments;
-use crate::review::{Kind, kind_of};
+use crate::review::{self, Kind, kind_of};
 use crate::sessions::{self, Session};
 use crate::talk;
 use crate::view::chat_badge;
@@ -15,12 +15,14 @@ use artoo_agents_api::view::WINDOW;
 /// What the window asks of the tab, the contract's.
 pub use artoo_agents_api::view::{Act, AgentsHost};
 use artoo_shell_api::{Badge, Frame, ListKey, MenuItem, Tool};
+use artoo_ui_kit::discussion::{self, Kind as Button};
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, CutInTip};
+use artoo_ui_kit::input::{self, Area};
 use artoo_ui_kit::{ROW_RADIUS, icons, px, theme};
 use gpui::{
-    AnyElement, App, ClickEvent, Context, Entity, FontWeight, MouseButton, Render, Window, div,
-    prelude::*,
+    AnyElement, App, ClickEvent, Context, Entity, FontWeight, KeyDownEvent, MouseButton, Render,
+    Window, div, prelude::*,
 };
 use std::cell::Cell;
 use std::rc::Rc;
@@ -55,6 +57,11 @@ pub struct AgentsWindow {
     scroll: gpui::ScrollHandle,
     /// How many blocks it showed last, so a new one scrolls it to the end.
     shown: Cell<usize>,
+    /// The message being written to the open session, and its field's caret and layout.
+    draft: String,
+    area: Area,
+    /// Whether the composer takes typed keys: a conversation is open on its Conversation view.
+    typing: Rc<Cell<bool>>,
 }
 
 /// The Agents window as a tab's tool window.
@@ -76,9 +83,13 @@ pub fn tool(
             row: None,
             scroll: gpui::ScrollHandle::new(),
             shown: Cell::new(0),
+            draft: String::new(),
+            area: Area::default(),
+            typing: Rc::new(Cell::new(false)),
         }
     });
-    let (opened, keys) = (window.clone(), window.clone());
+    let (opened, keys, typed) = (window.clone(), window.clone(), window.clone());
+    let typing = window.read(cx).typing.clone();
     Tool {
         id: WINDOW,
         icon: "bot",
@@ -102,8 +113,8 @@ pub fn tool(
             cx.defer(move |cx| window.update(cx, |w, cx| w.refresh_chats(cx)));
         }),
         closed: Rc::new(|_| {}),
-        typing: Rc::new(Cell::new(false)),
-        key: Rc::new(|_, _, _| {}),
+        typing,
+        key: Rc::new(move |event, _, cx| typed.update(cx, |w, cx| w.key(event, cx))),
         list_key: Some(Rc::new(move |key, cx| {
             keys.update(cx, |w, cx| w.list_key(key, cx))
         })),
@@ -588,6 +599,95 @@ impl AgentsWindow {
                     .border_color(theme::island_border())
                     .child(body),
             )
+            .children((self.view == View::Conversation).then(|| self.composer(&s.chat, cx)))
+            .into_any_element()
+    }
+
+    /// The session a message written now goes to: the open conversation's, on its Conversation view.
+    fn writing_to(&self, cx: &App) -> Option<Chat> {
+        if self.view != View::Conversation {
+            return None;
+        }
+        let list = self.sessions(cx);
+        self.open_session(&list).map(|s| s.chat.clone())
+    }
+
+    /// A typed key while the tab has the keyboard: the message's field. ↵ sends it, ⇧↵ breaks the line.
+    fn key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
+        let key = &event.keystroke;
+        if self.writing_to(cx).is_none() {
+            return;
+        }
+        if key.key == "enter" {
+            if key.modifiers.shift {
+                input::sync(&self.draft, &mut self.area.edit);
+                self.area.edit.insert("\n");
+                self.draft = self.area.edit.text().to_owned();
+                return cx.notify();
+            }
+            return self.send_message(cx);
+        }
+        input::edit_area(&mut self.draft, &mut self.area.edit, key, cx);
+        cx.notify();
+    }
+
+    /// Send: the message alone to the open session; the comments not sent stay in Not sent.
+    fn send_message(&mut self, cx: &mut Context<Self>) {
+        let (Some(chat), Some(main)) = (self.writing_to(cx), self.main(cx)) else {
+            return;
+        };
+        if review::send_message(&main, &chat.session, &self.draft, format::now()) {
+            self.draft.clear();
+            self.area = Area::default();
+            self.refresh_chats(cx);
+        }
+        cx.notify();
+    }
+
+    /// The composer under the conversation: `Message Claude…` and Send.
+    fn composer(&self, chat: &Chat, cx: &mut Context<Self>) -> AnyElement {
+        let name = chat.agent.split_whitespace().next().unwrap_or("your agent");
+        let ready = !self.draft.trim().is_empty();
+        let tone = self.chats.read(cx).mark(&chat.session).1;
+        let send = discussion::button("agents-send", "Send", None, Button::Primary(tone))
+            .h(px(26.))
+            .px(px(10.))
+            .when(!ready, |s| s.opacity(0.5).cursor_default())
+            .tooltip_show_delay(hover::LONG)
+            .tooltip(|_, cx| {
+                cx.new(|_| {
+                    hover::TipOwned(
+                        "Send to the agent  ↵\nThe comments not sent stay in Not sent".into(),
+                    )
+                })
+                .into()
+            })
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.send_message(cx)));
+        div()
+            .flex_none()
+            .px(px(10.))
+            .pb(px(10.))
+            .pt(px(6.))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .p(px(8.))
+                    .rounded(px(ROW_RADIUS))
+                    .border_1()
+                    .border_color(theme::island_border())
+                    .text_size(px(12.))
+                    .child(self.area.field_of(
+                        &self.draft,
+                        true,
+                        &format!("Message {name}…"),
+                        true,
+                        |w: &mut AgentsWindow| Some(&mut w.area),
+                        cx.entity().downgrade(),
+                    ))
+                    .child(div().flex().justify_end().child(send)),
+            )
             .into_any_element()
     }
 
@@ -633,6 +733,8 @@ impl AgentsWindow {
 impl Render for AgentsWindow {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let list = self.sessions(cx);
+        self.typing
+            .set(self.view == View::Conversation && self.open_session(&list).is_some());
         let body = if list.is_empty() {
             self.empty()
         } else if let Some(open) = self.open_session(&list) {

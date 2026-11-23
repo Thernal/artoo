@@ -774,4 +774,42 @@ mod tests {
         assert_eq!(drafts[0].title, "list_comments failed");
         assert!(bus.take_reports().is_empty(), "taken once");
     }
+
+    #[test]
+    fn a_message_sent_from_the_tab_reaches_list_comments() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let bus = Bus::at(dir.path().join("bus"));
+        let (_, project) = repo().unwrap();
+        let message =
+            crate::review::next_message(&[], "", "Do the login first.", agents::now()).unwrap();
+        let file = bus.messages_file(&project);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, serde_json::to_string(&[message]).unwrap()).unwrap();
+        let hosts = artoo_hosts::hosts();
+        let reply = handle(
+            &*hosts,
+            &bus,
+            "",
+            &json!({"id": 5, "method": "tools/call",
+                    "params": {"name": "list_comments", "arguments": {}}}),
+        )
+        .unwrap();
+        let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("Do the login first."), "{text}");
+        // Read once: the next call no longer hands it over.
+        let again = handle(
+            &*hosts,
+            &bus,
+            "",
+            &json!({"id": 6, "method": "tools/call",
+                    "params": {"name": "list_comments", "arguments": {}}}),
+        )
+        .unwrap();
+        assert!(
+            !again["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("Do the login first.")
+        );
+    }
 }

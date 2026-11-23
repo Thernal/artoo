@@ -62,10 +62,6 @@ const GROUPS: &[Group] = &[
             ("e", "edit your comment in the discussion"),
             ("⇧e", "react to the discussion's newest note"),
             ("⌘⇧D", "show or hide the Discussions window · esc hides it"),
-            (
-                "⌥⌘↵",
-                "send later: keep the note for your agent with the drafts",
-            ),
             ("⌥M", "comments as markdown / raw text"),
             ("⌥⌘A", "send the comments for your agent to its chat"),
             ("⇧⌘A", AGENTS_ROW),

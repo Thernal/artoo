@@ -963,8 +963,6 @@ pub struct FootLook {
     pub narrow: bool,
     /// The box's room (#129).
     pub room: Room,
-    /// The comments for the agent waiting, which Send all sends with this one.
-    pub drafts: usize,
 }
 
 /// A click on a comment's foot.
@@ -977,9 +975,7 @@ pub enum FootEvent {
     Everyone,
     /// Added to the review, pending until it is submitted: a comment on a line, a reply (#200).
     AddToReview,
-    /// Added for the agent, and every draft sent.
-    SendAll,
-    /// The agent's ▾ at a point: Send this only, the chat, Copy (#50 F).
+    /// The agent's ▾ at a point: the chat, Copy (#50 F).
     More(Point<Pixels>),
     /// The primary: added for the agent, or posted.
     Add,
@@ -1005,10 +1001,7 @@ fn waiting_foot(waits: bool, on: OnFoot) -> OnFoot {
 impl FootEvent {
     /// It sends the comment somewhere: posted, added to the review, or for the agent.
     pub fn posts(&self) -> bool {
-        matches!(
-            self,
-            FootEvent::Add | FootEvent::AddToReview | FootEvent::SendAll
-        )
+        matches!(self, FootEvent::Add | FootEvent::AddToReview)
     }
 }
 
@@ -1146,8 +1139,8 @@ impl Compose {
     }
 
     /// A new comment's foot by its room (Design shell round 6, #129): Cancel, the other ways to send and the
-    /// primary; who reads it is the `To:` chip over the text (#200, `audience_chip`). For the agent the composer sends
-    /// first: `Send 3 ⌘↵`, its ▾ holding Send later, Send this only, Choose the chat…, Copy as markdown.
+    /// primary; who reads it is the `To:` chip over the text (#200, `audience_chip`). For the agent the primary keeps
+    /// the comment in Not sent (its own send is on the comment, #220), its ▾ holding Choose the chat…, Copy as markdown.
     pub fn foot(&self, look: FootLook, on: OnFoot) -> Vec<AnyElement> {
         let waits = self.waiting();
         let on = waiting_foot(waits, on);
@@ -1186,31 +1179,12 @@ impl Compose {
             .into_any_element(),
         ];
         let add = on.clone();
-        let primary = if agent {
-            // The composer sends first (L3): `Send 3 ⌘↵` carries its count, its tooltip what goes with it; ▾ holds
-            // Send later, Send this only, Choose the chat…, Copy as markdown.
-            if look.drafts > 0 {
-                format!("Send {}", look.drafts + 1)
-            } else {
-                "Send".to_owned()
-            }
-        } else {
-            "Comment".to_owned()
-        };
+        // A comment on a line for the agent is kept in Not sent; its own send is on the comment (#220).
+        let primary = if agent { "Add to Not sent" } else { "Comment" };
         let said: SharedString = if waits {
             "Waits for the upload".into()
-        } else if agent && look.drafts > 0 {
-            format!(
-                "This and the {} not sent go to your agent  ⌘↵\nSend later, or this only",
-                if look.drafts == 1 {
-                    "note".to_owned()
-                } else {
-                    format!("{} notes", look.drafts)
-                }
-            )
-            .into()
         } else if agent {
-            "Send to your agent  ⌘↵\nSend later, or this only".into()
+            "Keep it in Not sent  ⌘↵\nIts own send is on the comment".into()
         } else {
             "Comment  ⌘↵".into()
         };
@@ -1226,16 +1200,7 @@ impl Compose {
         .when(waits, |s| s.opacity(0.5).cursor_default())
         .tooltip_show_delay(hover::LONG)
         .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(said.clone())).into())
-        .on_click(move |_, _, cx| {
-            add(
-                if agent {
-                    FootEvent::SendAll
-                } else {
-                    FootEvent::Add
-                },
-                cx,
-            )
-        });
+        .on_click(move |_, _, cx| add(FootEvent::Add, cx));
         let more = agent || request.is_some();
         tail.push(if !more {
             add_button.into_any_element()
@@ -1250,7 +1215,7 @@ impl Compose {
                         "compose-add-more",
                         "chevron",
                         if agent {
-                            "Send later  ⌥⌘↵ · Send this only · Choose the chat… · Copy as markdown"
+                            "Choose the chat… · Copy as markdown"
                         } else {
                             "Add to review  ⇧⌘↵"
                         },
