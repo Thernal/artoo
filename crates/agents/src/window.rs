@@ -9,6 +9,7 @@ use crate::chats::Chats;
 use crate::comments::AgentComments;
 use crate::review::{Kind, kind_of};
 use crate::sessions::{self, Session};
+use crate::talk;
 use crate::view::chat_badge;
 use artoo_agents_api::view::WINDOW;
 /// What the window asks of the tab, the contract's.
@@ -50,6 +51,10 @@ pub struct AgentsWindow {
     view: View,
     /// The session picked in the list (↑ ↓, ↵ opens it).
     row: Option<String>,
+    /// The conversation's scroll: it opens at its end, where the newest message is.
+    scroll: gpui::ScrollHandle,
+    /// How many blocks it showed last, so a new one scrolls it to the end.
+    shown: Cell<usize>,
 }
 
 /// The Agents window as a tab's tool window.
@@ -69,6 +74,8 @@ pub fn tool(
             level: Level::Auto,
             view: View::Conversation,
             row: None,
+            scroll: gpui::ScrollHandle::new(),
+            shown: Cell::new(0),
         }
     });
     let (opened, keys) = (window.clone(), window.clone());
@@ -551,10 +558,18 @@ impl AgentsWindow {
                 self.view == View::NotSent,
                 View::NotSent,
             ));
-        // The body is drawn by the conversation (A3) and Not sent (A5).
-        let words = match self.view {
-            View::Conversation => format!("{} in this conversation", plural(talk.len(), "message")),
-            View::NotSent => format!("{} not sent", plural(not_sent, "comment")),
+        // Not sent is A5's; until then a count.
+        let body = match self.view {
+            View::Conversation => self.talk(s, &talk, cx),
+            View::NotSent => div()
+                .flex_1()
+                .min_h_0()
+                .px(px(14.))
+                .py(px(10.))
+                .text_size(px(12.))
+                .text_color(theme::muted())
+                .child(format!("{} not sent", plural(not_sent, "comment")))
+                .into_any_element(),
         };
         div()
             .flex_1()
@@ -567,14 +582,50 @@ impl AgentsWindow {
                 div()
                     .flex_1()
                     .min_h_0()
-                    .px(px(14.))
-                    .py(px(10.))
+                    .flex()
+                    .flex_col()
                     .border_t_1()
                     .border_color(theme::island_border())
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .child(words),
+                    .child(body),
             )
+            .into_any_element()
+    }
+
+    /// The conversation: its blocks in a scrolling column, the newest at the foot.
+    fn talk(
+        &self,
+        s: &Session,
+        talk: &[artoo_agents_api::conversation::Entry],
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let comments = self.comments.read(cx).list.clone();
+        let working = artoo_agents_api::conversation::working_on(&comments, &s.chat.session);
+        let blocks = talk::blocks(talk, &comments, &working, format::now());
+        let host = self.host();
+        let look = talk::Look {
+            name: s.chat.agent.clone(),
+            mark: self.chats.read(cx).mark(&s.chat.session),
+            rich: host.as_ref().is_none_or(|h| h.rich(cx)),
+            host,
+        };
+        let items = talk::view(&blocks, &comments, &look, cx);
+        // A new block takes the view to the end, as a messenger does.
+        if blocks.len() != self.shown.replace(blocks.len()) {
+            let scroll = self.scroll.clone();
+            cx.defer(move |_| scroll.scroll_to_bottom());
+        }
+        div()
+            .id("agents-talk")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .track_scroll(&self.scroll)
+            .px(px(14.))
+            .py(px(12.))
+            .flex()
+            .flex_col()
+            .gap(px(20.))
+            .children(items)
             .into_any_element()
     }
 }

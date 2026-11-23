@@ -93,6 +93,25 @@ pub fn form(
     lines: Option<&dyn Fn(u32) -> Option<String>>,
     on: OnForm,
 ) -> Option<AnyElement> {
+    form_at(c, lines, on, false)
+}
+
+/// `form` as the conversation draws it (#220): inside the question's own card, so no margin of its own and no
+/// border.
+pub fn bare(
+    c: &Comment,
+    lines: Option<&dyn Fn(u32) -> Option<String>>,
+    on: OnForm,
+) -> Option<AnyElement> {
+    form_at(c, lines, on, true)
+}
+
+fn form_at(
+    c: &Comment,
+    lines: Option<&dyn Fn(u32) -> Option<String>>,
+    on: OnForm,
+    bare: bool,
+) -> Option<AnyElement> {
     use crate::review::FormKind;
     let id = c.id;
     if !matches!(c.state, State::Sent | State::Draft) {
@@ -181,15 +200,17 @@ pub fn form(
     };
     Some(
         div()
-            .mx(px(12.))
-            .mb(px(10.))
-            .ml(px(52.))
-            .p(px(8.))
-            .rounded(px(8.))
-            .border_1()
-            .border_color(gpui::Rgba {
-                a: 0.35,
-                ..theme::agent()
+            .when(!bare, |s| {
+                s.mx(px(12.))
+                    .mb(px(10.))
+                    .ml(px(52.))
+                    .p(px(8.))
+                    .rounded(px(8.))
+                    .border_1()
+                    .border_color(gpui::Rgba {
+                        a: 0.35,
+                        ..theme::agent()
+                    })
             })
             .flex()
             .flex_col()
@@ -268,6 +289,7 @@ pub fn form(
                     .child(
                         div()
                             .flex_1()
+                            .min_w_0()
                             .text_size(px(12.))
                             .text_color(theme::faint())
                             .child("Goes to your agent at once"),

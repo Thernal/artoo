@@ -25,6 +25,7 @@ mod sessions;
 mod setup;
 mod summary;
 mod tab;
+mod talk;
 mod view;
 mod watch;
 mod window;

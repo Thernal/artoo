@@ -63,6 +63,8 @@ pub enum Act {
         session: String,
         agent: String,
     },
+    /// A click on a form in the conversation (#220).
+    Form(FormEvent),
 }
 
 /// What the notes' summary asks of the tab (`Rc<dyn NotesHost>` in its services).

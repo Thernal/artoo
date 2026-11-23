@@ -253,6 +253,7 @@ impl Workspace {
             Act::Resend(id) => self.resend(id, cx),
             // The agents' own: their window does them.
             Act::Withdraw(_) | Act::Archive(..) | Act::ArchiveResolved | Act::Resolve(_) => {}
+            Act::Form(event) => self.form_event(event, cx),
             Act::NameChat { session, agent } => {
                 self.open_label(super::labeling::Target::Chat { session, agent }, cx)
             }
