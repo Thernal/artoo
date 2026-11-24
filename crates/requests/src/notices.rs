@@ -262,6 +262,11 @@ impl Notices {
         self.read.contains(key)
     }
 
+    /// A part's row is not read yet: here, or in its own tab when it is another project's.
+    pub fn part_fresh(&self, r: &artoo_shell_api::notices::Listed) -> bool {
+        !r.seen && !self.is_read(&r.key)
+    }
+
     /// `key` looked at: no longer bold, not counted.
     pub fn mark_read(&mut self, key: String) {
         if self.read.insert(key) {
@@ -290,7 +295,7 @@ impl Notices {
     ) -> usize {
         self.unread(cx)
             + answers.iter().filter(|a| !self.is_read(&a.key)).count()
-            + parts.iter().filter(|r| !self.is_read(&r.key)).count()
+            + parts.iter().filter(|r| self.part_fresh(r)).count()
     }
 
     /// Something listed about request `iid` is not read yet: the menu's blue dot on it (#71).

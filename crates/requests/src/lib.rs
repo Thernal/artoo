@@ -122,8 +122,23 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
         ..Default::default()
     });
     services.set(requests.clone());
-    services.set(cx.new(|_| notices::Notices::default()));
+    let notices = cx.new(|_| notices::Notices::default());
+    services.set(notices.clone());
     services.set(cx.new(|_| inbox::InboxView::default()));
+    // What this tab lists for the other projects' All projects.
+    let weak = Rc::downgrade(&services);
+    services.set(artoo_shell_api::notices::ListedHere(Rc::new(
+        move |project, tab, cx| {
+            let Some(services) = weak.upgrade() else {
+                return Vec::new();
+            };
+            let answers = (services.get::<Rc<dyn artoo_agents_api::tab::Agents>>())
+                .map(|a| a.inbox_answers(cx))
+                .unwrap_or_default();
+            let parts = artoo_shell_api::notices::Listers::of(&services).rows(cx);
+            inbox::listed_for(project, tab, notices.read(cx), &answers, &parts, cx)
+        },
+    )));
     services.set(requests::handle(&requests, &services));
     let acts = requests::acts(&requests, tab);
     services.set(acts.clone());

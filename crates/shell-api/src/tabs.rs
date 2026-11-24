@@ -11,6 +11,8 @@ use std::rc::Rc;
 /// What a window's tabs need to know about each tab.
 #[derive(Clone)]
 pub struct TabInfo {
+    /// The tab's id (its entity's): what a row of another project's names it by.
+    pub id: u64,
     pub title: String,
     pub news: bool,
     pub active: bool,

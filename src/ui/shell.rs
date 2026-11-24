@@ -24,6 +24,7 @@ impl Tab for Workspace {
 
     fn join(&mut self, tabs: WeakEntity<Shell>, model: TabModel) -> Rc<Cell<bool>> {
         self.shell = Some(tabs);
+        *self.model_cell.borrow_mut() = model.clone();
         self.tabs = model;
         self.on_screen.clone()
     }

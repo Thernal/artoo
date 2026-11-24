@@ -74,11 +74,74 @@ fn items(notices: &Notices, answers: Answers, parts: &[Listed], cx: &App) -> Vec
             at: r.at,
             source: s.id,
             why: k.why,
-            fresh: !notices.is_read(&r.key),
+            fresh: notices.part_fresh(r),
             text: format!("{}\n{}\n{}", r.says, r.about, r.text),
         })
     }));
     out
+}
+
+/// What project `project` (tab `tab`) lists in the Inbox, for the other tabs' All projects: its notices, the agents'
+/// answers and its parts' rows, each under a key that says whose it is, naming its project, read as that tab has it.
+pub fn listed_for(
+    project: &str,
+    tab: u64,
+    notices: &Notices,
+    answers: Answers,
+    parts: &[Listed],
+    cx: &App,
+) -> Vec<Listed> {
+    use artoo_agents_api::notices::{ASKS, DONE};
+    use artoo_shell_api::notices::elsewhere_key;
+    let own = |r: &Listed| Listed {
+        key: elsewhere_key(tab, &r.key),
+        project: project.to_owned(),
+        seen: notices.is_read(&r.key),
+        open: format!("Open in {project}"),
+        ..r.clone()
+    };
+    let mut out: Vec<Listed> = notices
+        .listed(cx)
+        .map(|n| Listed {
+            kind: n.kind.id(),
+            key: elsewhere_key(tab, &n.key),
+            says: n.says(),
+            about: format!("{} {}", artoo_ui_kit::words::number(n.iid), n.title),
+            text: n.text.clone(),
+            at: n.created,
+            tag: artoo_ui_kit::words::number(n.iid),
+            who: n.who.clone(),
+            project: project.to_owned(),
+            seen: notices.is_read(&n.key),
+            open: format!("Open in {project}"),
+            ..Listed::default()
+        })
+        .collect();
+    out.extend(answers.iter().map(|a| Listed {
+        kind: if a.asks { ASKS } else { DONE },
+        key: elsewhere_key(tab, &a.key),
+        says: if a.asks { "Asks you" } else { "Done" }.to_owned(),
+        about: String::new(),
+        text: a.text.clone(),
+        at: a.at,
+        project: project.to_owned(),
+        seen: notices.is_read(&a.key),
+        open: format!("Open in {project}"),
+        ..Listed::default()
+    }));
+    out.extend(parts.iter().map(own));
+    out
+}
+
+/// The parts' rows the Inbox lists beside the notices: this tab's, and the other projects' while All projects is on.
+pub fn shown_parts(services: &artoo_shell_api::Services, all: bool, cx: &App) -> Vec<Listed> {
+    let mut parts = artoo_shell_api::notices::Listers::of(services).rows(cx);
+    if all && let Some(elsewhere) = artoo_shell_api::notices::Elsewhere::of(services) {
+        parts.extend((elsewhere.0)(cx).into_iter().filter(|r| {
+            artoo_shell_api::notices::is_on(cx, r.kind, artoo_shell_api::notices::Channel::Inbox)
+        }));
+    }
+    parts
 }
 
 /// The requests' own source of notices (`crate::notices::source`).
@@ -263,6 +326,8 @@ pub fn sources_input(
 #[derive(Default)]
 pub struct InboxView {
     pub filter: InboxFilter,
+    /// All projects: the rows of every project's tab are listed, each naming its project.
+    pub all: bool,
     /// By discussion id; `None` once read and not found (the commit is not here).
     pub excerpts: HashMap<String, Option<Excerpt>>,
     /// The discussion whose code is being read: its excerpt shimmers.
@@ -322,7 +387,7 @@ impl InboxView {
                     (answers.iter()).any(|a| a.id == id && !notices.is_read(&a.key))
                 }
                 InboxRow::Part(id) => {
-                    (parts.iter()).any(|r| row_id(&r.key) == id && !notices.is_read(&r.key))
+                    (parts.iter()).any(|r| row_id(&r.key) == id && notices.part_fresh(r))
                 }
             }
     }
@@ -689,6 +754,52 @@ mod tests {
                 Some(InboxRow::Notice(1))
             );
             assert_eq!(notices.unread(cx), 1);
+        });
+    }
+
+    #[test]
+    fn all_projects_unions_two_tabs_rows_each_naming_its_project() {
+        // This tab (Ledger) has a mention; the other (Notes) a failed pipeline, read there, and an agent's answer.
+        let mut here = Notices::default();
+        here.list = vec![notice(50, Kind::Mention)];
+        let mut other = Notices::default();
+        other.list = vec![notice(40, Kind::Failed)];
+        other.mark_read("todo:40".into());
+        let answers = [answer(7, 45, true, "Which rounding mode?")];
+        gpui::TestAppContext::single().update(|cx| {
+            artoo_shell_api::notices::add_source(cx, crate::notices::source());
+            artoo_shell_api::notices::add_source(
+                cx,
+                artoo_shell_api::notices::Source::new(
+                    "agents",
+                    "Agents",
+                    vec![artoo_shell_api::notices::Kind::listed(
+                        artoo_agents_api::notices::ASKS,
+                        "Asks you",
+                    )],
+                ),
+            );
+            let theirs = listed_for("Notes", 9, &other, &answers, &[], cx);
+            assert_eq!(theirs.len(), 2);
+            assert!(theirs.iter().all(|r| r.project == "Notes"));
+            let failed = &theirs[0];
+            assert_eq!(
+                artoo_shell_api::notices::of_elsewhere(&failed.key),
+                Some((9, "todo:40"))
+            );
+            // Read in its own tab: not new here either.
+            assert!(failed.seen && !here.part_fresh(failed));
+            assert!(!theirs[1].seen);
+            // The rows listed: this tab's notice, then theirs by time, the other project's as the parts' are.
+            let view = InboxView::default();
+            let rows = view.rows(&here, &[], &theirs, "", cx);
+            assert_eq!(rows.len(), 3);
+            assert_eq!(rows[0], InboxRow::Notice(0));
+            let count = view.counts(&here, &[], &theirs, cx);
+            // The mention here and the answer there are new; the failure read there is not.
+            assert_eq!(count.everywhere, 2);
+            // Off, only this tab's.
+            assert_eq!(view.rows(&here, &[], &[], "", cx), [InboxRow::Notice(0)]);
         });
     }
 

@@ -219,6 +219,89 @@ pub struct Listed {
     pub who: String,
     /// The glyph at its face's corner, over its kind's `badge`; none: the kind's.
     pub badge: Option<&'static str>,
+    /// The project it is of, when the Inbox lists every project's (All projects): the row names it. Empty: this
+    /// tab's own.
+    pub project: String,
+    /// Already read in its own tab (a row of another project's, `Elsewhere`).
+    pub seen: bool,
+}
+
+/// What the other projects' tabs list in the Inbox, a service of the tab: the shell reads each of them (`Elsewhere::of`).
+/// A row's key says its tab and its own key (`elsewhere_key`).
+#[derive(Clone)]
+pub struct Elsewhere(pub Rows);
+
+impl Elsewhere {
+    pub fn of(services: &crate::Services) -> Option<Elsewhere> {
+        services.get::<Elsewhere>()
+    }
+}
+
+/// What a tab lists for the others' All projects, a service of the tab (the requests offer it): its rows under
+/// project `&str`'s name and tab `u64`'s key.
+#[derive(Clone)]
+pub struct ListedHere(pub RowsOf);
+
+/// What a tab lists under a project's name and its own key.
+pub type RowsOf = std::rc::Rc<dyn Fn(&str, u64, &App) -> Vec<Listed>>;
+
+/// A tab that lists in the Inbox: its window, its id (its entity's, `TabInfo::id`) and its services.
+#[derive(Clone)]
+pub struct Peer {
+    pub window: u64,
+    pub id: u64,
+    pub services: std::rc::Weak<crate::Services>,
+}
+
+#[derive(Default)]
+struct Peers(Vec<Peer>);
+
+impl Global for Peers {}
+
+/// A tab joins the tabs whose rows All projects lists; a tab gone is forgotten.
+pub fn join(cx: &mut App, peer: Peer) {
+    let peers = cx.default_global::<Peers>();
+    peers
+        .0
+        .retain(|p| p.services.strong_count() > 0 && p.id != peer.id);
+    peers.0.push(peer);
+}
+
+/// The rows of the other tabs of window `window`, each under its project's name as `names` has it (`TabInfo`).
+pub fn elsewhere(
+    cx: &App,
+    window: u64,
+    own: u64,
+    name: impl Fn(u64) -> Option<String>,
+) -> Vec<Listed> {
+    let peers = cx
+        .try_global::<Peers>()
+        .map(|p| p.0.clone())
+        .unwrap_or_default();
+    peers
+        .into_iter()
+        .filter(|p| p.window == window && p.id != own)
+        .filter_map(|p| Some((name(p.id)?, p.id, p.services.upgrade()?)))
+        .flat_map(|(project, id, services)| {
+            services
+                .get::<ListedHere>()
+                .map(|here| (here.0)(&project, id, cx))
+                .unwrap_or_default()
+        })
+        .collect()
+}
+
+const ELSEWHERE: &str = "elsewhere|";
+
+/// The key of a row of tab `tab` (its entity's id) whose own key is `key`.
+pub fn elsewhere_key(tab: u64, key: &str) -> String {
+    format!("{ELSEWHERE}{tab}|{key}")
+}
+
+/// The tab and the own key of a row of another project (`elsewhere_key`); none for a row of this tab.
+pub fn of_elsewhere(key: &str) -> Option<(u64, &str)> {
+    let (tab, own) = key.strip_prefix(ELSEWHERE)?.split_once('|')?;
+    Some((tab.parse().ok()?, own))
 }
 
 /// A row's place among a tab's Inbox rows, kept while its key is the same.

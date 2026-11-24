@@ -851,6 +851,8 @@ pub trait Requests {
     fn read_excerpt(&self, cx: &mut App);
     fn set_inbox_filter(&self, filter: InboxFilter, cx: &mut App);
     fn inbox_filter(&self, cx: &App) -> InboxFilter;
+    /// The row of the notice, answer or part whose own key is `key`.
+    fn inbox_row_of(&self, key: &str, answers: Answers, cx: &App) -> Option<InboxRow>;
     /// The Inbox's filters, in its page bar: what happened, and `Source ▾` (#197); `compact` in a narrow window,
     /// what happened as one menu.
     fn inbox_filters(&self, on: OnInbox, compact: bool, cx: &App) -> AnyElement;

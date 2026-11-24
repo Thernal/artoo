@@ -183,6 +183,13 @@ impl<T: Tab> Tabs<T> {
         window.focus(&focus, cx);
     }
 
+    /// The tab whose entity has the id `id` (`TabInfo::id`).
+    pub fn tab_by_id(&self, id: u64) -> Option<Entity<T>> {
+        (self.tabs.iter())
+            .find(|t| t.entity_id().as_u64() == id)
+            .cloned()
+    }
+
     /// The tab `id`.
     pub fn tab_ix(&self, id: EntityId) -> Option<usize> {
         self.tabs.iter().position(|t| t.entity_id() == id)
@@ -313,9 +320,11 @@ impl<T: Tab> Render for Tabs<T> {
             .iter()
             .enumerate()
             .map(|(i, t)| {
+                let t_id = t.entity_id().as_u64();
                 let t = t.read(cx);
                 let (title, news, unread) = t.info(cx);
                 TabInfo {
+                    id: t_id,
                     title,
                     news: i != self.active && news,
                     active: i == self.active,

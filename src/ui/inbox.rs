@@ -110,11 +110,61 @@ impl Workspace {
         artoo_shell_api::notices::Listers::of(&self.services).find(id, cx)
     }
 
-    /// A part's row opened: its part shows what it is about.
+    /// A part's row opened: its part shows what it is about; one of another project's (All projects) opens that
+    /// project's tab on the row.
     fn open_inbox_part(&mut self, id: u64, cx: &mut Context<Self>) {
         if let Some((lister, row)) = self.inbox_part(id, cx) {
             self.inbox = false;
             (lister.open)(&row.key, cx);
+        } else if let Some((tab, key)) = self.elsewhere_row(id, cx) {
+            self.go_to_row_of(tab, key, cx);
+        }
+    }
+
+    /// The other project's row `id` (All projects): its tab and its own key there.
+    fn elsewhere_row(&self, id: u64, cx: &App) -> Option<(u64, String)> {
+        let rows = artoo_shell_api::notices::Elsewhere::of(&self.services)?;
+        (rows.0)(cx)
+            .into_iter()
+            .filter(|r| artoo_shell_api::notices::row_id(&r.key) == id)
+            .find_map(|r| {
+                let (tab, own) = artoo_shell_api::notices::of_elsewhere(&r.key)?;
+                Some((tab, own.to_owned()))
+            })
+    }
+
+    /// Tab `tab`'s Inbox, with the row whose key there is `key` selected.
+    fn go_to_row_of(&mut self, tab: u64, key: String, cx: &mut Context<Self>) {
+        let Some(shell) = self.shell.as_ref().and_then(gpui::WeakEntity::upgrade) else {
+            return;
+        };
+        let window = self.window;
+        cx.defer(move |cx| {
+            window
+                .update(cx, |_, window, cx| {
+                    shell.update(cx, |s, cx| {
+                        let Some(ws) = s.tab_by_id(tab) else {
+                            return;
+                        };
+                        if let Some(ix) = s.tab_ix(ws.entity_id()) {
+                            s.select(ix, window, cx);
+                        }
+                        ws.update(cx, |ws, cx| ws.show_inbox_row(&key, cx));
+                    });
+                })
+                .ok();
+        });
+    }
+
+    /// The Inbox, with the row whose key is `key` selected (another project's tab asks it, All projects).
+    fn show_inbox_row(&mut self, key: &str, cx: &mut Context<Self>) {
+        self.go_space(super::spaces::INBOX, cx);
+        let answers = self.agents.inbox_answers(cx);
+        let row = self
+            .requests_api()
+            .and_then(|r| r.inbox_row_of(key, &answers, cx));
+        if let Some(row) = row {
+            self.inbox_select(row, cx);
         }
     }
 

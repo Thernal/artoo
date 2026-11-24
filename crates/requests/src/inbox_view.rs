@@ -42,7 +42,7 @@ pub fn filters(
     shown: InboxFilter,
     counts: &Counts,
     sources: &[SourceRow],
-    compact: bool,
+    (compact, all): (bool, bool),
     on: &OnInbox,
 ) -> Div {
     let whys: Vec<(Option<Why>, &'static str, usize)> = std::iter::once((None, "All", counts.all))
@@ -96,7 +96,7 @@ pub fn filters(
     let name = (sources.iter())
         .find(|s| Some(s.id) == shown.source)
         .map_or("All", |s| s.name.as_str());
-    let view = view.clone();
+    let (view, layers) = (view.clone(), view.clone());
     let source = chip(
         "inbox-source",
         format!("Source: {name} ▾"),
@@ -117,6 +117,45 @@ pub fn filters(
         .gap_2()
         .child(what)
         .child(source)
+        .child(all_projects(&layers, all))
+}
+
+/// The switch of the list's head: every project's rows, each naming its project, or this project's alone.
+fn all_projects(view: &Entity<InboxView>, on: bool) -> Stateful<Div> {
+    let view = view.clone();
+    div()
+        .id("inbox-all-projects")
+        .flex_none()
+        .size(px(28.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(ROW_RADIUS))
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::hover()))
+        .when(on, |s| s.bg(theme::selected()))
+        .child(icons::icon("layers").size(px(16.)).text_color(if on {
+            theme::text()
+        } else {
+            theme::muted()
+        }))
+        .tooltip_show_delay(artoo_ui_kit::hover::LONG)
+        .tooltip(move |_, cx| {
+            cx.new(|_| {
+                Tip(if on {
+                    "All projects: on"
+                } else {
+                    "All projects: off"
+                })
+            })
+            .into()
+        })
+        .on_click(move |_: &ClickEvent, _, cx| {
+            view.update(cx, |v, cx| {
+                v.all = !v.all;
+                cx.notify();
+            })
+        })
 }
 
 /// Source ▾ opened, its field with the keyboard; again, it closes.
@@ -500,6 +539,8 @@ struct RowDraw<'a> {
     gist: &'a str,
     /// What the tooltip says: what happened, the source, the text.
     tip: String,
+    /// The project it is of, when the Inbox lists every project's.
+    project: &'a str,
     look: RowLook,
 }
 
@@ -511,10 +552,11 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
         at,
         gist,
         tip,
+        project,
         look,
     } = row;
     let RowLook { fresh, on, wide } = look;
-    let [title_cut, gist_cut] = [(); 2].map(|_| WasCut::default());
+    let [title_cut, gist_cut, project_cut] = [(); 3].map(|_| WasCut::default());
     let mut cut: Vec<(Option<WasCut>, SharedString)> =
         vec![(Some(title_cut.clone()), title.clone().into())];
     let gist = (wide && !gist.is_empty()).then(|| gist.to_owned());
@@ -560,6 +602,13 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
                                 .text_color(if fresh { theme::text() } else { theme::muted() })
                                 .when(fresh, |s| s.font_weight(FontWeight::SEMIBOLD)),
                         )
+                        .children((!project.is_empty()).then(|| {
+                            hover::cut_in_row(project.to_owned(), project.to_owned(), &project_cut)
+                                .flex_none()
+                                .max_w(px(110.))
+                                .text_size(px(11.))
+                                .text_color(theme::muted())
+                        }))
                         .child(
                             format::time_cell(at)
                                 .text_size(px(11.))
@@ -625,6 +674,7 @@ pub fn notice_row(
         at: n.created,
         gist,
         tip,
+        project: "",
         look,
     })
     .on_mouse_down(MouseButton::Right, move |e: &MouseDownEvent, _, cx| {
@@ -674,6 +724,7 @@ pub fn part_row(
         at: r.at,
         gist,
         tip,
+        project: &r.project,
         look,
     })
     .on_click(move |_: &ClickEvent, _, cx| pick(InboxEvent::PickPart(id), cx))
@@ -694,12 +745,17 @@ pub fn part_preview(
         .map_or(r.about.as_str(), str::trim_start)
         .to_owned();
     // The face says what it is in its tooltip: its source, where, and what happened.
-    let whence = [source, r.place.as_str(), r.says.as_str()]
-        .iter()
-        .filter(|w| !w.is_empty())
-        .map(|w| (*w).to_owned())
-        .collect::<Vec<_>>()
-        .join(" · ");
+    let whence = [
+        source,
+        r.project.as_str(),
+        r.place.as_str(),
+        r.says.as_str(),
+    ]
+    .iter()
+    .filter(|w| !w.is_empty())
+    .map(|w| (*w).to_owned())
+    .collect::<Vec<_>>()
+    .join(" · ");
     let face = if r.who.trim().is_empty() {
         Face::Mark(mark.to_owned(), source.to_owned())
     } else {

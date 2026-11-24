@@ -387,6 +387,14 @@ impl Handle {
             .unwrap_or_default()
     }
 
+    /// The rows the Inbox lists beside the notices: the parts', and the other projects' while All projects is on.
+    fn shown(&self, cx: &App) -> Vec<artoo_shell_api::notices::Listed> {
+        let all = self.inbox().is_some_and(|v| v.read(cx).all);
+        (self.1.upgrade())
+            .map(|s| crate::inbox::shown_parts(&s, all, cx))
+            .unwrap_or_default()
+    }
+
     /// Reads the notices.
     fn read_notices_with<R>(
         &self,
@@ -1015,13 +1023,13 @@ impl artoo_requests_api::Requests for Handle {
         let (Some(view), Some(notices)) = (self.inbox(), self.notices()) else {
             return Vec::new();
         };
-        let parts = self.parts(cx);
+        let parts = self.shown(cx);
         view.read(cx)
             .rows(notices.read(cx), answers, &parts, query, cx)
     }
 
     fn inbox_current(&self, answers: artoo_requests_api::Answers, cx: &App) -> Option<InboxRow> {
-        let parts = self.parts(cx);
+        let parts = self.shown(cx);
         self.inbox()?
             .read(cx)
             .current(self.notices()?.read(cx), answers, &parts, cx)
@@ -1034,7 +1042,7 @@ impl artoo_requests_api::Requests for Handle {
         down: bool,
         cx: &App,
     ) -> Option<InboxRow> {
-        let parts = self.parts(cx);
+        let parts = self.shown(cx);
         self.inbox()?
             .read(cx)
             .step(self.notices()?.read(cx), answers, &parts, query, down, cx)
@@ -1045,12 +1053,12 @@ impl artoo_requests_api::Requests for Handle {
             return;
         };
         // Picked while new, it stays under New until another is (#197).
-        let parts = self.parts(cx);
+        let parts = self.shown(cx);
         let answers = self.answers(cx);
         let kept = row.filter(|&r| view.read(cx).is_new(r, notices.read(cx), &answers, &parts));
         // A part's row looked at: read, until its key changes (#196).
         let part = match row {
-            Some(InboxRow::Part(id)) => (self.parts(cx).into_iter())
+            Some(InboxRow::Part(id)) => (self.shown(cx).into_iter())
                 .find(|r| artoo_shell_api::notices::row_id(&r.key) == id)
                 .map(|r| r.key),
             _ => None,
@@ -1079,6 +1087,26 @@ impl artoo_requests_api::Requests for Handle {
         }
     }
 
+    fn inbox_row_of(
+        &self,
+        key: &str,
+        answers: artoo_requests_api::Answers,
+        cx: &App,
+    ) -> Option<InboxRow> {
+        let parts = self.parts(cx);
+        self.read_notices_with(cx, |n| {
+            if let Some(ix) = n.list.iter().position(|o| o.key == key) {
+                return Some(InboxRow::Notice(ix));
+            }
+            if let Some(a) = answers.iter().find(|a| a.key == key) {
+                return Some(InboxRow::Agent(a.id));
+            }
+            (parts.iter().find(|r| r.key == key))
+                .map(|r| InboxRow::Part(artoo_shell_api::notices::row_id(&r.key)))
+        })
+        .flatten()
+    }
+
     fn inbox_filter(&self, cx: &App) -> InboxFilter {
         self.inbox()
             .map(|view| view.read(cx).filter)
@@ -1089,7 +1117,7 @@ impl artoo_requests_api::Requests for Handle {
         let (Some(view), Some(notices)) = (self.inbox(), self.notices()) else {
             return gpui::div().into_any_element();
         };
-        let (parts, answers) = (self.parts(cx), self.answers(cx));
+        let (parts, answers) = (self.shown(cx), self.answers(cx));
         let v = view.read(cx);
         let counts = v.counts(notices.read(cx), &answers, &parts, cx);
         let sources = crate::inbox::sources(self.host_name(cx), &counts, cx);
@@ -1099,7 +1127,7 @@ impl artoo_requests_api::Requests for Handle {
             v.filter,
             &counts,
             &sources,
-            compact,
+            (compact, v.all),
             &on,
         )
         .into_any_element()

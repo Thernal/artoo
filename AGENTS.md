@@ -134,7 +134,8 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   three kinds at most, its System off —, none after `close`), each with defaults for Inbox, Toast and System that
   Settings → Notifications (`ui/notice_settings.rs`, after Keyboard; macOS's refusal read off the window's thread,
   `platform::notifications_allowed`; Count on the Dock icon, `platform::dock_badge`) switches and `notices.txt` keeps
-  where they differ; a notice is a `Toast` with a kind (`Toast::kind`): the tab shows it and sends it as its switches
+  where they differ; the Inbox's layers switch (All projects, `InboxView::all`) adds the other tabs' rows of the window — each tab offers
+  `ListedHere`, joins `notices::join`, the tab reads them as `Elsewhere`; a row names its project and opens that tab —; a notice is a `Toast` with a kind (`Toast::kind`): the tab shows it and sends it as its switches
   say, a plugin's words after its name; the Inbox lists and counts a kind while its Inbox is on, and a part's own rows
   (`notices::Listers` in the tab's services, `InboxRow::Part`) beside the notices and the agents' answers, each under
   its source and what happened (#197); such a row's preview says its item's id and where it is beside its source, its

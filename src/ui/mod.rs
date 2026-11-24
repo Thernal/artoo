@@ -1462,6 +1462,8 @@ pub struct Workspace {
     /// (#160).
     agent_calls: std::collections::HashMap<artoo_core::route::Route, String>,
     tabs: shell::TabModel,
+    /// The window's tabs as the Inbox's All projects reads them (`tabs`, which `join` sets).
+    model_cell: Rc<std::cell::RefCell<shell::TabModel>>,
     settings: Settings,
     settings_open: bool,
     /// What macOS says of Artoo's notifications (#196): `Some(false)` refused, `None` not known.
@@ -1627,6 +1629,7 @@ impl Workspace {
             drafts_unseen: HashSet::new(),
             agent_calls: Default::default(),
             tabs: Default::default(),
+            model_cell: Default::default(),
             settings,
             settings_open: false,
             notices_allowed: None,
@@ -1674,6 +1677,28 @@ impl Workspace {
         // Its agents, which their parts draw — the Agents window, the card, the notes' summary,
         // Settings → Agents — the tab their host.
         services.set(this.agents.clone());
+        // The other projects' rows of the window, for the Inbox's All projects: each tab lists its own.
+        {
+            let (window_id, own) = (
+                window.window_handle().window_id().as_u64(),
+                cx.entity_id().as_u64(),
+            );
+            let model = this.model_cell.clone();
+            services.set(artoo_shell_api::notices::Elsewhere(Rc::new(move |cx| {
+                let model = model.borrow().clone();
+                artoo_shell_api::notices::elsewhere(cx, window_id, own, |id| {
+                    (model.borrow().iter().find(|t| t.id == id)).map(|t| t.title.clone())
+                })
+            })));
+            artoo_shell_api::notices::join(
+                cx,
+                artoo_shell_api::notices::Peer {
+                    window: window_id,
+                    id: own,
+                    services: Rc::downgrade(&services),
+                },
+            );
+        }
         services.set::<Rc<dyn artoo_agents_api::view::AgentsHost>>(Rc::new(agent::AgentsHost(
             cx.weak_entity(),
         )));

@@ -112,7 +112,7 @@ impl InboxPage {
         let answers = (services.get::<Rc<dyn Agents>>())
             .map(|a| a.inbox_answers(cx))
             .unwrap_or_default();
-        let parts = artoo_shell_api::notices::Listers::of(&services).rows(cx);
+        let parts = crate::inbox::shown_parts(&services, self.view.read(cx).all, cx);
         let (notices, view) = (self.notices.read(cx), self.view.read(cx));
         // The text in the bar's Filter (#197).
         let query = self.frame.filter(cx);
@@ -172,7 +172,7 @@ impl InboxPage {
         let answers = (services.get::<Rc<dyn Agents>>())
             .map(|a| a.inbox_answers(cx))
             .unwrap_or_default();
-        let parts = artoo_shell_api::notices::Listers::of(&services).rows(cx);
+        let parts = crate::inbox::shown_parts(&services, self.view.read(cx).all, cx);
         let counts = view.counts(self.notices.read(cx), &answers, &parts, cx);
         let sources = crate::inbox::sources(self.host(cx), &counts, cx);
         let card = inbox_view::source_picker(
@@ -268,7 +268,7 @@ impl InboxPage {
                 InboxRow::Part(id) => match part(id) {
                     Some(r) => {
                         let look = RowLook {
-                            fresh: !notices.is_read(&r.key),
+                            fresh: notices.part_fresh(r),
                             on: picked,
                             wide,
                         };
