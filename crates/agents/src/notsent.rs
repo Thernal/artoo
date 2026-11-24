@@ -177,7 +177,15 @@ fn row(c: &Comment, to: &To, cx: &App) -> AnyElement {
                             .size(px(12.))
                             .text_color(theme::faint()),
                         )
-                        .child(icons::icon("file").size(px(13.)).text_color(theme::muted()))
+                        .child(
+                            icons::icon(if c.thread.is_some() {
+                                "pull-request"
+                            } else {
+                                "file"
+                            })
+                            .size(px(13.))
+                            .text_color(theme::muted()),
+                        )
                         .child(hover::cut(("not-sent-what", id as usize), c.reads()))
                         .on_click(move |_: &ClickEvent, _, cx| {
                             peek(id, cx);

@@ -285,14 +285,7 @@ impl AgentsWindow {
         let on = self.row.as_deref() == Some(chat.session.as_str());
         let (session, agent) = (chat.session.clone(), chat.agent.clone());
         let named = (session.clone(), agent);
-        let said: gpui::SharedString = format!(
-            "{}\n{} in {} · last heard {}",
-            sessions::name(chat),
-            chat.agent,
-            format::home_relative(&chat.repo),
-            hover::full_date(chat.beat)
-        )
-        .into();
+        let said: gpui::SharedString = s.tip().into();
         let colour = if s.waits() {
             theme::warning()
         } else if s.ended() {
@@ -400,11 +393,7 @@ impl AgentsWindow {
 
     /// The list: its head counts the sessions and those waiting; the ended ones come under `Ended today`.
     fn list(&self, list: &[Session], cx: &mut Context<Self>) -> AnyElement {
-        let waiting = list.iter().filter(|s| s.waits()).count();
-        let mut head = plural(list.len(), "session");
-        if waiting > 0 {
-            head = format!("{head} · {waiting} wait for you");
-        }
+        let head = sessions::summary(list);
         let mut rows: Vec<AnyElement> = Vec::new();
         let mut ended_shown = false;
         for (ix, s) in list.iter().enumerate() {
@@ -428,7 +417,7 @@ impl AgentsWindow {
             .min_h_0()
             .flex()
             .flex_col()
-            .child(
+            .children(head.map(|head| {
                 div()
                     .flex_none()
                     .px(px(14.))
@@ -436,8 +425,8 @@ impl AgentsWindow {
                     .pb(px(6.))
                     .text_size(px(12.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(head),
-            )
+                    .child(head)
+            }))
             .child(
                 div()
                     .id("agents-list")
@@ -477,8 +466,14 @@ impl AgentsWindow {
     }
 
     /// A session's conversation: its head, the switch, and (until the conversation is drawn) a placeholder.
-    fn conversation(&self, s: &Session, others_wait: usize, cx: &mut Context<Self>) -> AnyElement {
-        let not_sent = sessions::not_sent(&self.comments.read(cx).list);
+    fn conversation(
+        &self,
+        s: &Session,
+        total: usize,
+        others_wait: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let not_sent = sessions::not_sent(&self.comments.read(cx).list, &s.chat);
         let chats = self.chats.read(cx);
         let talk = artoo_agents_api::conversation::conversation(
             &self.comments.read(cx).list,
@@ -486,6 +481,12 @@ impl AgentsWindow {
             &chats.spoken,
             &s.chat.session,
         );
+        let back_tip: gpui::SharedString = if others_wait > 0 {
+            format!("This project's sessions \u{b7} {total} \u{b7} {others_wait} wait for you")
+        } else {
+            format!("This project's sessions \u{b7} {total}")
+        }
+        .into();
         let back = div()
             .id("agents-back")
             .flex_none()
@@ -499,7 +500,7 @@ impl AgentsWindow {
             .text_color(theme::muted())
             .hover(|d| d.bg(theme::hover()))
             .tooltip_show_delay(hover::LONG)
-            .tooltip(|_, cx| cx.new(|_| hover::Tip("Sessions")).into())
+            .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(back_tip.clone())).into())
             .child(icons::icon("chevron-left").size(px(16.)))
             .children((others_wait > 0).then(|| {
                 div()
@@ -545,7 +546,12 @@ impl AgentsWindow {
                             .child(s.head_line()),
                     ),
             );
-        let tab = |id: &'static str, label: &'static str, count: usize, on: bool, view: View| {
+        let tab = |id: &'static str,
+                   label: &'static str,
+                   tip: gpui::SharedString,
+                   count: usize,
+                   on: bool,
+                   view: View| {
             div()
                 .id(id)
                 .h(px(24.))
@@ -562,6 +568,8 @@ impl AgentsWindow {
                 .when(!on, |d| {
                     d.text_color(theme::muted()).hover(|d| d.bg(theme::hover()))
                 })
+                .tooltip_show_delay(hover::LONG)
+                .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(tip.clone())).into())
                 .child(label)
                 .children((count > 0).then(|| {
                     div()
@@ -583,6 +591,7 @@ impl AgentsWindow {
             .child(tab(
                 "view-conversation",
                 "Conversation",
+                "Your conversation with Claude".into(),
                 0,
                 self.view == View::Conversation,
                 View::Conversation,
@@ -590,6 +599,11 @@ impl AgentsWindow {
             .child(tab(
                 "view-not-sent",
                 "Not sent",
+                if not_sent > 0 {
+                    "Comments you wrote for Claude on lines, not sent yet".into()
+                } else {
+                    "Nothing waits: comments you write for Claude on lines gather here".into()
+                },
                 not_sent,
                 self.view == View::NotSent,
                 View::NotSent,
@@ -621,9 +635,12 @@ impl AgentsWindow {
 
     /// The Not sent view: the comments in the order written, under them the message to go with them and Send all.
     fn not_sent(&self, s: &Session, cx: &mut Context<Self>) -> AnyElement {
-        let comments = self.comments.read(cx).list.clone();
+        let comments: Vec<_> = sessions::drafts_of(&self.comments.read(cx).list, &s.chat)
+            .into_iter()
+            .cloned()
+            .collect();
         let host = self.host();
-        let n = notsent::drafts(&comments).len();
+        let n = comments.len();
         let this = cx.entity().downgrade();
         let to = notsent::To {
             peeked: self.peeked.clone(),
@@ -644,7 +661,7 @@ impl AgentsWindow {
         let rows = notsent::view(&comments, &to, cx);
         let tone = self.chats.read(cx).mark(&s.chat.session).1;
         let all = discussion::button("agents-send-all", "Send all", None, Button::Primary(tone))
-            .h(px(26.))
+            .h(px(28.))
             .px(px(10.))
             .tooltip_show_delay(hover::LONG)
             .tooltip(move |_, cx| {
@@ -657,22 +674,27 @@ impl AgentsWindow {
         let field = div().flex_none().px(px(10.)).pb(px(10.)).pt(px(6.)).child(
             div()
                 .flex()
-                .flex_col()
-                .gap(px(6.))
+                .items_end()
+                .gap(px(8.))
                 .p(px(8.))
                 .rounded(px(ROW_RADIUS))
                 .border_1()
                 .border_color(theme::island_border())
                 .text_size(px(12.))
-                .child(self.note_area.field_of(
-                    &self.note,
-                    true,
-                    "A message to go with them\u{2026}",
-                    true,
-                    |w: &mut AgentsWindow| Some(&mut w.note_area),
-                    cx.entity().downgrade(),
-                ))
-                .child(div().flex().justify_end().child(all)),
+                .child(
+                    self.note_area
+                        .field_of(
+                            &self.note,
+                            true,
+                            "A message to go with them\u{2026}",
+                            true,
+                            |w: &mut AgentsWindow| Some(&mut w.note_area),
+                            cx.entity().downgrade(),
+                        )
+                        .flex_1()
+                        .min_w_0(),
+                )
+                .child(all),
         );
         div()
             .flex_1()
@@ -701,7 +723,7 @@ impl AgentsWindow {
         let Some(chat) = self.open_session(&list).map(|s| s.chat.clone()) else {
             return;
         };
-        let ids: Vec<u64> = notsent::drafts(&self.comments.read(cx).list)
+        let ids: Vec<u64> = sessions::drafts_of(&self.comments.read(cx).list, &chat)
             .iter()
             .map(|c| c.id)
             .collect();
@@ -780,16 +802,16 @@ impl AgentsWindow {
     fn composer(&self, chat: &Chat, cx: &mut Context<Self>) -> AnyElement {
         let name = chat.agent.split_whitespace().next().unwrap_or("your agent");
         let ready = !self.draft.trim().is_empty();
-        let tone = self.chats.read(cx).mark(&chat.session).1;
-        let send = discussion::button("agents-send", "Send", None, Button::Primary(tone))
-            .h(px(26.))
+        let send = discussion::button("agents-send", "Send", None, Button::Plain)
+            .h(px(28.))
             .px(px(10.))
             .when(!ready, |s| s.opacity(0.5).cursor_default())
             .tooltip_show_delay(hover::LONG)
             .tooltip(|_, cx| {
                 cx.new(|_| {
                     hover::TipOwned(
-                        "Send to the agent  ↵\nThe comments not sent stay in Not sent".into(),
+                        "Send your message to Claude; the comments not sent stay in Not sent  \u{21b5}"
+                            .into(),
                     )
                 })
                 .into()
@@ -803,22 +825,27 @@ impl AgentsWindow {
             .child(
                 div()
                     .flex()
-                    .flex_col()
-                    .gap(px(6.))
+                    .items_end()
+                    .gap(px(8.))
                     .p(px(8.))
                     .rounded(px(ROW_RADIUS))
                     .border_1()
                     .border_color(theme::island_border())
                     .text_size(px(12.))
-                    .child(self.area.field_of(
-                        &self.draft,
-                        true,
-                        &format!("Message {name}…"),
-                        true,
-                        |w: &mut AgentsWindow| Some(&mut w.area),
-                        cx.entity().downgrade(),
-                    ))
-                    .child(div().flex().justify_end().child(send)),
+                    .child(
+                        self.area
+                            .field_of(
+                                &self.draft,
+                                true,
+                                &format!("Message {name}…"),
+                                true,
+                                |w: &mut AgentsWindow| Some(&mut w.area),
+                                cx.entity().downgrade(),
+                            )
+                            .flex_1()
+                            .min_w_0(),
+                    )
+                    .child(send),
             )
             .into_any_element()
     }
@@ -867,12 +894,12 @@ impl Render for AgentsWindow {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let list = self.sessions(cx);
         self.typing.set(self.open_session(&list).is_some());
-        if self.open_session(&list).is_some()
+        if let Some(open_chat) = self.open_session(&list).map(|s| s.chat.clone())
             && let Some(act) = self.snapshot.take()
         {
             self.view = View::NotSent;
             if act == "peek" {
-                let first = notsent::drafts(&self.comments.read(cx).list)
+                let first = sessions::drafts_of(&self.comments.read(cx).list, &open_chat)
                     .first()
                     .map(|c| c.id);
                 self.peeked.extend(first);
@@ -891,7 +918,7 @@ impl Render for AgentsWindow {
                 .iter()
                 .filter(|s| s.waits() && s.chat.session != open.chat.session)
                 .count();
-            self.conversation(open, others, cx)
+            self.conversation(open, list.len(), others, cx)
         } else {
             self.list(&list, cx)
         };

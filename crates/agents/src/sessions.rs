@@ -29,6 +29,8 @@ pub struct Session {
     pub doing: Doing,
     /// Its last message, seconds since the epoch (else when it was last heard).
     pub last: i64,
+    /// Its first message, seconds since the epoch (else when it was last heard): when it started, for the row's tip.
+    pub first: i64,
     /// The words it last said, for the row.
     pub said: String,
 }
@@ -41,6 +43,20 @@ impl Session {
 
     pub fn ended(&self) -> bool {
         self.doing == Doing::Ended
+    }
+
+    /// The row's tip: who it is, and for an ended one when it began and ended and that it leaves the list tomorrow.
+    pub fn tip(&self) -> String {
+        let head = format!("{} · {}", self.chat.agent, name(&self.chat));
+        if self.ended() {
+            format!(
+                "{head}\nStarted at {}; ended at {}. It leaves this list tomorrow.",
+                format::clock(self.first),
+                format::clock(self.last)
+            )
+        } else {
+            head
+        }
     }
 
     /// The row's second line.
@@ -97,6 +113,7 @@ pub fn sessions(
         .map(|chat| {
             let talk = conversation(comments, messages, said, &chat.session);
             let last = talk.iter().map(Entry::at).max().unwrap_or(chat.beat);
+            let first = talk.iter().map(Entry::at).min().unwrap_or(chat.beat);
             let words = talk
                 .iter()
                 .rev()
@@ -128,6 +145,7 @@ pub fn sessions(
                 chat: chat.clone(),
                 doing,
                 last,
+                first,
                 said: words,
             }
         })
@@ -137,13 +155,42 @@ pub fn sessions(
     out
 }
 
-/// How many comments wait to be sent (the `Not sent` count): drafts for the agent.
-pub fn not_sent(comments: &[Comment]) -> usize {
-    comments
+/// The comments not sent that go to `chat`: the ones written on its branch, and the ones written on no branch.
+pub fn drafts_of<'a>(comments: &'a [Comment], chat: &Chat) -> Vec<&'a Comment> {
+    let mut out: Vec<&Comment> = comments
         .iter()
         .filter(|c| c.state == State::Draft && !c.archived)
-        .count()
+        .filter(|c| {
+            chat.branch.is_empty()
+                || c.branch
+                    .as_deref()
+                    .is_none_or(|b| b.is_empty() || b == chat.branch)
+        })
+        .collect();
+    out.sort_by_key(|c| c.id);
+    out
 }
+
+/// How many comments wait to be sent to `chat` (the `Not sent` count).
+pub fn not_sent(comments: &[Comment], chat: &Chat) -> usize {
+    drafts_of(comments, chat).len()
+}
+
+/// The summary over the list (`8 sessions · 2 wait for you`), only when there are many.
+pub fn summary(list: &[Session]) -> Option<String> {
+    if list.len() < MANY {
+        return None;
+    }
+    let waiting = list.iter().filter(|s| s.waits()).count();
+    let mut head = format::plural(list.len(), "session");
+    if waiting > 0 {
+        head = format!("{head} · {waiting} wait for you");
+    }
+    Some(head)
+}
+
+/// From this many sessions the list says how many there are.
+pub const MANY: usize = 5;
 
 #[cfg(test)]
 mod tests {
@@ -206,7 +253,8 @@ mod tests {
             c[2].state = State::Addressed;
             c
         };
-        let list = sessions(&chats, &comments, &[], &[], now);
+        // The day it is judged on is the one the ended session's last message is in, whatever the time of day.
+        let list = sessions(&chats, &comments, &[], &[], now - 3600);
         let names: Vec<_> = list.iter().map(|s| s.chat.session.as_str()).collect();
         assert_eq!(names, ["asks", "busy", "quiet", "gone"]);
         assert_eq!(list[0].doing, Doing::Asks("Which error text?".into()));
@@ -241,6 +289,42 @@ mod tests {
             archived: true,
             ..Default::default()
         };
-        assert_eq!(not_sent(&[draft, archived, sent(1, "a", 1)]), 1);
+        let chat = chat("a", 1);
+        assert_eq!(not_sent(&[draft, archived, sent(1, "a", 1)], &chat), 1);
+    }
+
+    #[test]
+    fn not_sent_counts_the_drafts_of_the_sessions_branch() {
+        let mut chat = chat("a", 1);
+        chat.branch = "fix".into();
+        let on = |id, branch: Option<&str>| Comment {
+            id,
+            branch: branch.map(str::to_owned),
+            ..Default::default()
+        };
+        let all = [on(1, Some("fix")), on(2, Some("other")), on(3, None)];
+        assert_eq!(not_sent(&all, &chat), 2);
+        chat.branch.clear();
+        assert_eq!(not_sent(&all, &chat), 3);
+    }
+
+    #[test]
+    fn the_list_counts_itself_only_when_many() {
+        let at = |n: usize| -> Vec<Session> {
+            (0..n)
+                .map(|i| Session {
+                    chat: chat(&i.to_string(), 1),
+                    doing: if i == 0 { Doing::WaitsOk } else { Doing::Done },
+                    last: 1,
+                    first: 1,
+                    said: String::new(),
+                })
+                .collect()
+        };
+        assert_eq!(summary(&at(3)), None);
+        assert_eq!(
+            summary(&at(8)).as_deref(),
+            Some("8 sessions · 1 wait for you")
+        );
     }
 }
