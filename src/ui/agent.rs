@@ -287,11 +287,6 @@ impl Workspace {
     pub(super) fn resolve_agent_comment(&mut self, id: u64, cx: &mut Context<Self>) {
         self.agents.set_state(id, State::Resolved, cx);
     }
-
-    /// Not done: back to a draft, to be sent again (with what was said so far).
-    pub(super) fn reopen_agent_comment(&mut self, id: u64, cx: &mut Context<Self>) {
-        self.agents.set_state(id, State::Draft, cx);
-    }
 }
 
 /// What the Agents window asks of the tab (`artoo_agents_api::view::AgentsHost`).

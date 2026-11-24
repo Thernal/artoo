@@ -261,7 +261,7 @@ impl Workspace {
         let open = self.toggled_agent.contains(&id) == resolved;
         let selecting = self.selecting(this.clone());
         let (fold, delete, raw) = (this.clone(), this.clone(), this.clone());
-        let (resolve, reopen, editing, asking) = (this.clone(), this.clone(), this.clone(), this);
+        let (editing, asking) = (this.clone(), this);
         let draft = comment.state == State::Draft;
         // The agent it is for, by its name: `Claude`, not `Claude Code`.
         let to = comment
@@ -442,7 +442,6 @@ impl Workspace {
             });
         let change = Change::Agent(id);
         let edit_box = self.edit_box(change, editing.clone(), cx);
-        let writing = edit_box.is_some();
         let body = div().pb(px(6.)).child(match edit_box {
             Some(edit_box) => edit_box.into_any_element(),
             None => markdown::body(
@@ -454,57 +453,6 @@ impl Workspace {
                 cx,
             ),
         });
-        // The foot, one height (28 px): a draft's is ✎ at its start, ✕ and `Send N` at its end — `Send N` says it
-        // is not sent —; a note the agent did is `Not yet` and `Close`.
-        let foot = (self.compose.is_none() && !writing)
-            .then(|| match comment.state {
-                State::Addressed => Some(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.))
-                        .pt(px(4.))
-                        .child(div().flex_1())
-                        .child(
-                            discussion::icon_button(
-                                ("reopen-agent", id),
-                                "rotate-ccw",
-                                "Not yet",
-                                None,
-                                Some("Not done yet — opens the note again"),
-                                Kind::Quiet,
-                                true,
-                            )
-                            .h(px(28.))
-                            .on_click(move |_, _, cx| {
-                                cx.stop_propagation();
-                                reopen
-                                    .update(cx, |this, cx| this.reopen_agent_comment(id, cx))
-                                    .ok();
-                            }),
-                        )
-                        .child(
-                            discussion::icon_button(
-                                ("resolve-agent", id),
-                                "circle-check",
-                                "Close",
-                                None,
-                                None,
-                                Kind::Primary(theme::agent()),
-                                false,
-                            )
-                            .h(px(28.))
-                            .on_click(move |_, _, cx| {
-                                cx.stop_propagation();
-                                resolve
-                                    .update(cx, |this, cx| this.resolve_agent_comment(id, cx))
-                                    .ok();
-                            }),
-                        ),
-                ),
-                _ => None,
-            })
-            .flatten();
         // The last question is answered under it while the comment is open; an earlier one, or
         // the last once it is done, shows its form as it was answered.
         let last = comment.replies.len().saturating_sub(1);
@@ -576,8 +524,7 @@ impl Workspace {
             .child(body)
             .children(replies)
             .children(form)
-            .children(answer_box)
-            .children(foot);
+            .children(answer_box);
         div()
             .w_full()
             .pl(px(indent))

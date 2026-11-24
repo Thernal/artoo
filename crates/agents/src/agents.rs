@@ -177,14 +177,6 @@ impl Bus {
             .collect()
     }
 
-    /// When what agents said last changed, to read it only then.
-    #[allow(dead_code, reason = "the conversation's tab (#220) reads it")]
-    pub fn said_stamp(&self, root: &Path) -> Option<std::time::SystemTime> {
-        std::fs::metadata(self.said_file(root))
-            .and_then(|m| m.modified())
-            .ok()
-    }
-
     /// The reviewer's messages as the app saved them, with the agents' receipts since applied.
     pub fn messages(&self, root: &Path) -> Vec<Message> {
         let mut messages: Vec<Message> = std::fs::read_to_string(self.messages_file(root))
