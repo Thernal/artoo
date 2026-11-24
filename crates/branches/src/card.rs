@@ -3,7 +3,7 @@
 //! (its upstream, how far from the main line, its request, its last commit).
 
 use crate::history::History;
-use artoo_core::git::{CommitInfo, Deco, DecoKind, Repo};
+use artoo_core::git::{CommitInfo, Deco, DecoKind, Repo, Version};
 use artoo_ui_kit::controls::tag;
 use artoo_ui_kit::format;
 use artoo_ui_kit::hover::{CutInTip, Hover, card_action, card_frame, cut, full_date};
@@ -79,6 +79,21 @@ pub struct CommitCard {
     pub root: Option<std::path::PathBuf>,
     /// (files, lines added, lines removed), once read (X58).
     pub stat: Option<(usize, usize, usize)>,
+    /// The request's version this commit is the tip of: (its number, when it was pushed).
+    pub version: Option<(usize, i64)>,
+}
+
+/// The version of `versions` whose tip is `id`: its number and when it was pushed.
+pub fn version_of(versions: &[Version], id: git2::Oid) -> Option<(usize, i64)> {
+    versions
+        .iter()
+        .find(|v| v.tip == id)
+        .map(|v| (v.number, v.time))
+}
+
+/// What the card's Version row says: `v4 · pushed 35 min ago`.
+pub fn version_text((number, time): (usize, i64)) -> String {
+    format!("v{number} · pushed {}", format::ago(time))
 }
 
 impl CommitCard {
@@ -90,6 +105,7 @@ impl CommitCard {
             host: other.host,
             root: other.root.clone(),
             stat: other.stat,
+            version: other.version,
         }
     }
 
@@ -231,6 +247,10 @@ impl CommitCard {
                                         .child(format!("−{removed}")),
                                 ),
                         )
+                    }))
+                    .children(self.version.map(|v| {
+                        row("Version")
+                            .child(div().text_color(theme::muted()).child(version_text(v)))
                     })),
             )
     }
@@ -250,6 +270,7 @@ fn row(label: &'static str) -> gpui::Div {
 impl crate::history::History {
     /// The card of commit `info`, of whatever list: its labels, its page on `web`.
     pub fn card(&self, info: CommitInfo, web: Option<&artoo_core::git::WebRemote>) -> CommitCard {
+        let info_id = info.id;
         CommitCard {
             refs: self.decor.get(&info.id).cloned().unwrap_or_default(),
             url: web.map(|w| w.commit(&info.id.to_string())),
@@ -263,6 +284,7 @@ impl crate::history::History {
             info,
             root: self.root.clone(),
             stat: None,
+            version: crate::card::version_of(&self.of_request, info_id),
         }
     }
 }
@@ -361,4 +383,40 @@ pub fn branch_card(
         };
         cx.new(|_| card).into()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn version(number: usize, tip: &str, time: i64) -> Version {
+        Version {
+            number,
+            tip: git2::Oid::from_str(tip).unwrap(),
+            base: None,
+            commits: 1,
+            time,
+            reason: String::new(),
+            author: "juniper".to_owned(),
+        }
+    }
+
+    const A: &str = "7c5758f1a2b97c5758f1a2b97c5758f1a2b97c57";
+    const B: &str = "1111111111111111111111111111111111111111";
+
+    #[test]
+    fn a_commit_that_is_a_versions_tip_names_the_version() {
+        let versions = [version(3, B, 100), version(4, A, 200)];
+        let found = version_of(&versions, git2::Oid::from_str(A).unwrap());
+        assert_eq!(found.map(|v| v.0), Some(4));
+        assert!(version_text(found.unwrap()).starts_with("v4 · pushed "));
+    }
+
+    #[test]
+    fn a_commit_outside_every_version_shows_no_row() {
+        let versions = [version(1, B, 100)];
+        let other = git2::Oid::from_str(A).unwrap();
+        assert_eq!(version_of(&versions, other), None);
+        assert_eq!(version_of(&[], other), None);
+    }
 }

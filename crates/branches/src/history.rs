@@ -36,6 +36,8 @@ pub struct History {
     /// A comparison's own commits, and the run of them its diff is narrowed to (#21).
     pub compare: Option<CompareCommits>,
     pub versions: Vec<Version>,
+    /// The versions of the request open, for a commit card's Version row; empty off a request.
+    pub of_request: Vec<Version>,
     pub commits: Vec<CommitInfo>,
     /// None: `commits` is all the history there is to list.
     pub older: Option<Older>,
@@ -179,6 +181,7 @@ impl Default for History {
             page: None,
             compare: None,
             versions: Vec::new(),
+            of_request: Vec::new(),
             commits: Vec::new(),
             older: None,
             selection: Selection::None,
@@ -866,7 +869,16 @@ impl artoo_branches_api::Branches for Handle {
         let h = self.0.upgrade()?;
         let h = h.read(cx);
         let info = h.commits.iter().find(|c| c.id == id)?.clone();
-        let card = h.card(info, web);
+        let mut card = h.card(info, web);
+        if let Some(requests) = self
+            .1
+            .upgrade()
+            .and_then(|s| s.get::<std::rc::Rc<dyn artoo_requests_api::Requests>>())
+        {
+            card.version = requests
+                .versions(cx)
+                .and_then(|(_, versions)| crate::card::version_of(&versions, id));
+        }
         Some(std::rc::Rc::new(move |_, cx| {
             crate::card::CommitCard::show(&card, cx)
         }))

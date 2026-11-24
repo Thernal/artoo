@@ -133,6 +133,12 @@ impl Render for Panel {
         };
         let web = frame.places(cx).web;
         let route = frame.route(cx);
+        // The request open's versions: a commit that is one of them says so on its card.
+        let of_request = (services.get::<Rc<dyn artoo_requests_api::Requests>>())
+            .and_then(|r| r.versions(cx))
+            .map(|(_, v)| v)
+            .unwrap_or_default();
+        self.history.update(cx, |h, _| h.of_request = of_request);
         let shows = self.history.read(cx).panel_shows(route.as_ref());
         let mut open_lists = 0;
         let mut sections: Vec<AnyElement> = Vec::new();
