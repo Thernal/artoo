@@ -5,8 +5,10 @@
 use crate::review::{Answered, Comment, Form, FormKind};
 use artoo_agents_api::conversation::{Entry, Ref};
 use artoo_agents_api::view::{Act, AgentsHost, FormEvent, OnForm};
+use artoo_ui_kit::ROW_RADIUS;
+use artoo_ui_kit::discussion::{self, Kind as Button};
 use artoo_ui_kit::{format, hover, icons, markdown, px, theme};
-use gpui::{AnyElement, App, FontWeight, Rgba, SharedString, div, prelude::*};
+use gpui::{AnyElement, App, ClickEvent, FontWeight, Rgba, SharedString, div, prelude::*};
 use std::rc::Rc;
 
 /// One thing the agent said in a group.
@@ -174,9 +176,18 @@ pub struct Look {
     pub folder: std::path::PathBuf,
 }
 
-/// A comment's place, short: `LoginViewModel.kt:51`.
-fn place(c: &Comment) -> String {
-    c.reads()
+/// The open request a comment was written on: the one its branch is the source of. A plugin's place names none.
+pub(crate) fn request_of(c: &Comment, host: Option<&Rc<dyn AgentsHost>>, cx: &App) -> Option<u64> {
+    let branch = c.branch.as_deref().filter(|_| c.on.is_none())?;
+    host?.request(branch, cx)
+}
+
+/// A comment's place, short: `LoginViewModel.kt:51`, on a request `!398 · LoginViewModel.kt:51`.
+fn place(c: &Comment, request: Option<u64>) -> String {
+    match request {
+        Some(n) => format!("{} · {}", artoo_ui_kit::words::number(n), c.reads()),
+        None => c.reads(),
+    }
 }
 
 fn clock(at: i64) -> String {
@@ -192,9 +203,9 @@ pub fn view(blocks: &[Block], comments: &[Comment], look: &Look, cx: &App) -> Ve
             Block::Day(label) => day(label),
             Block::Claude { at, says } => claude(ix, *at, says, comments, look, cx),
             Block::You { mine } => you(ix, mine, comments, look, cx),
-            Block::Status { text, .. } => status(text),
+            Block::Status { at, text } => status(ix, *at, text, look),
             Block::Working { these } => working(*these, look),
-            Block::Tail { others, answered } => tail(*others, *answered, comments, look),
+            Block::Tail { others, answered } => tail(*others, *answered, comments, look, cx),
         })
         .collect()
 }
@@ -211,18 +222,20 @@ fn day(label: &str) -> AnyElement {
         .into_any_element()
 }
 
-fn status(text: &str) -> AnyElement {
+/// A status line, centred: `Done  3 files changed  Show  10:31`; Show opens the changes, when it counts files.
+fn status(ix: usize, at: i64, text: &str, look: &Look) -> AnyElement {
     let (what, count) = text.split_once(" · ").unwrap_or((text, ""));
+    let host = look.host.clone();
     div()
         .w_full()
         .flex()
         .items_center()
         .justify_center()
-        .gap(px(6.))
+        .gap(px(8.))
         .text_size(px(12.))
         .text_color(theme::muted())
         .child(
-            icons::icon("check")
+            icons::icon("circle-check")
                 .size(px(14.))
                 .text_color(theme::faint()),
         )
@@ -230,7 +243,36 @@ fn status(text: &str) -> AnyElement {
         .children(
             (!count.is_empty()).then(|| div().text_color(theme::faint()).child(count.to_owned())),
         )
+        .children(changes_files(count).then(|| {
+            div()
+                .id(("talk-show", ix))
+                .text_color(theme::accent())
+                .cursor_pointer()
+                .hover(|d| d.underline())
+                .tooltip_show_delay(hover::LONG)
+                .tooltip(|_, cx| {
+                    cx.new(|_| hover::Tip("Open what it changed, in the working tree"))
+                        .into()
+                })
+                .child("Show")
+                .on_click(move |_, _, cx| {
+                    if let Some(host) = &host {
+                        host.act(Act::ShowChanges, cx);
+                    }
+                })
+        }))
+        .child(
+            div()
+                .text_size(px(11.))
+                .text_color(theme::faint())
+                .child(clock(at)),
+        )
         .into_any_element()
+}
+
+/// Whether a status line's count is of files changed (`3 files changed`).
+fn changes_files(count: &str) -> bool {
+    count.contains("file") && count.contains("changed")
 }
 
 /// `Claude is working on this`, under what it is about.
@@ -264,11 +306,17 @@ fn dots() -> gpui::Div {
         .children((0..3).map(|_| div().size(px(5.)).rounded_full().bg(theme::faint())))
 }
 
-fn tail(others: usize, answered: Option<u64>, comments: &[Comment], look: &Look) -> AnyElement {
+fn tail(
+    others: usize,
+    answered: Option<u64>,
+    comments: &[Comment],
+    look: &Look,
+    cx: &App,
+) -> AnyElement {
     let words = format!("Claude is working on the other {others} of your comments");
     let place_of = answered
         .and_then(|id| comments.iter().find(|c| c.id == id))
-        .map(|c| (c.id, place(c)));
+        .map(|c| (c.id, place(c, request_of(c, look.host.as_ref(), cx))));
     div()
         .flex()
         .flex_col()
@@ -318,7 +366,11 @@ fn reply_block(id: u64, what: String, look: &Look) -> AnyElement {
             cx.new(|_| hover::Tip("Show the comment, on its line"))
                 .into()
         })
-        .child(icons::icon("reply").size(px(12.)))
+        .child(
+            icons::icon("reply")
+                .size(px(12.))
+                .text_color(theme::faint()),
+        )
         .child(hover::cut(("talk-reply-what", id as usize), what))
         .on_click(move |_, _, cx| {
             if let Some(host) = &host {
@@ -335,7 +387,14 @@ fn you(ix: usize, mine: &[Mine], comments: &[Comment], look: &Look, cx: &App) ->
         let (head, text, at) = match m {
             Mine::Words { at, text } => (None, text.clone(), *at),
             Mine::Comment { at, id } => match comments.iter().find(|c| c.id == *id) {
-                Some(c) => (Some((c.id, place(c))), c.body.clone(), *at),
+                Some(c) => {
+                    let request = request_of(c, look.host.as_ref(), cx);
+                    (
+                        Some((c.id, place(c, request), request)),
+                        c.body.clone(),
+                        *at,
+                    )
+                }
                 None => (None, String::new(), *at),
             },
         };
@@ -354,7 +413,12 @@ fn you(ix: usize, mine: &[Mine], comments: &[Comment], look: &Look, cx: &App) ->
             .rounded_tr(px(6.))
             .bg(theme::selected())
             .text_size(px(13.))
-            .children(head.map(|(id, what)| {
+            .children(head.map(|(id, what, request)| {
+                let tip: SharedString = match request {
+                    Some(_) => "Open the request's Changes at this line, where you wrote it",
+                    None => "Show it on its line, where you wrote it",
+                }
+                .into();
                 div()
                     .id(("talk-src", id as usize))
                     .self_start()
@@ -371,13 +435,25 @@ fn you(ix: usize, mine: &[Mine], comments: &[Comment], look: &Look, cx: &App) ->
                     .cursor_pointer()
                     .hover(|d| d.text_color(theme::text()))
                     .tooltip_show_delay(hover::LONG)
-                    .tooltip(|_, cx| {
-                        cx.new(|_| hover::Tip("Show it on its line, where you wrote it"))
-                            .into()
+                    .tooltip(move |_, cx| {
+                        let tip = tip.clone();
+                        cx.new(|_| hover::TipOwned(tip)).into()
                     })
-                    .child(icons::icon("file").size(px(12.)))
+                    .child(
+                        icons::icon(if request.is_some() {
+                            "pull-request"
+                        } else {
+                            "file"
+                        })
+                        .size(px(12.))
+                        .text_color(theme::faint()),
+                    )
                     .child(hover::cut(("talk-src-what", id as usize), what))
-                    .child(icons::icon("external").size(px(11.)))
+                    .child(
+                        icons::icon("external")
+                            .size(px(11.))
+                            .text_color(theme::faint()),
+                    )
                     .on_click(move |_, _, cx| {
                         if let Some(host) = &host {
                             host.act(Act::Show(id), cx);
@@ -492,10 +568,10 @@ fn bubble(key: usize, s: &Say, comments: &[Comment], look: &Look, cx: &App) -> A
             .rounded_bl(px(12.))
     };
     let reply = s.on.and_then(|on| match on {
-        Ref::Comment(id) => comments
-            .iter()
-            .find(|c| c.id == id)
-            .map(|c| reply_block(id, place(c), look)),
+        Ref::Comment(id) => comments.iter().find(|c| c.id == id).map(|c| {
+            let request = request_of(c, look.host.as_ref(), cx);
+            reply_block(id, place(c, request), look)
+        }),
         Ref::Plan(id) => Some(reply_block(
             id,
             format!(
@@ -514,10 +590,21 @@ fn bubble(key: usize, s: &Say, comments: &[Comment], look: &Look, cx: &App) -> A
             Some(reply_block(id, format!("You chose “{words}”"), look))
         }),
     });
-    let words = markdown::body(&s.text, true, format!("say-{key}"), None, None, cx);
-    let words = with_cites(words, key, &s.text, look);
+    let words = words(key, &s.text, look, cx);
     let card = match open_form(s, comments) {
-        // Plan and question open: an orange border, the form under the words.
+        // A plan open: its steps, Approve and the pencil, in an orange border.
+        Some(c) if s.form.as_ref().is_some_and(|f| f.kind == FormKind::Plan) => corners(div())
+            .border_1()
+            .border_color(theme::warning())
+            .p(px(10.))
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .overflow_hidden()
+            .text_size(px(13.))
+            .child(words)
+            .child(plan(c, look)),
+        // A question open: an orange border, the form under the words.
         Some(c) => {
             let host = look.host.clone();
             let on: OnForm = Rc::new(move |event: FormEvent, cx: &mut App| {
@@ -588,74 +675,170 @@ fn bubble(key: usize, s: &Say, comments: &[Comment], look: &Look, cx: &App) -> A
     card.into_any_element()
 }
 
-/// The words, and under them a chip for each `path:line` they name: the file's glyph and `name:line` in a
-/// hairline; hovered, the lines around; a click opens it in Code.
-fn with_cites(words: AnyElement, key: usize, text: &str, look: &Look) -> AnyElement {
-    let cites = crate::cites::scan(text, &look.folder);
-    if cites.is_empty() {
-        return words;
-    }
-    let chips = cites.into_iter().enumerate().map(|(i, cite)| {
+/// A plan waiting for you: `Plan  3 steps`, its steps numbered (a click leaves one out or takes it in), `Approve`
+/// and the pencil that changes it.
+fn plan(c: &Comment, look: &Look) -> AnyElement {
+    let id = c.id;
+    let Some(form) = c.replies.last().and_then(|r| r.form.as_ref()) else {
+        return div().into_any_element();
+    };
+    let on_form = |event: FormEvent| {
         let host = look.host.clone();
-        let lines = crate::cites::around(&look.folder, &cite);
-        let name = cite
-            .path
-            .rsplit('/')
-            .next()
-            .unwrap_or(&cite.path)
-            .to_owned();
-        let shown = format!("{name}:{}", cite.line);
-        let card = (cite.path.clone(), lines);
-        let (path, line) = (cite.path.clone(), cite.line);
+        move |_: &ClickEvent, _: &mut gpui::Window, cx: &mut App| {
+            if let Some(host) = &host {
+                host.act(Act::Form(event), cx);
+            }
+        }
+    };
+    let steps = form.choices().into_iter().enumerate().map(|(i, o)| {
+        let on = c.answer.as_ref().map_or(o.on, |a| a.picks.contains(&i));
         div()
-            .id(("talk-cite", key * 100 + i))
+            .id(("talk-step", id as usize * 64 + i))
             .flex()
-            .items_center()
-            .gap(px(4.))
-            .px(px(6.))
-            .py(px(1.))
-            .rounded(px(4.))
-            .border_1()
-            .border_color(theme::island_border())
-            .text_size(px(11.))
+            .gap(px(8.))
+            .px(px(4.))
+            .rounded(px(ROW_RADIUS))
             .cursor_pointer()
-            .hover(|d| d.bg(theme::base()))
+            .hover(|d| d.bg(theme::hover()))
             .tooltip_show_delay(hover::LONG)
             .tooltip(move |_, cx| {
-                let card = card.clone();
-                cx.new(|_| CiteCard {
-                    path: card.0,
-                    lines: card.1,
+                cx.new(|_| {
+                    hover::Tip(if on {
+                        "Leave this step out"
+                    } else {
+                        "Take this step in"
+                    })
                 })
                 .into()
             })
-            .child(icons::file_icon(&cite.path, 12.))
-            .child(SharedString::from(shown))
-            .on_click(move |_, _, cx| {
-                if let Some(host) = &host {
-                    host.act(
-                        Act::OpenCode {
-                            path: path.clone(),
-                            line,
-                        },
-                        cx,
-                    );
-                }
-            })
+            .child(
+                div()
+                    .w(px(16.))
+                    .flex_none()
+                    .text_color(theme::faint())
+                    .child(format!("{}.", i + 1)),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .when(!on, |d| d.line_through().text_color(theme::faint()))
+                    .child(o.label.clone()),
+            )
+            .on_click(on_form(FormEvent::Pick(id, Some(i))))
     });
     div()
         .flex()
         .flex_col()
         .gap(px(6.))
-        .child(words)
-        .child(div().flex().flex_wrap().gap(px(4.)).children(chips))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .text_size(px(12.))
+                .child(icons::icon("list").size(px(14.)).text_color(theme::muted()))
+                .child(div().font_weight(FontWeight::SEMIBOLD).child("Plan"))
+                .child(
+                    div()
+                        .text_color(theme::muted())
+                        .child(format::plural(form.options.len(), "step")),
+                ),
+        )
+        .children(steps)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .pt(px(2.))
+                .child(
+                    discussion::button(
+                        ("talk-approve", id),
+                        "Approve",
+                        None,
+                        Button::Primary(theme::accent()),
+                    )
+                    .h(px(28.))
+                    .px(px(10.))
+                    .tooltip_show_delay(hover::LONG)
+                    .tooltip(|_, cx| {
+                        cx.new(|_| hover::Tip("Approve the plan: Claude starts on it"))
+                            .into()
+                    })
+                    .on_click(on_form(FormEvent::Approve(id))),
+                )
+                .child(
+                    discussion::icon_button(
+                        ("talk-change", id),
+                        "pencil",
+                        "Change the plan: say what, in the composer",
+                        None,
+                        None,
+                        Button::Plain,
+                        true,
+                    )
+                    .h(px(28.))
+                    .px(px(8.)),
+                ),
+        )
         .into_any_element()
+}
+
+/// The agent's words, each `path:line` of the folder they name drawn in its sentence: hovered, the lines around;
+/// a click opens it in Code.
+fn words(key: usize, text: &str, look: &Look, cx: &App) -> AnyElement {
+    let text = crate::cites::inline(text, &look.folder);
+    let (open, card) = (look.host.clone(), look.host.clone());
+    let folder = look.folder.clone();
+    let cites = markdown::Cites {
+        open: Rc::new(move |address, cx| {
+            if let (Some(host), Some(cite)) = (&open, crate::cites::of_address(address)) {
+                host.act(
+                    Act::OpenCode {
+                        path: cite.path,
+                        line: cite.line,
+                    },
+                    cx,
+                );
+            }
+        }),
+        card: Rc::new(move |address, cx| {
+            let cite = crate::cites::of_address(address).unwrap_or(crate::cites::Cite {
+                path: String::new(),
+                line: 0,
+            });
+            let changed = card
+                .as_ref()
+                .and_then(|h| h.noted(&cite.path, cite.line, cx));
+            let lines = crate::cites::around(&folder, &cite);
+            cx.new(|_| CiteCard {
+                foot: foot(cite.line, changed),
+                path: cite.path,
+                lines,
+            })
+            .into()
+        }),
+    };
+    markdown::body_cited(&text, format!("say-{key}"), cites, cx)
+}
+
+/// The card's last line: when the agent's own note on its changes named the line, that; always what a click does.
+fn foot(line: u32, changed: Option<i64>) -> String {
+    match changed {
+        Some(at) => format!(
+            "Claude changed line {line} at {} · a click opens it in Code",
+            clock(at)
+        ),
+        None => "A click opens it in Code".to_owned(),
+    }
 }
 
 /// The hover card of a `path:line`: the path, the lines around it with the named one marked.
 struct CiteCard {
     path: String,
     lines: Vec<(u32, String, bool)>,
+    foot: String,
 }
 
 impl Render for CiteCard {
@@ -664,24 +847,40 @@ impl Render for CiteCard {
             .gap(px(6.))
             .child(
                 div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
                     .text_color(theme::muted())
+                    .child(icons::icon("file").size(px(13.)).text_color(theme::faint()))
                     .child(SharedString::from(self.path.clone())),
             )
-            .children(self.lines.iter().map(|(n, text, own)| {
+            .child(
                 div()
                     .flex()
-                    .gap(px(8.))
-                    .font_family("monospace")
-                    .text_size(px(11.))
-                    .when(*own, |d| d.bg(theme::hover()))
-                    .child(
+                    .flex_col()
+                    .children(self.lines.iter().map(|(n, text, own)| {
                         div()
-                            .w(px(28.))
-                            .text_color(theme::faint())
-                            .child(SharedString::from(n.to_string())),
-                    )
-                    .child(SharedString::from(text.clone()))
-            }))
+                            .flex()
+                            .gap(px(8.))
+                            .font_family(theme::code_font())
+                            .text_size(px(11.))
+                            .when(*own, |d| d.bg(theme::agent_bg()))
+                            .child(
+                                div()
+                                    .w(px(28.))
+                                    .flex_none()
+                                    .text_color(theme::faint())
+                                    .child(SharedString::from(n.to_string())),
+                            )
+                            .child(SharedString::from(text.clone()))
+                    })),
+            )
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(theme::faint())
+                    .child(SharedString::from(self.foot.clone())),
+            )
     }
 }
 

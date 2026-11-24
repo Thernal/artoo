@@ -26,6 +26,16 @@ pub trait AgentsHost {
 
     /// A click in the window that changes a comment or opens what is the tab's.
     fn act(&self, act: Act, cx: &mut App);
+
+    /// The number of the open request branch `branch` is the source of: a comment written there names it.
+    fn request(&self, _branch: &str, _cx: &App) -> Option<u64> {
+        None
+    }
+
+    /// When an agent's note on its changes named line `line` of `path`, the last such time (#220).
+    fn noted(&self, _path: &str, _line: u32, _cx: &App) -> Option<i64> {
+        None
+    }
 }
 
 /// What a click in the Agents window asks of the tab.
@@ -65,6 +75,8 @@ pub enum Act {
     },
     /// A click on a form in the conversation (#220).
     Form(FormEvent),
+    /// `Show` on a status line (#220): what the agent changed, in the working tree.
+    ShowChanges,
     /// A `path:line` in the agent's words (#220): the file opened in Code at the line.
     OpenCode {
         path: String,
@@ -110,7 +122,7 @@ pub struct NoteLook {
 }
 
 /// A click on an agent's form.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum FormEvent {
     /// Choice `.1` of comment `.0`'s form picked, or unpicked where many are; `None`, your call.
     Pick(u64, Option<usize>),
@@ -124,6 +136,8 @@ pub enum FormEvent {
     SendOnly(u64),
     /// Every draft sent.
     SendAll,
+    /// A plan approved as it stands: comment `.0`'s steps that are on, sent at once.
+    Approve(u64),
 }
 
 /// What answers a form's clicks.

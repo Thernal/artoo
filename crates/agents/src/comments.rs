@@ -63,6 +63,31 @@ impl AgentComments {
         })
     }
 
+    /// A plan approved as it stands (its steps that are on, or those picked), a draft again to be sent at once. Whether
+    /// it is a form; not saved.
+    pub fn approve(&mut self, id: u64) -> bool {
+        let Some(c) = self.list.iter_mut().find(|c| c.id == id) else {
+            return false;
+        };
+        let Some(form) = c.replies.last().and_then(|r| r.form.as_ref()) else {
+            return false;
+        };
+        let on = || {
+            (form.choices().iter().enumerate())
+                .filter(|(_, o)| o.on)
+                .map(|(i, _)| i)
+                .collect()
+        };
+        if c.answer.is_none() {
+            c.answer = Some(Answered {
+                picks: on(),
+                ..Default::default()
+            });
+        }
+        c.state = State::Draft;
+        true
+    }
+
     /// The reviewer's pick on the agent's form on comment `id` — `None` their own call, else option `pick` —: a draft
     /// again, to go with the next send (#10 C). Whether it is one; not saved.
     pub fn pick(&mut self, id: u64, pick: Option<usize>) -> bool {

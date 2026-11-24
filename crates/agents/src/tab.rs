@@ -176,6 +176,10 @@ impl Agents for TabAgents {
         self.change(cx, |c| c.pick(id, pick));
     }
 
+    fn approve(&self, id: u64, cx: &mut App) {
+        self.change(cx, |c| c.approve(id));
+    }
+
     fn move_answer(&self, id: u64, at: usize, up: bool, cx: &mut App) {
         self.change(cx, |c| c.move_pick(id, at, up));
     }

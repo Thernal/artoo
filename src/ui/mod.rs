@@ -1505,6 +1505,9 @@ pub struct Workspace {
     me: String,
     /// A comment to scroll to once its file is laid out.
     jump: Option<u64>,
+    /// The comment lit on its line for a moment after a jump to it (#220), and the end of that moment.
+    lit: Option<u64>,
+    lit_end: Option<gpui::Task<()>>,
     /// "Copied ✓" on the Copy button until something changes.
     copied: bool,
     /// The caret, selection and undo of the field that has the keyboard (`input`).
@@ -1665,6 +1668,8 @@ impl Workspace {
             compose_chat: None,
             me: "You".to_owned(),
             jump: None,
+            lit: None,
+            lit_end: None,
             copied: false,
             field_edit: Default::default(),
             field_scroll: Rc::default(),

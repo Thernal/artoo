@@ -532,6 +532,19 @@ impl Workspace {
             .py(px(6.))
             .child(
                 discussion::frame(Source::Agent, false)
+                    // Where `Open in Changes` took the reviewer: lit for a moment (#220).
+                    .when(self.lit == Some(id), |d| {
+                        let accent = theme::accent();
+                        d.border_2()
+                            .border_color(accent)
+                            .shadow(vec![gpui::BoxShadow {
+                                color: gpui::Rgba { a: 0.45, ..accent }.into(),
+                                offset: gpui::point(px(0.), px(0.)),
+                                blur_radius: px(16.),
+                                spread_radius: px(2.),
+                                inset: false,
+                            }])
+                    })
                     .child(head)
                     // Its notes open and fold in size and alpha (#110).
                     .children(self.folding(

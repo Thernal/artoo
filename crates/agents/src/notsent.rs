@@ -7,6 +7,7 @@ use artoo_agents_api::view::{Act, AgentsHost};
 use artoo_ui_kit::{ROW_RADIUS, hover, icons, markdown, px, theme};
 use gpui::{AnyElement, App, ClickEvent, SharedString, div, prelude::*};
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 /// The comments not sent, in the order they were written (ids only grow).
@@ -33,15 +34,28 @@ pub struct To {
     pub title: String,
     pub host: Option<Rc<dyn AgentsHost>>,
     pub rich: bool,
+    /// The session's folder, whose files a peek reads.
+    pub folder: PathBuf,
     /// The rows whose place is open (#220): five lines under the words.
     pub peeked: HashSet<u64>,
     /// A click on a row's place opens or closes its peek.
     pub peek: Peek,
 }
 
-/// The lines a peek shows: up to four above the comment's own line, then that line, which is marked. Only what the
-/// comment kept — the lines as they were when it was written.
-pub fn peek_lines(c: &Comment) -> Vec<(u32, String, bool)> {
+/// The lines a peek shows: five around the comment's own line from the file, that one marked. Where the file no longer
+/// has the comment's line there (gone, moved, another branch's), what the comment kept: up to four lines above and its
+/// own.
+pub fn peek_lines(c: &Comment, folder: &Path) -> Vec<(u32, String, bool)> {
+    let cite = crate::cites::Cite {
+        path: c.path.clone(),
+        line: c.line,
+    };
+    let around = crate::cites::around(folder, &cite);
+    let still = (around.iter())
+        .any(|(_, text, own)| *own && (c.code.is_empty() || text.trim() == c.code.trim()));
+    if !c.old && still {
+        return around;
+    }
     let above = c.above.len().min(4);
     let first = c.line.saturating_sub(above as u32);
     let mut out: Vec<(u32, String, bool)> = c.above[c.above.len() - above..]
@@ -54,14 +68,15 @@ pub fn peek_lines(c: &Comment) -> Vec<(u32, String, bool)> {
 }
 
 /// The open peek: the lines with their numbers, the comment's own marked, and Open in Changes.
-fn peek_card(c: &Comment, host: Option<Rc<dyn AgentsHost>>) -> AnyElement {
+fn peek_card(c: &Comment, folder: &Path, host: Option<Rc<dyn AgentsHost>>) -> AnyElement {
     let id = c.id;
-    let lines = peek_lines(c).into_iter().map(|(n, text, own)| {
+    let lines = peek_lines(c, folder).into_iter().map(|(n, text, own)| {
         div()
             .flex()
             .gap(px(8.))
             .px(px(8.))
             .when(own, |d| d.bg(theme::hover()))
+            .font_family(theme::code_font())
             .text_size(px(12.))
             .child(
                 div()
@@ -94,11 +109,19 @@ fn peek_card(c: &Comment, host: Option<Rc<dyn AgentsHost>>) -> AnyElement {
         .child(
             div()
                 .id(("not-sent-open", id as usize))
+                .flex()
+                .items_center()
+                .gap(px(4.))
                 .text_size(px(12.))
-                .text_color(theme::muted())
+                .text_color(theme::accent())
                 .cursor_pointer()
-                .hover(|d| d.text_color(theme::text()))
+                .hover(|d| d.underline())
                 .child("Open in Changes")
+                .child(
+                    icons::icon("external")
+                        .size(px(12.))
+                        .text_color(theme::accent()),
+                )
                 .on_click(move |_: &ClickEvent, _, cx| {
                     if let Some(host) = &host {
                         host.act(Act::Show(id), cx);
@@ -115,6 +138,7 @@ fn row(c: &Comment, to: &To, cx: &App) -> AnyElement {
     let (edited, sent) = (to.host.clone(), to.host.clone());
     let peek = to.peek.clone();
     let open = to.peeked.contains(&id);
+    let request = crate::talk::request_of(c, to.host.as_ref(), cx).is_some();
     let (session, title) = (to.session.clone(), to.title.clone());
     let icon = |name: &'static str, tip: &'static str, key: u64| {
         div()
@@ -161,9 +185,9 @@ fn row(c: &Comment, to: &To, cx: &App) -> AnyElement {
                         .tooltip(move |_, cx| {
                             cx.new(|_| {
                                 hover::Tip(if open {
-                                    "Close the lines"
+                                    "Hide its lines"
                                 } else {
-                                    "Show its lines"
+                                    "Show its lines here, under its words"
                                 })
                             })
                             .into()
@@ -178,7 +202,7 @@ fn row(c: &Comment, to: &To, cx: &App) -> AnyElement {
                             .text_color(theme::faint()),
                         )
                         .child(
-                            icons::icon(if c.thread.is_some() {
+                            icons::icon(if c.thread.is_some() || request {
                                 "pull-request"
                             } else {
                                 "file"
@@ -231,7 +255,7 @@ fn row(c: &Comment, to: &To, cx: &App) -> AnyElement {
             None,
             cx,
         )))
-        .children(open.then(|| peek_card(c, to.host.clone())))
+        .children(open.then(|| peek_card(c, &to.folder, to.host.clone())))
         .into_any_element()
 }
 
@@ -325,11 +349,32 @@ mod tests {
             "e".into(),
             "f".into(),
         ];
-        let lines = peek_lines(&c);
+        let lines = peek_lines(&c, Path::new("/nonexistent"));
         assert_eq!(lines.len(), 5);
         assert_eq!(lines[0].0, 8);
         assert_eq!(lines[4], (12, "val c = 3".into(), true));
         assert!(lines[..4].iter().all(|l| !l.2));
+    }
+
+    #[test]
+    fn a_peek_shows_five_lines_around_from_the_file() {
+        let dir = std::env::temp_dir().join(format!("artoo-peek-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.kt"), "1\n2\n3\n4\n5\n6\n7\n").unwrap();
+        let mut c = draft(1, "x");
+        c.path = "a.kt".into();
+        c.line = 4;
+        c.code = "4".into();
+        let lines = peek_lines(&c, &dir);
+        assert_eq!(
+            lines.iter().map(|l| l.0).collect::<Vec<_>>(),
+            [2, 3, 4, 5, 6]
+        );
+        assert_eq!(lines.iter().filter(|l| l.2).count(), 1);
+        assert!(lines[2].2);
+        // The line is not there any more: the comment's own words.
+        c.code = "gone".into();
+        assert_eq!(peek_lines(&c, &dir), [(4, "gone".to_owned(), true)]);
     }
 
     #[test]

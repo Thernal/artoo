@@ -146,9 +146,26 @@ pub fn body(
     sel: Option<Selecting>,
     cx: &App,
 ) -> AnyElement {
+    drawn(text, rich, key.into(), base, sel, None, cx)
+}
+
+/// An agent's words, formatted, with its cites (links of [`CITE_SCHEME`]) drawn in the text.
+pub fn body_cited(text: &str, key: impl Into<SharedString>, cites: Cites, cx: &App) -> AnyElement {
+    drawn(text, true, key.into(), None, None, Some(cites), cx)
+}
+
+fn drawn(
+    text: &str,
+    rich: bool,
+    key: SharedString,
+    base: Option<&str>,
+    sel: Option<Selecting>,
+    cites: Option<Cites>,
+    cx: &App,
+) -> AnyElement {
     let mut ctx = Ctx {
         app: cx,
-        key: key.into(),
+        key,
         next: 0,
         base: base.map(str::to_owned),
         sel,
@@ -156,6 +173,7 @@ pub fn body(
         texts: Rc::default(),
         doc: None,
         pictures: crate::pictures::get(cx),
+        cites,
     };
     let blocks = rich.then(|| markdown::parse(text));
     match blocks.filter(|b| markdown::is_rich(b)) {
@@ -195,6 +213,7 @@ pub fn doc_block(
         texts: Rc::default(),
         doc: Some(pictures),
         pictures: crate::pictures::get(cx),
+        cites: None,
     };
     self::block(block, &mut ctx)
 }
@@ -202,6 +221,24 @@ pub fn doc_block(
 /// Does `text` look different as markdown? Only then is the Rich/Raw switch worth showing.
 pub fn has_markdown(text: &str) -> bool {
     markdown::is_rich(&markdown::parse(text))
+}
+
+/// The scheme of a link that is a `path:line` of the agent's folder (#220): drawn as the file's glyph and the words
+/// in a hairline box, in the text. Its label starts with [`CITE_PAD`], the glyph's room.
+pub const CITE_SCHEME: &str = "artoo-cite:";
+/// What a cite's label starts and ends with: room for the glyph before the name, and the box's end.
+pub const CITE_PAD: (&str, &str) = ("\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}", "\u{a0}");
+
+/// What answers a click on a cite, given its address after the scheme.
+pub type CiteOpen = Rc<dyn Fn(&str, &mut App)>;
+/// The card a cite's hover shows, for that address.
+pub type CiteHover = Rc<dyn Fn(&str, &mut App) -> gpui::AnyView>;
+
+/// What a cite does.
+#[derive(Clone)]
+pub struct Cites {
+    pub open: CiteOpen,
+    pub card: CiteHover,
 }
 
 struct Ctx<'a> {
@@ -218,6 +255,7 @@ struct Ctx<'a> {
     doc: Option<Rc<DocPictures>>,
     /// Images from the web (the port hosts provides).
     pictures: Option<Arc<dyn Pictures>>,
+    cites: Option<Cites>,
 }
 
 /// A block of text that can be selected: numbered, its selection painted under it, the mouse
@@ -750,6 +788,11 @@ fn inline_drawn(i: &Inline, mentions: bool, ctx: &mut Ctx) -> AnyElement {
         .iter()
         .map(|s| {
             let st = s.style;
+            let cite = ctx.cites.is_some()
+                && s.link
+                    .as_deref()
+                    .is_some_and(|l| l.starts_with(CITE_SCHEME));
+            let link = s.link.is_some() && !cite;
             (
                 s.range.clone(),
                 HighlightStyle {
@@ -760,8 +803,8 @@ fn inline_drawn(i: &Inline, mentions: bool, ctx: &mut Ctx) -> AnyElement {
                         thickness: px(1.),
                         color: None,
                     }),
-                    color: s.link.is_some().then_some(accent),
-                    underline: s.link.is_some().then_some(UnderlineStyle {
+                    color: link.then_some(accent),
+                    underline: link.then_some(UnderlineStyle {
                         thickness: px(1.),
                         color: Some(accent),
                         wavy: false,
@@ -882,6 +925,15 @@ fn inline_drawn(i: &Inline, mentions: bool, ctx: &mut Ctx) -> AnyElement {
         .collect();
     links.sort_by_key(|(r, _)| r.start);
     let layout = styled.layout().clone();
+    // The cites among the links: boxed under the text, opened and carded by their address.
+    let cites = ctx.cites.clone();
+    let boxed: Vec<(Range<usize>, String)> = match cites {
+        Some(_) => links
+            .iter()
+            .filter_map(|(r, url)| Some((r.clone(), url.strip_prefix(CITE_SCHEME)?.to_owned())))
+            .collect(),
+        None => Vec::new(),
+    };
     // The mentions a card can be shown for: (range, login).
     let mut tagged: Vec<(Range<usize>, String)> = match ctx.sel.as_ref() {
         Some(_) if mentions => markdown::mentions(&i.text)
@@ -908,9 +960,14 @@ fn inline_drawn(i: &Inline, mentions: bool, ctx: &mut Ctx) -> AnyElement {
     let here = ctx.sel.as_ref().map(|s| s.link.clone());
     let card = ctx.sel.as_ref().map(|s| s.mention.clone());
     let spot = layout.clone();
+    let opens = cites.clone();
+    let carded = boxed.clone();
     let linked = InteractiveText::new(id, styled)
         .on_click(ranges, move |ix, window, cx| {
             if let Some(url) = urls.get(ix) {
+                if let (Some(at), Some(cites)) = (url.strip_prefix(CITE_SCHEME), opens.as_ref()) {
+                    return (cites.open)(at, cx);
+                }
                 let browser = window.modifiers().secondary();
                 let key = url.starts_with(ISSUE_SCHEME);
                 if key && !here.as_ref().is_some_and(|open| open(url, cx)) {
@@ -936,7 +993,91 @@ fn inline_drawn(i: &Inline, mentions: bool, ctx: &mut Ctx) -> AnyElement {
                 });
             card(hit, cx);
         });
-    text_block(linked.into_any_element(), layout, &i.text, ctx)
+    let Some(cites) = cites.filter(|_| !boxed.is_empty()) else {
+        return text_block(linked.into_any_element(), layout, &i.text, ctx);
+    };
+    // delay: a card of a text's range has none to set.
+    let linked = linked.tooltip(move |at, _, cx| {
+        let (_, address) = carded.iter().find(|(r, _)| r.contains(&at))?;
+        Some((cites.card)(address, cx))
+    });
+    let under = layout.clone();
+    let boxes = div()
+        .relative()
+        .child(
+            gpui::canvas(
+                |_, _, _| (),
+                move |_, _, window, cx| {
+                    for (r, _) in &boxed {
+                        paint_cite(&under, r.clone(), window, cx);
+                    }
+                },
+            )
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full(),
+        )
+        .child(linked)
+        .into_any_element();
+    text_block(boxes, layout, &i.text, ctx)
+}
+
+/// A cite's hairline box under `range`, line by line as it wraps, with the file's glyph at its start.
+fn paint_cite(layout: &TextLayout, range: Range<usize>, window: &mut gpui::Window, cx: &mut App) {
+    use gpui::{Bounds, point, size};
+    let (Some(start), Some(end)) = (
+        layout.position_for_index(range.start),
+        layout.position_for_index(range.end),
+    ) else {
+        return;
+    };
+    let height = layout.line_height();
+    let area = layout.bounds();
+    // A cite that starts a line is placed at the end of the one above: where its second letter is says so.
+    let second = range.start + CITE_PAD.0.chars().next().map_or(0, char::len_utf8);
+    let start = match layout.position_for_index(second) {
+        Some(next) if next.y > start.y => gpui::point(area.left(), next.y),
+        _ => start,
+    };
+    let edge = gpui::Rgba {
+        a: 0.18,
+        ..theme::text()
+    };
+    let fill = gpui::Rgba {
+        a: 0.5,
+        ..theme::base()
+    };
+    let mut y = start.y;
+    while y <= end.y {
+        let left = if y == start.y { start.x } else { area.left() };
+        let right = if y == end.y { end.x } else { area.right() };
+        if right > left {
+            window.paint_quad(gpui::quad(
+                Bounds::from_corners(point(left, y + px(1.)), point(right, y + height - px(1.))),
+                px(4.),
+                fill,
+                px(1.),
+                edge,
+                gpui::BorderStyle::Solid,
+            ));
+        }
+        y += height;
+    }
+    let side = px(12.);
+    let glyph = Bounds::new(
+        point(start.x + px(4.), start.y + (height - side) / 2.),
+        size(side, side),
+    );
+    // A glyph that fails to draw leaves its room empty.
+    let _ = window.paint_svg(
+        glyph,
+        "icons/file.svg".into(),
+        None,
+        gpui::TransformationMatrix::unit(),
+        theme::faint().into(),
+        cx,
+    );
 }
 
 /// Where text range `r` is drawn: the box from its start to its end, a line high.

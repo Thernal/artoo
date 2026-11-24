@@ -68,7 +68,8 @@ pub struct AgentsWindow {
     typing: Rc<Cell<bool>>,
     /// The Not sent rows whose place is open.
     peeked: std::collections::HashSet<u64>,
-    /// A snapshot run's first act (`ARTOO_SNAPSHOT_AGENTS`: `not-sent`, `send-all`, `peek`), done once.
+    /// A snapshot run's first act (`ARTOO_SNAPSHOT_AGENTS`: `not-sent`, `send-all`, `peek`, `jump`),
+    /// done once.
     snapshot: Cell<Option<&'static str>>,
 }
 
@@ -81,6 +82,7 @@ fn snapshot_act() -> Option<&'static str> {
         "not-sent" => Some("not-sent"),
         "send-all" => Some("send-all"),
         "peek" => Some("peek"),
+        "jump" => Some("jump"),
         _ => None,
     }
 }
@@ -655,6 +657,7 @@ impl AgentsWindow {
             }),
             session: s.chat.session.clone(),
             title: s.chat.title.clone(),
+            folder: s.chat.repo.clone(),
             rich: host.as_ref().is_none_or(|h| h.rich(cx)),
             host,
         };
@@ -898,11 +901,16 @@ impl Render for AgentsWindow {
             && let Some(act) = self.snapshot.take()
         {
             self.view = View::NotSent;
+            let first = sessions::drafts_of(&self.comments.read(cx).list, &open_chat)
+                .first()
+                .map(|c| c.id);
             if act == "peek" {
-                let first = sessions::drafts_of(&self.comments.read(cx).list, &open_chat)
-                    .first()
-                    .map(|c| c.id);
                 self.peeked.extend(first);
+            }
+            if act == "jump"
+                && let (Some(host), Some(id)) = (self.host(), first)
+            {
+                cx.defer(move |cx| host.act(Act::Show(id), cx));
             }
             if act == "send-all" {
                 cx.spawn(async move |this, cx| {

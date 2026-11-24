@@ -11,6 +11,9 @@ use crate::comment::State;
 use artoo_agents_api::view::{self, Act, FormEvent, OnForm};
 use gpui::{App, Context, WeakEntity};
 
+/// How long a comment stays lit after the jump to it.
+const LIT: std::time::Duration = std::time::Duration::from_millis(1600);
+
 impl Workspace {
     /// The drafts the next sending takes.
     pub(super) fn agent_drafts(&self, cx: &App) -> Vec<u64> {
@@ -143,6 +146,10 @@ impl Workspace {
             FormEvent::Own(id) => self.start_answer_value(id, cx),
             FormEvent::Note(id) => self.start_answer(id, cx),
             FormEvent::SendOnly(id) => self.send_agent(vec![id], cx),
+            FormEvent::Approve(id) => {
+                self.agents.approve(id, cx);
+                self.send_agent(vec![id], cx)
+            }
             FormEvent::SendAll => {
                 let ids = self.agent_drafts(cx);
                 self.send_agent(ids, cx)
@@ -239,7 +246,11 @@ impl Workspace {
     /// A click in the Agents window (`artoo_agents_api::view::Act`).
     fn agents_act(&mut self, act: Act, cx: &mut Context<Self>) {
         match act {
-            Act::Show(id) => self.jumping(cx, |this, cx| this.jump_to(id, cx)),
+            Act::Show(id) => {
+                self.jumping(cx, |this, cx| this.jump_to(id, cx));
+                self.light(id, cx);
+            }
+            Act::ShowChanges => self.open_working_tree(cx),
             Act::Send(ids) => self.send_agent(ids, cx),
             Act::PickChat => self.open_agent_pick(cx),
             Act::SendTo {
@@ -259,6 +270,24 @@ impl Workspace {
                 self.open_label(super::labeling::Target::Chat { session, agent }, cx)
             }
         }
+    }
+
+    /// Comment `id` lit on its line for a moment, where `Open in Changes` took the reviewer (#220). A snapshot
+    /// keeps it lit, to be seen.
+    fn light(&mut self, id: u64, cx: &mut Context<Self>) {
+        self.lit = Some(id);
+        cx.notify();
+        if artoo_core::storage::snapshot_run() {
+            return;
+        }
+        self.lit_end = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(LIT).await;
+            this.update(cx, |this, cx| {
+                this.lit = None;
+                cx.notify();
+            })
+            .ok();
+        }));
     }
 
     /// A `path:line` in an agent's words (#220): the file, as it is on disk, in Code at the line.
@@ -305,5 +334,20 @@ impl view::AgentsHost for AgentsHost {
 
     fn act(&self, act: Act, cx: &mut App) {
         self.0.update(cx, |this, cx| this.agents_act(act, cx)).ok();
+    }
+
+    fn request(&self, branch: &str, cx: &App) -> Option<u64> {
+        let tab = self.0.upgrade()?;
+        let list = tab.read(cx).requests_api()?.list(cx);
+        list.iter().find(|m| m.source == branch).map(|m| m.iid)
+    }
+
+    fn noted(&self, path: &str, line: u32, cx: &App) -> Option<i64> {
+        let tab = self.0.upgrade()?;
+        (tab.read(cx).agents.notes(cx).iter())
+            .filter(|n| n.notes.iter().any(|x| x.path == path && x.line == line))
+            .map(|n| n.at)
+            .filter(|at| *at > 0)
+            .max()
     }
 }

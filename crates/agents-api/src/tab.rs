@@ -109,6 +109,8 @@ pub trait Agents {
     /// with that number; whether it took it): a draft again, to go with the next send (#10 C).
     fn pick_answer(&self, id: u64, pick: Option<usize>, cx: &mut App);
     fn move_answer(&self, id: u64, at: usize, up: bool, cx: &mut App);
+    /// A plan on comment `id` approved as it stands, a draft again.
+    fn approve(&self, id: u64, cx: &mut App);
     fn answer_by_key(&self, id: u64, digit: usize, cx: &mut App) -> bool;
 
     /// Comment `id` resolved, or a draft again to be sent with what was said so far; sent and not taken yet, a draft

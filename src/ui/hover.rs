@@ -632,7 +632,8 @@ mod tests {
     }
 
     /// Every tooltip opens after the same delay, `hover::LONG` (800 ms, #202): a `.tooltip(` with no
-    /// `tooltip_show_delay` on its own chain, within the four lines above it.
+    /// `tooltip_show_delay` on its own chain, within the four lines above it — or a `// delay:` there saying why it
+    /// can take none (a range of a text: GPUI gives it no delay to set).
     #[test]
     fn every_tooltip_waits_the_same_delay() {
         let mut quick = Vec::new();
@@ -643,7 +644,10 @@ mod tests {
                     continue;
                 }
                 let back = &lines[n.saturating_sub(4)..=n];
-                if !back.iter().any(|l| l.contains("tooltip_show_delay")) {
+                if !back
+                    .iter()
+                    .any(|l| l.contains("tooltip_show_delay") || l.contains("// delay:"))
+                {
                     quick.push(format!("{}:{}", path.display(), n + 1));
                 }
             }
