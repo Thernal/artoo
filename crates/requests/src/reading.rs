@@ -76,12 +76,13 @@ impl Requests {
                     rq.loading = false;
                     let ok = match result {
                         Ok(list) => {
-                            rq.list = list;
                             let at = artoo_ui_kit::format::now();
+                            rq.keep_list(at, &list, cx);
+                            rq.take_read(list);
                             rq.listed_at = Some(at);
                             rq.from_disk = false;
-                            rq.keep_list(at, cx);
                             rq.error = None;
+                            rq.refused = false;
                             if login.is_some() {
                                 rq.login = login;
                             }
@@ -90,7 +91,9 @@ impl Requests {
                             true
                         }
                         Err(e) => {
-                            rq.error = Some(format!("{e:#}"));
+                            let said = format!("{e:#}");
+                            rq.refused = said.contains("token");
+                            rq.error = Some(said);
                             false
                         }
                     };
@@ -123,12 +126,68 @@ impl Requests {
         }));
     }
 
+    /// A read landed: the rows' fields change in place; a request that came in, moved to another group or left
+    /// the list is held (`held`) with the rows as they were, until `apply_held`.
+    fn take_read(&mut self, read: Vec<Mr>) {
+        let merged = crate::held::merge(
+            &self.list,
+            read,
+            |m| self.group_of(m),
+            &self.merged_here,
+            self.rows.picked,
+        );
+        self.list = merged.shown;
+        self.held = merged.held;
+    }
+
+    /// Shows what is held: the list becomes what the host gave, the facts of the requests that came in are read.
+    pub fn apply_held(&mut self, host: Arc<dyn Host>, cx: &mut Context<Self>) {
+        let Some(held) = self.held.take() else {
+            return;
+        };
+        self.list = held.list;
+        self.merged_here.clear();
+        self.read_facts(host, cx);
+        cx.notify();
+    }
+
+    /// What the list's freshness slot says, from what exists: a read in flight, the last error, the kept copy, what
+    /// is held.
+    pub fn slot(&self) -> artoo_ui_kit::fresh::Slot {
+        use artoo_ui_kit::{format::clock, fresh::Slot};
+        let at = self.listed_at.map(clock);
+        if self.loading {
+            return if self.list.is_empty() && at.is_none() {
+                Slot::Reading
+            } else {
+                Slot::Refreshing
+            };
+        }
+        if self.error.is_some() {
+            return match (self.refused, at) {
+                (true, _) => Slot::TokenExpired,
+                (false, Some(at)) => Slot::CantReach(at),
+                (false, None) => Slot::CantRead,
+            };
+        }
+        let Some(at) = at else {
+            return Slot::Reading;
+        };
+        if self.from_disk {
+            return Slot::Kept(at);
+        }
+        match self.held.as_ref().filter(|h| h.count() > 0) {
+            Some(held) => Slot::Waiting(at, held.count(), held.kind()),
+            None => Slot::Updated(at),
+        }
+    }
+
     /// Keeps the open list on disk for the next start, written from the background executor.
-    fn keep_list(&self, at: i64, cx: &mut Context<Self>) {
+    fn keep_list(&self, at: i64, list: &[Mr], cx: &mut Context<Self>) {
         let Some(key) = self.rows.kept_key().map(str::to_owned) else {
             return;
         };
-        let open: Vec<Mr> = (self.list.iter())
+        let open: Vec<Mr> = (list.iter())
             .filter(|m| m.state == artoo_core::mr::MrState::Opened)
             .cloned()
             .collect();
@@ -651,5 +710,76 @@ mod tests {
         assert_eq!(rq.base.threads[0].id, "t10");
         assert_eq!(rq.from, 10);
         assert!(!rq.restore(10), "taken back out");
+    }
+
+    use crate::held::tests::mr;
+    use artoo_ui_kit::fresh::{Held as Where, Slot};
+
+    #[test]
+    fn the_slot_says_what_exists() {
+        let mut rq = Requests::default();
+        assert_eq!(rq.slot(), Slot::Reading, "nothing yet");
+        rq.loading = true;
+        assert_eq!(rq.slot(), Slot::Reading, "the first read");
+        rq.listed_at = Some(0);
+        rq.from_disk = true;
+        assert_eq!(rq.slot(), Slot::Refreshing, "a read under a kept copy");
+        rq.loading = false;
+        assert!(
+            matches!(rq.slot(), Slot::Kept(_)),
+            "the kept copy, nothing asked"
+        );
+        rq.from_disk = false;
+        assert!(matches!(rq.slot(), Slot::Updated(_)));
+        rq.held = Some(crate::held::Held {
+            new: vec![3],
+            at: Some(Where::NewAbove),
+            ..Default::default()
+        });
+        assert!(matches!(rq.slot(), Slot::Waiting(_, 1, Where::NewAbove)));
+        rq.error = Some("Can't reach gitlab.example".into());
+        assert!(
+            matches!(rq.slot(), Slot::CantReach(_)),
+            "rows kept, host away"
+        );
+        rq.refused = true;
+        assert_eq!(rq.slot(), Slot::TokenExpired);
+        rq.refused = false;
+        rq.listed_at = None;
+        assert_eq!(rq.slot(), Slot::CantRead, "nothing kept, read failed");
+    }
+
+    #[test]
+    fn a_read_holds_what_came_in_and_changes_fields_in_place() {
+        let mut rq = Requests {
+            list: vec![mr(1, 1, 10), mr(2, 5, 9)],
+            ..Default::default()
+        };
+        rq.take_read(vec![mr(3, 0, 20), mr(1, 2, 12), mr(2, 5, 9)]);
+        let ids: Vec<u64> = rq.list.iter().map(|m| m.iid).collect();
+        assert_eq!(ids, [1, 2], "the new request waits");
+        assert_eq!(rq.list[0].comments, 2, "the field changed in place");
+        let held = rq.held.as_ref().expect("held");
+        assert_eq!(held.count(), 1);
+        // A second read of the same answer holds the same, not twice.
+        rq.take_read(vec![mr(3, 0, 20), mr(1, 2, 12), mr(2, 5, 9)]);
+        assert_eq!(rq.held.as_ref().map(|h| h.count()), Some(1));
+        // What the apply does to the list, apart from reading the facts.
+        let held = rq.held.take().expect("held");
+        rq.list = held.list;
+        assert_eq!(rq.list.len(), 3);
+    }
+
+    #[test]
+    fn a_request_merged_here_stays_until_applied_and_does_not_count() {
+        let mut rq = Requests {
+            list: vec![mr(1, 1, 10), mr(2, 5, 9)],
+            ..Default::default()
+        };
+        rq.merged_here.push(2);
+        rq.take_read(vec![mr(1, 1, 10)]);
+        assert_eq!(rq.list.len(), 2, "the row stays");
+        assert!(rq.held.as_ref().is_some_and(|h| h.count() == 0));
+        assert!(matches!(rq.slot(), Slot::Updated(_)) || rq.listed_at.is_none());
     }
 }

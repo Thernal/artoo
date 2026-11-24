@@ -744,6 +744,13 @@ pub trait Requests {
     fn clear_list(&self, cx: &mut App);
     fn read_list(&self, cx: &mut App);
 
+    /// What the list's freshness slot says (#round 41): from the kept copy, a read in flight, the last error, what waits.
+    fn slot(&self, cx: &App) -> artoo_ui_kit::fresh::Slot;
+    /// Changes a read brought are held, not shown (a new, a moved, a gone request): `1 new ↑`. How many wait.
+    fn held(&self, cx: &App) -> usize;
+    /// Shows what is held (a click on the slot's count, `⌘R`, leaving the list); false when nothing waited.
+    fn apply_held(&self, cx: &mut App) -> bool;
+
     /// The list shows the merged or the closed requests, or the open ones again (#114); the scope it shows.
     fn set_view(&self, state: MrState, cx: &mut App);
     fn scope(&self, cx: &App) -> Scope;

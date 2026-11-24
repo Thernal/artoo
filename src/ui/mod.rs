@@ -2751,6 +2751,10 @@ impl Workspace {
             _ => None,
         };
         let keep = branch.map(|b| (b.refname.clone(), commit));
+        // ⌘R shows what the last read held back (`1 new ↑`) before it reads again.
+        if let Some(requests) = self.requests_api() {
+            requests.apply_held(cx);
+        }
         self.forget_news(cx);
         self.open_repo(root, keep, cx);
     }

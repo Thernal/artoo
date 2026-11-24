@@ -92,6 +92,12 @@ pub struct Requests {
     pub listed_at: Option<i64>,
     /// The list is the one the last run kept on disk, not yet read again (shown with "From HH:MM").
     pub from_disk: bool,
+    /// What a read brought that the list does not show yet (a new, a moved, a gone request), until the person asks.
+    pub held: Option<crate::held::Held>,
+    /// Requests merged from here: their rows stay in the open list until the next apply.
+    pub merged_here: Vec<u64>,
+    /// The host refused the token on the last read.
+    pub refused: bool,
     /// The request of the open branch, when it is one's source branch.
     pub current: Option<u64>,
     /// The open request and the group it was in when it was opened: ⌥↓ goes on from its place
@@ -658,12 +664,32 @@ impl artoo_requests_api::Requests for Handle {
     fn clear_list(&self, cx: &mut App) {
         self.update(cx, |rq, _| {
             rq.list.clear();
+            rq.held = None;
+            rq.merged_here.clear();
             rq.error = None;
         });
     }
 
     fn read_list(&self, cx: &mut App) {
         self.with_host(cx, |rq, host, cx| rq.read_list(host, cx));
+    }
+
+    fn slot(&self, cx: &App) -> artoo_ui_kit::fresh::Slot {
+        self.0
+            .upgrade()
+            .map_or(artoo_ui_kit::fresh::Slot::Reading, |r| r.read(cx).slot())
+    }
+
+    fn held(&self, cx: &App) -> usize {
+        self.0
+            .upgrade()
+            .map_or(0, |r| r.read(cx).held.as_ref().map_or(0, |h| h.count()))
+    }
+
+    fn apply_held(&self, cx: &mut App) -> bool {
+        let waited = self.held(cx) > 0;
+        self.with_host(cx, |rq, host, cx| rq.apply_held(host, cx));
+        waited
     }
 
     fn set_view(&self, state: mr::MrState, cx: &mut App) {
@@ -805,6 +831,9 @@ impl artoo_requests_api::Requests for Handle {
             });
             if here {
                 rq.merge = None;
+            }
+            if !rq.merged_here.contains(&number) {
+                rq.merged_here.push(number);
             }
             said
         })
