@@ -9,9 +9,9 @@
 //! list is opened.
 
 use crate::requests::{Event, Requests};
+use crate::seen;
 use crate::waiting::{Me, Waiting};
 use artoo_core::links::{self, Target};
-use artoo_core::storage;
 use artoo_hosts_api::{Host, Mr, Thread, Todo};
 use artoo_requests_api::News;
 use gpui::{App, Context, Entity, Task};
@@ -163,6 +163,11 @@ pub struct Notices {
     /// `base|iid|discussion` of resolved discussions already known.
     known_resolved: HashSet<String>,
     seen_loaded: bool,
+    /// The read and told notices of `read_base` came in from disk (with a read's result). Until then a write of them
+    /// waits (`unsaved`), so a partial set never replaces the file's.
+    base_loaded: bool,
+    unsaved: bool,
+    seen_unsaved: bool,
     /// A request's discussions as last read, with its `updated_at` then.
     cache: HashMap<u64, (i64, Vec<Thread>)>,
     /// The tick the read of each began at, and what shows of those with changes waiting on them
@@ -256,11 +261,17 @@ impl Notices {
     /// The notices of `list` not listed before, and not read: each once, none at the `first`
     /// read (#26).
     fn news(&mut self, list: &[Notice], first: bool) -> Vec<Notice> {
-        list.iter()
+        let before = self.told.len();
+        let news = list
+            .iter()
             .filter(|n| self.told.insert(n.key.clone()))
             .filter(|n| !first && !self.read.contains(&n.key))
             .cloned()
-            .collect()
+            .collect();
+        if self.told.len() != before {
+            self.save_told();
+        }
+        news
     }
 
     pub fn is_read(&self, key: &str) -> bool {
@@ -332,13 +343,21 @@ impl Notices {
         }
     }
 
-    /// What a read of project `base`'s notices starts from; what was seen and read loaded first.
+    /// What a read of project `base`'s notices starts from. What is kept on disk is not read here: the read job takes
+    /// it in (`Reading::wants`) and `arrive` takes it from there.
     pub fn begin(&mut self, base: &str, login: Option<String>) -> Reading {
-        self.load_seen();
-        self.load_read(base);
+        if self.read_base.as_deref() != Some(base) {
+            self.read.clear();
+            self.read_base = Some(base.to_owned());
+            self.base_loaded = false;
+        }
         Reading {
             base: base.to_owned(),
             login: login.filter(|l| !l.is_empty()),
+            wants: seen::Wants {
+                seen: !self.seen_loaded,
+                base: !self.base_loaded,
+            },
             seen: self.seen.clone(),
             known: self.known_resolved.clone(),
             cache: self.cache.clone(),
@@ -351,6 +370,7 @@ impl Notices {
         self.failed = found.is_err();
         // Only a read that came in makes the next ones news: after a failed first read nothing old is told.
         let mut found = found.ok()?;
+        self.take_loaded(std::mem::take(&mut found.loaded));
         let first = !self.loaded;
         self.loaded = true;
         found.list.retain(|n| !self.is_pending(n));
@@ -400,6 +420,12 @@ impl Notices {
             .and_then(|key| self.list.iter().position(|n| n.key == key))
             .unwrap_or(self.at)
             .min(self.list.len().saturating_sub(1));
+        // What was told is kept on disk, so it is bounded: past the bound only what is still listed stays.
+        if self.told.len() > TOLD_MOST {
+            let listed: HashSet<&String> = self.list.iter().map(|n| &n.key).collect();
+            self.told.retain(|k| listed.contains(k));
+            self.save_told();
+        }
     }
 
     /// Whether `n` is a to-do marked done here that the host has not confirmed yet.
@@ -415,7 +441,12 @@ impl Notices {
         };
         let mut fresh: Vec<Notice> = todos.iter().map(from_todo).collect();
         fresh.retain(|n| !self.is_pending(n));
-        let news = self.news(&fresh, false);
+        // Before the first full read has come in nothing is known as read or told: it tells nothing.
+        let news = if self.loaded {
+            self.news(&fresh, false)
+        } else {
+            Vec::new()
+        };
         let mut list: Vec<Notice> = self
             .list
             .iter()
@@ -485,58 +516,62 @@ impl Notices {
         self.save_read();
     }
 
-    fn load_seen(&mut self) {
+    /// What a read took in from disk. What was marked read meanwhile stays.
+    fn take_loaded(&mut self, loaded: seen::Loaded) {
+        if let Some((seen, known)) = loaded.seen {
+            self.seen_loaded = true;
+            // What was dismissed before the disk came in stays over what it held.
+            for (key, floor) in std::mem::replace(&mut self.seen, seen) {
+                let at = self.seen.entry(key).or_default();
+                *at = (*at).max(floor);
+            }
+            self.known_resolved.extend(known);
+            if std::mem::take(&mut self.seen_unsaved) {
+                self.save_seen();
+            }
+        }
+        if let Some((read, told)) = loaded.base {
+            self.base_loaded = true;
+            self.read.extend(read);
+            self.told.extend(told);
+            if std::mem::take(&mut self.unsaved) {
+                self.save_read();
+                self.save_told();
+            }
+        }
+    }
+
+    /// Hands what was seen to the background writer.
+    fn save_seen(&mut self) {
         if self.seen_loaded {
-            return;
-        }
-        self.seen_loaded = true;
-        self.seen = storage::read("seen-notes.txt")
-            .lines()
-            .filter_map(|l| {
-                let (key, id) = l.split_once('\t')?;
-                Some((key.to_owned(), id.parse().ok()?))
-            })
-            .collect();
-        self.known_resolved = storage::read("seen-resolved.txt")
-            .lines()
-            .filter(|l| !l.is_empty())
-            .map(str::to_owned)
-            .collect();
-    }
-
-    /// The read notices of project `base`, once per project.
-    fn load_read(&mut self, base: &str) {
-        if self.read_base.as_deref() != Some(base) {
-            self.read = read_of(&storage::read(READ_FILE), base);
-            self.read_base = Some(base.to_owned());
+            seen::save_seen(&self.seen, &self.known_resolved);
+        } else {
+            self.seen_unsaved = true;
         }
     }
 
-    /// Writes this project's read notices; other projects' lines (other tabs) are kept as on disk.
-    fn save_read(&self) {
-        if let Some(base) = &self.read_base {
-            storage::save(
-                READ_FILE,
-                with_read(&storage::read(READ_FILE), base, &self.read),
-            );
+    /// Hands this project's read notices to the background writer.
+    fn save_read(&mut self) {
+        match &self.read_base {
+            Some(base) if self.base_loaded => seen::save_read(base, &self.read),
+            _ => self.unsaved = true,
         }
     }
 
-    fn save_seen(&self) {
-        let mut lines: Vec<String> = self.seen.iter().map(|(k, v)| format!("{k}\t{v}")).collect();
-        lines.sort_unstable();
-        storage::save("seen-notes.txt", lines.join("\n") + "\n");
-        let mut known: Vec<&String> = self.known_resolved.iter().collect();
-        known.sort_unstable();
-        let known: Vec<&str> = known.into_iter().map(String::as_str).collect();
-        storage::save("seen-resolved.txt", known.join("\n") + "\n");
+    /// Hands this project's told notices to the background writer.
+    fn save_told(&mut self) {
+        match &self.read_base {
+            Some(base) if self.base_loaded => seen::save_told(base, &self.told),
+            _ => self.unsaved = true,
+        }
     }
 }
 
-const READ_FILE: &str = "seen-read.txt";
+/// The most notices told that are kept on disk.
+const TOLD_MOST: usize = 3000;
 
 /// The read notice keys of project `base` in `text`: lines `base<TAB>key`.
-fn read_of(text: &str, base: &str) -> HashSet<String> {
+pub(crate) fn read_of(text: &str, base: &str) -> HashSet<String> {
     text.lines()
         .filter_map(|l| l.split_once('\t'))
         .filter(|(b, _)| *b == base)
@@ -545,7 +580,7 @@ fn read_of(text: &str, base: &str) -> HashSet<String> {
 }
 
 /// `text` with project `base`'s lines replaced by `read`.
-fn with_read(text: &str, base: &str, read: &HashSet<String>) -> String {
+pub(crate) fn with_read(text: &str, base: &str, read: &HashSet<String>) -> String {
     let mut keys: Vec<&String> = read.iter().collect();
     keys.sort_unstable();
     let mut lines: Vec<String> = text
@@ -657,6 +692,8 @@ pub struct Reading {
     base: String,
     /// The login the requests already hold; asked of the host only when there is none.
     login: Option<String>,
+    /// What the read takes in from disk itself.
+    wants: seen::Wants,
     seen: HashMap<String, u64>,
     known: HashSet<String>,
     cache: HashMap<u64, (i64, Vec<Thread>)>,
@@ -671,6 +708,8 @@ pub struct Found {
     fresh: HashMap<u64, (i64, Vec<Thread>)>,
     read_again: Vec<u64>,
     complete: bool,
+    /// What the read took in from disk (`Reading::wants`).
+    loaded: seen::Loaded,
 }
 
 /// A read taken in (`Notices::arrive`): the notices news to the user, and the list for `Notices::put`.
@@ -706,10 +745,20 @@ pub fn read(host: &dyn Host, requests: &[Mr], reading: Reading) -> anyhow::Resul
     let Reading {
         base,
         login,
+        wants,
         seen,
         known,
         cache,
     } = reading;
+    // The disk is read here, in the background: what was seen is the base the discussions are measured against.
+    let mut loaded = seen::load(&base, wants);
+    let (seen, known) = match loaded.seen.take() {
+        Some((seen, known)) => {
+            loaded.seen = Some((seen.clone(), known.clone()));
+            (seen, known)
+        }
+        None => (seen, known),
+    };
     let me = match login {
         Some(login) => login,
         None => host.username()?,
@@ -788,6 +837,7 @@ pub fn read(host: &dyn Host, requests: &[Mr], reading: Reading) -> anyhow::Resul
         fresh,
         read_again,
         complete,
+        loaded,
     })
 }
 
@@ -1151,7 +1201,55 @@ mod tests {
             fresh: HashMap::new(),
             read_again: Vec::new(),
             complete,
+            loaded: seen::Loaded::default(),
         }
+    }
+
+    #[test]
+    fn what_the_disk_brings_joins_what_was_done_before_it_came() {
+        let mut notices = Notices::default();
+        let reading = notices.begin("b", None);
+        assert!(
+            reading.wants.seen && reading.wants.base,
+            "the first read takes both in itself"
+        );
+        // Dismissed while the disk is still being read.
+        notices.seen.insert("b|1".into(), 9);
+        notices.read.insert("note:5".into());
+        notices.take_loaded(seen::Loaded {
+            seen: Some((
+                [("b|1".into(), 4), ("b|2".into(), 6)].into(),
+                HashSet::new(),
+            )),
+            base: Some((["note:1".into()].into(), ["note:2".into()].into())),
+        });
+        assert_eq!(notices.seen["b|1"], 9);
+        assert_eq!(notices.seen["b|2"], 6);
+        assert!(notices.read.contains("note:1") && notices.read.contains("note:5"));
+        assert!(notices.told.contains("note:2"));
+        let again = notices.begin("b", None);
+        assert!(!again.wants.seen && !again.wants.base, "once is enough");
+        assert!(
+            notices.begin("c", None).wants.base,
+            "another project is read in"
+        );
+    }
+
+    #[test]
+    fn to_dos_alone_before_the_first_read_tell_nothing() {
+        let mut notices = Notices::default();
+        let todo = Todo {
+            id: 1,
+            action: "mentioned".into(),
+            iid: 1,
+            title: String::new(),
+            author: String::new(),
+            body: String::new(),
+            url: String::new(),
+            created: 0,
+        };
+        assert!(notices.arrive_todos(Ok(vec![todo])).is_empty());
+        assert!(notices.told.is_empty());
     }
 
     #[test]

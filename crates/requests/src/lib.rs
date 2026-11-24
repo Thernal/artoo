@@ -27,6 +27,7 @@ mod reading;
 mod requests;
 mod root;
 mod search;
+mod seen;
 mod submit;
 mod tabs;
 mod thread;

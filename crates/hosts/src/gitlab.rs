@@ -1290,21 +1290,30 @@ pub fn todos_all(remote: &WebRemote) -> Result<(Vec<Todo>, bool)> {
         };
         return Ok((parse_todos(&value, &project), true));
     }
-    let mut list = Vec::new();
-    for page in 1..=TODOS_PAGES {
-        let value = call(
-            remote,
-            &format!("/todos?state=pending&type=MergeRequest&per_page={TODOS_PAGE}&page={page}"),
-            "GET",
-            &[],
-        )?;
-        let got = value.as_array().map_or(0, Vec::len);
-        list.extend(parse_todos(&value, &project));
-        if got < TODOS_PAGE {
-            return Ok((list, true));
+    // The to-dos are the account's, not the project's: read once per host for every tab, 60 s (audit step 11), and
+    // each tab takes its project's out of them.
+    let host = crate::kept::host_of(&remote.base);
+    let raw = crate::kept::within(&host, "todos", crate::kept::TODOS_TTL, || {
+        let mut items = Vec::new();
+        for page in 1..=TODOS_PAGES {
+            let value = call(
+                remote,
+                &format!(
+                    "/todos?state=pending&type=MergeRequest&per_page={TODOS_PAGE}&page={page}"
+                ),
+                "GET",
+                &[],
+            )?;
+            let got = value.as_array().map_or(0, Vec::len);
+            items.extend(value.as_array().cloned().unwrap_or_default());
+            if got < TODOS_PAGE {
+                return Ok(serde_json::json!({ "items": items, "all": true }));
+            }
         }
-    }
-    Ok((list, false))
+        Ok(serde_json::json!({ "items": items, "all": false }))
+    })?;
+    let all = raw["all"].as_bool().unwrap_or(false);
+    Ok((parse_todos(&raw["items"], &project), all))
 }
 
 pub fn parse_todos(value: &Value, project: &str) -> Vec<Todo> {
@@ -1338,6 +1347,7 @@ pub fn mark_todo_done(remote: &WebRemote, id: u64) -> Result<()> {
         return Ok(());
     }
     call(remote, &format!("/todos/{id}/mark_as_done"), "POST", &[])?;
+    crate::kept::drop_of(&crate::kept::host_of(&remote.base), "todos");
     Ok(())
 }
 

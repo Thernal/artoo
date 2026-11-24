@@ -106,7 +106,24 @@ fn clicked(tag: &str, cx: &mut App) {
     ws.update(cx, |ws, cx| ws.open_system_note(open, cx));
 }
 
+/// A notification's tag: the project and the item. Two windows of one project, or two tabs, give the same tag, so
+/// what is told twice is one notification that replaces itself (audit step 11).
+pub(super) fn system_tag(project: &str, item: &str) -> String {
+    format!("{project}:{item}")
+}
+
 impl Workspace {
+    /// What names this tab's project to the system: its web project, else its folder, else the tab itself.
+    fn project_key(&self, cx: &Context<Self>) -> String {
+        if let Some(web) = &self.web {
+            return web.base.clone();
+        }
+        match &self.root {
+            Some(root) => root.display().to_string(),
+            None => cx.entity_id().to_string(),
+        }
+    }
+
     /// `title` and `body` to the system's notifications, when Settings says so and no Artoo
     /// window is in front; `tag` the same again replaces it there. A click opens `open` here.
     pub(super) fn notify_system(
@@ -121,7 +138,7 @@ impl Workspace {
         if !self.settings.system_notifications || in_front() || snapshot {
             return;
         }
-        let tag = SharedString::from(format!("{}:{tag}", cx.entity_id()));
+        let tag = SharedString::from(system_tag(&self.project_key(cx), &tag));
         let ws = cx.entity().downgrade();
         cx.default_global::<Posted>()
             .0
@@ -255,5 +272,21 @@ impl Workspace {
             Open::Here => {}
         }
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::system_tag;
+
+    #[test]
+    fn two_windows_of_one_project_tell_one_tag_and_two_projects_two() {
+        let (first, second) = (
+            system_tag("https://gitlab.x/g/a", "note:7"),
+            system_tag("https://gitlab.x/g/a", "note:7"),
+        );
+        assert_eq!(first, second);
+        assert_ne!(first, system_tag("https://gitlab.x/g/b", "note:7"));
+        assert_ne!(first, system_tag("https://gitlab.x/g/a", "note:8"));
     }
 }

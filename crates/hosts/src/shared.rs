@@ -53,8 +53,12 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    /// `forget` empties the one shared store, so the tests that use it take turns.
+    static TURN: Mutex<()> = Mutex::new(());
+
     #[test]
     fn readers_asking_together_make_one_read_and_a_write_drops_it() {
+        let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
         forget();
         let asked = AtomicUsize::new(0);
         let read = || {
@@ -74,6 +78,7 @@ mod tests {
 
     #[test]
     fn a_failed_read_is_not_kept() {
+        let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
         forget();
         assert!(of("shared.test/b", || Err(anyhow::anyhow!("down"))).is_err());
         assert_eq!(of("shared.test/b", || Ok(Value::from(2))).unwrap(), 2);

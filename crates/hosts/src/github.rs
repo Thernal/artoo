@@ -1673,7 +1673,13 @@ fn changes_in(value: &Value, who_key: &str) -> Vec<String> {
 pub fn todos(remote: &WebRemote) -> Result<Vec<Todo>> {
     let value = match read_fixture("notifications.json") {
         Some(v) => v?,
-        None => get(remote, "notifications?participating=true&per_page=50")?,
+        // The account's, read once per host for every tab, 60 s (audit step 11).
+        None => crate::kept::within(
+            &crate::kept::host_of(&remote.base),
+            "todos",
+            crate::kept::TODOS_TTL,
+            || get(remote, "notifications?participating=true&per_page=50"),
+        )?,
     };
     Ok(parse_notifications(&value, &remote.base))
 }
@@ -1718,6 +1724,7 @@ pub fn mark_todo_done(remote: &WebRemote, id: u64) -> Result<()> {
         &format!("/notifications/threads/{id}"),
         None,
     )?;
+    crate::kept::drop_of(&crate::kept::host_of(&remote.base), "todos");
     Ok(())
 }
 

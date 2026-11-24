@@ -11,6 +11,9 @@ use std::time::{Duration, Instant};
 /// How long an answer is served without asking again.
 pub const TTL: Duration = Duration::from_secs(15 * 60);
 
+/// The account's to-dos change often: kept for a minute.
+pub const TODOS_TTL: Duration = Duration::from_secs(60);
+
 type Key = (String, &'static str);
 
 /// Answers by `(project base, what)`, with when each came in.
@@ -18,10 +21,10 @@ type Key = (String, &'static str);
 pub struct Kept(HashMap<Key, (Instant, Value)>);
 
 impl Kept {
-    fn fresh(&self, key: &Key, now: Instant) -> Option<Value> {
+    fn fresh(&self, key: &Key, now: Instant, ttl: Duration) -> Option<Value> {
         self.0
             .get(key)
-            .filter(|(at, _)| now.saturating_duration_since(*at) < TTL)
+            .filter(|(at, _)| now.saturating_duration_since(*at) < ttl)
             .map(|(_, v)| v.clone())
     }
 
@@ -40,13 +43,37 @@ fn with<R>(f: impl FnOnce(&mut Kept) -> R) -> R {
 /// `what` of the project at `base`: the kept answer while it is under 15 minutes old, else what `read` brings (kept
 /// when it comes in, never when it fails). The lock is not held while `read` runs.
 pub fn of(base: &str, what: &'static str, read: impl FnOnce() -> Result<Value>) -> Result<Value> {
+    within(base, what, TTL, read)
+}
+
+/// The same with its own life: what changes often (the to-dos, 60 s) is kept for `ttl` only.
+pub fn within(
+    base: &str,
+    what: &'static str,
+    ttl: Duration,
+    read: impl FnOnce() -> Result<Value>,
+) -> Result<Value> {
     let key = (base.to_owned(), what);
-    if let Some(value) = with(|k| k.fresh(&key, Instant::now())) {
+    if let Some(value) = with(|k| k.fresh(&key, Instant::now(), ttl)) {
         return Ok(value);
     }
     let value = read()?;
     with(|k| k.put(key, Instant::now(), value.clone()));
     Ok(value)
+}
+
+/// Drops one answer: what it said was changed here.
+pub fn drop_of(base: &str, what: &'static str) {
+    with(|k| {
+        k.0.remove(&(base.to_owned(), what));
+    });
+}
+
+/// The host of a project's base (`https://host/group/project` → `https://host`): what an account-wide read is kept
+/// under, so every tab of the account shares it.
+pub fn host_of(base: &str) -> String {
+    let (scheme, rest) = base.split_once("://").unwrap_or(("https", base));
+    format!("{scheme}://{}", rest.split('/').next().unwrap_or(rest))
 }
 
 /// Drops everything kept: a token was saved or forgotten, so what it saw is no longer known to hold.
@@ -65,10 +92,27 @@ mod tests {
         let key = ("https://h/p".to_owned(), "members");
         k.put(key.clone(), t0, Value::from(1));
         assert_eq!(
-            k.fresh(&key, t0 + Duration::from_secs(899)),
+            k.fresh(&key, t0 + Duration::from_secs(899), TTL),
             Some(Value::from(1))
         );
-        assert_eq!(k.fresh(&key, t0 + TTL), None);
+        assert_eq!(k.fresh(&key, t0 + TTL, TTL), None);
+    }
+
+    #[test]
+    fn the_hosts_of_two_projects_are_one_and_a_short_life_ends_sooner() {
+        assert_eq!(
+            host_of("https://gitlab.x/g/a"),
+            host_of("https://gitlab.x/g/b/c")
+        );
+        let mut k = Kept::default();
+        let t0 = Instant::now();
+        let key = (host_of("https://gitlab.x/g/a"), "todos");
+        k.put(key.clone(), t0, Value::from(1));
+        assert!(
+            k.fresh(&key, t0 + Duration::from_secs(59), TODOS_TTL)
+                .is_some()
+        );
+        assert!(k.fresh(&key, t0 + TODOS_TTL, TODOS_TTL).is_none());
     }
 
     #[test]

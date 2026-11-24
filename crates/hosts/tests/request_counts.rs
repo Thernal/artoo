@@ -269,7 +269,8 @@ struct Counts {
     /// A cold notices read: the to-dos, the discussions of every request listed (step 5 dropped `/user`, the login is
     /// held; the discussions go in three lanes). Step 11 shares the to-dos between tabs.
     notices_cold: usize,
-    /// A warm notices read, nothing changed. Step 11 shares it between tabs; step 7 reads on a fresh list.
+    /// A warm notices read, nothing changed: the to-dos of the account are kept for 60 s (step 11), so none; step 7 reads
+    /// on a fresh list.
     notices_warm: usize,
 }
 
@@ -280,7 +281,7 @@ const GITLAB: Counts = Counts {
     page_5: 8,
     page_150: 9,
     notices_cold: 4,
-    notices_warm: 1,
+    notices_warm: 0,
 };
 
 const GITHUB: Counts = Counts {
@@ -290,7 +291,7 @@ const GITHUB: Counts = Counts {
     page_5: 7,
     page_150: 8,
     notices_cold: 7,
-    notices_warm: 1,
+    notices_warm: 0,
 };
 
 fn run(side: Side, c: Counts) {
@@ -448,4 +449,52 @@ fn reactions_cost_at_most_one_request_beside_the_page() {
         "no request per note:\n{}",
         seen.join("\n")
     );
+}
+
+/// Audit step 11: the to-dos are the account's. Two tabs of one host (two projects) read them with one request per
+/// poll, and a to-do marked done makes the next read ask again.
+#[test]
+fn two_tabs_of_one_account_make_one_todos_call() {
+    for side in [Side::GitLab, Side::GitHub] {
+        tokens();
+        let world = World { side, notes: 0 };
+        let todos = Arc::new(Mutex::new(0usize));
+        let count = todos.clone();
+        let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+        artoo_hosts::forget_kept();
+        let guard = http::with_transport(move |r| {
+            if r.url.contains("/todos?") || r.url.contains("/notifications?") {
+                *count.lock().unwrap() += 1;
+            }
+            Ok(world.answer(r))
+        });
+        let (a, b) = match side {
+            Side::GitLab => ("https://gl.example/team/one", "https://gl.example/team/two"),
+            Side::GitHub => ("https://github.com/team/one", "https://github.com/team/two"),
+        };
+        let tab = |base: &str| {
+            artoo_hosts::hosts().of(&WebRemote {
+                base: base.into(),
+                github: side == Side::GitHub,
+            })
+        };
+        tab(a).todos_all().ok();
+        tab(b).todos_all().ok();
+        tab(a).todos_all().ok();
+        assert_eq!(
+            *todos.lock().unwrap(),
+            1,
+            "one call for both tabs (github: {})",
+            side == Side::GitHub
+        );
+        tab(a).mark_todo_done(1).ok();
+        tab(b).todos_all().ok();
+        assert_eq!(
+            *todos.lock().unwrap(),
+            2,
+            "a to-do done asks again (github: {})",
+            side == Side::GitHub
+        );
+        drop(guard);
+    }
 }
