@@ -11,13 +11,12 @@
 //! and a library that is loaded can't be replaced on Windows.
 
 use crate::{file, load};
-use artoo_core::{applog, platform, storage};
+use artoo_core::{applog, http, platform, storage};
 use gpui::{App, Global};
 use semver::Version;
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 const SEARCH: &str = "https://api.github.com/search/repositories?q=topic:artoo-plugin&sort=stars&order=desc&per_page=20";
 const ARTOO: &str = env!("CARGO_PKG_VERSION");
@@ -255,27 +254,21 @@ fn get(url: &str) -> Result<String, String> {
         return std::fs::read_to_string(Path::new(&dir).join(fixture_name(url)))
             .map_err(|e| e.to_string());
     }
-    let agent = format!("User-Agent: Artoo/{ARTOO}");
     let accept = if url.ends_with("/readme") {
-        "Accept: application/vnd.github.raw"
+        "application/vnd.github.raw"
     } else {
-        "Accept: application/vnd.github+json"
+        "application/vnd.github+json"
     };
-    let out = Command::new("curl")
-        .args(["-sS", "-L", "--max-time", "20", "-H", accept, "-H", &agent])
-        .args(["-w", "\n%{http_code}", url])
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|_| "curl is not installed".to_owned())?;
-    if !out.status.success() {
-        return Err("GitHub can't be reached".to_owned());
-    }
-    let text = String::from_utf8_lossy(&out.stdout);
-    let (body, code) = text.rsplit_once('\n').unwrap_or(("", &text));
-    match code.trim() {
-        "200" => Ok(body.to_owned()),
-        "404" => Err("not found".to_owned()),
-        "403" | "429" => Err("GitHub asks to wait: too many requests from this address".to_owned()),
+    let request = http::Request::get(url)
+        .header("Accept", accept)
+        .header("User-Agent", format!("Artoo/{ARTOO}"))
+        .follow()
+        .timeout(20);
+    let answer = http::send(&request).map_err(|e| e.to_string())?;
+    match answer.status {
+        200 => Ok(answer.text()),
+        404 => Err("not found".to_owned()),
+        403 | 429 => Err("GitHub asks to wait: too many requests from this address".to_owned()),
         code => Err(format!("GitHub answered {code}")),
     }
 }
@@ -567,17 +560,18 @@ fn download(id: &str, source: &Source) -> Result<(), String> {
     std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     let zip = root.join(format!("{id}.zip.part"));
     let got = match source {
-        Source::Public(url) => match Command::new("curl")
-            .args(["-fsSL", "--max-time", "300", "-o"])
-            .arg(&zip)
-            .arg(url)
-            .stdin(Stdio::null())
-            .status()
-        {
-            Ok(status) if status.success() => Ok(()),
-            Ok(_) => Err("the download failed".to_owned()),
-            Err(_) => Err("curl is not installed".to_owned()),
-        },
+        Source::Public(url) => {
+            let request = http::Request::get(url.as_str())
+                .output(zip.clone())
+                .follow()
+                .timeout(300);
+            match http::send(&request) {
+                Ok(answer) if answer.ok() => Ok(()),
+                Ok(_) => Err("the download failed".to_owned()),
+                Err(e) if e.kind == http::Kind::NoCurl => Err(e.to_string()),
+                Err(_) => Err("the download failed".to_owned()),
+            }
+        }
         Source::Team(team, host, url) => team
             .download(host, url, &zip)
             .map_err(|e| format!("the download failed: {e}")),

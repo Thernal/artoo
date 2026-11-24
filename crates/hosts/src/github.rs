@@ -8,13 +8,12 @@
 
 use crate::git::{LineKind, WebRemote};
 use anyhow::{Result, anyhow, bail};
+use artoo_core::http;
 use artoo_hosts_api::{
     Approvals, Award, Details, Draft, Label, Mr, Note, Pipeline, Place, Push, Size, Thread, Todo,
     Verdict,
 };
 use serde_json::{Value, json};
-use std::io::Write;
-use std::process::{Command, Stdio};
 
 /// `https://api.github.com` (or `https://host/api/v3`), the GraphQL endpoint, and `owner/repo`.
 fn api(remote: &WebRemote) -> Result<(String, String, String)> {
@@ -108,15 +107,6 @@ fn read_fixture(name: &str) -> Option<Result<Value>> {
     })
 }
 
-/// A value inside a curl config file's double quotes.
-fn quote(text: &str) -> String {
-    text.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\t', "\\t")
-}
-
 /// One REST call: `endpoint` under the repository unless it starts with `/`.
 fn rest(remote: &WebRemote, method: &str, endpoint: &str, body: Option<&Value>) -> Result<Value> {
     let (base, _, repo) = api(remote)?;
@@ -184,11 +174,11 @@ fn send(remote: &WebRemote, url: &str, method: &str, body: Option<&Value>) -> Re
             "no GitHub token — add one in Settings, or sign in with the GitHub CLI (gh auth login)"
         )
     })?;
-    match send_with(remote, &token, url, method, body) {
+    match send_with(&token, url, method, body) {
         Err(e) if e.to_string() == REFUSED && from.contains("CLI") => {
             crate::connect::drop_cli(&format!("https://{}", host(remote)));
             match token_source(remote, true).filter(|(fresh, _)| *fresh != token) {
-                Some((fresh, _)) => send_with(remote, &fresh, url, method, body),
+                Some((fresh, _)) => send_with(&fresh, url, method, body),
                 None => Err(e),
             }
         }
@@ -197,42 +187,21 @@ fn send(remote: &WebRemote, url: &str, method: &str, body: Option<&Value>) -> Re
 }
 
 /// `send` with `token`.
-fn send_with(
-    remote: &WebRemote,
-    token: &str,
-    url: &str,
-    method: &str,
-    body: Option<&Value>,
-) -> Result<Value> {
-    let mut config = format!(
-        "url = \"{}\"\nheader = \"Authorization: Bearer {}\"\nheader = \"Accept: application/vnd.github+json\"\nheader = \"X-GitHub-Api-Version: 2022-11-28\"\nuser-agent = \"Artoo\"\n",
-        quote(url),
-        quote(token)
-    );
-    if method != "GET" {
-        config.push_str(&format!("request = \"{method}\"\n"));
-    }
+fn send_with(token: &str, url: &str, method: &str, body: Option<&Value>) -> Result<Value> {
+    let mut request = http::Request::get(url)
+        .method(method)
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", "Artoo");
     if let Some(body) = body {
-        config.push_str("header = \"Content-Type: application/json\"\n");
-        config.push_str(&format!("data-raw = \"{}\"\n", quote(&body.to_string())));
+        request = request
+            .header("Content-Type", "application/json")
+            .body(body.to_string());
     }
-    // The token goes in on stdin, not on the command line, where `ps` would show it.
-    let mut child = Command::new("curl")
-        .args(["-sS", "--max-time", "25", "-K", "-", "-w", "\n%{http_code}"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|_| anyhow!("curl is not installed"))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(config.as_bytes())?;
-    }
-    let out = child.wait_with_output()?;
-    if !out.status.success() {
-        bail!("Can't reach {} — is the network on?", host(remote));
-    }
-    let text = String::from_utf8_lossy(&out.stdout);
-    let (body, code) = text.rsplit_once('\n').unwrap_or((&text, ""));
+    let answer = http::send(&request)?;
+    let body = answer.text();
+    let body = body.as_str();
     let message = || {
         serde_json::from_str::<Value>(body)
             .ok()
@@ -248,19 +217,19 @@ fn send_with(
             })
             .unwrap_or_else(|| body.chars().take(160).collect())
     };
-    match code.trim() {
-        "200" | "201" => {
+    match answer.status {
+        200 | 201 => {
             let value = serde_json::from_str(body).unwrap_or(Value::Null);
             // The people in it, for their pictures.
             crate::avatars::harvest(&value);
             Ok(value)
         }
-        "204" => Ok(Value::Null),
-        "401" => bail!(REFUSED),
-        "403" => bail!("GitHub refused it: {}", message()),
-        "404" => bail!("GitHub does not know this repository (or the token cannot see it)"),
-        "422" | "400" => bail!("GitHub would not take that: {}", message()),
-        "405" | "409" => bail!("GitHub refused it: {}", message()),
+        204 => Ok(Value::Null),
+        401 => bail!(REFUSED),
+        403 => bail!("GitHub refused it: {}", message()),
+        404 => bail!("GitHub does not know this repository (or the token cannot see it)"),
+        422 | 400 => bail!("GitHub would not take that: {}", message()),
+        405 | 409 => bail!("GitHub refused it: {}", message()),
         other => bail!("GitHub answered {other}"),
     }
 }
@@ -293,7 +262,7 @@ pub fn me(remote: &WebRemote) -> Result<String> {
 /// Who `token` is — the name and the login — asked with that token rather than the one in use.
 pub fn whois_with(remote: &WebRemote, token: &str) -> Result<(String, String)> {
     let (base, _, _) = api(remote)?;
-    let user = send_with(remote, token, &format!("{base}/user"), "GET", None)?;
+    let user = send_with(token, &format!("{base}/user"), "GET", None)?;
     Ok((who(&user), s(&user["login"])))
 }
 

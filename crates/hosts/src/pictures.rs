@@ -10,6 +10,7 @@
 //! images not written for 60 days are swept.
 
 use crate::git::WebRemote;
+use artoo_core::http;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -244,30 +245,24 @@ fn fetch(url: &str, stem: &Path, upload: Option<(String, String)>) -> Option<Pat
         .and_then(|(project, path)| Some((WebRemote::parse(&project).filter(|r| !r.github)?, path)))
         .is_some_and(|(remote, path)| crate::gitlab::upload(&remote, &path, &part));
     if !by_api {
-        let status = std::process::Command::new("curl")
-            .args([
-                "-sSfL",
-                "--max-time",
-                "20",
-                "--max-filesize",
-                "25000000",
-                "-o",
-            ])
-            .arg(&part)
-            .arg(url)
-            .stderr(std::process::Stdio::null())
-            .status()
-            .ok()?;
-        // The host said no (curl's 22: 404 for no Gravatar, 401 behind sign-in): not again for a
-        // while. A host not reached (the VPN off) is asked again next time.
-        if status.code() == Some(22) {
-            let _ = std::fs::remove_file(&part);
-            let _ = std::fs::write(&none, "");
-            return None;
-        }
-        if !status.success() {
-            let _ = std::fs::remove_file(&part);
-            return None;
+        let request = http::Request::get(url)
+            .output(part.clone())
+            .follow()
+            .max_filesize(25_000_000)
+            .timeout(20);
+        // The host said no (404 for no Gravatar, 401 behind sign-in): not again for a while. A host
+        // not reached (the VPN off) is asked again next time.
+        match http::send(&request) {
+            Ok(answer) if answer.ok() => {}
+            Ok(_) => {
+                let _ = std::fs::remove_file(&part);
+                let _ = std::fs::write(&none, "");
+                return None;
+            }
+            Err(_) => {
+                let _ = std::fs::remove_file(&part);
+                return None;
+            }
         }
     }
     let head = std::fs::read(&part).ok()?;

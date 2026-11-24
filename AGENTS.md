@@ -4,6 +4,7 @@ What Artoo is and what it does: `README.md`.
 Feature specs, UI mockups and design decisions: the sibling repo `../Design` — a new feature starts there.
 
 - **Everything written here is English** — code, comments, docs, commits.
+- **One HTTP seam** (audit step 1): every call to a host goes through `artoo_core::http::send` (`crates/core/src/http.rs`), the only place that runs `curl` (`-sS --connect-timeout 5 --max-time <t> --compressed -D - -K -`, the token on stdin; `HttpError` says Offline / Timeout / TLS by curl's exit). A test replaces the transport with `http::with_transport` and records the requests. Each host keeps its own status-to-sentence mapping.
 - **Rust, stable toolchain.** `cargo fmt --all` and `cargo clippy --workspace --all-targets -- -D warnings` clean (as CI
   runs it: without `--all-targets` the tests' lints go unseen, without `--workspace` the crates'), `cargo test
   --workspace` green before a commit to `main`.

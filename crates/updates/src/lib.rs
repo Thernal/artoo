@@ -4,12 +4,11 @@
 //! so updating stays the user's (README → Releases). Settings → General turns the asking off.
 
 use anyhow::{Result, anyhow, bail};
-use artoo_core::{applog, storage};
+use artoo_core::{applog, http, storage};
 use artoo_shell_api::{Action, Menu};
 use gpui::App;
 use semver::Version;
 use serde::Deserialize;
-use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
@@ -214,33 +213,16 @@ fn fetch() -> Result<String> {
     if let Some(file) = std::env::var_os("ARTOO_RELEASES_FIXTURE") {
         return Ok(std::fs::read_to_string(file)?);
     }
-    let agent = format!("User-Agent: Artoo/{}", env!("CARGO_PKG_VERSION"));
-    let out = Command::new("curl")
-        .args([
-            "-sS",
-            // A moved or renamed repository answers with a redirect to where it is now.
-            "-L",
-            "--max-time",
-            "20",
-            "-H",
-            "Accept: application/vnd.github+json",
-            "-H",
-            &agent,
-            "-w",
-            "\n%{http_code}",
-            RELEASES,
-        ])
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|_| anyhow!("curl is not installed"))?;
-    if !out.status.success() {
-        bail!("GitHub can't be reached");
-    }
-    let text = String::from_utf8_lossy(&out.stdout);
-    let (body, code) = text.rsplit_once('\n').unwrap_or(("", &text));
-    match code.trim() {
-        "200" => Ok(body.to_owned()),
-        "403" | "429" => bail!("GitHub asks to wait — too many checks from this address"),
+    // A moved or renamed repository answers with a redirect to where it is now.
+    let request = http::Request::get(RELEASES)
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", format!("Artoo/{}", env!("CARGO_PKG_VERSION")))
+        .follow()
+        .timeout(20);
+    let answer = http::send(&request).map_err(|e| anyhow!("{e}"))?;
+    match answer.status {
+        200 => Ok(answer.text()),
+        403 | 429 => bail!("GitHub asks to wait — too many checks from this address"),
         code => bail!("GitHub answered {code}"),
     }
 }

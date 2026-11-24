@@ -8,14 +8,13 @@ use crate::fixture::{fixture, record};
 use crate::git::{DiffLine, LineKind, WebRemote};
 use crate::json::{epoch, hex_color, parse_labels};
 use anyhow::{Result, anyhow, bail};
+use artoo_core::http;
 use artoo_hosts_api::MergeState;
 use artoo_hosts_api::{
     Approvals, Award, Details, Draft, Label, Milestone, Mr, MrState, NewOptions, Note, PAST_PAGE,
     PastPage, Pipeline, Place, Push, Size, Thread, Todo, Verdict, Whose,
 };
 use serde_json::Value;
-use std::io::Write;
-use std::process::{Command, Stdio};
 
 /// GitLab's word for a state in a list's `state=`, and in the fixture's file names.
 fn query(state: MrState) -> &'static str {
@@ -761,15 +760,6 @@ pub(crate) fn get(remote: &WebRemote, endpoint: &str) -> Result<Value> {
     request(remote, endpoint, &[])
 }
 
-/// A value inside a curl config file's double quotes.
-fn quote(text: &str) -> String {
-    text.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\t', "\\t")
-}
-
 /// One call to the API: a GET, or a POST of `form` fields when there are any.
 fn request(remote: &WebRemote, endpoint: &str, form: &[(&str, String)]) -> Result<Value> {
     call(
@@ -854,51 +844,31 @@ fn send_with(
     form: &[(&str, String)],
     json: Option<&str>,
 ) -> Result<Value> {
-    let (host, _) = api(remote)?;
-    let mut config = format!(
-        "url = \"{}\"\nheader = \"PRIVATE-TOKEN: {}\"\n",
-        quote(url),
-        quote(token)
-    );
-    if method != "GET" {
-        config.push_str(&format!("request = \"{method}\"\n"));
-    }
-    for (name, value) in form {
-        config.push_str(&format!("data-urlencode = \"{name}={}\"\n", quote(value)));
-    }
+    api(remote)?;
+    let mut request = http::Request::get(url)
+        .method(method)
+        .header("PRIVATE-TOKEN", token)
+        .form(form);
     if let Some(json) = json {
-        config.push_str("header = \"Content-Type: application/json\"\n");
-        config.push_str(&format!("data-raw = \"{}\"\n", quote(json)));
+        request = request
+            .header("Content-Type", "application/json")
+            .body(json);
     }
-    // The token goes in on stdin, not on the command line, where `ps` would show it.
-    let mut child = Command::new("curl")
-        .args(["-sS", "--max-time", "25", "-K", "-", "-w", "\n%{http_code}"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|_| anyhow!("curl is not installed"))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(config.as_bytes())?;
-    }
-    let out = child.wait_with_output()?;
-    if !out.status.success() {
-        bail!("Can't reach {host} — is the VPN on?");
-    }
-    let text = String::from_utf8_lossy(&out.stdout);
-    let (body, code) = text.rsplit_once('\n').unwrap_or((&text, ""));
-    match code.trim() {
-        "200" | "201" => {
+    let answer = http::send(&request)?;
+    let body = answer.text();
+    let body = body.as_str();
+    match answer.status {
+        200 | 201 => {
             let value: Value = serde_json::from_str(body)?;
             // The people in it, for their pictures.
             crate::avatars::harvest(&value);
             Ok(value)
         }
-        "204" => Ok(Value::Null),
-        "401" | "403" => bail!(REFUSED),
-        "404" => bail!("GitLab does not know this project (or the token cannot see it)"),
-        "400" | "422" => bail!("GitLab would not take that: {}", message(body)),
-        "405" | "409" => bail!("GitLab refused it: {}", message(body)),
+        204 => Ok(Value::Null),
+        401 | 403 => bail!(REFUSED),
+        404 => bail!("GitLab does not know this project (or the token cannot see it)"),
+        400 | 422 => bail!("GitLab would not take that: {}", message(body)),
+        405 | 409 => bail!("GitLab refused it: {}", message(body)),
         other => bail!("GitLab answered {other}"),
     }
 }
@@ -913,34 +883,13 @@ pub fn upload(remote: &WebRemote, path: &str, out: &std::path::Path) -> bool {
         return false;
     };
     let url = format!("{host}/api/v4/projects/{project}/uploads/{path}");
-    let config = format!(
-        "url = \"{}\"\nheader = \"Authorization: Bearer {}\"\noutput = \"{}\"\n",
-        quote(&url),
-        quote(&token),
-        quote(&out.to_string_lossy())
-    );
-    // The token goes in on stdin, not on the command line, where `ps` would show it.
-    let Ok(mut child) = Command::new("curl")
-        .args([
-            "-sSfL",
-            "--max-time",
-            "20",
-            "--max-filesize",
-            "25000000",
-            "-K",
-            "-",
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    else {
-        return false;
-    };
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(config.as_bytes());
-    }
-    let fetched = child.wait().is_ok_and(|s| s.success());
+    let request = http::Request::get(url)
+        .header("Authorization", format!("Bearer {token}"))
+        .output(out.to_path_buf())
+        .follow()
+        .max_filesize(25_000_000)
+        .timeout(20);
+    let fetched = http::send(&request).is_ok_and(|r| r.ok());
     if !fetched {
         let _ = std::fs::remove_file(out);
     }
@@ -1565,7 +1514,6 @@ pub fn upload_file(
     path: &std::path::Path,
     progress: &(dyn Fn(f32) + Send + Sync),
 ) -> Result<String> {
-    use std::io::Read;
     let name = (path.file_name())
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "file".to_owned());
@@ -1577,74 +1525,16 @@ pub fn upload_file(
     let (token, _) = source(remote, true).ok_or_else(|| {
         anyhow!("no GitLab token — add one in Settings, or put it in ~/.config/gitlab-token")
     })?;
-    let config = format!(
-        "url = \"{host}/api/v4/projects/{project}/uploads\"\nheader = \"PRIVATE-TOKEN: {}\"\nform = \"file=@\\\"{}\\\"\"\n",
-        quote(&token),
-        quote(&path.display().to_string()),
-    );
-    // The token on stdin, as `send` does; the bar on stderr, the answer on stdout.
-    let mut child = Command::new("curl")
-        .args([
-            "-S",
-            "-#",
-            "--max-time",
-            "300",
-            "-K",
-            "-",
-            "-w",
-            "\n%{http_code}",
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|_| anyhow!("curl is not installed"))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(config.as_bytes())?;
-    }
-    let mut out = child
-        .stdout
-        .take()
-        .ok_or_else(|| anyhow!("curl gave no output"))?;
-    let answer = std::thread::spawn(move || {
-        let mut body = Vec::new();
-        let _ = out.read_to_end(&mut body);
-        body
-    });
-    let mut said = String::new();
-    if let Some(mut err) = child.stderr.take() {
-        let (mut buf, mut line) = ([0u8; 256], String::new());
-        while let Ok(n) = err.read(&mut buf) {
-            if n == 0 {
-                break;
-            }
-            for c in String::from_utf8_lossy(&buf[..n]).chars() {
-                if c != '\r' && c != '\n' {
-                    line.push(c);
-                    continue;
-                }
-                match percent(&line) {
-                    Some(p) => progress(p / 100.),
-                    None if !line.trim().is_empty() => said = line.trim().to_owned(),
-                    None => {}
-                }
-                line.clear();
-            }
-        }
-    }
-    let status = child.wait()?;
-    let body = answer.join().unwrap_or_default();
-    if !status.success() {
-        bail!(if said.is_empty() {
-            format!("Can't reach {host} — is the VPN on?")
-        } else {
-            said
-        });
-    }
-    let answer = String::from_utf8_lossy(&body);
-    let (body, code) = answer.rsplit_once('\n').unwrap_or((&answer, ""));
-    match code.trim() {
-        "200" | "201" => {
+    let request = http::Request::get(format!("{host}/api/v4/projects/{project}/uploads"))
+        .method("POST")
+        .header("PRIVATE-TOKEN", token)
+        .upload("file", path.to_path_buf())
+        .timeout(300);
+    let answer = http::send_with_progress(&request, &|p| progress(p))?;
+    let body = answer.text();
+    let body = body.as_str();
+    match answer.status {
+        200 | 201 => {
             let value: Value = serde_json::from_str(body)?;
             let markdown = text(&value, "markdown");
             if markdown.is_empty() {
@@ -1653,17 +1543,11 @@ pub fn upload_file(
             progress(1.);
             Ok(markdown)
         }
-        "401" | "403" => bail!(REFUSED),
-        "413" => bail!("GitLab refused it: the file is too large"),
-        "400" | "422" => bail!("GitLab would not take that: {}", message(body)),
+        401 | 403 => bail!(REFUSED),
+        413 => bail!("GitLab refused it: the file is too large"),
+        400 | 422 => bail!("GitLab would not take that: {}", message(body)),
         other => bail!("GitLab answered {other}"),
     }
-}
-
-/// How far curl's bar says it is, `45.6` of `###   45.6%`.
-fn percent(line: &str) -> Option<f32> {
-    let token = line.split_whitespace().last()?;
-    token.strip_suffix('%')?.parse().ok()
 }
 
 /// Marks the token's user as asking for changes on request `iid` (GitLab 17 and later; an older
@@ -2324,14 +2208,6 @@ mod tests {
         let todos = parse_todos(&value, "x/app");
         assert_eq!(todos.len(), 1);
         assert_eq!((todos[0].iid, todos[0].author.as_str()), (7, "Anna"));
-    }
-
-    #[test]
-    fn a_value_is_quoted_for_a_curl_config() {
-        assert_eq!(
-            quote("say \"hi\"\nback\\slash"),
-            "say \\\"hi\\\"\\nback\\\\slash"
-        );
     }
 
     #[test]

@@ -8,11 +8,10 @@
 use crate::git::WebRemote;
 use crate::{fixture, github, gitlab, tokens};
 use anyhow::{Result, anyhow, bail};
+use artoo_core::http;
 use artoo_hosts_api::team::{Team, TeamAsset, TeamHost, TeamRelease, TeamRepo};
 use serde_json::Value;
-use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
 
 pub(crate) struct Held;
 
@@ -335,7 +334,7 @@ enum Got {
     Missing,
 }
 
-/// One GET with the host's token, by curl as the rest of this crate does it; the token goes in on stdin. `to` takes
+/// One GET with the host's token, through `artoo_core::http`. `to` takes
 /// the body into a file. GitHub's redirect (an asset's bytes sit on another host) is followed — curl keeps
 /// `Authorization` off the other host; GitLab's is not, its `PRIVATE-TOKEN` is not one curl keeps off.
 fn fetch(host: &str, url: &str, accept: &str, to: Option<&Path>) -> Result<Got> {
@@ -343,68 +342,28 @@ fn fetch(host: &str, url: &str, accept: &str, to: Option<&Path>) -> Result<Got> 
     let (auth, follow) = if remote.github {
         let (token, _) = github::token_source(&remote, true)
             .ok_or_else(|| anyhow!("no token for {host} — add one in Settings"))?;
-        (format!("Authorization: Bearer {token}"), true)
+        (("Authorization", format!("Bearer {token}")), true)
     } else {
         let token = gitlab::token(&remote)
             .ok_or_else(|| anyhow!("no token for {host} — add one in Settings"))?;
-        (format!("PRIVATE-TOKEN: {token}"), false)
+        (("PRIVATE-TOKEN", token), false)
     };
-    let quote = |t: &str| {
-        t.replace('\\', "\\\\")
-            .replace('"', "\\\"")
-            .replace('\n', "\\n")
-            .replace('\r', "\\r")
-    };
-    let mut config = format!(
-        "url = \"{}\"\nheader = \"{}\"\nheader = \"Accept: {accept}\"\nuser-agent = \"Artoo\"\n",
-        quote(url),
-        quote(&auth)
-    );
+    let mut request = http::Request::get(url)
+        .header(auth.0, auth.1)
+        .header("Accept", accept)
+        .header("User-Agent", "Artoo")
+        .timeout(if to.is_some() { 300 } else { 25 });
     if follow {
-        config.push_str("location\n");
+        request = request.follow();
     }
-    let mut cmd = Command::new("curl");
-    cmd.args([
-        "-sS",
-        "--max-time",
-        if to.is_some() { "300" } else { "25" },
-        "-K",
-        "-",
-    ]);
-    match to {
-        Some(file) => cmd.arg("-o").arg(file).args(["-w", "%{http_code}"]),
-        None => cmd.args(["-w", "\n%{http_code}"]),
-    };
-    let mut child = cmd
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|_| anyhow!("curl is not installed"))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(config.as_bytes())?;
+    if let Some(file) = to {
+        request = request.output(file.to_path_buf());
     }
-    let out = child.wait_with_output()?;
-    if !out.status.success() {
-        bail!("Can't reach {host} — is the network on?");
-    }
-    let (body, code) = match to {
-        Some(_) => (
-            Vec::new(),
-            String::from_utf8_lossy(&out.stdout).into_owned(),
-        ),
-        None => {
-            let at = out.stdout.iter().rposition(|b| *b == b'\n').unwrap_or(0);
-            (
-                out.stdout[..at].to_vec(),
-                String::from_utf8_lossy(&out.stdout[at..]).into_owned(),
-            )
-        }
-    };
-    match code.trim() {
-        "200" => Ok(Got::Body(body)),
-        "404" => Ok(Got::Missing),
-        "401" | "403" => bail!("{host} refused the token"),
+    let answer = http::send(&request).map_err(|e| anyhow!("{e}"))?;
+    match answer.status {
+        200 => Ok(Got::Body(answer.body)),
+        404 => Ok(Got::Missing),
+        401 | 403 => bail!("{host} refused the token"),
         other => bail!("{host} answered {other}"),
     }
 }

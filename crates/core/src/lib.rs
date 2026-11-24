@@ -10,6 +10,7 @@ pub mod fswatch;
 pub mod generated;
 pub mod git;
 pub mod highlight;
+pub mod http;
 pub mod labels;
 pub mod links;
 pub mod markdown;

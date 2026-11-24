@@ -8,11 +8,10 @@
 mod tool;
 
 use anyhow::{Result, anyhow, bail};
-use artoo_core::{applog, platform};
+use artoo_core::{applog, http, platform};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
@@ -298,70 +297,37 @@ pub(crate) fn keep_sent(list: &[Sent]) {
 /// (curl 6, 7, 35) — it is sent once more a second later: the first send after launch was seen to
 /// fail so (2026-10-23), and a report that never arrived cannot arrive twice.
 fn post(url: &str, body: &Value) -> Result<Value> {
-    let out = post_once(url, body)?;
-    if matches!(out.status.code(), Some(6 | 7 | 35)) {
-        unreached(&out);
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        return answer(post_once(url, body)?);
+    let request = http::Request::get(url)
+        .method("POST")
+        .header("Content-Type", "application/json")
+        .body(body.to_string())
+        .timeout(60);
+    match http::send(&request) {
+        Err(e) if matches!(e.kind, http::Kind::Offline | http::Kind::Tls) => {
+            unreached(&e);
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            answer(http::send(&request))
+        }
+        sent => answer(sent),
     }
-    answer(out)
-}
-
-fn post_once(url: &str, body: &Value) -> Result<std::process::Output> {
-    let mut child = Command::new("curl")
-        .args([
-            "-sS",
-            "--max-time",
-            "60",
-            "-X",
-            "POST",
-            "-H",
-            "Content-Type: application/json",
-            "--data-binary",
-            "@-",
-            "-w",
-            "\n%{http_code}",
-            url,
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|_| anyhow!("curl is not installed"))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(body.to_string().as_bytes())?;
-    }
-    Ok(child.wait_with_output()?)
 }
 
 /// curl's own reason in the app's log, when the relay could not be reached.
-fn unreached(out: &std::process::Output) {
-    let reason = String::from_utf8_lossy(&out.stderr);
-    crate::applog::line(&format!(
-        "report: curl {}: {}",
-        out.status.code().unwrap_or(-1),
-        reason.trim()
-    ));
+fn unreached(e: &http::HttpError) {
+    crate::applog::line(&format!("report: {}", e.log()));
 }
 
 fn get(url: &str) -> Result<Value> {
-    let out = Command::new("curl")
-        .args(["-sS", "--max-time", "20", "-w", "\n%{http_code}", url])
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|_| anyhow!("curl is not installed"))?;
-    answer(out)
+    answer(http::send(&http::Request::get(url).timeout(20)))
 }
 
-fn answer(out: std::process::Output) -> Result<Value> {
-    if !out.status.success() {
-        unreached(&out);
-        bail!("The reports can't be reached");
-    }
-    let text = String::from_utf8_lossy(&out.stdout);
-    let (body, code) = text.rsplit_once('\n').unwrap_or(("", &text));
-    let value: Value = serde_json::from_str(body).unwrap_or(Value::Null);
-    match code.trim().parse::<u16>().unwrap_or(0) {
+fn answer(sent: Result<http::Response, http::HttpError>) -> Result<Value> {
+    let out = sent.map_err(|e| {
+        unreached(&e);
+        anyhow!("The reports can't be reached")
+    })?;
+    let value: Value = serde_json::from_slice(&out.body).unwrap_or(Value::Null);
+    match out.status {
         200..=299 => Ok(value),
         429 => bail!(
             "Too many reports from here today — try again tomorrow, or open it in the browser"
