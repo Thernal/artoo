@@ -186,6 +186,12 @@ pub trait Requests: Send + Sync {
     /// The user's pending to-dos on merge requests of this project, newest first.
     fn todos(&self) -> Result<Vec<Todo>>;
 
+    /// The to-dos, following the host's pages as far as it follows them, and whether that was all of them: false when
+    /// the last page it read was still full, so more may wait.
+    fn todos_all(&self) -> Result<(Vec<Todo>, bool)> {
+        self.todos().map(|list| (list, true))
+    }
+
     /// Marks to-do `id` done on GitLab.
     fn mark_todo_done(&self, id: u64) -> Result<()>;
 }

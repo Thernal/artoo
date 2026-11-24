@@ -16,6 +16,8 @@ use artoo_hosts_api::{Host, Mr, Thread, Todo};
 use artoo_requests_api::News;
 use gpui::{App, Context, Entity, Task};
 use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 /// How often the list is read again while the app runs.
@@ -177,6 +179,9 @@ pub struct Notices {
     /// Notices already there or already said to the system's notifications: each is said once,
     /// and none of those listed at the first read (#26).
     told: HashSet<String>,
+    /// To-dos marked done here, the host not yet answered: a read that was already under way still lists them, and
+    /// none of those show again. Cleared when the host confirms, or when the notice is put back.
+    pending_done: HashSet<u64>,
 }
 
 impl Notice {
@@ -317,11 +322,12 @@ impl Notices {
     }
 
     /// What a read of project `base`'s notices starts from; what was seen and read loaded first.
-    pub fn begin(&mut self, base: &str) -> Reading {
+    pub fn begin(&mut self, base: &str, login: Option<String>) -> Reading {
         self.load_seen();
         self.load_read(base);
         Reading {
             base: base.to_owned(),
+            login: login.filter(|l| !l.is_empty()),
             seen: self.seen.clone(),
             known: self.known_resolved.clone(),
             cache: self.cache.clone(),
@@ -331,10 +337,12 @@ impl Notices {
     /// A read arrived, begun at tick `tick`: what it learned is kept and its discussions show as read (the changes
     /// waiting go on them after, `show`). None when it failed. Its notices go in with `put`.
     pub fn arrive(&mut self, found: anyhow::Result<Found>, tick: u64) -> Option<Arrived> {
+        self.failed = found.is_err();
+        // Only a read that came in makes the next ones news: after a failed first read nothing old is told.
+        let mut found = found.ok()?;
         let first = !self.loaded;
         self.loaded = true;
-        self.failed = found.is_err();
-        let found = found.ok()?;
+        found.list.retain(|n| !self.is_pending(n));
         // What came since the last read, not read yet: to the system too (#26).
         let news = self.news(&found.list, first);
         let changed = !found.floors.is_empty()
@@ -365,7 +373,8 @@ impl Notices {
 
     /// A read's notices listed; the selected one stays selected where it moved to.
     pub fn put(&mut self, arrived: Arrived) {
-        let list = arrived.list;
+        let mut list = arrived.list;
+        list.retain(|n| !self.is_pending(n));
         // Everything read: only then may read keys no longer listed be forgotten.
         if arrived.complete {
             let before = self.read.len();
@@ -382,10 +391,39 @@ impl Notices {
             .min(self.list.len().saturating_sub(1));
     }
 
-    /// Everything is read afresh, not only what reports a change.
-    pub fn forget(&mut self) {
-        self.at = 0;
-        self.cache.clear();
+    /// Whether `n` is a to-do marked done here that the host has not confirmed yet.
+    fn is_pending(&self, n: &Notice) -> bool {
+        n.todo.is_some_and(|id| self.pending_done.contains(&id))
+    }
+
+    /// The to-dos alone were read (opening the Inbox): they replace the listed to-dos, the notices from discussions
+    /// stay. The notices new among them. A failed read changes nothing.
+    pub fn arrive_todos(&mut self, found: anyhow::Result<Vec<Todo>>) -> Vec<Notice> {
+        let Ok(todos) = found else {
+            return Vec::new();
+        };
+        let mut fresh: Vec<Notice> = todos.iter().map(from_todo).collect();
+        fresh.retain(|n| !self.is_pending(n));
+        let news = self.news(&fresh, false);
+        let mut list: Vec<Notice> = self
+            .list
+            .iter()
+            .filter(|n| n.todo.is_none())
+            .cloned()
+            .collect();
+        list.extend(fresh);
+        list.sort_by_key(|n| std::cmp::Reverse(n.created));
+        self.put(Arrived {
+            news: Vec::new(),
+            list,
+            complete: false,
+        });
+        news
+    }
+
+    /// The host marked to-do `id` done: it is no longer held back.
+    pub fn confirm_done(&mut self, id: u64) {
+        self.pending_done.remove(&id);
     }
 
     /// Notice `ix` opened: read from now on.
@@ -402,6 +440,9 @@ impl Notices {
             return None;
         }
         let n = self.list.remove(ix);
+        if let Some(id) = n.todo {
+            self.pending_done.insert(id);
+        }
         self.at = self.at.min(self.list.len().saturating_sub(1));
         if let Some(key) = n.resolved.clone() {
             self.known_resolved.insert(key);
@@ -417,6 +458,9 @@ impl Notices {
 
     /// Notice `n`, dismissed at `ix`, back where it was: its to-do was not marked done.
     pub fn put_back(&mut self, ix: usize, n: Notice) {
+        if let Some(id) = n.todo {
+            self.pending_done.remove(&id);
+        }
         if !self.list.iter().any(|m| m.key == n.key) {
             let at = ix.min(self.list.len());
             self.list.insert(at, n);
@@ -600,6 +644,8 @@ fn from_todo(t: &Todo) -> Notice {
 /// resolved discussions known, the discussions as last read.
 pub struct Reading {
     base: String,
+    /// The login the requests already hold; asked of the host only when there is none.
+    login: Option<String>,
     seen: HashMap<String, u64>,
     known: HashSet<String>,
     cache: HashMap<u64, (i64, Vec<Thread>)>,
@@ -623,39 +669,72 @@ pub struct Arrived {
     complete: bool,
 }
 
+/// Threads read at once, at most.
+const LANES: usize = 3;
+
+/// The discussions of requests `iids`, read in `LANES` lanes.
+fn read_threads(host: &dyn Host, iids: &[u64]) -> HashMap<u64, anyhow::Result<Vec<Thread>>> {
+    let next = AtomicUsize::new(0);
+    let out = Mutex::new(HashMap::new());
+    std::thread::scope(|s| {
+        for _ in 0..LANES.min(iids.len()) {
+            s.spawn(|| {
+                while let Some(&iid) = iids.get(next.fetch_add(1, Ordering::Relaxed)) {
+                    let read = host.threads(iid);
+                    out.lock().unwrap().insert(iid, read);
+                }
+            });
+        }
+    });
+    out.into_inner().unwrap()
+}
+
 /// Reads the to-dos and the discussions of `requests` from `host`: what changed since `reading`, in the
 /// background.
 pub fn read(host: &dyn Host, requests: &[Mr], reading: Reading) -> anyhow::Result<Found> {
     let Reading {
         base,
+        login,
         seen,
         known,
         cache,
     } = reading;
-    let me = host.username()?;
-    let todos = host.todos();
-    // Everything read: only then may read keys no longer listed be forgotten.
-    let mut complete = todos.is_ok();
-    let mut notices: Vec<Notice> = todos.unwrap_or_default().iter().map(from_todo).collect();
+    let me = match login {
+        Some(login) => login,
+        None => host.username()?,
+    };
+    let todos = host.todos_all();
+    // Everything read: only then may read keys no longer listed be forgotten. A full last page of to-dos may hide more.
+    let mut complete = todos.as_ref().is_ok_and(|(_, all)| *all);
+    let todos = todos.map(|(list, _)| list).unwrap_or_default();
+    let mut notices: Vec<Notice> = todos.iter().map(from_todo).collect();
     let mut floors = HashMap::new();
     let mut first_resolved = Vec::new();
     let mut reopened = Vec::new();
     let mut fresh = HashMap::new();
     let mut read_again = Vec::new();
-    for m in requests.iter().take(MOST_REQUESTS) {
-        // Read again only what changed since the last look.
-        let threads = match cache.get(&m.iid) {
-            Some((updated, threads)) if *updated == m.updated => threads.clone(),
-            _ => match host.threads(m.iid) {
-                Ok(threads) => {
-                    read_again.push(m.iid);
-                    threads
-                }
-                Err(_) => {
-                    complete = false;
-                    continue;
-                }
+    let requests = &requests[..requests.len().min(MOST_REQUESTS)];
+    // Read again only what changed since the last look, in a few lanes at once.
+    let changed: Vec<u64> = requests
+        .iter()
+        .filter(|m| !matches!(cache.get(&m.iid), Some((updated, _)) if *updated == m.updated))
+        .map(|m| m.iid)
+        .collect();
+    let mut read_now = read_threads(host, &changed);
+    for m in requests {
+        let threads = match read_now.remove(&m.iid) {
+            None => match cache.get(&m.iid) {
+                Some((_, threads)) => threads.clone(),
+                None => continue,
             },
+            Some(Ok(threads)) => {
+                read_again.push(m.iid);
+                threads
+            }
+            Some(Err(_)) => {
+                complete = false;
+                continue;
+            }
         };
         let key = format!("{base}|{}", m.iid);
         let resolved_keys: Vec<String> = threads
@@ -718,7 +797,8 @@ impl Requests {
             notices.update(cx, |n, _| n.list.clear());
             return;
         }
-        let reading = notices.update(cx, |n, _| n.begin(&base));
+        let login = self.login.clone();
+        let reading = notices.update(cx, |n, _| n.begin(&base, login));
         let (requests, tick) = (self.list.clone(), self.waiting.tick());
         let (into, again) = (notices.clone(), me.clone());
         let task = cx.spawn(async move |this, cx| {
@@ -763,6 +843,32 @@ impl Requests {
         }
     }
 
+    /// Reads the to-dos alone again into `notices` (the Inbox opened), and tells the new ones. A read of everything
+    /// goes on by its own poll.
+    pub(crate) fn read_todos(&mut self, notices: Entity<Notices>, cx: &mut Context<Self>) {
+        let Some(host) = self.host(cx) else {
+            return;
+        };
+        if !self.available {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            let found = cx
+                .background_executor()
+                .spawn(async move { host.todos() })
+                .await;
+            this.update(cx, |_, cx| {
+                let news = notices.update(cx, |n, _| n.arrive_todos(found));
+                if !news.is_empty() {
+                    cx.emit(Event::Noticed(news.into_iter().map(told).collect()));
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// The changes the request open and the Inbox's `notices` both hold now are let go.
     pub(crate) fn settle_waiting(&mut self, notices: Option<&Entity<Notices>>, cx: &App) {
         let (current, from) = (self.current, self.from);
@@ -792,8 +898,9 @@ impl Requests {
                     .background_executor()
                     .spawn(async move { host.mark_todo_done(id) })
                     .await;
-                this.update(cx, |_, cx| {
-                    if let Err(e) = done {
+                this.update(cx, |_, cx| match done {
+                    Ok(()) => notices.update(cx, |ns, _| ns.confirm_done(id)),
+                    Err(e) => {
                         notices.update(cx, |ns, _| ns.put_back(ix, n));
                         cx.emit(Event::Failed(format!("Not marked done — {e:#}")));
                     }
@@ -996,5 +1103,122 @@ mod tests {
         assert_eq!(saved, "a\tnote:1\nb\tnote:9\nb\ttodo:3\n");
         assert_eq!(read_of(&saved, "b"), now);
         assert_eq!(read_of(&saved, "a"), ["note:1".to_owned()].into());
+    }
+
+    fn todo_notice(id: u64) -> Notice {
+        Notice {
+            key: format!("todo:{id}"),
+            kind: Kind::Review,
+            iid: 1,
+            title: String::new(),
+            who: String::new(),
+            text: String::new(),
+            created: id as i64,
+            note: None,
+            todo: Some(id),
+            resolved: None,
+        }
+    }
+
+    fn found(list: Vec<Notice>, complete: bool) -> Found {
+        Found {
+            list,
+            floors: HashMap::new(),
+            first_resolved: Vec::new(),
+            reopened: Vec::new(),
+            fresh: HashMap::new(),
+            read_again: Vec::new(),
+            complete,
+        }
+    }
+
+    #[test]
+    fn a_failed_then_succeeded_read_announces_nothing_old() {
+        let mut notices = Notices::default();
+        assert!(notices.arrive(Err(anyhow::anyhow!("offline")), 0).is_none());
+        assert!(!notices.loaded && notices.failed);
+        let arrived = notices
+            .arrive(Ok(found(vec![todo_notice(1), todo_notice(2)], true)), 1)
+            .unwrap();
+        assert!(arrived.news.is_empty());
+        assert!(notices.loaded && !notices.failed);
+        let arrived = notices
+            .arrive(
+                Ok(found(
+                    vec![todo_notice(1), todo_notice(2), todo_notice(3)],
+                    true,
+                )),
+                2,
+            )
+            .unwrap();
+        assert_eq!(arrived.news.len(), 1);
+    }
+
+    #[test]
+    fn a_done_with_a_read_in_flight_stays_gone() {
+        let mut notices = Notices::default();
+        let first = notices
+            .arrive(Ok(found(vec![todo_notice(1), todo_notice(2)], true)), 0)
+            .unwrap();
+        notices.put(first);
+        // Done on to-do 1; a read begun before it still lists it.
+        notices.dismiss(0, None).unwrap();
+        let late = notices
+            .arrive(Ok(found(vec![todo_notice(1), todo_notice(2)], true)), 1)
+            .unwrap();
+        assert!(late.list.iter().all(|n| n.todo != Some(1)));
+        notices.put(late);
+        assert_eq!(notices.list.len(), 1);
+        assert_eq!(notices.list[0].todo, Some(2));
+    }
+
+    #[test]
+    fn a_failed_done_is_listed_again() {
+        let mut notices = Notices::default();
+        let first = notices
+            .arrive(Ok(found(vec![todo_notice(7)], true)), 0)
+            .unwrap();
+        notices.put(first);
+        let n = notices.dismiss(0, None).unwrap();
+        assert!(notices.list.is_empty());
+        notices.put_back(0, n);
+        assert_eq!(notices.list.len(), 1);
+        let again = notices
+            .arrive(Ok(found(vec![todo_notice(7)], true)), 1)
+            .unwrap();
+        notices.put(again);
+        assert_eq!(notices.list.len(), 1);
+    }
+
+    #[test]
+    fn a_full_page_keeps_the_read_keys_it_did_not_list() {
+        let mut notices = Notices::default();
+        notices.read.insert("todo:9".into());
+        let incomplete = Arrived {
+            news: Vec::new(),
+            list: vec![todo_notice(1)],
+            complete: false,
+        };
+        notices.put(incomplete);
+        assert!(notices.read.contains("todo:9"));
+    }
+
+    #[test]
+    fn the_to_dos_alone_replace_the_listed_to_dos_and_keep_the_rest() {
+        let mut notices = Notices::default();
+        let mut reply = todo_notice(0);
+        reply.todo = None;
+        reply.key = "note:5".into();
+        let first = notices
+            .arrive(Ok(found(vec![todo_notice(1), reply], true)), 0)
+            .unwrap();
+        notices.put(first);
+        let news = notices.arrive_todos(Ok(vec![]));
+        assert!(news.is_empty());
+        assert_eq!(notices.list.len(), 1);
+        assert_eq!(notices.list[0].key, "note:5");
+        // A failed read changes nothing.
+        notices.arrive_todos(Err(anyhow::anyhow!("offline")));
+        assert_eq!(notices.list.len(), 1);
     }
 }

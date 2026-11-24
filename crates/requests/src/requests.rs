@@ -948,10 +948,15 @@ impl artoo_requests_api::Requests for Handle {
     }
 
     fn refresh_notices(&self, me: &str, cx: &mut App) {
-        if let Some(notices) = self.notices() {
-            notices.update(cx, |n, _| n.forget());
+        let Some(notices) = self.notices() else {
+            return;
+        };
+        // Before a first read there is nothing to refresh: read it all. After it, the to-dos alone.
+        if notices.read(cx).loaded {
+            self.update(cx, |rq, cx| rq.read_todos(notices, cx));
+        } else {
+            self.read_notices(me, cx);
         }
-        self.read_notices(me, cx);
     }
 
     fn open_notice(&self, ix: usize, cx: &mut App) -> Option<(u64, Option<u64>)> {

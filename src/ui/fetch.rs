@@ -12,6 +12,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const INTERVAL: Duration = Duration::from_secs(300);
 /// A focus gain fetches only when the last fetch is older than this.
 const FOCUS_AFTER: i64 = 60;
+/// A focus gain reads the notifications only when the last read is older than this.
+const NOTICES_AFTER: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
 pub struct Fetch {
@@ -21,6 +23,8 @@ pub struct Fetch {
     running: bool,
     /// Seconds since the epoch of the last successful fetch.
     last: Option<i64>,
+    /// When the window's focus last started a read of the notifications.
+    notices_at: Option<std::time::Instant>,
     error: Option<String>,
     task: Option<Task<()>>,
 }
@@ -67,7 +71,14 @@ impl Workspace {
 
     /// The window came back to the front.
     pub(super) fn window_activated(&mut self, cx: &mut Context<Self>) {
-        self.load_notices(cx);
+        if self
+            .fetch
+            .notices_at
+            .is_none_or(|t| t.elapsed() > NOTICES_AFTER)
+        {
+            self.fetch.notices_at = Some(std::time::Instant::now());
+            self.load_notices(cx);
+        }
         if self.fetch.enabled && self.fetch.last.is_none_or(|t| now() - t > FOCUS_AFTER) {
             self.fetch_now(cx);
         }

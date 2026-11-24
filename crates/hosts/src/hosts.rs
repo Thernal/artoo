@@ -203,6 +203,10 @@ impl Requests for GitLab {
         gitlab::todos(&self.remote)
     }
 
+    fn todos_all(&self) -> Result<(Vec<Todo>, bool)> {
+        gitlab::todos_all(&self.remote)
+    }
+
     fn mark_todo_done(&self, id: u64) -> Result<()> {
         gitlab::mark_todo_done(&self.remote, id)
     }

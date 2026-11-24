@@ -217,11 +217,10 @@ fn page_open(host: &Arc<dyn Host>, iid: u64) {
     host.threads(iid).ok();
 }
 
-/// `notices::read`: who the token is, the to-dos, then the discussions of each request whose `updated` moved since
+/// `notices::read`: the to-dos (the login is the one the list read already holds), then the discussions of each request whose `updated` moved since
 /// the last read (`cold`: every one; a warm read finds them all as they were).
 fn notices_read(host: &Arc<dyn Host>, rows: &[Mr], cold: bool) {
-    host.username().ok();
-    host.todos().ok();
+    host.todos_all().ok();
     if cold {
         for m in rows {
             host.threads(m.iid).ok();
@@ -256,8 +255,8 @@ struct Counts {
     page_5: usize,
     /// A page open on a request with 150 notes (two pages of discussions). Same steps as `page_5`.
     page_150: usize,
-    /// A cold notices read: who the token is, the to-dos, the discussions of every request listed. Step 5 lowers it
-    /// (three lanes, a failed read keeps what it had); step 11 shares the to-dos and `/user` between tabs.
+    /// A cold notices read: the to-dos, the discussions of every request listed (step 5 dropped `/user`, the login is
+    /// held; the discussions go in three lanes). Step 11 shares the to-dos between tabs.
     notices_cold: usize,
     /// A warm notices read, nothing changed. Step 11 shares it between tabs; step 7 reads on a fresh list.
     notices_warm: usize,
@@ -269,8 +268,8 @@ const GITLAB: Counts = Counts {
     list_warm: 3,
     page_5: 9,
     page_150: 10,
-    notices_cold: 5,
-    notices_warm: 2,
+    notices_cold: 4,
+    notices_warm: 1,
 };
 
 const GITHUB: Counts = Counts {
@@ -279,8 +278,8 @@ const GITHUB: Counts = Counts {
     list_warm: 2,
     page_5: 11,
     page_150: 12,
-    notices_cold: 8,
-    notices_warm: 2,
+    notices_cold: 7,
+    notices_warm: 1,
 };
 
 fn run(side: Side, c: Counts) {

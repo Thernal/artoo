@@ -819,8 +819,8 @@ pub trait Requests {
     fn is_temp_thread(&self, id: &str) -> bool;
 
     /// The Inbox's notifications read again in the background, and every few minutes after (`me` the name the
-    /// changes waiting show by); what is new is told as an event. `refresh_notices`: everything read afresh, not
-    /// only what reports a change (the Inbox opened).
+    /// changes waiting show by); what is new is told as an event. `refresh_notices` (the Inbox opened): the
+    /// to-dos alone read again, everything when no read came in yet.
     fn read_notices(&self, me: &str, cx: &mut App);
     fn refresh_notices(&self, me: &str, cx: &mut App);
     /// Notice `ix` opened, read from now on: its request and its note.

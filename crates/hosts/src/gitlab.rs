@@ -1200,22 +1200,38 @@ pub fn username(remote: &WebRemote) -> Result<String> {
 
 /// The user's pending to-dos on merge requests of this project, newest first.
 pub fn todos(remote: &WebRemote) -> Result<Vec<Todo>> {
-    let value = match fixture() {
-        Some(dir) => match std::fs::read_to_string(dir.join("todos.json")) {
+    todos_all(remote).map(|(list, _)| list)
+}
+
+/// A page of to-dos, and how many pages are followed.
+const TODOS_PAGE: usize = 100;
+const TODOS_PAGES: usize = 5;
+
+/// The to-dos over up to `TODOS_PAGES` pages; false when the last page read was still full.
+pub fn todos_all(remote: &WebRemote) -> Result<(Vec<Todo>, bool)> {
+    let project = project_path(remote).unwrap_or_default();
+    if let Some(dir) = fixture() {
+        let value = match std::fs::read_to_string(dir.join("todos.json")) {
             Ok(text) => serde_json::from_str(&text)?,
             Err(_) => Value::Array(Vec::new()),
-        },
-        None => call(
+        };
+        return Ok((parse_todos(&value, &project), true));
+    }
+    let mut list = Vec::new();
+    for page in 1..=TODOS_PAGES {
+        let value = call(
             remote,
-            "/todos?state=pending&type=MergeRequest&per_page=100",
+            &format!("/todos?state=pending&type=MergeRequest&per_page={TODOS_PAGE}&page={page}"),
             "GET",
             &[],
-        )?,
-    };
-    Ok(parse_todos(
-        &value,
-        &project_path(remote).unwrap_or_default(),
-    ))
+        )?;
+        let got = value.as_array().map_or(0, Vec::len);
+        list.extend(parse_todos(&value, &project));
+        if got < TODOS_PAGE {
+            return Ok((list, true));
+        }
+    }
+    Ok((list, false))
 }
 
 pub fn parse_todos(value: &Value, project: &str) -> Vec<Todo> {
