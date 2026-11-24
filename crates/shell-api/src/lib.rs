@@ -48,6 +48,7 @@ pub mod frame;
 pub mod issues;
 pub mod keys;
 pub mod links;
+pub mod marks;
 pub mod notices;
 pub mod palette;
 pub mod render;

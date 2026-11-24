@@ -215,3 +215,19 @@ fn rows() -> Vec<Listed> {
         ),
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    /// What a plugin gets when it asks the shell for a project's mark (#223): the rail's letters and tint.
+    #[test]
+    fn a_plugin_asks_a_projects_mark_by_its_path() {
+        let mark = artoo_shell_api::marks::of(Path::new("/work/payments-service"));
+        assert_eq!(mark.letters, "PS");
+        assert_eq!(
+            mark.hue,
+            artoo_shell_api::marks::hue_of(Some(Path::new("/work/payments-service")), "x")
+        );
+    }
+}

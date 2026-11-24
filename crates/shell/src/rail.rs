@@ -6,7 +6,7 @@
 use artoo_shell_api::tabs::{TabInfo, TabsHost, TabsRenderer};
 use artoo_ui_kit::controls::DragLabel;
 use artoo_ui_kit::hover::{self, CutInTip, Tip, TipOwned};
-use artoo_ui_kit::monogram::{hue, hue_at, initials, monogram};
+use artoo_ui_kit::monogram::{initials, monogram};
 use artoo_ui_kit::{ROW_RADIUS, format, icons, keys, motion, px, theme};
 use gpui::{
     AnimationExt as _, ClickEvent, Context, FontWeight, MouseButton, MouseDownEvent, Rgba, Window,
@@ -356,11 +356,5 @@ fn title_tabs(tabs: Vec<TabInfo>, host: Rc<dyn TabsHost>) -> gpui::AnyElement {
 /// Project `root`'s colour: the hue it was given (the developer, 2026-10-23), else one of its own
 /// by its folder's name, so naming it does not change it.
 pub(crate) fn project_hue(root: Option<&std::path::Path>, name: &str) -> Rgba {
-    let folder = root
-        .and_then(|r| r.file_name())
-        .map(|n| n.to_string_lossy().into_owned());
-    match root.and_then(|r| artoo_core::labels::project(r).hue) {
-        Some(degrees) => hue_at(degrees),
-        None => hue(folder.as_deref().unwrap_or(name)),
-    }
+    artoo_shell_api::marks::hue_of(root, name)
 }

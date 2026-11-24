@@ -16,6 +16,10 @@
 //! What makes a crate a plugin is the plugins' contract, here too: `plugin!` (its meta, its install, the stamp of the
 //! SDK it was built against) and what plugins offer each other (`services`).
 //!
+//! A project's mark (#223) is lent to plugins through the shell's contract: `artoo_plugin_sdk::shell::marks::of(path)`
+//! answers the letters and the tint the rail draws for that repository (its own name and colour included), and
+//! `Mark::draw(size)` the square itself — a plugin that lists projects marks them as the rail does.
+//!
 //! The SDK holds no code of its own, and no test: Cargo gives a `dylib` `-C prefer-dynamic` only when it is not one
 //! of the packages asked for, and without it rustc links std into the SDK, so the app, linking std too, does not
 //! link. A test target here would make `cargo test --workspace` ask for it; `cargo build --workspace` and
