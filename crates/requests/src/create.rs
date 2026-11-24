@@ -16,6 +16,7 @@ use crate::requests::{Act, Acts, Event, Requests};
 use artoo_branches_api::Branches;
 use artoo_core::codeowners;
 use artoo_core::git::{BranchRef, RefKind, Repo};
+use artoo_core::request_drafts::{self, Kept};
 use artoo_hosts_api::{Host, Label, Milestone, NewOptions};
 use artoo_shell_api::{Input, Services, Typed};
 use artoo_ui_kit::complete::{list_key, render_list};
@@ -120,9 +121,32 @@ pub struct NewRequest {
     /// The repository's folder and whether its host is GitHub, as it was opened with (`Here`).
     root: std::path::PathBuf,
     pub(crate) github: bool,
+    /// What the form held as it opened (a kept draft, else the template and the agent's words): leaving it
+    /// unchanged keeps nothing (#222).
+    began: Kept,
+    /// The branch whose kept draft the form was opened from, so that draft goes once the form is kept under
+    /// another branch or created.
+    restored: Option<String>,
 }
 
 impl NewRequest {
+    /// The form as it would be kept (#222); `saved` is left for the store.
+    fn snapshot(&self) -> Kept {
+        Kept {
+            source: self.source.clone(),
+            target: self.target.trim().to_owned(),
+            title: self.title.clone(),
+            description: self.description.clone(),
+            labels: self.labels.clone(),
+            reviewers: self.reviewers.clone(),
+            milestone: self.milestone,
+            draft: self.draft,
+            delete_branch: self.delete_branch,
+            squash: self.squash,
+            saved: 0,
+        }
+    }
+
     /// Another field has the keyboard: its caret starts at the end of its text.
     fn reset_field(&mut self) {
         self.area = Area::new(String::new());
@@ -256,9 +280,16 @@ impl Requests {
         let on_origin = here.branches.iter().any(|b| {
             b.kind == RefKind::Remote && b.name.split_once('/').is_some_and(|(_, n)| n == source)
         });
-        let target = drafted
+        // A form with words in it is kept before this one replaces it.
+        self.keep_create(cx);
+        // Your kept draft of this branch (#222), over an agent's.
+        let kept = request_drafts::load(here.root)
+            .into_iter()
+            .find(|d| d.source == source);
+        let target = kept
             .as_ref()
             .map(|d| d.target.clone())
+            .or_else(|| drafted.as_ref().map(|d| d.target.clone()))
             .filter(|t| !t.is_empty())
             .unwrap_or_else(|| {
                 ["main", "master"]
@@ -315,6 +346,8 @@ impl Requests {
             widths: Widths::default(),
             root: here.root.to_owned(),
             github: here.github,
+            began: Kept::default(),
+            restored: None,
         });
         let pair = self.refresh_create(here);
         // The description: the target's template, else the one commit's message body.
@@ -359,6 +392,20 @@ impl Requests {
                     n.reviewers_touched = true;
                 }
             }
+            if let Some(k) = kept {
+                n.title = k.title;
+                n.description = k.description;
+                n.started_from = Some("your kept draft".to_owned());
+                n.labels = k.labels;
+                n.reviewers = k.reviewers;
+                n.reviewers_touched = true;
+                n.milestone = k.milestone;
+                n.draft = k.draft;
+                n.delete_branch = k.delete_branch;
+                n.squash = k.squash;
+                n.restored = Some(n.source.clone());
+            }
+            n.began = n.snapshot();
         }
         self.read_create_lists(host, cx);
         cx.notify();
@@ -391,6 +438,10 @@ impl Requests {
                     n.templates
                         .push(("Project settings".to_owned(), text.clone()));
                     if !had_file && n.description == n.started {
+                        // Not the reviewer's words: leaving the form unchanged still keeps nothing (#222).
+                        if n.began.description == n.description {
+                            n.began.description = text.clone();
+                        }
                         n.description = text;
                         n.started = n.description.clone();
                         n.started_from = Some("from the project's template".to_owned());
@@ -584,9 +635,34 @@ impl Requests {
     }
 
     pub fn close_create(&mut self, cx: &mut Context<Self>) {
-        if self.creating.take().is_some() {
+        if self.keep_create(cx) {
             cx.notify();
         }
+    }
+
+    /// The form is left: what was written in it is kept as a draft (#222), a form left as it began keeps nothing.
+    /// Whether there was a form.
+    fn keep_create(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(n) = self.creating.take() else {
+            return false;
+        };
+        let now = n.snapshot();
+        let moved = n.restored.as_ref().is_some_and(|r| *r != now.source);
+        if now != n.began || moved {
+            // From changed under a draft that was kept for another branch: that one goes.
+            if let Some(was) = n.restored.as_ref().filter(|_| moved) {
+                request_drafts::remove(&n.root, was);
+            }
+            request_drafts::keep(
+                &n.root,
+                Kept {
+                    saved: request_drafts::now(),
+                    ..now
+                },
+            );
+            cx.emit(Event::Drafts);
+        }
+        true
     }
 
     /// From's list picked: the request is made from that branch, what is written kept (#159);
@@ -904,7 +980,7 @@ impl Requests {
     pub fn submit_create(&mut self, host: Arc<dyn Host>, cx: &mut Context<Self>) -> Option<u64> {
         let n = self.creating.as_mut()?;
         if let Some(iid) = n.existing {
-            self.creating = None;
+            self.keep_create(cx);
             return Some(iid);
         }
         if n.local_only || n.posting || n.nothing {
@@ -941,7 +1017,14 @@ impl Requests {
                 match result {
                     Ok(request) => {
                         let (iid, source) = (request.iid, request.source.clone());
-                        this.creating = None;
+                        // Created, the draft goes (#222).
+                        if let Some(n) = this.creating.take() {
+                            request_drafts::remove(&n.root, &n.source);
+                            if let Some(was) = &n.restored {
+                                request_drafts::remove(&n.root, was);
+                            }
+                            cx.emit(Event::Drafts);
+                        }
                         this.list.insert(0, request);
                         cx.emit(Event::Created { iid, source });
                     }

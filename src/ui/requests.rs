@@ -122,6 +122,11 @@ impl Workspace {
             Event::Awards => self.refresh_rows(cx),
             Event::Merged { iid, merge } => self.merged(*iid, merge, cx),
             Event::Created { iid, source } => self.created(*iid, source, cx),
+            Event::Drafts => {
+                if let Some(branches) = self.branches() {
+                    branches.read_drafts(cx);
+                }
+            }
             Event::Create(asked) => self.create_asked(asked.clone(), cx),
             Event::Failed(e) => self.error = Some(e.clone().into()),
             Event::Noticed(news) => self.notices_read(news, cx),

@@ -46,12 +46,28 @@ pub struct Roots {
     pub remote_heights: Heights,
     /// The row picked, previewed: by a click, by ↑ ↓, or the one open as you came back.
     pub picked: Option<BranchRow>,
+    /// The new requests' kept drafts (#222), the last kept first: their own group above the branches.
+    pub drafts: Vec<artoo_core::request_drafts::Kept>,
     /// The working tree's files as last read, with the fingerprint they were read at.
     pub tree: Option<(u64, Vec<TreeFile>)>,
     tree_task: Option<Task<()>>,
 }
 
 impl History {
+    /// The kept drafts of new requests, read from their store (#222).
+    pub fn read_drafts(&mut self) {
+        let Some(root) = self.root.as_deref() else {
+            return;
+        };
+        self.roots.drafts = artoo_core::request_drafts::load(root);
+        // A draft row picked that is gone: the list picks again.
+        if let Some(BranchRow::Draft(ix)) = self.roots.picked
+            && ix >= self.roots.drafts.len()
+        {
+            self.roots.picked = None;
+        }
+    }
+
     /// Reads, in the background, when each branch's tip was made and how far it is from the main line.
     pub fn read_facts(&mut self, cx: &mut Context<Self>) {
         let Some(root) = self.root.clone() else {
@@ -169,12 +185,26 @@ impl History {
     pub fn rows(&self, filter: &str) -> Vec<BranchRow> {
         let filter = filter.to_lowercase();
         if !filter.trim().is_empty() {
-            return rank::rank(self.listed(), &filter, |(_, b)| &b.name)
-                .into_iter()
-                .map(|(ix, _)| BranchRow::Branch(ix))
+            let mut out: Vec<BranchRow> = self
+                .roots
+                .drafts
+                .iter()
+                .enumerate()
+                .filter(|(_, d)| {
+                    d.title.to_lowercase().contains(filter.trim())
+                        || d.source.to_lowercase().contains(filter.trim())
+                })
+                .map(|(ix, _)| BranchRow::Draft(ix))
                 .collect();
+            out.extend(
+                rank::rank(self.listed(), &filter, |(_, b)| &b.name)
+                    .into_iter()
+                    .map(|(ix, _)| BranchRow::Branch(ix)),
+            );
+            return out;
         }
         let mut out = vec![BranchRow::WorkingTree];
+        out.extend((0..self.roots.drafts.len()).map(BranchRow::Draft));
         out.extend(
             self.branches
                 .iter()
@@ -229,5 +259,49 @@ impl History {
             .position(|b| b.is_head)
             .or(self.branch)
             .map(BranchRow::Branch)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use artoo_core::request_drafts::Kept;
+
+    fn kept(source: &str, title: &str) -> Kept {
+        Kept {
+            source: source.into(),
+            target: "main".into(),
+            title: title.into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn request_drafts_are_a_group_between_the_working_tree_and_the_branches() {
+        let mut h = History::default();
+        h.roots.drafts = vec![
+            kept("feature/cache", "Cache balances"),
+            kept("fix/rounding", ""),
+        ];
+        assert_eq!(
+            h.rows(""),
+            [
+                BranchRow::WorkingTree,
+                BranchRow::Draft(0),
+                BranchRow::Draft(1)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_filter_finds_a_draft_by_its_title_or_its_branch() {
+        let mut h = History::default();
+        h.roots.drafts = vec![
+            kept("feature/cache", "Cache balances"),
+            kept("fix/rounding", ""),
+        ];
+        assert_eq!(h.rows("balances"), [BranchRow::Draft(0)]);
+        assert_eq!(h.rows("ROUNDING"), [BranchRow::Draft(1)]);
+        assert!(h.rows("nothing like it").is_empty());
     }
 }

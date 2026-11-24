@@ -67,6 +67,11 @@ pub fn rows(h: &History, rows: &[BranchRow], look: &ListLook, acts: &Acts) -> Ve
     }
     list.push(heading("Working tree".to_owned()).into_any_element());
     list.push(row(BranchRow::WorkingTree, false));
+    // The new requests kept as drafts: a group of their own between the working tree and the branches (#222).
+    if !h.roots.drafts.is_empty() {
+        list.push(heading(format!("Request drafts {}", h.roots.drafts.len())).into_any_element());
+        list.extend((0..h.roots.drafts.len()).map(|ix| row(BranchRow::Draft(ix), false)));
+    }
     let local: Vec<usize> = h
         .branches
         .iter()
@@ -158,6 +163,7 @@ pub fn preview(h: &History, look: &ListLook, acts: &Acts) -> AnyElement {
     match look.picked {
         Some(BranchRow::WorkingTree) => tree_preview(h, look.changes, acts).into_any_element(),
         Some(BranchRow::Branch(ix)) => branch_preview(h, ix, (look.beside)(ix).request, acts),
+        Some(BranchRow::Draft(ix)) => draft_preview(h, ix, acts),
         None => div().into_any_element(),
     }
 }
@@ -227,6 +233,54 @@ fn branch_row(
                         .into_any_element()
                 });
                 ("branch-row-wt".into(), "files", line1, line2)
+            }
+            BranchRow::Draft(ix) => {
+                let Some(d) = h.roots.drafts.get(ix) else {
+                    return div();
+                };
+                let title = if d.title.trim().is_empty() {
+                    "New merge request".to_owned()
+                } else {
+                    d.title.clone()
+                };
+                let line1 = div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .cut_in_tip()
+                            .child(title),
+                    )
+                    .children(room.second().then(|| {
+                        div()
+                            .flex_none()
+                            .text_size(px(11.))
+                            .text_color(theme::faint())
+                            .child(format::short_ago(d.saved))
+                    }))
+                    .into_any_element();
+                let line2 = div()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .font_family(theme::code_font())
+                    .child(icons::icon("branch").size(px(12.)).flex_none())
+                    .child(
+                        div()
+                            .cut_in_tip()
+                            .child(format!("{} → {}", d.source, d.target)),
+                    )
+                    .into_any_element();
+                (
+                    SharedString::from(format!("branch-row-draft-{ix}")),
+                    "merge",
+                    line1,
+                    Some(line2),
+                )
             }
             BranchRow::Branch(ix) => {
                 let b = &h.branches[ix];
@@ -386,7 +440,7 @@ fn branch_row(
             .when_some(
                 match row {
                     BranchRow::Branch(ix) => Some(ix),
-                    BranchRow::WorkingTree => None,
+                    BranchRow::WorkingTree | BranchRow::Draft(_) => None,
                 },
                 |s, ix| {
                     s.on_mouse_down(MouseButton::Right, move |event: &MouseDownEvent, _, cx| {
@@ -645,6 +699,108 @@ fn branch_preview(
         )
         .children(last)
         .child(div().flex().items_center().gap(px(10.)).children(actions))
+        .into_any_element()
+}
+
+/// A kept draft picked (#222): what it holds, a way back into its form and a way to discard it.
+fn draft_preview(h: &History, ix: usize, acts: &Acts) -> AnyElement {
+    let Some(d) = h.roots.drafts.get(ix) else {
+        return div().into_any_element();
+    };
+    let props = div()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .text_size(px(12.))
+        .text_color(theme::muted())
+        .child(
+            icons::icon("merge")
+                .size(px(15.))
+                .text_color(theme::muted()),
+        )
+        .child("New merge request")
+        .child(div().flex_1())
+        .child(
+            div()
+                .text_color(theme::faint())
+                .child(format!("kept on this Mac {}", format::ago(d.saved))),
+        );
+    let title = div()
+        .text_size(px(19.))
+        .line_height(px(26.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .child(if d.title.trim().is_empty() {
+            "No title yet".to_owned()
+        } else {
+            d.title.clone()
+        });
+    let pair = div()
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .text_size(px(12.))
+        .font_family(theme::code_font())
+        .text_color(theme::muted())
+        .child(icons::icon("branch").size(px(13.)))
+        .child(format!("{} → {}", d.source, d.target));
+    let mut held: Vec<String> = Vec::new();
+    if !d.description.trim().is_empty() {
+        held.push("description".to_owned());
+    }
+    if !d.reviewers.is_empty() {
+        held.push(plural(d.reviewers.len(), "reviewer"));
+    }
+    if !d.labels.is_empty() {
+        held.push(plural(d.labels.len(), "label"));
+    }
+    let gone = !h.branches.iter().any(|b| {
+        b.kind != RefKind::Request
+            && (b.name == d.source
+                || (b.kind == RefKind::Remote
+                    && b.name.split_once('/').is_some_and(|(_, s)| s == d.source)))
+    });
+    let (open, delete) = (acts.clone(), acts.clone());
+    let actions =
+        div()
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .child(primary_button("draft-open", "Open", "↵").on_click(
+                move |_: &ClickEvent, _, cx| open(Act::OpenRow(BranchRow::Draft(ix)), cx),
+            ))
+            .child(
+                div()
+                    .id("draft-delete")
+                    .child(outline_button("Delete the draft"))
+                    .on_click(move |_: &ClickEvent, _, cx| delete(Act::DeleteDraft(ix), cx)),
+            );
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(14.))
+        .px(px(28.))
+        .py(px(22.))
+        .max_w(px(820.))
+        .child(props)
+        .child(title)
+        .child(pair)
+        .when(!held.is_empty(), |s| {
+            s.child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(theme::muted())
+                    .child(format!("Holds {}.", held.join(", "))),
+            )
+        })
+        .when(gone, |s| {
+            s.child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(theme::muted())
+                    .child(format!("The branch {} is not here any more.", d.source)),
+            )
+        })
+        .child(actions)
         .into_any_element()
 }
 

@@ -274,6 +274,8 @@ pub enum Event {
     Merged { iid: u64, merge: Merge },
     /// The host created request `iid` from branch `source`.
     Created { iid: u64, source: String },
+    /// The kept drafts of new requests changed (#222): Branches' group reads them again.
+    Drafts,
     /// A key on the New merge request form asks the tab: create, or the pair's diff.
     Create(CreateKey),
     /// A call to the host was refused, and why.

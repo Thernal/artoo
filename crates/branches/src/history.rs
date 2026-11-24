@@ -366,7 +366,21 @@ impl artoo_branches_api::Branches for Handle {
             }
             h.root = Some(root);
             h.branches = Arc::new(branches);
+            h.read_drafts();
         });
+    }
+
+    fn read_drafts(&self, cx: &mut gpui::App) {
+        if let Some(h) = self.0.upgrade() {
+            h.update(cx, |h, cx| {
+                h.read_drafts();
+                cx.notify();
+            });
+        }
+    }
+
+    fn draft(&self, ix: usize, cx: &gpui::App) -> Option<artoo_core::request_drafts::Kept> {
+        self.0.upgrade()?.read(cx).roots.drafts.get(ix).cloned()
     }
 
     fn first_branch(&self, refname: Option<&str>, cx: &gpui::App) -> Option<usize> {

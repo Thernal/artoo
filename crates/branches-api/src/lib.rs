@@ -212,8 +212,10 @@ pub enum Act {
     },
     /// A row of Branches clicked, `clicks` times: picked, or opened.
     PickRow { row: BranchRow, clicks: usize },
-    /// A row of Branches opened: the working tree, or the branch.
+    /// A row of Branches opened: the working tree, a draft's form, or the branch.
     OpenRow(BranchRow),
+    /// Request draft `ix` discarded (#222).
+    DeleteDraft(usize),
     /// A branch's request, by its number.
     ShowRequest(u64),
     /// A remote's branches folded or open.
@@ -276,6 +278,8 @@ pub const SEARCH_INPUT: &str = "branches.search";
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BranchRow {
     WorkingTree,
+    /// A new request's kept draft (#222), by its place in `Branches::draft`.
+    Draft(usize),
     Branch(usize),
 }
 
@@ -283,6 +287,12 @@ pub enum BranchRow {
 pub trait Branches {
     /// The branches listed, local and remote.
     fn list(&self, cx: &App) -> Arc<Vec<BranchRef>>;
+
+    /// The new requests' kept drafts read again (#222): the form was left, or a request created.
+    fn read_drafts(&self, cx: &mut App);
+
+    /// Request draft `ix` of the list's group.
+    fn draft(&self, ix: usize, cx: &App) -> Option<artoo_core::request_drafts::Kept>;
 
     /// How many commits of the branch open are listed.
     fn commit_count(&self, cx: &App) -> usize;

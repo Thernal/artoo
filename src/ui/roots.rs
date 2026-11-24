@@ -261,7 +261,42 @@ impl Workspace {
         match row {
             BranchRow::WorkingTree => self.open_working_tree(cx),
             BranchRow::Branch(ix) => self.open_branch(ix, None, cx),
+            BranchRow::Draft(ix) => self.open_draft(ix, cx),
         }
+    }
+
+    /// A kept draft of a new request opened: its form, as it was left (#222). Its branch gone, nothing opens.
+    fn open_draft(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let Some(source) = self
+            .branches()
+            .and_then(|b| b.draft(ix, cx))
+            .map(|d| d.source)
+        else {
+            return;
+        };
+        let branches = self.branch_list(cx);
+        let at = |local: bool| {
+            branches.iter().position(|b| {
+                (b.kind == crate::git::RefKind::Local) == local
+                    && b.kind != crate::git::RefKind::Request
+                    && artoo_core::mr::source_of(b) == source
+            })
+        };
+        if let Some(at) = at(true).or_else(|| at(false)) {
+            self.open_create(Some(at), cx);
+        }
+    }
+
+    /// A kept draft discarded (#222).
+    pub(super) fn discard_request_draft(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let (Some(root), Some(branches)) = (self.root.clone(), self.branches()) else {
+            return;
+        };
+        if let Some(draft) = branches.draft(ix, cx) {
+            artoo_core::request_drafts::remove(&root, &draft.source);
+            branches.read_drafts(cx);
+        }
+        cx.notify();
     }
 
     /// The list's filter in the page bar: ⌘F gives it the keyboard.
