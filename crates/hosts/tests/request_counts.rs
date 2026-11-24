@@ -68,8 +68,26 @@ impl World {
             Side::GitLab => self.gitlab(url),
             Side::GitHub => self.github(url, body),
         };
+        // Every GET carries a validator, as the hosts' REST reads do; a repeat that sends it is told 304.
+        let tag = format!("\"{url}\"");
+        let get = r.method == "GET";
+        if get
+            && r.headers
+                .iter()
+                .any(|(n, v)| n == "If-None-Match" && *v == tag)
+        {
+            return Response {
+                status: 304,
+                ..Response::default()
+            };
+        }
         match http::reply(200, &value.to_string()) {
-            Ok(r) => r,
+            Ok(mut r) => {
+                if get {
+                    r.headers.push(("etag".into(), tag));
+                }
+                r
+            }
             Err(_) => unreachable!("reply is always Ok"),
         }
     }
@@ -322,5 +340,51 @@ fn the_canned_notes_are_read() {
             Vec::new()
         });
         assert!(got.is_empty());
+    }
+}
+
+/// Audit step 4: a second identical read asks with the validators and is answered 304 for every GET; the request
+/// count is the same (step 6 and later lower it), what changes is that no body travels, and the rows read the same.
+#[test]
+fn a_repeated_list_read_is_answered_with_304s() {
+    for side in [Side::GitLab, Side::GitHub] {
+        tokens();
+        let world = World { side, notes: 0 };
+        let statuses = Arc::new(Mutex::new(Vec::new()));
+        let log = statuses.clone();
+        let guard = http::with_transport(move |r| {
+            let a = world.answer(r);
+            log.lock().unwrap().push((r.method.clone(), a.status));
+            Ok(a)
+        });
+        let base = match side {
+            Side::GitLab => "https://gl.example/team/proj",
+            Side::GitHub => "https://github.com/team/proj",
+        };
+        let host = artoo_hosts::hosts().of(&WebRemote {
+            base: base.into(),
+            github: side == Side::GitHub,
+        });
+        let first = list_read(&host, true);
+        let n = statuses.lock().unwrap().len();
+        let second = list_read(&host, true);
+        drop(guard);
+        let seen = statuses.lock().unwrap().clone();
+        assert_eq!(seen.len(), 2 * n, "the repeat costs as many requests");
+        let repeat = &seen[n..];
+        assert!(
+            repeat.iter().any(|(_, s)| *s == 304),
+            "some of the repeat is answered 304"
+        );
+        assert!(
+            repeat.iter().all(|(m, s)| (m == "GET") == (*s == 304)),
+            "every GET is 304 and nothing else is: {repeat:?}"
+        );
+        assert_eq!(first.len(), second.len());
+        assert_eq!(
+            first.len() as u64,
+            ROWS,
+            "the list reads the same from the kept body"
+        );
     }
 }

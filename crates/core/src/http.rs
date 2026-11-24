@@ -124,6 +124,11 @@ impl Response {
             .map(|(_, v)| v.as_str())
     }
 
+    /// `X-Poll-Interval` (GitHub's notifications): the seconds the host asks to wait between polls.
+    pub fn poll_interval(&self) -> Option<u64> {
+        self.header("x-poll-interval")?.trim().parse().ok()
+    }
+
     /// 200–299.
     pub fn ok(&self) -> bool {
         (200..300).contains(&self.status)
@@ -238,6 +243,7 @@ static SLEPT: Mutex<Vec<Duration>> = Mutex::new(Vec::new());
 /// Per host, the Unix second before which it asked not to be called.
 static CLOSED: Mutex<Vec<(String, i64)>> = Mutex::new(Vec::new());
 /// One test at a time owns the transport.
+static CACHE: Mutex<Cache> = Mutex::new(Cache::new());
 static GATE: Mutex<()> = Mutex::new(());
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -277,6 +283,7 @@ pub fn with_transport(
     lock(&CLOSED).clear();
     lock(&SLEPT).clear();
     *lock(&NOW) = None;
+    lock(&CACHE).clear();
     *lock(&TRANSPORT) = Some(Arc::new(f));
     TransportGuard(gate)
 }
@@ -295,7 +302,7 @@ pub fn reply(status: u16, body: &str) -> Result<Response, HttpError> {
 /// 503 or 504; a `Retry-After` of up to 30 s is waited out instead. A host that asked for more, or whose rate limit
 /// is used up, is not called until then: the call fails at once with `Kind::Limited`. Nothing but a GET is retried.
 pub fn send(request: &Request) -> Result<Response, HttpError> {
-    guarded(request, None)
+    cached(request, None)
 }
 
 /// `send`, with `progress` told how far a body going out is (0.0–1.0, as curl's bar says).
@@ -303,7 +310,154 @@ pub fn send_with_progress(
     request: &Request,
     progress: &dyn Fn(f32),
 ) -> Result<Response, HttpError> {
-    guarded(request, Some(progress))
+    cached(request, Some(progress))
+}
+
+/// The most body bytes the response cache keeps.
+const CACHE_BYTES: usize = 32 * 1024 * 1024;
+
+/// What a GET's answer was, kept to ask "has it changed?" next time.
+struct Entry {
+    etag: Option<String>,
+    modified: Option<String>,
+    response: Response,
+    used: u64,
+}
+
+/// `(url, hash of the request's headers — the token among them)` → the last full answer, in memory, bounded by the
+/// bytes of the bodies kept; the least recently used go first.
+struct Cache {
+    entries: Vec<((String, [u8; 32]), Entry)>,
+    bytes: usize,
+    tick: u64,
+}
+
+impl Cache {
+    const fn new() -> Self {
+        Cache {
+            entries: Vec::new(),
+            bytes: 0,
+            tick: 0,
+        }
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.bytes = 0;
+    }
+
+    /// The validators kept for `key`, `used` now.
+    fn validators(&mut self, key: &(String, [u8; 32])) -> Option<(Option<String>, Option<String>)> {
+        self.tick += 1;
+        let tick = self.tick;
+        let (_, e) = self.entries.iter_mut().find(|(k, _)| k == key)?;
+        e.used = tick;
+        Some((e.etag.clone(), e.modified.clone()))
+    }
+
+    fn get(&self, key: &(String, [u8; 32])) -> Option<&Response> {
+        (self.entries.iter().find(|(k, _)| k == key)).map(|(_, e)| &e.response)
+    }
+
+    fn put(&mut self, key: (String, [u8; 32]), response: Response, limit: usize) {
+        self.drop_key(&key);
+        let size = response.body.len();
+        if size > limit {
+            return;
+        }
+        let etag = response.header("etag").map(str::to_owned);
+        let modified = response.header("last-modified").map(str::to_owned);
+        if etag.is_none() && modified.is_none() {
+            return;
+        }
+        while self.bytes + size > limit {
+            let Some(oldest) = (self.entries.iter().enumerate())
+                .min_by_key(|(_, (_, e))| e.used)
+                .map(|(i, _)| i)
+            else {
+                break;
+            };
+            let (_, gone) = self.entries.swap_remove(oldest);
+            self.bytes -= gone.response.body.len();
+        }
+        self.tick += 1;
+        self.bytes += size;
+        self.entries.push((
+            key,
+            Entry {
+                etag,
+                modified,
+                response,
+                used: self.tick,
+            },
+        ));
+    }
+
+    fn drop_key(&mut self, key: &(String, [u8; 32])) {
+        if let Some(i) = self.entries.iter().position(|(k, _)| k == key) {
+            let (_, gone) = self.entries.swap_remove(i);
+            self.bytes -= gone.response.body.len();
+        }
+    }
+}
+
+/// Whether `request` may be answered from the cache: a plain GET read into memory.
+fn cacheable(request: &Request) -> bool {
+    request.method.eq_ignore_ascii_case("GET") && request.output.is_none()
+}
+
+fn cache_key(request: &Request) -> (String, [u8; 32]) {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    for (name, value) in &request.headers {
+        h.update(name.to_ascii_lowercase().as_bytes());
+        h.update([0]);
+        h.update(value.as_bytes());
+        h.update([1]);
+    }
+    (request.url.clone(), h.finalize().into())
+}
+
+/// `guarded`, with a GET's last answer kept: the next identical call asks `If-None-Match` / `If-Modified-Since`, and
+/// a `304` comes back as the kept answer (status 200, the newer headers laid over the kept ones).
+fn cached(request: &Request, progress: Option<&dyn Fn(f32)>) -> Result<Response, HttpError> {
+    if !cacheable(request) {
+        return guarded(request, progress);
+    }
+    let key = cache_key(request);
+    let mut asked = request.clone();
+    let known = lock(&CACHE).validators(&key);
+    let own = |name: &str| (request.headers.iter()).any(|(n, _)| n.eq_ignore_ascii_case(name));
+    let mut conditional = false;
+    if let Some((etag, modified)) = known {
+        if let (Some(etag), false) = (etag, own("if-none-match")) {
+            asked = asked.header("If-None-Match", etag);
+            conditional = true;
+        }
+        if let (Some(m), false) = (modified, own("if-modified-since")) {
+            asked = asked.header("If-Modified-Since", m);
+            conditional = true;
+        }
+    }
+    let answer = guarded(&asked, progress)?;
+    if answer.status == 304 && conditional {
+        let kept = lock(&CACHE).get(&key).cloned();
+        if let Some(mut kept) = kept {
+            for (n, v) in &answer.headers {
+                match kept.headers.iter_mut().find(|(k, _)| k == n) {
+                    Some(slot) => slot.1 = v.clone(),
+                    None => kept.headers.push((n.clone(), v.clone())),
+                }
+            }
+            return Ok(kept);
+        }
+    }
+    if answer.status == 200 {
+        lock(&CACHE).put(key, answer.clone(), CACHE_BYTES);
+    } else if conditional {
+        lock(&CACHE).drop_key(&key);
+    }
+    Ok(answer)
 }
 
 const BACKOFF: [f64; 2] = [0.5, 1.5];
@@ -668,6 +822,78 @@ fn host_of(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn tagged(status: u16, tag: &str, body: &str) -> Result<Response, HttpError> {
+        let mut r = reply(status, body)?;
+        r.headers.push(("etag".into(), tag.into()));
+        Ok(r)
+    }
+
+    #[test]
+    fn a_304_returns_the_kept_body() {
+        let seen = Arc::new(Mutex::new(Vec::<Option<String>>::new()));
+        let log = seen.clone();
+        let _g = with_transport(move |r| {
+            let sent = (r.headers.iter())
+                .find(|(n, _)| n == "If-None-Match")
+                .map(|(_, v)| v.clone());
+            log.lock().unwrap().push(sent.clone());
+            match sent {
+                Some(_) => Ok(Response {
+                    status: 304,
+                    headers: vec![("x-poll-interval".into(), "60".into())],
+                    body: Vec::new(),
+                }),
+                None => tagged(200, "\"v1\"", "[1,2]"),
+            }
+        });
+        let r = Request::get("https://h.example/list").header("Authorization", "Bearer a");
+        let first = send(&r).unwrap();
+        assert_eq!((first.status, first.text()), (200, "[1,2]".into()));
+        let second = send(&r).unwrap();
+        assert_eq!((second.status, second.text()), (200, "[1,2]".into()));
+        assert_eq!(second.poll_interval(), Some(60));
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![None, Some("\"v1\"".to_string())]
+        );
+    }
+
+    #[test]
+    fn another_token_does_not_share_an_answer() {
+        let count = Arc::new(Mutex::new(0));
+        let n = count.clone();
+        let _g = with_transport(move |r| {
+            assert!(!r.headers.iter().any(|(n, _)| n == "If-None-Match"));
+            *n.lock().unwrap() += 1;
+            tagged(200, "\"v1\"", "x")
+        });
+        send(&Request::get("https://h.example/u").header("Authorization", "Bearer a")).unwrap();
+        send(&Request::get("https://h.example/u").header("Authorization", "Bearer b")).unwrap();
+        assert_eq!(*count.lock().unwrap(), 2);
+    }
+
+    #[test]
+    fn the_cache_stays_under_its_bound_and_drops_the_least_recent() {
+        let mut c = Cache::new();
+        let key = |n: u8| (format!("u{n}"), [n; 32]);
+        let body = |n: usize| {
+            let mut r = tagged(200, "\"t\"", &"x".repeat(n)).unwrap();
+            r.status = 200;
+            r
+        };
+        c.put(key(1), body(40), 100);
+        c.put(key(2), body(40), 100);
+        c.validators(&key(1)); // 1 is now the more recent
+        c.put(key(3), body(40), 100);
+        assert!(c.bytes <= 100);
+        assert!(c.get(&key(1)).is_some());
+        assert!(c.get(&key(2)).is_none());
+        assert!(c.get(&key(3)).is_some());
+        c.put(key(4), body(101), 100); // larger than the bound: not kept
+        assert!(c.get(&key(4)).is_none());
+        assert!(c.bytes <= 100);
+    }
 
     #[test]
     fn a_redirect_has_two_blocks_and_the_last_one_answers() {
