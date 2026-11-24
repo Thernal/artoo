@@ -8,7 +8,7 @@
 use crate::{Draft, ReportProblem, Scrub, Sent};
 use artoo_core::textedit::TextEdit;
 use artoo_core::{applog, platform};
-use artoo_shell_api::{Frame, Parts, Tool};
+use artoo_shell_api::{Frame, Parts, Toast, Tool};
 use artoo_ui_kit::controls::{bar_button, tool_foot};
 use artoo_ui_kit::input::{self, Edit, Lines, Look};
 use artoo_ui_kit::{ROW_RADIUS, format, hover, icons, px, theme};
@@ -190,7 +190,7 @@ impl Report {
         self.draft.by = Some(d.by.clone());
         self.reset_edit();
         self.frame.toast(
-            format!("{} drafted a report — check it, then send it", d.by).into(),
+            Toast::new(format!("{} drafted a report", d.by)).about("check it, then send it"),
             cx,
         );
         if self.frame.places(cx).root.is_some() {

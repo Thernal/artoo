@@ -12,6 +12,7 @@ use artoo_hosts_api::connect::{self, Connect, Here};
 use artoo_requests_api::Change;
 pub(super) use artoo_requests_api::Scope;
 use artoo_requests_api::{Act, Acts, Listing};
+use artoo_ui_kit::toast::{Fact, Tone, Words};
 use gpui::{App, ClickEvent, Context, WeakEntity, div, prelude::*};
 use std::rc::Rc;
 
@@ -714,28 +715,32 @@ impl Workspace {
         {
             self.thread_at = Some(ix);
             let said = self.request_thread(ix, cx).map(|t| {
-                let place = t
-                    .path
-                    .as_deref()
-                    .map(|p| {
-                        let name = p.rsplit('/').next().unwrap_or(p);
-                        match t.new_line.or(t.old_line) {
-                            Some(line) => format!(" · {name}:{line}"),
-                            None => format!(" · {name}"),
-                        }
-                    })
-                    .unwrap_or_default();
-                let word = if t.resolved { "Reopened" } else { "Resolved" };
-                format!("{word}{place}")
+                let place = t.path.as_deref().map(|p| {
+                    let name = p.rsplit('/').next().unwrap_or(p);
+                    match t.new_line.or(t.old_line) {
+                        Some(line) => format!("{name}:{line}"),
+                        None => name.to_owned(),
+                    }
+                });
+                // Resolved is a good thing done, its success glyph; the place is the body.
+                let (word, tone) = match t.resolved {
+                    true => ("Reopened", Tone::Info),
+                    false => ("Resolved", Tone::Success),
+                };
+                let words = Words::new(word).tone(tone);
+                match place {
+                    Some(place) => words.about(place),
+                    None => words,
+                }
             });
             self.toggle_resolved(ix, cx);
-            if let Some(text) = said {
+            if let Some(words) = said {
                 let tab = cx.weak_entity();
                 let undo = Rc::new(move |cx: &mut App| {
                     tab.update(cx, |this, cx| this.toggle_resolved(ix, cx)).ok();
                 });
                 self.toasts
-                    .update(cx, |t, cx| t.show_with(text, "Undo", undo, cx));
+                    .update(cx, |t, cx| t.show_with(words, "Undo", undo, cx));
             }
         }
     }
@@ -1174,15 +1179,19 @@ impl Workspace {
     pub(super) fn connected(&mut self, said: Option<String>, cx: &mut Context<Self>) {
         self.load_requests(cx);
         if let Some(text) = said {
-            // Its two lines: what happened, then the way in.
-            let toast = match text.split_once('\n') {
-                Some((first, second)) => artoo_shell_api::Toast::new(first).about(second),
-                None => artoo_shell_api::Toast::new(text),
+            // Its title and its facts: what happened, then the way in, its scope and its days apart.
+            let (first, facts) = match text.split_once('\n') {
+                Some((first, second)) => (first.to_owned(), connected_facts(second)),
+                None => (text, Vec::new()),
             };
-            self.show_toast(
-                toast.button("Settings", super::settings::RequestsSettings),
-                cx,
-            );
+            let mut toast = artoo_shell_api::Toast::new(first)
+                .success()
+                .facts(facts)
+                .button("Settings", super::settings::RequestsSettings);
+            if let Some(web) = &self.web {
+                toast = toast.source(web.name().to_owned());
+            }
+            self.show_toast(toast, cx);
         }
     }
 
@@ -1325,6 +1334,19 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
         })
         .ok();
     })
+}
+
+/// What the connected toast's second line says as facts: the way in with a key glyph, its scope as a pill, the rest
+/// (`until …`) plain.
+fn connected_facts(line: &str) -> Vec<Fact> {
+    line.split(" · ")
+        .enumerate()
+        .map(|(at, part)| match at {
+            0 => Fact::new(part.to_owned()).glyph("key"),
+            _ if part.starts_with("until ") => Fact::new(part.to_owned()),
+            _ => Fact::new(part.to_owned()).pill(),
+        })
+        .collect()
 }
 
 #[cfg(test)]

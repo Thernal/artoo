@@ -84,6 +84,28 @@ pub(super) fn listening(said: &artoo_agents_api::tab::Said, mark: (char, gpui::R
     }
 }
 
+/// An error as a title and a body: its first sentence, then the reason (`Couldn't save the draft: the disk is
+/// full`); one sentence is the title alone.
+pub(super) fn split_error(text: &str) -> (String, Option<String>) {
+    let text = text.trim();
+    let cut = text
+        .find(": ")
+        .map(|at| (at, 2))
+        .or_else(|| text.find(". ").map(|at| (at, 2)))
+        .or_else(|| text.find('\n').map(|at| (at, 1)));
+    let Some((at, skip)) = cut else {
+        return (text.trim_end_matches('.').to_owned(), None);
+    };
+    let (title, rest) = (&text[..at], text[at + skip..].trim());
+    if rest.is_empty() {
+        return (title.to_owned(), None);
+    }
+    let mut chars = rest.chars();
+    let first = chars.next().map(|c| c.to_uppercase().collect::<String>());
+    let body = format!("{}{}", first.unwrap_or_default(), chars.as_str());
+    (title.to_owned(), Some(body))
+}
+
 /// A tab's toasts, their buttons answered by the tab.
 pub(super) fn toasts(cx: &mut Context<Workspace>) -> Entity<Toasts<Press>> {
     let tab = cx.weak_entity();
@@ -101,7 +123,12 @@ impl Workspace {
     /// Moves a reported error into a toast.
     pub(super) fn take_error(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = self.error.take() {
-            self.toasts.update(cx, |t, cx| t.show(text, false, cx));
+            let (title, body) = split_error(&text);
+            let words = match body {
+                Some(body) => Words::new(title).about(body),
+                None => Words::new(title),
+            };
+            self.toasts.update(cx, |t, cx| t.show(words, false, cx));
         }
     }
 
@@ -157,6 +184,13 @@ impl Workspace {
             Some(flat) => Words::default().flat(flat),
             None => Words {
                 about: toast.about.clone().map(Into::into),
+                source: toast
+                    .source
+                    .clone()
+                    .map(Into::into)
+                    .or(words.source.clone()),
+                tone: toast.tone,
+                facts: toast.facts.clone(),
                 ..words
             },
         };
@@ -273,13 +307,13 @@ impl Workspace {
         self.toasts.update(cx, |t, cx| t.drop_text(text, cx));
     }
 
-    /// "Draft deleted · Money.kt:23" with Undo, which puts `comment` back.
+    /// "Draft deleted", `Money.kt:23` under it, with Undo, which puts `comment` back.
     pub(super) fn toast_deleted(
         &mut self,
         comment: crate::comment::Comment,
         cx: &mut Context<Self>,
     ) {
-        let text = format!("Draft deleted · {}", comment.reads());
+        let words = Words::new("Draft deleted").about(comment.reads());
         let (tab, comment) = (cx.weak_entity(), Cell::new(Some(comment)));
         let undo = Rc::new(move |cx: &mut App| {
             if let Some(comment) = comment.take() {
@@ -287,7 +321,7 @@ impl Workspace {
             }
         });
         self.toasts
-            .update(cx, |t, cx| t.show_with(text, "Undo", undo, cx));
+            .update(cx, |t, cx| t.show_with(words, "Undo", undo, cx));
         cx.notify();
     }
 
@@ -379,6 +413,31 @@ mod tests {
         assert!(act.partial_eq(&StopListening {
             session: "s1".into()
         }));
+    }
+
+    #[test]
+    fn an_error_is_a_title_and_a_reason() {
+        assert_eq!(
+            split_error("Couldn't save the draft: the disk is full"),
+            (
+                "Couldn't save the draft".into(),
+                Some("The disk is full".into())
+            )
+        );
+        assert_eq!(
+            split_error("GitLab does not let you approve this merge request."),
+            (
+                "GitLab does not let you approve this merge request".into(),
+                None
+            )
+        );
+        assert_eq!(
+            split_error("Nothing to edit. Open a thread first."),
+            (
+                "Nothing to edit".into(),
+                Some("Open a thread first.".into())
+            )
+        );
     }
 
     #[test]

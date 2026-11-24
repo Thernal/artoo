@@ -131,7 +131,7 @@ fn body(
             .on_click(move |_: &ClickEvent, _, cx| {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(codex_cmd.clone()));
                 frame.toast(
-                    Toast::new("The command is copied: run it in a terminal"),
+                    Toast::new("The command is copied: run it in a terminal").success(),
                     cx,
                 );
             })

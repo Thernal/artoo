@@ -91,9 +91,9 @@ impl Workspace {
         };
         let say = move |_| {
             let notes = super::plural(count, "note");
-            format!("{agent} left {notes} on its changes: {what}")
+            format!("{agent} left {notes} on its changes")
         };
-        self.agent_toast(act, "Show", 1, say, cx);
+        self.agent_toast(act, "Show", 1, say, Some(what), cx);
     }
 
     /// Show on a toast of notes: their changes open under Branches, on screen.

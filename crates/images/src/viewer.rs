@@ -155,6 +155,7 @@ impl State {
                 self.saved = Some(path);
                 self.frame.toast(
                     Toast::new(format!("Saved {saved} to Downloads"))
+                        .success()
                         .button("Show in Finder", ShowSavedImage),
                     cx,
                 );

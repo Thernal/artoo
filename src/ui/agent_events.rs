@@ -123,9 +123,9 @@ impl Workspace {
         };
         let say = move |n| {
             let comments = super::plural(n, "pending comment");
-            format!("{agent} left {comments} on {number}")
+            format!("{agent} left {comments}")
         };
-        self.agent_toast(act, "Review", count, say, cx);
+        self.agent_toast(act, "Review", count, say, Some(number), cx);
     }
 
     /// `agent` gathered `iids` (#148): each becomes a row under Merge requests, in that order, not
@@ -143,6 +143,7 @@ impl Workspace {
         }
         self.save_nav();
         let count = iids.len();
+        let numbers: Vec<String> = iids.iter().map(|&iid| self.number(iid)).collect();
         let (who, gathered) = (agent.clone(), iids);
         self.drop_toasts(
             move |act| {
@@ -156,8 +157,9 @@ impl Workspace {
             iid: first,
             agent: agent.clone(),
         };
+        let numbers = numbers.join(" ");
         let say = move |n| format!("{agent} gathered {}", super::plural(n, "merge request"));
-        self.agent_toast(act, "Review", count, say, cx);
+        self.agent_toast(act, "Review", count, say, Some(numbers), cx);
     }
 
     /// `agent` opened its changes (#149): `page` a row under Branches, quietly, and a toast that
@@ -194,13 +196,13 @@ impl Workspace {
             agent: agent.clone(),
         };
         let say = move |_| match notes {
-            0 => format!("{agent} opened its changes: {what}"),
+            0 => format!("{agent} opened its changes"),
             n => {
                 let notes = super::plural(n, "note");
-                format!("{agent} opened its changes with {notes}: {what}")
+                format!("{agent} opened its changes with {notes}")
             }
         };
-        self.agent_toast(act, "Show", 1, say, cx);
+        self.agent_toast(act, "Show", 1, say, Some(what), cx);
     }
 
     /// `agent` drafted a merge request (#152): kept for its branch, over an earlier draft for it;
@@ -223,8 +225,8 @@ impl Workspace {
             source,
             agent: agent.clone(),
         };
-        let say = move |_| format!("{agent} drafted a merge request: {said}");
-        self.agent_toast(act, "Open", 1, say, cx);
+        let say = move |_| format!("{agent} drafted a merge request");
+        self.agent_toast(act, "Open", 1, say, Some(said), cx);
     }
 
     /// `agent` points at `place` (#154): only a toast says it, its Show going there.
@@ -238,7 +240,8 @@ impl Workspace {
             act,
             "Show",
             1,
-            move |_| format!("{agent} points at {said}"),
+            move |_| format!("{agent} points you there"),
+            Some(said),
             cx,
         );
     }
@@ -251,14 +254,18 @@ impl Workspace {
         words: &'static str,
         count: usize,
         say: impl Fn(usize) -> String + 'static,
+        about: Option<String>,
         cx: &mut Context<Self>,
     ) {
         let tag = format!("{act:?}");
-        let toast = Toast::new("")
+        let mut toast = Toast::new("")
             .counted(count, say)
             .button(words, act)
             .system(tag)
             .kind(artoo_agents_api::notices::SHOWS);
+        if let Some(about) = about {
+            toast = toast.about(about);
+        }
         self.show_toast(toast, cx);
     }
 

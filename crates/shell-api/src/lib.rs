@@ -518,6 +518,12 @@ pub struct Toast {
     pub about: Option<String>,
     /// Drawn as one flat line (a chat that began listening): no source, no ⋯, no ✕.
     pub flat: Option<artoo_ui_kit::toast::Flat>,
+    /// The tone its mark's glyph says (`Success`, `Warning`); none: news is `Info`.
+    pub tone: Option<artoo_ui_kit::toast::Tone>,
+    /// Who raised it, said first and bold, for a toast of no kind (`GitLab · Connected as @you`).
+    pub source: Option<String>,
+    /// Facts in the body's place (`Connected as`: the way in, its scope, its days).
+    pub facts: Vec<artoo_ui_kit::toast::Fact>,
 }
 
 /// Which toasts go (`Frame::drop_toasts`): those whose button runs an action it picks.
@@ -536,7 +542,33 @@ impl Toast {
             kind: None,
             about: None,
             flat: None,
+            tone: None,
+            source: None,
+            facts: Vec::new(),
         }
+    }
+
+    /// Said by `source` (`GitLab`), first and bold.
+    pub fn source(mut self, source: impl Into<String>) -> Self {
+        self.source = Some(source.into());
+        self
+    }
+
+    /// Said with `tone`'s glyph on its mark.
+    pub fn tone(mut self, tone: artoo_ui_kit::toast::Tone) -> Self {
+        self.tone = Some(tone);
+        self
+    }
+
+    /// A good thing done: the success glyph.
+    pub fn success(self) -> Self {
+        self.tone(artoo_ui_kit::toast::Tone::Success)
+    }
+
+    /// Facts under what happened, in the body's place.
+    pub fn facts(mut self, facts: Vec<artoo_ui_kit::toast::Fact>) -> Self {
+        self.facts = facts;
+        self
     }
 
     /// Drawn as one flat line, its face, words, branch and buttons side by side.

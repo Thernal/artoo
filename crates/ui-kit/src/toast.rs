@@ -69,8 +69,39 @@ pub struct Words {
     pub badge: Option<&'static str>,
     /// A live dot on the mark: a chat that is listening.
     pub live: bool,
+    /// Facts in the body's place, side by side: the way a host was connected, its scope, its days (`Connected as`).
+    pub facts: Vec<Fact>,
     /// What the ⋯'s tooltip says: the kind's sentence (`Turn off toasts for Jira · Assigned to you`).
     pub more_tip: Option<SharedString>,
+}
+
+/// One fact of a toast's body: a glyph before it, or drawn as a pill.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Fact {
+    pub text: SharedString,
+    pub glyph: Option<&'static str>,
+    pub pill: bool,
+}
+
+impl Fact {
+    pub fn new(text: impl Into<SharedString>) -> Self {
+        Self {
+            text: text.into(),
+            glyph: None,
+            pill: false,
+        }
+    }
+
+    pub fn glyph(self, glyph: &'static str) -> Self {
+        Self {
+            glyph: Some(glyph),
+            ..self
+        }
+    }
+
+    pub fn pill(self) -> Self {
+        Self { pill: true, ..self }
+    }
 }
 
 /// What a flat toast adds to its words.
@@ -136,6 +167,10 @@ impl Words {
 
     pub fn live(self) -> Self {
         Self { live: true, ..self }
+    }
+
+    pub fn facts(self, facts: Vec<Fact>) -> Self {
+        Self { facts, ..self }
     }
 
     pub fn more_tip(self, tip: impl Into<SharedString>) -> Self {
@@ -518,6 +553,37 @@ fn arriving(toast: gpui::Stateful<gpui::Div>, id: u64, leaving: bool) -> AnyElem
 }
 
 /// The mark's ink for a tone: the glyph's colour, never a stripe at the edge.
+/// A body of facts: each as its glyph and words, a scope as a pill, 12 px apart.
+fn facts_row(facts: &[Fact]) -> gpui::Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(12.))
+        .text_size(px(12.))
+        .line_height(px(17.))
+        .text_color(theme::muted())
+        .children(facts.iter().map(|f| {
+            let text = match f.pill {
+                true => div()
+                    .px(px(6.))
+                    .rounded_full()
+                    .border_1()
+                    .border_color(theme::island_border())
+                    .child(f.text.clone()),
+                false => div().child(f.text.clone()),
+            };
+            div()
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .children(
+                    f.glyph
+                        .map(|g| icons::icon(g).size(px(12.)).text_color(theme::muted())),
+                )
+                .child(text)
+        }))
+}
+
 fn tone_ink(tone: Tone) -> Rgba {
     match tone {
         Tone::Info => theme::accent(),
@@ -799,7 +865,8 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
                         .flex_col()
                         .gap(px(4.))
                         .child(head)
-                        .children(body.map(|body| {
+                        .children((!words.facts.is_empty()).then(|| facts_row(&words.facts)))
+                        .children(body.filter(|_| words.facts.is_empty()).map(|body| {
                             hover::cut_to(("toast-body", id as usize), body, 2)
                                 .text_size(px(12.))
                                 .line_height(px(17.))
