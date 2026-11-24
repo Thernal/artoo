@@ -5,6 +5,7 @@
 //! bands, the preview, why none is listed and the banner while the list cannot be read; the tab puts them in the
 //! root's frame (`ListLook`, `Body`).
 
+use crate::freshness::{self, Stage};
 use crate::group::{Band, Group, GroupBy, SortBy};
 use crate::requests::{Act, Acts, Requests, Scope};
 use crate::turn::{self, Turn};
@@ -714,15 +715,18 @@ pub fn list(rq: &Requests, look: &ListLook, acts: &Acts) -> Body {
     let shown = look.shown;
     // The merged or the closed (#114): a flat list, newest first, read as it is scrolled.
     let past = (rq.view != MrState::Opened).then(|| rq.past.of_scope(rq.scope));
-    let loading = match past {
-        Some(p) => p.loading && p.list.is_empty(),
-        None => rq.loading && rq.list.is_empty(),
-    };
-    if loading {
-        return Body::Loading;
-    }
-    if shown.is_empty() && past.is_none_or(|p| !p.more) {
-        return Body::Empty(empty(rq, look, acts));
+    match past {
+        Some(p) if p.loading && p.list.is_empty() => return Body::Loading,
+        Some(p) if shown.is_empty() && !p.more => {
+            return Body::Empty(empty(rq, look, acts));
+        }
+        Some(_) => {}
+        None => match freshness::stage(rq, shown.is_empty()) {
+            Stage::Loading => return Body::Loading,
+            Stage::Failed => return Body::Empty(freshness::failed(rq, acts)),
+            Stage::Empty => return Body::Empty(empty(rq, look, acts)),
+            Stage::List => {}
+        },
     }
     let groups: Vec<Group> = match past {
         Some(_) => vec![Group::All; shown.len()],
@@ -875,7 +879,6 @@ pub fn list(rq: &Requests, look: &ListLook, acts: &Acts) -> Body {
 
 /// No request to list: why, per filter, and the way to more.
 fn empty(rq: &Requests, look: &ListLook, acts: &Acts) -> Div {
-    let all = rq.list.len();
     let filter = look.filter.trim();
     let view = rq.view;
     let show_all = |label: &'static str| {
@@ -929,27 +932,7 @@ fn empty(rq: &Requests, look: &ListLook, acts: &Acts) -> Div {
             more.then(|| show_all("Show all")),
         );
     }
-    // A read that failed is never "none" (#185): the banner over the list says why, with Retry.
-    if rq.error.is_some() && all == 0 {
-        return empty_state(
-            "pull-request",
-            words::say("Couldn't read the merge requests").into_owned(),
-            String::new(),
-            None,
-        );
-    }
-    // A state word and its way on, no sentence (#185).
-    let (title, more) = match rq.scope {
-        Scope::ReviewMe => ("Nothing to review".to_owned(), all > 0),
-        Scope::Mine => ("None of yours is open".to_owned(), all > 0),
-        Scope::All => (words::say("No open merge requests").into_owned(), false),
-    };
-    empty_state(
-        "pull-request",
-        title,
-        String::new(),
-        more.then(|| show_all("Show all")),
-    )
+    freshness::nothing(rq.scope)
 }
 
 /// A group's band in the requests list: its icon, name and count, and the chevron that folds it

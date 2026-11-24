@@ -513,6 +513,7 @@ fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
                 .flex()
                 .children(folded),
         )
+        .children(bar.hairline)
         // Public: what is done here is seen on GitLab (#71).
         // Over the island's own border, its top edge turning down with its round corners (a
         // strip would cross them square).

@@ -56,6 +56,10 @@ impl Requests {
     /// then, in parallel, the project's members and who could not be reached. The hosts keep those for 15 minutes, so
     /// a warm read is the list alone.
     pub fn read_list(&mut self, host: Arc<dyn Host>, cx: &mut Context<Self>) {
+        self.fresh.begin(
+            self.list.is_empty() && self.listed_at.is_none(),
+            std::time::Instant::now(),
+        );
         self.loading = true;
         let known = self.login.is_some();
         let facts_host = host.clone();
@@ -74,6 +78,7 @@ impl Requests {
             let listed = this
                 .update(cx, |rq, cx| {
                     rq.loading = false;
+                    rq.fresh.end(std::time::Instant::now());
                     let ok = match result {
                         Ok(list) => {
                             let at = artoo_ui_kit::format::now();

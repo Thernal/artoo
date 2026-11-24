@@ -161,6 +161,9 @@ impl Workspace {
                 },
                 room: self.bar_room.clone(),
                 public,
+                hairline: (space == REQUESTS && page.is_none() && !lacking)
+                    .then(|| self.requests_api()?.fresh_hairline(cx))
+                    .flatten(),
             },
             host,
             cx,
@@ -235,15 +238,6 @@ impl Workspace {
                 0 => "Nothing new".to_owned(),
                 n => format!("{n} new"),
             }),
-            // Once the filters say it with their counts, the name has none.
-            REQUESTS
-                if root
-                    && self.requests_available(cx)
-                    && self.request_login(cx).is_none()
-                    && !self.request_list(cx).is_empty() =>
-            {
-                Some(self.request_list(cx).len().to_string())
-            }
             BRANCHES if root => Some(self.branches_count(cx)),
             _ => None,
         }
@@ -287,6 +281,10 @@ impl Workspace {
         let page = checked_out.as_ref().or(page);
         match (space, page) {
             (REQUESTS, None) if self.requests_available(cx) => {
+                // How current the list is, at the head's free right side.
+                if let Some(slot) = self.requests_api().and_then(|r| r.fresh_slot(cx)) {
+                    out.push(BarAction::new("fresh", slot));
+                }
                 out.push(BarAction::new("filter", self.bar_filter("Filter", cx)))
             }
             (BRANCHES, None) => out.push(BarAction::new(

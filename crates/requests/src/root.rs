@@ -6,6 +6,7 @@
 //! your review of each request through the review's handle, the discussions through the notifications; a click asks
 //! the tab an `Act`.
 
+use crate::freshness;
 use crate::list::{self, ListLook};
 use crate::requests::{Acts, Requests};
 use crate::tabs::Tabs;
@@ -20,9 +21,8 @@ use artoo_review_api::{Review, Seen};
 use artoo_shell_api::{
     Drawing, Frame, ItemRow, ItemTab, NameHover, PagePath, Pages, PathUp, Screen, Services,
 };
-use artoo_ui_kit::controls::skeleton;
 use artoo_ui_kit::room::Widths;
-use artoo_ui_kit::{format, gap, island, px, theme, words};
+use artoo_ui_kit::{format, island, px, theme, words};
 use gpui::{AnyElement, App, Context, Entity, Render, Window, div, prelude::*};
 use std::rc::Rc;
 
@@ -168,7 +168,8 @@ impl RootPage {
             })
         };
         let filter = self.frame.filter(cx);
-        let (banner, body) = {
+        let now = std::time::Instant::now();
+        let (body, skeleton, phase, moves) = {
             let cx: &App = cx;
             let rq = self.requests.read(cx);
             let shown = rq.shown(&filter);
@@ -192,7 +193,18 @@ impl RootPage {
                 parts,
                 fold: &fold,
             };
-            (list::banner(rq, &acts), list::list(rq, &look, &acts))
+            // The first read's tints, in the real rows' and preview's places (round 41).
+            let open = freshness::open_view(rq);
+            let phase = rq.fresh.phase(now);
+            let skeleton = (open && phase.skeleton > 0.).then(|| {
+                (
+                    freshness::skeleton_list(&look).into_any_element(),
+                    freshness::skeleton_preview().into_any_element(),
+                )
+            });
+            let moves = open && rq.fresh.skeleton_moves(now);
+            let body = list::list(rq, &look, &acts);
+            (body, skeleton, phase, moves)
         };
         // While a filter is typed, a merged or closed list reads every scope on to its end, a page at a time, so each
         // tab counts what the filter leaves, not what was read (#191): no host counts by the filter's words — the
@@ -217,32 +229,15 @@ impl RootPage {
             });
         }
         let body = match body {
-            list::Body::Loading => div()
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .gap(px(gap()))
-                .child(
-                    island()
-                        .w(px(self.frame.list_width(cx)))
-                        .flex_none()
-                        .p(px(16.))
-                        .child(skeleton("requests-loading", 7)),
-                )
-                .child(
-                    island()
-                        .flex_1()
-                        .bg(theme::editor())
-                        .px(px(28.))
-                        .py(px(26.))
-                        .child(skeleton("request-preview-loading", 3)),
-                )
-                .into_any_element(),
-            list::Body::Empty(empty) => island()
-                .flex_1()
-                .bg(theme::editor())
-                .child(empty)
-                .into_any_element(),
+            // Nothing to show yet: the two panes, bare until the skeleton comes.
+            list::Body::Loading => {
+                self.frame
+                    .list_page(div().into_any_element(), div().into_any_element(), cx)
+            }
+            list::Body::Empty(empty) => {
+                self.frame
+                    .list_page(empty.into_any_element(), freshness::unselected(), cx)
+            }
             list::Body::List {
                 rows,
                 preview,
@@ -271,14 +266,35 @@ impl RootPage {
                 self.frame.list_page(rows.into_any_element(), preview, cx)
             }
         };
+        // The content comes in under the tints as they go; neither moves the other.
+        let content_hidden = phase.content < 1.;
+        let tints = skeleton.map(|(rows, preview)| {
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .flex()
+                .opacity(phase.skeleton)
+                .child(self.frame.list_page(rows, preview, cx))
+        });
         div()
+            .relative()
             .flex_1()
             .min_h_0()
             .flex()
             .flex_col()
-            .gap(px(gap()))
-            .children(banner)
-            .child(body)
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .when(content_hidden, |s| s.opacity(phase.content))
+                    .child(body),
+            )
+            .children(tints)
+            .when(moves, |s| s.child(freshness::frames()))
             .into_any_element()
     }
 }

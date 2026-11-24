@@ -750,6 +750,15 @@ pub trait Requests {
     fn held(&self, cx: &App) -> usize;
     /// Shows what is held (a click on the slot's count, `⌘R`, leaving the list); false when nothing waited.
     fn apply_held(&self, cx: &mut App) -> bool;
+    /// The freshness slot and the hairline for the open list's head (round 41); none while the merged or closed show.
+    fn fresh_slot(&self, cx: &App) -> Option<AnyElement>;
+    fn fresh_hairline(&self, cx: &App) -> Option<AnyElement>;
+    /// The first read is under way and its content not shown: the tabs' counts are tints.
+    fn first_reading(&self, cx: &App) -> bool;
+    /// The open list has been read, or kept from before: its counts are known.
+    fn answered(&self, cx: &App) -> bool;
+    /// A snapshot's state of the open list (`ARTOO_SNAPSHOT_FRESH`), as if the host had answered so.
+    fn force_fresh(&self, state: &str, cx: &mut App);
 
     /// The list shows the merged or the closed requests, or the open ones again (#114); the scope it shows.
     fn set_view(&self, state: MrState, cx: &mut App);

@@ -1183,6 +1183,14 @@ impl Workspace {
     /// Shows `page` of `space`, loading what it needs. The menu, esc, ⌘[ ⌘] and the open items
     /// come here.
     pub(super) fn show(&mut self, space: Space, page: Option<Route>, cx: &mut Context<Self>) {
+        // Leaving the requests list lands what waits in it (round 41).
+        let on_list = |space: Space, page: &Option<Route>| space == REQUESTS && page.is_none();
+        if on_list(self.nav.space, &self.nav_page().cloned())
+            && !on_list(space, &page)
+            && let Some(requests) = self.requests_api()
+        {
+            requests.apply_held(cx);
+        }
         self.keep_place(cx);
         self.nav.space = space;
         match &page {

@@ -959,6 +959,16 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             });
             wait(1500).await;
         }
+        // A state of the requests list, as `requests.html?s=<state>` (round 41), with no host asked.
+        if let Ok(state) = std::env::var("ARTOO_SNAPSHOT_FRESH") {
+            ws.update(cx, |this, cx| {
+                if let Some(requests) = this.requests_api() {
+                    requests.force_fresh(&state, cx);
+                }
+                cx.notify();
+            });
+            wait(600).await;
+        }
         if let Ok(text) = std::env::var("ARTOO_SNAPSHOT_FIND") {
             ws.update(cx, |this, cx| {
                 this.start_dfind(cx);

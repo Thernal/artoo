@@ -98,6 +98,8 @@ pub struct Requests {
     pub merged_here: Vec<u64>,
     /// The host refused the token on the last read.
     pub refused: bool,
+    /// The head's slot and hairline, and the first read's skeleton, between frames (round 41).
+    pub fresh: crate::freshness::Freshness,
     /// The request of the open branch, when it is one's source branch.
     pub current: Option<u64>,
     /// The open request and the group it was in when it was opened: ⌥↓ goes on from its place
@@ -325,6 +327,7 @@ pub(crate) fn acts(requests: &Entity<Requests>, tab: artoo_requests_api::TabActs
 }
 
 /// Weak: the services hold it.
+#[derive(Clone)]
 struct Handle(
     WeakEntity<Requests>,
     std::rc::Weak<artoo_shell_api::Services>,
@@ -684,6 +687,47 @@ impl artoo_requests_api::Requests for Handle {
         self.0
             .upgrade()
             .map_or(0, |r| r.read(cx).held.as_ref().map_or(0, |h| h.count()))
+    }
+
+    fn fresh_slot(&self, cx: &App) -> Option<gpui::AnyElement> {
+        let requests = self.0.upgrade()?;
+        let rq = requests.read(cx);
+        if !crate::freshness::open_view(rq) {
+            return None;
+        }
+        let this = self.clone();
+        Some(crate::freshness::head_slot(rq, self.acts(), move |cx| {
+            this.apply_held(cx);
+        }))
+    }
+
+    fn fresh_hairline(&self, cx: &App) -> Option<gpui::AnyElement> {
+        let requests = self.0.upgrade()?;
+        let rq = requests.read(cx);
+        crate::freshness::open_view(rq).then(|| crate::freshness::head_hairline(rq, cx))
+    }
+
+    fn first_reading(&self, cx: &App) -> bool {
+        self.0.upgrade().is_some_and(|r| {
+            let rq = r.read(cx);
+            let reading = crate::freshness::stage(rq, true) == crate::freshness::Stage::Loading;
+            crate::freshness::open_view(rq)
+                && (reading || rq.fresh.phase(std::time::Instant::now()).content == 0.)
+        })
+    }
+
+    fn answered(&self, cx: &App) -> bool {
+        self.0.upgrade().is_some_and(|r| {
+            let rq = r.read(cx);
+            rq.listed_at.is_some() || !rq.list.is_empty()
+        })
+    }
+
+    fn force_fresh(&self, state: &str, cx: &mut App) {
+        self.update(cx, |rq, cx| {
+            rq.force_fresh(state);
+            cx.notify();
+        });
     }
 
     fn apply_held(&self, cx: &mut App) -> bool {

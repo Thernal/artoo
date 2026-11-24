@@ -130,6 +130,8 @@ pub struct PageBar {
     pub room: Rc<BarRoom>,
     /// Public: what is done here is seen on GitLab (#71).
     pub public: bool,
+    /// The hairline along the bar's foot while a read takes long (round 41), drawn over it.
+    pub hairline: Option<AnyElement>,
 }
 
 /// What a click on the bar does.

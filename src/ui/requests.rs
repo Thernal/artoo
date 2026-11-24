@@ -998,32 +998,40 @@ impl Workspace {
         &self,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
-        let loading = self.requests_listing(cx) && self.request_list(cx).is_empty();
-        if self.request_login(cx).is_none() || loading {
-            return None;
-        }
         let requests = self.requests_api()?;
         let view = requests.view(cx);
         let past = view != mr::MrState::Opened;
         // What the filter leaves, counted (#191).
         let count = |scope: Scope| requests.scope_count(scope, &self.bfilter, cx);
+        // A count is a tint during the first read, and left out until it is known: All's once the list is answered,
+        // To review's and Mine's once the token's user is too (round 41).
+        let reading = requests.first_reading(cx);
+        let answered = past || requests.answered(cx);
+        let named = self.request_login(cx).is_some();
         let filter = |scope: Scope, id: &'static str, name: &'static str| {
-            artoo_ui_kit::controls::chip(
-                id,
-                format!("{name} {}", count(scope)),
-                requests.scope(cx) == scope,
-            )
-            .tooltip_show_delay(artoo_ui_kit::hover::LONG)
-            .tooltip(|_, cx| {
-                cx.new(|_| super::TipOwned("Next tab ⌃⇥ · back ⌃⇧⇥".into()))
-                    .into()
-            })
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                if let Some(requests) = this.requests_api() {
-                    requests.set_scope(scope, cx);
-                }
-                cx.notify();
-            }))
+            let known = answered && (named || scope == Scope::All);
+            let label = match known && !reading {
+                true => format!("{name} {}", count(scope)),
+                false => name.to_owned(),
+            };
+            artoo_ui_kit::controls::chip(id, label, requests.scope(cx) == scope)
+                .when(reading, |s| {
+                    s.flex()
+                        .items_center()
+                        .gap(artoo_ui_kit::px(5.))
+                        .child(artoo_ui_kit::fresh::tint(artoo_ui_kit::px(10.).into(), 10.))
+                })
+                .tooltip_show_delay(artoo_ui_kit::hover::LONG)
+                .tooltip(|_, cx| {
+                    cx.new(|_| super::TipOwned("Next tab ⌃⇥ · back ⌃⇧⇥".into()))
+                        .into()
+                })
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    if let Some(requests) = this.requests_api() {
+                        requests.set_scope(scope, cx);
+                    }
+                    cx.notify();
+                }))
         };
         let state =
             artoo_ui_kit::controls::chip("request-state", format!("{} ▾", view.word()), past)

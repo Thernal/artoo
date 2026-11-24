@@ -327,9 +327,14 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   comment above it says why (a field scrolling with its caret).
 - **An empty list is a state word** (#185): `controls::empty_state` with a title (`Nothing to review`, `No mentions`)
   and at most one button; no sentence on what the list is for. A line under it only where it changes what you do
-  next: a filter's reach, what failed. A read that failed is never "none": `Couldn't read the merge requests`, the
-  banner over it the facts (`Can't reach gitlab.example.com · list from 14:32`), the guess in its tip. A feature's
-  `Set up…` opens its Settings section with `Frame::open_settings`.
+  next: a filter's reach, what failed. A read that failed is never "none". A feature's `Set up…` opens its Settings
+  section with `Frame::open_settings`.
+- **The open requests list loads without a jump** (round 41, `crates/requests/src/freshness.rs`): no banner and no
+  `From HH:MM` line; the head says how current the list is (`Requests::fresh_slot`, the kit's `fresh`) and draws the
+  hairline (`PageBar::hairline`); a first read draws the real rows and preview as tints; nothing kept and a failed
+  read, or an answer with nothing, is a message in the list pane beside `No request selected` (`freshness::stage`:
+  never empty before an answer). Held rows land on the slot's count, `⌘R` or leaving the list.
+  `ARTOO_SNAPSHOT_FRESH=<state>` forces a state of `requests.html` for a shot.
 - **A bar never clips** (#186): what does not fit the page bar folds into its `⋯`, never cut off at the edge, in its
   order (`BarAction::fold_order`, #188: a request's Merge, then its Description, then its pipeline; the last first
   among the same), the title cut last. Each action is a `bar::BarAction` with its row in `⋯` (`folds`; the approval
