@@ -262,152 +262,61 @@ impl Workspace {
         let selecting = self.selecting(this.clone());
         let (fold, delete, raw) = (this.clone(), this.clone(), this.clone());
         let (resolve, reopen, editing, asking) = (this.clone(), this.clone(), this.clone(), this);
-        // A chat by the name it was given, else its title; without one, by its agent.
-        let chat = |s: &crate::comment::Sent| {
-            let title = crate::labels::chat(&s.session).unwrap_or_else(|| s.title.clone());
-            if title.is_empty() {
+        let draft = comment.state == State::Draft;
+        // The agent it is for, by its name: `Claude`, not `Claude Code`.
+        let to = comment
+            .sent
+            .as_ref()
+            .and_then(|s| {
                 self.agents
                     .chats(cx)
                     .iter()
                     .find(|c| c.session == s.session)
-                    .map_or_else(|| "its chat".to_owned(), |c| c.agent.clone())
-            } else {
-                format!("“{title}”")
-            }
-        };
-        // One glyph a state, its sentence the tooltip (`docs/specs/agents-plain.md`).
-        let (state_icon, state_color, status): (&'static str, _, String) =
-            match (&comment.state, &comment.sent) {
-                (State::Draft, _) => ("circle-dashed", theme::faint(), "Not sent yet".to_owned()),
-                (State::Sent, Some(s)) if s.session.is_empty() => {
-                    ("clock", theme::muted(), "Sent to a new chat".to_owned())
-                }
-                (State::Sent, Some(s)) if s.delivered => {
-                    ("loader", theme::agent(), format!("{} is on it", chat(s)))
-                }
-                (State::Sent, Some(s)) => (
-                    "clock",
-                    theme::muted(),
-                    format!("Sent to {} · it picks this up when it listens", chat(s)),
-                ),
-                (State::Sent, None) => ("clock", theme::muted(), "Sent".to_owned()),
-                (State::Addressed, _) => (
-                    "circle-check",
-                    theme::agent(),
-                    "Your agent says it is done — check it".to_owned(),
-                ),
-                (State::Resolved, _) => ("circle-check", theme::faint(), "Closed".to_owned()),
-            };
-        let draft = comment.state == State::Draft;
-        let glyph = |icon: &'static str, color, tip: String, id: String| {
-            div()
-                .id(gpui::SharedString::from(id))
-                .flex_none()
-                .tooltip_show_delay(super::hover::LONG)
-                .tooltip(move |_, cx| {
-                    cx.new(|_| super::hover::TipOwned(tip.clone().into()))
-                        .into()
-                })
-                .child(super::icons::icon(icon).size(px(14.)).text_color(color))
-        };
-        // The head is a comment's: who wrote it, for whom (the agent's glyph) and in what state (its glyph), the
-        // time at the end and the ⋯ last. A click on it folds or opens the note.
-        let more = {
-            let (this, id) = (editing.clone(), id);
-            let state = comment.state;
-            let unanswered = comment.replies.is_empty();
-            let marked = open && markdown::has_markdown(&comment.body);
-            let rich = self.settings.rich_comments;
-            discussion::icon_button(
-                ("more-agent", id),
-                "ellipsis",
-                "More",
-                None,
-                None,
-                Kind::Quiet,
-                true,
-            )
-            .h(px(24.))
-            .on_click(move |event, _, cx| {
-                use super::menu::{Act, Entry};
-                cx.stop_propagation();
-                let at = event.position();
-                this.update(cx, |this, cx| {
-                    let mut now = vec![Entry::new(
-                        "Edit",
-                        Act::new(move |this, _, cx| this.start_edit(Change::Agent(id), cx)),
-                    )];
-                    if state == State::Sent && unanswered {
-                        now.push(Entry::new(
-                            "Take back",
-                            Act::new(move |this, _, cx| {
-                                this.erase_comment(id, Erase::Withdraw, cx)
-                            }),
-                        ));
-                    }
-                    if matches!(state, State::Addressed | State::Resolved) {
-                        now.push(Entry::new(
-                            "Reopen",
-                            Act::new(move |this, _, cx| this.reopen_agent_comment(id, cx)),
-                        ));
-                        now.push(Entry::new(
-                            "Archive",
-                            Act::new(move |this, _, cx| this.erase_comment(id, Erase::Archive, cx)),
-                        ));
-                    }
-                    let mut menu = vec![now];
-                    if marked {
-                        menu.push(vec![
-                            Entry::new(
-                                if rich {
-                                    "Show raw text"
-                                } else {
-                                    "Show markdown"
-                                },
-                                Act::new(|this, _, cx| this.toggle_rich_comments(cx)),
-                            )
-                            .key("⌥M"),
-                        ]);
-                    }
-                    this.open_menu(at, menu, cx);
-                })
-                .ok();
             })
+            .map(|c| c.agent.trim_end_matches(" Code").to_owned())
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| "Claude".to_owned());
+        // The far end: when it went, or that it did not, with its own send (A8, K1a).
+        let sent_at = comment
+            .sent
+            .as_ref()
+            .map(|s| if s.at > 0 { s.at } else { comment.written })
+            .filter(|t| *t > 0)
+            .map(artoo_ui_kit::format::clock);
+        let erase_kind = match comment.state {
+            State::Draft => Erase::Delete,
+            State::Sent if comment.replies.is_empty() => Erase::Withdraw,
+            _ => Erase::Archive,
         };
+        let marked = open && markdown::has_markdown(&comment.body);
+        let hover = gpui::SharedString::from(format!("agent-head-{id}"));
+        let (erase, send) = (delete.clone(), delete.clone());
         let head = div()
             .id(("agent-bar", id))
+            .group(hover.clone())
             .flex()
             .items_center()
             .gap(px(8.))
             .h(px(28.))
             .cursor_pointer()
-            .child(discussion::avatar(&self.me, true, 22.))
+            .child(
+                div()
+                    .id(gpui::SharedString::from(format!("agent-for-{id}")))
+                    .flex_none()
+                    .child(
+                        super::icons::icon("bot")
+                            .size(px(14.))
+                            .text_color(theme::agent()),
+                    ),
+            )
             .child(
                 div()
                     .flex_none()
                     .text_size(px(13.))
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .text_color(theme::text())
-                    .child("you"),
+                    .child(format!("To {to}")),
             )
-            .child(glyph(
-                "bot",
-                theme::agent(),
-                if draft {
-                    "For your agent · not sent yet".to_owned()
-                } else {
-                    "For your agent".to_owned()
-                },
-                format!("agent-for-{id}"),
-            ))
-            .children((!draft).then(|| {
-                glyph(
-                    state_icon,
-                    state_color,
-                    status.clone(),
-                    format!("agent-state-{id}"),
-                )
-            }))
             .child(if open {
                 div().flex_1().into_any_element()
             } else {
@@ -417,28 +326,105 @@ impl Workspace {
                     .text_color(theme::muted())
                     .into_any_element()
             })
-            // A sent note has the ⋯, which holds the markdown switch; a draft has none, so it keeps it here.
-            .children(
-                (open && draft && markdown::has_markdown(&comment.body)).then(|| {
-                    self.rich_switch(("agent-rich", id))
-                        .on_click(move |_, _, cx| {
-                            cx.stop_propagation();
-                            raw.update(cx, |this, cx| this.toggle_rich_comments(cx))
-                                .ok();
-                        })
-                }),
-            )
+            // Edit and Delete only on hover; the markdown switch with them when the words have markdown.
             .child(
                 div()
                     .flex_none()
-                    .min_w(px(44.))
+                    .flex()
+                    .items_center()
+                    .gap(px(2.))
+                    .invisible()
+                    .group_hover(hover, |s| s.visible())
+                    .children(marked.then(|| {
+                        self.rich_switch(("agent-rich", id))
+                            .on_click(move |_, _, cx| {
+                                cx.stop_propagation();
+                                raw.update(cx, |this, cx| this.toggle_rich_comments(cx))
+                                    .ok();
+                            })
+                    }))
+                    .child(edit_button(
+                        ("edit-agent", id),
+                        None,
+                        true,
+                        Change::Agent(id),
+                        editing.clone(),
+                    ))
+                    .child(
+                        discussion::icon_button(
+                            ("delete-comment", id),
+                            "trash",
+                            match erase_kind {
+                                Erase::Delete => "Delete",
+                                Erase::Withdraw => "Take back",
+                                Erase::Archive => "Archive",
+                            },
+                            None,
+                            None,
+                            Kind::Quiet,
+                            true,
+                        )
+                        .h(px(22.))
+                        .px(px(6.))
+                        .on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            erase
+                                .update(cx, |this, cx| this.erase_comment(id, erase_kind, cx))
+                                .ok();
+                        }),
+                    ),
+            )
+            .child(if draft {
+                div()
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(
+                        div()
+                            .whitespace_nowrap()
+                            .text_size(px(11.))
+                            .text_color(theme::faint())
+                            .child("not sent"),
+                    )
+                    .child(
+                        discussion::icon_button(
+                            ("send-agent", id),
+                            "send",
+                            "Send",
+                            None,
+                            None,
+                            Kind::Primary(theme::agent()),
+                            false,
+                        )
+                        .h(px(22.))
+                        .tooltip_show_delay(super::hover::LONG)
+                        .tooltip(move |_, cx| {
+                            cx.new(|_| {
+                                super::hover::TipOwned("Send only this one to Claude".into())
+                            })
+                            .into()
+                        })
+                        .on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            send.update(cx, |this, cx| this.send_agent(vec![id], cx))
+                                .ok();
+                        }),
+                    )
+                    .into_any_element()
+            } else {
+                div()
+                    .flex_none()
                     .whitespace_nowrap()
                     .text_right()
                     .text_size(px(11.))
                     .text_color(theme::faint())
-                    .child(comment.at.clone()),
-            )
-            .children((!draft).then_some(more))
+                    .child(match sent_at {
+                        Some(t) => format!("sent {t}"),
+                        None => "sent".to_owned(),
+                    })
+                    .into_any_element()
+            })
             // A double click folds or opens it once, as one click does.
             .on_click(move |e: &gpui::ClickEvent, _, cx| {
                 if e.click_count() > 1 {
@@ -472,89 +458,6 @@ impl Workspace {
         // is not sent —; a note the agent did is `Not yet` and `Close`.
         let foot = (self.compose.is_none() && !writing)
             .then(|| match comment.state {
-                State::Draft => {
-                    let n = self.agent_drafts(cx).len().max(1);
-                    let (send, erase) = (delete.clone(), delete.clone());
-                    Some(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .pt(px(4.))
-                            .child(
-                                edit_button(
-                                    ("edit-agent", id),
-                                    None,
-                                    true,
-                                    change,
-                                    editing.clone(),
-                                )
-                                .into_any_element(),
-                            )
-                            .child(div().flex_1())
-                            .child(
-                                discussion::icon_button(
-                                    ("delete-comment", id),
-                                    "x",
-                                    "Delete",
-                                    None,
-                                    None,
-                                    Kind::Quiet,
-                                    true,
-                                )
-                                .h(px(28.))
-                                .on_click(move |_, _, cx| {
-                                    cx.stop_propagation();
-                                    erase
-                                        .update(cx, |this, cx| {
-                                            this.erase_comment(id, Erase::Delete, cx)
-                                        })
-                                        .ok();
-                                }),
-                            )
-                            .child(
-                                discussion::icon_button(
-                                    ("send-agent", id),
-                                    "send",
-                                    if n > 1 {
-                                        format!("Send {n}")
-                                    } else {
-                                        "Send".to_owned()
-                                    },
-                                    None,
-                                    None,
-                                    Kind::Primary(theme::agent()),
-                                    false,
-                                )
-                                .h(px(28.))
-                                .tooltip_show_delay(super::hover::LONG)
-                                .tooltip(move |_, cx| {
-                                    cx.new(|_| {
-                                        super::hover::TipOwned(
-                                            if n > 1 {
-                                                format!(
-                                                    "This and {} more not sent go to your agent",
-                                                    n - 1
-                                                )
-                                            } else {
-                                                "Send to your agent".to_owned()
-                                            }
-                                            .into(),
-                                        )
-                                    })
-                                    .into()
-                                })
-                                .on_click(move |_, _, cx| {
-                                    cx.stop_propagation();
-                                    send.update(cx, |this, cx| {
-                                        let ids = this.agent_drafts(cx);
-                                        this.send_agent(ids, cx)
-                                    })
-                                    .ok();
-                                }),
-                            ),
-                    )
-                }
                 State::Addressed => Some(
                     div()
                         .flex()
