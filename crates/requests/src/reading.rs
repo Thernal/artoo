@@ -6,12 +6,29 @@
 use crate::requests::{Event, HostSides, Requests, Scope};
 use crate::waiting::Base;
 use artoo_core::git::Repo;
+use artoo_core::mr::Mr;
 use artoo_hosts_api::{self as mr, Host};
 use gpui::Context;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 impl Requests {
+    /// Shows the open list the last run kept for the project, until the host answers: only with a token, and only
+    /// when nothing is listed yet. It carries the time it was read (`listed_at`, "From HH:MM").
+    pub(crate) fn load_kept_list(&mut self) {
+        if !self.available || !self.list.is_empty() || self.listed_at.is_some() {
+            return;
+        }
+        let Some(key) = self.rows.kept_key() else {
+            return;
+        };
+        if let Some((at, list)) = crate::disk::read::<Mr>(crate::disk::LIST_FILE, key) {
+            self.list = list;
+            self.listed_at = Some(at);
+            self.from_disk = true;
+        }
+    }
+
     /// Reads the open requests of the repository's project and tells the tab (`Event::Listed`) as soon as they are
     /// in (with who the token is when not yet known, read beside it: the menu counts the requests asking for them);
     /// then, in parallel, the project's members and who could not be reached. The hosts keep those for 15 minutes, so
@@ -38,7 +55,10 @@ impl Requests {
                     let ok = match result {
                         Ok(list) => {
                             rq.list = list;
-                            rq.listed_at = Some(artoo_ui_kit::format::now());
+                            let at = artoo_ui_kit::format::now();
+                            rq.listed_at = Some(at);
+                            rq.from_disk = false;
+                            rq.keep_list(at, cx);
                             rq.error = None;
                             if login.is_some() {
                                 rq.login = login;
@@ -79,6 +99,20 @@ impl Requests {
             })
             .ok();
         }));
+    }
+
+    /// Keeps the open list on disk for the next start, written from the background executor.
+    fn keep_list(&self, at: i64, cx: &mut Context<Self>) {
+        let Some(key) = self.rows.kept_key().map(str::to_owned) else {
+            return;
+        };
+        let open: Vec<Mr> = (self.list.iter())
+            .filter(|m| m.state == artoo_core::mr::MrState::Opened)
+            .cloned()
+            .collect();
+        cx.background_executor()
+            .spawn(async move { crate::disk::write(crate::disk::LIST_FILE, &key, at, &open) })
+            .detach();
     }
 
     /// What became of requests `iids`, open in the menu but gone from the open list, or a link's

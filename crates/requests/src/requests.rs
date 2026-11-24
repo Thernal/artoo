@@ -90,6 +90,8 @@ pub struct Requests {
     pub error: Option<String>,
     /// When the list last came in: an error or being offline says how old the list is (#72).
     pub listed_at: Option<i64>,
+    /// The list is the one the last run kept on disk, not yet read again (shown with "From HH:MM").
+    pub from_disk: bool,
     /// The request of the open branch, when it is one's source branch.
     pub current: Option<u64>,
     /// The open request and the group it was in when it was opened: ⌥↓ goes on from its place
@@ -1306,7 +1308,10 @@ impl artoo_requests_api::Requests for Handle {
     }
 
     fn load_rows(&self, key: &str, cx: &mut App) {
-        self.update(cx, |rq, _| rq.rows.load(key));
+        self.update(cx, |rq, _| {
+            rq.rows.load(key);
+            rq.load_kept_list();
+        });
     }
 
     fn render_thread(&self, ix: usize, look: ThreadLook, on: OnThread, cx: &App) -> AnyElement {

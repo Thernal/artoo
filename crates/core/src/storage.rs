@@ -31,6 +31,42 @@ pub fn save(name: &str, body: String) {
     }
 }
 
+/// Writes `body` to `name` readable by its owner alone (a list of requests or notices is the project's private
+/// word); the same silent failure as `save`. Written beside and renamed into place, so a cut-short write never
+/// leaves half a file.
+pub fn save_private(name: &str, body: String) {
+    if snapshot_run() || crate::platform::sandboxed() {
+        return;
+    }
+    if let Some(file) = file(name) {
+        write_private(&file, &body);
+    }
+}
+
+fn write_private(file: &Path, body: &str) {
+    let Some(dir) = file.parent() else {
+        return;
+    };
+    if std::fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    let part = file.with_extension("part");
+    let wrote = {
+        use std::io::Write;
+        let mut open = std::fs::OpenOptions::new();
+        open.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
+        open.open(&part)
+            .and_then(|mut f| f.write_all(body.as_bytes()))
+    };
+    if wrote.is_ok() {
+        let _ = std::fs::rename(&part, file);
+    } else {
+        let _ = std::fs::remove_file(&part);
+    }
+}
+
 pub fn read(name: &str) -> String {
     file(name)
         .and_then(|f| std::fs::read_to_string(f).ok())
@@ -632,6 +668,20 @@ fn pairs(text: &str) -> impl Iterator<Item = (&str, &str)> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn a_private_file_is_the_owners_alone_and_leaves_no_part() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("kept.json");
+        super::write_private(&file, "one");
+        super::write_private(&file, "two");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "two");
+        let mode = std::fs::metadata(&file).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+        assert!(!dir.path().join("kept.part").exists());
+    }
+
     #[test]
     fn page_names_are_kept_one_per_line_and_a_blank_one_is_none() {
         let mut names = std::collections::BTreeMap::new();

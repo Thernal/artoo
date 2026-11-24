@@ -25,7 +25,7 @@ pub const EVERY: Duration = Duration::from_secs(180);
 /// Open requests whose discussions are read, at most.
 const MOST_REQUESTS: usize = 40;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Kind {
     Mention,
     Review,
@@ -135,7 +135,7 @@ pub fn source() -> artoo_shell_api::notices::Source {
     .order(10)
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Notice {
     /// `todo:<id>` or `note:<id>`.
     pub key: String,
@@ -319,6 +319,17 @@ impl Notices {
     /// The requests whose discussions were read.
     pub fn iids(&self) -> Vec<u64> {
         self.cache.keys().copied().collect()
+    }
+
+    /// Lists project `base`'s notices as the last run kept them, when nothing is listed and no read came in yet. They
+    /// are not news (the first read tells nothing old) and a read replaces them.
+    fn load_kept(&mut self, base: &str) {
+        if self.loaded || !self.list.is_empty() {
+            return;
+        }
+        if let Some((_, list)) = crate::disk::read::<Notice>(crate::disk::NOTICES_FILE, base) {
+            self.list = list;
+        }
     }
 
     /// What a read of project `base`'s notices starts from; what was seen and read loaded first.
@@ -798,6 +809,8 @@ impl Requests {
             return;
         }
         let login = self.login.clone();
+        // Before anything came in, the Inbox lists the last run's notices, from disk.
+        notices.update(cx, |n, _| n.load_kept(&base));
         let reading = notices.update(cx, |n, _| n.begin(&base, login));
         let (requests, tick) = (self.list.clone(), self.waiting.tick());
         let (into, again) = (notices.clone(), me.clone());
@@ -818,6 +831,15 @@ impl Requests {
                         }
                         n.put(arrived);
                     });
+                    // Kept for the next start: the rows as they are now.
+                    let rows = into.read(cx).list.clone();
+                    let key = base.clone();
+                    cx.background_executor()
+                        .spawn(async move {
+                            let at = artoo_ui_kit::format::now();
+                            crate::disk::write(crate::disk::NOTICES_FILE, &key, at, &rows)
+                        })
+                        .detach();
                     cx.emit(Event::Noticed(news.into_iter().map(told).collect()));
                 }
                 cx.notify();

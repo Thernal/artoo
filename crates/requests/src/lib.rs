@@ -7,6 +7,7 @@ mod bar;
 mod complete;
 mod create;
 mod discussions;
+mod disk;
 mod group;
 mod images;
 mod inbox;

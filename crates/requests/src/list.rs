@@ -126,6 +126,11 @@ impl Rows {
         self.kept_of = Some(repo.to_owned());
     }
 
+    /// The project whose list this is (`load`'s key): where the open list is kept on disk.
+    pub fn kept_key(&self) -> Option<&str> {
+        self.kept_of.as_deref()
+    }
+
     /// The facts of the requests in `open`, kept for the next start; those of requests no longer open go, other
     /// projects' stay as they were.
     fn keep_facts(&self, open: &HashSet<u64>) {
@@ -1563,7 +1568,9 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
 /// Over a list whose host cannot be read now: offline (the VPN), or the token refused; the last
 /// list stays under it.
 pub fn banner(rq: &Requests, acts: &Acts) -> Option<AnyElement> {
-    let error = rq.error.as_ref()?;
+    let Some(error) = rq.error.as_ref() else {
+        return kept_note(rq);
+    };
     let offline = error.starts_with("Can't reach");
     // One fact and the question the VPN guess asks (Design S2); when the list is from, a clock and its time at the
     // end, the whole date and what happens next in its tip (#185).
@@ -1631,6 +1638,33 @@ pub fn banner(rq: &Requests, acts: &Acts) -> Option<AnyElement> {
                         acts(if token { Act::RenewToken } else { Act::Relist }, cx)
                     }),
             )
+            .into_any_element(),
+    )
+}
+
+/// The list as the last run kept it, while the host is asked again: when it is from.
+fn kept_note(rq: &Requests) -> Option<AnyElement> {
+    let at = rq.listed_at.filter(|_| rq.from_disk)?;
+    Some(
+        div()
+            .id("requests-kept")
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(5.))
+            .px(px(14.))
+            .text_size(px(12.))
+            .text_color(theme::muted())
+            .child(
+                icons::icon("clock")
+                    .size(px(14.))
+                    .text_color(theme::muted()),
+            )
+            .child(format!("From {}", format::clock(at)))
+            .tip(format!(
+                "The list from {}\nIt refreshes now",
+                hover::full_date(at)
+            ))
             .into_any_element(),
     )
 }

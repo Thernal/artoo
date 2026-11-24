@@ -5,7 +5,9 @@
 use crate::git::{BranchRef, DiffLine, RefKind, Repo};
 
 /// Where a merge request is in its life (#114): open, merged, or closed without merging.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub enum MrState {
     #[default]
     Opened,
@@ -49,7 +51,8 @@ pub struct PastPage {
     pub total: Option<u32>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Mr {
     pub iid: u64,
     pub title: String,
