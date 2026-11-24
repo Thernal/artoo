@@ -11,6 +11,7 @@ pub mod done;
 pub mod excerpt;
 pub mod file_icons;
 pub mod format;
+pub mod fresh;
 pub mod hover;
 pub mod icons;
 pub mod input;

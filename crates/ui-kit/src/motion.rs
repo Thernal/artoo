@@ -16,6 +16,22 @@ pub const FAST: Duration = Duration::from_millis(120);
 /// `--motion-base`: panes — side sections, the menu of spaces, tool windows, zen.
 pub const BASE: Duration = Duration::from_millis(200);
 
+// Round 41, loading without a jump (Design `docs/specs/loading-stability.md`): every delay of it in one place to tune.
+/// The freshness slot's text cross-fades in the same box.
+pub const SLOT_FADE: Duration = Duration::from_millis(150);
+/// A read shows the hairline only after this long (a quicker one draws nothing).
+pub const HAIRLINE_AFTER: Duration = Duration::from_millis(400);
+/// The hairline fades in and out in this time.
+pub const HAIRLINE_FADE: Duration = Duration::from_millis(200);
+/// One sweep of the hairline's segment across the head.
+pub const HAIRLINE_SWEEP: Duration = Duration::from_millis(1200);
+/// A read shows the still skeleton only after this long.
+pub const SKELETON_AFTER: Duration = Duration::from_millis(200);
+/// Once shown, the skeleton stays at least this long (it never flashes).
+pub const SKELETON_HOLD: Duration = Duration::from_millis(400);
+/// The skeleton fades into the content in this time.
+pub const SKELETON_FADE: Duration = Duration::from_millis(150);
+
 /// Settings → Appearance → Animations, shared by every window.
 static ON: AtomicBool = AtomicBool::new(true);
 
@@ -166,8 +182,8 @@ pub fn appear<E: IntoElement + 'static>(
     element.with_animation(id, Animation::new(duration).with_easing(ease), draw)
 }
 
-/// A quiet shimmer in place of "Loading…" (#56, 18): `lines` bars of code-like lengths whose
-/// light comes and goes; with reduce motion they stand still.
+/// A still skeleton in place of "Loading…" (#56, 18): `lines` tints of code-like lengths. Never
+/// a pulse or a shimmer (Design's loading-stability spec); `fresh::skeleton_phase` times when it shows.
 pub fn shimmer(id: impl Into<ElementId>, lines: usize) -> gpui::AnyElement {
     use gpui::{div, prelude::*};
     const WIDTHS: [f32; 7] = [0.62, 0.48, 0.71, 0.36, 0.55, 0.67, 0.42];
@@ -188,18 +204,12 @@ pub fn shimmer(id: impl Into<ElementId>, lines: usize) -> gpui::AnyElement {
     )
 }
 
-/// Bars in place of what is being read (a list's rows, a field's values) light up and dim as
-/// `shimmer`'s do, so a page that is still reading never reads as empty.
-pub fn breathe(id: impl Into<ElementId>, bars: gpui::Div) -> gpui::AnyElement {
+/// Bars in place of what is being read (a list's rows, a field's values), so a page that is still
+/// reading never reads as empty. They stand still: the spec says never shimmer or pulse. `_id` is kept
+/// for the callers.
+pub fn breathe(_id: impl Into<ElementId>, bars: gpui::Div) -> gpui::AnyElement {
     use gpui::prelude::*;
-    bars.with_animation(
-        id,
-        Animation::new(Duration::from_millis(1400))
-            .repeat()
-            .with_easing(gpui::pulsating_between(0.45, 1.)),
-        |bars, v| bars.opacity(v),
-    )
-    .into_any_element()
+    bars.into_any_element()
 }
 
 /// `from` to `to` at `v`.

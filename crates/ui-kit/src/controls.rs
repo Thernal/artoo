@@ -539,7 +539,7 @@ pub fn comment_item_glyph(
         )
 }
 
-/// Rows still loading: two grey bars each, breathing as the diff's shimmer does.
+/// Rows still loading: two grey bars each, standing still (never a pulse).
 pub fn skeleton(id: &'static str, rows: usize) -> gpui::AnyElement {
     const LONG: [f32; 6] = [62., 48., 70., 55., 66., 44.];
     const SHORT: [f32; 6] = [40., 52., 34., 46., 38., 50.];
