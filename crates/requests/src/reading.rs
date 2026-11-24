@@ -12,6 +12,28 @@ use gpui::Context;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+/// How many pages' state `forget_open` keeps.
+const KEPT_PAGES: usize = 8;
+
+/// What a page showed when it was left: shown again at once on a reopen.
+pub struct KeptPage {
+    base: Base,
+    from: u64,
+    pipeline: Option<mr::Pipeline>,
+    details: Option<mr::Details>,
+    merge: Option<mr::MergeState>,
+}
+
+/// What the page's side reads brought, read in parallel.
+struct Side {
+    drafts: Option<Vec<mr::Draft>>,
+    pipeline: Option<mr::Pipeline>,
+    approvals: Option<mr::Approvals>,
+    details: Option<mr::Details>,
+    merge: Option<mr::MergeState>,
+    login: Option<String>,
+}
+
 impl Requests {
     /// Shows the open list the last run kept for the project, until the host answers: only with a token, and only
     /// when nothing is listed yet. It carries the time it was read (`listed_at`, "From HH:MM").
@@ -210,30 +232,24 @@ impl Requests {
         cx.notify();
     }
 
-    /// Reads request `iid`, just opened: its discussions, pending comments, pipeline, approvals and
-    /// details, where merging it stands while it is open, and who the token is once.
-    /// `Event::Opened` tells the tab.
+    /// Reads request `iid`, just opened: its discussions first (`Event::Opened` tells the tab as soon as they are in),
+    /// beside them, in parallel, its pending comments, pipeline, approvals and details, where merging it stands while
+    /// it is open, and who the token is once (`Event::Read` tells the tab when those are in). What the last pages of
+    /// the same request showed, or the row's facts, are shown at once. A cancel flag (`rq.current` moving on) is
+    /// checked before the rest of the calls start.
     pub fn read_open(&mut self, iid: u64, host: Arc<dyn Host>, cx: &mut Context<Self>) {
         let known = self.login.is_some();
         let open = self
             .find(iid)
             .is_some_and(|m| m.state == mr::MrState::Opened);
+        self.show_kept(iid, cx);
         self.reading = true;
         let from = self.waiting.tick();
+        let side_host = host.clone();
         self.thread_task = Some(cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move {
-                    // Drafts need a recent GitLab; without them the rest still works.
-                    let drafts = host.drafts(iid).unwrap_or_default();
-                    let pipeline = host.pipeline(iid).ok().flatten();
-                    let approvals = host.approvals(iid).ok();
-                    let details = host.details(iid).ok();
-                    let merge = open.then(|| host.merge_state(iid).ok()).flatten();
-                    let login = if known { None } else { host.username().ok() };
-                    host.threads(iid)
-                        .map(|t| (t, drafts, pipeline, approvals, login, (details, merge)))
-                })
+                .spawn(async move { host.threads(iid) })
                 .await;
             this.update(cx, |rq, cx| {
                 if rq.current != Some(iid) {
@@ -241,17 +257,11 @@ impl Requests {
                 }
                 rq.reading = false;
                 let read = match result {
-                    Ok((threads, drafts, pipeline, approvals, login, (details, merge))) => {
-                        if login.is_some() {
-                            rq.login = login;
-                        }
-                        rq.details = details;
-                        rq.merge = merge;
-                        rq.pipeline = pipeline;
+                    Ok(threads) => {
                         let base = Base {
                             threads,
-                            drafts,
-                            approvals,
+                            drafts: rq.base.drafts.clone(),
+                            approvals: rq.base.approvals.clone(),
                         };
                         rq.take_base(from, base);
                         true
@@ -266,14 +276,120 @@ impl Requests {
             })
             .ok();
         }));
+        self.side_task = Some(cx.spawn(async move |this, cx| {
+            let host = side_host;
+            let still = this.clone();
+            let cancelled = move |cx: &gpui::AsyncApp| {
+                still
+                    .read_with(cx, |rq, _| rq.current != Some(iid))
+                    .unwrap_or(true)
+            };
+            if cancelled(cx) {
+                return;
+            }
+            let read = cx
+                .background_executor()
+                .spawn(async move {
+                    std::thread::scope(|s| {
+                        // Drafts need a recent GitLab; without them the rest still works.
+                        let drafts = s.spawn(|| host.drafts(iid).ok());
+                        let pipeline = s.spawn(|| host.pipeline(iid).ok().flatten());
+                        let approvals = s.spawn(|| host.approvals(iid).ok());
+                        let details = s.spawn(|| host.details(iid).ok());
+                        let merge = s.spawn(|| open.then(|| host.merge_state(iid).ok()).flatten());
+                        let login = s.spawn(|| if known { None } else { host.username().ok() });
+                        Side {
+                            drafts: drafts.join().ok().flatten(),
+                            pipeline: pipeline.join().ok().flatten(),
+                            approvals: approvals.join().ok().flatten(),
+                            details: details.join().ok().flatten(),
+                            merge: merge.join().ok().flatten(),
+                            login: login.join().ok().flatten(),
+                        }
+                    })
+                })
+                .await;
+            this.update(cx, |rq, cx| {
+                if rq.current != Some(iid) {
+                    return;
+                }
+                if read.login.is_some() {
+                    rq.login = read.login;
+                }
+                rq.details = read.details;
+                rq.merge = read.merge;
+                rq.pipeline = read.pipeline;
+                if from >= rq.from {
+                    if let Some(drafts) = read.drafts {
+                        rq.base.drafts = drafts;
+                    }
+                    if read.approvals.is_some() {
+                        rq.base.approvals = read.approvals;
+                    }
+                }
+                cx.emit(Event::Read(iid));
+                cx.notify();
+            })
+            .ok();
+        }));
     }
 
-    /// What was read of the request open is let go: another one comes, or none. A merge's card is
-    /// of the request it was opened on (#164).
+    /// Shows at once what is kept of request `iid` — its page as the last visit left it, else its row's facts —
+    /// until the host answers.
+    fn show_kept(&mut self, iid: u64, cx: &mut Context<Self>) {
+        if self.restore(iid) {
+            cx.emit(Event::Read(iid));
+        }
+    }
+
+    /// Puts the kept state of request `iid` back; whether there was any.
+    pub(crate) fn restore(&mut self, iid: u64) -> bool {
+        if let Some(ix) = self.pages.iter().position(|(n, _)| *n == iid) {
+            let (_, kept) = self.pages.remove(ix);
+            self.base = kept.base;
+            self.from = kept.from;
+            self.pipeline = kept.pipeline;
+            self.details = kept.details;
+            self.merge = kept.merge;
+        } else if let Some(f) = self.rows.facts(iid) {
+            self.base = Base {
+                threads: f.threads.clone(),
+                drafts: Vec::new(),
+                approvals: f.approvals.clone(),
+            };
+            self.pipeline = f.pipeline.clone();
+        } else {
+            return false;
+        }
+        true
+    }
+
+    /// What was read of the request open is let go: another one comes, or none. The last 8 pages' state is kept, to
+    /// show at once on a reopen. A merge's card is of the request it was opened on (#164).
     pub fn forget_open(&mut self) {
         if self.merging.as_ref().is_some_and(|c| !c.busy) {
             self.merging = None;
         }
+        if let Some(iid) = self.current
+            && !self.base.threads.is_empty()
+        {
+            self.pages.retain(|(n, _)| *n != iid);
+            self.pages.push((
+                iid,
+                KeptPage {
+                    base: std::mem::take(&mut self.base),
+                    from: self.from,
+                    pipeline: self.pipeline.take(),
+                    details: self.details.take(),
+                    merge: self.merge.take(),
+                },
+            ));
+            if self.pages.len() > KEPT_PAGES {
+                self.pages.remove(0);
+            }
+        }
+        self.thread_task = None;
+        self.side_task = None;
         self.threads.clear();
         self.drafts.clear();
         self.base = Default::default();
@@ -314,8 +430,9 @@ impl Requests {
                         drafts: drafts.unwrap_or_else(|| rq.base.drafts.clone()),
                         approvals: approvals.or_else(|| rq.base.approvals.clone()),
                     };
-                    rq.take_base(from, base);
-                    cx.emit(Event::Read(iid));
+                    if rq.take_base(from, base) {
+                        cx.emit(Event::Read(iid));
+                    }
                 }
                 cx.notify();
             })
@@ -324,9 +441,15 @@ impl Requests {
     }
 
     /// The host's answer for the open request, from a read begun at tick `from`.
-    pub fn take_base(&mut self, from: u64, base: Base) {
+    /// A read begun at an older tick than the one taken already is dropped: its answer predates a change the other
+    /// one holds. Whether it was taken.
+    pub fn take_base(&mut self, from: u64, base: Base) -> bool {
+        if from < self.from {
+            return false;
+        }
         self.base = base;
         self.from = from;
+        true
     }
 
     /// Reads the pushes the host kept for request `iid` and makes them versions in the repository
@@ -471,5 +594,62 @@ impl Requests {
             .ok();
         }));
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use artoo_hosts_api::Thread;
+
+    fn thread(id: &str) -> Thread {
+        Thread {
+            id: id.into(),
+            notes: Vec::new(),
+            path: None,
+            new_line: None,
+            old_line: None,
+            resolved: false,
+            resolvable: false,
+            resolved_by: None,
+            resolved_at: 0,
+            commit: None,
+            outdated: false,
+        }
+    }
+
+    fn base(id: &str) -> Base {
+        Base {
+            threads: vec![thread(id)],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn an_older_read_is_ignored_by_take_base() {
+        let mut rq = Requests::default();
+        assert!(rq.take_base(3, base("new")));
+        assert!(!rq.take_base(2, base("old")));
+        assert_eq!(rq.base.threads[0].id, "new");
+        assert_eq!(rq.from, 3);
+        assert!(rq.take_base(3, base("same")));
+    }
+
+    #[test]
+    fn a_left_page_is_shown_at_once_on_reopen_and_only_8_are_kept() {
+        let mut rq = Requests::default();
+        for iid in 1..=10u64 {
+            rq.current = Some(iid);
+            rq.base = base(&format!("t{iid}"));
+            rq.from = iid;
+            rq.forget_open();
+        }
+        assert_eq!(rq.pages.len(), KEPT_PAGES);
+        assert!(!rq.restore(1), "the oldest was let go");
+        rq.current = Some(10);
+        assert!(rq.restore(10));
+        assert_eq!(rq.base.threads[0].id, "t10");
+        assert_eq!(rq.from, 10);
+        assert!(!rq.restore(10), "taken back out");
     }
 }

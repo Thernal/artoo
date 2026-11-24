@@ -155,6 +155,10 @@ pub struct Requests {
     pub login: Option<String>,
     pub task: Option<Task<()>>,
     pub thread_task: Option<Task<()>>,
+    /// The open page's pipeline, approvals, details and merge state, read beside its discussions.
+    pub side_task: Option<Task<()>>,
+    /// The last pages left, newest last, shown at once on a reopen (`forget_open`).
+    pub pages: Vec<(u64, crate::reading::KeptPage)>,
 }
 
 pub use artoo_core::mr::HostSides;
