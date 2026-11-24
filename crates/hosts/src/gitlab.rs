@@ -420,6 +420,28 @@ pub fn unaward(remote: &WebRemote, iid: u64, note: u64, name: &str, award: u64) 
     Ok(())
 }
 
+/// The members as the host lists them, kept per host: `members` and `unreached` read the one answer.
+fn members_raw(remote: &WebRemote) -> Result<Value> {
+    crate::kept::of(&remote.base, "members", || {
+        get(remote, "members/all?per_page=100")
+    })
+}
+
+/// The project as the host describes it, kept per host: `unreached` and `project_template` read the one answer.
+fn project_raw(remote: &WebRemote) -> Result<Value> {
+    crate::kept::of(&remote.base, "project", || {
+        let (_, project) = api(remote)?;
+        get(remote, &format!("/projects/{project}"))
+    })
+}
+
+/// The project's labels as the host lists them, kept per host: the create form and a page's colours read the one answer.
+fn labels_raw(remote: &WebRemote) -> Result<Value> {
+    crate::kept::of(&remote.base, "labels", || {
+        get(remote, "labels?per_page=100")
+    })
+}
+
 /// The project's members (#51): username and name, for `@` completion.
 pub fn members(remote: &WebRemote) -> Result<Vec<(String, String)>> {
     let value = match fixture() {
@@ -427,7 +449,7 @@ pub fn members(remote: &WebRemote) -> Result<Vec<(String, String)>> {
             Ok(text) => serde_json::from_str(&text)?,
             Err(_) => Value::Array(Vec::new()),
         },
-        None => get(remote, "members/all?per_page=100")?,
+        None => members_raw(remote)?,
     };
     Ok(value
         .as_array()
@@ -498,7 +520,7 @@ pub fn details(remote: &WebRemote, iid: u64) -> Result<Details> {
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or(Value::Null),
-        None => get(remote, "labels?per_page=100").unwrap_or(Value::Null),
+        None => labels_raw(remote).unwrap_or(Value::Null),
     };
     let mut details = parse_details(&value, &colors);
     // Which reviewers asked for changes: their states come from a list of their own.
@@ -534,7 +556,7 @@ pub fn labels(remote: &WebRemote) -> Result<Vec<Label>> {
             Ok(text) => serde_json::from_str(&text)?,
             Err(_) => Value::Null,
         },
-        None => get(remote, "labels?per_page=100")?,
+        None => labels_raw(remote)?,
     };
     Ok(parse_labels(&value))
 }
@@ -546,7 +568,9 @@ pub fn milestones(remote: &WebRemote) -> Result<Vec<Milestone>> {
             Ok(text) => serde_json::from_str(&text)?,
             Err(_) => Value::Null,
         },
-        None => get(remote, "milestones?state=active&per_page=100")?,
+        None => crate::kept::of(&remote.base, "milestones", || {
+            get(remote, "milestones?state=active&per_page=100")
+        })?,
     };
     Ok(value
         .as_array()
@@ -573,11 +597,8 @@ pub fn unreached(remote: &WebRemote) -> Result<Vec<String>> {
                 Err(_) => Value::Null,
             },
             None => match file {
-                "project.json" => {
-                    let (_, project) = api(remote)?;
-                    get(remote, &format!("/projects/{project}"))?
-                }
-                _ => get(remote, "members/all?per_page=100")?,
+                "project.json" => project_raw(remote)?,
+                _ => members_raw(remote)?,
             },
         })
     };
@@ -610,10 +631,7 @@ pub fn project_template(remote: &WebRemote) -> Result<Option<String>> {
             Ok(text) => serde_json::from_str(&text)?,
             Err(_) => Value::Null,
         },
-        None => {
-            let (_, project) = api(remote)?;
-            get(remote, &format!("/projects/{project}"))?
-        }
+        None => project_raw(remote)?,
     };
     let template = text(&value, "merge_requests_template");
     Ok((!template.trim().is_empty()).then_some(template))
@@ -1193,7 +1211,7 @@ pub fn username(remote: &WebRemote) -> Result<String> {
             Ok(text) => serde_json::from_str(&text)?,
             Err(_) => return Ok("you".to_owned()),
         },
-        None => call(remote, "/user", "GET", &[])?,
+        None => crate::kept::of(&remote.base, "user", || call(remote, "/user", "GET", &[]))?,
     };
     Ok(text(&user, "username"))
 }

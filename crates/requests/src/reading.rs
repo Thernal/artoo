@@ -12,43 +12,69 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 impl Requests {
-    /// Reads the open requests of the repository's project, who the token is once (the menu counts
-    /// the requests asking for them), the project's members and who could not be reached.
-    /// `Event::Listed` tells the tab.
+    /// Reads the open requests of the repository's project and tells the tab (`Event::Listed`) as soon as they are
+    /// in (with who the token is when not yet known, read beside it: the menu counts the requests asking for them);
+    /// then, in parallel, the project's members and who could not be reached. The hosts keep those for 15 minutes, so
+    /// a warm read is the list alone.
     pub fn read_list(&mut self, host: Arc<dyn Host>, cx: &mut Context<Self>) {
         self.loading = true;
         let known = self.login.is_some();
         let facts_host = host.clone();
         self.task = Some(cx.spawn(async move |this, cx| {
-            let result = cx
+            let side = host.clone();
+            let (result, login) = cx
                 .background_executor()
                 .spawn(async move {
-                    let login = if known { None } else { host.username().ok() };
-                    let members = host.members().unwrap_or_default();
-                    let unreached = host.unreached().unwrap_or_default();
-                    host.list().map(|list| (list, login, (members, unreached)))
+                    std::thread::scope(|s| {
+                        let login = s.spawn(|| if known { None } else { host.username().ok() });
+                        let list = host.list();
+                        (list, login.join().ok().flatten())
+                    })
+                })
+                .await;
+            let listed = this
+                .update(cx, |rq, cx| {
+                    rq.loading = false;
+                    let ok = match result {
+                        Ok(list) => {
+                            rq.list = list;
+                            rq.listed_at = Some(artoo_ui_kit::format::now());
+                            rq.error = None;
+                            if login.is_some() {
+                                rq.login = login;
+                            }
+                            // Every row's pipeline, approvals, discussions and size (#189).
+                            rq.read_facts(facts_host, cx);
+                            true
+                        }
+                        Err(e) => {
+                            rq.error = Some(format!("{e:#}"));
+                            false
+                        }
+                    };
+                    cx.emit(Event::Listed);
+                    cx.notify();
+                    ok
+                })
+                .unwrap_or(false);
+            if !listed {
+                return;
+            }
+            let (members, unreached) = cx
+                .background_executor()
+                .spawn(async move {
+                    std::thread::scope(|s| {
+                        let members = s.spawn(|| side.members().unwrap_or_default());
+                        let unreached = side.unreached().unwrap_or_default();
+                        (members.join().unwrap_or_default(), unreached)
+                    })
                 })
                 .await;
             this.update(cx, |rq, cx| {
-                rq.loading = false;
-                match result {
-                    Ok((list, login, (members, unreached))) => {
-                        rq.list = list;
-                        rq.listed_at = Some(artoo_ui_kit::format::now());
-                        if !members.is_empty() {
-                            rq.members = members;
-                        }
-                        rq.unreached = unreached;
-                        rq.error = None;
-                        if login.is_some() {
-                            rq.login = login;
-                        }
-                        // Every row's pipeline, approvals, discussions and size (#189).
-                        rq.read_facts(facts_host, cx);
-                    }
-                    Err(e) => rq.error = Some(format!("{e:#}")),
+                if !members.is_empty() {
+                    rq.members = members;
                 }
-                cx.emit(Event::Listed);
+                rq.unreached = unreached;
                 cx.notify();
             })
             .ok();

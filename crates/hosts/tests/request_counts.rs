@@ -188,14 +188,16 @@ fn counted(
     (seen, out)
 }
 
-/// `Requests::read_list`: who the token is (unless known), the members, who could not be reached, the list.
+/// `Requests::read_list`: the list and who the token is (unless known) first, then the members and who could not be
+/// reached; the hosts keep the three side reads for 15 minutes.
 fn list_read(host: &Arc<dyn Host>, login_known: bool) -> Vec<Mr> {
     if !login_known {
         host.username().ok();
     }
+    let list = host.list().unwrap_or_default();
     host.members().unwrap_or_default();
     host.unreached().unwrap_or_default();
-    host.list().unwrap_or_default()
+    list
 }
 
 /// `facts_of` without a local clone: what one row's facts read.
@@ -241,17 +243,18 @@ fn check(what: &str, seen: &[String], expected: usize) {
 /// What each action costs today, per host. The step named beside a count lowers it; whoever does so changes the
 /// constant and the audit report's map ("measured").
 struct Counts {
-    /// A cold list read: who the token is, members, who could not be reached, the list. Step 6 caches the side
-    /// calls per host and emits the list first.
+    /// A cold list read: who the token is, members, who could not be reached, the list. Step 6 emits the list first
+    /// and keeps the side calls per host for 15 minutes (the same requests once; unreached shares the project and
+    /// members reads).
     list_cold: usize,
     /// One row's facts (size, pipeline, approvals, discussions, versions), read for each of the list's rows after
     /// it, again whenever the row's `updated` moves. Step 6 (side reads shared), step 10 (one `pulls/{n}` on GitHub).
     facts_per_row: usize,
-    /// A warm list read: login known, the rows' facts kept. Step 6 lowers it to the list's own call; step 4 turns
-    /// the repeat into 304s.
+    /// A warm list read: login known, the side reads kept: the list's own call (step 6). Step 4 turns the repeat into
+    /// 304s.
     list_warm: usize,
-    /// A page open on a request with 5 notes. Step 6 drops `labels` from it; step 9 reads in parallel (same count)
-    /// and keeps the last pages; step 10 shares `pulls/{n}` on GitHub.
+    /// A page open on a request with 5 notes, the labels kept (step 6: only the first page open in 15 minutes reads
+    /// them). Step 9 reads in parallel (same count) and keeps the last pages; step 10 shares `pulls/{n}` on GitHub.
     page_5: usize,
     /// A page open on a request with 150 notes (two pages of discussions). Same steps as `page_5`.
     page_150: usize,
@@ -265,9 +268,9 @@ struct Counts {
 const GITLAB: Counts = Counts {
     list_cold: 4,
     facts_per_row: 5,
-    list_warm: 3,
-    page_5: 9,
-    page_150: 10,
+    list_warm: 1,
+    page_5: 8,
+    page_150: 9,
     notices_cold: 4,
     notices_warm: 1,
 };
@@ -275,7 +278,7 @@ const GITLAB: Counts = Counts {
 const GITHUB: Counts = Counts {
     list_cold: 3,
     facts_per_row: 8,
-    list_warm: 2,
+    list_warm: 1,
     page_5: 11,
     page_150: 12,
     notices_cold: 7,
@@ -283,6 +286,7 @@ const GITHUB: Counts = Counts {
 };
 
 fn run(side: Side, c: Counts) {
+    artoo_hosts::forget_kept();
     let (seen, rows) = counted(side, 0, |h| list_read(h, false));
     check("cold list read", &seen, c.list_cold);
     assert_eq!(rows.len() as u64, ROWS, "the canned list is read");
@@ -297,6 +301,18 @@ fn run(side: Side, c: Counts) {
     let (seen, _) = counted(side, 0, |h| list_read(h, true));
     check("warm list read", &seen, c.list_warm);
 
+    // The first page open reads the labels once; the ones after it do not.
+    let (cold, _) = counted(side, 5, |h| {
+        page_open(h, 1);
+        Vec::new()
+    });
+    let labels = cold.iter().filter(|r| r.contains("/labels")).count();
+    assert_eq!(
+        labels,
+        usize::from(side == Side::GitLab),
+        "first page open:\n{}",
+        cold.join("\n")
+    );
     let (seen, _) = counted(side, 5, |h| {
         page_open(h, 1);
         Vec::new()
@@ -366,6 +382,8 @@ fn a_repeated_list_read_is_answered_with_304s() {
         });
         let first = list_read(&host, true);
         let n = statuses.lock().unwrap().len();
+        // The 15 minutes' keep would answer the side reads itself; this asks again, conditionally.
+        artoo_hosts::forget_kept();
         let second = list_read(&host, true);
         drop(guard);
         let seen = statuses.lock().unwrap().clone();

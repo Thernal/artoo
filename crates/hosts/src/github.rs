@@ -269,7 +269,7 @@ pub fn whois_with(remote: &WebRemote, token: &str) -> Result<(String, String)> {
 pub fn username(remote: &WebRemote) -> Result<String> {
     let user = match read_fixture("user.json") {
         Some(v) => v?,
-        None => get(remote, "/user")?,
+        None => crate::kept::of(&remote.base, "user", || get(remote, "/user"))?,
     };
     Ok(match s(&user["login"]) {
         l if l.is_empty() => "you".to_owned(),
@@ -588,8 +588,10 @@ pub fn unreact(
 pub fn members(remote: &WebRemote) -> Result<Vec<(String, String)>> {
     let value = match read_fixture("collaborators.json") {
         Some(v) => v?,
-        None => get(remote, "collaborators?per_page=100")
-            .or_else(|_| get(remote, "assignees?per_page=100"))?,
+        None => crate::kept::of(&remote.base, "members", || {
+            get(remote, "collaborators?per_page=100")
+                .or_else(|_| get(remote, "assignees?per_page=100"))
+        })?,
     };
     Ok(value
         .as_array()
@@ -1543,7 +1545,9 @@ pub fn create(
 pub fn labels(remote: &WebRemote) -> Result<Vec<Label>> {
     let value = match read_fixture("labels.json") {
         Some(v) => v?,
-        None => get(remote, "labels?per_page=100")?,
+        None => crate::kept::of(&remote.base, "labels", || {
+            get(remote, "labels?per_page=100")
+        })?,
     };
     Ok(crate::json::parse_labels(&value))
 }
@@ -1552,7 +1556,9 @@ pub fn labels(remote: &WebRemote) -> Result<Vec<Label>> {
 pub fn milestones(remote: &WebRemote) -> Result<Vec<artoo_hosts_api::Milestone>> {
     let value = match read_fixture("milestones.json") {
         Some(v) => v?,
-        None => get(remote, "milestones?state=open&per_page=100")?,
+        None => crate::kept::of(&remote.base, "milestones", || {
+            get(remote, "milestones?state=open&per_page=100")
+        })?,
     };
     Ok(value
         .as_array()

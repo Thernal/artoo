@@ -10,6 +10,7 @@ mod gitlab;
 mod hosts;
 mod ide;
 mod json;
+mod kept;
 mod panel;
 mod pictures;
 mod team;
@@ -61,4 +62,11 @@ pub fn hosts() -> Arc<dyn Hosts> {
 #[cfg(any(test, feature = "sandbox"))]
 pub fn test_fixture(dir: Option<std::path::PathBuf>) {
     fixture::TEST_FIXTURE.with(|f| *f.borrow_mut() = dir);
+}
+
+/// Forgets what the hosts keep for 15 minutes (who the token is, members, labels, milestones, the project): a test
+/// that counts requests starts from a cold cache.
+#[doc(hidden)]
+pub fn forget_kept() {
+    kept::forget();
 }

@@ -18,11 +18,13 @@ pub(crate) fn save(host: &str, token: &str) -> Result<()> {
     }
     std::fs::write(&file, format!("{}\n", token.trim()))?;
     crate::platform::owner_only(&file)?;
+    crate::kept::forget();
     Ok(())
 }
 
 /// Removes the token kept for `host` (a wrong one, after a failed test).
 pub(crate) fn forget(host: &str) {
+    crate::kept::forget();
     if let Some(home) = home() {
         let _ = std::fs::remove_file(file(&home, host));
     }
