@@ -292,9 +292,8 @@ pub(crate) fn keep_sent(list: &[Sent]) {
     }
 }
 
-/// `body` (JSON) to `url` with curl, its answer as JSON; nothing secret goes, so on the command
-/// line is fine, the body on stdin. When nothing reached the relay — its name, a connection, TLS
-/// (curl 6, 7, 35) — it is sent once more a second later: the first send after launch was seen to
+/// `body` (JSON) to `url` through the HTTP seam, its answer as JSON; nothing secret goes, so it goes as it is. When nothing reached the relay — its name, a connection, TLS
+/// (offline or TLS) — it is sent once more a second later: the first send after launch was seen to
 /// fail so (2026-10-23), and a report that never arrived cannot arrive twice.
 fn post(url: &str, body: &Value) -> Result<Value> {
     let request = http::Request::get(url)
@@ -312,7 +311,7 @@ fn post(url: &str, body: &Value) -> Result<Value> {
     }
 }
 
-/// curl's own reason in the app's log, when the relay could not be reached.
+/// The client's own reason in the app's log, when the relay could not be reached.
 fn unreached(e: &http::HttpError) {
     crate::applog::line(&format!("report: {}", e.log()));
 }

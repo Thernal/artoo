@@ -36,6 +36,7 @@ tree-sitter-json.workspace = true
 libloading.workspace = true
 tree-sitter-yaml.workspace = true
 tree-sitter-md.workspace = true
+ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier", "gzip"] }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
@@ -59,4 +60,5 @@ snapshot = []
 sandbox = []
 
 [dev-dependencies]
+flate2 = "1.1.11"
 tempfile.workspace = true

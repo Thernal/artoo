@@ -568,7 +568,6 @@ fn download(id: &str, source: &Source) -> Result<(), String> {
             match http::send(&request) {
                 Ok(answer) if answer.ok() => Ok(()),
                 Ok(_) => Err("the download failed".to_owned()),
-                Err(e) if e.kind == http::Kind::NoCurl => Err(e.to_string()),
                 Err(_) => Err("the download failed".to_owned()),
             }
         }
