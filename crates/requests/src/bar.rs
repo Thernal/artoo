@@ -8,7 +8,7 @@ use artoo_hosts_api::Pipeline;
 use artoo_ui_kit::controls::bar_button;
 use artoo_ui_kit::format::plural;
 use artoo_ui_kit::hover::{self, TipOwned};
-use artoo_ui_kit::{ROW_RADIUS, icons, keys, px, theme, words};
+use artoo_ui_kit::{ROW_RADIUS, icons, px, theme, words};
 use gpui::{AnyElement, ClickEvent, Point, SharedString, div, prelude::*};
 
 impl Requests {
@@ -50,11 +50,7 @@ impl Requests {
     }
 
     /// Approve, or who approved: `a` toggles one's approval; `compact`, its key in the tip alone (#186).
-    pub fn render_approval_chip(
-        &self,
-        compact: bool,
-        acts: Acts,
-    ) -> Option<impl IntoElement + use<>> {
+    pub fn render_approval_chip(&self, compact: bool, acts: Acts) -> Option<AnyElement> {
         let waits = self.approval_waits();
         self.approvals.clone().map(|a| {
             let count = if a.required > 0 {
@@ -101,6 +97,16 @@ impl Requests {
                 lines.push(action.to_owned());
             }
             let tip: SharedString = words::say(&lines.join("\n")).into_owned().into();
+            // Approve while you may is the filled primary button with its key (round 41, P1); the other
+            // stands stay the quiet chip.
+            if a.can && !a.mine && !compact {
+                return bar_button("approval", "Approve", "a", true)
+                    .when(waits, |s| s.opacity(FADED))
+                    .tooltip_show_delay(hover::LONG)
+                    .tooltip(move |_, cx| cx.new(|_| TipOwned(tip.clone())).into())
+                    .on_click(move |_: &ClickEvent, _, cx| acts(Act::ToggleApproval, cx))
+                    .into_any_element();
+            }
             let (label, color) = if a.mine {
                 ("✓ Approved", theme::added())
             } else if a.can {
@@ -131,12 +137,10 @@ impl Requests {
                 // Counted at once, faded until the host answers (#139).
                 .when(waits, |s| s.opacity(FADED))
                 .child(format!("{label}{count}"))
-                .when(a.can && !a.mine && !compact, |s| {
-                    s.child(keys::caps("a", keys::On::Plain))
-                })
                 .tooltip_show_delay(hover::LONG)
                 .tooltip(move |_, cx| cx.new(|_| TipOwned(tip.clone())).into())
                 .on_click(move |_: &ClickEvent, _, cx| acts(Act::ToggleApproval, cx))
+                .into_any_element()
         })
     }
 

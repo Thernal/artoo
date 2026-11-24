@@ -1,12 +1,12 @@
 //! A merge request's page, the requests' side of it (#73): Overview — the title with its author and branches on one
 //! line, the facts in a row, what is in the way of merging without a click (#190, Design L4), the description beside
-//! a column of who reviews, its labels, its milestone and its discussions — and the request's identity in words for a
+//! headed cards: the description and the discussions, with who reviews and the labels (milestone among them) beside — and the request's identity in words for a
 //! long hover. Commits and Changes have no line of their own over them: the title is in the page bar (#188).
 
 use crate::bar::{pipeline_icon, pipeline_short, pipeline_word};
 use crate::requests::Requests;
 use crate::waiting::FADED;
-use artoo_hosts_api::{Details, Mr, MrState};
+use artoo_hosts_api::{Details, Draft, Mr, MrState, Thread};
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, Hover};
 use artoo_ui_kit::markdown::{self, Selecting};
@@ -14,10 +14,12 @@ use artoo_ui_kit::{discussion, icons, island, px, theme, words};
 use gpui::{AnyElement, App, ClickEvent, Div, FontWeight, Rgba, div, prelude::*};
 use std::rc::Rc;
 
-/// Overview's column beside the description, and the least height it keeps when the
-/// description is short.
-const SIDE: f32 = 300.;
-const SIDE_MIN: f32 = 320.;
+/// Details' column beside the cards, and the widest the cards' column grows (round 41, P1: headed cards as on
+/// the Tasks issue page).
+const SIDE: f32 = 264.;
+const MAIN_MAX: f32 = 760.;
+/// A card's header, as the Tasks page draws its sections.
+const CARD_HEAD: f32 = 40.;
 
 /// What Overview is drawn with that the tab knows.
 pub struct OverviewLook {
@@ -66,6 +68,8 @@ impl Requests {
                 cx,
             )
         };
+        let discussions = self.overview_discussions(look.discussions.clone());
+        let details = self.overview_details(&d);
         island()
             .flex_1()
             .min_w_0()
@@ -78,44 +82,32 @@ impl Requests {
                     .overflow_y_scroll()
                     .child(self.overview_identity(m, look.title, &look.facts))
                     .child(div().h(px(1.)).bg(theme::island_border()))
-                    // The description sets the height; the facts and discussions beside it are no
-                    // taller and scroll in their own column (the developer, 2026-10-23).
+                    // The page scrolls as a whole: Description and Discussions as headed cards in the main
+                    // column, Details beside them (round 41, P1).
                     .child(
                         div()
-                            .relative()
+                            .flex()
+                            .items_start()
+                            .gap(px(24.))
                             .px(px(24.))
-                            .py(px(20.))
+                            .pt(px(20.))
+                            .pb(px(24.))
                             .child(
-                                div()
-                                    .mr(px(SIDE + 32.))
-                                    .min_h(px(SIDE_MIN))
-                                    .min_w_0()
-                                    .flex()
-                                    .flex_col()
-                                    .gap(px(10.))
-                                    .child(
-                                        div()
-                                            .text_size(px(15.))
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .child("Description"),
-                                    )
-                                    .child(div().text_size(px(13.)).child(description)),
+                                div().flex_1().min_w_0().child(
+                                    div()
+                                        .max_w(px(MAIN_MAX))
+                                        .flex()
+                                        .flex_col()
+                                        .gap(px(16.))
+                                        .child(card(
+                                            "Description",
+                                            None,
+                                            div().text_size(px(13.)).child(description),
+                                        ))
+                                        .children(discussions),
+                                ),
                             )
-                            .child(
-                                div()
-                                    .id("overview-side")
-                                    .absolute()
-                                    .top(px(20.))
-                                    .bottom(px(20.))
-                                    .right(px(24.))
-                                    .w(px(SIDE))
-                                    .overflow_y_scroll()
-                                    .flex()
-                                    .flex_col()
-                                    .gap(px(20.))
-                                    .text_size(px(12.))
-                                    .children(self.overview_facts(&d, look.discussions)),
-                            ),
+                            .children(details.map(|d| div().flex_none().w(px(SIDE)).child(d))),
                     ),
             )
             .into_any_element()
@@ -125,7 +117,6 @@ impl Requests {
     /// the facts as glyphs, each with its sentence in its tooltip — pipeline, approvals, how far your own review is,
     /// the versions — the author last, the one that changes (#190).
     fn overview_identity(&self, m: &Mr, title: AnyElement, facts: &Facts) -> Div {
-        let url = m.url.clone();
         let mine = self.login.as_deref().is_some_and(|me| me == m.author_login);
         let author = if mine { "You" } else { m.author.as_str() };
         let glyph = |id: &'static str, icon: &'static str, color, text: String, tip: String| {
@@ -248,19 +239,7 @@ impl Requests {
                             .text_size(px(17.))
                             .font_weight(FontWeight::SEMIBOLD),
                     )
-                    .child(state_chip(m))
-                    .child(div().flex_1())
-                    .child(
-                        div()
-                            .id("overview-web")
-                            .flex_none()
-                            .text_size(px(12.))
-                            .text_color(theme::faint())
-                            .cursor_pointer()
-                            .hover(|s| s.text_color(theme::accent()))
-                            .child(words::say("Open in GitLab ↗").into_owned())
-                            .on_click(move |_: &ClickEvent, _, cx| cx.open_url(&url)),
-                    ),
+                    .child(state_chip(m)),
             )
             // The branches, a line of their own: a long one is the subject.
             .child(
@@ -285,9 +264,10 @@ impl Requests {
             .child(div().pt(px(4.)).child(row))
     }
 
-    /// Overview's column (#137, #190): who reviews and how far, the labels, the milestone, and the discussions —
-    /// open and resolved, a click opening the Discussions window. A part with nothing to say is left out.
-    fn overview_facts(&self, d: &Details, discussions: Rc<dyn Fn(&mut App)>) -> Vec<AnyElement> {
+    /// Details, the card at the right (round 41, P1): who reviews with where each stands as a glyph at the end of
+    /// a 24 px row, and the labels with the milestone as a flag chip among them. A part with nothing to say is
+    /// left out, and the card with it.
+    fn overview_details(&self, d: &Details) -> Option<AnyElement> {
         let approved = self
             .approvals
             .as_ref()
@@ -301,95 +281,162 @@ impl Requests {
                 reviewers.push(name.clone());
             }
         }
-        let mut column = Vec::new();
+        let mut blocks = Vec::new();
         if !reviewers.is_empty() {
-            column.push(
-                block(
-                    "Reviewers",
-                    reviewers.into_iter().map(|r| {
-                        let state = if approved.contains(&r) {
-                            ("✓ approved", theme::added())
-                        } else if d.changes_requested.contains(&r) {
-                            ("requested changes", theme::warning())
-                        } else {
-                            ("reviewing", theme::muted())
+            blocks.push(block(
+                "Reviewers",
+                reviewers.into_iter().enumerate().map(|(ix, r)| {
+                    let (icon, color, said) = if approved.contains(&r) {
+                        ("circle-check", theme::added(), "approved")
+                    } else if d.changes_requested.contains(&r) {
+                        ("circle-x", theme::warning(), "requested changes")
+                    } else {
+                        ("eye", theme::muted(), "reviewing")
+                    };
+                    let login = self.login_of(&r);
+                    reviewer_row(ix, r, login, icon, color, said).into_any_element()
+                }),
+            ));
+        }
+        if !d.labels.is_empty() || d.milestone.is_some() {
+            let chip = |c: Rgba| {
+                div()
+                    .px(px(8.))
+                    .h(px(20.))
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .rounded_full()
+                    .border_1()
+                    .border_color(Rgba { a: 0.5, ..c })
+                    .bg(Rgba { a: 0.12, ..c })
+                    .text_size(px(11.))
+                    .text_color(theme::text())
+            };
+            blocks.push(block(
+                "Labels",
+                [div()
+                    .flex()
+                    .flex_wrap()
+                    .gap(px(6.))
+                    .children(d.labels.iter().map(|l| {
+                        chip(l.color.map_or_else(theme::muted, gpui::rgb)).child(l.name.clone())
+                    }))
+                    // The milestone is a flag chip among them; its due date in the long hover.
+                    .children(d.milestone.as_ref().map(|(title, due)| {
+                        let tip = match due {
+                            Some(due) => format!("Milestone {title} · due {due}"),
+                            None => format!("Milestone {title}"),
                         };
-                        let login = self.login_of(&r);
-                        person(r, login, Some(state)).into_any_element()
-                    }),
-                )
-                .into_any_element(),
+                        chip(theme::muted())
+                            .id("overview-milestone")
+                            .child(icons::icon("flag").size(px(12.)).text_color(theme::muted()))
+                            .child(title.clone())
+                            .tip(tip)
+                    }))
+                    .into_any_element()],
+            ));
+        }
+        if blocks.is_empty() {
+            return None;
+        }
+        Some(
+            card(
+                "Details",
+                None,
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(16.))
+                    .text_size(px(12.))
+                    .children(blocks),
+            )
+            .into_any_element(),
+        )
+    }
+
+    /// The discussions still open as a headed card with their count, each thread in whole; one's own pending
+    /// comments among them, marked; the resolved ones as a line that opens the window. Nothing to show leaves the
+    /// card out.
+    fn overview_discussions(&self, window: Rc<dyn Fn(&mut App)>) -> Option<AnyElement> {
+        let open = open_threads(&self.threads);
+        let resolved = self.threads.iter().filter(|t| t.resolved).count();
+        let pending: Vec<&Draft> = self
+            .drafts
+            .iter()
+            .filter(|d| d.reply_to.is_none())
+            .collect();
+        if open.is_empty() && pending.is_empty() && resolved == 0 {
+            return None;
+        }
+        let me = self.login.as_deref();
+        let mut rows = Vec::new();
+        for (ix, t) in open.iter().enumerate() {
+            let Some(first) = t.notes.first() else {
+                continue;
+            };
+            let place = t.path.as_ref().map(|p| {
+                let line = t.new_line.or(t.old_line);
+                let name = p.rsplit('/').next().unwrap_or(p);
+                line.map_or_else(|| name.to_owned(), |n| format!("{name}:{n}"))
+            });
+            let waiting = self
+                .drafts
+                .iter()
+                .any(|d| d.reply_to.as_deref() == Some(t.id.as_str()));
+            let replies = t.notes.len() - 1;
+            rows.push(thread_row(
+                ("overview-thread", ix),
+                &first.author,
+                me == Some(first.login.as_str()),
+                (replies > 0).then(|| plural(replies, "reply")),
+                place,
+                waiting,
+                first.body.clone(),
+                window.clone(),
+            ));
+        }
+        for (ix, d) in pending.iter().enumerate() {
+            let (place, _, _) = self.draft_where(d);
+            rows.push(thread_row(
+                ("overview-pending", ix),
+                "You",
+                true,
+                None,
+                (place != "General").then_some(place),
+                true,
+                d.body.clone(),
+                window.clone(),
+            ));
+        }
+        let mut body = div()
+            .flex()
+            .flex_col()
+            .children(rows.into_iter().enumerate().map(|(i, r)| {
+                // A hairline between the threads, none over the first.
+                r.when(i > 0, |s| {
+                    s.border_t_1().border_color(theme::island_border())
+                })
+            }));
+        if resolved > 0 {
+            let window = window.clone();
+            body = body.child(
+                div()
+                    .id("overview-resolved")
+                    .flex()
+                    .items_center()
+                    .py(px(10.))
+                    .text_size(px(12.))
+                    .text_color(theme::muted())
+                    .cursor_pointer()
+                    .hover(|s| s.text_color(theme::accent()))
+                    .child(format!("{resolved} resolved"))
+                    .child(div().flex_1())
+                    .child("→")
+                    .on_click(move |_: &ClickEvent, _, cx| window(cx)),
             );
         }
-        if !d.labels.is_empty() {
-            column.push(
-                block(
-                    "Labels",
-                    [div()
-                        .flex()
-                        .flex_wrap()
-                        .gap(px(6.))
-                        .children(d.labels.iter().map(|l| {
-                            let color = l.color.map_or_else(theme::muted, gpui::rgb);
-                            div()
-                                .px(px(8.))
-                                .h(px(20.))
-                                .flex()
-                                .items_center()
-                                .rounded_full()
-                                .border_1()
-                                .border_color(Rgba { a: 0.5, ..color })
-                                .bg(Rgba { a: 0.12, ..color })
-                                .text_size(px(11.))
-                                .text_color(theme::text())
-                                .child(l.name.clone())
-                        }))
-                        .into_any_element()],
-                )
-                .into_any_element(),
-            );
-        }
-        if let Some((title, due)) = &d.milestone {
-            column.push(
-                block(
-                    "Milestone",
-                    [div()
-                        .flex()
-                        .gap(px(6.))
-                        .text_size(px(13.))
-                        .child(title.clone())
-                        .children(due.clone().map(|due| {
-                            div().text_color(theme::faint()).child(format!("due {due}"))
-                        }))
-                        .into_any_element()],
-                )
-                .into_any_element(),
-            );
-        }
-        let resolvable = self.threads.iter().filter(|t| t.resolvable);
-        let open = resolvable.clone().filter(|t| !t.resolved).count();
-        let resolved = resolvable.count() - open;
-        if open + resolved > 0 {
-            column.push(
-                block(
-                    "Discussions",
-                    [div()
-                        .id("overview-discussions")
-                        .flex()
-                        .items_center()
-                        .text_size(px(13.))
-                        .cursor_pointer()
-                        .hover(|s| s.text_color(theme::accent()))
-                        .child(format!("{open} open · {resolved} resolved"))
-                        .child(div().flex_1())
-                        .child(div().text_color(theme::accent()).child("→"))
-                        .on_click(move |_: &ClickEvent, _, cx| discussions(cx))
-                        .into_any_element()],
-                )
-                .into_any_element(),
-            );
-        }
-        column
+        Some(card("Discussions", Some(open.len()), body).into_any_element())
     }
 
     /// A request's identity in words, for a long hover: its number and title, whose it is and
@@ -455,7 +502,53 @@ fn state_chip(m: &Mr) -> Div {
         .child(word)
 }
 
-/// A block of Overview's column: its heading over its rows.
+/// The discussions of a request that are still open, in the host's order: what the Discussions card lists and counts.
+pub(crate) fn open_threads(threads: &[Thread]) -> Vec<&Thread> {
+    threads.iter().filter(|t| !t.resolved).collect()
+}
+
+/// A headed card as the Tasks issue page draws its sections: a 40 px header with the title and its count, a
+/// hairline, the body.
+fn card(title: &str, count: Option<usize>, body: impl IntoElement) -> Div {
+    div()
+        .min_w_0()
+        .rounded(px(6.))
+        .border_1()
+        .border_color(theme::island_border())
+        .child(
+            div()
+                .h(px(CARD_HEAD))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .pl(px(24.))
+                .pr(px(8.))
+                .rounded_t(px(6.))
+                .border_b_1()
+                .border_color(theme::island_border())
+                .bg(theme::panel())
+                .text_size(px(13.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(title.to_owned())
+                .children(count.map(|n| {
+                    div()
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::NORMAL)
+                        .text_color(theme::faint())
+                        .child(n.to_string())
+                })),
+        )
+        .child(
+            div()
+                .pt(px(12.))
+                .pb(px(14.))
+                .pl(px(24.))
+                .pr(px(20.))
+                .child(body),
+        )
+}
+
+/// A block of Details: its heading over its rows.
 fn block(title: &str, rows: impl IntoIterator<Item = AnyElement>) -> Div {
     div()
         .flex()
@@ -471,24 +564,138 @@ fn block(title: &str, rows: impl IntoIterator<Item = AnyElement>) -> Div {
         .children(rows)
 }
 
-/// Someone in a list: the face, the name with the username under it (the developer,
-/// 2026-10-23), and where they stand.
-fn person(name: String, login: Option<String>, state: Option<(&'static str, Rgba)>) -> Div {
-    let login = login.filter(|l| *l != name);
+/// One of Details' reviewers: the face and the name, where they stand as a glyph at the end; the username and
+/// the word in the long hover.
+fn reviewer_row(
+    ix: usize,
+    name: String,
+    login: Option<String>,
+    icon: &'static str,
+    color: Rgba,
+    said: &str,
+) -> impl IntoElement {
+    let who = match login.as_deref().filter(|l| *l != name) {
+        Some(l) => format!("{name} (@{l})"),
+        None => name.clone(),
+    };
     div()
+        .id(("overview-reviewer", ix))
+        .h(px(24.))
         .flex()
         .items_center()
-        .gap(px(6.))
-        .child(discussion::avatar(
-            &name,
-            false,
-            if login.is_some() { 24. } else { 18. },
-        ))
-        .child(div().flex().flex_col().child(name).children(login.map(|l| {
+        .gap(px(8.))
+        .child(discussion::avatar(&name, false, 18.))
+        .child(div().min_w_0().child(name))
+        .child(div().flex_1())
+        .child(icons::icon(icon).size(px(14.)).text_color(color))
+        .tip(format!("{who} · {said}"))
+}
+
+/// A discussion in its card: the face and the name, the place at the right (and the mark of a pending comment),
+/// the whole text under them; a click opens the Discussions window.
+#[allow(clippy::too_many_arguments)]
+fn thread_row(
+    id: (&'static str, usize),
+    author: &str,
+    me: bool,
+    replies: Option<String>,
+    place: Option<String>,
+    pending: bool,
+    body: String,
+    window: Rc<dyn Fn(&mut App)>,
+) -> gpui::Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .gap(px(10.))
+        .py(px(10.))
+        .cursor_pointer()
+        .child(
             div()
-                .text_size(px(11.))
-                .text_color(theme::faint())
-                .child(format!("@{l}"))
-        })))
-        .children(state.map(|(word, color)| div().text_color(color).child(word)))
+                .flex_none()
+                .pt(px(1.))
+                .child(discussion::avatar(author, me, 18.)),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .text_size(px(12.))
+                        .child(div().font_weight(FontWeight::SEMIBOLD).child(if me {
+                            "You".to_owned()
+                        } else {
+                            author.to_owned()
+                        }))
+                        .children(replies.map(|r| div().text_color(theme::faint()).child(r)))
+                        .child(div().flex_1())
+                        .children(place.map(|p| {
+                            div()
+                                .flex_none()
+                                .font_family(theme::code_font())
+                                .text_size(px(11.))
+                                .text_color(theme::faint())
+                                .child(p)
+                        }))
+                        .when(pending, |s| {
+                            s.child(
+                                div()
+                                    .id(("overview-pending-mark", id.1))
+                                    .flex_none()
+                                    .child(
+                                        icons::icon("circle-dashed")
+                                            .size(px(14.))
+                                            .text_color(theme::muted()),
+                                    )
+                                    .tip("Pending: only you see it until the review is submitted"),
+                            )
+                        }),
+                )
+                .child(div().text_size(px(13.)).child(body)),
+        )
+        .on_click(move |_: &ClickEvent, _, cx| window(cx))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn thread(id: &str, resolved: bool) -> Thread {
+        Thread {
+            id: id.to_owned(),
+            notes: Vec::new(),
+            path: None,
+            new_line: None,
+            old_line: None,
+            resolved,
+            resolvable: true,
+            resolved_by: None,
+            resolved_at: 0,
+            commit: None,
+            outdated: false,
+        }
+    }
+
+    #[test]
+    fn the_discussions_cards_count_is_the_open_threads() {
+        let threads = [
+            thread("a", false),
+            thread("b", true),
+            thread("c", false),
+            thread("d", true),
+        ];
+        let open: Vec<&str> = open_threads(&threads)
+            .iter()
+            .map(|t| t.id.as_str())
+            .collect();
+        assert_eq!(open, ["a", "c"]);
+        assert!(open_threads(&[]).is_empty());
+    }
 }
