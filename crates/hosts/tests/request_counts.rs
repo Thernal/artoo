@@ -16,6 +16,9 @@ use std::sync::{Arc, Mutex, Once};
 /// Open requests in the canned list.
 const ROWS: u64 = 3;
 
+/// The transport is one per process: the tests that install one take this first and run one after another.
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
 fn tokens() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
@@ -286,6 +289,7 @@ const GITHUB: Counts = Counts {
 };
 
 fn run(side: Side, c: Counts) {
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     artoo_hosts::forget_kept();
     let (seen, rows) = counted(side, 0, |h| list_read(h, false));
     check("cold list read", &seen, c.list_cold);
@@ -349,6 +353,7 @@ fn what_a_github_project_costs_in_requests() {
 /// The canned notes are the notes the counts are about: a request with 150 reads 150 discussions.
 #[test]
 fn the_canned_notes_are_read() {
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     for side in [Side::GitLab, Side::GitHub] {
         let (_, got) = counted(side, 150, |h| {
             assert_eq!(h.threads(1).map(|t| t.len()).unwrap_or(0), 150);
@@ -367,6 +372,8 @@ fn a_repeated_list_read_is_answered_with_304s() {
         let world = World { side, notes: 0 };
         let statuses = Arc::new(Mutex::new(Vec::new()));
         let log = statuses.clone();
+        let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+        artoo_hosts::forget_kept();
         let guard = http::with_transport(move |r| {
             let a = world.answer(r);
             log.lock().unwrap().push((r.method.clone(), a.status));

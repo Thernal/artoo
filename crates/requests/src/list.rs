@@ -22,6 +22,7 @@ use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 /// What the requests list keeps per project (`<repo>\t<folded groups>\t<requests read>\t<folds>\t<display>`, the
 /// first two comma-separated, a request read as `<iid>@<its update then>`; `folds` once a group was folded or
@@ -45,6 +46,20 @@ pub struct Facts {
     pub threads: Vec<Thread>,
     pub pushes: Vec<i64>,
     pub size: Option<Size>,
+    /// When this run read them; none for those kept from the last start, which count as fresh at their update.
+    #[serde(skip)]
+    at: Option<Instant>,
+}
+
+/// A row's pipeline and approvals change without the request's `updated` moving: they are read again after this.
+const FACTS_TTL: Duration = Duration::from_secs(300);
+
+impl Facts {
+    /// Whether these facts still stand for a request at `updated`: read at it, and (when read in this run) not
+    /// older than `FACTS_TTL`.
+    fn stands(&self, updated: i64) -> bool {
+        self.updated == updated && self.at.is_none_or(|at| at.elapsed() < FACTS_TTL)
+    }
 }
 
 /// The picked request's preview, beyond its row: what changed since your review, with
@@ -132,7 +147,7 @@ impl Rows {
             else {
                 continue;
             };
-            let fresh = self.facts.get(&iid).is_some_and(|f| f.updated == m.updated);
+            let fresh = self.facts.get(&iid).is_some_and(|f| f.stands(m.updated));
             if fresh || !self.reading.insert(iid) {
                 continue;
             }
@@ -347,7 +362,7 @@ impl Requests {
             let order = order(self.rows.display.1, &size);
             let mut open: Vec<&Mr> = (self.list.iter())
                 .filter(|m| m.state == MrState::Opened)
-                .filter(|m| (self.rows.facts.get(&m.iid)).is_none_or(|f| f.updated != m.updated))
+                .filter(|m| !(self.rows.facts.get(&m.iid)).is_some_and(|f| f.stands(m.updated)))
                 .collect();
             open.sort_by_key(|m| (self.group_of(m), order(m)));
             open.iter().map(|m| m.iid).collect()
@@ -519,6 +534,7 @@ fn facts_of(host: &dyn Host, root: Option<&Path>, m: &Mr) -> Facts {
             .map(|p| p.created)
             .collect(),
         size,
+        at: Some(Instant::now()),
     }
 }
 
@@ -1658,6 +1674,27 @@ mod tests {
             kept_list("a\treviewed\t398\n", "a").map(|k| k.folded),
             Some(HashSet::new())
         );
+    }
+
+    #[test]
+    fn facts_stand_at_their_update_and_for_five_minutes_when_read_this_run() {
+        let kept = Facts {
+            updated: 5,
+            ..Default::default()
+        };
+        // Kept from the last start: fresh while the update is the same.
+        assert!(kept.stands(5) && !kept.stands(6));
+        let now = Facts {
+            at: Some(Instant::now()),
+            ..kept
+        };
+        assert!(now.stands(5));
+        let old = Facts {
+            updated: 5,
+            at: Instant::now().checked_sub(FACTS_TTL + Duration::from_secs(1)),
+            ..Default::default()
+        };
+        assert!(!old.stands(5));
     }
 
     #[test]

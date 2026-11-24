@@ -1829,6 +1829,8 @@ impl Workspace {
             }
             if window.is_window_active() {
                 this.window_activated(cx);
+            } else {
+                this.window_deactivated();
             }
         })
         .detach();

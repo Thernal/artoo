@@ -93,6 +93,7 @@ impl Workspace {
                 self.requests_listed(cx);
                 self.follow_pending_link(cx);
                 self.load_notices(cx);
+                self.keep_refreshing(cx);
             }
             // A link waiting for one goes on.
             Event::Left => self.follow_pending_link(cx),

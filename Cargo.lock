@@ -522,6 +522,7 @@ dependencies = [
  "artoo-agents-api",
  "artoo-branches-api",
  "artoo-core",
+ "artoo-hosts",
  "artoo-hosts-api",
  "artoo-images-api",
  "artoo-requests-api",

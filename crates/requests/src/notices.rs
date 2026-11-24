@@ -1221,4 +1221,81 @@ mod tests {
         notices.arrive_todos(Err(anyhow::anyhow!("offline")));
         assert_eq!(notices.list.len(), 1);
     }
+
+    /// A request whose `updated` moves between two reads: the next read fetches its discussions again and lists
+    /// the new comment (audit step 7: the refreshed list is what the notices poll reads).
+    #[test]
+    fn a_request_updated_between_two_reads_lists_its_new_comment() {
+        use artoo_core::git::WebRemote;
+        use artoo_core::http;
+        use std::sync::{Arc, Mutex};
+        // SAFETY: the only test here that reads the token variable, set before it starts a thread of its own.
+        unsafe { std::env::set_var("GITLAB_TOKEN", "test") };
+        let state = Arc::new(Mutex::new((0usize, Vec::<String>::new())));
+        let seen = state.clone();
+        let _guard = http::with_transport(move |r| {
+            let (step, log) = &mut *seen.lock().unwrap();
+            log.push(r.url.clone());
+            let note = |id: u64| {
+                serde_json::json!({ "id": format!("d{id}"), "individual_note": true, "notes": [{
+                    "id": id, "body": format!("note {id}"), "author": { "username": "ann", "name": "Ann" },
+                    "created_at": "2026-11-01T10:00:00Z", "system": false }] })
+            };
+            let value = if r.url.ends_with("/user") {
+                serde_json::json!({ "username": "me", "name": "Me" })
+            } else if r.url.contains("/merge_requests?state=opened") {
+                let updated = if *step == 0 {
+                    "2026-11-01T10:00:00Z"
+                } else {
+                    "2026-11-01T10:05:00Z"
+                };
+                serde_json::json!([{ "iid": 1, "state": "opened", "title": "t", "sha": "abc",
+                    "updated_at": updated, "created_at": "2026-11-01T09:00:00Z",
+                    "author": { "username": "me", "name": "Me" } }])
+            } else if r.url.contains("/discussions?") {
+                serde_json::Value::Array(if *step == 0 {
+                    vec![note(1)]
+                } else {
+                    vec![note(1), note(2)]
+                })
+            } else {
+                serde_json::json!([])
+            };
+            http::reply(200, &value.to_string())
+        });
+        let host = artoo_hosts::hosts().of(&WebRemote {
+            base: "https://gl.example/team/proj".into(),
+            github: false,
+        });
+        let mut notices = Notices::default();
+        let threads_read = || {
+            state
+                .lock()
+                .unwrap()
+                .1
+                .iter()
+                .filter(|u| u.contains("/discussions?"))
+                .count()
+        };
+        let mut round = |step: usize| {
+            state.lock().unwrap().0 = step;
+            let list = host.list().unwrap();
+            let reading = notices.begin("https://gl.example/team/proj", Some("me".into()));
+            let found = read(&*host, &list, reading);
+            let arrived = notices.arrive(found, step as u64).unwrap();
+            let news = arrived.news.len();
+            notices.put(arrived);
+            news
+        };
+        assert_eq!(round(0), 0);
+        let first = threads_read();
+        assert_eq!(first, 1);
+        // Nothing moved: the discussions are not read again.
+        assert_eq!(round(0), 0);
+        assert_eq!(threads_read(), first);
+        // `updated` moved: read again, and the new comment is listed.
+        assert_eq!(round(1), 1);
+        assert_eq!(threads_read(), first + 1);
+        assert!(notices.list.iter().any(|n| n.note == Some(2)));
+    }
 }

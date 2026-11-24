@@ -12,8 +12,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const INTERVAL: Duration = Duration::from_secs(300);
 /// A focus gain fetches only when the last fetch is older than this.
 const FOCUS_AFTER: i64 = 60;
-/// A focus gain reads the notifications only when the last read is older than this.
-const NOTICES_AFTER: Duration = Duration::from_secs(30);
+/// A focus gain reads the open list (and, after it, the notifications) only when the last read is older than this.
+const LIST_AFTER: Duration = Duration::from_secs(30);
+/// While a window of the project is in front, the open list is read again this often.
+const LIST_EVERY: Duration = Duration::from_secs(90);
 
 #[derive(Default)]
 pub struct Fetch {
@@ -23,8 +25,12 @@ pub struct Fetch {
     running: bool,
     /// Seconds since the epoch of the last successful fetch.
     last: Option<i64>,
-    /// When the window's focus last started a read of the notifications.
-    notices_at: Option<std::time::Instant>,
+    /// When the open list was last read by the refresh or a focus gain.
+    list_at: Option<std::time::Instant>,
+    /// No window of the project is in front: the refresh is not running.
+    away: bool,
+    /// The refresh of the open list every `LIST_EVERY`, alive only while a window is in front.
+    refresh: Option<Task<()>>,
     error: Option<String>,
     task: Option<Task<()>>,
 }
@@ -47,6 +53,7 @@ impl Workspace {
         self.fetch = Fetch {
             enabled,
             remote,
+            away: self.fetch.away,
             ..Fetch::default()
         };
         if enabled {
@@ -71,17 +78,49 @@ impl Workspace {
 
     /// The window came back to the front.
     pub(super) fn window_activated(&mut self, cx: &mut Context<Self>) {
-        if self
-            .fetch
-            .notices_at
-            .is_none_or(|t| t.elapsed() > NOTICES_AFTER)
-        {
-            self.fetch.notices_at = Some(std::time::Instant::now());
-            self.load_notices(cx);
+        self.fetch.away = false;
+        if self.fetch.list_at.is_none_or(|t| t.elapsed() > LIST_AFTER) {
+            self.refresh_list(cx);
         }
+        self.keep_refreshing(cx);
         if self.fetch.enabled && self.fetch.last.is_none_or(|t| now() - t > FOCUS_AFTER) {
             self.fetch_now(cx);
         }
+    }
+
+    /// The window left the front: the refresh stops until it comes back.
+    pub(super) fn window_deactivated(&mut self) {
+        self.fetch.away = true;
+        self.fetch.refresh = None;
+    }
+
+    /// Reads the open list alone (not the project again); the notifications follow it (`Event::Listed`) and so
+    /// read the fresh list. Without a list to read, the notifications alone.
+    fn refresh_list(&mut self, cx: &mut Context<Self>) {
+        self.fetch.list_at = Some(std::time::Instant::now());
+        match self.requests_api() {
+            Some(requests) if self.web.is_some() && requests.available(cx) => {
+                if !requests.listing(cx) {
+                    requests.read_list(cx);
+                }
+            }
+            _ => self.load_notices(cx),
+        }
+    }
+
+    /// Starts the refresh timer when a window is in front and none runs.
+    pub(super) fn keep_refreshing(&mut self, cx: &mut Context<Self>) {
+        if self.fetch.away || self.fetch.refresh.is_some() {
+            return;
+        }
+        self.fetch.refresh = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(LIST_EVERY).await;
+                if this.update(cx, |this, cx| this.refresh_list(cx)).is_err() {
+                    return;
+                }
+            }
+        }));
     }
 
     pub(super) fn fetch_now(&mut self, cx: &mut Context<Self>) {
