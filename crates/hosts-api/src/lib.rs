@@ -194,6 +194,12 @@ pub trait Requests: Send + Sync {
 
     /// Marks to-do `id` done on GitLab.
     fn mark_todo_done(&self, id: u64) -> Result<()>;
+
+    /// Marks to-do `id` read on the host because it was opened. GitHub's "read" is its PATCH; on GitLab a to-do has
+    /// no read state (done removes it from the web's list), so the default does nothing.
+    fn mark_todo_read(&self, _id: u64) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// A request's discussions: their notes and reactions, the pending comments, the files they link.

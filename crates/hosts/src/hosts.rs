@@ -466,6 +466,10 @@ impl Requests for GitHub {
     fn mark_todo_done(&self, id: u64) -> Result<()> {
         github::mark_todo_done(&self.remote, id)
     }
+
+    fn mark_todo_read(&self, id: u64) -> Result<()> {
+        github::mark_todo_read(&self.remote, id)
+    }
 }
 
 impl Discussions for GitHub {

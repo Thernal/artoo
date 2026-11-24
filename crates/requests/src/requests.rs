@@ -966,7 +966,13 @@ impl artoo_requests_api::Requests for Handle {
     }
 
     fn open_notice(&self, ix: usize, cx: &mut App) -> Option<(u64, Option<u64>)> {
-        let n = self.notices()?.update(cx, |n, _| n.open(ix))?;
+        let notices = self.notices()?;
+        let (n, was_unread) = notices.update(cx, |n, _| n.open(ix))?;
+        if was_unread {
+            self.update(cx, |rq, cx| {
+                rq.mark_notice_read_on_host(notices, n.clone(), cx)
+            });
+        }
         Some((n.iid, n.note))
     }
 

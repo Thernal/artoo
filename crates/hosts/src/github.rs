@@ -1713,6 +1713,21 @@ pub fn parse_notifications(value: &Value, base: &str) -> Vec<Todo> {
         .collect()
 }
 
+/// Marks a notification read because it was opened; its list is read again.
+pub fn mark_todo_read(remote: &WebRemote, id: u64) -> Result<()> {
+    if crate::fixture::record(format!("todo-read {id}"))? {
+        return Ok(());
+    }
+    rest(
+        remote,
+        "PATCH",
+        &format!("/notifications/threads/{id}"),
+        None,
+    )?;
+    crate::kept::drop_of(&crate::kept::host_of(&remote.base), "todos");
+    Ok(())
+}
+
 /// Marks a notification read.
 pub fn mark_todo_done(remote: &WebRemote, id: u64) -> Result<()> {
     if crate::fixture::record(format!("todo-done {id}"))? {

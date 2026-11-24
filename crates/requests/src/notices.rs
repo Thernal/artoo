@@ -468,11 +468,19 @@ impl Notices {
         self.pending_done.remove(&id);
     }
 
-    /// Notice `ix` opened: read from now on.
-    pub fn open(&mut self, ix: usize) -> Option<Notice> {
+    /// Notice `ix` opened: read from now on. Whether it was unread until now comes with it.
+    pub fn open(&mut self, ix: usize) -> Option<(Notice, bool)> {
         let n = self.list.get(ix).cloned()?;
+        let was_unread = !self.is_read(&n.key);
         self.mark_read(n.key.clone());
-        Some(n)
+        Some((n, was_unread))
+    }
+
+    /// The host did not take notice `key` as read: it is unread again.
+    pub fn put_unread(&mut self, key: &str) {
+        if self.read.remove(key) {
+            self.save_read();
+        }
     }
 
     /// Done with notice `ix` of project `base`: gone from the list; a discussion resolved is known, a comment
@@ -950,6 +958,33 @@ impl Requests {
         });
     }
 
+    /// Notice `n` was opened and is read here at once; a to-do is marked read on the host too (GitHub's PATCH). A
+    /// refusal puts it back as unread and says why, as `dismiss_notice` does.
+    pub(crate) fn mark_notice_read_on_host(
+        &mut self,
+        notices: Entity<Notices>,
+        n: Notice,
+        cx: &mut Context<Self>,
+    ) {
+        let (Some(id), Some(host)) = (n.todo, self.host(cx)) else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let done = cx
+                .background_executor()
+                .spawn(async move { host.mark_todo_read(id) })
+                .await;
+            this.update(cx, |_, cx| {
+                if let Err(e) = done {
+                    notices.update(cx, |ns, _| ns.put_unread(&n.key));
+                    cx.emit(Event::Failed(format!("Not marked read — {e:#}")));
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// `e`: done with notice `ix` of `notices`: gone at once; a to-do is marked done on the host, and a refusal puts it
     /// back where it was and says why (#139).
     pub(crate) fn dismiss_notice(
@@ -1203,6 +1238,22 @@ mod tests {
             complete,
             loaded: seen::Loaded::default(),
         }
+    }
+
+    #[test]
+    fn a_failed_host_read_puts_the_notice_back_as_unread() {
+        let mut notices = Notices {
+            list: vec![todo_notice(4)],
+            ..Notices::default()
+        };
+        let (n, was_unread) = notices.open(0).unwrap();
+        assert!(was_unread && notices.is_read(&n.key));
+        // Opened again it was read already: no second host call.
+        assert!(!notices.open(0).unwrap().1);
+        // The host refused: unread again, counted again.
+        notices.put_unread(&n.key);
+        assert!(!notices.is_read(&n.key));
+        assert!(notices.open(0).unwrap().1);
     }
 
     #[test]
