@@ -98,7 +98,9 @@ impl Workspace {
         // Esc closes the innermost thing — a card, menu or popover, the find bar, a filter, the
         // tool window with the keyboard — then goes one page up (#71).
         if key.key == "escape" {
-            if self.rv().done_open(cx) {
+            if self.dismiss_toast(cx) {
+                // The toast on top goes first, then what was open (round 40).
+            } else if self.rv().done_open(cx) {
                 self.rv().close_done(cx);
                 cx.notify();
             } else if self.requests_api().is_some_and(|r| r.close_description(cx)) {

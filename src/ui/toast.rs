@@ -143,8 +143,10 @@ impl Workspace {
                     true => format!("{} · {}", source.name, declared.name),
                     false => declared.name.to_owned(),
                 };
+                let tip = format!("Turn off toasts for {name}");
                 let words = Words::default()
                     .source(self.source_name(&source))
+                    .more_tip(tip)
                     .more(self.toast_more(kind, name, cx));
                 (shows, sends, source.guest.then_some(source.name), words)
             }
@@ -331,6 +333,11 @@ impl Workspace {
     /// ⌥↵: the newest toast's button, pressed (#198); the snapshot checks press it too.
     pub(super) fn press_toast(&mut self, cx: &mut Context<Self>) -> bool {
         self.toasts.update(cx, |t, cx| t.press_newest(cx))
+    }
+
+    /// `esc`: the newest toast dismissed (round 40); false when none shows.
+    pub(super) fn dismiss_toast(&mut self, cx: &mut Context<Self>) -> bool {
+        self.toasts.update(cx, |t, cx| t.dismiss_newest(cx))
     }
 
     /// ⌘Z: the newest toast's Undo (#191).

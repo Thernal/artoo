@@ -1124,6 +1124,33 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
             });
             wait(1000).await;
         }
+        // The type's other shapes: news with one action and no body (`toast-info`: the action on the title line),
+        // and a success with a body and Undo (`toast-success`).
+        if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("toast-info")) {
+            ws.update(cx, |this, cx| {
+                this.toasts.update(cx, |t, cx| {
+                    t.show_with(
+                        "Comment deleted",
+                        "Undo",
+                        std::rc::Rc::new(|_: &mut gpui::App| {}),
+                        cx,
+                    )
+                });
+            });
+            wait(1000).await;
+        }
+        if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("toast-success")) {
+            ws.update(cx, |this, cx| {
+                let words =
+                    artoo_ui_kit::toast::Words::new("Moved to AI solutions team Q4 Sprint 4")
+                        .tone(artoo_ui_kit::toast::Tone::Success)
+                        .about("PFM-412 Retry category suggestions after a timeout");
+                this.toasts.update(cx, |t, cx| {
+                    t.show_with(words, "Undo", std::rc::Rc::new(|_: &mut gpui::App| {}), cx)
+                });
+            });
+            wait(1000).await;
+        }
         // A chat that began listening, as its toast (`toast-chat`): the words, the branch under them, Show and Stop
         // listening.
         if std::env::var("ARTOO_SNAPSHOT_VIEW").is_ok_and(|v| v.contains("toast-chat")) {
