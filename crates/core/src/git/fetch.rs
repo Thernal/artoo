@@ -10,9 +10,14 @@ use std::time::{Duration, Instant};
 
 const TIMEOUT: Duration = Duration::from_secs(90);
 
-/// `git fetch --all --prune` in `root`; the error is a sentence a person can act on.
+/// `git fetch --prune` of the web remote in `root` (the one the host's pages are about; the others
+/// are not asked); every remote only when none is the web one. The error is a sentence a person can
+/// act on.
 pub fn all(root: &Path) -> Result<(), String> {
-    git_fetch(root, &["--all", "--prune"])
+    match web_remote(root) {
+        Ok(remote) => git_fetch(root, &["--prune", &remote]),
+        Err(_) => git_fetch(root, &["--all", "--prune"]),
+    }
 }
 
 /// Request `iid`'s head, from where the host keeps it, to `git::request_ref` (#114): a merged or
@@ -173,6 +178,26 @@ mod tests {
 
         std::fs::remove_dir_all(&origin).unwrap();
         assert!(all(&clone).is_err());
+    }
+
+    #[test]
+    fn only_the_web_remote_is_fetched() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let (other, clone) = (tmp.path().join("other"), tmp.path().join("clone"));
+        std::fs::create_dir(&other).unwrap();
+        git(&other, &["init", "-q", "-b", "main"]);
+        git(&other, &["commit", "-q", "--allow-empty", "-m", "one"]);
+        std::fs::create_dir(&clone).unwrap();
+        git(&clone, &["init", "-q", "-b", "main"]);
+        git(
+            &clone,
+            &["remote", "add", "origin", "git@github.com:me/app.git"],
+        );
+        git(&clone, &["remote", "add", "other", other.to_str().unwrap()]);
+        // origin is unreachable here, so a fetch of it fails; the reachable `other` stays untouched.
+        assert!(all(&clone).is_err());
+        let repo = crate::git::Repo::open(&clone).unwrap();
+        assert!(repo.resolve("other/main").is_err());
     }
 
     #[test]

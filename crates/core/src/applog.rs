@@ -7,7 +7,11 @@ use std::path::PathBuf;
 /// The lines the file keeps; past twice this many it is cut back.
 const KEEP: usize = 2_000;
 
+/// None in a test (`platform::sandboxed`): a test never writes the real log.
 fn file() -> Option<PathBuf> {
+    if crate::platform::sandboxed() {
+        return None;
+    }
     crate::platform::data_dir().map(|d| d.join("log.txt"))
 }
 

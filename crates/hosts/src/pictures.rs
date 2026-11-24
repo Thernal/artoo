@@ -6,16 +6,17 @@
 //! drawn as kept and asked again once a day. A GitLab upload written in a comment of the project
 //! is asked through the API with the host's token (`crate::gitlab::upload`): a private project's
 //! uploads need sign-in, and the token goes to that project's host only, never to an address a
-//! comment names. One that could not be had is not asked for again for a week (`<name>.none`);
+//! comment names. One that could not be had is not asked for again for a week (`<name>.none`), and
+//! after any failed fetch not again for a minute in the run; at most four are fetched at once;
 //! images not written for 60 days are swept.
 
 use crate::git::WebRemote;
 use artoo_core::http;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, Once};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Where a picture is kept: people's pictures apart from the images pages show.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -55,12 +56,25 @@ impl artoo_ui_kit::pictures::Pictures for WebPictures {
 
 /// Each address's file once it is in; None while it is being fetched or could not be.
 static FILES: LazyLock<Mutex<HashMap<String, Option<PathBuf>>>> = LazyLock::new(Default::default);
-/// The pictures read, by file: read once, drawn as often as wanted.
-static IMAGES: LazyLock<Mutex<HashMap<PathBuf, Option<Picture>>>> = LazyLock::new(Default::default);
+/// The pictures read, by file: read once, drawn as often as wanted; the least recently drawn go
+/// past `DECODED`.
+static IMAGES: LazyLock<Mutex<Lru<PathBuf, Option<Picture>>>> =
+    LazyLock::new(|| Mutex::new(Lru::new(DECODED)));
+/// Fetches waiting for one of the `WORKERS`, and how many of those run.
+static QUEUE: LazyLock<Mutex<(VecDeque<Job>, usize)>> = LazyLock::new(Default::default);
+/// Addresses whose fetch failed, and when they may be asked for again.
+static BACKOFF: LazyLock<Mutex<HashMap<String, Instant>>> = LazyLock::new(Default::default);
 /// A picture came in since the window last looked.
 static FRESH: AtomicBool = AtomicBool::new(false);
 static SWEPT: Once = Once::new();
 
+/// Fetches that run at once.
+const WORKERS: usize = 4;
+/// Pictures kept decoded in memory.
+const DECODED: usize = 128;
+/// How long after a failed fetch (the host's no, a host not reached) the address is not asked again
+/// in this run.
+const BACKOFF_FOR: Duration = Duration::from_secs(60);
 /// How long a picture that could not be had is not asked for again.
 const RETRY: Duration = Duration::from_secs(7 * 24 * 3600);
 /// How long an image that may change (not an upload) is drawn before it is asked for again.
@@ -116,6 +130,16 @@ pub fn want(url: &str, shelf: Shelf, upload: Option<(String, String)>) {
     if files.contains_key(url) {
         return;
     }
+    {
+        let mut backoff = BACKOFF.lock().unwrap_or_else(|e| e.into_inner());
+        match backoff.get(url) {
+            Some(until) if Instant::now() < *until => return,
+            Some(_) => {
+                backoff.remove(url);
+            }
+            None => {}
+        }
+    }
     files.insert(url.to_owned(), None);
     let Some(dir) = shelf.dir() else {
         return;
@@ -145,10 +169,53 @@ pub fn want(url: &str, shelf: Shelf, upload: Option<(String, String)>) {
     spawn(url, stem, upload);
 }
 
+/// One fetch waiting for a worker.
+struct Job {
+    url: String,
+    stem: PathBuf,
+    upload: Option<(String, String)>,
+}
+
+/// Queues the fetch; at most `WORKERS` threads run them, each taking the next until none is left.
 fn spawn(url: &str, stem: PathBuf, upload: Option<(String, String)>) {
-    let url = url.to_owned();
-    std::thread::spawn(move || {
-        if let Some(file) = fetch(&url, &stem, upload) {
+    let job = Job {
+        url: url.to_owned(),
+        stem,
+        upload,
+    };
+    let start = {
+        let mut queue = QUEUE.lock().unwrap_or_else(|e| e.into_inner());
+        queue.0.push_back(job);
+        let start = queue.1 < WORKERS;
+        if start {
+            queue.1 += 1;
+        }
+        start
+    };
+    if start {
+        std::thread::spawn(work);
+    }
+}
+
+fn work() {
+    loop {
+        let job = {
+            let mut queue = QUEUE.lock().unwrap_or_else(|e| e.into_inner());
+            match queue.0.pop_front() {
+                Some(job) => job,
+                None => {
+                    queue.1 -= 1;
+                    return;
+                }
+            }
+        };
+        run(job);
+    }
+}
+
+fn run(Job { url, stem, upload }: Job) {
+    match fetch(&url, &stem, upload) {
+        Some(file) => {
             IMAGES
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -159,7 +226,15 @@ fn spawn(url: &str, stem: PathBuf, upload: Option<(String, String)>) {
                 .insert(url, Some(file));
             FRESH.store(true, Ordering::Relaxed);
         }
-    });
+        None => {
+            // Not asked for again for a minute; then the disk and the host are looked at again.
+            BACKOFF
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(url.clone(), Instant::now() + BACKOFF_FOR);
+            FILES.lock().unwrap_or_else(|e| e.into_inner()).remove(&url);
+        }
+    }
 }
 
 /// The picture at `url`, once it is in.
@@ -170,12 +245,63 @@ pub fn get(url: &str) -> Option<Picture> {
         .get(url)
         .cloned()
         .flatten()?;
-    IMAGES
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .entry(file.clone())
-        .or_insert_with(|| read(&file))
-        .clone()
+    let mut images = IMAGES.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(picture) = images.get(&file) {
+        return picture.clone();
+    }
+    let picture = read(&file);
+    images.put(file, picture.clone());
+    picture
+}
+
+/// A map that keeps the `cap` most recently used entries.
+struct Lru<K, V> {
+    cap: usize,
+    map: HashMap<K, V>,
+    order: VecDeque<K>,
+}
+
+impl<K: Clone + Eq + std::hash::Hash, V> Lru<K, V> {
+    fn new(cap: usize) -> Self {
+        Self {
+            cap,
+            map: HashMap::new(),
+            order: VecDeque::new(),
+        }
+    }
+
+    fn touch(&mut self, key: &K) {
+        if let Some(at) = self.order.iter().position(|k| k == key) {
+            let k = self.order.remove(at).expect("position is in range");
+            self.order.push_back(k);
+        }
+    }
+
+    fn get(&mut self, key: &K) -> Option<&V> {
+        if self.map.contains_key(key) {
+            self.touch(key);
+        }
+        self.map.get(key)
+    }
+
+    fn put(&mut self, key: K, value: V) {
+        if self.map.insert(key.clone(), value).is_some() {
+            self.touch(&key);
+            return;
+        }
+        self.order.push_back(key);
+        while self.order.len() > self.cap {
+            if let Some(old) = self.order.pop_front() {
+                self.map.remove(&old);
+            }
+        }
+    }
+
+    fn remove(&mut self, key: &K) {
+        if self.map.remove(key).is_some() {
+            self.order.retain(|k| k != key);
+        }
+    }
 }
 
 fn is_web(url: &str) -> bool {
@@ -330,6 +456,20 @@ mod tests {
             "https://img.shields.io/badge/build-passing-green"
         ));
         assert!(image("docs/logo.png").is_none());
+    }
+
+    #[test]
+    fn the_least_recently_drawn_go_first() {
+        let mut lru = Lru::new(2);
+        lru.put("a", 1);
+        lru.put("b", 2);
+        assert_eq!(lru.get(&"a"), Some(&1));
+        lru.put("c", 3);
+        assert_eq!(lru.get(&"b"), None);
+        assert_eq!(lru.get(&"a"), Some(&1));
+        lru.remove(&"a");
+        assert_eq!(lru.get(&"a"), None);
+        assert_eq!(lru.get(&"c"), Some(&3));
     }
 
     #[test]
