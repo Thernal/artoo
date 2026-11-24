@@ -380,6 +380,14 @@ pub fn awards(
             .filter_map(|(id, _)| Some((*id, parse(map.get(id.to_string())?))))
             .collect());
     }
+    // One GraphQL read of the request's notes with their reactions (pages of 100), not one request per note; a
+    // host that will not answer it is asked note by note as before.
+    if let Some(all) = awards_graphql(remote, iid) {
+        return Ok(notes
+            .iter()
+            .map(|(id, _)| (*id, all.get(id).cloned().unwrap_or_default()))
+            .collect());
+    }
     Ok(notes
         .iter()
         .filter_map(|(id, _)| {
@@ -391,6 +399,53 @@ pub fn awards(
             Some((*id, parse(&list)))
         })
         .collect())
+}
+
+/// The reactions on every note of request `iid` by note id, from GraphQL; `None` when it cannot be read.
+fn awards_graphql(
+    remote: &WebRemote,
+    iid: u64,
+) -> Option<std::collections::HashMap<u64, Vec<Award>>> {
+    const QUERY: &str = "query($path: ID!, $iid: String!, $after: String) {
+  project(fullPath: $path) { mergeRequest(iid: $iid) {
+    notes(first: 100, after: $after) {
+      nodes { id awardEmoji { nodes { id name user { username } } } }
+      pageInfo { hasNextPage endCursor }
+    }
+  } }
+}";
+    // `gid://gitlab/Note/123` → 123.
+    let number = |v: &Value| -> Option<u64> { v.as_str()?.rsplit('/').next()?.parse().ok() };
+    let (_, path) = api(remote).ok()?;
+    let mut out = std::collections::HashMap::new();
+    let mut after = Value::Null;
+    for _ in 0..10 {
+        let value = graphql(
+            remote,
+            QUERY,
+            serde_json::json!({ "path": path.replace("%2F", "/"), "iid": iid.to_string(), "after": after }),
+        )
+        .ok()?;
+        let notes = &value["data"]["project"]["mergeRequest"]["notes"];
+        for n in notes["nodes"].as_array()? {
+            let list = n["awardEmoji"]["nodes"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|a| Award {
+                    id: number(&a["id"]).unwrap_or(0),
+                    name: text(a, "name"),
+                    user: text(a.get("user").unwrap_or(&Value::Null), "username"),
+                })
+                .collect();
+            out.insert(number(&n["id"])?, list);
+        }
+        if notes["pageInfo"]["hasNextPage"] != true {
+            return Some(out);
+        }
+        after = notes["pageInfo"]["endCursor"].clone();
+    }
+    Some(out)
 }
 
 /// Gives note `note` the reaction `name`; its id comes back.

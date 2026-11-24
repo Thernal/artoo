@@ -13,6 +13,7 @@ mod json;
 mod kept;
 mod panel;
 mod pictures;
+mod shared;
 mod team;
 mod tokens;
 mod welcome;
@@ -69,4 +70,11 @@ pub fn test_fixture(dir: Option<std::path::PathBuf>) {
 #[doc(hidden)]
 pub fn forget_kept() {
     kept::forget();
+    shared::forget();
+}
+
+/// Forgets the reads shared for 3 seconds (`shared`): a test that counts one action's requests starts from none.
+#[doc(hidden)]
+pub fn forget_reads() {
+    shared::forget();
 }

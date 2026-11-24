@@ -114,11 +114,27 @@ fn rest(remote: &WebRemote, method: &str, endpoint: &str, body: Option<&Value>) 
         Some(rest) => format!("{base}/{rest}"),
         None => format!("{base}/repos/{repo}/{endpoint}"),
     };
+    if method != "GET" {
+        crate::shared::forget();
+    }
     send(remote, &url, method, body)
 }
 
 pub(crate) fn get(remote: &WebRemote, endpoint: &str) -> Result<Value> {
     rest(remote, "GET", endpoint, None)
+}
+
+/// `get` shared with whoever asks for the same `endpoint` of this repository at the same time (`crate::shared`).
+fn get_shared(remote: &WebRemote, endpoint: &str) -> Result<Value> {
+    let (base, _, repo) = api(remote)?;
+    crate::shared::of(&format!("{base}|{repo}|{endpoint}"), || {
+        get(remote, endpoint)
+    })
+}
+
+/// Pull request `number` itself, read once for its details, size, checks and merge state.
+fn pull(remote: &WebRemote, number: u64) -> Result<Value> {
+    get_shared(remote, &format!("pulls/{number}"))
 }
 
 /// Every item of a listing `endpoint`, page after page of 100, until one comes short (at most 10
@@ -148,6 +164,9 @@ fn graphql(remote: &WebRemote, query: &str, mut variables: Value) -> Result<Valu
     if let Some(vars) = variables.as_object_mut() {
         vars.entry("owner").or_insert(json!(owner));
         vars.entry("name").or_insert(json!(name));
+    }
+    if query.trim_start().starts_with("mutation") {
+        crate::shared::forget();
     }
     let value = send(
         remote,
@@ -512,7 +531,10 @@ pub fn awards(
             .flatten()
             .filter_map(|r| {
                 Some(Award {
-                    id: r["id"].as_u64().unwrap_or(0),
+                    id: r["id"]
+                        .as_u64()
+                        .or_else(|| r["databaseId"].as_u64())
+                        .unwrap_or(0),
                     name: crate::emoji::from_github(r["content"].as_str()?)?.to_owned(),
                     user: s(&r["user"]["login"]),
                 })
@@ -526,18 +548,37 @@ pub fn awards(
             .filter_map(|(id, _)| Some((*id, parse(map.get(id.to_string())?))))
             .collect());
     }
-    Ok(notes
-        .iter()
-        .filter_map(|(id, issue)| {
-            let kind = if *issue { "issues" } else { "pulls" };
-            let list = get(
-                remote,
-                &format!("{kind}/comments/{id}/reactions?per_page=100"),
-            )
-            .ok()?;
-            Some((*id, parse(&list)))
-        })
-        .collect())
+    // Reactions come inside the threads query (shared with the page's threads) and, for the conversation's
+    // comments, one more query: two requests at most however many notes there are, not one per note.
+    let mut out = std::collections::HashMap::new();
+    if notes.iter().any(|(_, issue)| !issue) {
+        let data = review_threads(remote, number)?;
+        for t in data["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            for c in t["comments"]["nodes"].as_array().into_iter().flatten() {
+                if let Some(id) = c["databaseId"].as_u64() {
+                    out.insert(id, parse(&c["reactions"]["nodes"]));
+                }
+            }
+        }
+    }
+    if notes.iter().any(|(_, issue)| *issue) {
+        let data = graphql(remote, ISSUE_REACTIONS, json!({ "number": number }))?;
+        for c in data["repository"]["pullRequest"]["comments"]["nodes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            if let Some(id) = c["databaseId"].as_u64() {
+                out.insert(id, parse(&c["reactions"]["nodes"]));
+            }
+        }
+    }
+    out.retain(|id, _| notes.iter().any(|(n, _)| n == id));
+    Ok(out)
 }
 
 /// Reacts to a comment with GitLab's `name` (one of GitHub's eight).
@@ -606,7 +647,7 @@ pub fn members(remote: &WebRemote) -> Result<Vec<(String, String)>> {
 pub fn details(remote: &WebRemote, number: u64) -> Result<Details> {
     let value = match read_fixture(&format!("pull-{number}.json")) {
         Some(v) => v?,
-        None => get(remote, &format!("pulls/{number}"))?,
+        None => pull(remote, number)?,
     };
     let mut details = parse_details(&value);
     details.changes_requested = changes_requested(remote, number);
@@ -618,7 +659,7 @@ pub fn details(remote: &WebRemote, number: u64) -> Result<Details> {
 pub fn size(remote: &WebRemote, number: u64) -> Result<Option<Size>> {
     let value = match read_fixture(&format!("pull-{number}.json")) {
         Some(v) => v?,
-        None => get(remote, &format!("pulls/{number}"))?,
+        None => pull(remote, number)?,
     };
     Ok(parse_size(&value))
 }
@@ -728,8 +769,16 @@ const THREADS: &str = "query($owner: String!, $name: String!, $number: Int!) {
         databaseId body createdAt lastEditedAt originalCommit { oid }
         author { login ... on User { name } }
         pullRequestReview { state }
+        reactions(first: 100) { nodes { databaseId content user { login } } }
       } }
     } }
+  } }
+}";
+
+/// The conversation's comments with their reactions (the review comments' come with `THREADS`).
+const ISSUE_REACTIONS: &str = "query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+    comments(first: 100) { nodes { databaseId reactions(first: 100) { nodes { databaseId content user { login } } } } }
   } }
 }";
 
@@ -737,7 +786,12 @@ const THREADS: &str = "query($owner: String!, $name: String!, $number: Int!) {
 fn review_threads(remote: &WebRemote, number: u64) -> Result<Value> {
     match read_fixture(&format!("threads-{number}.json")) {
         Some(v) => v,
-        None => graphql(remote, THREADS, json!({ "number": number })),
+        None => {
+            let (base, _, repo) = api(remote)?;
+            crate::shared::of(&format!("{base}|{repo}|threads/{number}"), || {
+                graphql(remote, THREADS, json!({ "number": number }))
+            })
+        }
     }
 }
 
@@ -891,7 +945,7 @@ pub fn pipeline(remote: &WebRemote, number: u64) -> Result<Option<Pipeline>> {
             (v["check_runs"].clone(), v["statuses"].clone(), s(&v["url"]))
         }
         None => {
-            let pull = get(remote, &format!("pulls/{number}"))?;
+            let pull = pull(remote, number)?;
             let sha = s(&pull["head"]["sha"]);
             let runs = get(remote, &format!("commits/{sha}/check-runs?per_page=100"))?;
             let status = get(remote, &format!("commits/{sha}/status"))?;
@@ -1021,9 +1075,17 @@ const APPROVALS: &str = "query($owner: String!, $name: String!, $number: Int!) {
 pub fn approvals(remote: &WebRemote, number: u64) -> Result<Approvals> {
     let data = match read_fixture(&format!("approvals-{number}.json")) {
         Some(v) => v?,
-        None => graphql(remote, APPROVALS, json!({ "number": number }))?,
+        None => approvals_data(remote, number)?,
     };
     Ok(parse_approvals(&data))
+}
+
+/// The approvals query, shared with the details' "changes requested" (one request for both).
+fn approvals_data(remote: &WebRemote, number: u64) -> Result<Value> {
+    let (base, _, repo) = api(remote)?;
+    crate::shared::of(&format!("{base}|{repo}|approvals/{number}"), || {
+        graphql(remote, APPROVALS, json!({ "number": number }))
+    })
 }
 
 pub fn parse_approvals(data: &Value) -> Approvals {
@@ -1297,7 +1359,7 @@ pub fn merge_state(remote: &WebRemote, number: u64) -> Result<artoo_hosts_api::M
         None => {
             let (_, _, repo) = api(remote)?;
             (
-                get(remote, &format!("pulls/{number}"))?,
+                pull(remote, number)?,
                 get(remote, &format!("/repos/{repo}"))?,
             )
         }
@@ -1575,12 +1637,21 @@ pub fn milestones(remote: &WebRemote) -> Result<Vec<artoo_hosts_api::Milestone>>
         .collect())
 }
 
-/// The reviewers whose latest review asked for changes, by name.
+/// The reviewers whose latest review asked for changes, by name: from the approvals query (each reviewer's latest
+/// opinion, comments left out), so no request of its own.
 fn changes_requested(remote: &WebRemote, number: u64) -> Vec<String> {
-    let value = match read_fixture(&format!("reviews-{number}.json")) {
-        Some(v) => v.unwrap_or(Value::Null),
-        None => get(remote, &format!("pulls/{number}/reviews?per_page=100")).unwrap_or(Value::Null),
-    };
+    if let Some(v) = read_fixture(&format!("reviews-{number}.json")) {
+        return changes_in(&v.unwrap_or(Value::Null), "user");
+    }
+    let data = approvals_data(remote, number).unwrap_or(Value::Null);
+    changes_in(
+        &data["repository"]["pullRequest"]["latestOpinionatedReviews"]["nodes"],
+        "author",
+    )
+}
+
+/// The names in `reviews` (REST's `user`, GraphQL's `author`) whose latest opinion is a request for changes.
+fn changes_in(value: &Value, who_key: &str) -> Vec<String> {
     let mut last: Vec<(String, String)> = Vec::new();
     for r in value.as_array().into_iter().flatten() {
         let state = s(&r["state"]);
@@ -1588,7 +1659,7 @@ fn changes_requested(remote: &WebRemote, number: u64) -> Vec<String> {
         if state == "COMMENTED" {
             continue;
         }
-        let name = who(&r["user"]);
+        let name = who(&r[who_key]);
         last.retain(|(n, _)| *n != name);
         last.push((name, state));
     }

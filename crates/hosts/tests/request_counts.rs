@@ -108,6 +108,10 @@ impl World {
                     })
                     .collect(),
             )
+        } else if url.ends_with("/api/graphql") {
+            json!({ "data": { "project": { "mergeRequest": { "notes": {
+                "nodes": [{ "id": "gid://gitlab/Note/1", "awardEmoji": { "nodes": [] } }],
+                "pageInfo": { "hasNextPage": false, "endCursor": null } } } } } })
         } else if url.contains("/discussions?") {
             let from = (page_of(url) - 1) * 100;
             Value::Array(
@@ -170,6 +174,7 @@ fn counted(
     act: impl FnOnce(&Arc<dyn Host>) -> Vec<Mr>,
 ) -> (Vec<String>, Vec<Mr>) {
     tokens();
+    artoo_hosts::forget_reads();
     let world = World { side, notes };
     let seen = Arc::new(Mutex::new(Vec::new()));
     let log = seen.clone();
@@ -251,7 +256,7 @@ struct Counts {
     /// members reads).
     list_cold: usize,
     /// One row's facts (size, pipeline, approvals, discussions, versions), read for each of the list's rows after
-    /// it, again whenever the row's `updated` moves. Step 6 (side reads shared), step 10 (one `pulls/{n}` on GitHub).
+    /// it, again whenever the row's `updated` moves. Step 6 (side reads shared), step 10 (one `pulls/{n}` on GitHub: 8 → 7).
     facts_per_row: usize,
     /// A warm list read: login known, the side reads kept: the list's own call (step 6). Step 4 turns the repeat into
     /// 304s.
@@ -280,10 +285,10 @@ const GITLAB: Counts = Counts {
 
 const GITHUB: Counts = Counts {
     list_cold: 3,
-    facts_per_row: 8,
+    facts_per_row: 7,
     list_warm: 1,
-    page_5: 11,
-    page_150: 12,
+    page_5: 7,
+    page_150: 8,
     notices_cold: 7,
     notices_warm: 1,
 };
@@ -411,4 +416,36 @@ fn a_repeated_list_read_is_answered_with_304s() {
             "the list reads the same from the kept body"
         );
     }
+}
+
+/// Audit step 10: GitLab reads every note's reactions in one GraphQL request (pages of 100), not one per note.
+#[test]
+fn gitlab_reactions_are_one_request() {
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let notes: Vec<(u64, bool)> = (1..=5).map(|i| (i, false)).collect();
+    let (seen, _) = counted(Side::GitLab, 5, |h| {
+        h.awards(1, &notes).ok();
+        Vec::new()
+    });
+    check("reactions, GitLab", &seen, 1);
+}
+
+/// Audit step 10: reactions are not one request per note. GitHub reads the review comments' inside the threads query
+/// the page already made (shared with it) and the conversation's in one more; the page open above is 7 requests
+/// and the reactions of every note add at most 1 beside it.
+#[test]
+fn reactions_cost_at_most_one_request_beside_the_page() {
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let notes: Vec<(u64, bool)> = (1..=5).map(|i| (i, i % 2 == 0)).collect();
+    let (seen, _) = counted(Side::GitHub, 5, |h| {
+        page_open(h, 1);
+        h.awards(1, &notes).ok();
+        Vec::new()
+    });
+    check("page open and reactions, GitHub", &seen, 8);
+    assert!(
+        seen.iter().all(|r| !r.contains("/reactions")),
+        "no request per note:\n{}",
+        seen.join("\n")
+    );
 }
