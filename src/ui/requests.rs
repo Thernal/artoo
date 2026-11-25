@@ -1207,10 +1207,18 @@ impl Workspace {
         old: bool,
         cx: &mut Context<Self>,
     ) {
-        // A stop ⌘[ comes back to (#194).
+        // A stop ⌘[ comes back to, with the section it was made from (#194, #242).
         self.jumping(cx, |this, cx| {
+            // From Overview or Commits the line is in Changes: that opens first (#242).
+            let switched = this.showing_request(cx)
+                && this
+                    .page_section(cx)
+                    .is_some_and(|s| s != super::nav::Section::Changes);
+            if switched {
+                this.show_section(super::nav::Section::Changes, cx);
+            }
             this.rv().set_jump_line(Some((line, old)), cx);
-            if this.current_path(cx).as_deref() == Some(path) {
+            if !switched && this.current_path(cx).as_deref() == Some(path) {
                 this.apply_jump(cx);
                 return;
             }
@@ -1220,9 +1228,43 @@ impl Workspace {
                 .and_then(|d| d.files.iter().position(|f| f.path() == path));
             match ix {
                 Some(ix) => this.select_file(ix, cx),
-                None => this.rv().set_jump_line(None, cx),
+                None => {
+                    this.rv().set_jump_line(None, cx);
+                    this.toast_info("That file is not in the diff shown".into(), cx);
+                }
             }
         })
+    }
+
+    /// A click on discussion `ix`: Changes at its line with it open and ringed, or — its line is not in the diff
+    /// shown — the version it was written on; a general one does what it did (#242).
+    pub(super) fn show_thread(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let Some(t) = self.request_thread(ix, cx) else {
+            return;
+        };
+        let Some(path) = t.path.clone() else {
+            return;
+        };
+        let now = (self.requests_api())
+            .and_then(|r| r.threads_in(&path, cx).into_iter().find(|(i, ..)| *i == ix))
+            .map(|(_, old, line)| (old, line));
+        let in_diff = (self.shown_diff(cx).as_ref())
+            .is_some_and(|d| d.files.iter().any(|f| f.path() == path));
+        match thread_target(now, in_diff) {
+            ThreadTarget::Line { old, line } => {
+                self.thread_at = Some(ix);
+                if !self.mr_open(ix, cx) {
+                    self.set_thread_open(ix, true, cx);
+                }
+                self.jump_to_line(&path, line, old, cx);
+            }
+            ThreadTarget::Earlier => {
+                self.thread_at = Some(ix);
+                self.show_section(super::nav::Section::Changes, cx);
+                self.compare_since(ix, cx);
+            }
+        }
+        cx.notify();
     }
 }
 
@@ -1296,6 +1338,7 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
             Act::CommentOnRequest => this.start_request_comment(cx),
             Act::PendingMenu { id, at } => this.pending_menu(id, at, cx),
             Act::ReplyMentioning { thread, login } => this.reply_mentioning(thread, &login, cx),
+            Act::ShowThread(ix) => this.show_thread(ix, cx),
             Act::CompareSince(ix) => this.compare_since(ix, cx),
             Act::JumpToLine { path, line, old } => this.jump_to_line(&path, line, old, cx),
             Act::StepThread { down } => this.step_thread(down, cx),
@@ -1357,6 +1400,24 @@ fn connected_facts(line: &str) -> Vec<Fact> {
             _ => Fact::new(part.to_owned()).pill(),
         })
         .collect()
+}
+
+/// Where a click on a discussion on a line goes (#242).
+#[derive(Debug, PartialEq)]
+enum ThreadTarget {
+    /// The line in the diff shown, on its side.
+    Line { old: bool, line: u32 },
+    /// The versions compared from the one it was written on: its line is not in what is shown.
+    Earlier,
+}
+
+/// `now`: where the discussion's line is in the latest version (`None`: outdated and gone); `in_diff`: its file is
+/// in the diff shown.
+fn thread_target(now: Option<(bool, u32)>, in_diff: bool) -> ThreadTarget {
+    match now {
+        Some((old, line)) if in_diff => ThreadTarget::Line { old, line },
+        _ => ThreadTarget::Earlier,
+    }
 }
 
 #[cfg(test)]
@@ -1424,5 +1485,27 @@ mod tests {
         );
         // The host gave no base: the target here, with the host's head.
         assert_eq!(sides(&repo, (None, Some(d)), (c, d)), Sides::Same);
+    }
+
+    #[test]
+    fn a_click_on_a_discussion_goes_to_its_line_or_the_version_it_was_written_on() {
+        use super::{ThreadTarget::*, thread_target};
+        // On the latest version, its file in the diff: the line, on its side.
+        assert_eq!(
+            thread_target(Some((false, 12)), true),
+            Line {
+                old: false,
+                line: 12
+            }
+        );
+        assert_eq!(
+            thread_target(Some((true, 7)), true),
+            Line { old: true, line: 7 }
+        );
+        // Written on an earlier version and its line gone: the versions compared.
+        assert_eq!(thread_target(None, true), Earlier);
+        // The file is not in the diff shown: the version, with or without a line now.
+        assert_eq!(thread_target(Some((false, 12)), false), Earlier);
+        assert_eq!(thread_target(None, false), Earlier);
     }
 }

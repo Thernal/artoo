@@ -312,7 +312,6 @@ impl Requests {
         }
         let mut row = |ix: usize, t: &Thread| -> AnyElement {
             let target = t.path.clone().zip(t.new_line.or(t.old_line));
-            let old = t.new_line.is_none();
             let general = target.is_none();
             let whole = general && folds.general.contains(&t.id);
             let where_ = match &target {
@@ -395,7 +394,7 @@ impl Requests {
             .on_click({
                 let (acts, on_fold) = (acts.clone(), on_fold.clone());
                 move |_: &ClickEvent, _, cx| match target.clone() {
-                    Some((path, line)) => acts(Act::JumpToLine { path, line, old }, cx),
+                    Some(_) => acts(Act::ShowThread(ix), cx),
                     None => {
                         acts(Act::PickThread(ix), cx);
                         on_fold(Fold::General(id.clone()), cx)

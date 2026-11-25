@@ -30,13 +30,12 @@ impl Workspace {
     /// through the versions that changed it.
     pub(super) fn compare_since(&mut self, ix: usize, cx: &mut Context<Self>) {
         let Some(latest) = self.latest_version(cx) else {
-            return;
+            return self.toast_info("The versions are not loaded yet".into(), cx);
         };
-        if let Some(last) = self
-            .requests_api()
-            .and_then(|r| r.start_since(ix, latest, cx))
-        {
-            self.go_since(0, last, cx);
+        match (self.requests_api()).and_then(|r| r.start_since(ix, latest, cx)) {
+            Some(last) => self.go_since(0, last, cx),
+            // Never a click that does nothing without a word (#242).
+            None => self.toast_info("The version it was written on is not known".into(), cx),
         }
     }
 

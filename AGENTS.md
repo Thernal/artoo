@@ -340,6 +340,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   new comment goes to the end of the Discussions card with the first thread on screen held; a merge changes the
   state's chip and stands `Merged` in the button's box without a list read. On a request's page
   `ARTOO_SNAPSHOT_FRESH` takes a state of `overview.html`.
+- **A click on a discussion on a line opens Changes at it** (#242): the Discussions window's row and the Overview card's row ask `Act::ShowThread(ix)` (a pending comment on a line, `JumpToLine`); `show_thread` (`src/ui/requests.rs`) picks by `thread_target` — the line in the diff shown (the thread opened and ringed), else the versions compared from the one it was written on (`compare_since`) —, and `jump_to_line` switches a request's section to Changes first and says in a toast when the file is not in the diff. A jump records the section it left (`Moment.section`), so ⌘[ comes back to it. A general discussion keeps its old click.
 - **The Inbox loads without a jump** (round 41, `crates/requests/src/notices/current.rs`): the head's slot and hairline,
   no banner; the first read is the real rows and preview as still tints. While the Inbox is on screen a read's new notice
   (and one gone from the host) waits behind `1 new ↑` — fields change in place — and lands on that click, `⌘R` or leaving

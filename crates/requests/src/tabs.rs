@@ -117,6 +117,10 @@ impl Tabs {
                     frame.show_tool(Some(artoo_requests_api::DISCUSSIONS), cx)
                 })
             },
+            show: match services.get::<artoo_requests_api::TabActs>() {
+                Some(tab) => crate::requests::acts(&self.requests, tab),
+                None => Rc::new(|_, _| {}),
+            },
         };
         self.requests.read(cx).render_overview(m, look, cx)
     }

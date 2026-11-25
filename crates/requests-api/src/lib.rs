@@ -331,6 +331,9 @@ pub enum Act {
     ReplyMentioning { thread: usize, login: String },
     /// Outdated discussion `ix`'s version compared with the latest.
     CompareSince(usize),
+    /// Discussion `ix` shown where it is: Changes at its line with it open, or the version it was written on when
+    /// its line is not in the diff shown (#242).
+    ShowThread(usize),
     /// The diff shows line `line` of file `path` (`old`: the removed side).
     JumpToLine { path: String, line: u32, old: bool },
     /// Submit review's card, on Approve when `approve` (the done card's, #188).

@@ -242,6 +242,8 @@ struct Moment {
     line: Option<u32>,
     /// Pushed by a jump not landed yet: the page it lands on, when another, takes its place.
     landing: bool,
+    /// The section of the page it was left from, when a jump went to another (#242): ⌘[ comes back to it.
+    section: Option<Section>,
 }
 
 impl Moment {
@@ -252,6 +254,7 @@ impl Moment {
             place: None,
             line: None,
             landing: false,
+            section: None,
         }
     }
 }
@@ -334,7 +337,12 @@ impl Nav {
     }
 
     /// A jump from `place` on the page on screen: where it leaves is a stop, and where it lands another (#194).
-    fn jump(&mut self, place: Option<(String, ListOffset)>, line: Option<u32>) {
+    fn jump(
+        &mut self,
+        place: Option<(String, ListOffset)>,
+        line: Option<u32>,
+        section: Option<Section>,
+    ) {
         let Some(now) = self.time.get_mut(self.at) else {
             return;
         };
@@ -343,9 +351,11 @@ impl Nav {
         }
         now.place = place;
         now.line = line;
+        now.section = section;
         let next = Moment {
             place: None,
             line: None,
+            section: None,
             landing: true,
             ..now.clone()
         };
@@ -1087,7 +1097,8 @@ impl Workspace {
     ) {
         if !self.nav.restoring {
             let place = self.rv().place(cx);
-            self.nav.jump(place, self.rv().top_line(cx));
+            let section = self.page_section(cx);
+            self.nav.jump(place, self.rv().top_line(cx), section);
         }
         self.keep_line(cx);
         jump(self, cx);
@@ -1358,12 +1369,19 @@ impl Workspace {
             && moment.space == self.nav.space
             && moment.page.as_ref() == self.nav_page();
         if here {
+            // Left from another section: back to it (#242).
+            if let Some(section) = moment.section {
+                self.show_section(section, cx);
+            }
             if let Some(place) = moment.place {
                 self.return_to(place, cx);
             }
             return cx.notify();
         }
         self.show(moment.space, moment.page, cx);
+        if let Some(section) = moment.section {
+            self.show_section(section, cx);
+        }
         // Showing it is not a new moment.
         self.nav.at = at;
     }
@@ -2090,7 +2108,7 @@ mod tests {
         let place = |path: &str| Some((path.to_owned(), ListOffset::default()));
         nav.remember(at(REQUESTS, Some(Page::Request(1))));
         // A line gone to in the same request: where it left is a stop, ⌘[ comes back to it.
-        nav.jump(place("a.kt"), Some(12));
+        nav.jump(place("a.kt"), Some(12), None);
         nav.landed();
         assert_eq!(nav.time.len(), 2);
         assert!(nav.can_back());
@@ -2104,7 +2122,7 @@ mod tests {
         nav.remember(at(REQUESTS, Some(Page::Request(1))));
         assert_eq!(nav.time.len(), 2);
         // A jump that lands on another page is that page's moment, not a second of this one.
-        nav.jump(place("b.kt"), None);
+        nav.jump(place("b.kt"), None, None);
         nav.remember(at(CODE, Some(Page::File("b.kt".into()))));
         assert_eq!(nav.time.len(), 3);
         assert_eq!(nav.time[2].page, Some(Page::File("b.kt".into()).route()));

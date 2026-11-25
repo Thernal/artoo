@@ -6,7 +6,7 @@
 use crate::bar::{pipeline_icon, pipeline_short, pipeline_word};
 use crate::freshness::frames;
 use crate::pagefresh::mark;
-use crate::requests::Requests;
+use crate::requests::{Act, Requests};
 use crate::waiting::FADED;
 use artoo_hosts_api::{Details, Draft, Mr, MrState, Thread};
 use artoo_ui_kit::format::{self, plural};
@@ -25,6 +25,9 @@ const MAIN_MAX: f32 = 760.;
 /// A card's header, as the Tasks page draws its sections.
 const CARD_HEAD: f32 = 40.;
 
+/// What a click on a card's row does.
+type Opener = Rc<dyn Fn(&mut App)>;
+
 /// What Overview is drawn with that the tab knows.
 pub struct OverviewLook {
     /// The title, selectable as the tab makes it.
@@ -36,6 +39,8 @@ pub struct OverviewLook {
     pub facts: Facts,
     /// Opens the Discussions window: where an unresolved discussion in the way is fixed.
     pub discussions: Rc<dyn Fn(&mut App)>,
+    /// What a click on a discussion on a line of the diff asks the tab (#242).
+    pub show: crate::requests::Acts,
 }
 
 /// Overview's facts the tab keeps: the commits, how far your review is, the versions.
@@ -87,7 +92,7 @@ impl Requests {
             true => Some(
                 card("Discussions", None, tinted(&[140., 430., 160., 380.])).into_any_element(),
             ),
-            false => self.overview_discussions(look.discussions.clone()),
+            false => self.overview_discussions(look.discussions.clone(), look.show.clone()),
         };
         let details = match side_loading {
             true => Some(
@@ -385,7 +390,11 @@ impl Requests {
     /// The discussions still open as a headed card with their count, each thread in whole; one's own pending
     /// comments among them, marked; the resolved ones as a line that opens the window. Nothing to show leaves the
     /// card out.
-    fn overview_discussions(&self, window: Rc<dyn Fn(&mut App)>) -> Option<AnyElement> {
+    fn overview_discussions(
+        &self,
+        window: Rc<dyn Fn(&mut App)>,
+        show: crate::requests::Acts,
+    ) -> Option<AnyElement> {
         let open = open_threads(&self.threads);
         let resolved = self.threads.iter().filter(|t| t.resolved).count();
         let pending: Vec<&Draft> = self
@@ -414,6 +423,15 @@ impl Requests {
                 .iter()
                 .any(|d| d.reply_to.as_deref() == Some(t.id.as_str()));
             let replies = t.notes.len() - 1;
+            // A discussion on a line opens the diff at it; a general one opens the window (#242).
+            let jump = t.path.is_some().then(|| {
+                let (show, at) = (show.clone(), self.threads.iter().position(|x| x.id == t.id));
+                Rc::new(move |cx: &mut App| {
+                    if let Some(at) = at {
+                        show(Act::ShowThread(at), cx)
+                    }
+                }) as Opener
+            });
             let into = if ix < open_shown.len() {
                 &mut rows
             } else {
@@ -429,13 +447,27 @@ impl Requests {
                     waiting,
                     first.body.clone(),
                     window.clone(),
+                    jump,
                 )
                 .relative()
                 .child(mark(t.id.clone(), &self.page)),
             );
         }
         for (ix, d) in pending.iter().enumerate() {
-            let (place, _, _) = self.draft_where(d);
+            let (place, target, old) = self.draft_where(d);
+            let jump = target.map(|(path, line)| {
+                let show = show.clone();
+                Rc::new(move |cx: &mut App| {
+                    show(
+                        Act::JumpToLine {
+                            path: path.clone(),
+                            line,
+                            old,
+                        },
+                        cx,
+                    )
+                }) as Opener
+            });
             rows.push(thread_row(
                 ("overview-pending", ix),
                 "You",
@@ -445,6 +477,7 @@ impl Requests {
                 true,
                 d.body.clone(),
                 window.clone(),
+                jump,
             ));
         }
         // What came in under the page stands at the card's end, until it is gone to.
@@ -658,7 +691,7 @@ fn reviewer_row(
 }
 
 /// A discussion in its card: the face and the name, the place at the right (and the mark of a pending comment),
-/// the whole text under them; a click opens the Discussions window.
+/// the whole text under them; a click opens the diff at it when it is on a line, else the Discussions window.
 #[allow(clippy::too_many_arguments)]
 fn thread_row(
     id: (&'static str, usize),
@@ -669,6 +702,7 @@ fn thread_row(
     pending: bool,
     body: String,
     window: Rc<dyn Fn(&mut App)>,
+    jump: Option<Opener>,
 ) -> gpui::Stateful<Div> {
     div()
         .id(id)
@@ -726,7 +760,10 @@ fn thread_row(
                 )
                 .child(div().text_size(px(13.)).child(body)),
         )
-        .on_click(move |_: &ClickEvent, _, cx| window(cx))
+        .on_click(move |_: &ClickEvent, _, cx| match &jump {
+            Some(jump) => jump(cx),
+            None => window(cx),
+        })
 }
 
 #[cfg(test)]
