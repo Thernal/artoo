@@ -15,6 +15,7 @@ use artoo_ui_kit::excerpt::excerpt_view;
 use artoo_ui_kit::hover::{self, CutInTip, Hover, RowTip, Tip, WasCut};
 use artoo_ui_kit::keys::{self, On};
 use artoo_ui_kit::markdown::{self, Selecting};
+use artoo_ui_kit::marked::{self, Marked};
 use artoo_ui_kit::motion;
 use artoo_ui_kit::room::Heights;
 use artoo_ui_kit::{ROW_RADIUS, format, fresh, gap, icons, island, monogram, px, theme, words};
@@ -821,6 +822,7 @@ pub fn notice_row(
         project: "",
         look,
     })
+    .link_row(format!("inbox-row-{ix}"), marked::request(iid))
     .on_mouse_down(MouseButton::Right, move |e: &MouseDownEvent, _, cx| {
         menu(
             InboxEvent::Menu {
@@ -1091,6 +1093,7 @@ pub fn notice_preview(n: &Notice, look: NoticeLook, on: &OnInbox, cx: &App) -> D
                 .font_family(theme::code_font())
                 .text_color(theme::accent())
                 .child(words::number(n.iid))
+                .link_mark("inbox-number", marked::request(n.iid))
                 // ⌘/Ctrl-click: the browser; right-click: the request's menu.
                 .on_click(move |e: &ClickEvent, _, cx| {
                     if e.modifiers().secondary() {

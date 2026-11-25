@@ -5,9 +5,12 @@ use super::Workspace;
 use super::menu::{Act, Entry};
 use artoo_shell_api::links::{self, Claim, Kind};
 use artoo_ui_kit::menu::Lead;
-use artoo_ui_kit::theme;
 use artoo_ui_kit::toast::{Tone, Words};
-use gpui::{App, ClipboardItem, Context, Pixels, Point};
+use artoo_ui_kit::{marked, px, theme};
+use gpui::{
+    AnyElement, App, ClipboardItem, Context, FontWeight, Pixels, Point, Window, div, point,
+    prelude::*,
+};
 use std::rc::Rc;
 
 /// A link as the tab knows it.
@@ -30,6 +33,11 @@ impl Workspace {
     /// What `address` is: a registered kind's, the open project's host page (a commit, a branch), or the web's;
     /// none for anything else, a relative address or a key no tracker knows.
     pub(super) fn linked(&self, address: &str, cx: &App) -> Option<Linked> {
+        // A request's number a feature drew: the request's page on the host.
+        if let Some(number) = address.strip_prefix(marked::REQUEST_SCHEME) {
+            let url = self.request_url(number.parse().ok()?, cx)?;
+            return self.linked(&url, cx);
+        }
         let (claim, kind) = links::claimed(cx, &self.link_kinds(), address)
             .or_else(|| Some((self.host_page(address, cx)?, None)))
             .or_else(|| Some((Claim::web(address)?, None)))?;
@@ -138,12 +146,28 @@ impl Workspace {
     }
 
     /// The link whose menu is open: what the menu's keys act on.
-    pub(super) fn focused_link(&self, cx: &App) -> Option<Linked> {
+    fn menu_focus(&self, cx: &App) -> Option<Linked> {
         let address = self.menu_link.as_ref()?;
         if !self.ctx_menu.read(cx).is_open() {
             return None;
         }
         self.linked(address, cx)
+    }
+
+    /// The request row picked in the list that has the keyboard: the focused link where no menu is open.
+    fn picked_link(&self, cx: &App) -> Option<Linked> {
+        let listing = self.nav.space == super::spaces::REQUESTS
+            && self.at_root_list()
+            && self.zone == super::zones::Zone::List
+            && !self.inbox
+            && !self.settings_open
+            && !self.overlay_open()
+            && !self.ctx_menu.read(cx).is_open();
+        let picked = (self.requests_api())
+            .filter(|_| listing)
+            .and_then(|r| r.picked_row(cx))?;
+        (self.listed_requests(cx).iter()).find(|m| m.iid == picked)?;
+        self.linked(&marked::request(picked), cx)
     }
 
     /// A click on a link, and its menu's Open: its kind's own way, else in Artoo when it is a page of the open
@@ -163,12 +187,27 @@ impl Workspace {
             .is_some_and(|kind| kind.open(address, cx))
     }
 
-    /// The focused link's keys, ↵, ⌥↵ and ⇧⌘C: true when a link had them, its menu closed.
+    /// The focused link's keys, ↵, ⌥↵ and ⇧⌘C: true when a link had them. The link of an open menu, which then
+    /// closes; ⌥↵ and ⇧⌘C also the picked request row's, ⌥↵ after the newest toast's button.
     pub(super) fn link_key(&mut self, key: LinkKey, cx: &mut Context<Self>) -> bool {
-        let Some(linked) = self.focused_link(cx) else {
-            return false;
+        let linked = match self.menu_focus(cx) {
+            Some(linked) => {
+                self.close_menu(cx);
+                linked
+            }
+            None => {
+                let row = match key {
+                    // ↵ on a row is the list's own.
+                    LinkKey::Open => None,
+                    LinkKey::Browser if self.press_toast(cx) => return true,
+                    LinkKey::Browser | LinkKey::Copy => self.picked_link(cx),
+                };
+                let Some(linked) = row else {
+                    return false;
+                };
+                linked
+            }
         };
-        self.close_menu(cx);
         match (key, linked.claim.url) {
             (LinkKey::Open, url) => match url.filter(|_| linked.claim.name.is_empty()) {
                 Some(url) => cx.open_url(&url),
@@ -180,6 +219,64 @@ impl Workspace {
         }
         cx.notify();
         true
+    }
+
+    /// ⇧F10 and the menu key: the picked request row's menu, at the row.
+    pub(super) fn open_focused_menu(&mut self, window: &Window, cx: &mut Context<Self>) -> bool {
+        let Some(linked) = self.picked_link(cx) else {
+            return false;
+        };
+        let at = match artoo_ui_kit::hover::picked_row(window, cx) {
+            Some((_, row)) => point(row.left() + px(24.), row.bottom()),
+            None => window.mouse_position(),
+        };
+        self.link_menu(&linked.address, at, cx)
+    }
+
+    /// The line at the window's foot while ⌘ marks a link (Design round 46): where a ⌘-click goes.
+    pub(super) fn render_link_foot(&self, window: &Window, cx: &App) -> Option<AnyElement> {
+        let address = marked::address(window)?;
+        let claim = self.linked(&address, cx)?.claim;
+        let url = claim.url.clone()?;
+        Some(
+            div()
+                .absolute()
+                .left(px(8.))
+                .bottom(px(10.))
+                .max_w(px(640.))
+                .h(px(26.))
+                .px(px(10.))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .rounded(px(6.))
+                .border_1()
+                .border_color(theme::island_border())
+                .bg(theme::panel())
+                .shadow_lg()
+                .text_size(px(11.))
+                .text_color(theme::muted())
+                .child(
+                    artoo_ui_kit::icons::icon("external")
+                        .size(px(13.))
+                        .flex_none()
+                        .text_color(theme::muted()),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .text_color(theme::text())
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(claim.open_in()),
+                )
+                .child(
+                    artoo_ui_kit::hover::cut("link-foot", bare(&url).to_owned())
+                        .min_w_0()
+                        .font_family(theme::code_font())
+                        .text_color(theme::faint()),
+                )
+                .into_any_element(),
+        )
     }
 
     /// A link's address copied: the toast says whose, with the address, and a screen reader hears `Link copied`.
@@ -198,15 +295,19 @@ pub(super) enum LinkKey {
     Copy,
 }
 
+/// An address as it is shown: without its scheme.
+fn bare(url: &str) -> &str {
+    url.split_once("://").map_or(url, |(_, rest)| rest)
+}
+
 /// Copy link's toast: `Link to !412 copied` over the address without its scheme.
 fn copied_words(url: &str, name: &str) -> Words {
     let said = match name {
         "" => "Link copied".to_owned(),
         name => format!("Link to {name} copied"),
     };
-    let address = url.split_once("://").map_or(url, |(_, rest)| rest);
     Words::new(said)
-        .about(address.to_owned())
+        .about(bare(url).to_owned())
         .tone(Tone::Success)
         .announce("Link copied")
 }

@@ -967,9 +967,18 @@ fn inline_drawn(i: &Inline, mentions: bool, ctx: &mut Ctx) -> AnyElement {
     let here = ctx.sel.as_ref().map(|s| s.link.clone());
     let browser_url = ctx.sel.as_ref().and_then(|s| s.browser.clone());
     let link_menu = ctx.sel.as_ref().and_then(|s| s.link_menu.clone());
-    // Where each link is, for a right click (`InteractiveText` has none).
+    // Where each link is, for a right click and the ⌘ mark (`InteractiveText` has neither).
     let (menu_ranges, menu_urls) = (ranges.clone(), urls.clone());
     let pressed = layout.clone();
+    // The links ⌘ held marks (not an agent's cites), each at a spot of its own.
+    let spots: Vec<(Range<usize>, SharedString, SharedString)> = (ranges.iter().zip(&urls))
+        .enumerate()
+        .filter(|(_, (_, url))| !url.starts_with(CITE_SCHEME))
+        .map(|(ix, (r, url))| {
+            let spot = format!("{}-{}-{ix}", ctx.key, ctx.next);
+            (r.clone(), spot.into(), url.clone().into())
+        })
+        .collect();
     let card = ctx.sel.as_ref().map(|s| s.mention.clone());
     let spot = layout.clone();
     let opens = cites.clone();
@@ -1013,16 +1022,43 @@ fn inline_drawn(i: &Inline, mentions: bool, ctx: &mut Ctx) -> AnyElement {
             card(hit, cx);
         });
     // A link right-clicked: its menu; any other right click goes on to what is behind the text.
+    let selecting = ctx.sel.is_some();
     let with_menu = move |text: AnyElement| -> AnyElement {
-        let Some(menu) = link_menu else {
+        if !selecting {
             return text;
-        };
+        }
+        let under = pressed.clone();
         let at = Rc::new(move |position| {
             let at = pressed.index_for_position(position).ok()?;
             menu_ranges.iter().position(|r| r.contains(&at))
         });
-        let over = at.clone();
+        let (over, moved) = (at.clone(), at.clone());
+        let marks = spots.clone();
+        let urls = menu_urls.clone();
         div()
+            .relative()
+            // Behind the words: the tint of the link ⌘ held marks.
+            .child(
+                gpui::canvas(
+                    |_, _, _| (),
+                    move |_, _, window, _| {
+                        for (r, spot, _) in &marks {
+                            if crate::marked::is(spot) {
+                                paint_mark(&under, r.clone(), window);
+                            }
+                        }
+                    },
+                )
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full(),
+            )
+            .on_mouse_move(move |e, window, _| {
+                if let Some((_, spot, url)) = moved(e.position).and_then(|ix| spots.get(ix)) {
+                    crate::marked::over(window, spot.clone(), url.clone());
+                }
+            })
             // The text's click is any button's: a right one on a link is the menu's alone and follows nothing.
             .capture_any_mouse_up(move |e, _, cx| {
                 if e.button == gpui::MouseButton::Right && over(e.position).is_some() {
@@ -1032,7 +1068,8 @@ fn inline_drawn(i: &Inline, mentions: bool, ctx: &mut Ctx) -> AnyElement {
             .on_mouse_down(
                 gpui::MouseButton::Right,
                 move |e: &gpui::MouseDownEvent, _, cx| {
-                    if let Some(url) = at(e.position).and_then(|ix| menu_urls.get(ix))
+                    if let Some(menu) = &link_menu
+                        && let Some(url) = at(e.position).and_then(|ix| urls.get(ix))
                         && menu(url, e.position, cx)
                     {
                         cx.stop_propagation();
@@ -1139,6 +1176,29 @@ fn mention_spot(layout: &gpui::TextLayout, r: &Range<usize>) -> Option<gpui::Bou
         gpui::point(a.x.min(b.x), a.y.min(b.y)),
         gpui::point(a.x.max(b.x), a.y.max(b.y) + layout.line_height()),
     ))
+}
+
+/// The tint behind the link at `range` while ⌘ marks it, a line at a time.
+fn paint_mark(layout: &TextLayout, range: Range<usize>, window: &mut gpui::Window) {
+    use gpui::{Bounds, point};
+    let (Some(start), Some(end)) = (
+        layout.position_for_index(range.start),
+        layout.position_for_index(range.end),
+    ) else {
+        return;
+    };
+    let (height, area) = (layout.line_height(), layout.bounds());
+    let mut y = start.y;
+    while y <= end.y {
+        let left = if y == start.y { start.x } else { area.left() };
+        let right = if y == end.y { end.x } else { area.right() };
+        if right > left {
+            let corners =
+                Bounds::from_corners(point(left - px(2.), y), point(right + px(2.), y + height));
+            window.paint_quad(gpui::fill(corners, crate::marked::tint()).corner_radii(px(3.)));
+        }
+        y += height;
+    }
 }
 
 /// The icon and the name (with its key, if it has one) of a composer helper.

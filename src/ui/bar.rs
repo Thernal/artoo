@@ -11,6 +11,7 @@ use artoo_requests_api::{RequestRoute, Stand};
 use artoo_shell_api::bar::BarAction;
 use artoo_shell_api::{MenuItem, NameHover, PagePath, PathUp, bar};
 use artoo_ui_kit::format::plural;
+use artoo_ui_kit::marked::Marked;
 use gpui::{
     AnyElement, App, ClickEvent, Context, FontWeight, Pixels, Point, WeakEntity, Window, div,
     prelude::*,
@@ -445,6 +446,7 @@ impl Workspace {
                                                 .text_color(theme::muted()),
                                         )
                                     })
+                                    .link_mark("bar-request", artoo_ui_kit::marked::request(iid))
                                     // ⌘/Ctrl-click: the browser; right-click: the request's menu.
                                     .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
                                         this.open_request_or_browser(
@@ -959,6 +961,7 @@ fn title(
                         .underline()
                         .child(key.clone()),
                 )
+                .link_mark("bar-title-key", address.clone())
                 // ⌘/Ctrl-click: the issue in the browser; a plain click does nothing here.
                 .on_click(move |e: &gpui::ClickEvent, _, cx| {
                     if e.modifiers().secondary()
@@ -1005,6 +1008,7 @@ fn title(
             let menu = tab.clone();
             div()
                 .id(id)
+                .link_mark(id, artoo_ui_kit::marked::request(iid))
                 .when(flex_none, |s| s.flex_none())
                 .when(!flex_none, |s| s.min_w_0().flex().items_center())
                 .child(name)

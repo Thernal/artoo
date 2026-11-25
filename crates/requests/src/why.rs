@@ -6,6 +6,7 @@ use crate::requests::Requests;
 use artoo_core::git::WebRemote;
 use artoo_ui_kit::hover::{self, Hover as _};
 use artoo_ui_kit::markdown::{self, Selecting};
+use artoo_ui_kit::marked::Marked;
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, icons, px, theme};
 use gpui::{AnyElement, ClickEvent, Context, FontWeight, MouseButton, div, prelude::*};
 
@@ -247,17 +248,19 @@ impl Requests {
                                             ),
                                             false => issue.url.clone().unwrap_or_default(),
                                         };
-                                        s.on_mouse_down(
-                                            MouseButton::Right,
-                                            move |e: &gpui::MouseDownEvent, window, cx| {
-                                                cx.stop_propagation();
-                                                let show = artoo_shell_api::links::ShowLinkMenu {
-                                                    address: address.clone(),
-                                                    at: e.position,
-                                                };
-                                                window.dispatch_action(Box::new(show), cx);
-                                            },
-                                        )
+                                        s.link_mark("description-issue", address.clone())
+                                            .on_mouse_down(
+                                                MouseButton::Right,
+                                                move |e: &gpui::MouseDownEvent, window, cx| {
+                                                    cx.stop_propagation();
+                                                    let show =
+                                                        artoo_shell_api::links::ShowLinkMenu {
+                                                            address: address.clone(),
+                                                            at: e.position,
+                                                        };
+                                                    window.dispatch_action(Box::new(show), cx);
+                                                },
+                                            )
                                     })
                                     .when(clickable, |s| {
                                         let label = issue.label.clone();

@@ -354,7 +354,11 @@ impl Keymap {
                         effective
                             .iter()
                             .filter(|o| short(o.action().name()) != name)
-                            .find(|o| keystrokes(o) == key && overlap(e, o))
+                            .find(|o| {
+                                keystrokes(o) == key
+                                    && overlap(e, o)
+                                    && !shared(name, short(o.action().name()))
+                            })
                             .map(|o| (key.clone(), label(short(o.action().name()))))
                     });
                     let changed = self.overrides.contains_key(name);
@@ -427,6 +431,15 @@ fn keystrokes(b: &KeyBinding) -> String {
 /// Whether two bindings can be live at once. Contexts here are `Workspace` with `Typing`,
 /// `Palette` and `Caret` refinements: the same context, or one of them plain `Workspace` (or
 /// none), counts as overlapping; two different refinements are taken to be meant apart.
+/// Whether two actions share a key on purpose: a focused link's, which goes on to the other when none is focused.
+fn shared(a: &str, b: &str) -> bool {
+    const SHARED: [[&str; 2]; 2] = [
+        ["OpenLinkInBrowser", "OpenToast"],
+        ["CopyFocusedLink", "SearchCommits"],
+    ];
+    (SHARED.iter()).any(|pair| *pair == [a, b] || *pair == [b, a])
+}
+
 fn overlap(a: &KeyBinding, b: &KeyBinding) -> bool {
     let context = |k: &KeyBinding| k.predicate().map(|p| p.to_string());
     let (ca, cb) = (context(a), context(b));
@@ -589,6 +602,25 @@ mod tests {
         let entries = map("Comment = h\n").entries();
         let comment = entries.iter().find(|e| e.name == "Comment").unwrap();
         assert_eq!(comment.clash, Some(("h".into(), "Previous file".into())));
+    }
+
+    #[test]
+    fn a_focused_links_shared_keys_are_no_clash() {
+        let own = super::super::commands::own();
+        let keymap = Keymap {
+            defaults: super::super::commands::bindings(&own, str::to_owned),
+            ..map("")
+        };
+        let entries = keymap.entries();
+        for name in [
+            "OpenLinkInBrowser",
+            "OpenToast",
+            "CopyFocusedLink",
+            "SearchCommits",
+        ] {
+            let entry = entries.iter().find(|e| e.name == name).unwrap();
+            assert!(!entry.keys.is_empty() && entry.clash.is_none(), "{name}");
+        }
     }
 
     #[test]

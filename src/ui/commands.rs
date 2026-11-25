@@ -653,6 +653,27 @@ pub(super) fn own() -> Vec<Action> {
             .icon("bell")
             .order(at(15))
             .key("alt-enter", NO_CARET),
+        // A focused link's keys (Design round 46): after the actions that share them, so asked first; with no link
+        // focused the key goes on to those.
+        Action::new("shell.link-browser", OpenLinkInBrowser)
+            .heading(Heading::Requests)
+            .words("Open the focused link in the browser")
+            .icon("external")
+            .order(at(15) + 2)
+            .key("alt-enter", NO_CARET),
+        Action::new("shell.link-copy", CopyFocusedLink)
+            .heading(Heading::Requests)
+            .words("Copy the focused link")
+            .icon("link")
+            .order(at(15) + 3)
+            .key("cmd-shift-c", TAB),
+        Action::new("shell.link-menu", LinkMenu)
+            .heading(Heading::Requests)
+            .words("Open the focused link's menu")
+            .icon("link")
+            .order(at(15) + 4)
+            .key("shift-f10", NOT_TYPING)
+            .key("menu", NOT_TYPING),
         // ⌘K shows its first key: ⌥D, as it always did.
         Action::new("review.cycle-mode", CycleMode)
             .heading(Heading::View)

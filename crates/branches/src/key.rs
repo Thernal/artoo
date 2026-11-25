@@ -5,6 +5,7 @@
 use artoo_shell_api::issues;
 use artoo_shell_api::links::ShowLinkMenu;
 use artoo_ui_kit::hover::{self, Hover};
+use artoo_ui_kit::marked::Marked;
 use gpui::{
     App, Context, IntoElement, ParentElement, Render, RenderOnce, SharedString, Styled, Window,
     div, prelude::*,
@@ -68,6 +69,7 @@ impl RenderOnce for KeyedName {
                     .whitespace_nowrap()
                     .underline()
                     .child(key.clone())
+                    .link_mark(format!("{}-key", self.id), address.clone())
                     // ⌘/Ctrl-click: the issue in the browser; a plain click stays the row's.
                     .on_click(move |e: &gpui::ClickEvent, _, cx| {
                         if e.modifiers().secondary()

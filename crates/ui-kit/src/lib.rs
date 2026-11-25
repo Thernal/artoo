@@ -17,6 +17,7 @@ pub mod icons;
 pub mod input;
 pub mod keys;
 pub mod markdown;
+pub mod marked;
 pub mod menu;
 pub mod monogram;
 pub mod motion;

@@ -523,11 +523,11 @@ impl Render for Workspace {
                 cx.listener(|this, _: &SearchFiles, _, cx| this.search(artoo_code_api::SEARCH, cx)),
             )
             .on_action(cx.listener(|this, _: &SearchCommits, _, cx| {
-                // ⇧⌘C with a link's menu open copies the link.
-                if !this.link_key(super::linked::LinkKey::Copy, cx) {
-                    this.search(artoo_branches_api::SEARCH_COMMITS, cx)
-                }
+                this.search(artoo_branches_api::SEARCH_COMMITS, cx)
             }))
+            .on_action(cx.listener(Self::open_link_in_browser_action))
+            .on_action(cx.listener(Self::copy_focused_link_action))
+            .on_action(cx.listener(Self::link_menu_action))
             .on_action(
                 cx.listener(|this, show: &artoo_shell_api::links::ShowLinkMenu, _, cx| {
                     this.link_menu(&show.address, show.at, cx);
@@ -605,7 +605,10 @@ impl Render for Workspace {
                             .render_project_rail(cx)
                             .map(IntoElement::into_any_element),
                         spaces: self.render_spaces(cx).map(IntoElement::into_any_element),
-                        page: self.render_space(cx).into_any_element(),
+                        page: {
+                            let foot = self.render_link_foot(window, cx);
+                            self.render_space(foot, cx)
+                        },
                         stripe_gap: self.stripe_gap().map(IntoElement::into_any_element),
                         stripe: self.render_stripe(cx).map(IntoElement::into_any_element),
                         zen: self.zen.is_some(),
@@ -614,6 +617,8 @@ impl Render for Workspace {
                     cx,
                 ),
             })
+            // The pointer's every move, before the links drawn hear it.
+            .child(artoo_ui_kit::marked::watch())
             // Over everything, the toasts too: a toast's `⋯` opens it (#198).
             .children(
                 self.ctx_menu

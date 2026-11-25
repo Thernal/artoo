@@ -420,8 +420,11 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   trackers, the open project's commit and branch pages by the tab, any other web address as the browser's. A right
   click on a link — in a text, a request's number, a key in a title, a branch's name or the description's Issue —
   is its menu: Open ↵ · Open in GitLab / Jira ⌘-click, ⌥↵ · Copy link ⇧⌘C (Copy `!412` for a request), then the
-  kind's rows. ↵, ⌥↵ and ⇧⌘C act on the link only while that menu is open (`Workspace::link_key`, in front of the
-  actions that have those keys). Out of the tab's reach a right click dispatches `links::ShowLinkMenu`.
+  kind's rows. The focused link (`Workspace::link_key`) is the open menu's, else the picked row of the Merge
+  requests list while the list has the keyboard: ↵ opens it, ⌥↵ the browser (the menu's link first, then the newest
+  toast's button, then the row), ⇧⌘C copies it (else Search commits, which has the key too), ⇧F10 and the menu key
+  its menu; their actions share keys on purpose (`keymap::shared`, no clash). Links in a text have no keyboard
+  focus. Out of the tab's reach a right click dispatches `links::ShowLinkMenu`.
 - **⌘-click (Ctrl elsewhere) opens in the browser** (always `modifiers().secondary()`, never `.platform`): every request
   reference — a list row, its preview's and the Inbox's number, the request page's title and crumb, the branch bar's
   and a branch row's and card's `!N`, written `!N` in a text (host links already did) — opens `web.request(iid)`, and
@@ -430,7 +433,10 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   carries it into the kit's markdown). A request's number has its link's menu on a right click wherever it is drawn
   (`Act::RequestContext`, `InboxEvent::Menu`, `branches_api::Act::RequestMenu`; in a text `Selecting::link_menu`). A plain click is unchanged, except the request's issue key (`requests/why.rs`
   `issue_click`): it opens in the app when a tracker knows it, else the browser. ⌘K's rows take no ⌘-click: their
-  pick runs once the window has closed, with no event.
+  pick runs once the window has closed, with no event. **While ⌘ is held over a link** (`artoo_ui_kit::marked`,
+  Design round 46) it is marked and a line at the page's foot says `Open in …` and the address: whatever draws a link
+  says so with `Marked::link_mark` (its words), `link_row` (a row whose ⌘-click it is) or `link_over`, a request by
+  `marked::request(iid)`; the kit's markdown does it for the links in a text (a text without `Selecting` has none).
 - **Keyboard**: focus zones (branches, commits, files, diff, the open tool window; `ui/zones.rs`) — the one with the keyboard has an
   outlined island. Tab / ⇧Tab or ⌃2…4 move between them (⌃1 is the branch quick switch); ↑ ↓ (j k) act in the zone, ← → (h l) step files (in the file
   tree they close and open folders), ↵ goes one step in, Space / PageUp / PageDown / Home / End move the diff. A new

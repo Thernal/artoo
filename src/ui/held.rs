@@ -16,6 +16,8 @@ impl Workspace {
     ) {
         use artoo_ui_kit::keys::{self, Held};
         let m = event.modifiers;
+        // The link under the pointer is marked while ⌘ (Ctrl elsewhere) is held (Design round 46).
+        artoo_ui_kit::marked::held(m.secondary(), window);
         // A name under the pointer in Code's file is underlined while ⌘ is held (#207).
         self.rv().cmd_held(m.platform, cx);
         let want = match (m.platform, m.control, m.alt || m.shift || m.function) {

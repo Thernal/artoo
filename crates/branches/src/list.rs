@@ -8,6 +8,7 @@ use artoo_core::git::{ChangeKind, RefKind};
 use artoo_ui_kit::controls::{empty_state, outline_button, primary_button, progress_badge};
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, CutInTip, Hover, RowTip};
+use artoo_ui_kit::marked::{self, Marked};
 use artoo_ui_kit::room::Room;
 use artoo_ui_kit::{ROW_RADIUS, icons, motion, px, theme, words};
 use gpui::{
@@ -474,6 +475,7 @@ fn branch_row(
                                     )
                                 },
                             )
+                            .link_mark(format!("branch-card-request-{iid}"), marked::request(iid))
                             .flex_none()
                             .text_color(theme::accent())
                             .cursor_pointer()
@@ -799,6 +801,7 @@ fn branch_preview(
         actions.push(
             div()
                 .id("branch-request")
+                .link_mark("branch-request", marked::request(iid))
                 .child(outline_button(&format!("{} →", words::number(iid))))
                 .on_mouse_down(
                     gpui::MouseButton::Right,

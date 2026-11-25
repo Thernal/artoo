@@ -8,7 +8,12 @@ use artoo_shell_api::Slot;
 use gpui::{AnyElement, Context, div, prelude::*};
 
 impl Workspace {
-    pub(super) fn render_space(&self, cx: &mut Context<Self>) -> AnyElement {
+    /// The page, `foot` over its bottom left (where a ⌘-marked link goes).
+    pub(super) fn render_space(
+        &self,
+        foot: Option<AnyElement>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let body = match (self.nav.space, self.nav_page()) {
             // What the project lacks for the space, in its middle (#210).
             (space, _) if let Some(missing) = self.missing_page(space, cx) => missing,
@@ -21,6 +26,7 @@ impl Workspace {
             _ => div().flex_1(),
         };
         div()
+            .relative()
             .flex_1()
             .min_w_0()
             .min_h_0()
@@ -59,6 +65,7 @@ impl Workspace {
                     }),
             )
             .child(body)
+            .children(foot)
             .into_any_element()
     }
 

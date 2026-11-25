@@ -16,6 +16,7 @@ use artoo_review_api::Seen;
 use artoo_ui_kit::controls::{empty_state, outline_button, primary_button, unread_dot};
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, Hover, RowTip};
+use artoo_ui_kit::marked::{self, Marked};
 use artoo_ui_kit::room::Widths;
 use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, discussion, flat, icons, motion, px, theme, words};
 use gpui::{AnyElement, ClickEvent, Context, Div, FontWeight, SharedString, Task, div, prelude::*};
@@ -1309,6 +1310,7 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
                     ),
             )
             .row_tip_cut(picked, lines)
+            .link_row(format!("mr-row-{iid}"), marked::request(iid))
             .on_click(move |event: &ClickEvent, _, cx| {
                 // ⌘ (Ctrl elsewhere): the request in the browser.
                 if event.modifiers().secondary()
@@ -1419,6 +1421,7 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
                 .text_color(theme::accent())
                 .child(words::number(iid))
                 .tip(format!("{} → {}", m.source, m.target))
+                .link_mark(format!("preview-number-{iid}"), marked::request(iid))
                 // ⌘/Ctrl-click: the browser; right-click: the request's menu.
                 .on_click(move |e: &ClickEvent, _, cx| {
                     if e.modifiers().secondary()

@@ -181,6 +181,9 @@ actions!(
         CopyLink,
         OpenToast,
         UndoToast,
+        OpenLinkInBrowser,
+        CopyFocusedLink,
+        LinkMenu,
         PinTab,
         ShowShortcuts,
         NameProject,
@@ -1884,6 +1887,7 @@ impl Workspace {
         cx.observe_window_activation(window, |this, window, cx| {
             // A ⌘ held into ⌘⇥ is let go elsewhere: the helpers leave with the window (#193).
             this.held_gen += 1;
+            artoo_ui_kit::marked::held(false, window);
             if artoo_ui_kit::keys::set_held(None) {
                 window.refresh();
             }
@@ -3019,9 +3023,40 @@ impl Workspace {
         }
     }
 
-    /// ⌥↵: a focused link in the browser, else the newest toast's button (#198); with neither, the key goes on.
+    /// ⌥↵: the newest toast's button (#198); with none, the key goes on.
     fn open_toast_action(&mut self, _: &OpenToast, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.link_key(linked::LinkKey::Browser, cx) && !self.press_toast(cx) {
+        if !self.press_toast(cx) {
+            cx.propagate();
+        }
+    }
+
+    /// ⌥↵: the link of an open menu in the browser, else the newest toast's button, else the picked request's
+    /// page; with none, the key goes on.
+    fn open_link_in_browser_action(
+        &mut self,
+        _: &OpenLinkInBrowser,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.link_key(linked::LinkKey::Browser, cx) {
+            cx.propagate();
+        }
+    }
+
+    /// ⇧⌘C: the focused link copied; with none, the key goes on (Search commits).
+    fn copy_focused_link_action(
+        &mut self,
+        _: &CopyFocusedLink,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.link_key(linked::LinkKey::Copy, cx) {
+            cx.propagate();
+        }
+    }
+
+    fn link_menu_action(&mut self, _: &LinkMenu, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.open_focused_menu(window, cx) {
             cx.propagate();
         }
     }

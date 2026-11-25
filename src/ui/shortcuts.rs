@@ -86,7 +86,12 @@ const GROUPS: &[Group] = &[
             ("⌥⇧⌘C", "copy the link to this page"),
             (
                 "↵  ⌥↵  ⇧⌘C",
-                "in a link's menu: open here · in the browser · copy",
+                "a link's menu, a picked request: open here · in the browser · copy",
+            ),
+            ("⇧F10", "the picked request's link menu"),
+            (
+                "⌘-click",
+                "a link in the browser; ⌘ held says where it goes",
             ),
             ("⌘E", "recent places"),
             ("⌘⇧O", "functions and types this file changes"),
