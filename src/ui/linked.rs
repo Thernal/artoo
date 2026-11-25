@@ -3,13 +3,15 @@
 
 use super::Workspace;
 use super::menu::{Act, Entry};
+use artoo_shell_api::issues;
 use artoo_shell_api::links::{self, Claim, Kind};
+use artoo_ui_kit::hover::{card_frame, cut};
 use artoo_ui_kit::menu::Lead;
 use artoo_ui_kit::toast::{Tone, Words};
 use artoo_ui_kit::{marked, px, theme};
 use gpui::{
-    AnyElement, App, ClipboardItem, Context, FontWeight, Pixels, Point, Window, div, point,
-    prelude::*,
+    AnyElement, AnyView, App, AppContext, ClipboardItem, Context, FontWeight, Pixels, Point,
+    Render, Window, div, point, prelude::*,
 };
 use std::rc::Rc;
 
@@ -63,6 +65,33 @@ impl Workspace {
             site: Some(web.name().to_owned()),
             copy_name: false,
         })
+    }
+
+    /// The card of the link at `address`, shown on a long hover: its kind's own, an issue's, else the default one;
+    /// none for a link with no address on the web.
+    pub(super) fn link_card(&self, address: &str, cx: &mut Context<Self>) -> Option<AnyView> {
+        let linked = self.linked(address, cx)?;
+        if let Some(card) = linked.kind.as_ref().and_then(|k| k.card(address, cx)) {
+            return Some(card);
+        }
+        if let Some(card) = issues::key_of(address).and_then(|key| issues::card(cx, key)) {
+            return Some(cx.new(|_| super::hover::KeyCard::new(card)).into());
+        }
+        let card = WebCard {
+            url: linked.claim.url.clone()?,
+            address: linked.address,
+            claim: linked.claim,
+        };
+        Some(cx.new(|_| card).into())
+    }
+
+    /// A card's ⧉: the link at `address` copied.
+    pub(super) fn copy_link_of(&mut self, address: &str, cx: &mut Context<Self>) {
+        if let Some(linked) = self.linked(address, cx)
+            && let Some(url) = linked.claim.url
+        {
+            self.link_copied(url, &linked.claim.name, cx);
+        }
     }
 
     /// A link's right click at `at`: its menu; false when `address` is no link the tab knows.
@@ -287,6 +316,53 @@ impl Workspace {
     }
 }
 
+/// The default card of a link nobody draws one for: the host, ⧉ and ↗ at its head's end, and the address.
+struct WebCard {
+    address: String,
+    claim: Claim,
+    url: String,
+}
+
+impl Render for WebCard {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let head = div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .text_color(theme::muted())
+            .child(
+                artoo_ui_kit::icons::icon("link")
+                    .size(px(14.))
+                    .flex_none()
+                    .text_color(theme::muted()),
+            )
+            .child(
+                cut("web-card-host", host(&self.url).to_owned())
+                    .flex_1()
+                    .min_w_0(),
+            )
+            .child(links::glyphs(&self.address, &self.claim));
+        super::motion::appear(
+            card_frame().w(px(340.)).child(head).child(
+                cut("web-card-address", self.url.clone())
+                    .font_family(theme::code_font())
+                    .text_color(theme::muted()),
+            ),
+            "card-in",
+            super::motion::FAST,
+            |c, v| c.opacity(v),
+        )
+    }
+}
+
+/// The host of an address: `status.example.com`.
+fn host(url: &str) -> &str {
+    let rest = bare(url);
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..end];
+    authority.rsplit_once('@').map_or(authority, |(_, h)| h)
+}
+
 /// A key on the focused link.
 #[derive(Clone, Copy)]
 pub(super) enum LinkKey {
@@ -328,6 +404,11 @@ mod tests {
             Some("gitlab.example.com/a/b/-/merge_requests/412")
         );
         assert_eq!(words.announce.as_deref(), Some("Link copied"));
+        assert_eq!(
+            host("https://status.example.com/incidents/88"),
+            "status.example.com"
+        );
+        assert_eq!(host("https://a@evil.example?x=1"), "evil.example");
         assert_eq!(
             copied_words("https://example.com", "").text.as_ref(),
             "Link copied"

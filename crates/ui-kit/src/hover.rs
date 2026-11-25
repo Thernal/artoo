@@ -583,10 +583,10 @@ pub struct IssueCard {
     pub url: Option<String>,
 }
 
-/// An issue's card (K1): its key and the source's mark in the head, the title, its facts, the start of its
-/// description, and Open with the web address's icon in the foot. When the tracker was not reached it says so
-/// above the title and shows what was read last (K5). `open` is what Open does.
-pub fn issue_card(card: &IssueCard, open: impl Fn(&mut Window, &mut App) + 'static) -> gpui::Div {
+/// An issue's card (K1): its key, the source's mark and `actions` in the head, the title, its facts and the start of
+/// its description; no foot (H1). When the tracker was not reached it says so above the title and shows what was
+/// read last (K5).
+pub fn issue_card(card: &IssueCard, actions: Option<gpui::Div>) -> gpui::Div {
     let field = |label: &str, value: &str| {
         div()
             .flex()
@@ -645,7 +645,8 @@ pub fn issue_card(card: &IssueCard, open: impl Fn(&mut Window, &mut App) + 'stat
                         .flex_none()
                         .child(mark)
                         .tip_two(card.source.clone(), card.host.clone()),
-                ),
+                )
+                .children(actions),
         )
         .children(card.stale.as_ref().map(|at| {
             div()
@@ -733,37 +734,6 @@ pub fn issue_card(card: &IssueCard, open: impl Fn(&mut Window, &mut App) + 'stat
             (!card.excerpt.is_empty()).then(|| {
                 cut_to("issue-excerpt", card.excerpt.clone(), 3).text_color(theme::muted())
             }),
-        )
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .child(
-                    div()
-                        .id("issue-open")
-                        .flex()
-                        .items_center()
-                        .gap(px(4.))
-                        .px(px(10.))
-                        .h(px(24.))
-                        .rounded(px(ROW_RADIUS))
-                        .bg(theme::accent())
-                        .text_color(theme::on_accent())
-                        .font_weight(gpui::FontWeight::SEMIBOLD)
-                        .cursor_pointer()
-                        .child("Open")
-                        .child(keys::text("↵").into_owned())
-                        .on_click(move |_, window, cx| open(window, cx)),
-                )
-                .children(card.url.clone().map(|url| {
-                    card_action(
-                        "issue-web",
-                        "external",
-                        format!("Open {} on the web", card.key),
-                    )
-                    .on_click(move |_, _, cx| cx.open_url(&url))
-                })),
         )
 }
 

@@ -124,6 +124,19 @@ pub fn claim(cx: &App, key: &str) -> Option<crate::links::Claim> {
     })
 }
 
+/// An issue's card as it is drawn (`artoo_ui_kit::hover::issue_card`), its link's glyphs in its head; none for an
+/// issue with no address.
+pub fn drawn(card: &IssueCard) -> gpui::Div {
+    let claim = crate::links::Claim {
+        url: card.url.clone(),
+        site: Some(card.source.clone()),
+        ..Default::default()
+    };
+    let address = format!("{SCHEME}{}", card.key);
+    let glyphs = (card.url.is_some()).then(|| crate::links::glyphs(&address, &claim));
+    artoo_ui_kit::hover::issue_card(card, glyphs)
+}
+
 /// The browser address of issue `key`, from the first tracker whose card has one (`IssueCard::url`); none when no
 /// tracker knows the issue or its card has no address.
 pub fn url(cx: &App, key: &str) -> Option<String> {

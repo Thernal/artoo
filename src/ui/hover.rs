@@ -176,11 +176,8 @@ impl KeyCard {
 
 impl Render for KeyCard {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        let key = self.card.key.clone();
         super::motion::appear(
-            issue_card(&self.card, move |_, cx| {
-                artoo_shell_api::issues::open(cx, &key);
-            }),
+            artoo_shell_api::issues::drawn(&self.card),
             "card-in",
             super::motion::FAST,
             |c, v| c.opacity(v),
@@ -370,13 +367,12 @@ impl Workspace {
         let Some(login) = self.mention_hover.as_ref().map(|h| h.login.clone()) else {
             return;
         };
-        // A tracker's key: its issue's card, if the tracker knows the issue.
-        if let Some(key) = artoo_shell_api::issues::key_of(&login) {
-            let Some(card) = artoo_shell_api::issues::card(cx, key) else {
+        // A link: its card, its kind's own or the default one.
+        if artoo_ui_kit::markdown::has_card(&login) {
+            let Some(view) = self.link_card(&login, cx) else {
                 self.mention_hover = None;
                 return;
             };
-            let view: AnyView = cx.new(|_| KeyCard { card }).into();
             if let Some(h) = &mut self.mention_hover {
                 h.card = Some(view);
             }

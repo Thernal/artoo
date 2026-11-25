@@ -26,15 +26,12 @@ pub fn name(id: impl Into<SharedString>, text: impl Into<SharedString>) -> Keyed
     }
 }
 
-/// The issue's card, drawn by the kit; Open opens the issue under its tracker.
+/// The issue's card, drawn by the kit.
 struct Card(hover::IssueCard);
 
 impl Render for Card {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        let key = self.0.key.clone();
-        hover::issue_card(&self.0, move |_, cx| {
-            issues::open(cx, &key);
-        })
+        issues::drawn(&self.0)
     }
 }
 

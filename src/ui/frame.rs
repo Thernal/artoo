@@ -525,6 +525,11 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &SearchCommits, _, cx| {
                 this.search(artoo_branches_api::SEARCH_COMMITS, cx)
             }))
+            .on_action(
+                cx.listener(|this, copy: &artoo_shell_api::links::CopyLinkOf, _, cx| {
+                    this.copy_link_of(&copy.address, cx);
+                }),
+            )
             .on_action(cx.listener(Self::open_link_in_browser_action))
             .on_action(cx.listener(Self::copy_focused_link_action))
             .on_action(cx.listener(Self::link_menu_action))

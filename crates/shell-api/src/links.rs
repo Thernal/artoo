@@ -5,13 +5,17 @@
 //! (comments, descriptions, a commit's message) shows them as links, followed as the written ones are.
 //!
 //! **The registry** (#217; Design round 46): a module or a plugin says what a link of its kind is (`Kind`) — what it
-//! matches (`claim`), what a click does (`open`), its menu's rows of its own (`rows`) — for its parts' tab
+//! matches (`claim`), its card on a long hover (`card`), what a click does (`open`), its menu's rows of its own
+//! (`rows`) — for its parts' tab
 //! (`Parts::link_kinds`) or the whole app (`add`, a plugin's `install`). Issue keys a tracker names
-//! (`crate::issues`) are claimed without more; a web address nobody claims is the browser's (`web`).
+//! (`crate::issues`) are claimed without more; a web address nobody claims is the browser's (`Claim::web`), and what
+//! brings no card has the default one (the host, the address). A card is the kind's own design, in the kit's frame
+//! (`hover::card_frame`), its actions `glyphs` at its head's end and no foot (the hover rules, H1).
 
 use crate::{MenuItem, issues};
+use artoo_ui_kit::hover::card_action;
 use artoo_ui_kit::markdown::FindLinks;
-use gpui::{App, Global, Pixels, Point};
+use gpui::{AnyView, App, Div, Global, Pixels, Point, div, prelude::*};
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -92,6 +96,11 @@ pub trait Kind {
         false
     }
 
+    /// Its card on a long hover over the link; none has the default one. Its head ends with `glyphs`.
+    fn card(&self, _address: &str, _cx: &mut App) -> Option<AnyView> {
+        None
+    }
+
     /// Rows of its own under the menu's (Open, Open in …, Copy link).
     fn rows(&self, _address: &str, _cx: &App) -> Vec<MenuItem> {
         Vec::new()
@@ -129,6 +138,36 @@ pub fn claimed(
 pub struct ShowLinkMenu {
     pub address: String,
     pub at: Point<Pixels>,
+}
+
+/// A link's address to be copied, from a card: the tab copies it and says so.
+#[derive(Clone, PartialEq, gpui::Action)]
+#[action(namespace = artoo_links, no_json)]
+pub struct CopyLinkOf {
+    pub address: String,
+}
+
+/// A card's two actions, at its head's end: ⧉ copies the link at `address`, ↗ opens its claim's address in the
+/// browser, its tooltip `Claim::open_in`.
+pub fn glyphs(address: &str, claim: &Claim) -> Div {
+    let address = address.to_owned();
+    let open = claim.open_in();
+    div()
+        .flex_none()
+        .flex()
+        .items_center()
+        .gap(artoo_ui_kit::px(2.))
+        .child(
+            card_action("link-copy", "copy", "Copy link").on_click(move |_, window, cx| {
+                let copy = CopyLinkOf {
+                    address: address.clone(),
+                };
+                window.dispatch_action(Box::new(copy), cx);
+            }),
+        )
+        .children(claim.url.clone().map(|url| {
+            card_action("link-open", "external", open).on_click(move |_, _, cx| cx.open_url(&url))
+        }))
 }
 
 #[cfg(test)]

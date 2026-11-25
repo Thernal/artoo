@@ -92,13 +92,20 @@ pub type OnLink = Rc<dyn Fn(&str, &mut App) -> bool>;
 pub type OnBrowser = Rc<dyn Fn(&str, &App) -> Option<String>>;
 /// A link right-clicked at a window position: `true` when the app knows the link and its menu opened.
 pub type OnLinkMenu = Rc<dyn Fn(&str, gpui::Point<gpui::Pixels>, &mut App) -> bool>;
-/// The `@login` mention under the pointer and where it is drawn, or `None` off every mention: the
-/// workspace shows the person's card when the pointer rests there (#51, X62).
+/// The `@login` mention or the link under the pointer and where it is drawn, or `None` off both: the
+/// workspace shows the person's card (#51, X62) or the link's (`has_card`) when the pointer rests there.
 pub type OnMention = Rc<dyn Fn(Option<(String, gpui::Bounds<gpui::Pixels>)>, &mut App)>;
 
-/// The address a tracker's issue key is a link to (`artoo_shell_api::issues`): the app follows it, the browser never,
-/// and the pointer resting on it shows the issue's card, as it does on a mention.
+/// The address a tracker's issue key is a link to (`artoo_shell_api::issues`): the app follows it, the browser
+/// never.
 pub const ISSUE_SCHEME: &str = "artoo-issue:";
+
+/// Whether a link at `address` has a card on a long hover: an issue key's, or a web address.
+pub fn has_card(address: &str) -> bool {
+    address.starts_with(ISSUE_SCHEME)
+        || address.starts_with("https://")
+        || address.starts_with("http://")
+}
 
 /// A picture from the web clicked, by its address as the text writes it: the page opens it whole (#211).
 pub type OnImage = Rc<dyn Fn(&str, &mut gpui::Window, &mut App)>;
@@ -949,14 +956,9 @@ fn inline_drawn(i: &Inline, mentions: bool, ctx: &mut Ctx) -> AnyElement {
             .collect(),
         _ => Vec::new(),
     };
-    // A tracker's keys: the card is asked for by the link's address.
+    // A link's card (a tracker's key, a web address): asked for by the link's address.
     if ctx.sel.is_some() {
-        tagged.extend(
-            links
-                .iter()
-                .filter(|(_, url)| url.starts_with(ISSUE_SCHEME))
-                .cloned(),
-        );
+        tagged.extend(links.iter().filter(|(_, url)| has_card(url)).cloned());
     }
     if links.is_empty() && tagged.is_empty() {
         return text_block(styled.into_any_element(), layout, &i.text, ctx);

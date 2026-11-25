@@ -7,7 +7,7 @@ use artoo_core::git::WebRemote;
 use artoo_core::links;
 use artoo_shell_api::links::{Claim, Kind, Pattern};
 use artoo_ui_kit::words;
-use gpui::{App, Entity};
+use gpui::{AnyView, App, AppContext, Entity, WeakEntity};
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -24,11 +24,12 @@ struct Known {
 /// link is (its menu, `kind`).
 pub(crate) fn links(requests: &Entity<Requests>, cx: &mut App) -> (Pattern, Rc<dyn Kind>) {
     let known = Rc::new(RefCell::new(Known::default()));
-    (pattern(requests, known.clone(), cx), Rc::new(Link(known)))
+    let link = Link(known.clone(), requests.downgrade());
+    (pattern(requests, known, cx), Rc::new(link))
 }
 
 /// A link to a request of the open project, by its page, a comment of it or a line of its diff.
-struct Link(Rc<RefCell<Known>>);
+struct Link(Rc<RefCell<Known>>, WeakEntity<Requests>);
 
 impl Kind for Link {
     fn id(&self) -> &'static str {
@@ -38,6 +39,17 @@ impl Kind for Link {
     fn claim(&self, address: &str, cx: &App) -> Option<Claim> {
         let link = artoo_hosts_api::get(cx).link(address)?;
         claim_of(self.0.borrow().web.as_ref()?, &link, address)
+    }
+
+    /// The card of a request the tab has read; one it has not has the default card.
+    fn card(&self, address: &str, cx: &mut App) -> Option<AnyView> {
+        let claim = self.claim(address, cx)?;
+        let link = artoo_hosts_api::get(cx).link(address)?;
+        let links::Target::Request { iid, .. } = link.target else {
+            return None;
+        };
+        let card = crate::card::of(self.1.upgrade()?.read(cx), iid, address, claim)?;
+        Some(cx.new(|_| card).into())
     }
 }
 

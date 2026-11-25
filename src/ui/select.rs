@@ -107,6 +107,16 @@ impl Workspace {
         let menu = this.clone();
         // The kinds of link the tab's features find in its texts, in their order (#171, D11).
         let mut patterns: Vec<_> = self.parts.iter().flat_map(|p| p.links.clone()).collect();
+        // Web addresses written bare, first: a number or a key inside one is the address's.
+        patterns.push(artoo_shell_api::links::Pattern {
+            id: "web.address",
+            order: 0,
+            find: std::rc::Rc::new(|text, _| {
+                (artoo_core::links::addresses(text).into_iter())
+                    .map(|r| (r.clone(), text[r].to_owned()))
+                    .collect()
+            }),
+        });
         // A tracker's keys (#217): links to the tracker's issues, none while no tracker is offered.
         patterns.push(artoo_shell_api::links::Pattern {
             id: "issues.key",

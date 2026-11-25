@@ -1095,7 +1095,7 @@ fn approvals_words(a: &Approvals) -> Option<String> {
 }
 
 /// Approvals counted: `1/2`, or how many approved where no rule asks; nothing where there is neither.
-fn approvals_count(a: &Approvals) -> Option<String> {
+pub(crate) fn approvals_count(a: &Approvals) -> Option<String> {
     if a.required > 0 {
         Some(format!(
             "{}/{}",
@@ -1108,7 +1108,7 @@ fn approvals_count(a: &Approvals) -> Option<String> {
 }
 
 /// Of a request's `threads`, those open (resolvable, not resolved) and those resolved.
-fn discussions(threads: &[Thread]) -> (usize, usize) {
+pub(crate) fn discussions(threads: &[Thread]) -> (usize, usize) {
     let resolvable = threads.iter().filter(|t| t.resolvable);
     let open = resolvable.clone().filter(|t| !t.resolved).count();
     (open, resolvable.count() - open)

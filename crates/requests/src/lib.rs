@@ -4,6 +4,7 @@
 //! (`reading`). The space's own page is theirs (`root`); the app's other views read and draw them for now.
 
 mod bar;
+mod card;
 mod complete;
 mod create;
 mod discussions;

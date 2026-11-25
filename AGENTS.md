@@ -415,7 +415,7 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   copying a dead link. A copied link's toast is `Link to !412 copied` over the address, and VoiceOver hears
   `Link copied` (`toast::Words::announce`, a live region).
 - **The link registry and a link's menu** (#217, Design round 46; `artoo_shell_api::links`, `src/ui/linked.rs`): a
-  kind of link (`links::Kind`: `claim`, `open`, `rows`) is offered by a tab's feature (`Parts::link_kinds`, the
+  kind of link (`links::Kind`: `claim`, `card`, `open`, `rows`) is offered by a tab's feature (`Parts::link_kinds`, the
   requests' in `requests/numbers.rs`) or a plugin for every tab (`links::add`); issue keys are claimed through their
   trackers, the open project's commit and branch pages by the tab, any other web address as the browser's. A right
   click on a link — in a text, a request's number, a key in a title, a branch's name or the description's Issue —
@@ -424,7 +424,12 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   requests list while the list has the keyboard: ↵ opens it, ⌥↵ the browser (the menu's link first, then the newest
   toast's button, then the row), ⇧⌘C copies it (else Search commits, which has the key too), ⇧F10 and the menu key
   its menu; their actions share keys on purpose (`keymap::shared`, no clash). Links in a text have no keyboard
-  focus. Out of the tab's reach a right click dispatches `links::ShowLinkMenu`.
+  focus. **Its card** on a long hover over a link in a text is the kind's own (`Kind::card`: the requests' in
+  `requests/card.rs`), an issue key's the tracker's (`issues::drawn`), else the default one — the host and the
+  address, no page title: nothing is fetched for a link —; every one has ⧉ and ↗ at its head's end
+  (`links::glyphs`; ⧉ dispatches `links::CopyLinkOf`) and no foot. A web address written bare in a text is a link
+  (`artoo_core::links::addresses`, the first pattern: a number or a key inside it is the address's). Out of the
+  tab's reach a right click dispatches `links::ShowLinkMenu`.
 - **⌘-click (Ctrl elsewhere) opens in the browser** (always `modifiers().secondary()`, never `.platform`): every request
   reference — a list row, its preview's and the Inbox's number, the request page's title and crumb, the branch bar's
   and a branch row's and card's `!N`, written `!N` in a text (host links already did) — opens `web.request(iid)`, and

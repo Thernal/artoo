@@ -209,9 +209,70 @@ pub fn numbers(text: &str, sign: char) -> Vec<(std::ops::Range<usize>, u64)> {
     found
 }
 
+/// The web addresses written bare in `text` (`https://…`), by their bytes: each starts a word and ends before a
+/// space or a quote or angle bracket, the sentence's punctuation after it left out.
+pub fn addresses(text: &str) -> Vec<std::ops::Range<usize>> {
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(at) = text[from..].find("http").map(|i| from + i) {
+        let rest = &text[at..];
+        from = at + 4;
+        let Some(scheme) = ["https://", "http://"]
+            .into_iter()
+            .find(|s| rest.starts_with(s))
+        else {
+            continue;
+        };
+        let before = text[..at].chars().next_back();
+        if before.is_some_and(|c| c.is_alphanumeric() || "_/=-.".contains(c)) {
+            continue;
+        }
+        let mut end = rest
+            .find(|c: char| c.is_whitespace() || "<>\"'`|".contains(c))
+            .unwrap_or(rest.len());
+        // A bracket closing one opened inside the address is its own; any other, and the punctuation of the
+        // sentence, is not.
+        while let Some(last) = rest[..end].chars().next_back() {
+            let unopened =
+                |open: char| rest[..end].matches(open).count() < rest[..end].matches(last).count();
+            let out = match last {
+                '.' | ',' | ';' | ':' | '!' | '?' | '*' | '_' | '~' => true,
+                ')' => unopened('('),
+                ']' => unopened('['),
+                '}' => unopened('{'),
+                _ => false,
+            };
+            if !out {
+                break;
+            }
+            end -= last.len_utf8();
+        }
+        if end > scheme.len() {
+            found.push(at..at + end);
+            from = at + end;
+        }
+    }
+    found
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bare_addresses_end_before_the_sentences_punctuation() {
+        let text = "See https://a.example/x_(y), (http://b.example/z). Not xhttps://c.example or https:// alone: \
+                    https://d.example/e?f=1&g=#h!";
+        let found: Vec<&str> = addresses(text).into_iter().map(|r| &text[r]).collect();
+        assert_eq!(
+            found,
+            [
+                "https://a.example/x_(y)",
+                "http://b.example/z",
+                "https://d.example/e?f=1&g=#h"
+            ]
+        );
+    }
 
     #[test]
     fn numbers_start_a_word() {
