@@ -171,8 +171,8 @@ pub fn drafts_of<'a>(comments: &'a [Comment], chat: &Chat) -> Vec<&'a Comment> {
     out
 }
 
-/// How many comments wait to be sent to `chat` (the `Not sent` count).
-pub fn not_sent(comments: &[Comment], chat: &Chat) -> usize {
+/// How many comments wait to be sent to `chat` (the `Drafts` count).
+pub fn drafts(comments: &[Comment], chat: &Chat) -> usize {
     drafts_of(comments, chat).len()
 }
 
@@ -290,7 +290,7 @@ mod tests {
             ..Default::default()
         };
         let chat = chat("a", 1);
-        assert_eq!(not_sent(&[draft, archived, sent(1, "a", 1)], &chat), 1);
+        assert_eq!(drafts(&[draft, archived, sent(1, "a", 1)], &chat), 1);
     }
 
     #[test]
@@ -303,9 +303,9 @@ mod tests {
             ..Default::default()
         };
         let all = [on(1, Some("fix")), on(2, Some("other")), on(3, None)];
-        assert_eq!(not_sent(&all, &chat), 2);
+        assert_eq!(drafts(&all, &chat), 2);
         chat.branch.clear();
-        assert_eq!(not_sent(&all, &chat), 3);
+        assert_eq!(drafts(&all, &chat), 3);
     }
 
     #[test]

@@ -33,8 +33,8 @@ pub enum Mine {
 pub enum Block {
     /// `Today`, `Yesterday`, a date.
     Day(String),
-    /// The agent's messages in a row, under one name.
-    Claude { at: i64, says: Vec<Say> },
+    /// The agent's messages in a row, under one name; each keeps its own time.
+    Claude { says: Vec<Say> },
     /// The reviewer's messages in a row.
     You { mine: Vec<Mine> },
     /// A centred line: `Done · 3 files changed`.
@@ -105,10 +105,7 @@ pub fn blocks(talk: &[Entry], comments: &[Comment], working: &[u64], now: i64) -
                 };
                 match out.last_mut() {
                     Some(Block::Claude { says, .. }) => says.push(say),
-                    _ => out.push(Block::Claude {
-                        at: *at,
-                        says: vec![say],
-                    }),
+                    _ => out.push(Block::Claude { says: vec![say] }),
                 }
             }
             Entry::Status { at, text } => out.push(Block::Status {
@@ -201,7 +198,7 @@ pub fn view(blocks: &[Block], comments: &[Comment], look: &Look, cx: &App) -> Ve
         .enumerate()
         .map(|(ix, b)| match b {
             Block::Day(label) => day(label),
-            Block::Claude { at, says } => claude(ix, *at, says, comments, look, cx),
+            Block::Claude { says } => claude(ix, says, comments, look, cx),
             Block::You { mine } => you(ix, mine, comments, look, cx),
             Block::Status { at, text } => status(ix, *at, text, look),
             Block::Working { these } => working(*these, look),
@@ -210,16 +207,32 @@ pub fn view(blocks: &[Block], comments: &[Comment], look: &Look, cx: &App) -> Ve
         .collect()
 }
 
+/// The day line: the day's name on a quiet pill in the middle.
 fn day(label: &str) -> AnyElement {
     div()
         .w_full()
         .flex()
         .justify_center()
-        .py(px(2.))
-        .text_size(px(11.))
-        .text_color(theme::faint())
-        .child(label.to_owned())
+        .child(
+            div()
+                .px(px(8.))
+                .py(px(2.))
+                .rounded(px(ROW_RADIUS))
+                .bg(theme::hover())
+                .text_size(px(11.))
+                .text_color(theme::muted())
+                .child(label.to_owned()),
+        )
         .into_any_element()
+}
+
+/// A message's time, small at the end of its last line: the same on both sides (#243).
+fn stamp(at: i64) -> gpui::Div {
+    div()
+        .self_end()
+        .text_size(px(10.))
+        .text_color(theme::faint())
+        .child(clock(at))
 }
 
 /// A status line, centred: `Done  3 files changed  Show  10:31`; Show opens the changes, when it counts files.
@@ -461,13 +474,7 @@ fn you(ix: usize, mine: &[Mine], comments: &[Comment], look: &Look, cx: &App) ->
                     })
             }))
             .child(markdown::body(&text, look.rich, key, None, None, cx))
-            .child(
-                div()
-                    .self_end()
-                    .text_size(px(10.))
-                    .text_color(theme::faint())
-                    .child(clock(at)),
-            )
+            .child(stamp(at))
     });
     // 12 between comments sent together; 20 apart from the next block (the column's gap).
     div()
@@ -480,15 +487,9 @@ fn you(ix: usize, mine: &[Mine], comments: &[Comment], look: &Look, cx: &App) ->
         .into_any_element()
 }
 
-/// The agent's messages under one name: its mark, `Claude` and the time, then a bubble each.
-fn claude(
-    ix: usize,
-    at: i64,
-    says: &[Say],
-    comments: &[Comment],
-    look: &Look,
-    cx: &App,
-) -> AnyElement {
+/// The agent's messages under one name: its mark and `Claude`, then a bubble each with its time under its words, as
+/// yours have theirs (#243).
+fn claude(ix: usize, says: &[Say], comments: &[Comment], look: &Look, cx: &App) -> AnyElement {
     let bubbles = says
         .iter()
         .enumerate()
@@ -509,23 +510,19 @@ fn claude(
                 .min_w_0()
                 .flex()
                 .flex_col()
+                .items_start()
                 .gap(px(6.))
                 .child(
                     div()
-                        .flex()
-                        .items_center()
                         .text_size(px(12.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        // `Claude`, as the composer names it (`Message Claude…`).
                         .child(
-                            div()
-                                .flex_1()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(look.name.clone()),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(11.))
-                                .text_color(theme::faint())
-                                .child(clock(at)),
+                            look.name
+                                .split_whitespace()
+                                .next()
+                                .unwrap_or("Agent")
+                                .to_owned(),
                         ),
                 )
                 .children(bubbles),
@@ -591,6 +588,7 @@ fn bubble(key: usize, s: &Say, comments: &[Comment], look: &Look, cx: &App) -> A
         }),
     });
     let words = words(key, &s.text, look, cx);
+    let open = open_form(s, comments).is_some();
     let card = match open_form(s, comments) {
         // A plan open: its steps, Approve and the pencil, in an orange border.
         Some(c) if s.form.as_ref().is_some_and(|f| f.kind == FormKind::Plan) => corners(div())
@@ -673,7 +671,12 @@ fn bubble(key: usize, s: &Say, comments: &[Comment], look: &Look, cx: &App) -> A
             .children(reply)
             .child(words),
     };
-    card.into_any_element()
+    // One kind of message on both sides (#243): as wide as yours at most, the time under the words; a plan or a
+    // question open takes the column, for its steps and choices.
+    card.when(open, |d| d.w_full())
+        .when(!open, |d| d.max_w(px(300.)).min_w_0())
+        .child(stamp(s.at))
+        .into_any_element()
 }
 
 /// A plan waiting for you: `Plan  3 steps`, its steps numbered (a click leaves one out or takes it in), `Approve`

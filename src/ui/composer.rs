@@ -609,7 +609,7 @@ impl Workspace {
             {
                 return self.reply_to_review(ix, cx);
             }
-            // An agent comment is kept in Not sent, whatever the modifiers: its own send is on the comment (#220).
+            // An agent comment is kept as a draft, whatever the modifiers: its own send is on the comment (#220).
             // A reply: ⌥⌘↵ sends it and resolves its discussion, or opens it again when resolved (#199).
             if m.alt
                 && let Some(Target::Reply(ix)) = target

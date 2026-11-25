@@ -244,7 +244,7 @@ pub enum State {
 pub fn verb(c: &Comment) -> &'static str {
     match c.state {
         State::Addressed => "addressed your note",
-        State::Draft => "asks you · answered, not sent",
+        State::Draft => "asks you · answered, a draft",
         _ => "asks you",
     }
 }

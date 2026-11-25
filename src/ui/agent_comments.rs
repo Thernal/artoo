@@ -438,7 +438,7 @@ impl Workspace {
                             .whitespace_nowrap()
                             .text_size(px(11.))
                             .text_color(theme::faint())
-                            .child("not sent"),
+                            .child("draft"),
                     )
                     .child(
                         discussion::icon_button(

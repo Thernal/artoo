@@ -1,5 +1,5 @@
-//! The Not sent view of the Agents tab (#220): every comment written for the agent and not sent, in the order they
-//! were written — its place and its words in full, on hover Edit and a send of its own —, under them the field for
+//! The Drafts view of the Agents tab (#220, #243): every comment written for the agent and not sent, in the order
+//! they were written — its place and its words in full, on hover Edit and a send of its own —, under them the field for
 //! a message to go with them and `Send all`.
 
 use crate::review::{Comment, State};
@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-/// The comments not sent, in the order they were written (ids only grow).
+/// The drafts, in the order they were written (ids only grow).
 pub fn drafts(comments: &[Comment]) -> Vec<&Comment> {
     let mut out: Vec<&Comment> = comments
         .iter()
@@ -108,7 +108,7 @@ fn peek_card(c: &Comment, folder: &Path, host: Option<Rc<dyn AgentsHost>>) -> An
         )
         .child(
             div()
-                .id(("not-sent-open", id as usize))
+                .id(("draft-open", id as usize))
                 .flex()
                 .items_center()
                 .gap(px(4.))
@@ -134,7 +134,7 @@ fn peek_card(c: &Comment, folder: &Path, host: Option<Rc<dyn AgentsHost>>) -> An
 /// A comment's row: its place, Edit and Send only this one on hover, its words under.
 fn row(c: &Comment, to: &To, cx: &App) -> AnyElement {
     let id = c.id;
-    let group: SharedString = format!("not-sent-{id}").into();
+    let group: SharedString = format!("draft-{id}").into();
     let (edited, sent) = (to.host.clone(), to.host.clone());
     let peek = to.peek.clone();
     let open = to.peeked.contains(&id);
@@ -142,7 +142,7 @@ fn row(c: &Comment, to: &To, cx: &App) -> AnyElement {
     let (session, title) = (to.session.clone(), to.title.clone());
     let icon = |name: &'static str, tip: &'static str, key: u64| {
         div()
-            .id(("not-sent-act", key as usize))
+            .id(("draft-act", key as usize))
             .size(px(22.))
             .flex()
             .items_center()
@@ -156,13 +156,17 @@ fn row(c: &Comment, to: &To, cx: &App) -> AnyElement {
             .child(icons::icon(name).size(px(14.)).text_color(theme::muted()))
     };
     div()
-        .id(("not-sent", id as usize))
+        .id(("draft", id as usize))
         .group(group.clone())
         .flex()
         .flex_col()
         .gap(px(4.))
-        .px(px(14.))
-        .py(px(8.))
+        .pl(px(16.))
+        .pr(px(8.))
+        .pt(px(8.))
+        .pb(px(10.))
+        .border_b_1()
+        .border_color(theme::island_border())
         .hover(|d| d.bg(theme::hover()))
         .child(
             div()
@@ -172,7 +176,7 @@ fn row(c: &Comment, to: &To, cx: &App) -> AnyElement {
                 .h(px(22.))
                 .child(
                     div()
-                        .id(("not-sent-place", id as usize))
+                        .id(("draft-place", id as usize))
                         .min_w_0()
                         .flex()
                         .items_center()
@@ -210,7 +214,7 @@ fn row(c: &Comment, to: &To, cx: &App) -> AnyElement {
                             .size(px(13.))
                             .text_color(theme::muted()),
                         )
-                        .child(hover::cut(("not-sent-what", id as usize), c.reads()))
+                        .child(hover::cut(("draft-what", id as usize), c.reads()))
                         .on_click(move |_: &ClickEvent, _, cx| {
                             peek(id, cx);
                         }),
@@ -250,7 +254,7 @@ fn row(c: &Comment, to: &To, cx: &App) -> AnyElement {
         .child(div().text_size(px(13.)).child(markdown::body(
             &c.body,
             to.rich,
-            format!("not-sent-body-{id}"),
+            format!("draft-body-{id}"),
             None,
             None,
             cx,
@@ -259,17 +263,29 @@ fn row(c: &Comment, to: &To, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// The rows, oldest first; the empty line when nothing waits.
+/// The rows, oldest first; with none, what gathers here and how.
 pub fn view(comments: &[Comment], to: &To, cx: &App) -> Vec<AnyElement> {
     let list = drafts(comments);
     if list.is_empty() {
         return vec![
             div()
-                .px(px(14.))
-                .py(px(10.))
+                .px(px(16.))
+                .py(px(32.))
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(6.))
+                .text_center()
                 .text_size(px(12.))
                 .text_color(theme::muted())
-                .child("Nothing waits: comments you write for Claude on lines gather here")
+                .child(
+                    div()
+                        .text_size(px(13.))
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .text_color(theme::text())
+                        .child("No drafts"),
+                )
+                .child("A comment you write for Claude on a line waits here until you send it.")
                 .into_any_element(),
         ];
     }
@@ -294,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn not_sent_lists_the_drafts_in_the_order_written() {
+    fn drafts_are_listed_in_the_order_written() {
         let mut sent = draft(2, "sent");
         sent.state = State::Sent;
         sent.sent = Some(Sent::default());
@@ -329,7 +345,7 @@ mod tests {
             .collect();
         assert_eq!(order, [1, 2, 3], "each comment its own message, as written");
         assert_eq!(talk.len(), 4);
-        assert!(drafts(&all).is_empty(), "nothing is left in Not sent");
+        assert!(drafts(&all).is_empty(), "nothing is left in Drafts");
         assert_eq!(
             artoo_agents_api::conversation::working_on(&all, "s1"),
             [1, 2, 3]

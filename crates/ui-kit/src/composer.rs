@@ -1134,7 +1134,7 @@ impl Compose {
 
     /// A new comment's foot by its room (Design shell round 6, #129): Cancel, the other ways to send and the
     /// primary; who reads it is the `To:` chip over the text (#200, `audience_chip`). For the agent the primary keeps
-    /// the comment in Not sent (its own send is on the comment, #220), its ▾ holding Choose the chat…, Copy as markdown.
+    /// the comment as a draft, listed under Drafts (its own send is on the comment, #220, #243), its ▾ holding Choose the chat…, Copy as markdown.
     pub fn foot(&self, look: FootLook, on: OnFoot) -> Vec<AnyElement> {
         let waits = self.waiting();
         let on = waiting_foot(waits, on);
@@ -1164,12 +1164,13 @@ impl Compose {
             .into_any_element(),
         ];
         let add = on.clone();
-        // A comment on a line for the agent is kept in Not sent; its own send is on the comment (#220).
-        let primary = if agent { "Add to Not sent" } else { "Comment" };
+        // A comment on a line for the agent is kept as a draft; its own send is on the comment (#220).
+        let primary = if agent { "Add to drafts" } else { "Comment" };
         let said: SharedString = if waits {
             "Waits for the upload".into()
         } else if agent {
-            "Keep it in Not sent  ⌘↵\nIts own send is on the comment".into()
+            "Keep it as a draft, in the Agents tab's Drafts  ⌘↵\nIts own send is on the comment"
+                .into()
         } else {
             "Comment  ⌘↵".into()
         };
