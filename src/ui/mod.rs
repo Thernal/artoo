@@ -963,6 +963,11 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         if let Ok(state) = std::env::var("ARTOO_SNAPSHOT_FRESH") {
             ws.update(cx, |this, cx| {
                 if let Some(requests) = this.requests_api() {
+                    if this.nav.space == spaces::INBOX {
+                        requests.force_inbox_fresh(&state, cx);
+                        cx.notify();
+                        return;
+                    }
                     match this.shown_page() {
                         Some(crate::ui::nav::Page::Request(_)) => {
                             requests.force_page_fresh(&state, cx)
@@ -1868,6 +1873,7 @@ impl Workspace {
             }),
             cx,
         );
+        cx.observe_self(|this, cx| this.watch_inbox(cx)).detach();
         cx.observe_window_activation(window, |this, window, cx| {
             // A ⌘ held into ⌘⇥ is let go elsewhere: the helpers leave with the window (#193).
             this.held_gen += 1;
@@ -2759,6 +2765,11 @@ impl Workspace {
     }
 
     fn refresh(&mut self, _: &Refresh, _: &mut Window, cx: &mut Context<Self>) {
+        self.reload(cx);
+    }
+
+    /// Reads the repository and its host again (`⌘R`, a failed read's `↻`).
+    pub(super) fn reload(&mut self, cx: &mut Context<Self>) {
         let Some(root) = self.root.clone() else {
             return;
         };
@@ -2774,6 +2785,7 @@ impl Workspace {
         // ⌘R shows what the last read held back (`1 new ↑`) before it reads again.
         if let Some(requests) = self.requests_api() {
             requests.apply_held(cx);
+            requests.apply_inbox_held(cx);
         }
         self.forget_news(cx);
         self.open_repo(root, keep, cx);

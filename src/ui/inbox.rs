@@ -158,6 +158,15 @@ impl Workspace {
         });
     }
 
+    /// Tells the requests whether the Inbox is on screen: while it is, a new notice waits to be shown; once left, it
+    /// lands (round 41).
+    pub(super) fn watch_inbox(&mut self, cx: &mut Context<Self>) {
+        let on = self.nav.space == super::spaces::INBOX && !self.settings_open;
+        if let Some(requests) = self.requests_api() {
+            requests.watch_inbox(on, cx);
+        }
+    }
+
     /// The Inbox, with the row whose key is `key` selected (another project's tab asks it, All projects).
     fn show_inbox_row(&mut self, key: &str, cx: &mut Context<Self>) {
         self.go_space(super::spaces::INBOX, cx);

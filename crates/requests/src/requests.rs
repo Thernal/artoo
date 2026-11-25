@@ -9,6 +9,7 @@ use artoo_requests_api::{
     Answered, Change, DraftLook, Drafted, InboxFilter, InboxRow, Moved, OnDraft, OnInbox, OnThread,
     Pair, Since, SubmitLook, ThreadLook,
 };
+use artoo_ui_kit::fresh::SlotAction;
 use gpui::KeyDownEvent;
 use gpui::{AnyElement, IntoElement};
 use gpui::{App, Entity, Task, WeakEntity};
@@ -765,6 +766,90 @@ impl artoo_requests_api::Requests for Handle {
         });
     }
 
+    fn inbox_slot(&self, retry: Rc<dyn Fn(&mut App)>, cx: &App) -> Option<gpui::AnyElement> {
+        let requests = self.0.upgrade()?;
+        let rq = requests.read(cx);
+        if !rq.available {
+            return None;
+        }
+        let notices = self.notices()?;
+        let n = notices.read(cx);
+        let waiting = n.waiting_new().filter(|n| n.listed(cx)).count();
+        let slot = n.slot(waiting, rq.error.is_some(), rq.refused);
+        let (acts, into) = (self.acts(), notices.downgrade());
+        Some(
+            n.current
+                .clock
+                .slot_element("inbox-fresh", slot, move |action, cx| match action {
+                    SlotAction::ShowHeld => {
+                        let _ = into.update(cx, |n, cx| {
+                            n.apply_held();
+                            cx.notify();
+                        });
+                    }
+                    SlotAction::Retry => retry(cx),
+                    SlotAction::Reconnect => acts(Act::RenewToken, cx),
+                }),
+        )
+    }
+
+    fn inbox_hairline(&self, cx: &App) -> Option<gpui::AnyElement> {
+        let n = self.notices()?;
+        Some(
+            n.read(cx)
+                .current
+                .clock
+                .hairline_element("inbox-hairline", cx),
+        )
+    }
+
+    fn inbox_counted(&self, cx: &App) -> bool {
+        let available = self.0.upgrade().is_some_and(|r| r.read(cx).available);
+        !available
+            || self.notices().is_some_and(|n| {
+                let n = n.read(cx);
+                n.loaded || !n.list.is_empty()
+            })
+    }
+
+    fn inbox_first_reading(&self, cx: &App) -> bool {
+        let available = self.0.upgrade().is_some_and(|r| r.read(cx).available);
+        available
+            && self.notices().is_some_and(|n| {
+                let n = n.read(cx);
+                !n.loaded && !n.failed && n.list.is_empty()
+            })
+    }
+
+    fn watch_inbox(&self, on: bool, cx: &mut App) {
+        if let Some(notices) = self.notices() {
+            notices.update(cx, |n, cx| {
+                if n.watch(on) {
+                    cx.notify();
+                }
+            });
+        }
+    }
+
+    fn apply_inbox_held(&self, cx: &mut App) {
+        if let Some(notices) = self.notices() {
+            notices.update(cx, |n, cx| {
+                if n.apply_held() {
+                    cx.notify();
+                }
+            });
+        }
+    }
+
+    fn force_inbox_fresh(&self, state: &str, cx: &mut App) {
+        if let Some(notices) = self.notices() {
+            notices.update(cx, |n, cx| {
+                n.force_fresh(state);
+                cx.notify();
+            });
+        }
+    }
+
     fn force_fresh(&self, state: &str, cx: &mut App) {
         self.update(cx, |rq, cx| {
             rq.force_fresh(state);
@@ -1258,7 +1343,7 @@ impl artoo_requests_api::Requests for Handle {
             v.filter,
             &counts,
             &sources,
-            (compact, v.all),
+            (compact, v.all, self.inbox_first_reading(cx)),
             &on,
         )
         .into_any_element()

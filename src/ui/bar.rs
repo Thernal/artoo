@@ -162,6 +162,7 @@ impl Workspace {
                 room: self.bar_room.clone(),
                 public,
                 hairline: match &page {
+                    _ if space == INBOX => self.requests_api().and_then(|r| r.inbox_hairline(cx)),
                     _ if space != REQUESTS || lacking => None,
                     None => self.requests_api().and_then(|r| r.fresh_hairline(cx)),
                     Some(Page::Request(_)) if !self.on_request_changes(cx) => {
@@ -239,6 +240,8 @@ impl Workspace {
     fn count_of(&self, space: Space, cx: &App) -> Option<String> {
         let root = self.nav_page().is_none();
         match space {
+            // Not said before a read answered (round 41).
+            INBOX if (self.requests_api()).is_some_and(|r| !r.inbox_counted(cx)) => None,
             INBOX => Some(match self.inbox_unread(cx) {
                 0 => "Nothing new".to_owned(),
                 n => format!("{n} new"),
@@ -298,6 +301,14 @@ impl Workspace {
             )),
             // The Inbox's Filter, as a list's (#197); Mark all read while anything is new.
             (INBOX, _) => {
+                // How current the Inbox is, at the head's free right side.
+                let this = tab.clone();
+                let retry: std::rc::Rc<dyn Fn(&mut gpui::App)> = std::rc::Rc::new(move |cx| {
+                    this.update(cx, |this, cx| this.reload(cx)).ok();
+                });
+                if let Some(slot) = self.requests_api().and_then(|r| r.inbox_slot(retry, cx)) {
+                    out.push(BarAction::new("fresh", slot));
+                }
                 out.push(BarAction::new("filter", self.bar_filter("Filter", cx)));
                 if self.inbox_unread(cx) > 0 {
                     out.push(
@@ -313,6 +324,10 @@ impl Workspace {
                             on_tab(&tab, |this, cx| this.read_all_notices(cx)),
                         )),
                     );
+                } else {
+                    // Its box stays, so the slot before it does not move when a read brings something new.
+                    let room = gpui::div().size(artoo_ui_kit::px(28.));
+                    out.push(BarAction::new("read-all", room));
                 }
             }
             // A folder's page: a note for your agent on it (#97), then Open in.

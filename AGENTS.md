@@ -340,6 +340,11 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   new comment goes to the end of the Discussions card with the first thread on screen held; a merge changes the
   state's chip and stands `Merged` in the button's box without a list read. On a request's page
   `ARTOO_SNAPSHOT_FRESH` takes a state of `overview.html`.
+- **The Inbox loads without a jump** (round 41, `crates/requests/src/notices/current.rs`): the head's slot and hairline,
+  no banner; the first read is the real rows and preview as still tints. While the Inbox is on screen a read's new notice
+  (and one gone from the host) waits behind `1 new ↑` — fields change in place — and lands on that click, `⌘R` or leaving
+  the Inbox (`Requests::watch_inbox`), fading in; away from it a read shows at once. `ARTOO_SNAPSHOT_FRESH=<state>` on
+  the Inbox forces a state of `inbox.html`.
 - **A bar never clips** (#186): what does not fit the page bar folds into its `⋯`, never cut off at the edge, in its
   order (`BarAction::fold_order`, #188: a request's Merge, then its Description, then its pipeline; the last first
   among the same), the title cut last. Each action is a `bar::BarAction` with its row in `⋯` (`folds`; the approval

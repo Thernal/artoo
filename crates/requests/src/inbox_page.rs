@@ -1,24 +1,24 @@
 //! The Inbox, a place of the menu (#49), as the requests' page (Design L4, STYLE.md: "notifications listed, the
 //! selected one previewed and answerable"): the notifications on the left in one list, each two lines with a face or
-//! its source's mark (#197), the one selected on the right (`inbox_view`), a banner over them while the host cannot be read (#72);
+//! its source's mark (#197), the one selected on the right (`inbox_view`), its freshness in the head's slot (round 41);
 //! Source ▾'s list over it while open. Among them your notes an
 //! agent answered (#116): which they are the agents say (`Agents::inbox_answers`, in the tab's services); their rows
 //! and previews, the composer and the answers to the clicks come through the tab's `InboxHost`.
 
 use crate::inbox::{InboxRow, InboxView};
 use crate::inbox_view::{self, NoticeLook, OnInbox, RowLook, notice_preview, notice_row};
-use crate::list;
 use crate::notices::Notices;
-use crate::requests::{Acts, Requests};
+use crate::requests::Requests;
 use artoo_agents_api::tab::Agents;
 use artoo_shell_api::{Frame, Pages, Screen};
 use artoo_ui_kit::room::Widths;
-use artoo_ui_kit::{gap, island, px, theme};
+use artoo_ui_kit::{island, motion, px, theme};
 use gpui::{
-    AnyElement, App, Context, Entity, MouseButton, Render, Window, anchored, deferred, div, point,
-    prelude::*,
+    AnyElement, App, Context, Entity, MouseButton, Render, SharedString, Window, anchored,
+    deferred, div, point, prelude::*,
 };
 use std::rc::Rc;
+use std::time::Instant;
 
 pub use artoo_requests_api::InboxHost;
 
@@ -93,13 +93,11 @@ impl Render for InboxPage {
 }
 
 impl InboxPage {
-    /// Its panes, or rows loading before the first read, or one message when nothing is listed; a banner over it
-    /// while the host cannot be read (#72).
+    /// Its panes, or the first read's tints over them, or one message when nothing is listed. A read that failed is
+    /// said by the head's slot (round 41); with nothing listed, by the message too.
     fn page(&self, cx: &mut Context<Self>) -> AnyElement {
         let services = self.frame.services();
-        let (Some(host), Some(acts)) =
-            (services.get::<Rc<dyn InboxHost>>(), services.get::<Acts>())
-        else {
+        let Some(host) = services.get::<Rc<dyn InboxHost>>() else {
             return div().into_any_element();
         };
         let on: OnInbox = {
@@ -117,19 +115,20 @@ impl InboxPage {
         // The text in the bar's Filter (#197).
         let query = self.frame.filter(cx);
         let rows = view.rows(notices, &answers, &parts, &query, cx);
-        // Nothing listed because a read failed is never "nothing" (#185): the banner says why.
-        let failed = if self.requests.read(cx).error.is_some() {
+        // Nothing listed because a read failed is never "nothing" (#185): the message says why.
+        let requests = self.requests.read(cx);
+        let failed = if requests.error.is_some() {
             Some("Couldn't read the merge requests")
         } else {
             notices.failed.then_some("Couldn't read the discussions")
         };
-        // Rows load only while there is a host to read: without one (no remote, no token, no git) the Inbox has
-        // its plugins' and agents' news alone, at once.
-        let reading = self.requests.read(cx).available && !notices.loaded;
-        let body = if reading && rows.is_empty() {
-            inbox_view::loading(self.frame.list_width(cx))
+        // Only a host is waited for: without one (no remote, no token, no git) the Inbox has its plugins' and
+        // agents' news alone, at once.
+        let waiting = requests.available && !notices.loaded;
+        let body = if waiting && rows.is_empty() && (notices.reading() || failed.is_none()) {
+            div().flex_1().into_any_element()
         } else if let Some(failed) = failed.filter(|_| rows.is_empty()) {
-            inbox_view::failed(failed)
+            inbox_view::failed(failed, requests.error.clone().unwrap_or_default())
         } else if rows.is_empty() {
             let others = !notices.list.is_empty() || !answers.is_empty() || !parts.is_empty();
             let source = (view.filter.source)
@@ -141,14 +140,41 @@ impl InboxPage {
         } else {
             self.panes(&rows, &answers, &parts, &host, &on, handle, cx)
         };
+        // The first read's tints, over the panes' places; a plugin's rows already there stay in sight.
+        let now = Instant::now();
+        let clock = &notices.current.clock;
+        let phase = clock.phase(now);
+        let first = requests.available && !(waiting && !rows.is_empty());
+        let tints = (first && phase.skeleton > 0.).then(|| {
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .flex()
+                .flex_col()
+                .opacity(phase.skeleton)
+                .child(inbox_view::loading(self.frame.list_width(cx)))
+        });
         div()
+            .relative()
             .flex_1()
             .min_h_0()
             .flex()
             .flex_col()
-            .gap(px(gap()))
-            .children(list::banner(self.requests.read(cx), &acts))
-            .child(body)
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .when(first && phase.content < 1., |s| s.opacity(phase.content))
+                    .child(body),
+            )
+            .children(tints)
+            .when(first && clock.skeleton_moves(now), |s| {
+                s.child(crate::freshness::frames())
+            })
             .into_any_element()
     }
 
@@ -245,6 +271,7 @@ impl InboxPage {
         // The requests' notices' source is their host (`GitLab`).
         let named = self.host(cx).unwrap_or("Merge requests");
         let mut list: Vec<AnyElement> = Vec::new();
+        let now = Instant::now();
         // One list in time's order: a row read keeps its place (Design round 10, U4).
         for &row in rows {
             let picked = current == Some(row);
@@ -255,7 +282,20 @@ impl InboxPage {
                         on: picked,
                         wide,
                     };
-                    notice_row(&notices.list[ix], ix, named, look, on).into_any_element()
+                    let n = &notices.list[ix];
+                    let row = notice_row(n, ix, named, look, on);
+                    // A notice that just landed fades in where it is.
+                    if notices.landed(&n.key, now) {
+                        motion::appear(
+                            row,
+                            SharedString::from(format!("inbox-landed-{}", n.key)),
+                            motion::SLOT_FADE,
+                            |row, t| row.opacity(t),
+                        )
+                        .into_any_element()
+                    } else {
+                        row.into_any_element()
+                    }
                 }
                 InboxRow::Agent(id) => {
                     let look = RowLook {

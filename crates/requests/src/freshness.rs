@@ -5,7 +5,7 @@
 use crate::list::{BAND, ListLook};
 use crate::requests::{Act, Acts, Requests, Scope};
 use artoo_hosts_api::{Mr, MrState};
-use artoo_ui_kit::fresh::{self, HairlineClock, SkeletonPhase, SlotAction, SlotFade};
+use artoo_ui_kit::fresh::{self, HairlineClock, SkeletonPhase, Slot, SlotAction, SlotFade};
 use artoo_ui_kit::{ROW_RADIUS, motion, px, theme, words};
 use gpui::{AnyElement, App, ClickEvent, Div, IntoElement, canvas, div, prelude::*};
 use std::cell::{Cell, RefCell};
@@ -109,33 +109,52 @@ pub(crate) fn head_slot(
     acts: Acts,
     apply: impl Fn(&mut App) + 'static,
 ) -> AnyElement {
-    let at = Instant::now();
-    let slot = rq.slot();
-    let mut kept = rq.fresh.fade.borrow_mut();
-    let fade = kept.get_or_insert_with(|| SlotFade::new(slot.clone()));
-    fade.set(slot, at);
-    let element = fresh::slot("requests-fresh", fade, move |action, _, cx| match action {
-        SlotAction::ShowHeld => apply(cx),
-        SlotAction::Retry => acts(Act::Relist, cx),
-        SlotAction::Reconnect => acts(Act::RenewToken, cx),
-    });
-    div().mr(px(8.)).child(element).into_any_element()
+    rq.fresh.slot_element(
+        "requests-fresh",
+        rq.slot(),
+        move |action, cx| match action {
+            SlotAction::ShowHeld => apply(cx),
+            SlotAction::Retry => acts(Act::Relist, cx),
+            SlotAction::Reconnect => acts(Act::RenewToken, cx),
+        },
+    )
 }
 
 /// The hairline under the head, while a read takes long.
 pub(crate) fn head_hairline(rq: &Requests, cx: &App) -> AnyElement {
-    let at = Instant::now();
-    let clock = rq.fresh.hair.get();
-    let opacity = clock.opacity(at);
-    div()
-        .absolute()
-        .left_0()
-        .right_0()
-        .bottom_0()
-        .h(px(fresh::HAIRLINE_HEIGHT))
-        .child(fresh::hairline("requests-hairline", opacity, cx))
-        .when(clock.active(at) && opacity < 1., |s| s.child(frames()))
-        .into_any_element()
+    rq.fresh.hairline_element("requests-hairline", cx)
+}
+
+impl Freshness {
+    /// A list's slot saying `slot`, cross-faded from what it said before.
+    pub(crate) fn slot_element(
+        &self,
+        id: &'static str,
+        slot: Slot,
+        on_action: impl Fn(SlotAction, &mut App) + 'static,
+    ) -> AnyElement {
+        let at = Instant::now();
+        let mut kept = self.fade.borrow_mut();
+        let fade = kept.get_or_insert_with(|| SlotFade::new(slot.clone()));
+        fade.set(slot, at);
+        let element = fresh::slot(id, fade, move |action, _, cx| on_action(action, cx));
+        div().mr(px(8.)).child(element).into_any_element()
+    }
+
+    pub(crate) fn hairline_element(&self, id: &'static str, cx: &App) -> AnyElement {
+        let at = Instant::now();
+        let clock = self.hair.get();
+        let opacity = clock.opacity(at);
+        div()
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .h(px(fresh::HAIRLINE_HEIGHT))
+            .child(fresh::hairline(id, opacity, cx))
+            .when(clock.active(at) && opacity < 1., |s| s.child(frames()))
+            .into_any_element()
+    }
 }
 
 /// A message centred in a pane: what is the case, why (when it changes what to do), and the way on.

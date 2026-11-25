@@ -753,6 +753,20 @@ pub trait Requests {
     /// The freshness slot and the hairline for the open list's head (round 41); none while the merged or closed show.
     fn fresh_slot(&self, cx: &App) -> Option<AnyElement>;
     fn fresh_hairline(&self, cx: &App) -> Option<AnyElement>;
+    /// The Inbox's freshness slot, for its head (round 41); none with no host to read. `retry` reads again.
+    fn inbox_slot(&self, retry: Rc<dyn Fn(&mut App)>, cx: &App) -> Option<AnyElement>;
+    /// The hairline under that head while a read takes long.
+    fn inbox_hairline(&self, cx: &App) -> Option<AnyElement>;
+    /// What is new is known: the notices were read or kept, or there is no host to read.
+    fn inbox_counted(&self, cx: &App) -> bool;
+    /// The notices' first read is under way with nothing to show.
+    fn inbox_first_reading(&self, cx: &App) -> bool;
+    /// The Inbox came on screen or was left. While on screen a new notice waits behind `1 new ↑`; leaving lands it.
+    fn watch_inbox(&self, on: bool, cx: &mut App);
+    /// Shows the notices that wait (`⌘R`).
+    fn apply_inbox_held(&self, cx: &mut App);
+    /// A snapshot's state of the Inbox (`ARTOO_SNAPSHOT_FRESH`), as if the host had answered so.
+    fn force_inbox_fresh(&self, state: &str, cx: &mut App);
     /// The first read is under way and its content not shown: the tabs' counts are tints.
     fn first_reading(&self, cx: &App) -> bool;
     /// The open list has been read, or kept from before: its counts are known.

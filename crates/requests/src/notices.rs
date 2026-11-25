@@ -151,6 +151,8 @@ pub struct Notice {
     pub resolved: Option<String>,
 }
 
+mod current;
+
 #[derive(Default)]
 pub struct Notices {
     pub list: Vec<Notice>,
@@ -187,6 +189,8 @@ pub struct Notices {
     /// To-dos marked done here, the host not yet answered: a read that was already under way still lists them, and
     /// none of those show again. Cleared when the host confirms, or when the notice is put back.
     pending_done: HashSet<u64>,
+    /// How current the list is, and what waits to be shown (round 41).
+    pub current: current::Current,
 }
 
 impl Notice {
@@ -338,8 +342,9 @@ impl Notices {
         if self.loaded || !self.list.is_empty() {
             return;
         }
-        if let Some((_, list)) = crate::disk::read::<Notice>(crate::disk::NOTICES_FILE, base) {
+        if let Some((at, list)) = crate::disk::read::<Notice>(crate::disk::NOTICES_FILE, base) {
             self.list = list;
+            self.date_kept(at);
         }
     }
 
@@ -347,10 +352,15 @@ impl Notices {
     /// it in (`Reading::wants`) and `arrive` takes it from there.
     pub fn begin(&mut self, base: &str, login: Option<String>) -> Reading {
         if self.read_base.as_deref() != Some(base) {
+            // Another project's list is not this one's: nothing of it waits or dates what comes.
+            if self.read_base.is_some() {
+                self.forget_reads();
+            }
             self.read.clear();
             self.read_base = Some(base.to_owned());
             self.base_loaded = false;
         }
+        self.reading_begins(true);
         Reading {
             base: base.to_owned(),
             login: login.filter(|l| !l.is_empty()),
@@ -367,12 +377,18 @@ impl Notices {
     /// A read arrived, begun at tick `tick`: what it learned is kept and its discussions show as read (the changes
     /// waiting go on them after, `show`). None when it failed. Its notices go in with `put`.
     pub fn arrive(&mut self, found: anyhow::Result<Found>, tick: u64) -> Option<Arrived> {
-        self.failed = found.is_err();
         // Only a read that came in makes the next ones news: after a failed first read nothing old is told.
-        let mut found = found.ok()?;
+        let mut found = match found {
+            Ok(found) => found,
+            Err(_) => {
+                self.reading_ends(true, false);
+                return None;
+            }
+        };
         self.take_loaded(std::mem::take(&mut found.loaded));
         let first = !self.loaded;
         self.loaded = true;
+        self.reading_ends(true, true);
         found.list.retain(|n| !self.is_pending(n));
         // What came since the last read, not read yet: to the system too (#26).
         let news = self.news(&found.list, first);
@@ -402,30 +418,33 @@ impl Notices {
         })
     }
 
-    /// A read's notices listed; the selected one stays selected where it moved to.
+    /// A read's notices listed, or held while the Inbox shows the ones before (`take`).
     pub fn put(&mut self, arrived: Arrived) {
         let mut list = arrived.list;
         list.retain(|n| !self.is_pending(n));
+        let read = list.clone();
+        self.take(list);
         // Everything read: only then may read keys no longer listed be forgotten.
         if arrived.complete {
             let before = self.read.len();
-            self.read.retain(|k| list.iter().any(|n| &n.key == k));
+            let shown = &self.list;
+            self.read
+                .retain(|k| read.iter().chain(shown).any(|n| &n.key == k));
             if self.read.len() != before {
                 self.save_read();
             }
         }
-        let selected = self.list.get(self.at).map(|n| n.key.clone());
-        self.list = list;
-        self.at = selected
-            .and_then(|key| self.list.iter().position(|n| n.key == key))
-            .unwrap_or(self.at)
-            .min(self.list.len().saturating_sub(1));
         // What was told is kept on disk, so it is bounded: past the bound only what is still listed stays.
         if self.told.len() > TOLD_MOST {
-            let listed: HashSet<&String> = self.list.iter().map(|n| &n.key).collect();
+            let listed: HashSet<&String> = self.list.iter().chain(&read).map(|n| &n.key).collect();
             self.told.retain(|k| listed.contains(k));
             self.save_told();
         }
+    }
+
+    /// The list as the host last gave it: what waits included.
+    pub(crate) fn latest(&self) -> &[Notice] {
+        self.current.held.as_deref().unwrap_or(&self.list)
     }
 
     /// Whether `n` is a to-do marked done here that the host has not confirmed yet.
@@ -437,8 +456,10 @@ impl Notices {
     /// stay. The notices new among them. A failed read changes nothing.
     pub fn arrive_todos(&mut self, found: anyhow::Result<Vec<Todo>>) -> Vec<Notice> {
         let Ok(todos) = found else {
+            self.reading_ends(false, false);
             return Vec::new();
         };
+        self.reading_ends(false, true);
         let mut fresh: Vec<Notice> = todos.iter().map(from_todo).collect();
         fresh.retain(|n| !self.is_pending(n));
         // Before the first full read has come in nothing is known as read or told: it tells nothing.
@@ -448,7 +469,7 @@ impl Notices {
             Vec::new()
         };
         let mut list: Vec<Notice> = self
-            .list
+            .latest()
             .iter()
             .filter(|n| n.todo.is_none())
             .cloned()
@@ -490,6 +511,9 @@ impl Notices {
             return None;
         }
         let n = self.list.remove(ix);
+        if let Some(held) = self.current.held.as_mut() {
+            held.retain(|m| m.key != n.key);
+        }
         if let Some(id) = n.todo {
             self.pending_done.insert(id);
         }
@@ -510,6 +534,12 @@ impl Notices {
     pub fn put_back(&mut self, ix: usize, n: Notice) {
         if let Some(id) = n.todo {
             self.pending_done.remove(&id);
+        }
+        if let Some(held) = self.current.held.as_mut()
+            && !held.iter().any(|m| m.key == n.key)
+        {
+            held.push(n.clone());
+            held.sort_by_key(|n| std::cmp::Reverse(n.created));
         }
         if !self.list.iter().any(|m| m.key == n.key) {
             let at = ix.min(self.list.len());
@@ -863,7 +893,10 @@ impl Requests {
             return;
         };
         if !self.available {
-            notices.update(cx, |n, _| n.list.clear());
+            notices.update(cx, |n, _| {
+                n.list.clear();
+                n.forget_reads();
+            });
             return;
         }
         let login = self.login.clone();
@@ -890,7 +923,7 @@ impl Requests {
                         n.put(arrived);
                     });
                     // Kept for the next start: the rows as they are now.
-                    let rows = into.read(cx).list.clone();
+                    let rows = into.read(cx).latest().to_vec();
                     let key = base.clone();
                     cx.background_executor()
                         .spawn(async move {
@@ -932,6 +965,10 @@ impl Requests {
         if !self.available {
             return;
         }
+        notices.update(cx, |n, cx| {
+            n.reading_begins(false);
+            cx.notify();
+        });
         cx.spawn(async move |this, cx| {
             let found = cx
                 .background_executor()
@@ -1032,7 +1069,7 @@ fn told(n: Notice) -> News {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use artoo_hosts_api::Note;
 
@@ -1212,7 +1249,7 @@ mod tests {
         assert_eq!(read_of(&saved, "a"), ["note:1".to_owned()].into());
     }
 
-    fn todo_notice(id: u64) -> Notice {
+    pub(super) fn todo_notice(id: u64) -> Notice {
         Notice {
             key: format!("todo:{id}"),
             kind: Kind::Review,

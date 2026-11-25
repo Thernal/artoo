@@ -9,13 +9,13 @@ use crate::waiting::{FADED, Waiting};
 use artoo_core::markdown::plain;
 use artoo_hosts_api::{Mr, Thread};
 use artoo_shell_api::notices::Why;
-use artoo_ui_kit::controls::{self, bar_button, chip, skeleton};
+use artoo_ui_kit::controls::{self, bar_button, chip};
 use artoo_ui_kit::discussion::{self, Kind as Button, Source};
 use artoo_ui_kit::excerpt::excerpt_view;
 use artoo_ui_kit::hover::{self, CutInTip, Hover, RowTip, Tip, WasCut};
 use artoo_ui_kit::keys::{self, On};
 use artoo_ui_kit::markdown::{self, Selecting};
-use artoo_ui_kit::{ROW_RADIUS, format, gap, icons, island, px, theme, words};
+use artoo_ui_kit::{ROW_RADIUS, format, fresh, gap, icons, island, px, theme, words};
 use gpui::{
     AnyElement, App, Bounds, ClickEvent, Div, Entity, FontWeight, MouseButton, MouseDownEvent,
     Pixels, SharedString, Stateful, canvas, div, prelude::*,
@@ -42,7 +42,8 @@ pub fn filters(
     shown: InboxFilter,
     counts: &Counts,
     sources: &[SourceRow],
-    (compact, all): (bool, bool),
+    // `reading`: the first read, when each count is a tint (round 41).
+    (compact, all, reading): (bool, bool, bool),
     on: &OnInbox,
 ) -> Div {
     let whys: Vec<(Option<Why>, &'static str, usize)> = std::iter::once((None, "All", counts.all))
@@ -85,6 +86,12 @@ pub fn filters(
                     Some(Why::Failures) => "inbox-failures",
                 };
                 chip(id, counted(name, new), shown.why == why)
+                    .when(reading, |s| {
+                        s.flex()
+                            .items_center()
+                            .gap(px(5.))
+                            .child(fresh::tint(px(10.).into(), 10.))
+                    })
                     .tooltip_show_delay(artoo_ui_kit::hover::LONG)
                     .tooltip(|_, cx| cx.new(|_| Tip("Next tab ⌃⇥ · back ⌃⇧⇥")).into())
                     .on_click(move |_: &ClickEvent, _, cx| {
@@ -341,40 +348,125 @@ pub fn source_picker(
         .into_any_element()
 }
 
-/// Rows loading before the first read, in a list `width` wide, and the preview's.
+/// The first read's tints (round 41), in a list `width` wide: the real rows' and preview's boxes, each text a still
+/// tint of about its width.
 pub fn loading(width: f32) -> AnyElement {
+    let rows: [(f32, f32); 7] = [
+        (214., 160.),
+        (176., 196.),
+        (232., 128.),
+        (150., 182.),
+        (196., 144.),
+        (168., 172.),
+        (204., 120.),
+    ];
     div()
-        .flex_1()
-        .min_h_0()
+        .size_full()
         .flex()
         .gap(px(gap()))
         .child(
             island()
                 .w(px(width))
                 .flex_none()
-                .p(px(16.))
-                .child(skeleton("inbox-loading", 6)),
+                .children(rows.map(|(title, gist)| skeleton_row(title, gist))),
         )
         .child(
             island()
                 .flex_1()
+                .min_w_0()
                 .bg(theme::editor())
-                .px(px(28.))
-                .py(px(26.))
-                .child(skeleton("inbox-preview-loading", 3)),
+                .child(skeleton_preview()),
         )
         .into_any_element()
 }
 
+/// A tint `width` by `height`, centred in a line `line` tall.
+fn tint(width: f32, height: f32, line: f32) -> Div {
+    div()
+        .h(px(line))
+        .flex_none()
+        .flex()
+        .items_center()
+        .child(fresh::tint(px(width).into(), height))
+}
+
+/// A row as tints, in `draw_row`'s boxes: the dot's room, the face, the title and time, what was written.
+fn skeleton_row(title: f32, gist: f32) -> Div {
+    div()
+        .mx(px(6.))
+        .px(px(10.))
+        .py(px(8.))
+        .flex()
+        .items_start()
+        .gap(px(10.))
+        .child(div().flex_none().size(px(7.)))
+        .child(fresh::tint(px(20.).into(), 20.).flex_none().rounded_full())
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .child(
+                    div()
+                        .flex()
+                        .justify_between()
+                        .gap_2()
+                        .child(tint(title, 8., 20.))
+                        .child(tint(20., 8., 20.)),
+                )
+                .child(tint(gist, 8., 17.)),
+        )
+}
+
+/// A notice's preview as tints: its head, title, the discussion and the answers.
+fn skeleton_preview() -> Div {
+    let button = |w: f32| fresh::tint(px(w).into(), 28.).rounded(px(ROW_RADIUS));
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(14.))
+        .px(px(28.))
+        .py(px(22.))
+        .max_w(px(820.))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(tint(28., 8., 18.))
+                .child(fresh::tint(px(16.).into(), 16.).rounded_full())
+                .child(tint(72., 8., 18.))
+                .child(tint(20., 8., 18.)),
+        )
+        .child(tint(300., 12., 26.))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .child(tint(390., 8., 20.))
+                .child(tint(340., 8., 20.))
+                .child(tint(210., 8., 20.)),
+        )
+        .child(
+            div()
+                .flex()
+                .gap(px(8.))
+                .child(button(104.))
+                .child(button(64.)),
+        )
+}
+
 /// Nothing listed because `what` could not be read (#185).
-pub fn failed(what: &str) -> AnyElement {
+pub fn failed(what: &str, why: String) -> AnyElement {
     island()
         .flex_1()
         .bg(theme::editor())
         .child(controls::empty_state(
             "inbox",
             words::say(what).into_owned(),
-            String::new(),
+            why,
             None,
         ))
         .into_any_element()
