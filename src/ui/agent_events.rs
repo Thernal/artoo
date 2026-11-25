@@ -210,16 +210,49 @@ impl Workspace {
     fn agent_drafted(&mut self, agent: String, draft: RequestDraft, cx: &mut Context<Self>) {
         let said = format!("{} → {}", draft.source, draft.target);
         let source = draft.source.clone();
+        let earlier = self
+            .agent_requests
+            .iter()
+            .find(|(_, d)| d.source == source)
+            .map(|(_, d)| (d.title.clone(), d.description.clone()));
         self.agent_requests.retain(|(_, d)| d.source != source);
+        // Kept on disk too, as the reviewer's own drafts are: a crash or a restart keeps it, under
+        // Request drafts in Branches, until the request is created or the draft discarded.
+        if let Some(root) = self.root.clone()
+            && artoo_core::request_drafts::keep_agent(
+                &root,
+                artoo_core::request_drafts::Kept {
+                    source: source.clone(),
+                    target: draft.target.clone(),
+                    title: draft.title.clone(),
+                    description: draft.description.clone(),
+                    labels: draft.labels.clone(),
+                    reviewers: draft.reviewers.clone(),
+                    delete_branch: true,
+                    saved: artoo_core::request_drafts::now(),
+                    ..Default::default()
+                },
+                earlier.as_ref().map(|(t, d)| (t.as_str(), d.as_str())),
+            )
+            && let Some(branches) = self.branches()
+        {
+            branches.read_drafts(cx);
+        }
         self.agent_requests.push((agent.clone(), draft));
         self.drafts_unseen.insert(source.clone());
         if let Some(ix) = self.draft_branch(&source, cx) {
             let page = Page::Branch(self.branch_list(cx)[ix].refname.clone()).route();
+            let mut shown = false;
             if let Some(item) = self.item_of(&page) {
+                shown = self.is_shown(&item);
                 self.call_reviewer(item, format!("{agent} drafted a merge request: {said}"));
             }
             self.open_quietly(page, cx);
             self.save_nav();
+            // The branch is on screen already: no dot can say it, so the card itself shows.
+            if shown {
+                self.open_waiting_draft(cx);
+            }
         }
         let act = OpenDraft {
             source,

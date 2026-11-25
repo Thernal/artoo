@@ -78,6 +78,37 @@ fn with(file: &str, root: &Path, draft: Kept) -> String {
     text(&store)
 }
 
+/// An agent's draft kept for the project at `root`, so a crash or a restart does not lose it. A draft of
+/// the branch already kept stays when its words are not the agent's earlier ones (`earlier`: title and
+/// description): it is the reviewer's own, and an agent never writes over it. Whether it was kept.
+pub fn keep_agent(root: &Path, draft: Kept, earlier: Option<(&str, &str)>) -> bool {
+    let file = crate::storage::read(FILE);
+    match with_agent(&file, root, draft, earlier) {
+        Some(next) => {
+            crate::storage::save(FILE, next);
+            true
+        }
+        None => false,
+    }
+}
+
+fn with_agent(
+    file: &str,
+    root: &Path,
+    draft: Kept,
+    earlier: Option<(&str, &str)>,
+) -> Option<String> {
+    let kept = of(file, root)
+        .into_iter()
+        .find(|d| d.source == draft.source);
+    if let Some(k) = kept
+        && earlier != Some((k.title.as_str(), k.description.as_str()))
+    {
+        return None;
+    }
+    Some(with(file, root, draft))
+}
+
 /// The draft of `source` is gone: created, or discarded.
 pub fn remove(root: &Path, source: &str) {
     let file = crate::storage::read(FILE);
@@ -111,6 +142,26 @@ pub fn now() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_agents_draft_is_kept_and_never_writes_over_the_reviewers() {
+        let root = Path::new("/p");
+        let agent = |title: &str| Kept {
+            source: "feat".into(),
+            title: title.into(),
+            description: "d".into(),
+            ..Kept::default()
+        };
+        let file = with_agent("", root, agent("first"), None).unwrap();
+        assert_eq!(of(&file, root)[0].title, "first");
+        // The agent drafts again: its own earlier words are replaced.
+        let file = with_agent(&file, root, agent("second"), Some(("first", "d"))).unwrap();
+        assert_eq!(of(&file, root)[0].title, "second");
+        // The reviewer edited it: the agent's next one is left out.
+        let edited = with(&file, root, agent("mine"));
+        assert!(with_agent(&edited, root, agent("third"), Some(("second", "d"))).is_none());
+        assert_eq!(of(&edited, root)[0].title, "mine");
+    }
 
     fn kept(source: &str, saved: i64) -> Kept {
         Kept {
