@@ -7,6 +7,7 @@ use artoo_core::git::FileDiff;
 use artoo_core::storage;
 use artoo_review_api::{Host, Seen};
 use gpui::App;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -71,7 +72,16 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn load() -> Self {
+    /// The marks every tab reads and writes, read from this machine once: each tab keeping its own copy wrote it
+    /// whole over the others', and a file marked in one tab was unmarked after the next start.
+    pub fn shared() -> Rc<RefCell<Self>> {
+        thread_local! {
+            static SHARED: Rc<RefCell<Store>> = Rc::new(RefCell::new(Store::load()));
+        }
+        SHARED.with(Rc::clone)
+    }
+
+    fn load() -> Self {
         let mut store = Self::parse(&storage::read("reviewed.txt"));
         store.heads = storage::read("reviewed-heads.txt")
             .lines()
@@ -606,12 +616,32 @@ pub fn viewed_box(
 }
 
 impl Review {
+    /// The name file `ix`'s mark is kept under: its path — but a file partly staged is listed twice (#22), two
+    /// changes, and its staged one is kept under its row's key, or marking either unmarked the other.
+    fn mark_key(&self, ix: usize) -> Option<String> {
+        let diff = self.diff.as_ref()?;
+        let path = diff.files.get(ix)?.path();
+        let staged = diff.tags.staged;
+        let twice =
+            staged.is_some_and(|n| ix < n && diff.files.iter().skip(n).any(|f| f.path() == path));
+        Some(match twice {
+            true => crate::changes::row_key(staged, ix, path),
+            false => path.to_owned(),
+        })
+    }
+
+    /// `mark_key`, for the list's tooltips.
+    pub(crate) fn marked_when(&self, ix: usize) -> Option<(i64, Option<git2::Oid>)> {
+        let (scope, key) = (self.review_scope.as_deref()?, self.mark_key(ix)?);
+        self.reviewed.borrow().when(scope, &key)
+    }
+
     pub fn review_state(&self, ix: usize) -> Option<State> {
         let scope = self.review_scope.as_deref()?;
-        let path = self.diff.as_ref()?.files.get(ix)?.path();
+        let key = self.mark_key(ix)?;
         let same =
             |was: u64| self.fps.get(ix) == Some(&was) || self.legacy_fps.get(ix) == Some(&was);
-        Some(match self.reviewed.get(scope, path) {
+        Some(match self.reviewed.borrow().get(scope, &key) {
             Some(was) if same(was) => State::Done,
             // Read in another reading of the same change (#182).
             _ if self.crossed.get(ix).copied().unwrap_or(false) => State::Done,
@@ -664,13 +694,15 @@ impl Review {
         (diff.files.iter().zip(&self.fps))
             .map(|(file, &fp)| {
                 let path = file.path();
-                self.reviewed.read_anywhere(&root_key, path, fp)
-                    || whole
-                        .is_some_and(|(head, ..)| self.reviewed.read_since(&root_key, path, head))
-                    || (whole.is_some() && self.reviewed.read_in_commits(&root_key, path))
+                self.reviewed.borrow().read_anywhere(&root_key, path, fp)
+                    || whole.is_some_and(|(head, ..)| {
+                        self.reviewed.borrow().read_since(&root_key, path, head)
+                    })
+                    || (whole.is_some() && self.reviewed.borrow().read_in_commits(&root_key, path))
                         && commits_of(path).is_some_and(|ids| {
-                            ids.iter()
-                                .all(|id| self.reviewed.read_in_commit(&root_key, path, *id))
+                            ids.iter().all(|id| {
+                                self.reviewed.borrow().read_in_commit(&root_key, path, *id)
+                            })
                         })
             })
             .collect()
@@ -679,10 +711,7 @@ impl Review {
     /// What a file's chip says when its change moved since it was marked (#182, Design A1): `↻ v2`, the version
     /// it was read at — the icon and the version, no word; `↻` alone where the version is not known.
     pub fn stale_chip(&self, ix: usize, host: &Rc<dyn Host>, cx: &App) -> String {
-        let version = (self.review_scope.as_deref())
-            .zip(self.diff.as_ref().and_then(|d| d.files.get(ix)))
-            .and_then(|(scope, f)| self.reviewed.when(scope, f.path()))
-            .and_then(|(_, head)| host.version_of(head?, cx));
+        let version = (self.marked_when(ix)).and_then(|(_, head)| host.version_of(head?, cx));
         match version {
             Some(n) => format!("↻ v{n}"),
             None => "↻".to_owned(),
@@ -781,9 +810,10 @@ impl Review {
             }));
         }
         // Counted again only when a mark moved or more commits were read: a row asks on every frame.
-        let at = (self.reviewed.generation, self.commit_fps.len());
+        let at = (self.reviewed.borrow().generation, self.commit_fps.len());
         if self.viewed_counts.0 != at {
-            let read = self.reviewed.read_files(&root.display().to_string());
+            let store = self.reviewed.borrow();
+            let read = store.read_files(&root.display().to_string());
             let counts = (self.commit_fps.iter())
                 .map(|(id, fps)| {
                     let done = (fps.iter())
@@ -869,21 +899,26 @@ impl Review {
             self.diff.as_ref().map(|d| &d.header),
             Some(Header::Compare { .. })
         );
-        if done && !(whole && self.reviewed.head_done(&root, head)) {
+        if done && !(whole && self.reviewed.borrow().head_done(&root, head)) {
             self.done_card = true;
         }
         if !done {
             self.done_card = false;
         }
         if whole {
-            self.reviewed.set_head(&root, head, done);
+            self.reviewed.borrow_mut().set_head(&root, head, done);
             if let Some((reviewed, total)) = self.review_progress() {
                 let open: Vec<String> = (0..total)
                     .filter(|&ix| self.review_state(ix) != Some(State::Done))
                     .filter_map(|ix| Some(self.diff.as_ref()?.files.get(ix)?.path().to_owned()))
                     .collect();
-                self.reviewed
-                    .set_progress(&root, head, reviewed as u32, total as u32, open);
+                self.reviewed.borrow_mut().set_progress(
+                    &root,
+                    head,
+                    reviewed as u32,
+                    total as u32,
+                    open,
+                );
             }
         }
     }
@@ -892,10 +927,11 @@ impl Review {
     /// not done: (files reviewed, files).
     pub fn head_part(&self, head: git2::Oid) -> Option<(u32, u32)> {
         let root = self.root.as_ref()?.display().to_string();
-        if self.reviewed.head_done(&root, head) {
+        if self.reviewed.borrow().head_done(&root, head) {
             return None;
         }
         self.reviewed
+            .borrow()
             .head_progress(&root, head)
             .filter(|&(done, total)| done > 0 && done < total)
     }
@@ -905,10 +941,13 @@ impl Review {
         let Some(root) = self.root.as_ref().map(|r| r.display().to_string()) else {
             return Seen::Never;
         };
-        if head.is_some_and(|h| self.reviewed.head_done(&root, h)) {
+        if head.is_some_and(|h| self.reviewed.borrow().head_done(&root, h)) {
             return Seen::Done;
         }
-        let heads = self.reviewed.marked_heads(&format!("{root}|mr:{iid}"));
+        let heads = self
+            .reviewed
+            .borrow()
+            .marked_heads(&format!("{root}|mr:{iid}"));
         if heads.is_empty() {
             Seen::Never
         } else if head.is_some() && heads.iter().all(|h| *h == head) {
@@ -921,14 +960,18 @@ impl Review {
     /// The head of request `iid` you last reviewed at, when it was pushed since (`Seen::Earlier`).
     pub fn reviewed_head(&self, iid: u64, head: Option<git2::Oid>) -> Option<git2::Oid> {
         let root = self.root.as_ref()?.display().to_string();
-        self.reviewed.last_head(&format!("{root}|mr:{iid}"), head)
+        self.reviewed
+            .borrow()
+            .last_head(&format!("{root}|mr:{iid}"), head)
     }
 
     /// Whether the whole diff of a branch or request ending at `head` was reviewed.
     pub fn head_reviewed(&self, head: git2::Oid) -> bool {
-        self.root
-            .as_ref()
-            .is_some_and(|r| self.reviewed.head_done(&r.display().to_string(), head))
+        self.root.as_ref().is_some_and(|r| {
+            self.reviewed
+                .borrow()
+                .head_done(&r.display().to_string(), head)
+        })
     }
 
     /// A branch's ticks made while comparisons were kept by commit (before #209), carried to its name once: those of
@@ -950,10 +993,13 @@ impl Review {
             }) => (since.base.1, since.branch.1),
             _ => return,
         };
-        if self.reviewed.has_marks(&scope) {
+        if self.reviewed.borrow().has_marks(&scope) {
             return;
         }
-        let old = self.reviewed.old_ranges(&root.display().to_string());
+        let old = self
+            .reviewed
+            .borrow()
+            .old_ranges(&root.display().to_string());
         if old.is_empty() {
             return;
         }
@@ -966,7 +1012,7 @@ impl Review {
             .collect();
         from.sort();
         let from: Vec<String> = from.into_iter().map(|(_, key)| key).collect();
-        self.reviewed.carry(&from, &scope);
+        self.reviewed.borrow_mut().carry(&from, &scope);
     }
 
     /// Called when a diff arrives: its scope and the fingerprint of each file.
@@ -999,15 +1045,20 @@ impl Review {
         else {
             return false;
         };
+        let Some(key) = self.mark_key(ix) else {
+            return false;
+        };
         if done {
             let head = self.viewed_rev();
-            self.reviewed.set(&scope, &path, fp, head);
+            self.reviewed.borrow_mut().set(&scope, &key, fp, head);
             self.read_through(&[path]);
         } else {
-            self.reviewed.clear(&scope, &path);
+            self.reviewed.borrow_mut().clear(&scope, &key);
             // A file read in another reading stays ticked by that crossing until it is unmarked there too (#232).
             if let Some(root) = self.root.as_ref().map(|r| r.display().to_string()) {
-                self.reviewed.unread_elsewhere(&root, &path, fp, &scope);
+                self.reviewed
+                    .borrow_mut()
+                    .unread_elsewhere(&root, &path, fp, &scope);
             }
             if let Some(c) = self.crossed.get_mut(ix) {
                 *c = false;
@@ -1029,25 +1080,29 @@ impl Review {
         };
         let head = to.tip;
         for path in paths {
-            self.reviewed.read_at(&root, head, path);
+            self.reviewed.borrow_mut().read_at(&root, head, path);
         }
     }
 
     /// Marks or unmarks files `ixs` at once; false when the diff keeps no marks.
     pub fn set_reviewed_many(&mut self, ixs: &[usize], done: bool) -> bool {
-        let (Some(scope), Some(diff)) = (self.review_scope.clone(), self.diff.as_ref()) else {
+        let Some(scope) = self.review_scope.clone() else {
             return false;
         };
         let files: Vec<(String, u64)> = ixs
             .iter()
-            .filter_map(|&ix| Some((diff.files.get(ix)?.path().to_owned(), *self.fps.get(ix)?)))
+            .filter_map(|&ix| Some((self.mark_key(ix)?, *self.fps.get(ix)?)))
             .collect();
         let head = self.viewed_rev();
-        self.reviewed.set_many(&scope, &files, done, head);
+        self.reviewed
+            .borrow_mut()
+            .set_many(&scope, &files, done, head);
         if !done {
             if let Some(root) = self.root.as_ref().map(|r| r.display().to_string()) {
                 for (path, fp) in &files {
-                    self.reviewed.unread_elsewhere(&root, path, *fp, &scope);
+                    self.reviewed
+                        .borrow_mut()
+                        .unread_elsewhere(&root, path, *fp, &scope);
                 }
             }
             for &ix in ixs {
@@ -1123,6 +1178,75 @@ mod tests {
             new_image: None,
             pictures: Vec::new(),
         }
+    }
+
+    /// A review of the repository at `root` showing `files` under `header`.
+    fn reviewing(
+        root: &str,
+        header: Header,
+        files: Vec<FileDiff>,
+        staged: Option<usize>,
+    ) -> Review {
+        let mut rv = Review::new(artoo_core::storage::Settings::default());
+        rv.root = Some(root.into());
+        rv.loaded(
+            crate::diff::Diff {
+                header,
+                files: std::sync::Arc::new(files),
+                pairs: Vec::new(),
+                tags: artoo_review_api::diff::FileTags {
+                    words: Vec::new(),
+                    staged,
+                },
+            },
+            None,
+        );
+        rv
+    }
+
+    /// Request `iid` compared up to a head made of the byte `head`.
+    fn request(iid: u64, head: u8) -> Header {
+        let at = |n: u8| git2::Oid::from_bytes(&[n; 20]).unwrap();
+        Header::Compare {
+            base: ("main".into(), at(1)),
+            head: ("feature".into(), at(head)),
+            since_merge_base: true,
+            start: at(1),
+            commits: 1,
+            request: Some(iid),
+            stale: None,
+        }
+    }
+
+    #[test]
+    fn a_file_marked_in_one_tab_stays_marked_when_another_tab_marks() {
+        let file = |path| changed(path, &["fn a() {}"], 1, "1", "2");
+        let mut first = reviewing("/tabs/one", request(1, 2), vec![file("a.rs")], None);
+        let mut second = reviewing("/tabs/two", request(2, 3), vec![file("b.rs")], None);
+        assert!(first.set_reviewed(0, true));
+        assert!(second.set_reviewed(0, true));
+        // What is written to disk holds both.
+        let written = second.reviewed.borrow().render();
+        assert!(written.contains("/tabs/one|mr:1\ta.rs"), "{written}");
+        assert!(written.contains("/tabs/two|mr:2\tb.rs"), "{written}");
+    }
+
+    #[test]
+    fn both_changes_of_a_partly_staged_file_keep_their_marks() {
+        let staged = changed("a.rs", &["fn a() {}"], 1, "1", "2");
+        let not = changed("a.rs", &["fn a() {}"], 1, "2", "3");
+        let header = Header::WorkingTree {
+            only_unstaged: false,
+            since: None,
+        };
+        let mut rv = reviewing("/partly/staged", header, vec![staged, not], Some(1));
+        assert!(rv.set_reviewed(0, true));
+        assert!(rv.set_reviewed(1, true));
+        assert_eq!(rv.review_state(0), Some(State::Done));
+        assert_eq!(rv.review_state(1), Some(State::Done));
+        assert!(rv.set_reviewed(0, false));
+        assert_eq!(rv.review_state(0), Some(State::Open));
+        assert_eq!(rv.review_state(1), Some(State::Done));
     }
 
     #[test]

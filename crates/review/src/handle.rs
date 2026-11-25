@@ -209,6 +209,7 @@ impl artoo_review_api::Review for Handle {
         };
         let scope = format!("{}|mr:{iid}", root.display());
         rv.reviewed
+            .borrow()
             .marked_heads(&scope)
             .into_iter()
             .flatten()

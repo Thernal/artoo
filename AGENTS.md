@@ -60,6 +60,8 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   base to the disk (`Source::WorkingTree { since }`, `Repo::working_since`), its ticks its comparison's. A commit row's
   `1 of 3` / `✓ viewed` is `Review::commit_viewed`: each commit's files fingerprinted in the background, counted
   against every mark of the repository, again only when `Store::generation` moves (`panel::fill_viewed`).
+  Every tab reads and writes one `Store` (`Store::shared`): a copy per tab wrote the file whole over the others' marks.
+  A partly staged file's two changes keep two marks (`Review::mark_key`: the staged one under its row's key).
 - **What a project lacks** (#210, `src/ui/spaces.rs`): `Workspace::missing` says what a space needs that the project
   has not (git, a remote, a token). Git and a remote are no longer a menu row's grey line: the space opens and
   `missing_page` fills its middle, the bar showing its name alone (`render_page_bar`); a missing token keeps its line

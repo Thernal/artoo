@@ -564,11 +564,7 @@ impl Review {
 
     /// What a file's box says on a long hover: when it was marked, at which version (X59).
     fn review_said(&self, ix: usize, state: State, host: &Rc<dyn Host>, cx: &App) -> String {
-        let when = self
-            .review_scope
-            .as_deref()
-            .zip(self.diff.as_ref().and_then(|d| d.files.get(ix)))
-            .and_then(|(scope, f)| self.reviewed.when(scope, f.path()));
+        let when = self.marked_when(ix);
         let at = when.map(|(time, head)| {
             let version = head
                 .and_then(|h| host.version_of(h, cx))

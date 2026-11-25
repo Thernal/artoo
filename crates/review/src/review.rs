@@ -64,7 +64,7 @@ pub struct Review {
     pub file_view: Option<crate::file_view::FileView>,
     pub file_reading: crate::file_view::Reading,
     /// The marks of files read, and the scope and file fingerprints of the open diff.
-    pub reviewed: crate::reviewed::Store,
+    pub reviewed: std::rc::Rc<std::cell::RefCell<crate::reviewed::Store>>,
     /// The card that comes up when the last file of a diff is marked reviewed.
     pub done_card: bool,
     pub review_scope: Option<String>,
@@ -226,7 +226,7 @@ impl Review {
             blame_tip: None,
             file_view: None,
             file_reading: None,
-            reviewed: crate::reviewed::Store::load(),
+            reviewed: crate::reviewed::Store::shared(),
             done_card: false,
             review_scope: None,
             fps: Vec::new(),
