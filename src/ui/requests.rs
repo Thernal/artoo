@@ -1033,80 +1033,78 @@ impl Workspace {
                     cx.notify();
                 }))
         };
-        let state =
-            artoo_ui_kit::controls::chip("request-state", format!("{} ▾", view.word()), past)
-                .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
-                    use super::menu::{Act, Entry};
-                    let entries = [
-                        mr::MrState::Opened,
-                        mr::MrState::Merged,
-                        mr::MrState::Closed,
-                    ]
-                    .into_iter()
-                    .map(|s| {
-                        Entry::new(
-                            s.word(),
-                            Act::new(move |this, _, cx| this.set_request_view(s, cx)),
-                        )
-                        .checked(s == view)
-                    })
-                    .collect();
-                    this.open_menu(e.position(), vec![entries], cx);
-                }));
-        // How the rows are grouped and ordered (#189): by whose turn, author or not at all; by update, the oldest
-        // first or size. Shown while the open ones are listed.
+        // How the rows are grouped and ordered (#189) and which are listed — the open, the merged or the closed
+        // (#114). The chip says which while it is not the open ones.
         let (by, sort) = requests.display(cx);
-        let display = (!past).then(|| {
-            artoo_ui_kit::controls::chip("request-display", "Display ▾".to_owned(), false).on_click(
-                cx.listener(move |this, e: &ClickEvent, _, cx| {
-                    use super::menu::{Act, Entry};
-                    use artoo_requests_api::{GroupBy, SortBy};
-                    let group = [
-                        (GroupBy::Turn, "Whose turn"),
-                        (GroupBy::Author, "Author"),
-                        (GroupBy::None, "None"),
-                    ]
-                    .into_iter()
-                    .map(|(g, name)| {
-                        Entry::new(
-                            name,
-                            Act::new(move |this, _, cx| {
-                                if let Some(requests) = this.requests_api() {
-                                    requests.set_display(Some(g), None, cx);
-                                }
-                                cx.notify();
-                            }),
-                        )
-                        .checked(g == by)
-                    })
-                    .collect();
-                    let order = [
-                        (SortBy::Updated, "Updated"),
-                        (SortBy::Oldest, "Oldest first"),
-                        (SortBy::Size, "Size"),
-                    ]
-                    .into_iter()
-                    .map(|(o, name)| {
-                        Entry::new(
-                            name,
-                            Act::new(move |this, _, cx| {
-                                if let Some(requests) = this.requests_api() {
-                                    requests.set_display(None, Some(o), cx);
-                                }
-                                cx.notify();
-                            }),
-                        )
-                        .checked(o == sort)
-                    })
-                    .collect();
-                    this.open_titled(
-                        e.position(),
-                        vec![(Some("Group by"), group), (Some("Sort by"), order)],
-                        cx,
-                    );
-                }),
-            )
-        });
+        let label = match past {
+            true => format!("{} ▾", view.word()),
+            false => "Display ▾".to_owned(),
+        };
+        let display = artoo_ui_kit::controls::chip("request-display", label, past).on_click(
+            cx.listener(move |this, e: &ClickEvent, _, cx| {
+                use super::menu::{Act, Entry};
+                use artoo_requests_api::{GroupBy, SortBy};
+                let show = [
+                    mr::MrState::Opened,
+                    mr::MrState::Merged,
+                    mr::MrState::Closed,
+                ]
+                .into_iter()
+                .map(|s| {
+                    Entry::new(
+                        s.word(),
+                        Act::new(move |this, _, cx| this.set_request_view(s, cx)),
+                    )
+                    .checked(s == view)
+                })
+                .collect();
+                let group = [
+                    (GroupBy::Turn, "Whose turn"),
+                    (GroupBy::Author, "Author"),
+                    (GroupBy::None, "None"),
+                ]
+                .into_iter()
+                .map(|(g, name)| {
+                    Entry::new(
+                        name,
+                        Act::new(move |this, _, cx| {
+                            if let Some(requests) = this.requests_api() {
+                                requests.set_display(Some(g), None, cx);
+                            }
+                            cx.notify();
+                        }),
+                    )
+                    .checked(g == by)
+                })
+                .collect();
+                let order = [
+                    (SortBy::Updated, "Updated"),
+                    (SortBy::Oldest, "Oldest first"),
+                    (SortBy::Size, "Size"),
+                ]
+                .into_iter()
+                .map(|(o, name)| {
+                    Entry::new(
+                        name,
+                        Act::new(move |this, _, cx| {
+                            if let Some(requests) = this.requests_api() {
+                                requests.set_display(None, Some(o), cx);
+                            }
+                            cx.notify();
+                        }),
+                    )
+                    .checked(o == sort)
+                })
+                .collect();
+                let mut menu = vec![(Some("Show"), show)];
+                // The merged and the closed are one list, newest first.
+                if !past {
+                    menu.push((Some("Group by"), group));
+                    menu.push((Some("Sort by"), order));
+                }
+                this.open_titled(e.position(), menu, cx);
+            }),
+        );
         Some(
             div()
                 .flex()
@@ -1118,8 +1116,7 @@ impl Workspace {
                         .child(filter(Scope::ReviewMe, "scope-review", "To review"))
                         .child(filter(Scope::Mine, "scope-mine", "Mine")),
                 )
-                .child(state)
-                .children(display),
+                .child(display),
         )
     }
 

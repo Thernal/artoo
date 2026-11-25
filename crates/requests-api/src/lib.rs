@@ -406,18 +406,20 @@ pub enum CreateKey {
 /// The New merge request form's field among the tab's inputs.
 pub const INPUT: &str = "requests.create";
 
-/// The list's groups, in their order (#189): whose turn a request is — yours, someone else's, one of yours, one you
-/// approved; by its author; or one list without bands (`GroupBy`).
+/// The list's groups, in their order (#189, as the design's `requests.html` names them): by what you have done on a
+/// request and what is new on it; or by its author, or one list without bands (`GroupBy`).
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Group {
-    /// Your turn: asked to review, pushed or answered since you last wrote.
+    /// Your turn, and you have not reviewed it.
     You,
-    /// Someone else's turn.
+    /// Your turn again: pushed or answered since you last wrote.
+    Updated,
+    /// You reviewed it, and nothing since waits on you.
+    Reviewed,
+    /// Someone else's: you were not asked and wrote nothing.
     Others,
     /// Yours.
     Yours,
-    /// You approved it.
-    Done,
     /// Grouped by author: theirs.
     Author(String),
     /// Not grouped: one list, no band.

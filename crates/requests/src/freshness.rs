@@ -235,19 +235,16 @@ fn tint(width: f32, height: f32, line: f32) -> Div {
 }
 
 /// A group's band as tints.
-fn skeleton_band(name: f32, top: bool) -> Div {
+fn skeleton_band(name: f32) -> Div {
     div()
         .h(px(BAND))
         .flex_none()
         .flex()
         .items_center()
         .gap(px(8.))
-        .pl(px(16.))
-        .pr(px(10.))
-        .when(!top, |s| s.border_t_1())
-        .border_b_1()
-        .border_color(theme::island_border())
-        .child(fresh::tint(px(14.).into(), 14.))
+        .px(px(16.))
+        .pt(px(12.))
+        .pb(px(4.))
         .child(fresh::tint(px(name).into(), 8.))
         .child(fresh::tint(px(8.).into(), 8.))
 }
@@ -319,8 +316,8 @@ pub(crate) fn skeleton_list(look: &ListLook) -> Div {
         .flex_col()
         .overflow_hidden()
         .child(look.widths.measure("requests"));
-    for (n, (name, rows)) in groups.into_iter().enumerate() {
-        pane = pane.child(skeleton_band(name, n == 0));
+    for (name, rows) in groups {
+        pane = pane.child(skeleton_band(name));
         for &(title, author, threads) in rows {
             pane = pane.child(skeleton_row(title, author, threads));
         }

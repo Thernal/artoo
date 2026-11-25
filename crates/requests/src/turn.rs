@@ -54,13 +54,16 @@ impl Turn {
         }
     }
 
-    /// The group a request of whose turn this is goes under: yours first of all.
-    pub fn group(&self, mine: bool) -> Group {
+    /// The group a request of whose turn this is goes under: one of yours apart; else by whether you have
+    /// `reviewed` it.
+    pub fn group(&self, mine: bool, reviewed: bool) -> Group {
         match self {
             _ if mine => Group::Yours,
+            Turn::You { .. } if reviewed => Group::Updated,
             Turn::You { .. } => Group::You,
+            Turn::Them { .. } if reviewed => Group::Reviewed,
             Turn::Them { .. } => Group::Others,
-            Turn::Approved => Group::Done,
+            Turn::Approved => Group::Reviewed,
         }
     }
 }
@@ -95,6 +98,12 @@ fn name_of(login: &str, m: &Mr, threads: &[Thread]) -> String {
                 .map(|f| f.to_uppercase().chain(c).collect())
                 .unwrap_or_default()
         })
+}
+
+/// Whether `me` has reviewed a request: approved it, or written on it.
+pub fn reviewed(me: &str, approvals: Option<&Approvals>, threads: &[Thread]) -> bool {
+    approvals.is_some_and(|a| a.mine)
+        || (!me.is_empty() && threads.iter().flat_map(|t| &t.notes).any(|n| n.login == me))
 }
 
 /// Of `threads`, those waiting on `who`: the last word someone else's, and — a discussion — still open, or — a plain
@@ -332,7 +341,7 @@ mod tests {
             turn("you", &m, Some(&unknown), &[], &[100, 400]),
             Turn::Approved
         );
-        assert_eq!(Turn::Approved.group(false), Group::Done);
+        assert_eq!(Turn::Approved.group(false, true), Group::Reviewed);
         assert_eq!(Turn::Approved.words(false), "You approved");
     }
 
@@ -349,7 +358,7 @@ mod tests {
             }
         );
         assert_eq!(turn_now.words(true), "Waiting on Ember · review");
-        assert_eq!(turn_now.group(true), Group::Yours);
+        assert_eq!(turn_now.group(true, false), Group::Yours);
         // A reviewer's thread waits on you.
         let asked = [thread(vec![note("ember", 200)])];
         let yours = turn("you", &m, None, &asked, &[100]);
@@ -371,7 +380,23 @@ mod tests {
         let asked = [thread(vec![note("ember", 200)])];
         let on_author = turn("you", &m, None, &asked, &[100]);
         assert_eq!(on_author.words(false), "Waiting on Juniper · 1 thread");
-        assert_eq!(on_author.group(false), Group::Others);
+        assert!(!reviewed("you", None, &asked));
+        assert_eq!(on_author.group(false, false), Group::Others);
+    }
+
+    #[test]
+    fn a_request_is_grouped_by_whether_you_have_reviewed_it() {
+        let yours = Turn::You { waiting: 0 };
+        let theirs = Turn::Them {
+            who: "Juniper".into(),
+            owes: Owes::Step,
+        };
+        assert_eq!(yours.group(false, false), Group::You);
+        assert_eq!(yours.group(false, true), Group::Updated);
+        assert_eq!(theirs.group(false, true), Group::Reviewed);
+        assert_eq!(theirs.group(false, false), Group::Others);
+        assert!(reviewed("you", None, &[thread(vec![note("you", 200)])]));
+        assert!(!reviewed("", None, &[thread(vec![note("", 200)])]));
     }
 
     #[test]

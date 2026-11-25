@@ -1,39 +1,24 @@
 //! The requests list's groups: whose turn each request is (#189), or its author, in their order, as a band says it
 //! and the list's file keeps it.
 
-use artoo_ui_kit::theme;
-use gpui::Rgba;
-
 pub use artoo_requests_api::{Group, GroupBy, SortBy};
 
 /// How a group's band says it, and how the list's file keeps it.
 pub trait Band {
     fn heading(&self) -> String;
-    fn icon(&self) -> (&'static str, Rgba);
     fn key(&self) -> String;
 }
 
 impl Band for Group {
     fn heading(&self) -> String {
         match self {
-            Group::You => "Waiting on you".into(),
-            Group::Others => "Waiting on others".into(),
+            Group::You => "Needs your review".into(),
+            Group::Updated => "Updated since your review".into(),
+            Group::Reviewed => "Reviewed, nothing new".into(),
+            Group::Others => "Others".into(),
             Group::Yours => "Yours".into(),
-            Group::Done => "Done".into(),
             Group::Author(name) => name.clone(),
             Group::All => "All".into(),
-        }
-    }
-
-    /// The icon and colour its band opens with.
-    fn icon(&self) -> (&'static str, Rgba) {
-        match self {
-            Group::You => ("eye", theme::accent()),
-            Group::Others => ("clock", theme::muted()),
-            Group::Yours => ("user", theme::faint()),
-            Group::Done => ("check", theme::added()),
-            Group::Author(_) => ("user", theme::faint()),
-            Group::All => ("pull-request", theme::muted()),
         }
     }
 
@@ -41,9 +26,11 @@ impl Band for Group {
     fn key(&self) -> String {
         match self {
             Group::You => "you".into(),
+            Group::Updated => "updated".into(),
+            // The key its folds were kept under.
+            Group::Reviewed => "done".into(),
             Group::Others => "others".into(),
             Group::Yours => "yours".into(),
-            Group::Done => "done".into(),
             // A name has no tab, no comma.
             Group::Author(name) => format!("author:{}", name.replace([',', '\t'], " ")),
             Group::All => "all".into(),
@@ -55,9 +42,10 @@ impl Band for Group {
 pub fn parse(key: &str) -> Option<Group> {
     match key {
         "you" => Some(Group::You),
+        "updated" => Some(Group::Updated),
+        "done" => Some(Group::Reviewed),
         "others" => Some(Group::Others),
         "yours" => Some(Group::Yours),
-        "done" => Some(Group::Done),
         "all" => Some(Group::All),
         _ => key
             .strip_prefix("author:")

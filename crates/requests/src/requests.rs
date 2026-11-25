@@ -1221,6 +1221,10 @@ impl artoo_requests_api::Requests for Handle {
             return Vec::new();
         };
         let rq = requests.read(cx);
+        // The row's threads, as the preview says them; before they are read, the Inbox's.
+        if let Some(f) = rq.rows.facts(number) {
+            return rq.waiting_for_me(&f.threads).into_iter().cloned().collect();
+        }
         self.read_notices_with(cx, |n| {
             rq.waiting_for_me(n.threads_of(number).unwrap_or_default())
                 .into_iter()
