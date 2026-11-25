@@ -76,7 +76,7 @@ impl PersonCard {
         let ws = self.ws.clone();
         let url = self.url.clone();
         card_frame()
-            .w(px(300.))
+            .w(px(280.))
             .child(
                 div()
                     .flex()

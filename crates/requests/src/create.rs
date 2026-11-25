@@ -642,7 +642,7 @@ impl Requests {
 
     /// The form is left: what was written in it is kept as a draft (#222), a form left as it began keeps nothing.
     /// Whether there was a form.
-    fn keep_create(&mut self, cx: &mut Context<Self>) -> bool {
+    pub(crate) fn keep_create(&mut self, cx: &mut Context<Self>) -> bool {
         let Some(n) = self.creating.take() else {
             return false;
         };
@@ -1086,39 +1086,37 @@ impl Requests {
                 .flex_none()
                 .flex()
                 .items_center()
-                .gap_3()
                 .px(px(12.))
                 .py(px(8.))
                 .border_b_1()
                 .border_color(theme::island_border())
                 .child(
                     artoo_ui_kit::controls::group()
-                        .child(chip("create-request", "Request", !n.changes).on_click(set(false)))
                         .child(
-                            chip("create-changes", format!("Changes · {files}"), n.changes)
-                                .on_click(set(true)),
+                            chip("create-request", "Request", !n.changes)
+                                .flex()
+                                .items_center()
+                                .gap(px(6.))
+                                // The form is kept while its changes are read: a dot says so.
+                                .children(n.changes.then(|| {
+                                    div().size(px(6.)).rounded_full().bg(theme::warning())
+                                }))
+                                .on_click(set(false))
+                                .tip(if n.changes {
+                                    "Draft kept  ⌃⇥"
+                                } else {
+                                    "⌃⇥"
+                                }),
+                        )
+                        .child(
+                            chip("create-changes", "Changes", n.changes)
+                                .flex()
+                                .items_center()
+                                .gap(px(6.))
+                                .child(div().text_color(theme::faint()).child(files.to_string()))
+                                .on_click(set(true))
+                                .tip("⌃⇥"),
                         ),
-                )
-                .children(n.changes.then(|| {
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child(div().size(px(7.)).rounded_full().bg(theme::warning()))
-                        .child("Draft kept")
-                }))
-                .child(div().flex_1())
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_1()
-                        .text_size(px(11.))
-                        .text_color(theme::faint())
-                        .child(keys::caps("⌃⇥", keys::On::Plain))
-                        .child("switches"),
                 )
                 .into_any_element(),
         )
@@ -1476,21 +1474,21 @@ impl Requests {
         } else {
             "create-targets"
         };
-        let list = div()
+        // The letters typed are marked in the names; a name already chosen marks nothing.
+        let typed = if source { &n.source } else { &n.target }.to_lowercase();
+        let typed = if choices.iter().any(|(name, _)| name.to_lowercase() == typed) {
+            String::new()
+        } else {
+            typed
+        };
+        let rows = div()
             .id(id)
-            .w(px(width))
             .max_h(px(260.))
             .overflow_y_scroll()
             .track_scroll(&n.list_scroll)
             // The wheel stays with the list, not the form under it.
             .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
             .p(px(4.))
-            .rounded(px(ROW_RADIUS))
-            .border_1()
-            .border_color(theme::island_border())
-            .bg(theme::panel())
-            .shadow_lg()
-            .text_size(px(13.))
             .children(
                 choices
                     .into_iter()
@@ -1521,7 +1519,7 @@ impl Requests {
                                 div()
                                     .id((id, i))
                                     .px(px(8.))
-                                    .h(px(26.))
+                                    .h(px(28.))
                                     .flex()
                                     .items_center()
                                     .gap_2()
@@ -1535,7 +1533,7 @@ impl Requests {
                                             .text_color(theme::faint()),
                                     )
                                     .child(
-                                        hover::name(("create-target-name", i), name.clone())
+                                        branch_name(("create-target-name", i), &name, &typed)
                                             .flex_1()
                                             .font_family(theme::code_font()),
                                     )
@@ -1565,6 +1563,25 @@ impl Requests {
                                     }),
                             )
                     }),
+            );
+        let list = div()
+            .w(px(width))
+            .rounded(px(ROW_RADIUS))
+            .border_1()
+            .border_color(theme::island_border())
+            .bg(theme::panel())
+            .shadow_lg()
+            .text_size(px(13.))
+            .child(rows)
+            .child(
+                div()
+                    .px(px(12.))
+                    .py(px(6.))
+                    .border_t_1()
+                    .border_color(theme::island_border())
+                    .text_size(px(11.))
+                    .text_color(theme::faint())
+                    .child(keys::text("↑↓ move   ↵ choose   esc close").into_owned()),
             );
         Some(
             div()
@@ -1837,49 +1854,56 @@ impl Requests {
         .top_0()
         .left_0()
         .size_full();
-        let reviewers = div()
+        // One line: the word, `+` to search the members, and a chip a person.
+        let find = div()
+            .id("create-reviewer-add")
+            .size(px(22.))
             .flex()
-            .flex_col()
-            .gap(px(4.))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(label("Reviewers"))
-                    .child(div().text_size(px(11.)).text_color(theme::faint()).child(
-                        if suggested.is_empty() {
-                            "no code owners for these files"
-                        } else {
-                            "suggested: code owners of the changed files"
-                        },
-                    )),
-            )
-            .child(
-                div()
-                    .relative()
-                    .child(boxed(
-                        "create-reviewers",
-                        Some(Focus::Reviewers),
-                        div()
-                            .flex()
-                            .flex_wrap()
-                            .items_center()
-                            .gap(px(6.))
-                            .children(pills)
-                            .child(div().flex_1().min_w(px(140.)).child(n.area.field(
-                                &n.reviewer_query,
-                                searching,
-                                "Search the project's members",
-                                false,
-                                area_of,
-                                cx,
-                            )))
-                            .into_any_element(),
-                    ))
-                    .child(measure_room)
-                    .children(member_list),
-            );
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .rounded(px(ROW_RADIUS))
+            .bg(theme::hover())
+            .cursor_pointer()
+            .hover(|s| s.bg(theme::selected()))
+            .child(icons::icon("plus").size(px(14.)).text_color(theme::muted()))
+            .tip("Add a reviewer")
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                if let Some(n) = this.creating.as_mut() {
+                    n.focus = Focus::Reviewers;
+                    n.preview = false;
+                    n.reset_field();
+                    cx.notify();
+                }
+            }));
+        let reviewers = div()
+            .relative()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(px(8.))
+            .child(label("Reviewers"))
+            .child(find)
+            .children(pills)
+            // The search field shows while it has the keyboard (`+`, ⇥).
+            .children((n.focus == Focus::Reviewers).then(|| {
+                div().flex_1().min_w(px(180.)).child(boxed(
+                    "create-reviewers",
+                    Some(Focus::Reviewers),
+                    n.area
+                        .field(
+                            &n.reviewer_query,
+                            searching,
+                            "Search the project's members",
+                            false,
+                            area_of,
+                            cx,
+                        )
+                        .into_any_element(),
+                ))
+            }))
+            .child(measure_room)
+            .children(member_list);
         let description: AnyElement = if n.preview {
             div()
                 .min_h(px(200.))
@@ -2078,8 +2102,16 @@ impl Requests {
                                 .children((n.templates.len() > 1).then(|| {
                                     chip(
                                         "create-templates",
-                                        "Templates ▾",
+                                        "Templates",
                                         n.menu == Some(Menu::Templates),
+                                    )
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(4.))
+                                    .child(
+                                        icons::icon("chevron-down")
+                                            .size(px(12.))
+                                            .text_color(theme::muted()),
                                     )
                                     .on_click(cx.listener(
                                         |this, _: &ClickEvent, _, cx| {
@@ -2106,14 +2138,14 @@ impl Requests {
                         .gap_y(px(8.))
                         .text_color(theme::muted())
                         .child(
-                            check("create-draft", n.draft, "Draft  ⌘D").on_click(cx.listener(
-                                |this, _: &ClickEvent, _, cx| {
+                            check("create-draft", n.draft, "Draft")
+                                .tip("Draft  ⌘D")
+                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                     if let Some(n) = this.creating.as_mut() {
                                         n.draft = !n.draft;
                                     }
                                     cx.notify();
-                                },
-                            )),
+                                })),
                         )
                         .child(
                             check(
@@ -2150,6 +2182,24 @@ impl Requests {
                 }));
         Some(form)
     }
+}
+
+/// A branch's name in the list, cut in its middle, the letters `typed` (lower case) in the accent colour.
+fn branch_name(id: (&'static str, usize), name: &str, typed: &str) -> gpui::Stateful<gpui::Div> {
+    let lower = name.to_lowercase();
+    let at = (lower.len() == name.len() && !typed.is_empty())
+        .then(|| lower.find(typed))
+        .flatten();
+    let Some(at) = at else {
+        return hover::name(id, name.to_owned());
+    };
+    let mark = gpui::HighlightStyle {
+        color: Some(theme::accent().into()),
+        ..Default::default()
+    };
+    let shown =
+        gpui::StyledText::new(name.to_owned()).with_highlights([(at..at + typed.len(), mark)]);
+    hover::name_with(id, name.to_owned(), shown)
 }
 
 /// Of the project's `members` (username, name), `me` left out, each with whether it is `chosen` already: while

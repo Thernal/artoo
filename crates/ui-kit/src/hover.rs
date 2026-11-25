@@ -270,6 +270,16 @@ pub fn name(id: impl Into<ElementId>, text: impl Into<SharedString>) -> gpui::St
     cut_shown(id, text.clone(), text.clone(), text, 1, CutAt::Middle)
 }
 
+/// `name` drawn as `shown` has it, such as with the letters a filter found marked.
+pub fn name_with(
+    id: impl Into<ElementId>,
+    text: impl Into<SharedString>,
+    shown: impl IntoElement,
+) -> gpui::Stateful<gpui::Div> {
+    let text: SharedString = text.into();
+    cut_shown(id, shown, text.clone(), text, 1, CutAt::Middle)
+}
+
 /// A request's branches, `source → target`: the source cut in its middle (`name`), so two that start alike
 /// keep their endings, and the target whole (#184).
 pub fn branches(id: impl Into<ElementId>, source: &str, target: &str) -> gpui::Div {

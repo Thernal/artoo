@@ -207,6 +207,7 @@ actions!(
         PreviousThread,
         ReplyThread,
         ResolveThread,
+        DeleteRequestDraft,
         CommentRequest,
         EditComment,
         ReactNote,
@@ -1518,9 +1519,6 @@ pub struct Workspace {
     watch: watch::Watch,
     /// The review comment being written, and the Review island.
     compose: Option<composer::Compose>,
-    /// The merge request the last comment went to: the next composer on its diff starts there.
-    /// The agent chat picked in the composer's `To:` list; `None`, the page's branch's (#200).
-    compose_chat: Option<String>,
     /// Who is reviewing (git's `user.name`): the composer's avatar.
     me: String,
     /// A comment to scroll to once its file is laid out.
@@ -1687,7 +1685,6 @@ impl Workspace {
             notices_allowed: None,
             watch: watch::Watch::default(),
             compose: None,
-            compose_chat: None,
             me: "You".to_owned(),
             jump: None,
             lit: None,

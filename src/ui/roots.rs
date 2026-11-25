@@ -287,6 +287,18 @@ impl Workspace {
         }
     }
 
+    /// ⌫ on Branches: the draft picked is discarded. Whether one was.
+    pub(super) fn delete_picked_draft(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.at_root_list() || self.nav.space != super::spaces::BRANCHES {
+            return false;
+        }
+        let Some(BranchRow::Draft(ix)) = self.picked_branch_row(cx) else {
+            return false;
+        };
+        self.discard_request_draft(ix, cx);
+        true
+    }
+
     /// A kept draft discarded (#222).
     pub(super) fn discard_request_draft(&mut self, ix: usize, cx: &mut Context<Self>) {
         let (Some(root), Some(branches)) = (self.root.clone(), self.branches()) else {

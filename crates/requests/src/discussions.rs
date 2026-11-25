@@ -104,13 +104,8 @@ pub(crate) fn tool(
 }
 
 /// A group's heading as the design draws it (`Pending 2`): the word, then its count apart and quieter, the count's
-/// tip saying both; a fold's chevron before the word, a key's caps at the end.
-fn heading(
-    word: &'static str,
-    count: usize,
-    chevron: Option<&'static str>,
-    keys: Option<&'static str>,
-) -> gpui::Div {
+/// tip saying both; a fold's chevron before the word.
+fn heading(word: &'static str, count: usize, chevron: Option<&'static str>) -> gpui::Div {
     div()
         .flex()
         .items_center()
@@ -132,7 +127,6 @@ fn heading(
                 .child(count.to_string())
                 .tip(format!("{word} · {count}")),
         )
-        .children(keys.map(|k| keys::caps(k, keys::On::Plain)))
 }
 
 /// What the window draws: the list, and Submit review under it while comments are pending.
@@ -287,7 +281,6 @@ impl Requests {
             .filter(|(ix, _)| !old.contains(ix))
             .collect();
         let (resolved, open): (Vec<_>, Vec<_>) = current.into_iter().partition(|(_, t)| t.resolved);
-        let open_count = open.iter().filter(|(_, t)| t.resolvable).count();
         let total = threads.len() + pending;
         // A request comment's composer goes in the foot; a general discussion's under it.
         let (mut reply_box, mut comment_box) = (None, None);
@@ -395,7 +388,7 @@ impl Requests {
                 where_,
                 line,
                 end,
-                true,
+                false,
             )
             .when(whole, |s| s.bg(theme::selected()))
             .when(waits, |s| s.opacity(FADED))
@@ -403,7 +396,10 @@ impl Requests {
                 let (acts, on_fold) = (acts.clone(), on_fold.clone());
                 move |_: &ClickEvent, _, cx| match target.clone() {
                     Some((path, line)) => acts(Act::JumpToLine { path, line, old }, cx),
-                    None => on_fold(Fold::General(id.clone()), cx),
+                    None => {
+                        acts(Act::PickThread(ix), cx);
+                        on_fold(Fold::General(id.clone()), cx)
+                    }
                 }
             });
             if !whole {
@@ -465,7 +461,7 @@ impl Requests {
                             .id(("general-reply", ix))
                             .flex_1()
                             .min_w_0()
-                            .h(px(26.))
+                            .h(px(28.))
                             .px(px(8.))
                             .flex()
                             .items_center()
@@ -484,7 +480,9 @@ impl Requests {
                             ("general-resolve", ix),
                             if t.resolved { "Reopen" } else { "Resolve" },
                         )
-                        .h(px(26.))
+                        .h(px(28.))
+                        .gap(px(6.))
+                        .child(keys::caps("x", keys::On::Plain))
                         .on_click(move |_: &ClickEvent, _, cx| resolve(Act::ToggleResolved(ix), cx))
                     }))
             });
@@ -514,7 +512,7 @@ impl Requests {
                 where_,
                 draft_line(d, look.rich, look.agents.get(&d.id).map(String::as_str)),
                 Vec::new(),
-                false,
+                true,
             )
             .relative()
             .group("pending-row")
@@ -621,20 +619,8 @@ impl Requests {
                 .min_h_0()
                 .overflow_y_scroll()
                 .py(px(6.))
-                .children((pending > 0).then(|| heading("Pending", pending, None, Some("⌥N"))))
+                .children((pending > 0).then(|| heading("Pending", pending, None)))
                 .children(draft_items)
-                .children((!open_items.is_empty()).then(|| {
-                    heading(
-                        "Discussions",
-                        if open_count == 0 {
-                            open_items.len()
-                        } else {
-                            open_count
-                        },
-                        None,
-                        Some("⇧N"),
-                    )
-                }))
                 .children(open_items)
                 .children((resolved_count > 0).then(|| {
                     let on_fold = on_fold.clone();
@@ -649,7 +635,6 @@ impl Requests {
                             } else {
                                 "chevron-right"
                             }),
-                            None,
                         ))
                         .on_click(move |_: &ClickEvent, _, cx| on_fold(Fold::Resolved, cx))
                 }))
@@ -725,13 +710,12 @@ impl Requests {
             .cursor_pointer()
             .child(comment_item(
                 ("comment-old", ix),
-                theme::faint(),
                 place,
                 format!("{}: {}", first.author, one_line(&first.body, look.rich)),
             ))
             .child(
                 div()
-                    .pl(px(28.))
+                    .pl(px(14.))
                     .pr(px(14.))
                     .pb(px(6.))
                     .text_size(px(11.))

@@ -553,7 +553,6 @@ impl Workspace {
             confirm: self.confirm_note,
             github: self.on_github(),
             marks: &self.motion,
-            me: &self.me,
             card: &card,
             fold: &fold,
             moving: self.motion.recent(&format!("thread-{ix}")),
@@ -587,7 +586,6 @@ impl Workspace {
                     cx.notify();
                 }
             }
-            ThreadEvent::ToggleRich => self.toggle_rich_comments(cx),
             ThreadEvent::Hover { note, on } => {
                 if on && self.hover_note != Some(note) {
                     self.hover_note = Some(note);
@@ -1288,6 +1286,11 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
             Act::ThreadNote(thread) => this.start_thread_note(thread, cx),
             Act::Reply(thread) => this.start_reply(thread, cx),
             Act::ToggleResolved(thread) => this.toggle_resolved(thread, cx),
+            Act::PickThread(thread) => {
+                this.thread_at = Some(thread);
+                this.refresh_rows(cx);
+                cx.notify();
+            }
             Act::CommentOnRequest => this.start_request_comment(cx),
             Act::PendingMenu { id, at } => this.pending_menu(id, at, cx),
             Act::ReplyMentioning { thread, login } => this.reply_mentioning(thread, &login, cx),

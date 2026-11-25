@@ -21,9 +21,6 @@ pub(super) use artoo_ui_kit::composer::{
 };
 use gpui::{App, Context, KeyDownEvent, WeakEntity, div, prelude::*};
 
-/// The `To:` list's width, the design's: a chat's name and its branch side by side (#200).
-const AUDIENCE_WIDTH: f32 = 340.;
-
 /// The quiet Edit on one's own note: a pencil, alone in a narrow diff (#69).
 pub(super) fn edit_button(
     id: impl Into<gpui::ElementId>,
@@ -96,22 +93,15 @@ impl Workspace {
     /// Who a new comment is for: on a merge request's diff it opens public, for everyone on it (#200); ⇥ or its
     /// `To:` chip makes it a note for an agent's chat.
     fn comment_target(&mut self, cx: &App) -> Target {
-        self.compose_chat = None;
         match self.request_target(cx) {
             Some(iid) => Target::Request(iid),
             None => Target::Agent,
         }
     }
 
-    /// The chat a note being written goes to: the one picked in its `To:` list, else the page's branch's (#77,
-    /// #200).
+    /// The chat a note being written goes to: the page's branch's (#77, #200).
     pub(super) fn compose_chat_of(&self, cx: &App) -> Option<artoo_agents_api::bus::Chat> {
-        match &self.compose_chat {
-            Some(session) => (self.agents.chats(cx).iter())
-                .find(|c| &c.session == session)
-                .cloned(),
-            None => self.route_of(self.page_branch(cx).as_deref(), cx),
-        }
+        self.route_of(self.page_branch(cx).as_deref(), cx)
     }
 
     /// A chat as the `To:` chip and its list name it: the agent's first word and the chat's task
@@ -124,88 +114,8 @@ impl Workspace {
         }
     }
 
-    /// The `To:` chip's ▾ (#200): everyone on the request, then the project's agent chats — each with its letter, hue,
-    /// branch and state, a gone one dimmed, the branch's own marked ⇥.
-    fn audience_menu(&mut self, at: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
-        use super::menu::{Act, Entry};
-        use artoo_ui_kit::{menu::Lead, theme};
-        let Some(iid) = self.compose_request(cx) else {
-            return;
-        };
-        let target = self.compose.as_ref().map(|c| c.target);
-        let host = if self.web.as_ref().is_some_and(|w| w.github) {
-            "GitHub · public"
-        } else {
-            "GitLab · public"
-        };
-        let everyone = Entry::new(
-            format!("Everyone on !{iid}"),
-            Act::new(move |this, _, cx| this.set_audience(Some(iid), None, cx)),
-        )
-        .checked(matches!(target, Some(Target::Request(_))))
-        .lead(Lead::Icon("pull-request", theme::warning()))
-        .under(host);
-        let routed = self
-            .route_of(self.page_branch(cx).as_deref(), cx)
-            .map(|c| c.session);
-        let current = self.compose_chat_of(cx).map(|c| c.session);
-        let listening = self.agents.listening(cx);
-        let chats: Vec<Entry> = (self.agents.chats(cx).iter())
-            .map(|c| {
-                let (words, session) = (Self::chat_words(c), c.session.clone());
-                let (letter, hue) = self.agents.mark(&c.session, cx);
-                let alive = listening.contains(&c.session);
-                let state = if alive { "listening" } else { "gone" };
-                let branch = if c.branch.is_empty() {
-                    "—"
-                } else {
-                    &c.branch
-                };
-                let entry = if alive {
-                    Entry::new(
-                        words,
-                        Act::new(move |this, _, cx| {
-                            this.set_audience(None, Some(session.clone()), cx)
-                        }),
-                    )
-                    .checked(target == Some(Target::Agent) && current.as_ref() == Some(&c.session))
-                } else {
-                    Entry::off(words)
-                };
-                let entry = entry
-                    .lead(Lead::Letter(letter, hue))
-                    .under_code(branch)
-                    .detail(state);
-                if routed.as_ref() == Some(&c.session) {
-                    entry.key("⇥")
-                } else {
-                    entry
-                }
-            })
-            .collect();
-        let chats = if chats.is_empty() {
-            // No chat here yet: the note is kept on this Mac for the agent.
-            vec![
-                Entry::new(
-                    "Your agent",
-                    Act::new(|this, _, cx| this.set_audience(None, None, cx)),
-                )
-                .checked(target == Some(Target::Agent))
-                .lead(Lead::Icon("bot", theme::agent()))
-                .under("no chat listens yet"),
-            ]
-        } else {
-            chats
-        };
-        // As wide as the design's list: a chat's name and its branch side by side.
-        let groups = vec![(None, vec![everyone]), (Some("Agent chats"), chats)];
-        self.ctx_menu
-            .update(cx, |m, cx| m.open(at, groups, AUDIENCE_WIDTH, cx));
-    }
-
-    /// Who the comment being written goes to, picked in its `To:` list: everyone on request `iid`, or chat
-    /// `session`.
-    fn set_audience(&mut self, iid: Option<u64>, session: Option<String>, cx: &mut Context<Self>) {
+    /// Who the comment being written goes to: everyone on request `iid`, or your agent.
+    fn set_audience(&mut self, iid: Option<u64>, cx: &mut Context<Self>) {
         let Some(compose) = self.compose.as_mut() else {
             return;
         };
@@ -214,7 +124,6 @@ impl Workspace {
             None => Target::Agent,
         };
         compose.error = None;
-        self.compose_chat = session;
         self.take_keyboard(Input::Compose, cx);
         cx.notify();
     }
@@ -607,7 +516,6 @@ impl Workspace {
             };
             compose.error = None;
             // ⇥ goes to the branch's own chat, and back to everyone (#200).
-            self.compose_chat = None;
             cx.notify();
         }
     }
@@ -937,12 +845,12 @@ impl Workspace {
             _ => "Your agent".to_owned(),
         };
         let mark = chat.as_ref().map(|c| self.agents.mark(&c.session, cx));
-        let list = self.compose_request(cx).is_some();
+        let both = self.compose_request(cx).is_some();
         let audience = Audience {
             words,
             mark,
-            list,
-            switch: list,
+            both,
+            switch: both,
         };
         let on = this.clone();
         let on: artoo_ui_kit::composer::OnFoot = std::rc::Rc::new(move |event, cx| {
@@ -951,7 +859,6 @@ impl Workspace {
         let head = compose.audience_chip(&audience, on.clone());
         let look = FootLook {
             audience,
-            narrow: self.compose_narrow(cx),
             room: self.compose_room(cx),
         };
         let tail = compose.foot(look, on);
@@ -987,10 +894,10 @@ impl Workspace {
         use super::menu::{Act, Entry};
         match event {
             FootEvent::Cancel => self.cancel_comment(cx),
-            FootEvent::Audience(at) => self.audience_menu(at, cx),
+            FootEvent::Agent => self.set_audience(None, cx),
             FootEvent::Everyone => {
                 if let Some(iid) = self.compose_request(cx) {
-                    self.set_audience(Some(iid), None, cx);
+                    self.set_audience(Some(iid), cx);
                 }
             }
             FootEvent::AddToReview => match self.compose.as_ref().map(|c| c.target) {
@@ -1076,7 +983,7 @@ impl Workspace {
                     |iid| format!("Everyone on !{iid}"),
                 ),
                 mark: None,
-                list: false,
+                both: false,
                 switch: true,
             }),
             Target::ThreadNote(_) => {
@@ -1086,7 +993,7 @@ impl Workspace {
                         .as_ref()
                         .map_or_else(|| "Your agent".to_owned(), Self::chat_words),
                     mark: chat.as_ref().map(|c| self.agents.mark(&c.session, cx)),
-                    list: false,
+                    both: false,
                     switch: true,
                 })
             }

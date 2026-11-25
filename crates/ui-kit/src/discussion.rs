@@ -108,31 +108,33 @@ pub fn bar(id: impl Into<ElementId>, open: bool) -> Stateful<Div> {
         .text_size(px(12.))
         .text_color(theme::muted())
         .cursor_pointer()
-        .child(
-            div()
-                .size(px(24.))
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_center()
-                .rounded(px(6.))
-                .hover(|s| s.bg(theme::hover()))
-                // The chevron turns as it opens or folds (#56, 10).
-                .child(crate::motion::toward(
-                    crate::icons::icon("chevron")
-                        .size(px(16.))
-                        .text_color(theme::muted()),
-                    "bar-chevron",
-                    open,
-                    false,
-                    crate::motion::FAST,
-                    |chevron, v| {
-                        chevron.with_transformation(gpui::Transformation::rotate(gpui::radians(
-                            -std::f32::consts::FRAC_PI_2 * (1. - v),
-                        )))
-                    },
-                )),
-        )
+        .child(fold_chevron(open))
+}
+
+/// The chevron that folds a discussion, turned as it opens or folds (#56, 10).
+pub fn fold_chevron(open: bool) -> Div {
+    div()
+        .size(px(24.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded(px(6.))
+        .hover(|s| s.bg(theme::hover()))
+        .child(crate::motion::toward(
+            crate::icons::icon("chevron")
+                .size(px(16.))
+                .text_color(theme::muted()),
+            "bar-chevron",
+            open,
+            false,
+            crate::motion::FAST,
+            |chevron, v| {
+                chevron.with_transformation(gpui::Transformation::rotate(gpui::radians(
+                    -std::f32::consts::FRAC_PI_2 * (1. - v),
+                )))
+            },
+        ))
 }
 
 /// A state chip at the end of a header bar: Unresolved, Resolved.
@@ -387,6 +389,28 @@ pub fn icon_button(
             .tooltip(move |_, cx| cx.new(|_| crate::hover::TipOwned(tip.clone())).into()),
         None => button,
     }
+}
+
+/// The ▾ beside a primary button: its tooltip a title and, with `more`, a quieter line under it.
+pub fn chevron_button(
+    id: impl Into<ElementId>,
+    kind: Kind,
+    (title, more): (&'static str, Option<&'static str>),
+) -> Stateful<Div> {
+    let ink = match kind {
+        Kind::Primary(_) => theme::base(),
+        _ => theme::text(),
+    };
+    shell(id, kind)
+        .px(px(8.))
+        .child(crate::icons::icon("chevron").size(px(15.)).text_color(ink))
+        .tooltip_show_delay(crate::hover::LONG)
+        .tooltip(move |_, cx| match more {
+            Some(more) => cx
+                .new(|_| crate::hover::TipTwo(title.into(), more.into()))
+                .into(),
+            None => cx.new(|_| crate::hover::Tip(title)).into(),
+        })
 }
 
 /// What every discussion button shares: its height, shape and colours by kind. A label never

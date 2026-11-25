@@ -1,4 +1,4 @@
-//! A discussion of the request open, drawn under its line: a frame with a bar that folds it, the notes on a
+//! A discussion of the request open, drawn under its line: a frame a chevron folds (folded, one row), the notes on a
 //! timeline — their reactions, the hover bar, Edit and Delete on one's own —, and the reply row (Reply… and Resolve,
 //! or the reply's box); and a pending comment (`render_draft`). On its way to the host one is faded and takes no
 //! action until it has an id (#139). What the tab keeps comes in its look; a click asks it an event.
@@ -9,12 +9,17 @@ use crate::waiting::{FADED, is_temp, is_temp_thread};
 use artoo_core::markdown as text;
 use artoo_ui_kit::discussion::{self, Kind, Source, icon_button};
 use artoo_ui_kit::format::{self, plural};
-use artoo_ui_kit::hover::{self, CutInTip};
+use artoo_ui_kit::hover::{self, CutInTip, Hover};
 use artoo_ui_kit::markdown;
 use artoo_ui_kit::{ROW_RADIUS, keys, px, theme, words};
 use gpui::{AnyElement, App, ClickEvent, Entity, FontWeight, SharedString, div, prelude::*};
 
 pub use artoo_requests_api::{DraftEvent, DraftLook, OnDraft, OnThread, ThreadEvent, ThreadLook};
+
+/// Where an open discussion's notes start, right of the fold chevron.
+const GUTTER: f32 = 20.;
+/// Where the notes' text starts: the gutter, the avatar and the gap after it.
+const TEXT_COLUMN: f32 = GUTTER + 40.;
 
 /// Discussion `ix` of the request open, as `look` says, `requests` its entity.
 pub fn render_thread(
@@ -51,58 +56,38 @@ pub fn render_thread(
         .current
         .and_then(|iid| rq.find(iid))
         .map(|m| m.author.clone());
-    let rich_notes = t.notes.iter().any(|n| markdown::has_markdown(&n.body));
-    let (fold, raw) = (on.clone(), on.clone());
-    let bar = discussion::bar(("thread-bar", ix), open)
-        .child(discussion::source_pill(Source::GitLab))
-        .children((!open).then(|| {
-            div()
-                .flex_none()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::text())
-                .child(first.author.clone())
-        }))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .cut_in_tip()
-                .when(open, |s| {
-                    s.child(
-                        div()
-                            .flex()
-                            .gap(px(6.))
-                            .child(
-                                div()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(theme::text())
-                                    .child("Discussion"),
-                            )
-                            .child(format!("· {}", plural(t.notes.len(), "comment"))),
-                    )
-                })
-                .when(!open, |s| s.child(format::one_line(&first.body, look.rich))),
-        )
-        .children((open && rich_notes).then(|| {
-            discussion::rich_switch(("thread-rich", ix), look.rich).on_click(move |_, _, cx| {
-                cx.stop_propagation();
-                raw(ThreadEvent::ToggleRich, cx);
-            })
-        }))
-        .children(t.resolvable.then(|| {
-            discussion::state(t.resolved).when(waits.is_some() && !sending, |s| s.opacity(FADED))
-        }))
-        .children(
-            waits
-                .filter(|_| !sending)
-                .map(|word| div().flex_none().text_color(theme::muted()).child(word)),
-        )
-        .tooltip_show_delay(hover::LONG)
-        // Folded, a long hover reads its start and how many replied (X59).
-        .tooltip({
-            let said: SharedString = if open {
-                "Collapse  O".into()
-            } else {
+    let fold = on.clone();
+    // Folded, one row stands for it: the source, its first writer and what they wrote. Open, there is no head row:
+    // the chevron stands before the first note's avatar (#236).
+    let bar = (!open).then(|| {
+        discussion::bar(("thread-bar", ix), false)
+            .child(discussion::source_pill(Source::GitLab))
+            .child(
+                div()
+                    .flex_none()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme::text())
+                    .child(first.author.clone()),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .cut_in_tip()
+                    .child(format::one_line(&first.body, look.rich)),
+            )
+            .children(t.resolvable.then(|| {
+                discussion::state(t.resolved)
+                    .when(waits.is_some() && !sending, |s| s.opacity(FADED))
+            }))
+            .children(
+                waits
+                    .filter(|_| !sending)
+                    .map(|word| div().flex_none().text_color(theme::muted()).child(word)),
+            )
+            .tooltip_show_delay(hover::LONG)
+            // Folded, a long hover reads its start and how many replied (X59).
+            .tooltip({
                 let text = text::plain(&first.body);
                 let start = match text.char_indices().nth(280) {
                     Some((at, _)) => format!("{}…", &text[..at]),
@@ -112,19 +97,21 @@ pub fn render_thread(
                     0 => "no replies".to_owned(),
                     n => plural(n, "reply"),
                 };
-                format!("{start}\n{} · {replies}\nExpand  O", first.author).into()
-            };
-            move |_, cx| cx.new(|_| hover::TipOwned(said.clone())).into()
-        })
-        // A double click folds or opens it once, as one click does.
-        .on_click(move |e: &ClickEvent, _, cx| {
-            if e.click_count() > 1 {
-                return;
-            }
-            fold(ThreadEvent::Fold(!open), cx);
-        });
-    // Replying: the timeline runs on from the last note to my avatar.
-    let replying = look.replying.is_some();
+                let said: SharedString =
+                    format!("{start}\n{} · {replies}\nExpand  O", first.author).into();
+                move |_, cx| cx.new(|_| hover::TipOwned(said.clone())).into()
+            })
+            // A double click opens it once, as one click does.
+            .on_click({
+                let fold = fold.clone();
+                move |e: &ClickEvent, _, cx| {
+                    if e.click_count() > 1 {
+                        return;
+                    }
+                    fold(ThreadEvent::Fold(true), cx);
+                }
+            })
+    });
     let last = t.notes.len() - 1;
     let mut editing = look.editing;
     let notes: Vec<AnyElement> = t
@@ -182,7 +169,7 @@ pub fn render_thread(
                     })
                     .children(pills)
                     .into_any_element(),
-                n == last && !replying,
+                n == last,
                 (bar.is_some() || (editable && reveal)).then(|| {
                     // `e` edits the last of one's notes in the discussion with the keyboard.
                     let key = (focused && look.mine == Some(note_id)).then_some("e");
@@ -219,8 +206,25 @@ pub fn render_thread(
             );
             // Hovering a note shows its reaction bar.
             let hover = on.clone();
+            let chevron = (n == 0).then(|| {
+                let fold = fold.clone();
+                discussion::fold_chevron(true)
+                    .id(("thread-fold", ix))
+                    .absolute()
+                    .left(px(-6.))
+                    .top(px(2.))
+                    .cursor_pointer()
+                    .tip("Fold  O")
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        fold(ThreadEvent::Fold(false), cx);
+                    })
+            });
             div()
                 .id(("note-hover", note_id as usize))
+                .relative()
+                .pl(px(GUTTER))
+                .children(chevron)
                 .when(note_waits && !sending, |s| s.opacity(FADED))
                 .child(note_el)
                 .on_hover(move |hovered: &bool, _, cx| {
@@ -236,33 +240,17 @@ pub fn render_thread(
         })
         .collect();
     // Replying: the box opens where "Reply…" was, inside the discussion.
-    // The reply row: my avatar on the timeline's column, then the one input — closed, one line
-    // with Resolve beside it; open, grown inside its own outline.
-    let my_avatar = || {
-        div()
-            .w(px(28.))
-            .flex()
-            .flex_none()
-            .justify_center()
-            .pt(px(5.))
-            .child(discussion::avatar(look.me, true, 24.))
-    };
+    // The reply row, on the notes' text column: one input — closed, one line with Resolve beside it; open, grown
+    // inside its own outline.
     let reply_row = match look.replying {
-        Some(editor) => editor.map(|editor| {
-            div()
-                .flex()
-                .items_start()
-                .gap(px(12.))
-                .child(my_avatar())
-                .child(editor)
-        }),
+        Some(editor) => editor.map(|editor| div().pl(px(TEXT_COLUMN)).child(editor)),
         None => can_act.then(|| {
             let (reply, resolve) = (on.clone(), on.clone());
             div()
                 .flex()
                 .items_start()
                 .gap(px(12.))
-                .child(my_avatar())
+                .pl(px(TEXT_COLUMN))
                 .child(
                     div()
                         .id(("thread-reply", ix))
@@ -283,6 +271,12 @@ pub fn render_thread(
                         // Keys show on the ringed discussion alone (#191): the others' act by click.
                         .children((!tight && focused).then(|| keys::caps("r", keys::On::Plain)))
                         .on_click(move |_, _, cx| reply(ThreadEvent::Reply, cx)),
+                )
+                // A resolve on its way says so here: an open discussion has no head.
+                .children(
+                    waits
+                        .filter(|_| !sending)
+                        .map(|word| div().flex_none().text_color(theme::muted()).child(word)),
                 )
                 .children(t.resolvable.then(|| {
                     let (icon, label) = if t.resolved {
@@ -317,7 +311,7 @@ pub fn render_thread(
                 .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
                     pick(ThreadEvent::Pick, cx)
                 })
-                .child(bar)
+                .children(bar)
                 // Its notes open and fold in size and alpha (#56, 10; #110).
                 // Built only while it shows: a folded one draws no notes.
                 .children(

@@ -465,31 +465,18 @@ pub fn group_heading(text: String, keys: Option<&'static str>) -> gpui::Div {
         .children(keys.map(|k| keys::caps(k, keys::On::Plain)))
 }
 
-/// A comment as one entry of a tool window's list: a dot in its colour, where it is, two lines of it.
+/// A comment as one entry of a tool window's list, with nothing but its place and two lines of it.
 pub fn comment_item(
     id: (&'static str, usize),
-    tone: gpui::Rgba,
     where_: String,
     body: String,
 ) -> gpui::Stateful<gpui::Div> {
-    comment_item_ending(id, tone, where_, body, Vec::new(), true)
+    comment_item_glyph(id, theme::faint(), None, where_, body, Vec::new(), false)
 }
 
-/// `comment_item` with glyphs at the end of its first line: a count, whose turn it is (Design D2); `dot` off, the
-/// row's colour is a bar at its edge instead.
-pub fn comment_item_ending(
-    id: (&'static str, usize),
-    tone: gpui::Rgba,
-    where_: String,
-    body: String,
-    end: Vec<gpui::AnyElement>,
-    dot: bool,
-) -> gpui::Stateful<gpui::Div> {
-    comment_item_glyph(id, tone, None, where_, body, end, dot)
-}
-
-/// `comment_item_ending` with a glyph before where it is: a file's for a comment on a line, a speech bubble for a
-/// general one (Design D2).
+/// A comment as one entry of a tool window's list: a glyph before where it is (a file's for a comment on a line,
+/// a speech bubble for a general one, Design D2), glyphs at the first line's end (a count, whose turn it is), two
+/// lines of it; `bar`, a bar of `tone` at its edge (a pending comment's, Design C1).
 pub fn comment_item_glyph(
     id: (&'static str, usize),
     tone: gpui::Rgba,
@@ -497,12 +484,11 @@ pub fn comment_item_glyph(
     where_: String,
     body: String,
     end: Vec<gpui::AnyElement>,
-    dot: bool,
+    bar: bool,
 ) -> gpui::Stateful<gpui::Div> {
     div()
         .relative()
-        // No dot: a 2 px bar of its colour at the row's left edge, a pending comment's (Design C1).
-        .when(!dot, |s| {
+        .when(bar, |s| {
             s.child(
                 div()
                     .absolute()
@@ -529,13 +515,6 @@ pub fn comment_item_glyph(
                 .flex()
                 .items_center()
                 .gap_2()
-                .child(
-                    div()
-                        .flex_none()
-                        .size(px(6.))
-                        .rounded_full()
-                        .when(dot, |s| s.bg(tone)),
-                )
                 .children(glyph.map(|name| {
                     icons::icon(name)
                         .flex_none()
@@ -552,7 +531,7 @@ pub fn comment_item_glyph(
                 .children(end),
         )
         .child(
-            div().pl(px(14.)).child(
+            div().child(
                 hover::cut_to("body", body, 2)
                     .text_size(px(12.))
                     .text_color(theme::muted()),

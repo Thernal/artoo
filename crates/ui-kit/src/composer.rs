@@ -949,8 +949,8 @@ pub struct Audience {
     pub words: String,
     /// A chat's letter on its hue; `None`, the request's icon (everyone on it) or the agent's purple.
     pub mark: Option<(char, Rgba)>,
-    /// A request's page: ▾ lists who can read it, ⇥ switches to the branch's chat and back.
-    pub list: bool,
+    /// A request's page: both segments show, a click on the one not lit switches to it, as ⇥ does.
+    pub both: bool,
     /// ⇥ switches who reads it: a new comment to the branch's chat, a reply to a note for your agent, and back.
     pub switch: bool,
 }
@@ -959,8 +959,6 @@ pub struct Audience {
 pub struct FootLook {
     /// Who reads it: the `To:` chip over the text (#200).
     pub audience: Audience,
-    /// The diff narrow: the secondary buttons are their icons (`compose_narrow`).
-    pub narrow: bool,
     /// The box's room (#129).
     pub room: Room,
 }
@@ -970,7 +968,7 @@ pub struct FootLook {
 pub enum FootEvent {
     Cancel,
     /// The `To:` chip's ▾ at a point: who can read it (#200).
-    Audience(Point<Pixels>),
+    Agent,
     /// The request's segment of the audience: everyone on it reads the comment.
     Everyone,
     /// Added to the review, pending until it is submitted: a comment on a line, a reply (#200).
@@ -1023,11 +1021,12 @@ impl Compose {
 
     /// The audience over a new comment's text (#200, Design D1): two segments — everyone on the request, your
     /// agent's chat — the one that reads it lit with its words (a chat's letter on its hue), the other its icon
-    /// alone with its tooltip; a click on either picks who (where the request lists them), ⇥ switches.
+    /// alone with its tooltip; a click on that one switches (on a request's page), as ⇥ does. Another chat is
+    /// chosen from the send button's ▾ (#236).
     pub fn audience_chip(&self, audience: &Audience, on: OnFoot) -> AnyElement {
         let tone = self.source().color();
         let agent = self.source() == Source::Agent;
-        let list = audience.list;
+        let both = audience.both;
         let switch = if audience.switch {
             "  ·  ⇥ switches"
         } else {
@@ -1059,7 +1058,9 @@ impl Compose {
                 .text_size(px(12.))
                 .whitespace_nowrap()
                 .when(lit, |s| s.bg(theme::selected()))
-                .when(list, |s| s.cursor_pointer().hover(|s| s.bg(theme::hover())))
+                .when(both && !lit, |s| {
+                    s.cursor_pointer().hover(|s| s.bg(theme::hover()))
+                })
                 .child(
                     icons::icon("users")
                         .size(px(13.))
@@ -1069,17 +1070,8 @@ impl Compose {
                 .when(lit, |s| s.child(lit_words()))
                 .tooltip_show_delay(hover::LONG)
                 .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(said.clone())).into())
-                .when(list, |s| {
-                    s.on_click(move |event, _, cx| {
-                        on(
-                            if lit {
-                                FootEvent::Audience(event.position())
-                            } else {
-                                FootEvent::Everyone
-                            },
-                            cx,
-                        )
-                    })
+                .when(both && !lit, |s| {
+                    s.on_click(move |_, _, cx| on(FootEvent::Everyone, cx))
                 })
         };
         let bot = |lit: bool| {
@@ -1102,7 +1094,9 @@ impl Compose {
                 .text_size(px(12.))
                 .whitespace_nowrap()
                 .when(lit, |s| s.bg(theme::selected()))
-                .when(list, |s| s.cursor_pointer().hover(|s| s.bg(theme::hover())))
+                .when(both && !lit, |s| {
+                    s.cursor_pointer().hover(|s| s.bg(theme::hover()))
+                })
                 .child(match audience.mark {
                     Some((letter, hue)) if lit => {
                         crate::monogram::letter(letter, hue, 16.).into_any_element()
@@ -1116,8 +1110,8 @@ impl Compose {
                 .when(lit, |s| s.child(lit_words()))
                 .tooltip_show_delay(hover::LONG)
                 .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(said.clone())).into())
-                .when(list, |s| {
-                    s.on_click(move |event, _, cx| on(FootEvent::Audience(event.position()), cx))
+                .when(both && !lit, |s| {
+                    s.on_click(move |_, _, cx| on(FootEvent::Agent, cx))
                 })
         };
         div()
@@ -1133,8 +1127,8 @@ impl Compose {
             .border_1()
             .border_color(theme::selected())
             // Where the request lists who can read it, both segments; elsewhere only the one that does.
-            .when(list || !agent, |s| s.child(everyone(!agent)))
-            .when(list || agent, |s| s.child(bot(agent)))
+            .when(both || !agent, |s| s.child(everyone(!agent)))
+            .when(both || agent, |s| s.child(bot(agent)))
             .into_any_element()
     }
 
@@ -1146,35 +1140,26 @@ impl Compose {
         let on = waiting_foot(waits, on);
         let source = self.source();
         let tone = source.color();
-        let narrow = look.narrow;
         let agent = self.target == Target::Agent;
         let small = look.room == Room::S;
         let request = match self.target {
             Target::Request(iid) => Some(iid),
             _ => None,
         };
-        let pad = px(if narrow { 6. } else { 10. });
         let cancel = on.clone();
-        // Cancel is its ✕ icon, named in its tooltip, where the note is for the agent (the design's foot) or the
-        // diff is narrow.
+        // Cancel is a boxed ✕ at every room, named in its tooltip (#236).
         let mut tail = vec![
-            if narrow || agent {
-                discussion::icon_button(
-                    "compose-cancel",
-                    "x",
-                    "Cancel",
-                    Some("esc"),
-                    None,
-                    Kind::Quiet,
-                    true,
-                )
-            } else {
-                discussion::button("compose-cancel", "Cancel", None, Kind::Quiet)
-                    .tooltip_show_delay(hover::LONG)
-                    .tooltip(|_, cx| cx.new(|_| hover::Tip("Esc")).into())
-            }
+            discussion::icon_button(
+                "compose-cancel",
+                "x",
+                "Cancel",
+                Some("esc"),
+                None,
+                Kind::Plain,
+                true,
+            )
             .h(px(28.))
-            .px(pad)
+            .px(px(7.))
             .on_click(move |_, _, cx| cancel(FootEvent::Cancel, cx))
             .into_any_element(),
         ];
@@ -1211,18 +1196,17 @@ impl Compose {
                 .gap(px(1.))
                 .child(add_button.rounded_r(px(0.)))
                 .child(
-                    discussion::icon_button(
+                    discussion::chevron_button(
                         "compose-add-more",
-                        "chevron",
-                        if agent {
-                            "Choose the chat… · Copy as markdown"
-                        } else {
-                            "Add to review  ⇧⌘↵"
-                        },
-                        None,
-                        None,
                         Kind::Primary(tone),
-                        true,
+                        if agent {
+                            ("Choose the chat… · Copy as markdown", None)
+                        } else {
+                            (
+                                "Add to review  ⇧⌘↵",
+                                Some("It goes with your review when you submit it"),
+                            )
+                        },
                     )
                     .h(px(28.))
                     .px(px(6.))

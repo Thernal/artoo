@@ -331,6 +331,8 @@ pub enum Act {
     Reply(usize),
     /// Discussion `thread` resolved, or opened again.
     ToggleResolved(usize),
+    /// A general discussion opened in the list: the keys (`x`, `r`) act on it.
+    PickThread(usize),
     /// A comment on the request as a whole begun, in the Discussions window (#199).
     CommentOnRequest,
     /// A right click on request `iid`'s line: its link and its number (#162).
@@ -480,8 +482,6 @@ pub struct ThreadLook<'a> {
     pub github: bool,
     /// The tab's motion: reaction pills grow and fade.
     pub marks: &'a Marks,
-    /// Who you are, by name: your avatar on the reply row.
-    pub me: &'a str,
     /// A person's card on a long hover over their avatar, by their name and login.
     pub card: &'a dyn Fn(&str, &str) -> Card,
     /// Its notes folding (#56, 10; #110): by key, motion and whether open; `None` once shut.
@@ -497,8 +497,6 @@ pub enum ThreadEvent {
     Fold(bool),
     /// Clicked: it takes the keyboard.
     Pick,
-    /// ⌥M: markdown as written or formatted.
-    ToggleRich,
     /// The pointer came on note `note` (`true`) or left it.
     Hover {
         note: u64,

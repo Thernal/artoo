@@ -272,6 +272,14 @@ fn branch_row(
                             .cut_in_tip()
                             .child(title),
                     )
+                    // Kept, not created: the draft's dot.
+                    .child(
+                        div()
+                            .flex_none()
+                            .size(px(6.))
+                            .rounded_full()
+                            .bg(theme::warning()),
+                    )
                     .children(room.second().then(|| {
                         div()
                             .flex_none()
@@ -294,7 +302,7 @@ fn branch_row(
                     .into_any_element();
                 (
                     SharedString::from(format!("branch-row-draft-{ix}")),
-                    "merge",
+                    "pull-request",
                     line1,
                     Some(line2),
                 )
@@ -754,7 +762,7 @@ fn draft_preview(h: &History, ix: usize, acts: &Acts) -> AnyElement {
         .text_size(px(12.))
         .text_color(theme::muted())
         .child(
-            icons::icon("merge")
+            icons::icon("pull-request")
                 .size(px(15.))
                 .text_color(theme::muted()),
         )
@@ -800,20 +808,22 @@ fn draft_preview(h: &History, ix: usize, acts: &Acts) -> AnyElement {
                     && b.name.split_once('/').is_some_and(|(_, s)| s == d.source)))
     });
     let (open, delete) = (acts.clone(), acts.clone());
-    let actions =
-        div()
-            .flex()
-            .items_center()
-            .gap(px(10.))
-            .child(primary_button("draft-open", "Open", "↵").on_click(
-                move |_: &ClickEvent, _, cx| open(Act::OpenRow(BranchRow::Draft(ix)), cx),
-            ))
-            .child(
-                div()
-                    .id("draft-delete")
-                    .child(outline_button("Delete the draft"))
-                    .on_click(move |_: &ClickEvent, _, cx| delete(Act::DeleteDraft(ix), cx)),
-            );
+    let actions = div()
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        // A gone branch's draft has nothing to open: its note says why.
+        .children((!gone).then(|| {
+            primary_button("draft-open", "Open", "↵")
+                .on_click(move |_: &ClickEvent, _, cx| open(Act::OpenRow(BranchRow::Draft(ix)), cx))
+        }))
+        .child(
+            div()
+                .id("draft-delete")
+                .child(outline_button("Delete the draft"))
+                .tip("Delete the draft  ⌫")
+                .on_click(move |_: &ClickEvent, _, cx| delete(Act::DeleteDraft(ix), cx)),
+        );
     div()
         .flex()
         .flex_col()

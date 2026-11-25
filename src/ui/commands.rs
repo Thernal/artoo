@@ -294,6 +294,13 @@ pub(super) fn own() -> Vec<Action> {
             .here("Resolve the discussion")
             .order(at(59) + 2)
             .key("x", NOT_TYPING),
+        // On Branches, the draft picked goes (#222).
+        Action::new("requests.delete-draft", DeleteRequestDraft)
+            .heading(Heading::Requests)
+            .words("Delete the kept draft of a new request")
+            .icon("x")
+            .order(at(59) + 3)
+            .key("backspace", NOT_TYPING),
         Action::new("requests.edit", EditComment)
             .heading(Heading::Comment)
             .words("Edit your last comment in the discussion")

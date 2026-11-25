@@ -382,6 +382,11 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &ReplyThread, _, cx| this.reply_focused(cx)))
             .on_action(cx.listener(|this, _: &CommentRequest, _, cx| this.comment_on_request(cx)))
             .on_action(cx.listener(|this, _: &ResolveThread, _, cx| this.resolve_focused(cx)))
+            .on_action(cx.listener(|this, _: &DeleteRequestDraft, _, cx| {
+                if !this.delete_picked_draft(cx) {
+                    cx.propagate();
+                }
+            }))
             .on_action(cx.listener(|this, _: &EditComment, _, cx| {
                 // In the Inbox, e is done with the selected notice (an agent's: later, or resolved).
                 if this.inbox && this.zone != zones::Zone::Tool {

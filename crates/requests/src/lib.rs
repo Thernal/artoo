@@ -121,10 +121,18 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
     let Some(tab) = services.get::<artoo_requests_api::TabActs>() else {
         return Parts::default();
     };
-    let requests = cx.new(|_| requests::Requests {
-        // The viewer an image opens in is read from them as it is clicked (#211).
-        services: Rc::downgrade(&services),
-        ..Default::default()
+    let requests = cx.new(|cx| {
+        // A new request's form open at quit is kept as its draft (#222).
+        cx.on_app_quit(|requests: &mut requests::Requests, cx| {
+            requests.keep_create(cx);
+            async {}
+        })
+        .detach();
+        requests::Requests {
+            // The viewer an image opens in is read from them as it is clicked (#211).
+            services: Rc::downgrade(&services),
+            ..Default::default()
+        }
     });
     services.set(requests.clone());
     let notices = cx.new(|_| notices::Notices::default());

@@ -91,11 +91,6 @@ pub fn version_of(versions: &[Version], id: git2::Oid) -> Option<(usize, i64)> {
         .map(|v| (v.number, v.time))
 }
 
-/// What the card's Version row says: `v4 · pushed 35 min ago`.
-pub fn version_text((number, time): (usize, i64)) -> String {
-    format!("v{number} · pushed {}", format::ago(time))
-}
-
 impl CommitCard {
     pub fn clone_of(other: &CommitCard) -> CommitCard {
         CommitCard {
@@ -155,6 +150,7 @@ impl CommitCard {
             .host
             .map_or("Open on the web".to_owned(), |h| format!("Open in {h}"));
         card_frame()
+            .w(px(340.))
             .child(
                 div()
                     .flex()
@@ -248,9 +244,11 @@ impl CommitCard {
                                 ),
                         )
                     }))
-                    .children(self.version.map(|v| {
+                    // The version's number, and when it was pushed in the end column, like Author's.
+                    .children(self.version.map(|(number, time)| {
                         row("Version")
-                            .child(div().text_color(theme::muted()).child(version_text(v)))
+                            .child(div().flex_1().child(format!("v{number}")))
+                            .child(format::time_cell(time).text_color(theme::muted()))
                     })),
             )
     }
@@ -409,7 +407,6 @@ mod tests {
         let versions = [version(3, B, 100), version(4, A, 200)];
         let found = version_of(&versions, git2::Oid::from_str(A).unwrap());
         assert_eq!(found.map(|v| v.0), Some(4));
-        assert!(version_text(found.unwrap()).starts_with("v4 · pushed "));
     }
 
     #[test]
